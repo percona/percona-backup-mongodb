@@ -114,7 +114,13 @@ func (ot *OplogTail) tail() {
 		}
 		result := bson.Raw{}
 		if iter.Next(&result) {
+			oplog := mdbstructs.Oplog{}
+			err := result.Unmarshal(&oplog)
+			if err != nil {
+				continue
+			}
 			ot.dataChan <- result.Data
+			ot.lastOplogEntry = oplog
 			continue
 		}
 		if iter.Timeout() {
