@@ -102,7 +102,7 @@ func (ot *OplogTail) setRunning(state bool) {
 
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	iter := col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	iter := col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -123,19 +123,27 @@ func (ot *OplogTail) tail() {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
-func BsonTimestampNow() bson.MongoTimestamp {
-	return bson.MongoTimestamp(bson.Now().UnixNano())
+func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimestamp {
+	oplog := &mdbstructs.Oplog{}
+	err := col.Find(nil).Sort("$natural").Limit(1).One(oplog)
+	if err != nil {
+		return bson.MongoTimestamp(0)
+	}
+	return oplog.Timestamp
 }
 
-func (ot *OplogTail) tailQuery() bson.M {
+func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
+	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogEntry != nil {
-		return bson.M{"ts": bson.M{"$gt": ot.lastOplogEntry.Timestamp}, "op": bson.M{"$ne": mdbstructs.OperationNoop}}
+		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
+	} else {
+		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
 	}
-	return bson.M{"ts": bson.M{"$gte": BsonTimestampNow()}, "op": bson.M{"$ne": mdbstructs.OperationNoop}}
+	return query
 }
 
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
