@@ -127,13 +127,13 @@ func (ot *OplogTail) tail() {
 	}
 }
 
-func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) (bson.MongoTimestamp, error) {
+func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimestamp {
 	oplog := &mdbstructs.Oplog{}
 	err := col.Find(nil).Limit(1).One(oplog)
 	if err != nil {
-		return bson.MongoTimestamp(0), err
+		return bson.MongoTimestamp(0)
 	}
-	return oplog.Timestamp, nil
+	return oplog.Timestamp
 }
 
 func (ot *OplogTail) tailQuery(col *mgo.Collection) (bson.M, error) {
@@ -141,11 +141,7 @@ func (ot *OplogTail) tailQuery(col *mgo.Collection) (bson.M, error) {
 	if ot.lastOplogEntry != nil {
 		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
 	} else {
-		oplogTailTs, err := ot.getOplogTailTimestamp(col)
-		if err != nil {
-			query["ts"] = bson.M{"$gte": bson.MongoTimestamp(0)}
-		}
-		query["ts"] = bson.M{"$gte": oplogTailTs}
+		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
 	}
 	return query, nil
 }
