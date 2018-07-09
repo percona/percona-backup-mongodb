@@ -116,12 +116,12 @@ func (ot *OplogTail) tail() {
 		if iter.Next(&result) {
 			oplog := mdbstructs.OplogTimestampOnly{}
 			err := result.Unmarshal(&oplog)
-			if err != nil {
+			if err == nil {
+				ot.dataChan <- result.Data
+				ot.lastOplogTimestamp = &oplog.Timestamp
 				continue
 			}
-			ot.dataChan <- result.Data
-			ot.lastOplogTimestamp = &oplog.Timestamp
-			continue
+			iter.Close()
 		}
 		if iter.Timeout() {
 			continue
