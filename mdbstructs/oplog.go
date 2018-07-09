@@ -60,8 +60,3 @@ type Oplog struct {
 	UI        *bson.Binary        `bson:"ui,omitempty"`
 	WallTime  time.Time           `bson:"wall,omitempty"`
 }
-
-type OplogPosition struct {
-	Timestamp bson.MongoTimestamp
-	HistoryID int64
-}
