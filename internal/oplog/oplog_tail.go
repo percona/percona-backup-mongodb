@@ -114,7 +114,11 @@ func (ot *OplogTail) tail() {
 		}
 		result := bson.Raw{}
 		if iter.Next(&result) {
-			oplog := mdbstructs.Oplog{}
+			// create an anononymous struct with Timestamp-only
+			// to reduce bson unmarshalling overhead
+			oplog := struct {
+				Timestamp bson.MongoTimestamp `bson:"ts"`
+			}{}
 			err := result.Unmarshal(&oplog)
 			if err != nil {
 				continue
