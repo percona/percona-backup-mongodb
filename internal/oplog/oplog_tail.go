@@ -14,9 +14,9 @@ import (
 type chanDataTye []byte
 
 type OplogTail struct {
-	session         *mgo.Session
-	oplogCollection string
-	lastOplogEntry  *mdbstructs.Oplog
+	session            *mgo.Session
+	oplogCollection    string
+	lastOplogTimestamp *bson.MongoTimestamp
 
 	totalSize         int64
 	docsCount         int64
@@ -120,7 +120,7 @@ func (ot *OplogTail) tail() {
 				continue
 			}
 			ot.dataChan <- result.Data
-			ot.lastOplogEntry = oplog
+			ot.lastOplogTimestamp = &oplog.Timestamp
 			continue
 		}
 		if iter.Timeout() {
@@ -144,8 +144,8 @@ func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimest
 
 func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
-	if ot.lastOplogEntry != nil {
-		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
+	if ot.lastOplogTimestamp != nil {
+		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
 	} else {
 		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
 	}
