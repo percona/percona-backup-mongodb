@@ -127,15 +127,27 @@ func (ot *OplogTail) tail() {
 	}
 }
 
-func BsonTimestampNow() bson.MongoTimestamp {
-	return bson.MongoTimestamp(bson.Now().UnixNano())
+func (ot *OplogTail) getOplogTailTimestamp(session *mgo.Session) (bson.MongoTimestamp, error) {
+	oplog := &mdbstructs.Oplog{}
+	err := session.Find(nil).Limit(1).One(oplog)
+	if err != nil {
+		return bson.MongoTimestamp(0), err
+	}
+	return oplog.Timestamp, nil
 }
 
-func (ot *OplogTail) tailQuery() bson.M {
+func (ot *OplogTail) tailQuery(session *mgo.Session) (bson.M, error) {
+	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogEntry != nil {
-		return bson.M{"ts": bson.M{"$gt": ot.lastOplogEntry.Timestamp}, "op": bson.M{"$ne": mdbstructs.OperationNoop}}
+		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
+	} else {
+		oplogTailTs, err := ot.getOplogTailTimestamp(session)
+		if err != nil {
+			query["ts"] = bson.M{"$gte": bson.MongoTimestamp(0)}
+		}
+		query["ts"] = bson.M{"$gte": oplogTailTs}
 	}
-	return bson.M{"ts": bson.M{"$gte": BsonTimestampNow()}, "op": bson.M{"$ne": mdbstructs.OperationNoop}}
+	return query, nil
 }
 
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
