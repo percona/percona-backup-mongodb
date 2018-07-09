@@ -136,14 +136,14 @@ func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimest
 	return oplog.Timestamp
 }
 
-func (ot *OplogTail) tailQuery(col *mgo.Collection) (bson.M, error) {
+func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogEntry != nil {
 		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
 	} else {
 		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
 	}
-	return query, nil
+	return query
 }
 
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
