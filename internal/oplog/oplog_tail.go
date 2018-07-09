@@ -102,7 +102,7 @@ func (ot *OplogTail) setRunning(state bool) {
 
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	iter := col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	iter := col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -123,25 +123,25 @@ func (ot *OplogTail) tail() {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
-func (ot *OplogTail) getOplogTailTimestamp(session *mgo.Session) (bson.MongoTimestamp, error) {
+func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) (bson.MongoTimestamp, error) {
 	oplog := &mdbstructs.Oplog{}
-	err := session.Find(nil).Limit(1).One(oplog)
+	err := col.Find(nil).Limit(1).One(oplog)
 	if err != nil {
 		return bson.MongoTimestamp(0), err
 	}
 	return oplog.Timestamp, nil
 }
 
-func (ot *OplogTail) tailQuery(session *mgo.Session) (bson.M, error) {
+func (ot *OplogTail) tailQuery(col *mgo.Collection) (bson.M, error) {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogEntry != nil {
 		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
 	} else {
-		oplogTailTs, err := ot.getOplogTailTimestamp(session)
+		oplogTailTs, err := ot.getOplogTailTimestamp(col)
 		if err != nil {
 			query["ts"] = bson.M{"$gte": bson.MongoTimestamp(0)}
 		}
