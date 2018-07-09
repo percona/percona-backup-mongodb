@@ -129,7 +129,7 @@ func (ot *OplogTail) tail() {
 
 func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimestamp {
 	oplog := &mdbstructs.Oplog{}
-	err := col.Find(nil).Limit(1).One(oplog)
+	err := col.Find(nil).Sort("$natural").Limit(1).One(oplog)
 	if err != nil {
 		return bson.MongoTimestamp(0)
 	}
