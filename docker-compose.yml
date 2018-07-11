@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile.test
       context: .
       args:
-        GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
+      - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
     environment:
     - TEST_MONGODB_URI=mongo:27017
     - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
