@@ -30,10 +30,10 @@ const (
 )
 
 var (
+	dbUri        string
+	dbDefaultUri string = "localhost:17001"
 	keepSamples  bool
 	samplesDir   string
-	dbUri        string
-	defaultDBUri string = "localhost:17001"
 )
 
 func init() {
@@ -51,7 +51,7 @@ func init() {
 	// get db uri from environment if it exists
 	dbUri := strings.TrimSpace(os.Getenv(EnvDBUri))
 	if dbUri == "" {
-		dbUri = defaultDBUri
+		dbUri = dbDefaultUri
 	}
 
 	if testing.Verbose() {
