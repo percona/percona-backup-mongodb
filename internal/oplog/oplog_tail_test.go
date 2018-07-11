@@ -31,7 +31,7 @@ const (
 
 var (
 	dbUri        string
-	dbDefaultUri string = "127.0.0.1:17001"
+	dbDefaultUri string = "localhost:17001"
 	keepSamples  bool
 	samplesDir   string
 )
