@@ -3,15 +3,29 @@ version: '3'
 services:
   mongo:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --bind_ip=0.0.0.0 --bind_ip_all
     expose:
     - "27017"
+  init:
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    entrypoint: /init-replset.sh
+    volumes:
+    - ./test/init-replset.sh:/init-replset.sh
+    environment:
+    - TEST_MONGODB_URI=mongo:27017
+    - TEST_PSMDB_RSNAME=${TEST_PSMDB_RSNAME:-rs}
+    links:
+    - mongo
+    depends_on:
+    - mongo
   test:
     build:
       dockerfile: Dockerfile.test
       context: .
     environment:
-    - TEST_MONGODB_URI=mongo:27017 
+    - TEST_MONGODB_URI=mongo:27017
     links:
     - mongo
     depends_on:
+    - init
     - mongo

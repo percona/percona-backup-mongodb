@@ -31,7 +31,7 @@ const (
 
 var (
 	dbUri        string
-	dbDefaultUri string = "localhost:17001"
+	dbDefaultUri string = "127.0.0.1:17001"
 	keepSamples  bool
 	samplesDir   string
 )
@@ -49,12 +49,12 @@ func init() {
 	}
 
 	// get db uri from environment if it exists
-	dbUri := strings.TrimSpace(os.Getenv(EnvDBUri))
+	dbUri = strings.TrimSpace(os.Getenv(EnvDBUri))
 	if dbUri != "" {
 		fmt.Printf("Using mongodb uri from environment: %s\n", dbUri)
 	} else {
-		fmt.Printf("Using default mongodb uri: %s\n", dbUri)
 		dbUri = dbDefaultUri
+		fmt.Printf("Using default mongodb uri: %s\n", dbUri)
 	}
 
 	if testing.Verbose() {
