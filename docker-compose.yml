@@ -26,6 +26,8 @@ services:
     - TEST_MONGODB_URI=mongo:27017
     - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
     - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    volumes:
+    - ./out:/tmp/out
     links:
     - mongo
     depends_on:
