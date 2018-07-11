@@ -4,14 +4,14 @@ services:
   mongo:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     expose:
-      - 27017
+    - "27017"
   test:
     build:
       dockerfile: Dockerfile.test
       context: .
     environment:
-      - TEST_MONGODB_URI=mongo:27017 
+    - TEST_MONGODB_URI=mongo:27017 
     links:
-      - mongo
+    - mongo
     depends_on:
-      - mongo
+    - mongo

@@ -50,7 +50,10 @@ func init() {
 
 	// get db uri from environment if it exists
 	dbUri := strings.TrimSpace(os.Getenv(EnvDBUri))
-	if dbUri == "" {
+	if dbUri != "" {
+		fmt.Printf("Using mongodb uri from environment: %s\n", dbUri)
+	} else {
+		fmt.Printf("Using default mongodb uri: %s\n", dbUri)
 		dbUri = dbDefaultUri
 	}
 
