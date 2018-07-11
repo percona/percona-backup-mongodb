@@ -61,6 +61,10 @@ type Oplog struct {
 	WallTime  time.Time           `bson:"wall,omitempty"`
 }
 
+type OplogTimestampOnly struct {
+	Timestamp bson.MongoTimestamp `bson:"ts"`
+}
+
 type OplogPosition struct {
 	Timestamp bson.MongoTimestamp
 	HistoryID int64
