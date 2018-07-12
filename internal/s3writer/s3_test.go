@@ -35,10 +35,13 @@ var (
 	testFileSize int
 	fileNotFound = fmt.Errorf("File not found")
 	chunks       = []testChunk{
-		testChunk{size: s3MaxChunkSize, value: '1'},
-		testChunk{size: s3MaxChunkSize, value: '2'},
-		testChunk{size: s3MaxChunkSize / 2, value: '3'},
+		testChunk{size: s3MinChunkSize, value: '1'},
+		testChunk{size: s3MinChunkSize, value: '2'},
+		testChunk{size: s3MinChunkSize / 2, value: '3'},
 	}
+	bucket   = "percona-mongodb-backup-test-s3-streamer"
+	filename = "percona-s3-streamer-test-file"
+	// Command line parameters for debugging
 	keepS3Data     bool
 	keepLocalFiles bool
 )
@@ -65,7 +68,17 @@ func TestMain(m *testing.M) {
 	for _, chunk := range chunks {
 		testFileSize += chunk.size
 	}
+
+	if b := os.Getenv("TEST_S3_BUCKET"); b != "" {
+		bucket = b
+	}
+
+	if f := os.Getenv("TEST_S3_FILE"); f != "" {
+		filename = f
+	}
+
 	os.Exit(m.Run())
+
 }
 func TestMockReader(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "")
@@ -100,8 +113,6 @@ func (m *mockReader) Reset() {
 }
 
 func TestUploadOplogToS3(t *testing.T) {
-	bucket := "percona-mongodb-backup-test-s3-streamer"
-	filename := "percona-s3-streamer-test-file"
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
@@ -170,8 +181,8 @@ func TestUploadOplogToS3(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot create temporary file for download: %s", err)
 	} else {
+		downloadFile(svc, bucket, filename, tmpfile)
 		tmpfile.Close()
-		downloadFile(svc, bucket, filename, tmpfile.Name())
 		if err := checkDownloadedFile(tmpfile.Name()); err != nil {
 			t.Errorf("Error checking downloading file contents: %s", err)
 		}
@@ -281,12 +292,7 @@ func deleteBucket(svc *s3.S3, bucket string) error {
 	return nil
 }
 
-func downloadFile(svc *s3.S3, bucket, file, destFile string) (int64, error) {
-	w, err := os.Create(destFile)
-	if err != nil {
-		return 0, errors.Wrapf(err, "cannot download %s from %s bucket", file, bucket)
-	}
-
+func downloadFile(svc *s3.S3, bucket, file string, writer io.WriterAt) (int64, error) {
 	downloader := s3manager.NewDownloaderWithClient(svc)
 
 	input := &s3.GetObjectInput{
@@ -294,7 +300,7 @@ func downloadFile(svc *s3.S3, bucket, file, destFile string) (int64, error) {
 		Key:    aws.String(file),
 	}
 
-	return downloader.Download(w, input)
+	return downloader.Download(writer, input)
 }
 
 func checkDownloadedFile(filename string) error {
@@ -317,7 +323,7 @@ func checkDownloadedFile(filename string) error {
 		}
 		for i := 0; i < len(buffer); i++ {
 			if buffer[i] != chunk.value {
-				return fmt.Errorf("Chunk #%d content is incorrect. Want %v at position %d, got %v",
+				return fmt.Errorf("Chunk #%d content is incorrect. Want %d at position %d, got %v",
 					part, chunk.value, i, buffer[i])
 			}
 		}

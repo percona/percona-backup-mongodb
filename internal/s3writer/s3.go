@@ -17,7 +17,8 @@ const (
 )
 
 var (
-	s3MaxChunkSize = 5 * 1024 * 1024 // 5 Mb
+	s3MinChunkSize = 5 * 1024 * 1024  // Multipart uploader minimum chunk size = 5 Mb
+	MaxBSONSize    = 16 * 1024 * 1024 // 16MB - maximum BSON document size
 )
 
 type S3Writer struct {
@@ -43,7 +44,7 @@ func Open(sess *session.Session, bucket, filename string) (*S3Writer, error) {
 		svc:       svc,
 		bucket:    bucket,
 		filename:  filename,
-		buffer:    make([]byte, 0, s3MaxChunkSize),
+		buffer:    make([]byte, 0, MaxBSONSize),
 	}, nil
 }
 
@@ -56,7 +57,7 @@ func (w *S3Writer) Close() error {
 		if w.currentPartNumber == 0 {
 			return w.uploadSinglePart()
 		}
-		// currentPartNumber is > 0, upload the last chunk and then call completeMultipartUpload
+		// currentPartNumber is > 0, upload the last chunk and then, call completeMultipartUpload
 		w.currentPartNumber++
 		completedPart, err := uploadPart(w.svc, w.s3MultipartUploadOutput, w.buffer, w.currentPartNumber)
 		if err != nil {
@@ -78,25 +79,25 @@ func (w *S3Writer) Close() error {
 func (w *S3Writer) Write(inBuffer []byte) (int, error) {
 	var err error
 	inBufferLen := len(inBuffer)
-	remainingBufferSize := s3MaxChunkSize - len(w.buffer)
+	remainingBufferSize := MaxBSONSize - len(w.buffer)
 
-	if len(w.buffer)+inBufferLen < s3MaxChunkSize {
+	if len(w.buffer)+inBufferLen < MaxBSONSize {
 		w.buffer = append(w.buffer, inBuffer...)
 		return inBufferLen, nil
 	}
 
-	writeBuffer := make([]byte, len(w.buffer), s3MaxChunkSize)
+	writeBuffer := make([]byte, len(w.buffer), MaxBSONSize)
 	copy(writeBuffer, w.buffer)
 	writeBuffer = append(writeBuffer, inBuffer[:remainingBufferSize]...)
 
 	remainingInBufferSize := len(inBuffer) - remainingBufferSize
-	w.buffer = make([]byte, remainingInBufferSize, s3MaxChunkSize)
+	w.buffer = make([]byte, remainingInBufferSize, MaxBSONSize)
 	copy(w.buffer, inBuffer[remainingBufferSize:])
 
 	// The S3 multipart upload is not being created on Open() because we cannot use it
 	// for chunks smaller than 5 Mb (S3 multipart limitation)
-	// For this reason, we only create the multipart uploader only when we know there
-	// are at least 5Mb in the buffer.
+	// For this reason, we create the multipart uploader only when we know there are at
+	// least 5Mb in the buffer.
 	if w.s3MultipartUploadOutput == nil {
 		input := &s3.CreateMultipartUploadInput{
 			Bucket:      aws.String(w.bucket),
