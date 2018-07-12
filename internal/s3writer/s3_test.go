@@ -100,7 +100,7 @@ func (m *mockReader) Reset() {
 }
 
 func TestUploadOplogToS3(t *testing.T) {
-	bucket := "percona-s3-stremer-test"
+	bucket := "percona-mongodb-backup-test-s3-streamer"
 	filename := "percona-s3-streamer-test-file"
 
 	// Initialize a session in us-west-2 that the SDK will use to load

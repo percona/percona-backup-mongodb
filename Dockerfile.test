@@ -1,7 +1,9 @@
-FROM golang:1.10-stretch
+ARG GOLANG_DOCKERHUB_TAG
+FROM golang:$GOLANG_DOCKERHUB_TAG
 
 WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
 
 RUN go get ./...
-CMD go test -v ./...
+
+CMD GOCACHE=off go test -race -coverprofile=/tmp/out/cover.out -covermode=atomic -v ./...
