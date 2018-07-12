@@ -60,3 +60,7 @@ type Oplog struct {
 	UI        *bson.Binary        `bson:"ui,omitempty"`
 	WallTime  time.Time           `bson:"wall,omitempty"`
 }
+
+type OplogTimestampOnly struct {
+	Timestamp bson.MongoTimestamp `bson:"ts"`
+}

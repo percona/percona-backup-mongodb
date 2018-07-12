@@ -14,9 +14,9 @@ import (
 type chanDataTye []byte
 
 type OplogTail struct {
-	session         *mgo.Session
-	oplogCollection string
-	lastOplogEntry  *mdbstructs.Oplog
+	session            *mgo.Session
+	oplogCollection    string
+	lastOplogTimestamp *bson.MongoTimestamp
 
 	totalSize         int64
 	docsCount         int64
@@ -114,8 +114,14 @@ func (ot *OplogTail) tail() {
 		}
 		result := bson.Raw{}
 		if iter.Next(&result) {
-			ot.dataChan <- result.Data
-			continue
+			oplog := mdbstructs.OplogTimestampOnly{}
+			err := result.Unmarshal(&oplog)
+			if err == nil {
+				ot.dataChan <- result.Data
+				ot.lastOplogTimestamp = &oplog.Timestamp
+				continue
+			}
+			iter.Close()
 		}
 		if iter.Timeout() {
 			continue
@@ -128,8 +134,8 @@ func (ot *OplogTail) tail() {
 }
 
 func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimestamp {
-	oplog := &mdbstructs.Oplog{}
-	err := col.Find(nil).Sort("$natural").Limit(1).One(oplog)
+	oplog := mdbstructs.OplogTimestampOnly{}
+	err := col.Find(nil).Sort("$natural").Limit(1).One(&oplog)
 	if err != nil {
 		return bson.MongoTimestamp(0)
 	}
@@ -138,8 +144,8 @@ func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimest
 
 func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
-	if ot.lastOplogEntry != nil {
-		query["ts"] = bson.M{"$gt": ot.lastOplogEntry.Timestamp}
+	if ot.lastOplogTimestamp != nil {
+		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
 	} else {
 		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
 	}
