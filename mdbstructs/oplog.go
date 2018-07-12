@@ -64,8 +64,3 @@ type Oplog struct {
 type OplogTimestampOnly struct {
 	Timestamp bson.MongoTimestamp `bson:"ts"`
 }
-
-type OplogPosition struct {
-	Timestamp bson.MongoTimestamp
-	HistoryID int64
-}
