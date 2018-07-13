@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"testing"
 
@@ -68,6 +69,11 @@ func TestMain(m *testing.M) {
 	for _, chunk := range chunks {
 		testFileSize += chunk.size
 	}
+
+	// Randomize to avoid name collisions
+	randPart := rand.Int63n(100000)
+	bucket = fmt.Sprintf("%s_%05d", bucket, randPart)
+	filename = fmt.Sprintf("%s_%05d", filename, randPart)
 
 	if b := os.Getenv("TEST_S3_BUCKET"); b != "" {
 		bucket = b
