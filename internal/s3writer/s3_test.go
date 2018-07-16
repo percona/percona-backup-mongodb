@@ -64,6 +64,7 @@ func openMockReader() *mockReader {
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
 	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.Parse()
 
 	testFileSize = 0
 	for _, chunk := range chunks {
@@ -84,8 +85,8 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(m.Run())
-
 }
+
 func TestMockReader(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "")
 	if err != nil {

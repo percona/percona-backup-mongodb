@@ -1,17 +1,31 @@
 package dumper
 
 import (
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
 	"testing"
 )
 
+var (
+	keepS3Data     bool
+	keepLocalFiles bool
+)
+
+func TestMain(m *testing.M) {
+	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
+	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.Parse()
+	os.Exit(m.Run())
+}
+
 func TestWriteToFile(t *testing.T) {
-	tmpFile, err := ioutil.TempFile("", "")
+	tmpFile, err := ioutil.TempFile("", "dump_test.")
 	if err != nil {
 		t.Errorf("Cannot create temporary file for testing: %s", err)
 	}
+	diag("Using temporary file %q", tmpFile.Name())
 
 	mi := &MongodumpInput{
 		Host:    "localhost",
@@ -40,10 +54,14 @@ func TestWriteToFile(t *testing.T) {
 		t.Errorf("Invalid mongodump size (0)")
 	}
 
-	// TODO: Check if file content is valid. How?
-	if err = os.Remove(tmpFile.Name()); err != nil {
-		t.Errorf("Cannot remove temporary file %s: %s", tmpFile.Name(), err)
+	if !keepLocalFiles {
+		// TODO: Check if file content is valid. How?
+		diag("Removing file %q", tmpFile.Name())
+		if err = os.Remove(tmpFile.Name()); err != nil {
+			t.Errorf("Cannot remove temporary file %s: %s", tmpFile.Name(), err)
+		}
 	}
+
 }
 
 func diag(params ...interface{}) {

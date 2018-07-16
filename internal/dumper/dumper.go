@@ -11,6 +11,7 @@ import (
 )
 
 type MongodumpInput struct {
+	Archive string
 	Host    string
 	Port    string
 	Gzip    bool
