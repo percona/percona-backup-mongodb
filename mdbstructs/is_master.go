@@ -35,12 +35,12 @@ type IsMaster struct {
 	LastWrite     struct {
 		OpTime struct {
 			Ts bson.MongoTimestamp `bson:"ts"`
-			T  uint64              `bson:"t"`
+			T  int64               `bson:"t"`
 		} `bson:"opTime"`
 		LastWriteDate  time.Time `bdon:"lastWriteDate"`
 		MajorityOpTime struct {
 			Ts bson.MongoTimestamp `bson:"ts"`
-			T  uint64              `bson:"t"`
+			T  int64               `bson:"t"`
 		} `bson:"majorityTime"`
 	} `bson:"lastWrite"`
 	GleStats struct {
@@ -50,7 +50,7 @@ type IsMaster struct {
 	ConfigServerState struct {
 		OpTime struct {
 			Ts bson.MongoTimestamp `bson:"ts"`
-			T  uint64              `bson:"t"`
+			T  int64               `bson:"t"`
 		} `bson:"opTime"`
 	} `bson:"$configServerState"`
 }
