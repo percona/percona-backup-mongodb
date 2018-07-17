@@ -70,7 +70,7 @@ func TestBasicApplyLog(t *testing.T) {
 	tmpfile.Close()
 
 	// Now drop the collection and try to re-apply the oplog
-	if err := col.DropCollection(); err != nil {
+	if _, err := col.RemoveAll(nil); err != nil {
 		t.Errorf("Cannot drop the test collection %q: %s", colname, err)
 		return
 	}

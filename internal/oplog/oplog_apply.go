@@ -6,7 +6,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/kr/pretty"
 	"github.com/percona/mongodb-backup/bsonfile"
 )
 
@@ -31,11 +30,11 @@ func (oa *OplogApply) Run() error {
 			}
 			return err
 		}
-		pretty.Println(dest)
 		result := bson.M{}
 		err := oa.dbSession.Run(bson.M{"applyOps": []bson.M{dest}}, result)
 		if err != nil {
-			return fmt.Errorf("Error while applying the oplog: %s\nDocument:\n%+v", err, dest)
+			fmt.Println("----------------------------------------------------------------------------------------------------")
+			fmt.Printf("Error: %s\nDocument:\n%+v\n", err, dest)
 		}
 	}
 }
