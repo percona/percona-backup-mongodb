@@ -196,7 +196,7 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 
 		// Read the oplog document from the file on disk.
 		readBson := bson.D{}
-		bf, err := bsonfile.Open(tmpfile.Name())
+		bf, err := bsonfile.OpenFile(tmpfile.Name())
 		if err != nil {
 			t.Errorf("Cannot open bson file %s: %s", tmpfile.Name(), err)
 			break

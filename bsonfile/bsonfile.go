@@ -3,10 +3,16 @@ package bsonfile
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 
 	"github.com/globalsign/mgo/bson"
 )
+
+type BSONReader interface {
+	ReadNext() ([]byte, error)
+	UnmarshalNext(interface{}) error
+}
 
 type BSONFile struct {
 	fh io.ReadCloser
@@ -16,8 +22,15 @@ const (
 	MaxBSONSize = 16 * 1024 * 1024 // 16MB - maximum BSON document size
 )
 
+func NewBSONReader(r io.Reader) (*BSONFile, error) {
+	if r == nil {
+		return nil, fmt.Errorf("The reader cannot be null")
+	}
+	return &BSONFile{fh: ioutil.NopCloser(r)}, nil
+}
+
 // Open opens a bson file for reading
-func Open(filename string) (*BSONFile, error) {
+func OpenFile(filename string) (*BSONFile, error) {
 	fh, err := os.Open(filename)
 	if err != nil {
 		return nil, err
