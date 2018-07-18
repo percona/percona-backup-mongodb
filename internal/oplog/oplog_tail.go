@@ -15,9 +15,10 @@ import (
 type chanDataTye []byte
 
 type OplogTail struct {
-	session            *mgo.Session
-	oplogCollection    string
-	lastOplogTimestamp *bson.MongoTimestamp
+	session             *mgo.Session
+	oplogCollection     string
+	startOplogTimestamp *bson.MongoTimestamp
+	lastOplogTimestamp  *bson.MongoTimestamp
 
 	totalSize         int64
 	docsCount         int64
@@ -55,11 +56,11 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	if err != nil {
 		return nil, err
 	}
-	currentTimestamp, err := bson.NewMongoTimestamp(t, c)
+	mongoTimestamp, err := bson.NewMongoTimestamp(t, c)
 	if err != nil {
 		return nil, err
 	}
-	ot.lastOplogTimestamp = &currentTimestamp
+	ot.startOplogTimestamp = &mongoTimestamp
 	go ot.tail()
 	return ot, nil
 }
@@ -126,7 +127,7 @@ func (ot *OplogTail) setRunning(state bool) {
 
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	iter := col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	iter := col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -141,6 +142,9 @@ func (ot *OplogTail) tail() {
 			err := result.Unmarshal(&oplog)
 			if err == nil {
 				ot.dataChan <- result.Data
+				if ot.startOplogTimestamp == nil {
+					ot.startOplogTimestamp = &oplog.Timestamp
+				}
 				ot.lastOplogTimestamp = &oplog.Timestamp
 				continue
 			}
@@ -152,14 +156,16 @@ func (ot *OplogTail) tail() {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
-func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
+func (ot *OplogTail) tailQuery() bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+	} else if ot.startOplogTimestamp != nil {
+		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
 	} else {
 		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 		query["ts"] = bson.M{"$gte": mongoTimestamp}
