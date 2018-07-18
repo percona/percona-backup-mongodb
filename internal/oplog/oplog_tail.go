@@ -143,10 +143,12 @@ func (ot *OplogTail) tail() {
 			err := result.Unmarshal(&oplog)
 			if err == nil {
 				ot.dataChan <- result.Data
+				ot.lock.Lock()
 				if ot.startOplogTimestamp == nil {
 					ot.startOplogTimestamp = &oplog.Timestamp
 				}
 				ot.lastOplogTimestamp = &oplog.Timestamp
+				ot.lock.Unlock()
 				continue
 			}
 			iter.Close()
@@ -162,6 +164,9 @@ func (ot *OplogTail) tail() {
 }
 
 func (ot *OplogTail) tailQuery() bson.M {
+	ot.lock.Lock()
+	defer ot.lock.Unlock()
+
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
