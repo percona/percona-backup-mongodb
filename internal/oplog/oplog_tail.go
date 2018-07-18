@@ -127,7 +127,8 @@ func (ot *OplogTail) setRunning(state bool) {
 
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	iter := col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
+	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -156,7 +157,7 @@ func (ot *OplogTail) tail() {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery()).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
