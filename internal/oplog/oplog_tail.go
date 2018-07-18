@@ -164,22 +164,24 @@ func (ot *OplogTail) tail() {
 }
 
 func (ot *OplogTail) tailQuery() bson.M {
-	ot.lock.Lock()
-	defer ot.lock.Unlock()
-
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
+
+	ot.lock.Lock()
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+		return query
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
+		return query
+	}
+	ot.lock.Unlock()
+
+	isMasterDoc, err := getIsMaster(ot.session)
+	if err != nil {
+		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
+		query["ts"] = bson.M{"$gte": mongoTimestamp}
 	} else {
-		isMasterDoc, err := getIsMaster(ot.session)
-		if err != nil {
-			mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
-			query["ts"] = bson.M{"$gte": mongoTimestamp}
-		} else {
-			query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
-		}
+		query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
 	}
 	return query
 }
