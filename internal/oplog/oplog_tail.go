@@ -173,15 +173,28 @@ func (ot *OplogTail) tailQuery() bson.M {
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
 	} else {
-		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
-		query["ts"] = bson.M{"$gte": mongoTimestamp}
+		isMasterDoc, err := getIsMaster(ot.session)
+		if err != nil {
+			mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
+			query["ts"] = bson.M{"$gte": mongoTimestamp}
+		} else {
+			query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
+		}
 	}
 	return query
 }
 
-func determineOplogCollectionName(session *mgo.Session) (string, error) {
+func getIsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
 	isMasterDoc := mdbstructs.IsMaster{}
 	err := session.Run("isMaster", &isMasterDoc)
+	if err != nil {
+		return nil, err
+	}
+	return &isMasterDoc, nil
+}
+
+func determineOplogCollectionName(session *mgo.Session) (string, error) {
+	isMasterDoc, err := getIsMaster(session)
 	if err != nil {
 		return "", errors.Wrap(err, "Cannot determine the oplog collection name")
 	}
@@ -191,7 +204,6 @@ func determineOplogCollectionName(session *mgo.Session) (string, error) {
 	if !isMasterDoc.IsMaster {
 		return "", fmt.Errorf("not connected to master")
 	}
-
 	return "oplog.$main", nil
 }
 
