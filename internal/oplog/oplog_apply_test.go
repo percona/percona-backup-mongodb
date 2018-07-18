@@ -69,11 +69,12 @@ func TestBasicApplyLog(t *testing.T) {
 	wg.Wait()
 	tmpfile.Close()
 
-	// Now drop the collection and try to re-apply the oplog
+	// Now, empty the collection and try to re-apply the oplog
 	if _, err := col.RemoveAll(nil); err != nil {
 		t.Errorf("Cannot drop the test collection %q: %s", colname, err)
 		return
 	}
+	// Ensure the collection is empty
 	n, err = col.Find(nil).Count()
 	if err != nil {
 		t.Errorf("Cannot get documents count: %s", err)
@@ -85,12 +86,14 @@ func TestBasicApplyLog(t *testing.T) {
 		return
 	}
 
+	// Open the oplog file we just wrote and use it as a reader for the oplog apply
 	reader, err := bsonfile.OpenFile(tmpfile.Name())
 	if err != nil {
 		t.Errorf("Cannot open oplog dump file %q: %s", tmpfile.Name(), err)
 		return
 	}
 
+	// Replay the oplog
 	oa, err := NewOplogApply(session, reader)
 	if err != nil {
 		t.Errorf("Cannot instantiate the oplog applier: %s", err)
@@ -100,4 +103,37 @@ func TestBasicApplyLog(t *testing.T) {
 		t.Errorf("Error while running the oplog applier: %s", err)
 	}
 
+	// Maybe this is not necessary but just to be completly sure, lets check the
+	// documents we have in the collection after replaying the oplog, are the same
+	// we wrote in the inserts above.
+	iter := col.Find(nil).Iter()
+	doc := bson.M{}
+	i := 0
+	for iter.Next(&doc) {
+		gotID, ok := doc["id"]
+		if !ok {
+			t.Errorf("The returned document #%dis invalid. Missing 'id' field", i)
+			break
+		}
+
+		gotName, ok := doc["name"]
+		if !ok {
+			t.Errorf("The returned document #%dis invalid. Missing 'name' field", i)
+			break
+		}
+
+		if gotID.(int) != i {
+			t.Errorf("Invalid id value for document #%d. Want: %d, got %d", i, i, doc["id"].(int))
+		}
+
+		wantName := fmt.Sprintf("name_%03d", i)
+		if gotName.(string) != wantName {
+			t.Errorf("Invalid name value for document #%d. Want: %q, got %q", i, wantName, gotName)
+		}
+		i++
+	}
+
+	if i != docCount {
+		t.Errorf("Invalid document count after repalying the oplog. Want %d, got %d", docCount, i)
+	}
 }

@@ -22,35 +22,35 @@ type IsMaster struct {
 	ClusterTime                  struct {
 		ClusterTime time.Time `bson:"clusterTime"`
 		Signature   struct {
-			Hash  []byte `bson:"hash"`
-			KeyID int64  `bson:"keyId"`
+			Hash  bson.Binary `bson:"hash"`
+			KeyID int64       `bson:"keyId"`
 		} `bson:"signature"`
-	} `bson:"$clisterTime"`
-	OperationTime time.Time `bson:"operationTime"`
-	SetName       string    `bson:"setName"`
-	SetVersion    string    `bson:"setVersion"`
-	Primary       string    `bson:"primary"`
-	Secondary     bool      `bson:"secondary"`
-	Me            string    `bson:"me"`
+	} `bson:"$clusterTime"`
+	OperationTime bson.MongoTimestamp `bson:"operationTime"`
+	SetName       string              `bson:"setName"`
+	SetVersion    string              `bson:"setVersion"`
+	Primary       string              `bson:"primary"`
+	Secondary     bool                `bson:"secondary"`
+	Me            string              `bson:"me"`
 	LastWrite     struct {
 		OpTime struct {
-			Ts time.Time `bson:"ts"`
-			T  int64     `bson:"t"`
+			Ts bson.MongoTimestamp `bson:"ts"`
+			T  int64               `bson:"t"`
 		} `bson:"opTime"`
 		LastWriteDate  time.Time `bdon:"lastWriteDate"`
 		MajorityOpTime struct {
-			Ts time.Time `bson:"ts"`
-			T  int64     `bson:"t"`
+			Ts bson.MongoTimestamp `bson:"ts"`
+			T  int64               `bson:"t"`
 		} `bson:"majorityTime"`
 	} `bson:"lastWrite"`
 	GleStats struct {
-		LastOpTime time.Time     `bson:"lastOpTime"`
-		ElectionID bson.ObjectId `bson:"electionId"`
+		LastOpTime bson.MongoTimestamp `bson:"lastOpTime"`
+		ElectionID bson.ObjectId       `bson:"electionId"`
 	} `bson:"$gleStats"`
 	ConfigServerState struct {
 		OpTime struct {
-			Ts time.Time `bson:"ts"`
-			T  int64     `bson:"t"`
+			Ts bson.MongoTimestamp `bson:"ts"`
+			T  int64               `bson:"t"`
 		} `bson:"opTime"`
 	} `bson:"$configServerState"`
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -14,9 +15,10 @@ import (
 type chanDataTye []byte
 
 type OplogTail struct {
-	session            *mgo.Session
-	oplogCollection    string
-	lastOplogTimestamp *bson.MongoTimestamp
+	session             *mgo.Session
+	oplogCollection     string
+	startOplogTimestamp *bson.MongoTimestamp
+	lastOplogTimestamp  *bson.MongoTimestamp
 
 	totalSize         int64
 	docsCount         int64
@@ -41,6 +43,29 @@ var (
 )
 
 func Open(session *mgo.Session) (*OplogTail, error) {
+	ot, err := open(session)
+	if err != nil {
+		return nil, err
+	}
+	go ot.tail()
+	return ot, nil
+}
+
+func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
+	ot, err := open(session)
+	if err != nil {
+		return nil, err
+	}
+	mongoTimestamp, err := bson.NewMongoTimestamp(t, c)
+	if err != nil {
+		return nil, err
+	}
+	ot.startOplogTimestamp = &mongoTimestamp
+	go ot.tail()
+	return ot, nil
+}
+
+func open(session *mgo.Session) (*OplogTail, error) {
 	if session == nil {
 		return nil, fmt.Errorf("Invalid session (nil)")
 	}
@@ -102,13 +127,13 @@ func (ot *OplogTail) setRunning(state bool) {
 
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	iter := col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
+	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
 			ot.setRunning(false)
-			close(ot.dataChan)
 			return
 		default:
 		}
@@ -118,6 +143,9 @@ func (ot *OplogTail) tail() {
 			err := result.Unmarshal(&oplog)
 			if err == nil {
 				ot.dataChan <- result.Data
+				if ot.startOplogTimestamp == nil {
+					ot.startOplogTimestamp = &oplog.Timestamp
+				}
 				ot.lastOplogTimestamp = &oplog.Timestamp
 				continue
 			}
@@ -129,25 +157,19 @@ func (ot *OplogTail) tail() {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery(col)).LogReplay().Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
-func (ot *OplogTail) getOplogTailTimestamp(col *mgo.Collection) bson.MongoTimestamp {
-	oplog := mdbstructs.OplogTimestampOnly{}
-	err := col.Find(nil).Sort("$natural").Limit(1).One(&oplog)
-	if err != nil {
-		return bson.MongoTimestamp(0)
-	}
-	return oplog.Timestamp
-}
-
-func (ot *OplogTail) tailQuery(col *mgo.Collection) bson.M {
+func (ot *OplogTail) tailQuery() bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+	} else if ot.startOplogTimestamp != nil {
+		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
 	} else {
-		query["ts"] = bson.M{"$gte": ot.getOplogTailTimestamp(col)}
+		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
+		query["ts"] = bson.M{"$gte": mongoTimestamp}
 	}
 	return query
 }
