@@ -50,12 +50,12 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 	return ot, nil
 }
 
-func OpenAt(session *mgo.Session, t time.Time) (*OplogTail, error) {
+func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	ot, err := open(session)
 	if err != nil {
 		return nil, err
 	}
-	currentTimestamp, err := bson.NewMongoTimestamp(time.Now(), 0)
+	currentTimestamp, err := bson.NewMongoTimestamp(t, c)
 	if err != nil {
 		return nil, err
 	}
