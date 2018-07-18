@@ -5,5 +5,4 @@ WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
 
 RUN go get ./...
-
-CMD GOCACHE=off go test -race -coverprofile=/tmp/out/cover.out -covermode=atomic -v ./...
+CMD make test-race
