@@ -169,9 +169,11 @@ func (ot *OplogTail) tailQuery() bson.M {
 	ot.lock.Lock()
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+		ot.lock.Unlock()
 		return query
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
+		ot.lock.Unlock()
 		return query
 	}
 	ot.lock.Unlock()
