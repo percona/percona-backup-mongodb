@@ -47,7 +47,7 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 	if err != nil {
 		return nil, err
 	}
-	go ot.tail(session)
+	go ot.tail()
 	return ot, nil
 }
 
@@ -61,7 +61,7 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 		return nil, err
 	}
 	ot.startOplogTimestamp = &mongoTimestamp
-	go ot.tail(session)
+	go ot.tail()
 	return ot, nil
 }
 
@@ -82,7 +82,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		running:         true,
 	}
 	ot.readFunc = makeReader(ot)
-	go ot.tail(session)
+	go ot.tail()
 	return ot, nil
 }
 
@@ -125,10 +125,10 @@ func (ot *OplogTail) setRunning(state bool) {
 	ot.running = state
 }
 
-func (ot *OplogTail) tail(session *mgo.Session) {
+func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
 	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
-	iter := col.Find(ot.tailQuery(session)).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -157,18 +157,18 @@ func (ot *OplogTail) tail(session *mgo.Session) {
 		if iter.Err() != nil {
 			iter.Close()
 		}
-		iter = col.Find(ot.tailQuery(session)).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+		iter = col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
 }
 
-func (ot *OplogTail) tailQuery(session *mgo.Session) bson.M {
+func (ot *OplogTail) tailQuery() bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
 	} else {
-		isMasterDoc, err := getIsMaster(session)
+		isMasterDoc, err := getIsMaster(ot.session)
 		if err != nil {
 			mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 			query["ts"] = bson.M{"$gte": mongoTimestamp}
