@@ -1,9 +1,7 @@
 package testutils
 
 import (
-	"errors"
 	"os"
-	"testing"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -27,27 +25,45 @@ var (
 	MongodbAdminUser      = os.Getenv(envMongoDBAdminUser)
 	MongodbAdminPassword  = os.Getenv(envMongoDBAdminPassword)
 	MongodbTimeout        = time.Duration(10) * time.Second
-	defaultAddress        = MongodbHost + ":17001"
+	defaultAddr           = []string{MongodbHost + ":17001"}
 )
 
-func getDialInfo() *mgo.DialInfo {
-
-	return &mgo.DialInfo{
-		Addrs:          []string{address},
-		Direct:         true,
-		Timeout:        MongodbTimeout,
-		Username:       MongodbAdminUser,
-		Password:       MongodbAdminPassword,
-		ReplicaSetName: MongodbReplsetName,
+func dialInfo(addrs []string) *mgo.DialInfo {
+	di := &mgo.DialInfo{
+		Addrs:   addrs,
+		Timeout: MongodbTimeout,
 	}
+	if MongodbReplsetName != "" {
+		di.ReplicaSetName = MongodbReplsetName
+	}
+	if MongodbAdminUser != "" && MongodbAdminPassword != "" {
+		di.Username = MongodbAdminUser
+		di.Password = MongodbAdminPassword
+	}
+	return di
 }
 
-// GetSession returns a *mgo.Session configured for testing against a MongoDB Primary
-func GetSession() (*mgo.Session, error) {
-	dialInfo := getDialInfo(MongodbHost, port)
-	session, err := mgo.DialWithInfo(dialInfo)
-	if err != nil {
-		return nil, err
+func PrimaryDialInfo() *mgo.DialInfo {
+	addrs := defaultAddress
+	if MongodbPrimaryPort != "" {
+		addrs = []string{MongodbHost + ":" + MongodbPrimaryPort}
 	}
-	return session, err
+	di := dialInfo(addrs)
+	di.Direct = true
+	return di
+}
+
+func ReplsetDialInfo() *mgo.DialInfo {
+	var di *mgo.DialInfo
+	if MongodbSecondary1Port != "" && MongodbSecondary2Port != "" {
+		di = PrimaryDialInfo()
+	} else {
+		di = dialInfo([]string{
+			MongodbHost + ":" + MongodbPrimaryPort,
+			MongodbHost + ":" + MongodbSecondary1Port,
+			MongodbHost + ":" + MongodbSecondary2Port,
+		})
+	}
+	di.Direct = false
+	return di
 }
