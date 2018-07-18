@@ -1,37 +1,39 @@
 ---
 version: '3'
 services:
-  mongo:
+  mongo1:
+    network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --bind_ip=0.0.0.0 --bind_ip_all
-    expose:
-    - "27017"
+    entrypoint: /entrypoint.sh
+    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001}
+    volumes:
+      - ./test/entrypoint.sh:/entrypoint.sh:ro
+      - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+      - ./test/ssl/mongodb.pem:/mongod.pem:ro
   init:
+    network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /init-replset.sh
     volumes:
     - ./test/init-replset.sh:/init-replset.sh
     environment:
-    - TEST_MONGODB_URI=mongo:27017
+    - TEST_MONGODB_URI=127.0.0.1:${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_PSMDB_RSNAME=${TEST_PSMDB_RSNAME:-rs}
-    links:
-    - mongo
     depends_on:
-    - mongo
+    - mongo1
   test:
     build:
       dockerfile: Dockerfile.test
       context: .
       args:
       - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
+    network_mode: host
     environment:
-    - TEST_MONGODB_URI=mongo:27017
+    - TEST_MONGODB_URI=127.0.0.1:${TEST_MONGODB_PRIMARY_PORT:-17001}
     - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
     - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     volumes:
     - ./out:/tmp/out
-    links:
-    - mongo
     depends_on:
     - init
-    - mongo
+    - mongo1
