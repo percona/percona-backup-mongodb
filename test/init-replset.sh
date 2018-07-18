@@ -4,16 +4,21 @@ tries=1
 max_tries=15
 sleep_secs=5
 
+MONGODB_IP=127.0.0.1
+MONGODB_PRIMARY_HOST=${MONGODB_IP}:${TEST_MONGODB_PRIMARY_PORT}
 sleep $sleep_secs
 while [ $tries -lt $max_tries ]; do
 	/usr/bin/mongo --quiet \
-		--host ${TEST_MONGODB_URI} \
-		--eval 'rs.initiate({
-			_id: "'${TEST_PSMDB_RSNAME}'",
+		--port=${TEST_MONGODB_PRIMARY_PORT} \
+		--eval='rs.initiate({
+			_id: "'${TEST_MONGODB_RS}'",
 			version: 1,
 			members: [
-				{ _id: 0, host: "'${TEST_MONGODB_URI}'" }
+				{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_PRIMARY_PORT}'", priority: 10 },
+				{ _id: 1, host: "'${MONGODB_IP}':'${TEST_MONGODB_SECONDARY1_PORT}'", priority: 1 },
+				{ _id: 2, host: "'${MONGODB_IP}':'${TEST_MONGODB_SECONDARY2_PORT}'", priority: 1 }
 			]})'
+	#[ $? == 0 ] && [ "$OK" == "1" ] && break
 	[ $? == 0 ] && break
 	echo "# INFO: retrying rs.initiate() in $sleep_secs secs (try $tries/$max_tries)"
 	sleep $sleep_secs
@@ -23,13 +28,14 @@ if [ $tries -ge $max_tries ]; then
 	echo "# ERROR: reached max tries $max_tries, exiting"
 	exit 1
 fi
+echo "# INFO: replset is initiated"
 
 sleep $sleep_secs
 tries=1
 while [ $tries -lt $max_tries ]; do
 	ISMASTER=$(/usr/bin/mongo --quiet \
-		--host ${TEST_MONGODB_URI} \
-		--eval 'printjson(db.isMaster().ismaster)' 2>/dev/null)
+		--port=${TEST_MONGODB_PRIMARY_PORT} \
+		--eval='printjson(db.isMaster().ismaster)' 2>/dev/null)
 	[ "$ISMASTER" == "true" ] && break
 	echo "# INFO: retrying db.isMaster() check in $sleep_secs secs (try $tries/$max_tries)"
 	sleep $sleep_secs
@@ -39,3 +45,4 @@ if [ $tries -ge $max_tries ]; then
 	echo "# ERROR: reached max tries $max_tries, exiting"
 	exit 1
 fi
+echo "# INFO: replset has primary ${MONGODB_PRIMARY_HOST}"
