@@ -168,12 +168,12 @@ func (ot *OplogTail) tailQuery(session *mgo.Session) bson.M {
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
 	} else {
-		isMaster, err := getIsMaster(session)
+		isMasterDoc, err := getIsMaster(session)
 		if err != nil {
 			mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 			query["ts"] = bson.M{"$gte": mongoTimestamp}
 		} else {
-			query["ts"] = bson.M{"$gt": isMaster.LastWrite.OpTime.Ts}
+			query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
 		}
 	}
 	return query
