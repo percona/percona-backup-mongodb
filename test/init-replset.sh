@@ -2,7 +2,7 @@
 
 tries=1
 max_tries=15
-sleep_secs=5
+sleep_secs=3
 
 cp /rootCA.crt /tmp/rootCA.crt
 cp /client.pem /tmp/client.pem

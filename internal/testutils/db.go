@@ -44,7 +44,7 @@ func dialInfo(addrs []string) *mgo.DialInfo {
 }
 
 func PrimaryDialInfo() *mgo.DialInfo {
-	addrs := defaultAddress
+	addrs := defaultAddr
 	if MongodbPrimaryPort != "" {
 		addrs = []string{MongodbHost + ":" + MongodbPrimaryPort}
 	}
