@@ -163,6 +163,12 @@ func (ot *OplogTail) tail() {
 	}
 }
 
+// tailQuery returns a bson.M query filter for the oplog tail
+// Criteria:
+//   1. If 'lastOplogTimestamp' is defined, tail all non-noop oplogs with 'ts' $gt that ts
+//   2. Or, if 'startOplogTimestamp' is defined, tail all non-noop oplogs with 'ts' $gte that ts
+//   3. Or, tail all non-noop oplogs with 'ts' $gt 'lastWrite.OpTime.Ts' from the result of the "isMaster" mongodb server command
+//   4. Or, tail all non-noop oplogs with 'ts' $gte now.
 func (ot *OplogTail) tailQuery() bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 
