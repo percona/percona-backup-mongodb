@@ -7,33 +7,35 @@ services:
     entrypoint: /entrypoint.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001}
     volumes:
-      - ./test/entrypoint.sh:/entrypoint.sh:ro
-      - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-      - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./test/entrypoint.sh:/entrypoint.sh:ro
+    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./test/ssl/mongodb.pem:/mongod.pem:ro
   mongo2:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002}
     volumes:
-      - ./test/entrypoint.sh:/entrypoint.sh:ro
-      - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-      - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./test/entrypoint.sh:/entrypoint.sh:ro
+    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./test/ssl/mongodb.pem:/mongod.pem:ro
   mongo3:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003}
     volumes:
-      - ./test/entrypoint.sh:/entrypoint.sh:ro
-      - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-      - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./test/entrypoint.sh:/entrypoint.sh:ro
+    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./test/ssl/mongodb.pem:/mongod.pem:ro
   init:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /init-replset.sh
     volumes:
     - ./test/init-replset.sh:/init-replset.sh
+    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./test/ssl/client.pem:/client.pem:ro
     environment:
     - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-admin}
     - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-admin123456}
