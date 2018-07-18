@@ -33,7 +33,7 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /init-replset.sh
     volumes:
-    - ./test/init-replset.sh:/init-replset.sh
+    - ./test/init-replset.sh:/init-replset.sh:ro
     - ./test/ssl/rootCA.crt:/rootCA.crt:ro
     - ./test/ssl/client.pem:/client.pem:ro
     environment:
@@ -67,6 +67,8 @@ services:
     - TEST_MONGODB_SECONDARY2_PORT=${TEST_MONGODB_SECONDARY2_PORT:-17003}
     volumes:
     - ./out:/tmp/out
+    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./test/ssl/client.pem:/client.pem:ro
     depends_on:
     - init
     - mongo1

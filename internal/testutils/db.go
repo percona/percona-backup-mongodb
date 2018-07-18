@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"os"
+	"testing"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -51,6 +52,12 @@ func PrimaryDialInfo() *mgo.DialInfo {
 	di := dialInfo(addrs)
 	di.Direct = true
 	return di
+}
+
+func PrimarySession(t *testing.T) (*mgo.Session, error) {
+	di := PrimaryDialInfo()
+	t.Logf("Connecting to db addrs: %v, replset: %s\n", di.Addrs, di.ReplicaSetName)
+	return mgo.DialWithInfo(PrimaryDialInfo())
 }
 
 func ReplsetDialInfo() *mgo.DialInfo {
