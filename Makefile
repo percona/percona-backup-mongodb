@@ -14,10 +14,7 @@ TEST_MONGODB_SECONDARY2_PORT?=17003
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: test
-
-test:
-	GOCACHE=$(GOCACHE) go test -v $(GO_TEST_EXTRA) ./...
+all: test-race
 
 test-race:
 ifeq ($(GO_TEST_CODECOV), true)
