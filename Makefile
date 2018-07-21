@@ -36,7 +36,7 @@ test-replset:
 	--force-recreate \
 	--renew-anon-volumes \
 	init
-	test/init-replset-wait.sh
+	scripts/init-replset-wait.sh
 
 test-replset-clean:
 	docker-compose down -v
@@ -60,6 +60,6 @@ test-full: test-replset
 	test
 
 test-clean: test-replset-clean
-	rm -rf out 2>/dev/null || true
+	rm -rf test-out 2>/dev/null || true
 
 clean: test-clean
