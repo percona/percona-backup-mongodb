@@ -166,23 +166,33 @@ func (ot *OplogTail) tail() {
 	}
 }
 
+// tailQuery returns a bson.M query filter for the oplog tail
+// Criteria:
+//   1. If 'lastOplogTimestamp' is defined, tail all non-noop oplogs with 'ts' $gt that ts
+//   2. Or, if 'startOplogTimestamp' is defined, tail all non-noop oplogs with 'ts' $gte that ts
+//   3. Or, tail all non-noop oplogs with 'ts' $gt 'lastWrite.OpTime.Ts' from the result of the "isMaster" mongodb server command
+//   4. Or, tail all non-noop oplogs with 'ts' $gte now.
 func (ot *OplogTail) tailQuery() bson.M {
-	ot.lock.Lock()
-	defer ot.lock.Unlock()
-
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
+
+	ot.lock.Lock()
 	if ot.lastOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+		ot.lock.Unlock()
+		return query
 	} else if ot.startOplogTimestamp != nil {
 		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
+		ot.lock.Unlock()
+		return query
+	}
+	ot.lock.Unlock()
+
+	isMasterDoc, err := getIsMaster(ot.session)
+	if err != nil {
+		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
+		query["ts"] = bson.M{"$gte": mongoTimestamp}
 	} else {
-		isMasterDoc, err := getIsMaster(ot.session)
-		if err != nil {
-			mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
-			query["ts"] = bson.M{"$gte": mongoTimestamp}
-		} else {
-			query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
-		}
+		query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
 	}
 	return query
 }
