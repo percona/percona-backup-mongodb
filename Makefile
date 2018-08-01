@@ -1,5 +1,6 @@
 GOCACHE?=
 GOLANG_DOCKERHUB_TAG?=1.10-stretch
+GO_TEST_PATH=./...
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 
@@ -14,13 +15,16 @@ TEST_MONGODB_SECONDARY2_PORT?=17003
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: test-race
+all: test
+
+test:
+	GOCACHE=$(GOCACHE) go test -v $(GO_TEST_PATH)
 
 test-race:
 ifeq ($(GO_TEST_CODECOV), true)
-	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic ./...
+	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_PATH)
 else
-	GOCACHE=$(GOCACHE) go test -v -race ./...
+	GOCACHE=$(GOCACHE) go test -v -race $(GO_TEST_PATH)
 endif
 
 test-replset:

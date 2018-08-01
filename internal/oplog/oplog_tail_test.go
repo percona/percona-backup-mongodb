@@ -14,10 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/bsonfile"
-	"github.com/percona/mongodb-backup/internal/testutils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -32,7 +30,6 @@ const (
 var (
 	keepSamples bool
 	samplesDir  string
-	testSession *mgo.Session
 )
 
 func init() {
@@ -50,19 +47,6 @@ func init() {
 	if testing.Verbose() {
 		fmt.Printf("Samples & helper binaries at %q\n", samplesDir)
 	}
-}
-
-func TestMain(m *testing.M) {
-	var err error
-	dialInfo := testutils.PrimaryDialInfo()
-	testSession, err = mgo.DialWithInfo(dialInfo)
-	if err != nil {
-		log.Fatalf("Cannot connect to MongoDB: %s", err)
-	}
-	log.Printf("Connected to db, addrs: %v, auth: %v", testSession.LiveServers(), dialInfo.Password != "")
-	exit := m.Run()
-	testSession.Close()
-	os.Exit(exit)
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {
