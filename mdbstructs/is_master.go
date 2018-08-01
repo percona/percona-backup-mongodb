@@ -31,6 +31,7 @@ type IsMaster struct {
 	SetVersion    string              `bson:"setVersion"`
 	Primary       string              `bson:"primary"`
 	Secondary     bool                `bson:"secondary"`
+	ConfigSvr     int                 `bson:"configsvr"`
 	Me            string              `bson:"me"`
 	LastWrite     struct {
 		OpTime struct {
