@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	hiddenMemberMultiplier = 1.0
+	hiddenMemberWeight = 0.2
+	priorityZeroWeight = 0.1
 )
 
 var (
