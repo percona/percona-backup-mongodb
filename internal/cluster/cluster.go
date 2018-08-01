@@ -25,7 +25,7 @@ func (c *Cluster) isReplset(isMaster *mdbstructs.IsMaster) bool {
 }
 
 func (c *Cluster) isMongos(isMaster *mdbstructs.IsMaster) bool {
-	return isMaster.IsMaster && isMaster.Msg == "isdbgrid"
+	return isMaster.IsMaster && !c.isReplset(isMaster) && isMaster.Msg == "isdbgrid"
 }
 
 func (c *Cluster) isConfigServer(isMaster *mdbstructs.IsMaster) bool {
