@@ -12,5 +12,5 @@ type ListShards struct {
 	Shards        []*ListShardsShard  `bson:"shards"`
 	Ok            int                 `bson:"ok"`
 	OperationTime bson.MongoTimestamp `bson:"operationTime"`
-	//ClusterTime ClusterTime `bson:"$clusterTime"`
+	ClusterTime   ClusterTime         `bson:"$clusterTime"`
 }
