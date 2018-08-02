@@ -9,6 +9,7 @@ cp /client.pem /tmp/client.pem
 chmod 400 /tmp/rootCA.crt /tmp/client.pem
 
 MONGO_FLAGS="--quiet --ssl --sslCAFile=/tmp/rootCA.crt --sslPEMKeyFile=/tmp/client.pem"
+
 MONGODB_IP=127.0.0.1
 MONGODB_PRIMARY_HOST=${MONGODB_IP}:${TEST_MONGODB_PRIMARY_PORT}
 sleep $sleep_secs
@@ -36,6 +37,33 @@ if [ $tries -ge $max_tries ]; then
 	exit 1
 fi
 echo "# INFO: replset is initiated"
+
+
+tries=0
+while [ $tries -lt $max_tries ]; do
+	/usr/bin/mongo ${MONGO_FLAGS} \
+		--port=${TEST_MONGODB_CONFIGSVR_PORT} \
+		--eval='rs.initiate({
+			_id: "csReplSet",
+			configsvr: true,
+			version: 1,
+			members: [
+				{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_CONFIGSVR_PORT}'" },
+			]})' | tee /tmp/init-result.json
+	if [ $? == 0 ]; then
+	  grep -q '"ok" : 1' /tmp/init-result.json
+	  [ $? == 0 ] && break
+	fi
+	echo "# INFO: retrying rs.initiate() for configsvr in $sleep_secs secs (try $tries/$max_tries)"
+	sleep $sleep_secs
+	tries=$(($tries + 1))
+done
+if [ $tries -ge $max_tries ]; then
+	echo "# ERROR: reached max tries $max_tries, exiting"
+	exit 1
+fi
+echo "# INFO: sharding configsvr is initiated"
+
 
 sleep $sleep_secs
 tries=1
