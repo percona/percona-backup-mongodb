@@ -32,7 +32,7 @@ services:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
-    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr
+    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr --dbpath=/data/db
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
@@ -41,7 +41,7 @@ services:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongos.sh
-    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=csReplset/127.0.0.1:${TEST_MONGODB_CONFIGSVR_PORT:-17004} 
+    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=csReplSet/127.0.0.1:${TEST_MONGODB_CONFIGSVR_PORT:-17004} 
     volumes:
     - ./scripts/entrypoint-mongos.sh:/entrypoint-mongos.sh:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
@@ -67,6 +67,7 @@ services:
     - TEST_MONGODB_MONGOS_PORT=${TEST_MONGODB_MONGOS_PORT:-17005}
     depends_on:
     - configsvr
+    - mongos
     - mongo1
     - mongo2
     - mongo3

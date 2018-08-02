@@ -39,7 +39,7 @@ fi
 echo "# INFO: replset is initiated"
 
 
-tries=0
+tries=1
 while [ $tries -lt $max_tries ]; do
 	/usr/bin/mongo ${MONGO_FLAGS} \
 		--port=${TEST_MONGODB_CONFIGSVR_PORT} \
@@ -81,3 +81,20 @@ if [ $tries -ge $max_tries ]; then
 	exit 1
 fi
 echo "# INFO: replset has primary ${MONGODB_PRIMARY_HOST}"
+
+
+tries=1
+while [ $tries -lt $max_tries ]; do
+	ADDSHARD=$(/usr/bin/mongo ${MONGO_FLAGS} \
+		--port=${TEST_MONGODB_MONGOS_PORT} \
+		--eval='printjson(sh.addShard("'${TEST_MONGODB_RS}'/127.0.0.1:'${TEST_MONGODB_PRIMARY_PORT}'").ok)' 2>/dev/null)
+	[ "$ADDSHARD" == "1" ] && break
+	echo "# INFO: retrying sh.addShard() check in $sleep_secs secs (try $tries/$max_tries)"
+	sleep $sleep_secs
+	tries=$(($tries + 1))
+done
+if [ $tries -ge $max_tries ]; then
+	echo "# ERROR: reached max tries $max_tries, exiting"
+	exit 1
+fi
+echo "# INFO: cluster has 1 shard: ${TEST_MONGODB_RS}"
