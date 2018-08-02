@@ -14,9 +14,9 @@ func New(seedSession *mgo.Session) *Cluster {
 	return &Cluster{seedSession: seedSession}
 }
 
-func (c *Cluster) getIsMaster() (*mdbstructs.IsMaster, error) {
+func GetIsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
 	isMaster := mdbstructs.IsMaster{}
-	err := c.seedSession.Run(bson.D{{"isMaster", "1"}}, &isMaster)
+	err := session.Run(bson.D{{"isMaster", "1"}}, &isMaster)
 	return &isMaster, err
 }
 
