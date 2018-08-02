@@ -25,11 +25,19 @@ func (c *Cluster) isReplset(isMaster *mdbstructs.IsMaster) bool {
 }
 
 func (c *Cluster) isMongos(isMaster *mdbstructs.IsMaster) bool {
+	// Use a combination of the 'isMaster', 'SetName' and 'Msg' field to determine a node is a mongos.
+	// A mongos will always have 'isMaster' equal to true, no 'SetName' defined and 'Msg' is 'isdbgrid'.
+	//
+	// https://github.com/mongodb/mongo/blob/v3.6/src/mongo/s/commands/cluster_is_master_cmd.cpp#L112-L113
 	return isMaster.IsMaster && !c.isReplset(isMaster) && isMaster.Msg == "isdbgrid"
 }
 
 func (c *Cluster) isConfigServer(isMaster *mdbstructs.IsMaster) bool {
-	if isMaster.ConfigSvr == 2 {
+	// Use the undocumented 'configsvr' field to determine a node is a config server. This mode must also have replication enabled.
+	// For unexplained reasons the value of 'configsvr' must be equal to '2'.
+	//
+	// https://github.com/mongodb/mongo/blob/v3.6/src/mongo/db/repl/replication_info.cpp#L355-L358
+	if isMaster.ConfigSvr == 2 && c.isReplset(isMaster) {
 		return true
 	}
 	return false
