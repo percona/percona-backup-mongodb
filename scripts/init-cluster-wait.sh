@@ -1,8 +1,8 @@
 #!/bin/bash
 
 tries=1
-max_tries=30
-sleep_secs=5
+max_tries=20
+sleep_secs=3
 
 while [ $tries -lt $max_tries ]; do
 	docker-compose ps init 2>/dev/null | grep -q 'Exit 0'

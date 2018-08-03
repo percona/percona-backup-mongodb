@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/bsonfile"
 )
@@ -25,8 +24,7 @@ func TestBasicApplyLog(t *testing.T) {
 		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
 	}
 
-	session, err := mgo.Dial(dbUri)
-	ot, err := Open(session)
+	ot, err := Open(testSession)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
@@ -35,7 +33,7 @@ func TestBasicApplyLog(t *testing.T) {
 	colname := "test_collection"
 	docCount := 50
 
-	db := session.DB(dbname)
+	db := testSession.DB(dbname)
 	col := db.C(colname)
 
 	// Clean up before starting
@@ -94,7 +92,7 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	// Replay the oplog
-	oa, err := NewOplogApply(session, reader)
+	oa, err := NewOplogApply(testSession, reader)
 	if err != nil {
 		t.Errorf("Cannot instantiate the oplog applier: %s", err)
 	}

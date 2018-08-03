@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/bsonfile"
 
@@ -26,14 +25,11 @@ import (
 
 const (
 	MaxBSONSize = 16 * 1024 * 1024 // 16MB - maximum BSON document size
-	EnvDBUri    = "TEST_MONGODB_URI"
 )
 
 var (
-	dbUri        string
-	dbDefaultUri string = "localhost:17001"
-	keepSamples  bool
-	samplesDir   string
+	keepSamples bool
+	samplesDir  string
 )
 
 func init() {
@@ -48,27 +44,13 @@ func init() {
 		samplesDir = path.Join(strings.TrimSpace(string(out)), "testdata")
 	}
 
-	// get db uri from environment if it exists
-	dbUri = strings.TrimSpace(os.Getenv(EnvDBUri))
-	if dbUri != "" {
-		fmt.Printf("Using mongodb uri from environment: %s\n", dbUri)
-	} else {
-		dbUri = dbDefaultUri
-		fmt.Printf("Using default mongodb uri: %s\n", dbUri)
-	}
-
 	if testing.Verbose() {
 		fmt.Printf("Samples & helper binaries at %q\n", samplesDir)
 	}
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {
-	session, err := mgo.Dial(dbUri)
-	if err != nil {
-		t.Fatalf("Cannot connect to MongoDB: %s", err)
-	}
-
-	oplogCol, err := determineOplogCollectionName(session)
+	oplogCol, err := determineOplogCollectionName(testSession)
 	if err != nil {
 		t.Errorf("Cannot determine oplog collection name: %s", err)
 	}
@@ -78,8 +60,7 @@ func TestDetermineOplogCollectionName(t *testing.T) {
 }
 
 func TestBasicReader(t *testing.T) {
-	session, err := mgo.Dial(dbUri)
-	ot, err := Open(session)
+	ot, err := Open(testSession)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
@@ -118,9 +99,8 @@ func TestTailerCopy(t *testing.T) {
 		defer os.Remove(tmpfile.Name()) // clean up
 	}
 
-	session, err := mgo.Dial(dbUri)
 	// Start tailing the oplog
-	ot, err := Open(session)
+	ot, err := Open(testSession)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
@@ -143,11 +123,8 @@ func TestTailerCopy(t *testing.T) {
 }
 
 func TestSeveralOplogDocTypes(t *testing.T) {
-	session, err := mgo.Dial(dbUri)
 	// Start tailing the oplog
-	defer session.Close()
-
-	ot, err := Open(session)
+	ot, err := Open(testSession)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
@@ -223,13 +200,6 @@ func TestUploadOplogToS3(t *testing.T) {
 	bucket := "percona-mongodb-backup-test"
 	filename := "percona-mongodb-backup-oplog"
 
-	mdbSession, err := mgo.Dial(dbUri)
-	if err != nil {
-		t.Errorf("Cannot connect to MongoDB: %s", err)
-		t.Fail()
-	}
-	defer mdbSession.Close()
-
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
 	sess, err := session.NewSession(&aws.Config{
@@ -262,7 +232,7 @@ func TestUploadOplogToS3(t *testing.T) {
 	}
 
 	// Start tailing the oplog
-	oplog, err := Open(mdbSession)
+	oplog, err := Open(testSession)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
