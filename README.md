@@ -9,7 +9,7 @@ Progress:
 
 The integration testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
 
-To run the tests:
+To run the tests *(may require 'sudo')*:
 ```
 make test-full
 ```
