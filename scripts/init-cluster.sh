@@ -42,13 +42,13 @@ echo "# INFO: replset is initiated"
 tries=1
 while [ $tries -lt $max_tries ]; do
 	/usr/bin/mongo ${MONGO_FLAGS} \
-		--port=${TEST_MONGODB_CONFIGSVR_PORT} \
+		--port=${TEST_MONGODB_CONFIGSVR1_PORT} \
 		--eval='rs.initiate({
-				_id: "csReplSet",
+				_id: "'${TEST_MONGODB_CONFIGSVR_RS}'",
 				configsvr: true,
 				version: 1,
 				members: [
-					{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_CONFIGSVR_PORT}'" }
+					{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_CONFIGSVR1_PORT}'" }
 				]
 		})'
 	[ $? == 0 ] && break
@@ -63,7 +63,7 @@ fi
 echo "# INFO: sharding configsvr is initiated"
 
 
-for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR_PORT}; do
+for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}; do
 	tries=1
 	while [ $tries -lt $max_tries ]; do
 		ISMASTER=$(/usr/bin/mongo ${MONGO_FLAGS} \
@@ -82,7 +82,7 @@ done
 echo "# INFO: all replsets have primary"
 
 
-for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR_PORT}; do
+for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}; do
 	tries=1
 	while [ $tries -lt $max_tries ]; do
 		/usr/bin/mongo ${MONGO_FLAGS} \
