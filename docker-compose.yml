@@ -32,7 +32,7 @@ services:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
-    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr --dbpath=/data/db
+    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
