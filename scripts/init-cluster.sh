@@ -44,16 +44,14 @@ while [ $tries -lt $max_tries ]; do
 	/usr/bin/mongo ${MONGO_FLAGS} \
 		--port=${TEST_MONGODB_CONFIGSVR_PORT} \
 		--eval='rs.initiate({
-			_id: "csReplSet",
-			configsvr: true,
-			version: 1,
-			members: [
-				{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_CONFIGSVR_PORT}'" },
-			]})' | tee /tmp/init-result.json
-	if [ $? == 0 ]; then
-	  grep -q '"ok" : 1' /tmp/init-result.json
-	  [ $? == 0 ] && break
-	fi
+				_id: "csReplSet",
+				configsvr: true,
+				version: 1,
+				members: [
+					{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_CONFIGSVR_PORT}'" }
+				]
+		})'
+	[ $? == 0 ] && break
 	echo "# INFO: retrying rs.initiate() for configsvr in $sleep_secs secs (try $tries/$max_tries)"
 	sleep $sleep_secs
 	tries=$(($tries + 1))
