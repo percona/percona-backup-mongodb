@@ -5,6 +5,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	rsConfig "github.com/timvaillancourt/go-mongodb-replset/config"
+	rsStatus "github.com/timvaillancourt/go-mongodb-replset/status"
 )
 
 const (
@@ -15,26 +16,6 @@ const (
 var (
 	replsetReadPreference = mgo.PrimaryPreferred
 )
-
-type Shard struct {
-	name    string
-	uri     string
-	replset *Replset
-}
-
-func NewShard(name, uri string) *Shard {
-	s := &Shard{
-		name:    name,
-		uri:     uri,
-		replset: &Replset{name: name},
-	}
-	s.replset.addrs = s.Addrs()
-	return s
-}
-
-func (s *Shard) Addrs() []string {
-	return []string{"127.0.0.1:27017"}
-}
 
 type Replset struct {
 	name  string
@@ -55,6 +36,14 @@ func (r *Replset) GetSession(username, password string) (*mgo.Session, error) {
 	}
 	session.SetMode(replsetReadPreference, true)
 	return session, nil
+}
+
+func (r *Replset) GetConfig() (*rsConfig.Config, error) {
+	return nil, nil
+}
+
+func (r *Replset) GetStatus() (*rsStatus.Status, error) {
+	return nil, nil
 }
 
 func getBackupNode(config *rsConfig.Config) (*rsConfig.Member, error) {

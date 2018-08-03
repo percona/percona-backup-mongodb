@@ -58,16 +58,3 @@ func isShardedCluster(isMaster *mdbstructs.IsMaster) bool {
 	}
 	return false
 }
-
-func getShards(session *mgo.Session) ([]*Shard, error) {
-	// Return the shards within a sharded cluster using the MongoDB 'listShards'
-	// server command. This command will only succeed on a mongos or config
-	// server.
-	//
-	// https://docs.mongodb.com/manual/reference/command/listShards/
-	//
-	listShards := mdbstructs.ListShards{}
-	shards := []*Shard{}
-	err := session.Run(bson.D{{"listShards", "1"}}, &listShards)
-	return shards, err
-}
