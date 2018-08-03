@@ -7,14 +7,14 @@ Progress:
 
 ## Testing
 
-Integration tests can be ran by running:
+The integration testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
+
+To run the tests:
 ```
 make test-full
 ```
 
-The tests launch a test MongoDB cluster in Docker, *'docker'* and *'docker-compose'* is required.
-
-Use the following to tear-down the test:
+To tear-down the test *(and containers, data, etc)*:
 ```
 make test-full-clean
 ```
