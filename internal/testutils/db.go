@@ -89,6 +89,7 @@ func MongosDialInfo() *mgo.DialInfo {
 		return &mgo.DialInfo{}
 	}
 	di := dialInfo([]string{MongoDBHost + ":" + MongoDBMongosPort})
-	di.Direct = false
+	di.Direct = true
+	di.ReplicaSetName = ""
 	return di
 }

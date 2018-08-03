@@ -8,6 +8,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/percona/mongodb-backup/internal/cluster"
 	"github.com/percona/mongodb-backup/mdbstructs"
 	"github.com/pkg/errors"
 )
@@ -184,7 +185,7 @@ func (ot *OplogTail) tailQuery() bson.M {
 	}
 	ot.lock.Unlock()
 
-	isMasterDoc, err := getIsMaster(ot.session)
+	isMasterDoc, err := cluster.GetIsMaster(ot.session)
 	if err != nil {
 		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 		query["ts"] = bson.M{"$gte": mongoTimestamp}
@@ -194,17 +195,8 @@ func (ot *OplogTail) tailQuery() bson.M {
 	return query
 }
 
-func getIsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
-	isMasterDoc := mdbstructs.IsMaster{}
-	err := session.Run("isMaster", &isMasterDoc)
-	if err != nil {
-		return nil, err
-	}
-	return &isMasterDoc, nil
-}
-
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
-	isMasterDoc, err := getIsMaster(session)
+	isMasterDoc, err := cluster.GetIsMaster(session)
 	if err != nil {
 		return "", errors.Wrap(err, "Cannot determine the oplog collection name")
 	}

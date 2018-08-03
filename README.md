@@ -5,3 +5,16 @@ Progress:
 - [x] Oplog tailer
 - [ ] S3 streamer [WIP]
 
+## Testing
+
+The integration testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
+
+To run the tests *(may require 'sudo')*:
+```
+make test-full
+```
+
+To tear-down the test *(and containers, data, etc)*:
+```
+make test-full-clean
+```
