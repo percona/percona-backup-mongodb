@@ -29,7 +29,7 @@ else
 	GOCACHE=$(GOCACHE) go test -v -race $(GO_TEST_PATH)
 endif
 
-test-replset:
+test-cluster:
 	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION) \
 	TEST_MONGODB_USERNAME=$(TEST_MONGODB_USERNAME) \
 	TEST_MONGODB_PASSWORD=$(TEST_MONGODB_PASSWORD) \
@@ -44,12 +44,12 @@ test-replset:
 	--force-recreate \
 	--renew-anon-volumes \
 	init
-	scripts/init-replset-wait.sh
+	scripts/init-cluster-wait.sh
 
-test-replset-clean:
+test-cluster-clean:
 	docker-compose down -v
 
-test-full: test-replset
+test-full: test-cluster
 	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
 	GOLANG_DOCKERHUB_TAG=$(GOLANG_DOCKERHUB_TAG) \
@@ -69,7 +69,7 @@ test-full: test-replset
 	--abort-on-container-exit \
 	test
 
-test-clean: test-replset-clean
+test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
 clean: test-clean

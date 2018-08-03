@@ -87,7 +87,7 @@ tries=1
 while [ $tries -lt $max_tries ]; do
 	ADDSHARD=$(/usr/bin/mongo ${MONGO_FLAGS} \
 		--port=${TEST_MONGODB_MONGOS_PORT} \
-		--eval='printjson(sh.addShard("'${TEST_MONGODB_RS}'/127.0.0.1:'${TEST_MONGODB_PRIMARY_PORT}'").ok)' 2>/dev/null)
+		--eval='printjson(sh.addShard("'${TEST_MONGODB_RS}'/127.0.0.1:'${TEST_MONGODB_PRIMARY_PORT}',127.0.0.1:'${TEST_MONGODB_SECONDARY1_PORT}',127.0.0.1:'${TEST_MONGODB_SECONDARY2_PORT}'").ok)' 2>/dev/null)
 	[ "$ADDSHARD" == "1" ] && break
 	echo "# INFO: retrying sh.addShard() check in $sleep_secs secs (try $tries/$max_tries)"
 	sleep $sleep_secs

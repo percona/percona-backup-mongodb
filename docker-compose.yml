@@ -51,9 +51,9 @@ services:
   init:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    entrypoint: /init-replset.sh
+    entrypoint: /init-cluster.sh
     volumes:
-    - ./scripts/init-replset.sh:/init-replset.sh
+    - ./scripts/init-cluster.sh:/init-cluster.sh
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/client.pem:/client.pem:ro
     environment:
