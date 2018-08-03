@@ -6,6 +6,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func TestParseShardURI(t *testing.T) {
@@ -30,6 +31,18 @@ func TestParseShardURI(t *testing.T) {
 	rs, hosts = parseShardURI("127.0.0.1:27017")
 	if rs != "" || len(hosts) > 0 {
 		t.Fatal("Expected empty results from .parseShardURI()")
+	}
+}
+
+func TestNewShard(t *testing.T) {
+	shard := NewShard(&mdbstructs.ListShardShard{
+		Id:   "shard1",
+		Host: "rs/127.0.0.1:27017,127.0.0.1:27018,127.0.0.1:27019",
+	})
+	if shard.replset.name != "rs" {
+		t.Fatalf("Expected 'replset.name' to equal %v but got %v", "rs", shard.replset.name)
+	} else if len(shard.replset.addrs) != 3 {
+		t.Fatalf("Expected 'replset.addrs' to contain %d addresses but got %d", 3, len(shard.replset.addrs))
 	}
 }
 

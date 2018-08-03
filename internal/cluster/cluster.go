@@ -9,8 +9,7 @@ import (
 )
 
 type Shard struct {
-	id      string
-	uri     string
+	config  *mdbstructs.ListShardsShard
 	replset *Replset
 }
 
@@ -25,8 +24,7 @@ func parseShardURI(uri string) (string, []string) {
 func NewShard(shard *mdbstructs.ListShardsShard) *Shard {
 	replset, addrs := parseShardURI(shard.Host)
 	return &Shard{
-		id:  shard.Id,
-		uri: uri,
+		config: shard,
 		replset: &Replset{
 			name:  replset,
 			addrs: addrs,
