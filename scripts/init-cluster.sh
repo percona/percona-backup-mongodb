@@ -63,21 +63,45 @@ fi
 echo "# INFO: sharding configsvr is initiated"
 
 
-tries=1
-while [ $tries -lt $max_tries ]; do
-	ISMASTER=$(/usr/bin/mongo ${MONGO_FLAGS} \
-		--port=${TEST_MONGODB_PRIMARY_PORT} \
-		--eval='printjson(db.isMaster().ismaster)' 2>/dev/null)
-	[ "$ISMASTER" == "true" ] && break
-	echo "# INFO: retrying db.isMaster() check in $sleep_secs secs (try $tries/$max_tries)"
-	sleep $sleep_secs
-	tries=$(($tries + 1))
+for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR_PORT}; do
+	tries=1
+	while [ $tries -lt $max_tries ]; do
+		ISMASTER=$(/usr/bin/mongo ${MONGO_FLAGS} \
+			--port=${MONGODB_PORT} \
+			--eval='printjson(db.isMaster().ismaster)' 2>/dev/null)
+		[ "$ISMASTER" == "true" ] && break
+		echo "# INFO: retrying db.isMaster() check on 127.0.0.1:${MONGODB_PORT} in $sleep_secs secs (try $tries/$max_tries)"
+		sleep $sleep_secs
+		tries=$(($tries + 1))
+	done
+	if [ $tries -ge $max_tries ]; then
+		echo "# ERROR: reached max tries $max_tries, exiting"
+		exit 1
+	fi
 done
-if [ $tries -ge $max_tries ]; then
-	echo "# ERROR: reached max tries $max_tries, exiting"
-	exit 1
-fi
-echo "# INFO: replset has primary ${MONGODB_PRIMARY_HOST}"
+echo "# INFO: all replsets have primary"
+
+
+for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR_PORT}; do
+	tries=1
+	while [ $tries -lt $max_tries ]; do
+		/usr/bin/mongo ${MONGO_FLAGS} \
+			--port=${MONGODB_PORT} \
+			--eval='db.createUser({
+				user: "'${TEST_MONGODB_USERNAME}'",
+				pwd: "'${TEST_MONGODB_PASSWORD}'",
+				roles: [
+					{ db: "admin", role: "root" }
+				]
+			})' \
+			admin
+		[ $? == 0 ] && break
+		echo "# INFO: retrying db.createUser() on 127.0.0.1:${MONGODB_PORT} in $sleep_secs secs (try $tries/$max_tries)"
+		sleep $sleep_secs
+		tries=$(($tries + 1))
+	done
+done
+echo "# INFO: all replsets have auth user(s)"
 
 
 tries=1
