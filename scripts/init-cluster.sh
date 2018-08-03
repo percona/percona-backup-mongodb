@@ -88,14 +88,30 @@ for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR_PORT};
 		/usr/bin/mongo ${MONGO_FLAGS} \
 			--port=${MONGODB_PORT} \
 			--eval='db.createUser({
-				user: "'${TEST_MONGODB_USERNAME}'",
-				pwd: "'${TEST_MONGODB_PASSWORD}'",
+				user: "'${TEST_MONGODB_ADMIN_USERNAME}'",
+				pwd: "'${TEST_MONGODB_ADMIN_PASSWORD}'",
 				roles: [
 					{ db: "admin", role: "root" }
 				]
 			})' \
 			admin
-		[ $? == 0 ] && break
+		if [ $? == 0 ]; then
+			/usr/bin/mongo ${MONGO_FLAGS} \
+				--username=${TEST_MONGODB_ADMIN_USERNAME} \
+				--password=${TEST_MONGODB_ADMIN_PASSWORD} \
+				--port=${MONGODB_PORT} \
+				--eval='db.createUser({
+					user: "'${TEST_MONGODB_USERNAME}'",
+					pwd: "'${TEST_MONGODB_PASSWORD}'",
+					roles: [
+						{ db: "admin", role: "backup" },
+						{ db: "admin", role: "clusterMonitor" },
+						{ db: "admin", role: "restore" }
+					]
+				})' \
+				admin
+			[ $? == 0 ] && break
+		fi
 		echo "# INFO: retrying db.createUser() on 127.0.0.1:${MONGODB_PORT} in $sleep_secs secs (try $tries/$max_tries)"
 		sleep $sleep_secs
 		tries=$(($tries + 1))
@@ -108,8 +124,11 @@ tries=1
 shard=${TEST_MONGODB_RS}'/127.0.0.1:'${TEST_MONGODB_PRIMARY_PORT}',127.0.0.1:'${TEST_MONGODB_SECONDARY1_PORT}
 while [ $tries -lt $max_tries ]; do
 	ISMASTER=$(/usr/bin/mongo ${MONGO_FLAGS} \
+		--username=${TEST_MONGODB_ADMIN_USERNAME} \
+		--password=${TEST_MONGODB_ADMIN_PASSWORD} \
 		--port=${TEST_MONGODB_MONGOS_PORT} \
-		--eval='printjson(sh.addShard("'$shard'").ok)' 2>/dev/null)
+		--eval='printjson(sh.addShard("'$shard'").ok)' \
+		admin 2>/dev/null)
 	[ $? == 0 ] && [ "$ISMASTER" == "1" ] && break
 	echo "# INFO: retrying sh.addShard() check in $sleep_secs secs (try $tries/$max_tries)"
 	sleep $sleep_secs

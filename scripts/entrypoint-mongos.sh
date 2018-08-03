@@ -1,12 +1,14 @@
 #!/bin/bash
 
-cp /mongod.pem /tmp/mongod.pem
+cp /mongos.key /tmp/mongos.key
+cp /mongos.pem /tmp/mongos.pem
 cp /rootCA.crt /tmp/mongod-rootCA.crt
-chmod 400 /tmp/mongod.pem /tmp/mongod-rootCA.pem
+chmod 400 /tmp/mongos.key /tmp/mongos.pem /tmp/mongod-rootCA.pem
 
 /usr/bin/mongos \
+	--keyFile=/tmp/mongos.key \
 	--bind_ip=0.0.0.0 \
 	--sslMode=preferSSL \
 	--sslCAFile=/tmp/mongod-rootCA.crt \
-	--sslPEMKeyFile=/tmp/mongod.pem \
+	--sslPEMKeyFile=/tmp/mongos.pem \
 	$*

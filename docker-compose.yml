@@ -8,6 +8,7 @@ services:
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001} --shardsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   mongo2:
@@ -17,6 +18,7 @@ services:
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002} --shardsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   mongo3:
@@ -26,6 +28,7 @@ services:
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003} --shardsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   configsvr:
@@ -35,6 +38,7 @@ services:
     command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   mongos:
@@ -44,8 +48,9 @@ services:
     command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=csReplSet/127.0.0.1:${TEST_MONGODB_CONFIGSVR_PORT:-17004} 
     volumes:
     - ./scripts/entrypoint-mongos.sh:/entrypoint-mongos.sh:ro
+    - ./scripts/mongod.key:/mongos.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./scripts/ssl/mongodb.pem:/mongos.pem:ro
     depends_on:
     - configsvr
   init:
@@ -54,11 +59,14 @@ services:
     entrypoint: /init-cluster.sh
     volumes:
     - ./scripts/init-cluster.sh:/init-cluster.sh
+    - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/client.pem:/client.pem:ro
     environment:
-    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-admin}
-    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-admin123456}
+    - TEST_MONGODB_ADMIN_USERNAME=${TEST_MONGODB_ADMIN_USERNAME:-admin}
+    - TEST_MONGODB_ADMIN_PASSWORD=${TEST_MONGODB_ADMIN_PASSWORD:-admin123456}
+    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-test}
+    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-123456}
     - TEST_MONGODB_RS=${TEST_MONGODB_RS:-rs}
     - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}
@@ -81,8 +89,8 @@ services:
     environment:
     - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-""}
     - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-""}
-    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-admin}
-    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-admin123456}
+    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-test}
+    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-123456}
     - TEST_MONGODB_RS=${TEST_MONGODB_RS:-rs}
     - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}

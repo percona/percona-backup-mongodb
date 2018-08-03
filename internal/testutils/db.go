@@ -12,8 +12,8 @@ const (
 	envMongoDBPrimaryPort    = "TEST_MONGODB_PRIMARY_PORT"
 	envMongoDBSecondary1Port = "TEST_MONGODB_SECONDARY1_PORT"
 	envMongoDBSecondary2Port = "TEST_MONGODB_SECONDARY2_PORT"
-	envMongoDBAdminUser      = "TEST_MONGODB_USERNAME"
-	envMongoDBAdminPassword  = "TEST_MONGODB_PASSWORD"
+	envMongoDBUser           = "TEST_MONGODB_USERNAME"
+	envMongoDBPassword       = "TEST_MONGODB_PASSWORD"
 )
 
 var (
@@ -22,8 +22,8 @@ var (
 	MongodbPrimaryPort    = os.Getenv(envMongoDBPrimaryPort)
 	MongodbSecondary1Port = os.Getenv(envMongoDBSecondary1Port)
 	MongodbSecondary2Port = os.Getenv(envMongoDBSecondary2Port)
-	MongodbAdminUser      = os.Getenv(envMongoDBAdminUser)
-	MongodbAdminPassword  = os.Getenv(envMongoDBAdminPassword)
+	MongodbUser           = os.Getenv(envMongoDBUser)
+	MongodbPassword       = os.Getenv(envMongoDBPassword)
 	MongodbTimeout        = time.Duration(10) * time.Second
 	defaultAddr           = []string{MongodbHost + ":17001"}
 )
@@ -36,9 +36,9 @@ func dialInfo(addrs []string) *mgo.DialInfo {
 	if MongodbReplsetName != "" {
 		di.ReplicaSetName = MongodbReplsetName
 	}
-	if MongodbAdminUser != "" && MongodbAdminPassword != "" {
-		di.Username = MongodbAdminUser
-		di.Password = MongodbAdminPassword
+	if MongodbUser != "" && MongodbPassword != "" {
+		di.Username = MongodbUser
+		di.Password = MongodbPassword
 	}
 	return di
 }
