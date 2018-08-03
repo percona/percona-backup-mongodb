@@ -196,7 +196,7 @@ func (ot *OplogTail) tailQuery() bson.M {
 }
 
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
-	isMasterDoc, err := getIsMaster(session)
+	isMasterDoc, err := cluster.GetIsMaster(session)
 	if err != nil {
 		return "", errors.Wrap(err, "Cannot determine the oplog collection name")
 	}

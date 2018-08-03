@@ -35,7 +35,7 @@ services:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
-    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR_PORT:-17004} --configsvr
+    command: --replSet=csReplSet --port=${TEST_MONGODB_CONFIGSVR1_PORT:-17004} --configsvr
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/mongod.key:/mongod.key:ro
@@ -45,7 +45,7 @@ services:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongos.sh
-    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=csReplSet/127.0.0.1:${TEST_MONGODB_CONFIGSVR_PORT:-17004} 
+    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}/127.0.0.1:${TEST_MONGODB_CONFIGSVR1_PORT:-17004} 
     volumes:
     - ./scripts/entrypoint-mongos.sh:/entrypoint-mongos.sh:ro
     - ./scripts/mongod.key:/mongos.key:ro
@@ -71,7 +71,8 @@ services:
     - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}
     - TEST_MONGODB_SECONDARY2_PORT=${TEST_MONGODB_SECONDARY2_PORT:-17003}
-    - TEST_MONGODB_CONFIGSVR_PORT=${TEST_MONGODB_CONFIGSVR_PORT:-17004}
+    - TEST_MONGODB_CONFIGSVR_RS=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}
+    - TEST_MONGODB_CONFIGSVR1_PORT=${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
     - TEST_MONGODB_MONGOS_PORT=${TEST_MONGODB_MONGOS_PORT:-17005}
     depends_on:
     - configsvr
@@ -95,7 +96,8 @@ services:
     - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}
     - TEST_MONGODB_SECONDARY2_PORT=${TEST_MONGODB_SECONDARY2_PORT:-17003}
-    - TEST_MONGODB_CONFIGSVR_PORT=${TEST_MONGODB_CONFIGSVR_PORT:-17004}
+    - TEST_MONGODB_CONFIGSVR_RS=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}
+    - TEST_MONGODB_CONFIGSVR1_PORT=${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
     - TEST_MONGODB_MONGOS_PORT=${TEST_MONGODB_MONGOS_PORT:-17005}
     volumes:
     - ./test-out:/tmp/out

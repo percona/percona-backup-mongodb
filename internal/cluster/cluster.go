@@ -9,7 +9,7 @@ import (
 )
 
 type Shard struct {
-	name    string
+	id      string
 	uri     string
 	replset *Replset
 }
@@ -22,11 +22,11 @@ func parseShardURI(uri string) (string, []string) {
 	return "", []string{}
 }
 
-func NewShard(uri string) *Shard {
-	replset, addrs := parseShardURI(uri)
+func NewShard(shard *mdbstructs.ListShardsShard) *Shard {
+	replset, addrs := parseShardURI(shard.Host)
 	return &Shard{
-		name: replset,
-		uri:  uri,
+		id:  shard.Id,
+		uri: uri,
 		replset: &Replset{
 			name:  replset,
 			addrs: addrs,
@@ -34,15 +34,14 @@ func NewShard(uri string) *Shard {
 	}
 }
 
-func getShards(session *mgo.Session) ([]*Shard, error) {
-	// Return the shards within a sharded cluster using the MongoDB 'listShards'
-	// server command. This command will only succeed on a mongos or config
-	// server.
-	//
-	// https://docs.mongodb.com/manual/reference/command/listShards/
-	//
+// Return the shards within a sharded cluster using the MongoDB 'listShards'
+// server command. This command will only succeed on a mongos or config
+// server.
+//
+// https://docs.mongodb.com/manual/reference/command/listShards/
+//
+func GetListShards(session *mgo.Session) (*mdbstructs.ListShards, error) {
 	listShards := mdbstructs.ListShards{}
-	shards := []*Shard{}
 	err := session.Run(bson.D{{"listShards", "1"}}, &listShards)
-	return shards, err
+	return &listShards, err
 }
