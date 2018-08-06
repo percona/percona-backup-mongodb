@@ -35,7 +35,7 @@ func TestParseShardURI(t *testing.T) {
 }
 
 func TestNewShard(t *testing.T) {
-	shard := NewShard(&mdbstructs.ListShardShard{
+	shard := NewShard(&mdbstructs.Shard{
 		Id:   "shard1",
 		Host: "rs/127.0.0.1:27017,127.0.0.1:27018,127.0.0.1:27019",
 	})
@@ -60,5 +60,22 @@ func TestGetListShards(t *testing.T) {
 		t.Fatal("Got non-ok response code from 'listShards' command")
 	} else if len(listShards.Shards) < 1 {
 		t.Fatal("Got zero shards from .GetListShards()")
+	}
+}
+
+func TestGetConfigsvrShards(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+	if err != nil {
+		t.Fatalf("Failed to connect to the configsvr replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	cnfsvrShards, err := GetConfigsvrShards(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetConfigsvrShards(): %v", err.Error())
+	} else if len(cnfsvrShards) != 1 {
+		t.Fatal("Got empty list of shards, should contain 1 shard")
+	} else if cnfsvrShards[0].Id != testutils.MongoDBReplsetName {
+		t.Fatalf("Got unexpected shard data, expected 1 shard with name %s", testutils.MongoDBReplsetName)
 	}
 }
