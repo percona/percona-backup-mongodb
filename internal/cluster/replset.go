@@ -6,6 +6,7 @@ import (
 	"github.com/globalsign/mgo"
 	rsConfig "github.com/timvaillancourt/go-mongodb-replset/config"
 	rsStatus "github.com/timvaillancourt/go-mongodb-replset/status"
+	mgov2 "gopkg.in/mgo.v2"
 )
 
 const (
@@ -18,32 +19,47 @@ var (
 )
 
 type Replset struct {
-	name  string
-	addrs []string
+	name     string
+	addrs    []string
+	username string
+	password string
+	session  *mgo.Session
 }
 
-func (r *Replset) GetSession(username, password string) (*mgo.Session, error) {
-	session, err := mgo.DialWithInfo(&mgo.DialInfo{
+func NewReplset(name string, addrs []string, username, password string) (*Replset, error) {
+	r := &Replset{
+		name:     name,
+		addrs:    addrs,
+		username: username,
+		password: password,
+	}
+	return r, r.getSession()
+}
+
+func (r *Replset) getSession() error {
+	var err error
+	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
-		Username:       username,
-		Password:       password,
+		Username:       r.username,
+		Password:       r.password,
 		ReplicaSetName: r.name,
-		FailFast:       true,
 		Timeout:        10 * time.Second,
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	session.SetMode(replsetReadPreference, true)
-	return session, nil
+	r.session.SetMode(replsetReadPreference, true)
+	return nil
 }
 
 func (r *Replset) GetConfig() (*rsConfig.Config, error) {
-	return nil, nil
+	manager := rsConfig.New(r.session.(*mgov2.Session))
+	err := manager.Load()
+	return manager.Get(), err
 }
 
 func (r *Replset) GetStatus() (*rsStatus.Status, error) {
-	return nil, nil
+	return rsStatus.New(r.session)
 }
 
 func getBackupNode(config *rsConfig.Config) (*rsConfig.Member, error) {
