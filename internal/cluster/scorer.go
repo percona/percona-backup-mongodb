@@ -14,13 +14,20 @@ const (
 	priorityZeroMultiplier  = +0.1
 	priorityWeight          = 1.0
 	votesWeight             = 2.0
+
+	msgMemberDown          = "member is down"
+	msgMemberPrimary       = "member is primary"
+	msgMemberBadState      = "member has bad state"
+	msgMemberHidden        = "member is hidden"
+	msgMemberPriorityZero  = "member has priority 0"
+	msgMemberPriorityGtOne = "member has priority > 1"
+	msgMemberVotesGtOne    = "member has votes > 1"
 )
 
 type ScoringMember struct {
 	config *mdbstructs.ReplsetConfigMember
 	status *mdbstructs.ReplsetStatusMember
 	score  float64
-	scored bool
 	log    []string
 }
 
@@ -29,19 +36,16 @@ func (sm *ScoringMember) GetScore() float64 {
 }
 
 func (sm *ScoringMember) SetScore(score float64, msg string) {
-	sm.scored = true
 	sm.score = score
 	sm.log = append(sm.log, msg)
 }
 
 func (sm *ScoringMember) MultiplyScore(multiplier float64, msg string) {
-	sm.scored = true
 	sm.score += (sm.score * multiplier)
 	sm.log = append(sm.log, msg)
 }
 
 func (sm *ScoringMember) AddScore(add float64, msg string) {
-	sm.scored = true
 	sm.score += add
 	sm.log = append(sm.log, msg)
 }
@@ -81,27 +85,27 @@ func (s *Scorer) Score() error {
 			score:  baseScore,
 		}
 		if statusMember.Health != mdbstructs.ReplsetMemberHealthUp {
-			member.SetScore(0, "member is down")
+			member.SetScore(0, msgMemberDown)
 		}
 
 		if statusMember.State == mdbstructs.ReplsetMemberStatePrimary {
-			member.MultiplyScore(primaryMemberMultiplier, "member is primary")
+			member.MultiplyScore(primaryMemberMultiplier, msgMemberPrimary)
 		} else if statusMember.State != mdbstructs.ReplsetMemberStateSecondary {
-			member.SetScore(0, "member is not secondary or primary")
+			member.SetScore(0, msgMemberBadState)
 		}
 
 		if cnfMember.Hidden == true {
-			member.MultiplyScore(hiddenMemberMultiplier, "member is hidden")
+			member.MultiplyScore(hiddenMemberMultiplier, msgMemberHidden)
 		} else if cnfMember.Priority == 0 {
-			member.MultiplyScore(priorityZeroMultiplier, "member has priority == 0")
+			member.MultiplyScore(priorityZeroMultiplier, msgMemberPriorityZero)
 		} else if cnfMember.Priority > 1 {
 			addScore := float64(cnfMember.Priority-1) * priorityWeight
-			member.AddScore(addScore*-1, "member has priority > 1")
+			member.AddScore(addScore*-1, msgMemberPriorityGtOne)
 		}
 
 		if cnfMember.Votes > 1 {
 			addScore := float64(cnfMember.Votes-1) * votesWeight
-			member.AddScore(addScore*-1, "member has votes > 1")
+			member.AddScore(addScore*-1, msgMemberVotesGtOne)
 		}
 
 		s.members[cnfMember.Host] = member
