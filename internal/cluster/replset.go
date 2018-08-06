@@ -1,11 +1,12 @@
 package cluster
 
 import (
+	"sync"
 	"time"
 
 	"github.com/globalsign/mgo"
-	rsConfig "github.com/timvaillancourt/go-mongodb-replset/config"
-	rsStatus "github.com/timvaillancourt/go-mongodb-replset/status"
+	"github.com/globalsign/mgo/bson"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 const (
@@ -18,34 +19,64 @@ var (
 )
 
 type Replset struct {
-	name  string
-	addrs []string
+	sync.Mutex
+	name     string
+	addrs    []string
+	username string
+	password string
+	session  *mgo.Session
 }
 
-func (r *Replset) GetSession(username, password string) (*mgo.Session, error) {
-	session, err := mgo.DialWithInfo(&mgo.DialInfo{
+func NewReplset(name string, addrs []string, username, password string) (*Replset, error) {
+	r := &Replset{
+		name:     name,
+		addrs:    addrs,
+		username: username,
+		password: password,
+	}
+	return r, r.getSession()
+}
+
+func (r *Replset) getSession() error {
+	r.Lock()
+	defer r.Unlock()
+
+	var err error
+	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
-		Username:       username,
-		Password:       password,
+		Username:       r.username,
+		Password:       r.password,
 		ReplicaSetName: r.name,
-		FailFast:       true,
 		Timeout:        10 * time.Second,
 	})
-	if err != nil {
-		return nil, err
+	if err != nil || r.session.Ping() != nil {
+		return err
 	}
-	session.SetMode(replsetReadPreference, true)
-	return session, nil
+	r.session.SetMode(replsetReadPreference, true)
+	return nil
 }
 
-func (r *Replset) GetConfig() (*rsConfig.Config, error) {
-	return nil, nil
+func (r *Replset) Close() {
+	r.Lock()
+	defer r.Unlock()
+
+	if r.session != nil {
+		r.session.Close()
+	}
 }
 
-func (r *Replset) GetStatus() (*rsStatus.Status, error) {
-	return nil, nil
+func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
+	rsGetConfig := mdbstructs.ReplSetGetConfig{}
+	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
+	return rsGetConfig.Config, err
 }
 
-func getBackupNode(config *rsConfig.Config) (*rsConfig.Member, error) {
+func (r *Replset) GetStatus() (*mdbstructs.ReplsetStatus, error) {
+	status := mdbstructs.ReplsetStatus{}
+	err := r.session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	return &status, err
+}
+
+func getBackupNode(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	return config.Members[0], nil
 }
