@@ -40,8 +40,8 @@ func NewShard(shard *mdbstructs.Shard) *Shard {
 }
 
 // Return shards within a sharded cluster using the MongoDB 'listShards'
-// server command. This command will only succeed on a mongos or config
-// server.
+// server command. This command will only succeed on a mongos, use
+// .GetConfigsvrShards() to get shards from a config server.
 //
 // https://docs.mongodb.com/manual/reference/command/listShards/
 //
@@ -53,8 +53,8 @@ func GetListShards(session *mgo.Session) (*mdbstructs.ListShards, error) {
 
 // Return shards within a sharded cluster using the 'config.shards'
 // collection on a config server. This is needed because config servers
-// do not have the 'listShards' command. Use .GetListShards() to query
-// shards from a mongos.
+// do not have the 'listShards' command. Use .GetListShards() to get
+// shards from a mongos instead.
 //
 // https://docs.mongodb.com/manual/reference/config-database/#config.shards
 //

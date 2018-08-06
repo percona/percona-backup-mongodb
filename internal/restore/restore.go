@@ -12,14 +12,17 @@ import (
 )
 
 type MongoRestoreInput struct {
-	Archive string
-	DryRun  bool // Used only for testing
-	Host    string
-	Port    string
-	Gzip    bool
-	Oplog   bool
-	Threads int
-	Reader  io.ReadCloser
+	Archive  string
+	DryRun   bool // Used only for testing
+	Host     string
+	Port     string
+	Username string
+	Password string
+	AuthDB   string
+	Gzip     bool
+	Oplog    bool
+	Threads  int
+	Reader   io.ReadCloser
 }
 
 type MongoRestore struct {
@@ -51,6 +54,13 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		Auth:       &options.Auth{},
 		Namespace:  &options.Namespace{},
 		URI:        &options.URI{},
+	}
+	if i.Username != "" && i.Password != "" {
+		toolOpts.Auth.Username = i.Username
+		toolOpts.Auth.Password = i.Password
+		if i.AuthDB != "" {
+			toolOpts.Auth.Source = i.AuthDB
+		}
 	}
 
 	inputOpts := &mongorestore.InputOptions{

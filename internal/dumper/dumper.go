@@ -11,13 +11,16 @@ import (
 )
 
 type MongodumpInput struct {
-	Archive string
-	Host    string
-	Port    string
-	Gzip    bool
-	Oplog   bool
-	Threads int
-	Writer  io.WriteCloser
+	Archive  string
+	Host     string
+	Port     string
+	Username string
+	Password string
+	AuthDB   string
+	Gzip     bool
+	Oplog    bool
+	Threads  int
+	Writer   io.WriteCloser
 }
 
 type Mongodump struct {
@@ -48,6 +51,13 @@ func NewMongodump(i *MongodumpInput) (*Mongodump, error) {
 		Connection: connOpts,
 		Auth:       &options.Auth{},
 		Namespace:  &options.Namespace{},
+	}
+	if i.Username != "" && i.Password != "" {
+		toolOpts.Auth.Username = i.Username
+		toolOpts.Auth.Password = i.Password
+		if i.AuthDB != "" {
+			toolOpts.Auth.Source = i.AuthDB
+		}
 	}
 
 	outputOpts := &mongodump.OutputOptions{
