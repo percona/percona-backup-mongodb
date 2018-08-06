@@ -5,15 +5,15 @@ import (
 )
 
 type Cluster struct {
-	shards []*Shard
+	shards map[string]*Shard
 }
 
 func New(shards []*mdbstructs.Shard) *Cluster {
 	c := &Cluster{
-		shards: make([]*Shard, 0),
+		shards: make(map[string]*Shard),
 	}
 	for _, shard := range shards {
-		c.shards = append(c.shards, NewShard(shard))
+		c.shards[shard.Id] = NewShard(shard)
 	}
 	return c
 }

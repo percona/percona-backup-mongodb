@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"sync"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -18,6 +19,7 @@ var (
 )
 
 type Replset struct {
+	sync.Mutex
 	name     string
 	addrs    []string
 	username string
@@ -36,6 +38,9 @@ func NewReplset(name string, addrs []string, username, password string) (*Replse
 }
 
 func (r *Replset) getSession() error {
+	r.Lock()
+	defer r.Unlock()
+
 	var err error
 	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
@@ -44,7 +49,7 @@ func (r *Replset) getSession() error {
 		ReplicaSetName: r.name,
 		Timeout:        10 * time.Second,
 	})
-	if err != nil {
+	if err != nil || r.session.Ping() != nil {
 		return err
 	}
 	r.session.SetMode(replsetReadPreference, true)
@@ -52,6 +57,9 @@ func (r *Replset) getSession() error {
 }
 
 func (r *Replset) Close() {
+	r.Lock()
+	defer r.Unlock()
+
 	if r.session != nil {
 		r.session.Close()
 	}

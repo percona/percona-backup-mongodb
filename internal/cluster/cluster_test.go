@@ -14,10 +14,8 @@ func TestNew(t *testing.T) {
 	if len(cluster.shards) != 1 {
 		t.Fatal("Got unexpected number of shards")
 	}
-	shard := cluster.shards[0]
-	if shard.config.Id != "shard1" {
-		t.Fatal("Got unexpected shard info")
-	} else if len(shard.replset.addrs) != 3 {
+	shard := cluster.shards["shard1"]
+	if len(shard.replset.addrs) != 3 {
 		t.Fatal("Got unexpected replset addresses for shard")
 	}
 }
