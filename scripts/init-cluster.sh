@@ -106,7 +106,8 @@ for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}
 					roles: [
 						{ db: "admin", role: "backup" },
 						{ db: "admin", role: "clusterMonitor" },
-						{ db: "admin", role: "restore" }
+						{ db: "admin", role: "restore" },
+						{ db: "test", role: "readWrite" }
 					]
 				})' \
 				admin

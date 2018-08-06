@@ -4,6 +4,5 @@ FROM golang:$GOLANG_DOCKERHUB_TAG
 WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
 
-RUN go get ./... && \
-    go vet ./...
+RUN go get ./...
 CMD make test-race

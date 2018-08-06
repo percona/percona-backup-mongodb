@@ -2,20 +2,24 @@ package restore
 
 import (
 	"testing"
+
+	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
 func TestRestore(t *testing.T) {
 
 	input := &MongoRestoreInput{
 		// this file was generated with the dump pkg
-		Archive: "testdata/dump_test.000622955",
-		DryRun:  true,
-		Host:    "localhost",
-		Port:    "17001",
-		Gzip:    false,
-		Oplog:   false,
-		Threads: 1,
-		Reader:  nil,
+		Archive:  "testdata/dump_test.000622955",
+		DryRun:   true,
+		Host:     testutils.MongoDBHost,
+		Port:     testutils.MongoDBPrimaryPort,
+		Username: testutils.MongoDBUser,
+		Password: testutils.MongoDBPassword,
+		Gzip:     false,
+		Oplog:    false,
+		Threads:  1,
+		Reader:   nil,
 	}
 
 	r, err := NewMongoRestore(input)

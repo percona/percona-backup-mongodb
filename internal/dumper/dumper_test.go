@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"testing"
+
+	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
 var (
@@ -28,12 +30,14 @@ func TestWriteToFile(t *testing.T) {
 	diag("Using temporary file %q", tmpFile.Name())
 
 	mi := &MongodumpInput{
-		Host:    "localhost",
-		Port:    "17001",
-		Gzip:    false,
-		Oplog:   false,
-		Threads: 1,
-		Writer:  tmpFile,
+		Host:     testutils.MongoDBHost,
+		Port:     testutils.MongoDBPrimaryPort,
+		Username: testutils.MongoDBUser,
+		Password: testutils.MongoDBPassword,
+		Gzip:     false,
+		Oplog:    false,
+		Threads:  1,
+		Writer:   tmpFile,
 	}
 
 	mdump, err := NewMongodump(mi)
