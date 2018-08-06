@@ -13,6 +13,7 @@ const (
 	primaryMemberMultiplier = -0.5
 	priorityZeroMultiplier  = +0.1
 	priorityWeight          = 1.0
+	votesWeight             = 2.0
 )
 
 type ScoringMember struct {
@@ -45,18 +46,33 @@ func (sm *ScoringMember) AddScore(add float64, msg string) {
 	sm.log = append(sm.log, msg)
 }
 
-func ScoreMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (map[string]*ScoringMember, error) {
-	members := make(map[string]*ScoringMember)
-	for _, cnfMember := range config.Members {
+type Scorer struct {
+	config  *mdbstructs.ReplsetConfig
+	status  *mdbstructs.ReplsetStatus
+	tags    *mdbstructs.ReplsetTags
+	members map[string]*ScoringMember
+}
+
+func NewScorer(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) *Scorer {
+	return &Scorer{
+		config:  config,
+		status:  status,
+		tags:    tags,
+		members: make(map[string]*ScoringMember),
+	}
+}
+
+func (s *Scorer) Score() error {
+	for _, cnfMember := range s.config.Members {
 		var statusMember *mdbstructs.ReplsetStatusMember
-		for _, m := range status.Members {
+		for _, m := range s.status.Members {
 			if m.Name == cnfMember.Host {
 				statusMember = m
 				break
 			}
 		}
 		if statusMember == nil {
-			return nil, errors.New("no status info")
+			return errors.New("no status info")
 		}
 
 		member := &ScoringMember{
@@ -83,8 +99,13 @@ func ScoreMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 			member.AddScore(addScore*-1, "member has priority > 1")
 		}
 
-		members[cnfMember.Host] = member
+		if cnfMember.Votes > 1 {
+			addScore := float64(cnfMember.Votes-1) * votesWeight
+			member.AddScore(addScore*-1, "member has votes > 1")
+		}
+
+		s.members[cnfMember.Host] = member
 		fmt.Printf("%v\n", member)
 	}
-	return members, nil
+	return nil
 }

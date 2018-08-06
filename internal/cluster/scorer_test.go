@@ -6,7 +6,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
-func TestScoreMembers(t *testing.T) {
+func TestScorerRun(t *testing.T) {
 	rs, err := NewReplset(
 		testutils.MongoDBReplsetName,
 		[]string{
@@ -30,10 +30,10 @@ func TestScoreMembers(t *testing.T) {
 		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
 	}
 
-	scored, err := ScoreMembers(config, status, nil)
-	if err != nil {
-		t.Fatalf("Failed to run .ScoreMembers(): %v", err.Error())
-	} else if len(scored) < 1 {
-		t.Fatal("Got zero scored members from .ScoreMembers()")
+	scorer := NewScorer(config, status, nil)
+	if scorer.Score() != nil {
+		t.Fatalf("Failed to run Scorer .Run(): %v", err.Error())
+	} else if len(scorer.members) < 1 {
+		t.Fatal("Got zero scored members from Scorer .Run()")
 	}
 }
