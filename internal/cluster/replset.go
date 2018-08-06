@@ -4,9 +4,8 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo"
-	rsConfig "github.com/timvaillancourt/go-mongodb-replset/config"
-	rsStatus "github.com/timvaillancourt/go-mongodb-replset/status"
-	mgov2 "gopkg.in/mgo.v2"
+	"github.com/globalsign/mgo/bson"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 const (
@@ -52,16 +51,24 @@ func (r *Replset) getSession() error {
 	return nil
 }
 
-func (r *Replset) GetConfig() (*rsConfig.Config, error) {
-	manager := rsConfig.New(r.session.(*mgov2.Session))
-	err := manager.Load()
-	return manager.Get(), err
+func (r *Replset) Close() {
+	if r.session != nil {
+		r.session.Close()
+	}
 }
 
-func (r *Replset) GetStatus() (*rsStatus.Status, error) {
-	return rsStatus.New(r.session)
+func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
+	rsGetConfig := mdbstructs.ReplSetGetConfig{}
+	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
+	return rsGetConfig.Config, err
 }
 
-func getBackupNode(config *rsConfig.Config) (*rsConfig.Member, error) {
+func (r *Replset) GetStatus() (*mdbstructs.ReplsetStatus, error) {
+	status := mdbstructs.ReplsetStatus{}
+	err := r.session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	return &status, err
+}
+
+func getBackupNode(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	return config.Members[0], nil
 }
