@@ -73,7 +73,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 
 	// test the lag is 14.95 seconds
-	lag, err := GetReplsetLagDuration(&status, "test:27019")
+	lag, err := GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}
@@ -84,7 +84,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	// test the lag is 4.85 seconds
 	status.Members[0].Optime.Ts = secondaryTs
 	status.Members[1].Optime.Ts = primaryTs
-	lag, err = GetReplsetLagDuration(&status, "test:27018")
+	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}

@@ -24,16 +24,13 @@ func getMemberOpLag(status *mdbstructs.ReplsetStatus, member *mdbstructs.Replset
 // GetReplsetLagDuration returns the lag between the replica set Primary
 // and the provided member host by considering the latency in Replica Set
 // heartbeats and oplog timestamps of members
-func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compareHost string) (time.Duration, error) {
+func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compare *mdbstructs.ReplsetStatusMember) (time.Duration, error) {
 	var lag time.Duration
 	var opLag time.Duration
 
 	primary := GetReplsetStatusPrimary(status)
-	compare := GetReplsetStatusMember(status, compareHost)
 	if primary == nil {
 		return lag, errors.New("no primary")
-	} else if compare == nil {
-		return lag, errors.New("no compare host")
 	}
 
 	var primaryOpLag time.Duration

@@ -127,7 +127,7 @@ func (s *Scorer) Score() error {
 		}
 
 		// replset lag
-		replsetLag, err := GetReplsetLagDuration(s.status, s.config.Name)
+		replsetLag, err := GetReplsetLagDuration(s.status, GetReplsetStatusMember(s.status, s.config.Name))
 		if err != nil {
 			return err
 		}
