@@ -9,11 +9,6 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-const (
-	testReplSetGetStatusPrimaryFile   = "testdata/replSetGetStatus-primary.bson"
-	testReplSetGetStatusSecondaryFile = "testdata/replSetGetStatus-secondary.bson"
-)
-
 func TestGetStatus(t *testing.T) {
 	rs, err := NewReplset(
 		testutils.MongoDBReplsetName,
@@ -47,7 +42,6 @@ func TestGetReplsetLagDuration(t *testing.T) {
 		Date: now,
 		Members: []*mdbstructs.ReplsetStatusMember{
 			{
-				Id:                0,
 				Name:              "test:27017",
 				Optime:            &mdbstructs.OpTime{Ts: primaryTs},
 				State:             mdbstructs.ReplsetMemberStatePrimary,
@@ -55,14 +49,12 @@ func TestGetReplsetLagDuration(t *testing.T) {
 				LastHeartbeat:     lastHB.Add(-150 * time.Millisecond),
 			},
 			{
-				Id:     1,
 				Name:   "test:27018",
 				Optime: &mdbstructs.OpTime{Ts: secondaryTs},
 				State:  mdbstructs.ReplsetMemberStateSecondary,
 				Self:   true,
 			},
 			{
-				Id:                2,
 				Name:              "test:27019",
 				Optime:            &mdbstructs.OpTime{Ts: secondaryTs},
 				State:             mdbstructs.ReplsetMemberStateSecondary,
@@ -90,5 +82,25 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 	if lag.Nanoseconds() != 4850000000 {
 		t.Fatalf("Lag should be 4.85s, got: %v", lag)
+	}
+
+	// test lag is 0 seconds when asking for primary
+	status.Members[0].State = mdbstructs.ReplsetMemberStateSecondary
+	status.Members[1].State = mdbstructs.ReplsetMemberStatePrimary
+	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
+	if err != nil {
+		t.Fatalf("Could not get lag: %v", err.Error())
+	}
+	if lag.Seconds() != 0 {
+		t.Fatalf("Lag should be 0s, got: %v", lag)
+	}
+
+	// test lag is 4.9 seconds
+	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
+	if err != nil {
+		t.Fatalf("Could not get lag: %v", err.Error())
+	}
+	if lag.Nanoseconds() != 4900000000 {
+		t.Fatalf("Lag should be 4.90s, got: %v", lag)
 	}
 }

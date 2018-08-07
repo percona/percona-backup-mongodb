@@ -1,20 +1,10 @@
 package cluster
 
 import (
-	"io/ioutil"
 	"testing"
 
-	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
-
-func loadBSONFile(file string, out interface{}) error {
-	bytes, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return bson.Unmarshal(bytes, out)
-}
 
 func TestNewReplset(t *testing.T) {
 	rs, err := NewReplset(
