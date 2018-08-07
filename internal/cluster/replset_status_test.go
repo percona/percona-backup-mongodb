@@ -2,7 +2,9 @@ package cluster
 
 import (
 	"testing"
+	"time"
 
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
@@ -37,10 +39,56 @@ func TestGetStatus(t *testing.T) {
 }
 
 func TestGetReplsetLagDuration(t *testing.T) {
-	status := mdbstructs.ReplsetStatus{}
-	err := loadBSONFile(testReplSetGetStatusSecondaryFile, &status)
-	if err != nil {
-		t.Fatalf("Could not load test file: %v", err.Error())
+	now := time.Now()
+	lastHB := now.Add(-10 * time.Second)
+	primaryTs, _ := bson.NewMongoTimestamp(now, 0)
+	secondaryTs, _ := bson.NewMongoTimestamp(now.Add(-15*time.Second), 1)
+	status := mdbstructs.ReplsetStatus{
+		Date: now,
+		Members: []*mdbstructs.ReplsetStatusMember{
+			{
+				Id:                0,
+				Name:              "test:27017",
+				Optime:            &mdbstructs.OpTime{Ts: primaryTs},
+				State:             mdbstructs.ReplsetMemberStatePrimary,
+				LastHeartbeatRecv: lastHB,
+				LastHeartbeat:     lastHB.Add(-150 * time.Millisecond),
+			},
+			{
+				Id:     1,
+				Name:   "test:27018",
+				Optime: &mdbstructs.OpTime{Ts: secondaryTs},
+				State:  mdbstructs.ReplsetMemberStateSecondary,
+				Self:   true,
+			},
+			{
+				Id:                2,
+				Name:              "test:27019",
+				Optime:            &mdbstructs.OpTime{Ts: secondaryTs},
+				State:             mdbstructs.ReplsetMemberStateSecondary,
+				LastHeartbeatRecv: lastHB,
+				LastHeartbeat:     lastHB.Add(-100 * time.Millisecond),
+			},
+		},
 	}
-	t.Logf("%v\n", status)
+
+	// test the lag is 14.95 seconds
+	lag, err := GetReplsetLagDuration(&status, "test:27019")
+	if err != nil {
+		t.Fatalf("Could not get lag: %v", err.Error())
+	}
+	if lag.Nanoseconds() != 14950000000 {
+		t.Fatalf("Lag should be 14.95s, got: %v", lag)
+	}
+
+	// test the lag is 4.85 seconds
+	status.Members[0].Optime.Ts = secondaryTs
+	status.Members[1].Optime.Ts = primaryTs
+	lag, err = GetReplsetLagDuration(&status, "test:27018")
+	if err != nil {
+		t.Fatalf("Could not get lag: %v", err.Error())
+	}
+	if lag.Nanoseconds() != 4850000000 {
+		t.Fatalf("Lag should be 4.85s, got: %v", lag)
+	}
 }
