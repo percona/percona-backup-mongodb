@@ -64,7 +64,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 		},
 	}
 
-	// test the lag is 14.95 seconds
+	// test the lag is 14.95 seconds for secondary (both secondary and primary not-self)
 	lag, err := GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
@@ -73,7 +73,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 		t.Fatalf("Lag should be 14.95s, got: %v", lag)
 	}
 
-	// test the lag is 4.85 seconds
+	// test the lag is 4.85 seconds (secondary is self)
 	status.Members[0].Optime.Ts = secondaryTs
 	status.Members[1].Optime.Ts = primaryTs
 	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
@@ -84,7 +84,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 		t.Fatalf("Lag should be 4.85s, got: %v", lag)
 	}
 
-	// test lag is 0 seconds when asking for primary
+	// test lag is 0 seconds (compare host is primary - always 0s)
 	status.Members[0].State = mdbstructs.ReplsetMemberStateSecondary
 	status.Members[1].State = mdbstructs.ReplsetMemberStatePrimary
 	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
@@ -95,7 +95,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 		t.Fatalf("Lag should be 0s, got: %v", lag)
 	}
 
-	// test lag is 4.9 seconds
+	// test lag is 4.9 seconds (primary is self)
 	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
