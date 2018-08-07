@@ -16,12 +16,6 @@ var (
 //func HasReplsetTag(config *mdbstructs.ReplsetConfig, key, val string) bool {
 //}
 
-// GetReplsetLag returns the lag between the replica set
-// Primary and the provided member host.
-func GetReplsetLag(status *mdbstructs.ReplsetStatus, compareHost string) (time.Duration, error) {
-	return time.Second, nil
-}
-
 type Replset struct {
 	sync.Mutex
 	name     string
@@ -73,10 +67,4 @@ func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
-}
-
-func (r *Replset) GetStatus() (*mdbstructs.ReplsetStatus, error) {
-	status := mdbstructs.ReplsetStatus{}
-	err := r.session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
-	return &status, err
 }
