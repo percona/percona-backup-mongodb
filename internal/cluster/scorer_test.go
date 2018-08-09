@@ -31,7 +31,8 @@ func TestScorerRun(t *testing.T) {
 	}
 
 	scorer := NewScorer(config, status, nil)
-	if scorer.Score() != nil {
+	err = scorer.Score()
+	if err != nil {
 		t.Fatalf("Failed to run Scorer .Run(): %v", err.Error())
 	} else if len(scorer.members) < 1 {
 		t.Fatal("Got zero scored members from Scorer .Run()")
