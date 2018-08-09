@@ -114,12 +114,6 @@ type Scorer struct {
 	members map[string]*ScoringMember
 }
 
-func NewScorer() *Scorer {
-	return &Scorer{
-		members: map[string]*ScoringMember{},
-	}
-}
-
 func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*Scorer, error) {
 	var err error
 	var secondariesWithPriority int
@@ -193,12 +187,19 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 		}
 	}
 
+	if scorer.Winner() == nil {
+		return scorer, errors.New("no winner")
+	}
 	return scorer, nil
+}
+
+func (s *Scorer) Members() map[string]*ScoringMember {
+	return s.members
 }
 
 func (s *Scorer) Winner() *ScoringMember {
 	var winner *ScoringMember
-	for _, member := range s.members {
+	for _, member := range s.Members() {
 		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
 		}
