@@ -6,7 +6,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
-func TestScorerRun(t *testing.T) {
+func TestScoreReplset(t *testing.T) {
 	rs, err := NewReplset(
 		testutils.MongoDBReplsetName,
 		[]string{
@@ -30,17 +30,19 @@ func TestScorerRun(t *testing.T) {
 		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
 	}
 
-	scorer, err := NewScorer(config, status, nil)
+	scorer, err := ScoreReplset(config, status, nil)
 	if err != nil {
-		t.Fatalf("Could not init Scorer: %v", err.Error())
-	}
-
-	err = scorer.Score()
-	if err != nil {
-		t.Fatalf("Failed to run Scorer .Run(): %v", err.Error())
+		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
 	} else if len(scorer.members) < 1 {
-		t.Fatal("Got zero scored members from Scorer .Run()")
+		t.Fatal("Got zero scored members from .ScoreReplset()")
 	}
 
-	t.Logf("%v\n", scorer.Winner().Name())
+	winner := scorer.Winner()
+	if winner == nil {
+		t.Fatal(".Winner() returned nil")
+	}
+
+	if winner.Name() != "127.0.0.1:17003" {
+		t.Fatalf("Expected .Winner() to return host 127.0.0.1:17003, not %v", winner.Name())
+	}
 }

@@ -3,15 +3,15 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
-	//"github.com/davecgh/go-spew/spew"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 const (
 	baseScore                      = 100
-	hiddenMemberMultiplier         = 1.6
+	hiddenMemberMultiplier         = 1.8
 	secondaryMemberMultiplier      = 1.1
 	priorityZeroMultiplier         = 1.3
 	replsetOkLagMultiplier         = 1.1
@@ -41,7 +41,7 @@ const (
 type ScoringMember struct {
 	config *mdbstructs.ReplsetConfigMember
 	status *mdbstructs.ReplsetStatusMember
-	score  float64
+	score  int
 	log    []ScorerMsg
 }
 
@@ -50,38 +50,20 @@ func (sm *ScoringMember) Name() string {
 }
 
 func (sm *ScoringMember) SetScore(score float64, msg ScorerMsg) {
-	sm.score = score
+	sm.score = int(math.Floor(score))
 	sm.log = append(sm.log, msg)
 }
 
 func (sm *ScoringMember) MultiplyScore(multiplier float64, msg ScorerMsg) {
-	sm.score *= multiplier
+	newScore := float64(sm.score) * multiplier
+	sm.score = int(math.Floor(newScore))
 	sm.log = append(sm.log, msg)
 }
 
-type Scorer struct {
-	status  *mdbstructs.ReplsetStatus
-	tags    *mdbstructs.ReplsetTags
-	members map[string]*ScoringMember
-}
-
-func NewScorer(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*Scorer, error) {
-	scorer := &Scorer{
-		status: status,
-		tags:   tags,
-	}
-	var err error
-	scorer.members, err = getScoringMembers(config, status)
-	return scorer, err
-}
-
-func (s *Scorer) minPrioritySecondary() *ScoringMember {
+func minPrioritySecondary(members map[string]*ScoringMember) *ScoringMember {
 	var minPriority *ScoringMember
-	for _, member := range s.members {
-		if member.status.State != mdbstructs.ReplsetMemberStateSecondary {
-			continue
-		}
-		if member.config.Priority == 0 {
+	for _, member := range members {
+		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Priority < 1 {
 			continue
 		}
 		if minPriority == nil || member.config.Priority < minPriority.config.Priority {
@@ -91,13 +73,13 @@ func (s *Scorer) minPrioritySecondary() *ScoringMember {
 	return minPriority
 }
 
-func (s *Scorer) minVotesSecondary() *ScoringMember {
+func minVotesSecondary(members map[string]*ScoringMember) *ScoringMember {
 	var minVotes *ScoringMember
-	for _, member := range s.members {
-		if member.status.State != mdbstructs.ReplsetMemberStateSecondary {
+	for _, member := range members {
+		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Votes < 1 {
 			continue
 		}
-		if member.config.Votes > 0 && minVotes == nil || member.config.Votes < minVotes.config.Votes {
+		if minVotes == nil || member.config.Votes < minVotes.config.Votes {
 			minVotes = member
 		}
 	}
@@ -126,35 +108,63 @@ func getScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.Repl
 	return members, nil
 }
 
-func (s *Scorer) Score() error {
-	for _, member := range s.members {
-		// health
+type Scorer struct {
+	status  *mdbstructs.ReplsetStatus
+	tags    *mdbstructs.ReplsetTags
+	members map[string]*ScoringMember
+}
+
+func NewScorer() *Scorer {
+	return &Scorer{
+		members: map[string]*ScoringMember{},
+	}
+}
+
+func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*Scorer, error) {
+	var err error
+	var secondariesWithPriority int
+	var secondariesWithVotes int
+
+	scorer := &Scorer{
+		status: status,
+		tags:   tags,
+	}
+	scorer.members, err = getScoringMembers(config, status)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, member := range scorer.members {
+		// replset health
 		if member.status.Health != mdbstructs.ReplsetMemberHealthUp {
 			member.SetScore(0, msgMemberDown)
-			s.members[member.config.Host] = member
 			continue
 		}
 
-		// state
+		// replset state
 		if member.status.State == mdbstructs.ReplsetMemberStateSecondary {
 			member.MultiplyScore(secondaryMemberMultiplier, msgMemberSecondary)
 		} else if member.status.State != mdbstructs.ReplsetMemberStatePrimary {
 			member.SetScore(0, msgMemberBadState)
-			s.members[member.config.Host] = member
 			continue
 		}
 
-		// secondary only
+		// secondaries only
 		if member.status.State == mdbstructs.ReplsetMemberStateSecondary {
 			if member.config.Hidden {
 				member.MultiplyScore(hiddenMemberMultiplier, msgMemberHidden)
 			} else if member.config.Priority == 0 {
 				member.MultiplyScore(priorityZeroMultiplier, msgMemberPriorityZero)
+			} else {
+				secondariesWithPriority++
+				if member.config.Votes > 0 {
+					secondariesWithVotes++
+				}
 			}
 
-			replsetLag, err := GetReplsetLagDuration(s.status, GetReplsetStatusMember(s.status, member.config.Host))
+			replsetLag, err := GetReplsetLagDuration(status, GetReplsetStatusMember(status, member.config.Host))
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if replsetLag < maxOkReplsetLagDuration {
 				member.MultiplyScore(replsetOkLagMultiplier, msgMemberReplsetLagOk)
@@ -162,31 +172,34 @@ func (s *Scorer) Score() error {
 				member.SetScore(0, msgMemberReplsetLagFail)
 			}
 		}
-
-		fmt.Printf("%v %v %v\n", member.config.Host, member.score, member.log)
 	}
 
-	// increase score of secondary with the lowest priority
-	minPrioritySecondary := s.minPrioritySecondary()
-	if minPrioritySecondary != nil {
-		minPrioritySecondary.MultiplyScore(minPrioritySecondaryMultiplier, msgMemberMinPrioritySecondary)
+	// if there is more than one secondary with priority > 1, increase
+	// score of secondary with the lowest priority
+	if secondariesWithPriority > 1 {
+		minPrioritySecondary := minPrioritySecondary(scorer.members)
+		if minPrioritySecondary != nil {
+			minPrioritySecondary.MultiplyScore(minPrioritySecondaryMultiplier, msgMemberMinPrioritySecondary)
+		}
 	}
 
-	// increase score of secondary with the lowest number of votes
-	minVotesSecondary := s.minVotesSecondary()
-	if minVotesSecondary != nil {
-		minVotesSecondary.MultiplyScore(minVotesSecondaryMultiplier, msgMemberMinPrioritySecondary)
+	// if there is more than one secondary with votes > 1, increase
+	// score of secondary with the lowest number of votes
+	if secondariesWithVotes > 1 {
+		fmt.Println(secondariesWithVotes)
+		minVotesSecondary := minVotesSecondary(scorer.members)
+		if minVotesSecondary != nil {
+			minVotesSecondary.MultiplyScore(minVotesSecondaryMultiplier, msgMemberMinVotesSecondary)
+		}
 	}
 
-	//spew.Dump(s.members)
-
-	return nil
+	return scorer, nil
 }
 
 func (s *Scorer) Winner() *ScoringMember {
 	var winner *ScoringMember
 	for _, member := range s.members {
-		if winner == nil || member.score > winner.score {
+		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
 		}
 	}
