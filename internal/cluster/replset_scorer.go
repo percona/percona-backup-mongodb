@@ -24,44 +24,48 @@ var (
 	maxReplsetLagDuration   = 5 * time.Minute
 )
 
-type ScorerMsg string
+type ReplsetScoringMsg string
 
 const (
-	msgMemberDown                 ScorerMsg = "is down"
-	msgMemberSecondary            ScorerMsg = "is secondary"
-	msgMemberBadState             ScorerMsg = "has bad state"
-	msgMemberHidden               ScorerMsg = "is hidden"
-	msgMemberPriorityZero         ScorerMsg = "has priority 0"
-	msgMemberReplsetLagOk         ScorerMsg = "has ok replset lag"
-	msgMemberReplsetLagFail       ScorerMsg = "has high replset lag"
-	msgMemberMinPrioritySecondary ScorerMsg = "min priority secondary"
-	msgMemberMinVotesSecondary    ScorerMsg = "min votes secondary"
+	msgMemberDown                 ReplsetScoringMsg = "is down"
+	msgMemberSecondary            ReplsetScoringMsg = "is secondary"
+	msgMemberBadState             ReplsetScoringMsg = "has bad state"
+	msgMemberHidden               ReplsetScoringMsg = "is hidden"
+	msgMemberPriorityZero         ReplsetScoringMsg = "has priority 0"
+	msgMemberReplsetLagOk         ReplsetScoringMsg = "has ok replset lag"
+	msgMemberReplsetLagFail       ReplsetScoringMsg = "has high replset lag"
+	msgMemberMinPrioritySecondary ReplsetScoringMsg = "min priority secondary"
+	msgMemberMinVotesSecondary    ReplsetScoringMsg = "min votes secondary"
 )
 
-type ScoringMember struct {
+type ReplsetScoringMember struct {
 	config *mdbstructs.ReplsetConfigMember
 	status *mdbstructs.ReplsetStatusMember
 	score  int
-	log    []ScorerMsg
+	log    []ReplsetScoringMsg
 }
 
-func (sm *ScoringMember) Name() string {
-	return sm.config.Host
+func (m *ReplsetScoringMember) Name() string {
+	return m.config.Host
 }
 
-func (sm *ScoringMember) SetScore(score float64, msg ScorerMsg) {
-	sm.score = int(math.Floor(score))
-	sm.log = append(sm.log, msg)
+func (m *ReplsetScoringMember) Score() int {
+	return m.score
 }
 
-func (sm *ScoringMember) MultiplyScore(multiplier float64, msg ScorerMsg) {
-	newScore := float64(sm.score) * multiplier
-	sm.score = int(math.Floor(newScore))
-	sm.log = append(sm.log, msg)
+func (m *ReplsetScoringMember) Skip(msg ReplsetScoringMsg) {
+	m.score = 0
+	m.log = append(m.log, msg)
 }
 
-func minPrioritySecondary(members map[string]*ScoringMember) *ScoringMember {
-	var minPriority *ScoringMember
+func (m *ReplsetScoringMember) MultiplyScore(multiplier float64, msg ReplsetScoringMsg) {
+	newScore := float64(m.score) * multiplier
+	m.score = int(math.Floor(newScore))
+	m.log = append(m.log, msg)
+}
+
+func minPrioritySecondary(members map[string]*ReplsetScoringMember) *ReplsetScoringMember {
+	var minPriority *ReplsetScoringMember
 	for _, member := range members {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Priority < 1 {
 			continue
@@ -73,8 +77,8 @@ func minPrioritySecondary(members map[string]*ScoringMember) *ScoringMember {
 	return minPriority
 }
 
-func minVotesSecondary(members map[string]*ScoringMember) *ScoringMember {
-	var minVotes *ScoringMember
+func minVotesSecondary(members map[string]*ReplsetScoringMember) *ReplsetScoringMember {
+	var minVotes *ReplsetScoringMember
 	for _, member := range members {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Votes < 1 {
 			continue
@@ -86,8 +90,8 @@ func minVotesSecondary(members map[string]*ScoringMember) *ScoringMember {
 	return minVotes
 }
 
-func getScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (map[string]*ScoringMember, error) {
-	members := map[string]*ScoringMember{}
+func getReplsetScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (map[string]*ReplsetScoringMember, error) {
+	members := map[string]*ReplsetScoringMember{}
 	for _, cnfMember := range config.Members {
 		var statusMember *mdbstructs.ReplsetStatusMember
 		for _, m := range status.Members {
@@ -99,7 +103,7 @@ func getScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.Repl
 		if statusMember == nil {
 			return nil, errors.New("no status info")
 		}
-		members[cnfMember.Host] = &ScoringMember{
+		members[cnfMember.Host] = &ReplsetScoringMember{
 			config: cnfMember,
 			status: statusMember,
 			score:  baseScore,
@@ -108,22 +112,22 @@ func getScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.Repl
 	return members, nil
 }
 
-type Scorer struct {
+type ReplsetScorer struct {
 	status  *mdbstructs.ReplsetStatus
 	tags    *mdbstructs.ReplsetTags
-	members map[string]*ScoringMember
+	members map[string]*ReplsetScoringMember
 }
 
-func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*Scorer, error) {
+func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*ReplsetScorer, error) {
 	var err error
 	var secondariesWithPriority int
 	var secondariesWithVotes int
 
-	scorer := &Scorer{
+	scorer := &ReplsetScorer{
 		status: status,
 		tags:   tags,
 	}
-	scorer.members, err = getScoringMembers(config, status)
+	scorer.members, err = getReplsetScoringMembers(config, status)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +135,7 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 	for _, member := range scorer.members {
 		// replset health
 		if member.status.Health != mdbstructs.ReplsetMemberHealthUp {
-			member.SetScore(0, msgMemberDown)
+			member.Skip(msgMemberDown)
 			continue
 		}
 
@@ -139,7 +143,7 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 		if member.status.State == mdbstructs.ReplsetMemberStateSecondary {
 			member.MultiplyScore(secondaryMemberMultiplier, msgMemberSecondary)
 		} else if member.status.State != mdbstructs.ReplsetMemberStatePrimary {
-			member.SetScore(0, msgMemberBadState)
+			member.Skip(msgMemberBadState)
 			continue
 		}
 
@@ -163,7 +167,7 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 			if replsetLag < maxOkReplsetLagDuration {
 				member.MultiplyScore(replsetOkLagMultiplier, msgMemberReplsetLagOk)
 			} else if replsetLag >= maxReplsetLagDuration {
-				member.SetScore(0, msgMemberReplsetLagFail)
+				member.Skip(msgMemberReplsetLagFail)
 			}
 		}
 	}
@@ -193,12 +197,12 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 	return scorer, nil
 }
 
-func (s *Scorer) Members() map[string]*ScoringMember {
+func (s *ReplsetScorer) Members() map[string]*ReplsetScoringMember {
 	return s.members
 }
 
-func (s *Scorer) Winner() *ScoringMember {
-	var winner *ScoringMember
+func (s *ReplsetScorer) Winner() *ReplsetScoringMember {
+	var winner *ReplsetScoringMember
 	for _, member := range s.Members() {
 		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
