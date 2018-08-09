@@ -31,6 +31,8 @@ func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compare *mdbstructs
 	primary := GetReplsetStatusPrimary(status)
 	if primary == nil {
 		return lag, errors.New("no primary")
+	} else if compare == nil {
+		return lag, errors.New("no compare member")
 	} else if primary.Name == compare.Name {
 		return lag, nil
 	}
