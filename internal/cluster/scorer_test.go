@@ -41,4 +41,6 @@ func TestScorerRun(t *testing.T) {
 	} else if len(scorer.members) < 1 {
 		t.Fatal("Got zero scored members from Scorer .Run()")
 	}
+
+	t.Logf("%v\n", scorer.Winner().Name())
 }

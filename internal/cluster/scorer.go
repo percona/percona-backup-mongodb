@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"time"
 
+	//"github.com/davecgh/go-spew/spew"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 const (
-	baseScore                 = 100
-	hiddenMemberMultiplier    = 1.5
-	secondaryMemberMultiplier = 1.2
-	priorityZeroMultiplier    = 1.2
-	replsetOkLagMultiplier    = 1.1
+	baseScore                      = 100
+	hiddenMemberMultiplier         = 1.6
+	secondaryMemberMultiplier      = 1.1
+	priorityZeroMultiplier         = 1.3
+	replsetOkLagMultiplier         = 1.1
+	minPrioritySecondaryMultiplier = 1.2
+	minVotesSecondaryMultiplier    = 1.2
 )
 
 var (
@@ -24,15 +27,15 @@ var (
 type ScorerMsg string
 
 const (
-	msgMemberDown            ScorerMsg = "member is down"
-	msgMemberSecondary       ScorerMsg = "member is secondary"
-	msgMemberBadState        ScorerMsg = "member has bad state"
-	msgMemberHidden          ScorerMsg = "member is hidden"
-	msgMemberPriorityZero    ScorerMsg = "member has priority 0"
-	msgMemberPriorityNonZero ScorerMsg = "member has non-zero priority"
-	msgMemberReplsetLagOk    ScorerMsg = "member has ok replset lag"
-	msgMemberReplsetLagFail  ScorerMsg = "member has high replset lag"
-	msgMemberVotesGtOne      ScorerMsg = "member has votes > 1"
+	msgMemberDown                 ScorerMsg = "is down"
+	msgMemberSecondary            ScorerMsg = "is secondary"
+	msgMemberBadState             ScorerMsg = "has bad state"
+	msgMemberHidden               ScorerMsg = "is hidden"
+	msgMemberPriorityZero         ScorerMsg = "has priority 0"
+	msgMemberReplsetLagOk         ScorerMsg = "has ok replset lag"
+	msgMemberReplsetLagFail       ScorerMsg = "has high replset lag"
+	msgMemberMinPrioritySecondary ScorerMsg = "min priority secondary"
+	msgMemberMinVotesSecondary    ScorerMsg = "min votes secondary"
 )
 
 type ScoringMember struct {
@@ -42,8 +45,8 @@ type ScoringMember struct {
 	log    []ScorerMsg
 }
 
-func (sm *ScoringMember) GetScore() float64 {
-	return sm.score
+func (sm *ScoringMember) Name() string {
+	return sm.config.Host
 }
 
 func (sm *ScoringMember) SetScore(score float64, msg ScorerMsg) {
@@ -53,11 +56,6 @@ func (sm *ScoringMember) SetScore(score float64, msg ScorerMsg) {
 
 func (sm *ScoringMember) MultiplyScore(multiplier float64, msg ScorerMsg) {
 	sm.score *= multiplier
-	sm.log = append(sm.log, msg)
-}
-
-func (sm *ScoringMember) AddScore(add float64, msg ScorerMsg) {
-	sm.score += add
 	sm.log = append(sm.log, msg)
 }
 
@@ -83,6 +81,9 @@ func (s *Scorer) minPrioritySecondary() *ScoringMember {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary {
 			continue
 		}
+		if member.config.Priority == 0 {
+			continue
+		}
 		if minPriority == nil || member.config.Priority < minPriority.config.Priority {
 			minPriority = member
 		}
@@ -96,7 +97,7 @@ func (s *Scorer) minVotesSecondary() *ScoringMember {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary {
 			continue
 		}
-		if minVotes == nil || member.config.Votes < minVotes.config.Votes {
+		if member.config.Votes > 0 && minVotes == nil || member.config.Votes < minVotes.config.Votes {
 			minVotes = member
 		}
 	}
@@ -143,21 +144,12 @@ func (s *Scorer) Score() error {
 			continue
 		}
 
-		// votes
-		//if member.config.Votes > 1 {
-		//	addScore := (1 - float64(member.config.Votes/maxConfigVotes)) * 100
-		//	member.AddScore(addScore, msgMemberVotesGtOne)
-		//}
-
 		// secondary only
 		if member.status.State == mdbstructs.ReplsetMemberStateSecondary {
 			if member.config.Hidden {
 				member.MultiplyScore(hiddenMemberMultiplier, msgMemberHidden)
 			} else if member.config.Priority == 0 {
 				member.MultiplyScore(priorityZeroMultiplier, msgMemberPriorityZero)
-				//} else if member.config.Priority >= 1 {
-				//	addScore := (1 - float64(member.config.Priority/maxConfigPriority)) //* 100
-				//	member.AddScore(addScore, msgMemberPriorityNonZero)
 			}
 
 			replsetLag, err := GetReplsetLagDuration(s.status, GetReplsetStatusMember(s.status, member.config.Host))
@@ -171,7 +163,32 @@ func (s *Scorer) Score() error {
 			}
 		}
 
-		fmt.Printf("%v %v %v\n", member.config.Host, member.GetScore(), member.log)
+		fmt.Printf("%v %v %v\n", member.config.Host, member.score, member.log)
 	}
+
+	// increase score of secondary with the lowest priority
+	minPrioritySecondary := s.minPrioritySecondary()
+	if minPrioritySecondary != nil {
+		minPrioritySecondary.MultiplyScore(minPrioritySecondaryMultiplier, msgMemberMinPrioritySecondary)
+	}
+
+	// increase score of secondary with the lowest number of votes
+	minVotesSecondary := s.minVotesSecondary()
+	if minVotesSecondary != nil {
+		minVotesSecondary.MultiplyScore(minVotesSecondaryMultiplier, msgMemberMinPrioritySecondary)
+	}
+
+	//spew.Dump(s.members)
+
 	return nil
+}
+
+func (s *Scorer) Winner() *ScoringMember {
+	var winner *ScoringMember
+	for _, member := range s.members {
+		if winner == nil || member.score > winner.score {
+			winner = member
+		}
+	}
+	return winner
 }
