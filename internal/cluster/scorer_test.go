@@ -30,7 +30,11 @@ func TestScorerRun(t *testing.T) {
 		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
 	}
 
-	scorer := NewScorer(config, status, nil)
+	scorer, err := NewScorer(config, status, nil)
+	if err != nil {
+		t.Fatalf("Could not init Scorer: %v", err.Error())
+	}
+
 	err = scorer.Score()
 	if err != nil {
 		t.Fatalf("Failed to run Scorer .Run(): %v", err.Error())

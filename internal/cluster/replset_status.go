@@ -8,6 +8,8 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
+// positiveDuration converts a negative duration to a positive duration,
+// if the duration is negative
 func positiveDuration(duration time.Duration) time.Duration {
 	if duration < 0 {
 		return duration * -1
@@ -15,6 +17,8 @@ func positiveDuration(duration time.Duration) time.Duration {
 	return duration
 }
 
+// getMemberOpLag returns the operational latency of MongoDB Replica Set
+// heartbeats as a time duration
 func getMemberOpLag(status *mdbstructs.ReplsetStatus, member *mdbstructs.ReplsetStatusMember) time.Duration {
 	heartbeatLag := member.LastHeartbeatRecv.Sub(member.LastHeartbeat)
 	heartbeatAge := status.Date.Sub(member.LastHeartbeatRecv)
