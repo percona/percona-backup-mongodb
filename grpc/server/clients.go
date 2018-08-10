@@ -5,7 +5,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/percona/mongodb-backup/grpc/messages"
+	"github.com/percona/mongodb-backup/internal/notify"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 )
 
 var (
@@ -13,15 +14,34 @@ var (
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
 )
 
+type ClientStatus struct {
+	ReplicaSetUUID    string
+	ReplicaSetName    string
+	ReplicaSetVersion int64
+	LastOplogTime     time.Time
+	//
+	RunningDBBackup    bool
+	RunningOplogBackup bool
+	Compression        string
+	Encrypted          string
+	Destination        string
+	Filename           string
+	Started            time.Time
+	Finished           time.Time
+	LastError          string
+}
+
 type Client struct {
 	ID              string
 	LastSentCmd     int
 	InMessagesChan  chan *pb.ClientMessage
 	OutMessagesChan chan *pb.ServerMessage
 	LastSeen        time.Time
-	pongChan        chan time.Time
-	lock            *sync.Mutex
-	streaming       bool
+	Status          ClientStatus
+	//
+	pongChan  chan time.Time
+	lock      *sync.Mutex
+	streaming bool
 }
 
 func NewClient(id string) *Client {
@@ -32,6 +52,10 @@ func NewClient(id string) *Client {
 		LastSeen: time.Now(),
 	}
 	return client
+}
+
+func (c *Client) IsStreaming() bool {
+	return c.streaming
 }
 
 func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
@@ -53,12 +77,7 @@ func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
 				c.InMessagesChan <- nil
 				return
 			}
-			if in.Type == pb.ClientMessage_PONG {
-				select {
-				case c.pongChan <- time.Now():
-				default:
-				}
-			}
+			notify.PostTimeout(in.Type, time.Now(), 1*time.Millisecond)
 			c.InMessagesChan <- in
 		}
 	}()
@@ -90,7 +109,9 @@ func (c *Client) StopStreamIO() {
 }
 
 func (c *Client) Ping() (time.Time, error) {
-	c.pongChan = make(chan time.Time) // cleanup
+	pongChan := notify.Start(pb.ClientMessage_PONG)
+	defer notify.Stop(pb.ClientMessage_PONG, pongChan)
+
 	c.OutMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_PING}
 
 	// wait for pong

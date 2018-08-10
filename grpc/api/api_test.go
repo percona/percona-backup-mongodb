@@ -1,4 +1,4 @@
-package server
+package api
 
 import (
 	"io"
@@ -6,7 +6,10 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/percona/mongodb-backup/grpc/server"
+	apimock "github.com/percona/mongodb-backup/mocks/mock_api"
 	msgmock "github.com/percona/mongodb-backup/mocks/mock_messages"
+	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 )
 
@@ -21,6 +24,7 @@ func TestServerAndClients(t *testing.T) {
 	defer ctrl.Finish()
 
 	stream := msgmock.NewMockMessages_MessagesChatServer(ctrl)
+	apiStream := apimock.NewMockApi_GetClientsServer(ctrl)
 
 	// We cannot use regular EXPECT()'s here since the client has Rec() & Send() in an infinite
 	// for loop reading/writing from/to the stream.
@@ -37,7 +41,7 @@ func TestServerAndClients(t *testing.T) {
 		}
 	}).AnyTimes()
 
-	messagesServer := NewMessagesServer()
+	messagesServer := server.NewMessagesServer()
 	// Start the chat server
 	go func() {
 		err = messagesServer.MessagesChat(stream) // this err var is global
@@ -60,7 +64,7 @@ func TestServerAndClients(t *testing.T) {
 	if !ok {
 		t.Errorf("Registration failed. ClientID %s is not in clients list", clientID)
 	}
-	if gotClient.streaming != true {
+	if !gotClient.IsStreaming() {
 		t.Errorf("Client is not streaming messages")
 	}
 
@@ -80,6 +84,19 @@ func TestServerAndClients(t *testing.T) {
 		t.Errorf("Pong didn't update last seen field. First seen: %v, last seen: %v", firstSeen, gotClient.LastSeen)
 	}
 
+	apiOutChan := make(chan interface{}, 10)
+	apiStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(msg interface{}) error {
+		apiOutChan <- msg
+		return nil
+	})
+
+	apiServer := NewApiServer(messagesServer)
+	apiServer.GetClients(pbapi.Empty{}, apiStream)
+	msg := <-apiOutChan
+	if msg.(*pbapi.Client).ClientID != clientID {
+		t.Errorf("Received invalid clientID")
+	}
+
 	// Send EOF to stop the stream and unregister the client
 	msgChan <- responseMsg{
 		nil,
@@ -93,5 +110,13 @@ func TestServerAndClients(t *testing.T) {
 	}
 	if err != nil {
 		t.Errorf("The server returned and error after EOF: %s", err)
+	}
+
+	// Check there are no messages in the stream after unregistring the client
+	apiServer.GetClients(pbapi.Empty{}, apiStream)
+	select {
+	case <-apiOutChan:
+		t.Error("Received a client but the clients list should be empty")
+	case <-time.After(50 * time.Millisecond):
 	}
 }

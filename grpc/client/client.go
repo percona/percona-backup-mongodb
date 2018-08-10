@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	pb "github.com/percona/grpc/messages"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 )
 

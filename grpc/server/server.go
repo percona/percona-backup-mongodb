@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/percona/mongodb-backup/grpc/messages"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 )
 
 type MessagesServer struct {

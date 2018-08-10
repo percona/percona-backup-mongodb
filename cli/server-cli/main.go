@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
-	"sync"
 
-	"github.com/percona/mongodb-backup/grpc/client"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	pbapi "github.com/percona/mongodb-backup/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
@@ -17,7 +16,7 @@ var (
 	clientID           = flag.String("id", "", "Client ID")
 	tls                = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
 	caFile             = flag.String("ca_file", "", "The file containning the CA root cert file")
-	serverAddr         = flag.String("server_addr", "127.0.0.1:10000", "The server address in the format of host:port")
+	serverAddr         = flag.String("server_addr", "127.0.0.1:10001", "The server address in the format of host:port")
 	serverHostOverride = flag.String("server_host_override", "x.test.youtube.com", "The server name use to verify the hostname returned by TLS handshake")
 )
 
@@ -43,32 +42,16 @@ func main() {
 	}
 	defer conn.Close()
 
-	messagesClient := pb.NewMessagesClient(conn)
-
-	rpcClient, err := client.NewClient(*clientID, messagesClient)
+	apiClient := pbapi.NewApiClient(conn)
+	stream, err := apiClient.GetClients(context.Background(), &pbapi.Empty{})
 	if err != nil {
-		log.Fatalf("Cannot create the rpc client: %s", err)
+		log.Fatal(err)
 	}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go processMessages(rpcClient, wg)
-
-	rpcClient.StartStreamIO()
-
-	wg.Wait()
-	rpcClient.StopStreamIO()
-}
-
-func processMessages(rpcClient *client.Client, wg *sync.WaitGroup) {
-	defer wg.Done()
 	for {
-		select {
-		case inMsg := <-rpcClient.InMsgChan():
-			if inMsg == nil {
-				return
-			}
-			fmt.Printf("%+v\n", inMsg)
+		msg, err := stream.Recv()
+		if err != nil {
+			log.Fatal(err)
 		}
+		fmt.Printf("%+v\n", msg)
 	}
 }
