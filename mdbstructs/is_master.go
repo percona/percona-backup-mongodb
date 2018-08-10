@@ -19,38 +19,20 @@ type IsMaster struct {
 	MaxWireVersion               int64     `bson:"maxWireVersion"`
 	MinWireVersion               int64     `bson:"minWireVersion"`
 	Ok                           int       `bson:"ok"`
-	ClusterTime                  struct {
-		ClusterTime time.Time `bson:"clusterTime"`
-		Signature   struct {
-			Hash  bson.Binary `bson:"hash"`
-			KeyID int64       `bson:"keyId"`
-		} `bson:"signature"`
-	} `bson:"$clusterTime"`
-	OperationTime bson.MongoTimestamp `bson:"operationTime"`
-	SetName       string              `bson:"setName"`
-	SetVersion    string              `bson:"setVersion"`
-	Primary       string              `bson:"primary"`
-	Secondary     bool                `bson:"secondary"`
-	Me            string              `bson:"me"`
-	LastWrite     struct {
-		OpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"opTime"`
-		LastWriteDate  time.Time `bdon:"lastWriteDate"`
-		MajorityOpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"majorityTime"`
+	SetName                      string    `bson:"setName,omitempty"`
+	SetVersion                   string    `bson:"setVersion"`
+	Primary                      string    `bson:"primary"`
+	Secondary                    bool      `bson:"secondary"`
+	ConfigSvr                    int       `bson:"configsvr,omitempty"`
+	Me                           string    `bson:"me"`
+	LastWrite                    struct {
+		OpTime           *OpTime   `bson:"opTime"`
+		LastWriteDate    time.Time `bson:"lastWriteDate"`
+		MajorityOpTime   *OpTime   `bson:"majorityTime"`
+		MajoriyWriteDate time.Time `bson:"majorityWriteDate"`
 	} `bson:"lastWrite"`
-	GleStats struct {
-		LastOpTime bson.MongoTimestamp `bson:"lastOpTime"`
-		ElectionID bson.ObjectId       `bson:"electionId"`
-	} `bson:"$gleStats"`
-	ConfigServerState struct {
-		OpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"opTime"`
-	} `bson:"$configServerState"`
+	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty"`
+	ConfigServerState *ConfigServerState   `bson:"$configServerState,omitempty"`
+	GleStats          *GleStats            `bson:"$gleStats,omitempty"`
+	OperationTime     *bson.MongoTimestamp `bson:"operationTime,omitempty"`
 }

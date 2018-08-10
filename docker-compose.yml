@@ -4,46 +4,79 @@ services:
   mongo1:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    entrypoint: /entrypoint.sh
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001}
+    entrypoint: /entrypoint-mongod.sh
+    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001} --shardsvr
     volumes:
-    - ./test/entrypoint.sh:/entrypoint.sh:ro
-    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   mongo2:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    entrypoint: /entrypoint.sh
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002}
+    entrypoint: /entrypoint-mongod.sh
+    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002} --shardsvr
     volumes:
-    - ./test/entrypoint.sh:/entrypoint.sh:ro
-    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
   mongo3:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    entrypoint: /entrypoint.sh
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003}
+    entrypoint: /entrypoint-mongod.sh
+    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003} --shardsvr
     volumes:
-    - ./test/entrypoint.sh:/entrypoint.sh:ro
-    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./test/ssl/mongodb.pem:/mongod.pem:ro
+    - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+  configsvr:
+    network_mode: host
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    entrypoint: /entrypoint-mongod.sh
+    command: --replSet=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet} --port=${TEST_MONGODB_CONFIGSVR1_PORT:-17004} --configsvr
+    volumes:
+    - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
+    - ./scripts/mongod.key:/mongod.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+  mongos:
+    network_mode: host
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    entrypoint: /entrypoint-mongos.sh
+    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}/127.0.0.1:${TEST_MONGODB_CONFIGSVR1_PORT:-17004} 
+    volumes:
+    - ./scripts/entrypoint-mongos.sh:/entrypoint-mongos.sh:ro
+    - ./scripts/mongod.key:/mongos.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/mongodb.pem:/mongos.pem:ro
+    depends_on:
+    - configsvr
   init:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    entrypoint: /init-replset.sh
+    entrypoint: /init-cluster.sh
     volumes:
-    - ./test/init-replset.sh:/init-replset.sh
-    - ./test/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./test/ssl/client.pem:/client.pem:ro
+    - ./scripts/init-cluster.sh:/init-cluster.sh
+    - ./scripts/mongod.key:/mongod.key:ro
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/client.pem:/client.pem:ro
     environment:
-    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-admin}
-    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-admin123456}
+    - TEST_MONGODB_ADMIN_USERNAME=${TEST_MONGODB_ADMIN_USERNAME:-admin}
+    - TEST_MONGODB_ADMIN_PASSWORD=${TEST_MONGODB_ADMIN_PASSWORD:-admin123456}
+    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-test}
+    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-123456}
     - TEST_MONGODB_RS=${TEST_MONGODB_RS:-rs}
     - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
     - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}
     - TEST_MONGODB_SECONDARY2_PORT=${TEST_MONGODB_SECONDARY2_PORT:-17003}
+    - TEST_MONGODB_CONFIGSVR_RS=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}
+    - TEST_MONGODB_CONFIGSVR1_PORT=${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
+    - TEST_MONGODB_MONGOS_PORT=${TEST_MONGODB_MONGOS_PORT:-17005}
     depends_on:
+    - configsvr
+    - mongos
     - mongo1
     - mongo2
     - mongo3
@@ -55,13 +88,24 @@ services:
       - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
     network_mode: host
     environment:
-    - TEST_MONGODB_URI=127.0.0.1:${TEST_MONGODB_PRIMARY_PORT:-17001}
-    - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-    - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-""}
+    - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-""}
+    - TEST_MONGODB_USERNAME=${TEST_MONGODB_USERNAME:-test}
+    - TEST_MONGODB_PASSWORD=${TEST_MONGODB_PASSWORD:-123456}
+    - TEST_MONGODB_RS=${TEST_MONGODB_RS:-rs}
+    - TEST_MONGODB_PRIMARY_PORT=${TEST_MONGODB_PRIMARY_PORT:-17001}
+    - TEST_MONGODB_SECONDARY1_PORT=${TEST_MONGODB_SECONDARY1_PORT:-17002}
+    - TEST_MONGODB_SECONDARY2_PORT=${TEST_MONGODB_SECONDARY2_PORT:-17003}
+    - TEST_MONGODB_CONFIGSVR_RS=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}
+    - TEST_MONGODB_CONFIGSVR1_PORT=${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
+    - TEST_MONGODB_MONGOS_PORT=${TEST_MONGODB_MONGOS_PORT:-17005}
     volumes:
-    - ./out:/tmp/out
+    - ./test-out:/tmp/out
+    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./scripts/ssl/client.pem:/client.pem:ro
     depends_on:
-    - init
+    - configsvr
     - mongo1
     - mongo2
     - mongo3
+    - init
