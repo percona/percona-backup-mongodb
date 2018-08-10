@@ -28,24 +28,10 @@ type IsMaster struct {
 	ConfigSvr                    int                 `bson:"configsvr"`
 	Me                           string              `bson:"me"`
 	LastWrite                    struct {
-		OpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"opTime"`
+		OpTime         OpTime    `bson:"opTime"`
 		LastWriteDate  time.Time `bdon:"lastWriteDate"`
-		MajorityOpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"majorityTime"`
+		MajorityOpTime OpTime    `bson:"majorityTime"`
 	} `bson:"lastWrite"`
-	GleStats struct {
-		LastOpTime bson.MongoTimestamp `bson:"lastOpTime"`
-		ElectionID bson.ObjectId       `bson:"electionId"`
-	} `bson:"$gleStats"`
-	ConfigServerState struct {
-		OpTime struct {
-			Ts bson.MongoTimestamp `bson:"ts"`
-			T  int64               `bson:"t"`
-		} `bson:"opTime"`
-	} `bson:"$configServerState"`
+	GleStats          GleStats          `bson:"$gleStats"`
+	ConfigServerState ConfigServerState `bson:"$configServerState"`
 }
