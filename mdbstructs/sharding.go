@@ -19,10 +19,10 @@ type Shard struct {
 // https://docs.mongodb.com/manual/reference/command/listShards/
 //
 type ListShards struct {
-	Shards        []*Shard            `bson:"shards"`
-	Ok            int                 `bson:"ok"`
-	OperationTime bson.MongoTimestamp `bson:"operationTime"`
-	ClusterTime   ClusterTime         `bson:"$clusterTime"`
+	Shards        []*Shard             `bson:"shards"`
+	Ok            int                  `bson:"ok"`
+	OperationTime *bson.MongoTimestamp `bson:"operationTime"`
+	ClusterTime   *ClusterTime         `bson:"$clusterTime"`
 }
 
 // ShardIdentity reflects the "shardIdentity" document of "system.version"
@@ -31,4 +31,8 @@ type ShardIdentity struct {
 	ClusterId                 bson.ObjectId `bson:"clusterId"`
 	ShardName                 string        `bson:"shardName"`
 	ConfigsvrConnectionString string        `bson:"configsvrConnectionString"`
+}
+
+type ConfigServerState struct {
+	OpTime *OpTime `bson:"opTime"`
 }

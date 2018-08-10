@@ -2,8 +2,10 @@ package cluster
 
 import (
 	"testing"
+	"time"
 
 	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
@@ -25,11 +27,11 @@ func TestGetIsMaster(t *testing.T) {
 }
 
 func TestIsReplset(t *testing.T) {
-	if !isReplset(&mdbstructs.IsMaster{SetName: "test"}) {
-		t.Fatal("Expected true from .isReplset()")
+	if !IsReplset(&mdbstructs.IsMaster{SetName: "test"}) {
+		t.Fatal("Expected true from .IsReplset()")
 	}
-	if isReplset(&mdbstructs.IsMaster{SetName: ""}) {
-		t.Fatal("Expected false from .isReplset()")
+	if IsReplset(&mdbstructs.IsMaster{SetName: ""}) {
+		t.Fatal("Expected false from .IsReplset()")
 	}
 
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
@@ -43,21 +45,21 @@ func TestIsReplset(t *testing.T) {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
 	}
-	if !isReplset(isMaster) {
+	if !IsReplset(isMaster) {
 		session.Close()
-		t.Fatalf("Expected true from .isReplset()")
+		t.Fatalf("Expected true from .IsReplset()")
 	}
 }
 
 func TestIsMongos(t *testing.T) {
-	if !isMongos(&mdbstructs.IsMaster{
+	if !IsMongos(&mdbstructs.IsMaster{
 		IsMaster: true,
 		Msg:      "isdbgrid",
 	}) {
-		t.Fatal("Expected true from .isMongos()")
+		t.Fatal("Expected true from .IsMongos()")
 	}
-	if isMongos(&mdbstructs.IsMaster{IsMaster: true}) {
-		t.Fatal("Expected false from .isMongos()")
+	if IsMongos(&mdbstructs.IsMaster{IsMaster: true}) {
+		t.Fatal("Expected false from .IsMongos()")
 	}
 
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
@@ -71,21 +73,21 @@ func TestIsMongos(t *testing.T) {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
 	}
-	if !isMongos(isMaster) {
+	if !IsMongos(isMaster) {
 		session.Close()
-		t.Fatalf("Expected true from .isMongos()")
+		t.Fatalf("Expected true from .IsMongos()")
 	}
 }
 
 func TestIsConfigServer(t *testing.T) {
-	if !isConfigServer(&mdbstructs.IsMaster{
+	if !IsConfigServer(&mdbstructs.IsMaster{
 		ConfigSvr: 2,
 		SetName:   "csReplSet",
 	}) {
-		t.Fatal("Expected false from .isConfigServer()")
+		t.Fatal("Expected false from .IsConfigServer()")
 	}
-	if isConfigServer(&mdbstructs.IsMaster{SetName: "csReplSet"}) {
-		t.Fatal("Expected true from .isConfigServer()")
+	if IsConfigServer(&mdbstructs.IsMaster{SetName: "csReplSet"}) {
+		t.Fatal("Expected true from .IsConfigServer()")
 	}
 
 	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
@@ -99,30 +101,30 @@ func TestIsConfigServer(t *testing.T) {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
 	}
-	if !isConfigServer(isMaster) {
+	if !IsConfigServer(isMaster) {
 		session.Close()
-		t.Fatalf("Expected true from .isConfigServer()")
+		t.Fatalf("Expected true from .IsConfigServer()")
 	}
 }
 
 func TestIsShardedCluster(t *testing.T) {
-	if !isShardedCluster(&mdbstructs.IsMaster{
+	if !IsShardedCluster(&mdbstructs.IsMaster{
 		ConfigSvr: 2,
 		SetName:   "csReplSet",
 	}) {
-		t.Fatal("Expected true from isShardedCluster()")
+		t.Fatal("Expected true from IsShardedCluster()")
 	}
-	if !isShardedCluster(&mdbstructs.IsMaster{
+	if !IsShardedCluster(&mdbstructs.IsMaster{
 		IsMaster: true,
 		Msg:      "isdbgrid",
 	}) {
-		t.Fatal("Expected true from isShardedCluster()")
+		t.Fatal("Expected true from IsShardedCluster()")
 	}
-	if isShardedCluster(&mdbstructs.IsMaster{
+	if IsShardedCluster(&mdbstructs.IsMaster{
 		IsMaster: true,
 		SetName:  "test",
 	}) {
-		t.Fatal("Expected true false isShardedCluster()")
+		t.Fatal("Expected true false IsShardedCluster()")
 	}
 
 	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
@@ -136,8 +138,42 @@ func TestIsShardedCluster(t *testing.T) {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
 	}
-	if !isShardedCluster(isMaster) {
+	if !IsShardedCluster(isMaster) {
 		session.Close()
-		t.Fatalf("Expected true from .isConfigServer()")
+		t.Fatalf("Expected true from .IsConfigServer()")
+	}
+}
+
+func TestIsShardsvr(t *testing.T) {
+	if IsShardsvr(&mdbstructs.IsMaster{
+		IsMaster: true,
+		SetName:  "test",
+	}) {
+		t.Fatal(".IsShardsvr() should be false")
+	}
+	ts, _ := bson.NewMongoTimestamp(time.Now(), 0)
+	if IsShardsvr(&mdbstructs.IsMaster{
+		IsMaster: true,
+		Msg:      "dbgrid",
+		ConfigServerState: &mdbstructs.ConfigServerState{
+			OpTime: &mdbstructs.OpTime{
+				Ts:   ts,
+				Term: int64(1),
+			},
+		},
+	}) {
+		t.Fatal(".IsShardsvr() should be false")
+	}
+	if !IsShardsvr(&mdbstructs.IsMaster{
+		IsMaster: true,
+		SetName:  "test",
+		ConfigServerState: &mdbstructs.ConfigServerState{
+			OpTime: &mdbstructs.OpTime{
+				Ts:   ts,
+				Term: int64(1),
+			},
+		},
+	}) {
+		t.Fatal(".IsShardsvr() should be true")
 	}
 }

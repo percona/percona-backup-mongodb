@@ -14,10 +14,6 @@ type ClusterTime struct {
 	} `bson:"signature"`
 }
 
-type ConfigServerState struct {
-	OpTime OpTime `bson:"opTime"`
-}
-
 type GleStats struct {
 	LastOpTime bson.MongoTimestamp `bson:"lastOpTime"`
 	ElectionId bson.ObjectId       `bson:"electionId"`

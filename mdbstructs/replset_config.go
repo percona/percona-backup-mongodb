@@ -55,11 +55,11 @@ type ReplsetConfig struct {
 
 // Response document from 'replSetGetConfig': https://docs.mongodb.com/manual/reference/command/replSetGetConfig/#dbcmd.replSetGetConfig
 type ReplSetGetConfig struct {
-	Config            *ReplsetConfig      `bson:"config" json:"config"`
-	Errmsg            string              `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
-	Ok                int                 `bson:"ok" json:"ok" json:"ok"`
-	ClusterTime       ClusterTime         `bson:"$clusterTime", json:"$clusterTime"`
-	ConfigServerState ConfigServerState   `bson:"$configServerState", json:"$configServerState"`
-	GleStats          GleStats            `bson:"$gleStats", json:"$gleStats"`
-	OperationTime     bson.MongoTimestamp `bson:"operationTime", json:"operationTime"`
+	Config            *ReplsetConfig       `bson:"config" json:"config"`
+	Errmsg            string               `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
+	Ok                int                  `bson:"ok" json:"ok" json:"ok"`
+	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty", json:"$clusterTime,omitempty"`
+	ConfigServerState *ConfigServerState   `bson:"$configServerState,omitempty", json:"$configServerState,omitempty"`
+	GleStats          *GleStats            `bson:"$gleStats,omitempty", json:"$gleStats,omitempty"`
+	OperationTime     *bson.MongoTimestamp `bson:"operationTime,omitempty", json:"operationTime,omitempty"`
 }
