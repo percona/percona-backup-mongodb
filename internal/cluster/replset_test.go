@@ -67,7 +67,7 @@ func TestGetBackupSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to run .GetBackupSource(): %v", err.Error())
 	}
-	if source.Host != testutils.MongoDBHost+":"+testutils.MongoDBSecondary2Port {
+	if source.Host != testSecondary2Host {
 		t.Fatal("Got unexpected output from .GetBackupSource()")
 	}
 }
