@@ -48,3 +48,26 @@ func TestGetConfig(t *testing.T) {
 		t.Fatal("Unexpected number of replica set members in .GetConfig() result")
 	}
 }
+
+func TestGetBackupSource(t *testing.T) {
+	rs, err := NewReplset(
+		testutils.MongoDBReplsetName,
+		[]string{
+			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
+		},
+		testutils.MongoDBUser,
+		testutils.MongoDBPassword,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create new replset struct: %v", err.Error())
+	}
+	defer rs.Close()
+
+	source, err := rs.GetBackupSource()
+	if err != nil {
+		t.Fatalf("Failed to run .GetBackupSource(): %v", err.Error())
+	}
+	if source.Host != testutils.MongoDBHost+":"+testutils.MongoDBSecondary2Port {
+		t.Fatal("Got unexpected output from .GetBackupSource()")
+	}
+}

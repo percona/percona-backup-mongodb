@@ -23,6 +23,7 @@ type Replset struct {
 	username string
 	password string
 	session  *mgo.Session
+	scorer   *ReplsetScorer
 }
 
 func NewReplset(name string, addrs []string, username, password string) (*Replset, error) {
@@ -67,4 +68,20 @@ func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
+}
+
+func (r *Replset) GetBackupSource() (*mdbstructs.ReplsetConfigMember, error) {
+	config, err := r.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+	status, err := r.GetStatus()
+	if err != nil {
+		return nil, err
+	}
+	scorer, err := ScoreReplset(config, status, nil)
+	if err != nil {
+		return nil, err
+	}
+	return scorer.Winner().config, nil
 }

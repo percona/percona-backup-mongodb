@@ -45,9 +45,10 @@ func (ms ReplsetMemberState) String() string {
 }
 
 type StatusOpTimes struct {
-	LastCommittedOpTime *OpTime `bson:"lastCommittedOpTime" json:"lastCommittedOpTime"`
-	AppliedOpTime       *OpTime `bson:"appliedOpTime" json:"appliedOpTime"`
-	DurableOptime       *OpTime `bson:"durableOpTime" json:"durableOpTime"`
+	LastCommittedOpTime       *OpTime `bson:"lastCommittedOpTime" json:"lastCommittedOpTime"`
+	ReadConcernMajorityOpTime *OpTime `bson:"readConcernMajorityOpTime" json:"readConcernMajorityOpTime"`
+	AppliedOpTime             *OpTime `bson:"appliedOpTime" json:"appliedOpTime"`
+	DurableOptime             *OpTime `bson:"durableOpTime" json:"durableOpTime"`
 }
 
 type ReplsetStatusMember struct {

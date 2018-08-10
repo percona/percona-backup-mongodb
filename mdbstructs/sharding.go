@@ -24,3 +24,11 @@ type ListShards struct {
 	OperationTime bson.MongoTimestamp `bson:"operationTime"`
 	ClusterTime   ClusterTime         `bson:"$clusterTime"`
 }
+
+// ShardIdentity reflects the "shardIdentity" document of "system.version"
+// on shard Mongod servers.
+type ShardIdentity struct {
+	ClusterId                 bson.ObjectId `bson:"clusterId"`
+	ShardName                 string        `bson:"shardName"`
+	ConfigsvrConnectionString string        `bson:"configsvrConnectionString"`
+}

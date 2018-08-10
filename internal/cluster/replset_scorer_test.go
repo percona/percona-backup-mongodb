@@ -15,6 +15,10 @@ const (
 	testReplSetStatusSecondaryFile = "testdata/replSetGetStatus-secondary.bson"
 )
 
+var (
+	testSecondary2Host = testutils.MongoDBHost + ":" + testutils.MongoDBSecondary2Port
+)
+
 func loadBSONFile(file string, out interface{}) error {
 	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -59,8 +63,8 @@ func TestScoreReplset(t *testing.T) {
 		t.Fatal(".Winner() returned nil")
 	}
 
-	if winner.Name() != "127.0.0.1:17003" {
-		t.Fatalf("Expected .Winner() to return host 127.0.0.1:17003, not %v", winner.Name())
+	if winner.Name() != testSecondary2Host {
+		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
 	}
 
 	// make sure .ScoreReplset() returns the same winner consistently when
@@ -88,8 +92,8 @@ func TestScoreReplset(t *testing.T) {
 			t.Fatal(".Winner() returned nil")
 		}
 
-		if winner.Name() != "127.0.0.1:17003" {
-			t.Fatalf("Expected .Winner() to return host 127.0.0.1:17003, not %v", winner.Name())
+		if winner.Name() != testSecondary2Host {
+			t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
 		}
 	}
 }

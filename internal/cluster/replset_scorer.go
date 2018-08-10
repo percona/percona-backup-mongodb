@@ -192,18 +192,18 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 	}
 
 	if scorer.Winner() == nil {
-		return scorer, errors.New("no winner")
+		return scorer, errors.New("found no winner")
 	}
 	return scorer, nil
 }
 
-func (s *ReplsetScorer) Members() map[string]*ReplsetScoringMember {
+func (s *ReplsetScorer) All() map[string]*ReplsetScoringMember {
 	return s.members
 }
 
 func (s *ReplsetScorer) Winner() *ReplsetScoringMember {
 	var winner *ReplsetScoringMember
-	for _, member := range s.Members() {
+	for _, member := range s.All() {
 		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
 		}
