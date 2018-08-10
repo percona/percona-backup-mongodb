@@ -8,12 +8,11 @@ import (
 
 func TestNewReplset(t *testing.T) {
 	rs, err := NewReplset(
+		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
-		testutils.MongoDBUser,
-		testutils.MongoDBPassword,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())
@@ -27,12 +26,11 @@ func TestNewReplset(t *testing.T) {
 
 func TestGetConfig(t *testing.T) {
 	rs, err := NewReplset(
+		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
-		testutils.MongoDBUser,
-		testutils.MongoDBPassword,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())
@@ -51,12 +49,11 @@ func TestGetConfig(t *testing.T) {
 
 func TestGetBackupSource(t *testing.T) {
 	rs, err := NewReplset(
+		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
-		testutils.MongoDBUser,
-		testutils.MongoDBPassword,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())

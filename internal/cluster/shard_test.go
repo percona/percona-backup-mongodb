@@ -6,7 +6,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func TestParseShardURI(t *testing.T) {
@@ -35,13 +34,24 @@ func TestParseShardURI(t *testing.T) {
 }
 
 func TestNewShard(t *testing.T) {
-	shard := NewShard(&mdbstructs.Shard{
-		Id:   "shard1",
-		Host: "rs/127.0.0.1:27017,127.0.0.1:27018,127.0.0.1:27019",
-	})
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	if err != nil {
+		t.Fatalf("Got error getting test db session: %v", err.Error())
+	}
+	defer session.Close()
+
+	listShards, err := GetListShards(session)
+	if err != nil {
+		t.Fatalf("Got error running .GetListShards(): %v", err.Error())
+	}
+
+	shard, err := NewShard(testClusterConfig, listShards.Shards[0])
+	if err != nil {
+		t.Fatalf("Got error running .NewShard(): %v", err.Error())
+	}
 	if shard.replset.name != "rs" {
 		t.Fatalf("Expected 'replset.name' to equal %v but got %v", "rs", shard.replset.name)
-	} else if len(shard.replset.addrs) != 3 {
+	} else if len(shard.replset.addrs) != 2 {
 		t.Fatalf("Expected 'replset.addrs' to contain %d addresses but got %d", 3, len(shard.replset.addrs))
 	}
 }

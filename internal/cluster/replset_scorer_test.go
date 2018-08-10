@@ -1,10 +1,8 @@
 package cluster
 
 import (
-	"io/ioutil"
 	"testing"
 
-	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
@@ -15,26 +13,13 @@ const (
 	testReplSetStatusSecondaryFile = "testdata/replSetGetStatus-secondary.bson"
 )
 
-var (
-	testSecondary2Host = testutils.MongoDBHost + ":" + testutils.MongoDBSecondary2Port
-)
-
-func loadBSONFile(file string, out interface{}) error {
-	bytes, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return bson.Unmarshal(bytes, out)
-}
-
 func TestScoreReplset(t *testing.T) {
 	rs, err := NewReplset(
+		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
-		testutils.MongoDBUser,
-		testutils.MongoDBPassword,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())

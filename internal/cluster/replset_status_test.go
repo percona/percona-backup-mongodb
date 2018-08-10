@@ -11,12 +11,11 @@ import (
 
 func TestGetStatus(t *testing.T) {
 	rs, err := NewReplset(
+		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
-		testutils.MongoDBUser,
-		testutils.MongoDBPassword,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())

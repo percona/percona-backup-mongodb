@@ -18,20 +18,18 @@ var (
 
 type Replset struct {
 	sync.Mutex
-	name     string
-	addrs    []string
-	username string
-	password string
-	session  *mgo.Session
-	scorer   *ReplsetScorer
+	name    string
+	addrs   []string
+	config  *Config
+	session *mgo.Session
+	scorer  *ReplsetScorer
 }
 
-func NewReplset(name string, addrs []string, username, password string) (*Replset, error) {
+func NewReplset(config *Config, name string, addrs []string) (*Replset, error) {
 	r := &Replset{
-		name:     name,
-		addrs:    addrs,
-		username: username,
-		password: password,
+		name:   name,
+		addrs:  addrs,
+		config: config,
 	}
 	return r, r.getSession()
 }
@@ -43,8 +41,8 @@ func (r *Replset) getSession() error {
 	var err error
 	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
-		Username:       r.username,
-		Password:       r.password,
+		Username:       r.config.Username,
+		Password:       r.config.Password,
 		ReplicaSetName: r.name,
 		Timeout:        10 * time.Second,
 	})

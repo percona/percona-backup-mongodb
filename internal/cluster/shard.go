@@ -13,7 +13,7 @@ const (
 )
 
 type Shard struct {
-	config  *mdbstructs.Shard
+	shard   *mdbstructs.Shard
 	replset *Replset
 }
 
@@ -28,15 +28,16 @@ func parseShardURI(uri string) (string, []string) {
 	return "", []string{}
 }
 
-func NewShard(shard *mdbstructs.Shard) *Shard {
+func NewShard(config *Config, shard *mdbstructs.Shard) (*Shard, error) {
 	replset, addrs := parseShardURI(shard.Host)
-	return &Shard{
-		config: shard,
-		replset: &Replset{
-			name:  replset,
-			addrs: addrs,
-		},
+	rs, err := NewReplset(config, replset, addrs)
+	if err != nil {
+		return nil, err
 	}
+	return &Shard{
+		shard:   shard,
+		replset: rs,
+	}, nil
 }
 
 // Return shards within a sharded cluster using the MongoDB 'listShards'
