@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
@@ -90,8 +91,8 @@ func GetReplsetStatusPrimary(status *mdbstructs.ReplsetStatus) *mdbstructs.Repls
 	return nil
 }
 
-func (r *Replset) GetStatus() (*mdbstructs.ReplsetStatus, error) {
+func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
 	status := mdbstructs.ReplsetStatus{}
-	err := r.session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
 	return &status, err
 }

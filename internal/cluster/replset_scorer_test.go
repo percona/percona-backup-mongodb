@@ -14,24 +14,26 @@ const (
 )
 
 func TestScoreReplset(t *testing.T) {
-	rs, err := NewReplset(
+	rs := NewReplset(
 		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create new replset struct: %v", err.Error())
-	}
-	defer rs.Close()
 
-	config, err := rs.GetConfig()
+	session, err := rs.GetReplsetSession()
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
 	if err != nil {
 		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
 	}
 
-	status, err := rs.GetStatus()
+	status, err := GetStatus(session)
 	if err != nil {
 		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
 	}

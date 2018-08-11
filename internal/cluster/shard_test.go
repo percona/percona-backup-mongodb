@@ -52,7 +52,7 @@ func TestNewShard(t *testing.T) {
 	if shard.replset.name != "rs" {
 		t.Fatalf("Expected 'replset.name' to equal %v but got %v", "rs", shard.replset.name)
 	} else if len(shard.replset.addrs) != 2 {
-		t.Fatalf("Expected 'replset.addrs' to contain %d addresses but got %d", 3, len(shard.replset.addrs))
+		t.Fatalf("Expected 'replset.addrs' to contain %d addresses but got %d", 2, len(shard.replset.addrs))
 	}
 }
 

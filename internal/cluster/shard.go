@@ -30,13 +30,9 @@ func parseShardURI(uri string) (string, []string) {
 
 func NewShard(config *Config, shard *mdbstructs.Shard) (*Shard, error) {
 	replset, addrs := parseShardURI(shard.Host)
-	rs, err := NewReplset(config, replset, addrs)
-	if err != nil {
-		return nil, err
-	}
 	return &Shard{
 		shard:   shard,
-		replset: rs,
+		replset: NewReplset(config, replset, addrs),
 	}, nil
 }
 
