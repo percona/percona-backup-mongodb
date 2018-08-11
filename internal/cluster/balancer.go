@@ -31,6 +31,9 @@ func runBalancerCommand(session *mgo.Session, balancerCommand string) error {
 // GetBalancerStatus returns a struct representing the result of
 // the MongoDB 'balancerStatus' command. This command will only
 // succeed on a session to a mongos process (as of MongoDB 3.6)
+//
+// https://docs.mongodb.com/manual/reference/command/balancerStatus/
+//
 func GetBalancerStatus(session *mgo.Session) (*mdbstructs.BalancerStatus, error) {
 	balancerStatus := mdbstructs.BalancerStatus{}
 	err := session.Run(bson.D{{"balancerStatus", "1"}}, &balancerStatus)
@@ -51,12 +54,18 @@ func IsBalancerRunning(status *mdbstructs.BalancerStatus) bool {
 
 // StopBalancer performs a 'balancerStop' server command on
 // the provided session
+//
+// https://docs.mongodb.com/manual/reference/command/balancerStop/
+//
 func StopBalancer(session *mgo.Session) error {
 	return runBalancerCommand(session, "balancerStop")
 }
 
 // StartBalancer performs a 'balancerStart' server command on
 // the provided session
+//
+// https://docs.mongodb.com/manual/reference/command/balancerStop/
+//
 func StartBalancer(session *mgo.Session) error {
 	return runBalancerCommand(session, "balancerStart")
 }
