@@ -21,16 +21,15 @@ type Replset struct {
 	config *Config
 }
 
-func NewReplset(config *Config, name string, addrs []string) (*Replset, error) {
-	r := &Replset{
+func NewReplset(config *Config, name string, addrs []string) *Replset {
+	return &Replset{
 		name:   name,
 		addrs:  addrs,
 		config: config,
 	}
-	return r, r.getSession()
 }
 
-func GetReplsetSession() (*mgo.Session, error) {
+func (r *Replset) GetReplsetSession() (*mgo.Session, error) {
 	session, err := mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
 		Username:       r.config.Username,
@@ -47,19 +46,11 @@ func GetReplsetSession() (*mgo.Session, error) {
 
 func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
-	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
+	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
-func GetBackupSource(session *mgo.Session) (*mdbstructs.ReplsetConfigMember, error) {
-	config, err := GetConfig(session)
-	if err != nil {
-		return nil, err
-	}
-	status, err := GetStatus(session)
-	if err != nil {
-		return nil, err
-	}
+func GetBackupSource(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	scorer, err := ScoreReplset(config, status, nil)
 	if err != nil {
 		return nil, err

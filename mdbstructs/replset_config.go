@@ -12,11 +12,6 @@ type WriteConcern struct {
 	Journal      bool        `bson:"j,omitempty" json:"j,omitempty"`
 }
 
-// Standard MongoDB response
-type OkResponse struct {
-	Ok int `bson:"ok" json:"ok" json:"ok"`
-}
-
 // Member document from 'replSetGetConfig': https://docs.mongodb.com/manual/reference/command/replSetGetConfig/#dbcmd.replSetGetConfig
 type ReplsetConfigMember struct {
 	Id           int          `bson:"_id" json:"_id"`

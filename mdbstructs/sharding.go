@@ -37,7 +37,7 @@ type ConfigServerState struct {
 	OpTime *OpTime `bson:"opTime"`
 }
 
-var BalancerMode string
+type BalancerMode string
 
 const (
 	BalancerModeFull BalancerMode = "full"
@@ -45,10 +45,10 @@ const (
 )
 
 type BalancerStatus struct {
-	Mode              BalancerMode   `bson:"mode"`
-	InBalancerRound   bool           `bson:"inBalancerRound"`
-	NumBalancerRounds int64          `bson:"numBalancerRounds"`
-	Ok                int            `bson:"ok"`
-	ClusterTime       *ClusterTime   `bson:"$clusterTime,omitempty"`
-	OperationTime     *OperationTime `bson:"operationTime,omitempty"`
+	Mode              BalancerMode `bson:"mode"`
+	InBalancerRound   bool         `bson:"inBalancerRound"`
+	NumBalancerRounds int64        `bson:"numBalancerRounds"`
+	Ok                int          `bson:"ok"`
+	ClusterTime       *ClusterTime `bson:"$clusterTime,omitempty"`
+	OperationTime     *OpTime      `bson:"operationTime,omitempty"`
 }

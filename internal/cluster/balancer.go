@@ -18,7 +18,7 @@ func runBalancerCommand(session *mgo.Session, balancerCommand string) error {
 	okResp := mdbstructs.OkResponse{}
 	err := session.Run(bson.D{
 		{balancerCommand, "1"},
-		{"maxTimeMS": BalancerCmdTimeoutMs},
+		{"maxTimeMS", BalancerCmdTimeoutMs},
 	}, &okResp)
 	if err != nil {
 		return err
@@ -34,13 +34,13 @@ func runBalancerCommand(session *mgo.Session, balancerCommand string) error {
 func GetBalancerStatus(session *mgo.Session) (*mdbstructs.BalancerStatus, error) {
 	balancerStatus := mdbstructs.BalancerStatus{}
 	err := session.Run(bson.D{{"balancerStatus", "1"}}, &balancerStatus)
-	return balancerStatus, err
+	return &balancerStatus, err
 }
 
 // IsBalancerEnabled returns a boolean reflecting if the balancer
 // is enabled
 func IsBalancerEnabled(status *mdbstructs.BalancerStatus) bool {
-	return status.Mode == BalancerModeFull
+	return status.Mode == mdbstructs.BalancerModeFull
 }
 
 // IsBalancerRunning returns a boolean reflecting if the balancer

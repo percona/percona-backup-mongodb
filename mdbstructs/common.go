@@ -7,9 +7,9 @@ import (
 )
 
 type OkResponse struct {
-	Ok            int            `bson:"ok"`
-	ClusterTime   *ClusterTime   `bson:"$clusterTime,omitempty"`
-	OperationTime *OperationTime `bson:"operationTime,omitempty"`
+	Ok            int          `bson:"ok"`
+	ClusterTime   *ClusterTime `bson:"$clusterTime,omitempty"`
+	OperationTime *OpTime      `bson:"operationTime,omitempty"`
 }
 
 type ClusterTime struct {

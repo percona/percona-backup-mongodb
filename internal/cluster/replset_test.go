@@ -7,37 +7,34 @@ import (
 )
 
 func TestNewReplset(t *testing.T) {
-	rs, err := NewReplset(
+	rs := NewReplset(
 		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create new replset struct: %v", err.Error())
-	}
 	if rs == nil {
-		rs.Close()
 		t.Fatal("Got nil replset from .NewReplset()")
 	}
-	rs.Close()
 }
 
 func TestGetConfig(t *testing.T) {
-	rs, err := NewReplset(
+	rs := NewReplset(
 		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create new replset struct: %v", err.Error())
-	}
-	defer rs.Close()
 
-	config, err := rs.GetConfig()
+	session, err := rs.GetReplsetSession()
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
 	if err != nil {
 		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
 	} else if config.Name != testutils.MongoDBReplsetName {
@@ -48,19 +45,31 @@ func TestGetConfig(t *testing.T) {
 }
 
 func TestGetBackupSource(t *testing.T) {
-	rs, err := NewReplset(
+	rs := NewReplset(
 		testClusterConfig,
 		testutils.MongoDBReplsetName,
 		[]string{
 			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create new replset struct: %v", err.Error())
-	}
-	defer rs.Close()
 
-	source, err := rs.GetBackupSource()
+	session, err := rs.GetReplsetSession()
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
+	if err != nil {
+		t.Fatalf("Could not get config from replset: %v", err.Error())
+	}
+
+	status, err := GetStatus(session)
+	if err != nil {
+		t.Fatalf("Could not get status from replset: %v", err.Error())
+	}
+
+	source, err := GetBackupSource(config, status)
 	if err != nil {
 		t.Fatalf("Failed to run .GetBackupSource(): %v", err.Error())
 	}
