@@ -64,7 +64,7 @@ func StopBalancer(session *mgo.Session) error {
 // StartBalancer performs a 'balancerStart' server command on
 // the provided session
 //
-// https://docs.mongodb.com/manual/reference/command/balancerStop/
+// https://docs.mongodb.com/manual/reference/command/balancerStart/
 //
 func StartBalancer(session *mgo.Session) error {
 	return runBalancerCommand(session, "balancerStart")
