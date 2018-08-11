@@ -6,6 +6,12 @@ import (
 	"github.com/globalsign/mgo/bson"
 )
 
+type OkResponse struct {
+	Ok            int            `bson:"ok"`
+	ClusterTime   *ClusterTime   `bson:"$clusterTime,omitempty"`
+	OperationTime *OperationTime `bson:"operationTime,omitempty"`
+}
+
 type ClusterTime struct {
 	ClusterTime time.Time `bson:"clusterTime"`
 	Signature   struct {

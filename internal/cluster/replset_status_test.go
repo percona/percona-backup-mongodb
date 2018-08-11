@@ -20,7 +20,6 @@ func TestGetStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())
 	}
-	defer rs.Close()
 
 	status, err := rs.GetStatus()
 	if err != nil {

@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"sync"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -17,12 +16,9 @@ var (
 //}
 
 type Replset struct {
-	sync.Mutex
-	name    string
-	addrs   []string
-	config  *Config
-	session *mgo.Session
-	scorer  *ReplsetScorer
+	name   string
+	addrs  []string
+	config *Config
 }
 
 func NewReplset(config *Config, name string, addrs []string) (*Replset, error) {
@@ -34,46 +30,33 @@ func NewReplset(config *Config, name string, addrs []string) (*Replset, error) {
 	return r, r.getSession()
 }
 
-func (r *Replset) getSession() error {
-	r.Lock()
-	defer r.Unlock()
-
-	var err error
-	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
+func GetReplsetSession() (*mgo.Session, error) {
+	session, err := mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs:          r.addrs,
 		Username:       r.config.Username,
 		Password:       r.config.Password,
 		ReplicaSetName: r.name,
 		Timeout:        10 * time.Second,
 	})
-	if err != nil || r.session.Ping() != nil {
-		return err
+	if err != nil || session.Ping() != nil {
+		return session, err
 	}
-	r.session.SetMode(replsetReadPreference, true)
-	return nil
+	session.SetMode(replsetReadPreference, true)
+	return session, err
 }
 
-func (r *Replset) Close() {
-	r.Lock()
-	defer r.Unlock()
-
-	if r.session != nil {
-		r.session.Close()
-	}
-}
-
-func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
+func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
-func (r *Replset) GetBackupSource() (*mdbstructs.ReplsetConfigMember, error) {
-	config, err := r.GetConfig()
+func GetBackupSource(session *mgo.Session) (*mdbstructs.ReplsetConfigMember, error) {
+	config, err := GetConfig(session)
 	if err != nil {
 		return nil, err
 	}
-	status, err := r.GetStatus()
+	status, err := GetStatus(session)
 	if err != nil {
 		return nil, err
 	}

@@ -24,7 +24,6 @@ func TestScoreReplset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create new replset struct: %v", err.Error())
 	}
-	defer rs.Close()
 
 	config, err := rs.GetConfig()
 	if err != nil {

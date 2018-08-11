@@ -8,7 +8,7 @@ import (
 
 // IsMaster represents the document returned by db.runCommand( { isMaster: 1 } )
 type IsMaster struct {
-	Hosts                        []string  `bson:"hosts"`
+	Hosts                        []string  `bson:"hosts,omitempty"`
 	IsMaster                     bool      `bson:"ismaster"`
 	Msg                          string    `bson:"msg"`
 	MaxBsonObjectSise            int64     `bson:"maxBsonObjectSize"`
@@ -20,16 +20,17 @@ type IsMaster struct {
 	MinWireVersion               int64     `bson:"minWireVersion"`
 	Ok                           int       `bson:"ok"`
 	SetName                      string    `bson:"setName,omitempty"`
-	SetVersion                   string    `bson:"setVersion"`
-	Primary                      string    `bson:"primary"`
-	Secondary                    bool      `bson:"secondary"`
+	SetVersion                   string    `bson:"setVersion,omitempty"`
+	Primary                      string    `bson:"primary,omitempty"`
+	Secondary                    bool      `bson:"secondary,omitempty"`
+	Hidden                       bool      `bson:"hidden,omitempty"`
 	ConfigSvr                    int       `bson:"configsvr,omitempty"`
 	Me                           string    `bson:"me"`
 	LastWrite                    struct {
-		OpTime           *OpTime   `bson:"opTime"`
-		LastWriteDate    time.Time `bson:"lastWriteDate"`
-		MajorityOpTime   *OpTime   `bson:"majorityTime"`
-		MajoriyWriteDate time.Time `bson:"majorityWriteDate"`
+		OpTime            *OpTime   `bson:"opTime"`
+		LastWriteDate     time.Time `bson:"lastWriteDate"`
+		MajorityOpTime    *OpTime   `bson:"majorityTime"`
+		MajorityWriteDate time.Time `bson:"majorityWriteDate"`
 	} `bson:"lastWrite"`
 	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty"`
 	ConfigServerState *ConfigServerState   `bson:"$configServerState,omitempty"`
