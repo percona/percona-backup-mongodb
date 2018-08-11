@@ -53,15 +53,15 @@ func IsConfigServer(isMaster *mdbstructs.IsMaster) bool {
 // determine if a node is a mongod with the 'shardsvr'
 // cluster role.
 //
-func IsShardsvr(isMaster *mdbstructs.IsMaster) bool {
+func IsShardServer(isMaster *mdbstructs.IsMaster) bool {
 	return IsReplset(isMaster) && isMaster.ConfigServerState != nil
 }
 
-// We are connected to a Sharded Cluster if the seed host
-// is a valid mongos or config server.
+// The isMaster struct is from a Sharded Cluster if the seed host
+// is a valid mongos, config server or shard server.
 //
 func IsShardedCluster(isMaster *mdbstructs.IsMaster) bool {
-	if IsConfigServer(isMaster) || IsMongos(isMaster) {
+	if IsConfigServer(isMaster) || IsMongos(isMaster) || IsShardServer(isMaster) {
 		return true
 	}
 	return false

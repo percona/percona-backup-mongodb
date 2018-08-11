@@ -144,27 +144,21 @@ func TestIsShardedCluster(t *testing.T) {
 	}
 }
 
-func TestIsShardsvr(t *testing.T) {
-	if IsShardsvr(&mdbstructs.IsMaster{
+func TestIsShardServer(t *testing.T) {
+	if IsShardServer(&mdbstructs.IsMaster{
 		IsMaster: true,
 		SetName:  "test",
 	}) {
-		t.Fatal(".IsShardsvr() should be false")
+		t.Fatal(".IsShardServer() should be false")
 	}
 	ts, _ := bson.NewMongoTimestamp(time.Now(), 0)
-	if IsShardsvr(&mdbstructs.IsMaster{
+	if IsShardServer(&mdbstructs.IsMaster{
 		IsMaster: true,
 		Msg:      "dbgrid",
-		ConfigServerState: &mdbstructs.ConfigServerState{
-			OpTime: &mdbstructs.OpTime{
-				Ts:   ts,
-				Term: int64(1),
-			},
-		},
 	}) {
-		t.Fatal(".IsShardsvr() should be false")
+		t.Fatal(".IsShardServer() should be false")
 	}
-	if !IsShardsvr(&mdbstructs.IsMaster{
+	if !IsShardServer(&mdbstructs.IsMaster{
 		IsMaster: true,
 		SetName:  "test",
 		ConfigServerState: &mdbstructs.ConfigServerState{
@@ -174,6 +168,6 @@ func TestIsShardsvr(t *testing.T) {
 			},
 		},
 	}) {
-		t.Fatal(".IsShardsvr() should be true")
+		t.Fatal(".IsShardServer() should be true")
 	}
 }

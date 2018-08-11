@@ -36,3 +36,19 @@ type ShardIdentity struct {
 type ConfigServerState struct {
 	OpTime *OpTime `bson:"opTime"`
 }
+
+var BalancerMode string
+
+const (
+	BalancerModeFull BalancerMode = "full"
+	BalancerModeOff  BalancerMode = "off"
+)
+
+type BalancerStatus struct {
+	Mode              BalancerMode   `bson:"mode"`
+	InBalancerRound   bool           `bson:"inBalancerRound"`
+	NumBalancerRounds int64          `bson:"numBalancerRounds"`
+	Ok                int            `bson:"ok"`
+	ClusterTime       *ClusterTime   `bson:"$clusterTime,omitempty"`
+	OperationTime     *OperationTime `bson:"operationTime,omitempty"`
+}

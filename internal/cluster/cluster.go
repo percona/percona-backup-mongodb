@@ -31,7 +31,7 @@ func New(config *Config, shards []*mdbstructs.Shard) (*Cluster, error) {
 func (c *Cluster) GetBackupSources() ([]*mdbstructs.ReplsetConfigMember, error) {
 	sources := []*mdbstructs.ReplsetConfigMember{}
 	for _, shard := range c.shards {
-		source, err := shard.replset.GetBackupSource()
+		source, err := GetBackupSource()
 		if err != nil {
 			return sources, err
 		}
