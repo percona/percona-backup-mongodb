@@ -9,12 +9,31 @@ import (
 //func HasReplsetTag(config *mdbstructs.ReplsetConfig, key, val string) bool {
 //}
 
+// GetConfig returns a struct representing the "replSetGetConfig" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetConfig/
+//
 func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
+// GetStatus returns a struct representing the "replSetGetStatus" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetStatus/
+//
+func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
+	status := mdbstructs.ReplsetStatus{}
+	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	return &status, err
+}
+
+// GetBackupSource returns the the most appropriate replica set member
+// to become the source of the backup. The chosen node should cause
+// the least impact/risk possible during backup
 func GetBackupSource(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	scorer, err := ScoreReplset(config, status, nil)
 	if err != nil {

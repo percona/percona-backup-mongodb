@@ -25,12 +25,22 @@ type ListShards struct {
 	ClusterTime   *ClusterTime         `bson:"$clusterTime"`
 }
 
-// ShardIdentity reflects the "shardIdentity" document of "system.version"
-// on shard Mongod servers.
-type ShardIdentity struct {
-	ClusterId                 bson.ObjectId `bson:"clusterId"`
-	ShardName                 string        `bson:"shardName"`
-	ConfigsvrConnectionString string        `bson:"configsvrConnectionString"`
+// ShardingState reflects the output of the MongoDB 'shardingState' command.
+// This command should be ran on a shard server
+//
+// https://docs.mongodb.com/manual/reference/command/shardingState/
+//
+type ShardingState struct {
+	Enabled           bool                           `bson:"enabled"`
+	ConfigServer      string                         `bson:"configServer,omitempty"`
+	ShardName         string                         `bson:"shardName,omitempty"`
+	ClusterID         bson.ObjectId                  `bson:"clusterId,omitempty"`
+	Versions          map[string]bson.MongoTimestamp `bson:"versions"`
+	Ok                int                            `bson:"ok"`
+	OperationTime     bson.MongoTimestamp            `bson:"operationTime"`
+	GleStats          *GleStats                      `bson:"$gleStats,omitempty"`
+	ClusterTime       *ClusterTime                   `bson:"$clusterTime,omitempty"`
+	ConfigServerState *ConfigServerState             `bson:"$configServerState,omitempty"`
 }
 
 type ConfigServerState struct {

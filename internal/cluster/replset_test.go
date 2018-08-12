@@ -24,6 +24,23 @@ func TestGetConfig(t *testing.T) {
 	}
 }
 
+func TestGetStatus(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	status, err := GetStatus(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
+	} else if status.Set != testutils.MongoDBReplsetName {
+		t.Fatal("Got unexpected output from .GetStatus()")
+	} else if len(status.Members) != 3 {
+		t.Fatal("Unexpected number of replica set members in .GetStatus() result")
+	}
+}
+
 func TestGetBackupSource(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
