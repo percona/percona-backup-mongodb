@@ -43,8 +43,29 @@ func TestScoreReplset(t *testing.T) {
 		t.Fatal(".Winner() returned nil")
 	}
 
+	expectScore := 217
 	if winner.Name() != testSecondary2Host {
 		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
+	} else if winner.Score() != expectScore {
+		t.Fatalf("Expected .Winner() to return host %d, not %v", expectScore, winner.Score())
+	}
+
+	// test w/replset tags
+	scorer, err = ScoreReplset(config, status, map[string]string{"role": "backup"})
+	if err != nil {
+		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
+	}
+
+	winner = scorer.Winner()
+	if winner == nil {
+		t.Fatal(".Winner() returned nil")
+	}
+
+	expectScore = 391
+	if winner.Name() != testSecondary2Host {
+		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
+	} else if winner.Score() != expectScore {
+		t.Fatalf("Expected .Winner() to return host %d, not %v", expectScore, winner.Score())
 	}
 
 	// make sure .ScoreReplset() returns the same winner consistently when
