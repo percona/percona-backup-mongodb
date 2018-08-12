@@ -10,23 +10,17 @@ import (
 
 func TestHasReplsetMemberTags(t *testing.T) {
 	config := mdbstructs.ReplsetConfigMember{
-		Tags: map[string]string{
-			"role": "backup",
-		},
+		Tags: map[string]string{"role": "backup"},
 	}
-	if !HasReplsetMemberTags(&config, map[string]string{
-		"role": "backup",
-	}) {
+	if !HasReplsetMemberTags(&config, map[string]string{"role": "backup"}) {
 		t.Fatal(".HasReplsetMemberTags should have returned true")
 	}
-	if HasReplsetMemberTags(&config, map[string]string{
-		"role": "not-backup",
-	}) {
+	if HasReplsetMemberTags(&config, map[string]string{"role": "not-backup"}) {
 		t.Fatal(".HasReplsetMemberTags should have returned false")
 	}
 	if HasReplsetMemberTags(&config, map[string]string{
 		"role": "backup",
-		"does": "notexist",
+		"does": "not-exist",
 	}) {
 		t.Fatal(".HasReplsetMemberTags should have returned false")
 	}

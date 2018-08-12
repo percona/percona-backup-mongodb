@@ -25,9 +25,9 @@ all: test
 
 test-race:
 ifeq ($(GO_TEST_CODECOV), true)
-	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_PATH)
+	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 else
-	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_PATH)
+	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 
 test:
