@@ -11,6 +11,7 @@ import (
 
 const (
 	baseScore                      = 100
+	tagMatchMultiplier             = 1.8
 	hiddenMemberMultiplier         = 1.8
 	secondaryMemberMultiplier      = 1.1
 	priorityZeroMultiplier         = 1.3
@@ -30,6 +31,7 @@ const (
 	msgMemberDown                 ReplsetScoringMsg = "is down"
 	msgMemberSecondary            ReplsetScoringMsg = "is secondary"
 	msgMemberBadState             ReplsetScoringMsg = "has bad state"
+	msgMemberTagMatch             ReplsetScoringMsg = "matches replset tag"
 	msgMemberHidden               ReplsetScoringMsg = "is hidden"
 	msgMemberPriorityZero         ReplsetScoringMsg = "has priority 0"
 	msgMemberReplsetLagOk         ReplsetScoringMsg = "has ok replset lag"
@@ -145,6 +147,11 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 		} else if member.status.State != mdbstructs.ReplsetMemberStatePrimary {
 			member.Skip(msgMemberBadState)
 			continue
+		}
+
+		// replset tags
+		if len(replsetTags) > 0 && HasReplsetMemberTags(member.config, replsetTags) {
+			member.MultiplyScore(tagMatchMultiplier, msgMemberTagMatch)
 		}
 
 		// secondaries only
