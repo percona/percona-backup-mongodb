@@ -9,30 +9,50 @@ import (
 )
 
 func TestHasReplsetMemberTags(t *testing.T) {
-	config := mdbstructs.ReplsetConfigMember{
+	memberConfig := mdbstructs.ReplsetConfigMember{
 		Tags: map[string]string{"role": "backup"},
 	}
-	if !HasReplsetMemberTags(&config, map[string]string{"role": "backup"}) {
+	if !HasReplsetMemberTags(&memberConfig, map[string]string{"role": "backup"}) {
 		t.Fatal(".HasReplsetMemberTags should have returned true")
 	}
-	if HasReplsetMemberTags(&config, map[string]string{"role": "not-backup"}) {
+	if HasReplsetMemberTags(&memberConfig, map[string]string{"role": "not-backup"}) {
 		t.Fatal(".HasReplsetMemberTags should have returned false")
 	}
-	if HasReplsetMemberTags(&config, map[string]string{
+	if HasReplsetMemberTags(&memberConfig, map[string]string{
 		"role": "backup",
 		"does": "not-exist",
 	}) {
 		t.Fatal(".HasReplsetMemberTags should have returned false")
 	}
 
-	config = mdbstructs.ReplsetConfigMember{
+	memberConfig = mdbstructs.ReplsetConfigMember{
 		Tags: map[string]string{
 			"role":    "backup",
 			"another": "tag",
 		},
 	}
-	if !HasReplsetMemberTags(&config, map[string]string{"another": "tag"}) {
+	if !HasReplsetMemberTags(&memberConfig, map[string]string{"another": "tag"}) {
 		t.Fatal(".HasReplsetMemberTags should have returned true")
+	}
+
+	// test for the { role: "backup" } tag on the 2nd secondary
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
+	}
+
+	for _, member := range config.Members {
+		if member.Host == testSecondary2Host {
+			if !HasReplsetMemberTags(member, map[string]string{"role": "backup"}) {
+				t.Fatalf(".HasReplsetMemberTags() should have returned true for %v", testSecondary2Host)
+			}
+		}
 	}
 }
 
