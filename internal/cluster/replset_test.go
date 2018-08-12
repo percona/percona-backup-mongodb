@@ -41,6 +41,23 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
+func TestGetReplsetID(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
+	if err != nil {
+		t.Fatalf("Could not get config from replset: %v", err.Error())
+	}
+
+	if GetReplsetID(config) == nil {
+		t.Fatal(".GetReplsetID() returned nil")
+	}
+}
+
 func TestGetBackupSource(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {

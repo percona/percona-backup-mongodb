@@ -31,6 +31,11 @@ func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
 	return &status, err
 }
 
+// GetReplsetID returns the replica set ID
+func GetReplsetID(config *mdbstructs.ReplsetConfig) *bson.ObjectId {
+	return &config.Settings.ReplicaSetId
+}
+
 // GetBackupSource returns the the most appropriate replica set member
 // to become the source of the backup. The chosen node should cause
 // the least impact/risk possible during backup
