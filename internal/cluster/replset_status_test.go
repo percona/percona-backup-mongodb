@@ -4,21 +4,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func TestGetStatus(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}

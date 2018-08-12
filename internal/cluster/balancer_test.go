@@ -102,6 +102,33 @@ func TestStopBalancer(t *testing.T) {
 	}
 }
 
+func TestStopBalancerAndWait(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to mongos: %v", err.Error())
+	}
+	defer session.Close()
+
+	err = StartBalancer(session)
+	if err != nil {
+		t.Fatalf("Failed to run .StartBalancer(): %v", err.Error())
+	}
+
+	err = StopBalancerAndWait(session, 10, time.Second)
+	if err != nil {
+		t.Fatalf("Failed to run .StopBalancerAndWait(): %v", err.Error())
+	}
+
+	status, err := GetBalancerStatus(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+	}
+
+	if IsBalancerRunning(status) || IsBalancerEnabled(status) {
+		t.Fatal("The balancer did not stop running")
+	}
+}
+
 func TestStartBalancer(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"errors"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -68,4 +69,25 @@ func StopBalancer(session *mgo.Session) error {
 //
 func StartBalancer(session *mgo.Session) error {
 	return runBalancerCommand(session, "balancerStart")
+}
+
+// StopBalancerAndWait performs a StopBalancer and then waits for
+// the balancer to stop running any balancer operations
+func StopBalancerAndWait(session *mgo.Session, retries int, retryInterval time.Duration) error {
+	err := StopBalancer(session)
+	if err != nil {
+		return err
+	}
+	var tries int
+	for tries < retries {
+		status, err := GetBalancerStatus(session)
+		if err != nil {
+			return err
+		} else if !IsBalancerRunning(status) {
+			return nil
+		}
+		tries++
+		time.Sleep(retryInterval)
+	}
+	return errors.New("balancer did not stop")
 }

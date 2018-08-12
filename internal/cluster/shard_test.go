@@ -45,14 +45,11 @@ func TestNewShard(t *testing.T) {
 		t.Fatalf("Got error running .GetListShards(): %v", err.Error())
 	}
 
-	shard, err := NewShard(testClusterConfig, listShards.Shards[0])
-	if err != nil {
-		t.Fatalf("Got error running .NewShard(): %v", err.Error())
-	}
-	if shard.replset.name != "rs" {
-		t.Fatalf("Expected 'replset.name' to equal %v but got %v", "rs", shard.replset.name)
-	} else if len(shard.replset.addrs) != 2 {
-		t.Fatalf("Expected 'replset.addrs' to contain %d addresses but got %d", 2, len(shard.replset.addrs))
+	shard := NewShard(listShards.Shards[0])
+	if shard.replset != testutils.MongoDBReplsetName {
+		t.Fatalf("Expected 'name' to equal %v but got %v", testutils.MongoDBReplsetName, shard.name)
+	} else if len(shard.addrs) != 2 {
+		t.Fatalf("Expected 'addrs' to contain %d addresses but got %d", 2, len(shard.addrs))
 	}
 }
 

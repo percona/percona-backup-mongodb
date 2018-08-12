@@ -3,32 +3,12 @@ package cluster
 import (
 	"testing"
 
+	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
-func TestNewReplset(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-	if rs == nil {
-		t.Fatal("Got nil replset from .NewReplset()")
-	}
-}
-
 func TestGetConfig(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -45,15 +25,7 @@ func TestGetConfig(t *testing.T) {
 }
 
 func TestGetBackupSource(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
