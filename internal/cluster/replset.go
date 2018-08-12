@@ -6,8 +6,24 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-//func HasReplsetTag(config *mdbstructs.ReplsetConfig, key, val string) bool {
-//}
+// HasReplsetMemberTags returns a boolean reflecting whether or not
+// a replica set config member matches a list of replica set tags
+//
+// https://docs.mongodb.com/manual/reference/replica-configuration/#rsconf.members[n].tags
+//
+func HasReplsetMemberTags(member *mdbstructs.ReplsetConfigMember, tags map[string]string) bool {
+	if len(member.Tags) == 0 || len(tags) == 0 {
+		return false
+	}
+	for key, val := range tags {
+		if tagVal, ok := member.Tags[key]; !ok {
+			if tagVal != val {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // GetConfig returns a struct representing the "replSetGetConfig" server
 // command

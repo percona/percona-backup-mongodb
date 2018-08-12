@@ -113,19 +113,19 @@ func getReplsetScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstruc
 }
 
 type ReplsetScorer struct {
-	status  *mdbstructs.ReplsetStatus
-	tags    *mdbstructs.ReplsetTags
-	members map[string]*ReplsetScoringMember
+	status      *mdbstructs.ReplsetStatus
+	replsetTags map[string]string
+	members     map[string]*ReplsetScoringMember
 }
 
-func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, tags *mdbstructs.ReplsetTags) (*ReplsetScorer, error) {
+func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, replsetTags map[string]string) (*ReplsetScorer, error) {
 	var err error
 	var secondariesWithPriority int
 	var secondariesWithVotes int
 
 	scorer := &ReplsetScorer{
-		status: status,
-		tags:   tags,
+		status:      status,
+		replsetTags: replsetTags,
 	}
 	scorer.members, err = getReplsetScoringMembers(config, status)
 	if err != nil {

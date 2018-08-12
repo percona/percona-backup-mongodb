@@ -22,7 +22,7 @@ while [ $tries -lt $max_tries ]; do
 			members: [
 				{ _id: 0, host: "'${MONGODB_IP}':'${TEST_MONGODB_PRIMARY_PORT}'", priority: 10 },
 				{ _id: 1, host: "'${MONGODB_IP}':'${TEST_MONGODB_SECONDARY1_PORT}'", priority: 1 },
-				{ _id: 2, host: "'${MONGODB_IP}':'${TEST_MONGODB_SECONDARY2_PORT}'", priority: 0, hidden: true }
+				{ _id: 2, host: "'${MONGODB_IP}':'${TEST_MONGODB_SECONDARY2_PORT}'", priority: 0, hidden: true, tags: { role: "backup" } }
 			]})' | tee /tmp/init-result.json
 	if [ $? == 0 ]; then
 	  grep -q '"ok" : 1' /tmp/init-result.json

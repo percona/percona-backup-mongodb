@@ -5,7 +5,32 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
+
+func TestHasReplsetMemberTags(t *testing.T) {
+	config := mdbstructs.ReplsetConfigMember{
+		Tags: map[string]string{
+			"role": "backup",
+		},
+	}
+	if !HasReplsetMemberTags(&config, map[string]string{
+		"role": "backup",
+	}) {
+		t.Fatal(".HasReplsetMemberTags should have returned true")
+	}
+	if HasReplsetMemberTags(&config, map[string]string{
+		"role": "not-backup",
+	}) {
+		t.Fatal(".HasReplsetMemberTags should have returned false")
+	}
+	if HasReplsetMemberTags(&config, map[string]string{
+		"role": "backup",
+		"does": "notexist",
+	}) {
+		t.Fatal(".HasReplsetMemberTags should have returned false")
+	}
+}
 
 func TestGetConfig(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
