@@ -3,32 +3,12 @@ package cluster
 import (
 	"testing"
 
+	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
-func TestNewReplset(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-	if rs == nil {
-		t.Fatal("Got nil replset from .NewReplset()")
-	}
-}
-
 func TestGetConfig(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -44,16 +24,42 @@ func TestGetConfig(t *testing.T) {
 	}
 }
 
-func TestGetBackupSource(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
+func TestGetStatus(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
 
-	session, err := rs.GetReplsetSession()
+	status, err := GetStatus(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
+	} else if status.Set != testutils.MongoDBReplsetName {
+		t.Fatal("Got unexpected output from .GetStatus()")
+	} else if len(status.Members) != 3 {
+		t.Fatal("Unexpected number of replica set members in .GetStatus() result")
+	}
+}
+
+func TestGetReplsetID(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
+	if err != nil {
+		t.Fatalf("Could not get config from replset: %v", err.Error())
+	}
+
+	if GetReplsetID(config) == nil {
+		t.Fatal(".GetReplsetID() returned nil")
+	}
+}
+
+func TestGetBackupSource(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}

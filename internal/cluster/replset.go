@@ -1,55 +1,44 @@
 package cluster
 
 import (
-	"time"
-
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-var (
-	replsetReadPreference = mgo.PrimaryPreferred
-)
-
 //func HasReplsetTag(config *mdbstructs.ReplsetConfig, key, val string) bool {
 //}
 
-type Replset struct {
-	name   string
-	addrs  []string
-	config *Config
-}
-
-func NewReplset(config *Config, name string, addrs []string) *Replset {
-	return &Replset{
-		name:   name,
-		addrs:  addrs,
-		config: config,
-	}
-}
-
-func (r *Replset) GetReplsetSession() (*mgo.Session, error) {
-	session, err := mgo.DialWithInfo(&mgo.DialInfo{
-		Addrs:          r.addrs,
-		Username:       r.config.Username,
-		Password:       r.config.Password,
-		ReplicaSetName: r.name,
-		Timeout:        10 * time.Second,
-	})
-	if err != nil || session.Ping() != nil {
-		return session, err
-	}
-	session.SetMode(replsetReadPreference, true)
-	return session, err
-}
-
+// GetConfig returns a struct representing the "replSetGetConfig" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetConfig/
+//
 func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
+// GetStatus returns a struct representing the "replSetGetStatus" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetStatus/
+//
+func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
+	status := mdbstructs.ReplsetStatus{}
+	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	return &status, err
+}
+
+// GetReplsetID returns the replica set ID
+func GetReplsetID(config *mdbstructs.ReplsetConfig) *bson.ObjectId {
+	return &config.Settings.ReplicaSetId
+}
+
+// GetBackupSource returns the the most appropriate replica set member
+// to become the source of the backup. The chosen node should cause
+// the least impact/risk possible during backup
 func GetBackupSource(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	scorer, err := ScoreReplset(config, status, nil)
 	if err != nil {

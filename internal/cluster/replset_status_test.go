@@ -5,34 +5,8 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
-
-func TestGetStatus(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
-	if err != nil {
-		t.Fatalf("Could not connect to replset: %v", err.Error())
-	}
-	defer session.Close()
-
-	status, err := GetStatus(session)
-	if err != nil {
-		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
-	} else if status.Set != testutils.MongoDBReplsetName {
-		t.Fatal("Got unexpected output from .GetStatus()")
-	} else if len(status.Members) != 3 {
-		t.Fatal("Unexpected number of replica set members in .GetStatus() result")
-	}
-}
 
 func TestGetReplsetLagDuration(t *testing.T) {
 	now := time.Now()

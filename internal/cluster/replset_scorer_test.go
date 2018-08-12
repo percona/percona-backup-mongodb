@@ -3,6 +3,7 @@ package cluster
 import (
 	"testing"
 
+	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
@@ -14,15 +15,7 @@ const (
 )
 
 func TestScoreReplset(t *testing.T) {
-	rs := NewReplset(
-		testClusterConfig,
-		testutils.MongoDBReplsetName,
-		[]string{
-			testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
-		},
-	)
-
-	session, err := rs.GetReplsetSession()
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
