@@ -37,9 +37,9 @@ type ShardingState struct {
 	ClusterID         bson.ObjectId                  `bson:"clusterId,omitempty"`
 	Versions          map[string]bson.MongoTimestamp `bson:"versions"`
 	Ok                int                            `bson:"ok"`
-	OperationTime     bson.MongoTimestamp            `bson:"operationTime"`
-	GleStats          *GleStats                      `bson:"$gleStats,omitempty"`
 	ClusterTime       *ClusterTime                   `bson:"$clusterTime,omitempty"`
+	GleStats          *GleStats                      `bson:"$gleStats,omitempty"`
+	OperationTime     *bson.MongoTimestamp           `bson:"operationTime,omitempty"`
 	ConfigServerState *ConfigServerState             `bson:"$configServerState,omitempty"`
 }
 
@@ -55,10 +55,10 @@ const (
 )
 
 type BalancerStatus struct {
-	Mode              BalancerMode `bson:"mode"`
-	InBalancerRound   bool         `bson:"inBalancerRound"`
-	NumBalancerRounds int64        `bson:"numBalancerRounds"`
-	Ok                int          `bson:"ok"`
-	ClusterTime       *ClusterTime `bson:"$clusterTime,omitempty"`
-	OperationTime     *OpTime      `bson:"operationTime,omitempty"`
+	Mode              BalancerMode         `bson:"mode"`
+	InBalancerRound   bool                 `bson:"inBalancerRound"`
+	NumBalancerRounds int64                `bson:"numBalancerRounds"`
+	Ok                int                  `bson:"ok"`
+	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty"`
+	OperationTime     *bson.MongoTimestamp `bson:"operationTime,omitempty"`
 }
