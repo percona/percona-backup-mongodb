@@ -16,10 +16,12 @@ func HasReplsetMemberTags(member *mdbstructs.ReplsetConfigMember, tags map[strin
 		return false
 	}
 	for key, val := range tags {
-		if tagVal, ok := member.Tags[key]; !ok {
+		if tagVal, ok := member.Tags[key]; ok {
 			if tagVal != val {
 				return false
 			}
+		} else {
+			return false
 		}
 	}
 	return true

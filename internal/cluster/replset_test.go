@@ -24,6 +24,16 @@ func TestHasReplsetMemberTags(t *testing.T) {
 	}) {
 		t.Fatal(".HasReplsetMemberTags should have returned false")
 	}
+
+	config = mdbstructs.ReplsetConfigMember{
+		Tags: map[string]string{
+			"role":    "backup",
+			"another": "tag",
+		},
+	}
+	if !HasReplsetMemberTags(&config, map[string]string{"another": "tag"}) {
+		t.Fatal(".HasReplsetMemberTags should have returned true")
+	}
 }
 
 func TestGetConfig(t *testing.T) {
