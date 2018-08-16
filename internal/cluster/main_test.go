@@ -9,10 +9,6 @@ import (
 
 var (
 	testSecondary2Host = testutils.MongoDBHost + ":" + testutils.MongoDBSecondary2Port
-	testClusterConfig  = &Config{
-		Username: testutils.MongoDBUser,
-		Password: testutils.MongoDBPassword,
-	}
 )
 
 func loadBSONFile(file string, out interface{}) error {

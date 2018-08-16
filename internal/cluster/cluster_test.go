@@ -5,91 +5,69 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	//"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-const (
-	testListShardsFile = "testdata/listShards.bson"
-)
-
-func TestNew(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+func TestGetShardingState(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
-		t.Fatalf("Got error getting test db session: %v", err.Error())
+		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
 	defer session.Close()
 
-	listShards, err := GetListShards(session)
+	state, err := GetShardingState(session)
 	if err != nil {
-		t.Fatalf("Got error running .GetListShards(): %v", err.Error())
-	}
-
-	cluster, err := New(testClusterConfig, listShards.Shards)
-	if err != nil {
-		t.Fatalf("Got error running .New(): %v", err.Error())
-	}
-	if len(cluster.shards) != 1 {
-		t.Fatal("Got unexpected number of shards")
-	}
-	shard := cluster.shards[testutils.MongoDBReplsetName]
-	if len(shard.replset.addrs) != 2 {
-		t.Fatal("Got unexpected replset addresses for shard")
+		t.Fatalf("Failed to run .GetShardingState(): %v", err.Error())
+	} else if state.Ok != 1 || !state.Enabled || state.ShardName != testutils.MongoDBReplsetName || state.ConfigServer == "" {
+		t.Fatal("Got unexpected output from .GetShardingState()")
 	}
 }
 
-func TestGetBackupSourcesMongos(t *testing.T) {
+func TestGetClusterID(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
-		t.Fatalf("Got error getting test db session: %v", err.Error())
+		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}
 	defer session.Close()
 
-	listShards, err := GetListShards(session)
+	clusterId, err := GetClusterID(session)
 	if err != nil {
-		t.Fatalf("Got error running .GetListShards(): %v", err.Error())
-	}
-
-	cluster, err := New(testClusterConfig, listShards.Shards)
-	if err != nil {
-		t.Fatalf("Got error running .GetBackupSources(): %v", err.Error())
-	}
-
-	sources, err := cluster.GetBackupSources()
-	if err != nil {
-		t.Fatalf("Got error running .GetBackupSources(): %v", err.Error())
-	}
-	if len(sources) != 1 {
-		t.Fatal(".GetBackupSources() did not return 1 backup source")
-	}
-	if sources[0].Host != testSecondary2Host {
-		t.Fatalf(".GetBackupSources() did not return the winner: %v", testSecondary2Host)
+		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
+	} else if clusterId == nil {
+		t.Fatal(".GetClusterId() returned nil id")
 	}
 }
 
-func TestGetBackupSourcesConfigsvr(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+func TestGetClusterIDShard(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
-		t.Fatalf("Got error getting test db session: %v", err.Error())
+		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
 	defer session.Close()
 
-	shards, err := GetConfigsvrShards(session)
+	state, err := GetShardingState(session)
 	if err != nil {
-		t.Fatalf("Got error running .GetConfigsvrShards(): %v", err.Error())
+		t.Fatalf("Failed to run .GetShardingState(): %v", err.Error())
 	}
 
-	cluster, err := New(testClusterConfig, shards)
-	if err != nil {
-		t.Fatalf("Got error running .GetBackupSources(): %v", err.Error())
+	shardClusterId := GetClusterIDShard(state)
+	if shardClusterId == nil {
+		t.Fatal("Could not get cluster ID")
 	}
 
-	sources, err := cluster.GetBackupSources()
+	// check clusterId fetched from the shard/primary is same as mongos
+	mongosSession, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
-		t.Fatalf("Got error running .GetBackupSources(): %v", err.Error())
+		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}
-	if len(sources) != 1 {
-		t.Fatal(".GetBackupSources() did not return 1 backup source")
+	defer mongosSession.Close()
+
+	mongosClusterId, err := GetClusterID(mongosSession)
+	if err != nil {
+		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
 	}
-	if sources[0].Host != testSecondary2Host {
-		t.Fatalf(".GetBackupSources() did not return the winner: %v", testSecondary2Host)
+
+	if mongosClusterId.Hex() != shardClusterId.Hex() {
+		t.Fatal("Shard and mongos cluster IDs did not match")
 	}
 }

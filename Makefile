@@ -1,6 +1,7 @@
 GOCACHE?=
 GOLANG_DOCKERHUB_TAG?=1.10-stretch
-GO_TEST_PATH=./...
+GO_TEST_PATH?=./...
+GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 
@@ -24,9 +25,9 @@ all: test
 
 test-race:
 ifeq ($(GO_TEST_CODECOV), true)
-	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_PATH)
+	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 else
-	GOCACHE=$(GOCACHE) go test -v -race $(GO_TEST_PATH)
+	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 
 test:
@@ -42,7 +43,7 @@ test:
 	TEST_MONGODB_CONFIGSVR1_PORT=$(TEST_MONGODB_CONFIGSVR1_PORT) \
 	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT) \
 	GOCACHE=$(GOCACHE) \
-	go test -v $(GO_TEST_PATH)
+	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
 test-cluster:
 	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION) \

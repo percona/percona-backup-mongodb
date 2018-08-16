@@ -1,82 +1,63 @@
 package cluster
 
 import (
-	"sync"
-	"time"
-
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-var (
-	replsetReadPreference = mgo.PrimaryPreferred
-)
-
-//func HasReplsetTag(config *mdbstructs.ReplsetConfig, key, val string) bool {
-//}
-
-type Replset struct {
-	sync.Mutex
-	name    string
-	addrs   []string
-	config  *Config
-	session *mgo.Session
-	scorer  *ReplsetScorer
-}
-
-func NewReplset(config *Config, name string, addrs []string) (*Replset, error) {
-	r := &Replset{
-		name:   name,
-		addrs:  addrs,
-		config: config,
+// HasReplsetMemberTags returns a boolean reflecting whether or not
+// a replica set config member matches a list of replica set tags
+//
+// https://docs.mongodb.com/manual/reference/replica-configuration/#rsconf.members[n].tags
+//
+func HasReplsetMemberTags(member *mdbstructs.ReplsetConfigMember, tags map[string]string) bool {
+	if len(member.Tags) == 0 || len(tags) == 0 {
+		return false
 	}
-	return r, r.getSession()
-}
-
-func (r *Replset) getSession() error {
-	r.Lock()
-	defer r.Unlock()
-
-	var err error
-	r.session, err = mgo.DialWithInfo(&mgo.DialInfo{
-		Addrs:          r.addrs,
-		Username:       r.config.Username,
-		Password:       r.config.Password,
-		ReplicaSetName: r.name,
-		Timeout:        10 * time.Second,
-	})
-	if err != nil || r.session.Ping() != nil {
-		return err
+	for key, val := range tags {
+		if tagVal, ok := member.Tags[key]; ok {
+			if tagVal != val {
+				return false
+			}
+		} else {
+			return false
+		}
 	}
-	r.session.SetMode(replsetReadPreference, true)
-	return nil
+	return true
 }
 
-func (r *Replset) Close() {
-	r.Lock()
-	defer r.Unlock()
-
-	if r.session != nil {
-		r.session.Close()
-	}
-}
-
-func (r *Replset) GetConfig() (*mdbstructs.ReplsetConfig, error) {
+// GetConfig returns a struct representing the "replSetGetConfig" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetConfig/
+//
+func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
-	err := r.session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
+	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
-func (r *Replset) GetBackupSource() (*mdbstructs.ReplsetConfigMember, error) {
-	config, err := r.GetConfig()
-	if err != nil {
-		return nil, err
-	}
-	status, err := r.GetStatus()
-	if err != nil {
-		return nil, err
-	}
+// GetStatus returns a struct representing the "replSetGetStatus" server
+// command
+//
+// https://docs.mongodb.com/manual/reference/command/replSetGetStatus/
+//
+func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
+	status := mdbstructs.ReplsetStatus{}
+	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	return &status, err
+}
+
+// GetReplsetID returns the replica set ID
+func GetReplsetID(config *mdbstructs.ReplsetConfig) *bson.ObjectId {
+	return &config.Settings.ReplicaSetId
+}
+
+// GetBackupSource returns the the most appropriate replica set member
+// to become the source of the backup. The chosen node should cause
+// the least impact/risk possible during backup
+func GetBackupSource(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
 	scorer, err := ScoreReplset(config, status, nil)
 	if err != nil {
 		return nil, err

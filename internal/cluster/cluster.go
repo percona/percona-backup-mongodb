@@ -1,41 +1,39 @@
 package cluster
 
 import (
+	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-type Config struct {
-	Username string
-	Password string
-	AuthDB   string
+// GetShardingState returns a struct reflecting the output of the
+// 'shardingState' server command. This command should be ran on a
+// shard mongod
+//
+// https://docs.mongodb.com/manual/reference/command/shardingState/
+//
+func GetShardingState(session *mgo.Session) (*mdbstructs.ShardingState, error) {
+	shardingState := mdbstructs.ShardingState{}
+	err := session.Run(bson.D{{"shardingState", "1"}}, &shardingState)
+	return &shardingState, err
 }
 
-type Cluster struct {
-	shards map[string]*Shard
+// GetClusterIDShard returns the cluster ID using the result of the
+// 'balancerState' server command
+func GetClusterIDShard(state *mdbstructs.ShardingState) *bson.ObjectId {
+	return &state.ClusterID
 }
 
-func New(config *Config, shards []*mdbstructs.Shard) (*Cluster, error) {
-	c := &Cluster{
-		shards: make(map[string]*Shard),
+// GetClusterID returns the cluster ID using the 'config.version'
+// collection. This will only succeeed on a mongos or config server,
+// use .GetClusterIDShard instead on shard servers
+func GetClusterID(session *mgo.Session) (*bson.ObjectId, error) {
+	configVersion := struct {
+		ClusterId bson.ObjectId `bson:"clusterId"`
+	}{}
+	err := session.DB(configDB).C("version").Find(bson.M{"_id": 1}).One(&configVersion)
+	if err != nil {
+		return nil, err
 	}
-	for _, shard := range shards {
-		var err error
-		c.shards[shard.Id], err = NewShard(config, shard)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return c, nil
-}
-
-func (c *Cluster) GetBackupSources() ([]*mdbstructs.ReplsetConfigMember, error) {
-	sources := []*mdbstructs.ReplsetConfigMember{}
-	for _, shard := range c.shards {
-		source, err := shard.replset.GetBackupSource()
-		if err != nil {
-			return sources, err
-		}
-		sources = append(sources, source)
-	}
-	return sources, nil
+	return &configVersion.ClusterId, nil
 }
