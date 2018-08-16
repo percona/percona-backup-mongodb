@@ -6,12 +6,14 @@ import (
 	"io"
 	"sync"
 
+	"github.com/globalsign/mgo/bson"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 )
 
 type Client struct {
 	id         string
+	nodeType   string
 	grpcClient pb.MessagesClient
 	inMsgChan  chan *pb.ServerMessage
 	outMsgChan chan *pb.ClientMessage
@@ -23,7 +25,7 @@ type Client struct {
 	running bool
 }
 
-func NewClient(id string, grpcClient pb.MessagesClient) (*Client, error) {
+func NewClient(id string, nodeType string, grpcClient pb.MessagesClient) (*Client, error) {
 	if id == "" {
 		return nil, fmt.Errorf("ClientID cannot be empty")
 	}
@@ -32,9 +34,11 @@ func NewClient(id string, grpcClient pb.MessagesClient) (*Client, error) {
 		return nil, err
 	}
 
+	msg, _ := bson.Marshal(bson.M{"NodeType": nodeType})
 	m := &pb.ClientMessage{
 		Type:     pb.ClientMessage_REGISTER,
 		ClientID: id,
+		Message:  msg,
 	}
 
 	if err := stream.Send(m); err != nil {
@@ -51,11 +55,16 @@ func NewClient(id string, grpcClient pb.MessagesClient) (*Client, error) {
 
 	return &Client{
 		id:         id,
+		nodeType:   nodeType,
 		grpcClient: grpcClient,
 		inMsgChan:  make(chan *pb.ServerMessage),
 		outMsgChan: make(chan *pb.ClientMessage),
 		stream:     stream,
 	}, nil
+}
+
+func (c *Client) NodeType() string {
+	return c.nodeType
 }
 
 func (c *Client) OutMsgChan() chan<- *pb.ClientMessage {

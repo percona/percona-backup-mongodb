@@ -15,36 +15,37 @@ var (
 )
 
 type ClientStatus struct {
-	ReplicaSetUUID    string
-	ReplicaSetName    string
-	ReplicaSetVersion int64
-	LastOplogTime     time.Time
+	ReplicaSetUUID    string    `json:"replica_set_uuid"`
+	ReplicaSetName    string    `json:"replica_set_name"`
+	ReplicaSetVersion int64     `json:"replica_set_version"`
+	LastOplogTime     time.Time `json:"last_oplog_time"`
 	//
-	RunningDBBackup    bool
-	RunningOplogBackup bool
-	Compression        string
-	Encrypted          string
-	Destination        string
-	Filename           string
-	Started            time.Time
-	Finished           time.Time
-	LastError          string
+	RunningDBBackup    bool      `json:"running_db_backup"`
+	RunningOplogBackup bool      `json:"running_oplog_backup"`
+	Compression        string    `json:"compression"`
+	Encrypted          string    `json:"encrypted"`
+	Destination        string    `json:"destination"`
+	Filename           string    `json:"filename"`
+	Started            time.Time `json:"started"`
+	Finished           time.Time `json:"finished"`
+	LastError          string    `json:"last_error"`
 }
 
 type Client struct {
-	ID              string
-	LastSentCmd     int
-	InMessagesChan  chan *pb.ClientMessage
-	OutMessagesChan chan *pb.ServerMessage
-	LastSeen        time.Time
-	Status          ClientStatus
+	ID              string       `json:"id"`
+	NodeType        string       `json:"node_type"`
+	LastCommandSent int          `json:"last_command_ent"`
+	LastSeen        time.Time    `json:"last_seen"`
+	Status          ClientStatus `json:"Status"`
 	//
-	pongChan  chan time.Time
-	lock      *sync.Mutex
-	streaming bool
+	inMessagesChan  chan *pb.ClientMessage
+	outMessagesChan chan *pb.ServerMessage
+	pongChan        chan time.Time
+	lock            *sync.Mutex
+	streaming       bool
 }
 
-func NewClient(id string) *Client {
+func NewClient(id string, nodeType string) *Client {
 	client := &Client{
 		ID:       id,
 		lock:     &sync.Mutex{},
@@ -58,6 +59,14 @@ func (c *Client) IsStreaming() bool {
 	return c.streaming
 }
 
+func (c *Client) InMsgChan() chan *pb.ClientMessage {
+	return c.inMessagesChan
+}
+
+func (c *Client) OutMsgChan() chan *pb.ServerMessage {
+	return c.outMessagesChan
+}
+
 func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -65,8 +74,8 @@ func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
 		return fmt.Errorf("Already reading from the stream")
 	}
 
-	c.InMessagesChan = make(chan *pb.ClientMessage)
-	c.OutMessagesChan = make(chan *pb.ServerMessage, 100)
+	c.inMessagesChan = make(chan *pb.ClientMessage)
+	c.outMessagesChan = make(chan *pb.ServerMessage, 100)
 	c.streaming = true
 
 	go func() {
@@ -74,17 +83,17 @@ func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
 			in, err := stream.Recv()
 			if err != nil {
 				// A nil message will signal the process to stop on the server
-				c.InMessagesChan <- nil
+				c.inMessagesChan <- nil
 				return
 			}
 			notify.PostTimeout(in.Type, time.Now(), 1*time.Millisecond)
-			c.InMessagesChan <- in
+			c.inMessagesChan <- in
 		}
 	}()
 
 	go func() {
 		for {
-			msg, ok := <-c.OutMessagesChan
+			msg, ok := <-c.outMessagesChan
 			if !ok {
 				return
 			}
@@ -105,14 +114,14 @@ func (c *Client) StopStreamIO() {
 	}
 
 	c.streaming = false
-	close(c.OutMessagesChan)
+	close(c.outMessagesChan)
 }
 
 func (c *Client) Ping() (time.Time, error) {
 	pongChan := notify.Start(pb.ClientMessage_PONG)
 	defer notify.Stop(pb.ClientMessage_PONG, pongChan)
 
-	c.OutMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_PING}
+	c.outMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_PING}
 
 	// wait for pong
 	select {
@@ -127,6 +136,6 @@ func (c *Client) SendMsg(msg *pb.ServerMessage) error {
 	if !c.streaming {
 		return fmt.Errorf("not streaming")
 	}
-	c.OutMessagesChan <- msg
+	c.outMessagesChan <- msg
 	return nil
 }

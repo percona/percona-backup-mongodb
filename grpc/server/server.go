@@ -14,6 +14,10 @@ type MessagesServer struct {
 	clients  map[string]*Client
 }
 
+type RegisterPayload struct {
+	NodeType string `bson:"NodeType"`
+}
+
 func NewMessagesServer() *MessagesServer {
 	messagesServer := &MessagesServer{
 		lock:    &sync.Mutex{},
@@ -51,7 +55,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 		select {
 		case <-s.stopChan:
 			return nil
-		case msg := <-client.InMessagesChan:
+		case msg := <-client.InMsgChan():
 			if msg == nil {
 				s.unregisterClient(client)
 				return nil
@@ -76,7 +80,6 @@ func (s *MessagesServer) processInMessage(client *Client, msg *pb.ClientMessage)
 func (s *MessagesServer) readMessage(stream pb.Messages_MessagesChatServer) (*pb.ClientMessage, error) {
 	in, err := stream.Recv()
 	if err != nil {
-		fmt.Printf("Error :%s\n", err)
 		r := &pb.ServerMessage{
 			Type:    pb.ServerMessage_ERROR,
 			Message: []byte(err.Error()),
@@ -98,7 +101,11 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 		return nil, ClientAlreadyExistsError
 	}
 
-	client := NewClient(msg.ClientID)
+	registerMsg := msg.GetRegisterMsg()
+	if registerMsg == nil || registerMsg.NodeType == "" {
+		return nil, fmt.Errorf("Node type in register payload cannot be empty")
+	}
+	client := NewClient(msg.ClientID, registerMsg.NodeType)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }

@@ -23,6 +23,113 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
+type BackupTypes int32
+
+const (
+	BackupTypes_LOGICAL  BackupTypes = 0
+	BackupTypes_SNAPSHOT BackupTypes = 1
+)
+
+var BackupTypes_name = map[int32]string{
+	0: "LOGICAL",
+	1: "SNAPSHOT",
+}
+var BackupTypes_value = map[string]int32{
+	"LOGICAL":  0,
+	"SNAPSHOT": 1,
+}
+
+func (x BackupTypes) String() string {
+	return proto.EnumName(BackupTypes_name, int32(x))
+}
+func (BackupTypes) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{0}
+}
+
+type DestinationTypes int32
+
+const (
+	DestinationTypes_FILE DestinationTypes = 0
+	DestinationTypes_AWS  DestinationTypes = 1
+)
+
+var DestinationTypes_name = map[int32]string{
+	0: "FILE",
+	1: "AWS",
+}
+var DestinationTypes_value = map[string]int32{
+	"FILE": 0,
+	"AWS":  1,
+}
+
+func (x DestinationTypes) String() string {
+	return proto.EnumName(DestinationTypes_name, int32(x))
+}
+func (DestinationTypes) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{1}
+}
+
+type CompressionTypes int32
+
+const (
+	CompressionTypes_NO_COMPRESSION CompressionTypes = 0
+	CompressionTypes_GZIP           CompressionTypes = 1
+	CompressionTypes_SNAPPY         CompressionTypes = 2
+	CompressionTypes_LZ4            CompressionTypes = 3
+)
+
+var CompressionTypes_name = map[int32]string{
+	0: "NO_COMPRESSION",
+	1: "GZIP",
+	2: "SNAPPY",
+	3: "LZ4",
+}
+var CompressionTypes_value = map[string]int32{
+	"NO_COMPRESSION": 0,
+	"GZIP":           1,
+	"SNAPPY":         2,
+	"LZ4":            3,
+}
+
+func (x CompressionTypes) String() string {
+	return proto.EnumName(CompressionTypes_name, int32(x))
+}
+func (CompressionTypes) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{2}
+}
+
+type Cyphers int32
+
+const (
+	Cyphers_NO_CYPHER Cyphers = 0
+	Cyphers_AES       Cyphers = 1
+	Cyphers_DES       Cyphers = 2
+	Cyphers_RC4       Cyphers = 3
+	Cyphers_RSA       Cyphers = 4
+)
+
+var Cyphers_name = map[int32]string{
+	0: "NO_CYPHER",
+	1: "AES",
+	2: "DES",
+	3: "RC4",
+	4: "RSA",
+}
+var Cyphers_value = map[string]int32{
+	"NO_CYPHER": 0,
+	"AES":       1,
+	"DES":       2,
+	"RC4":       3,
+	"RSA":       4,
+}
+
+func (x Cyphers) String() string {
+	return proto.EnumName(Cyphers_name, int32(x))
+}
+func (Cyphers) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{3}
+}
+
 type ServerMessage_MessageType int32
 
 const (
@@ -55,7 +162,7 @@ func (x ServerMessage_MessageType) String() string {
 	return proto.EnumName(ServerMessage_MessageType_name, int32(x))
 }
 func (ServerMessage_MessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_message_1aa938df7a712f9a, []int{0, 0}
+	return fileDescriptor_message_c08e95fdcc22b697, []int{0, 0}
 }
 
 type ClientMessage_MessageType int32
@@ -90,23 +197,27 @@ func (x ClientMessage_MessageType) String() string {
 	return proto.EnumName(ClientMessage_MessageType_name, int32(x))
 }
 func (ClientMessage_MessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_message_1aa938df7a712f9a, []int{1, 0}
+	return fileDescriptor_message_c08e95fdcc22b697, []int{1, 0}
 }
 
 type ServerMessage struct {
-	Version              int32                     `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	Type                 ServerMessage_MessageType `protobuf:"varint,2,opt,name=type,proto3,enum=messages.ServerMessage_MessageType" json:"type,omitempty"`
-	Message              []byte                    `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                  `json:"-"`
-	XXX_unrecognized     []byte                    `json:"-"`
-	XXX_sizecache        int32                     `json:"-"`
+	Version int32                     `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	Type    ServerMessage_MessageType `protobuf:"varint,2,opt,name=type,proto3,enum=messages.ServerMessage_MessageType" json:"type,omitempty"`
+	Message []byte                    `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// Types that are valid to be assigned to Payload:
+	//	*ServerMessage_StartBackupMsg
+	//	*ServerMessage_StopBackupMsg
+	Payload              isServerMessage_Payload `protobuf_oneof:"Payload"`
+	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
+	XXX_unrecognized     []byte                  `json:"-"`
+	XXX_sizecache        int32                   `json:"-"`
 }
 
 func (m *ServerMessage) Reset()         { *m = ServerMessage{} }
 func (m *ServerMessage) String() string { return proto.CompactTextString(m) }
 func (*ServerMessage) ProtoMessage()    {}
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_message_1aa938df7a712f9a, []int{0}
+	return fileDescriptor_message_c08e95fdcc22b697, []int{0}
 }
 func (m *ServerMessage) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ServerMessage.Unmarshal(m, b)
@@ -147,21 +258,137 @@ func (m *ServerMessage) GetMessage() []byte {
 	return nil
 }
 
+type isServerMessage_Payload interface {
+	isServerMessage_Payload()
+}
+
+type ServerMessage_StartBackupMsg struct {
+	StartBackupMsg *StartBackup `protobuf:"bytes,4,opt,name=StartBackupMsg,proto3,oneof"`
+}
+
+type ServerMessage_StopBackupMsg struct {
+	StopBackupMsg *StopBackup `protobuf:"bytes,5,opt,name=StopBackupMsg,proto3,oneof"`
+}
+
+func (*ServerMessage_StartBackupMsg) isServerMessage_Payload() {}
+
+func (*ServerMessage_StopBackupMsg) isServerMessage_Payload() {}
+
+func (m *ServerMessage) GetPayload() isServerMessage_Payload {
+	if m != nil {
+		return m.Payload
+	}
+	return nil
+}
+
+func (m *ServerMessage) GetStartBackupMsg() *StartBackup {
+	if x, ok := m.GetPayload().(*ServerMessage_StartBackupMsg); ok {
+		return x.StartBackupMsg
+	}
+	return nil
+}
+
+func (m *ServerMessage) GetStopBackupMsg() *StopBackup {
+	if x, ok := m.GetPayload().(*ServerMessage_StopBackupMsg); ok {
+		return x.StopBackupMsg
+	}
+	return nil
+}
+
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*ServerMessage) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _ServerMessage_OneofMarshaler, _ServerMessage_OneofUnmarshaler, _ServerMessage_OneofSizer, []interface{}{
+		(*ServerMessage_StartBackupMsg)(nil),
+		(*ServerMessage_StopBackupMsg)(nil),
+	}
+}
+
+func _ServerMessage_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*ServerMessage)
+	// Payload
+	switch x := m.Payload.(type) {
+	case *ServerMessage_StartBackupMsg:
+		b.EncodeVarint(4<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.StartBackupMsg); err != nil {
+			return err
+		}
+	case *ServerMessage_StopBackupMsg:
+		b.EncodeVarint(5<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.StopBackupMsg); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("ServerMessage.Payload has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _ServerMessage_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*ServerMessage)
+	switch tag {
+	case 4: // Payload.StartBackupMsg
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(StartBackup)
+		err := b.DecodeMessage(msg)
+		m.Payload = &ServerMessage_StartBackupMsg{msg}
+		return true, err
+	case 5: // Payload.StopBackupMsg
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(StopBackup)
+		err := b.DecodeMessage(msg)
+		m.Payload = &ServerMessage_StopBackupMsg{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _ServerMessage_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*ServerMessage)
+	// Payload
+	switch x := m.Payload.(type) {
+	case *ServerMessage_StartBackupMsg:
+		s := proto.Size(x.StartBackupMsg)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *ServerMessage_StopBackupMsg:
+		s := proto.Size(x.StopBackupMsg)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
+}
+
 type ClientMessage struct {
-	Version              int32                     `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	Type                 ClientMessage_MessageType `protobuf:"varint,2,opt,name=type,proto3,enum=messages.ClientMessage_MessageType" json:"type,omitempty"`
-	ClientID             string                    `protobuf:"bytes,3,opt,name=clientID,proto3" json:"clientID,omitempty"`
-	Message              []byte                    `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                  `json:"-"`
-	XXX_unrecognized     []byte                    `json:"-"`
-	XXX_sizecache        int32                     `json:"-"`
+	Version  int32                     `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	Type     ClientMessage_MessageType `protobuf:"varint,2,opt,name=type,proto3,enum=messages.ClientMessage_MessageType" json:"type,omitempty"`
+	ClientID string                    `protobuf:"bytes,3,opt,name=clientID,proto3" json:"clientID,omitempty"`
+	Message  []byte                    `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	// Types that are valid to be assigned to Payload:
+	//	*ClientMessage_RegisterMsg
+	//	*ClientMessage_PingMsg
+	//	*ClientMessage_BackupFinishedMsg
+	Payload              isClientMessage_Payload `protobuf_oneof:"Payload"`
+	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
+	XXX_unrecognized     []byte                  `json:"-"`
+	XXX_sizecache        int32                   `json:"-"`
 }
 
 func (m *ClientMessage) Reset()         { *m = ClientMessage{} }
 func (m *ClientMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientMessage) ProtoMessage()    {}
 func (*ClientMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_message_1aa938df7a712f9a, []int{1}
+	return fileDescriptor_message_c08e95fdcc22b697, []int{1}
 }
 func (m *ClientMessage) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ClientMessage.Unmarshal(m, b)
@@ -209,9 +436,527 @@ func (m *ClientMessage) GetMessage() []byte {
 	return nil
 }
 
+type isClientMessage_Payload interface {
+	isClientMessage_Payload()
+}
+
+type ClientMessage_RegisterMsg struct {
+	RegisterMsg *RegisterPayload `protobuf:"bytes,5,opt,name=RegisterMsg,proto3,oneof"`
+}
+
+type ClientMessage_PingMsg struct {
+	PingMsg *PongPayload `protobuf:"bytes,6,opt,name=PingMsg,proto3,oneof"`
+}
+
+type ClientMessage_BackupFinishedMsg struct {
+	BackupFinishedMsg *BackupFinished `protobuf:"bytes,7,opt,name=BackupFinishedMsg,proto3,oneof"`
+}
+
+func (*ClientMessage_RegisterMsg) isClientMessage_Payload() {}
+
+func (*ClientMessage_PingMsg) isClientMessage_Payload() {}
+
+func (*ClientMessage_BackupFinishedMsg) isClientMessage_Payload() {}
+
+func (m *ClientMessage) GetPayload() isClientMessage_Payload {
+	if m != nil {
+		return m.Payload
+	}
+	return nil
+}
+
+func (m *ClientMessage) GetRegisterMsg() *RegisterPayload {
+	if x, ok := m.GetPayload().(*ClientMessage_RegisterMsg); ok {
+		return x.RegisterMsg
+	}
+	return nil
+}
+
+func (m *ClientMessage) GetPingMsg() *PongPayload {
+	if x, ok := m.GetPayload().(*ClientMessage_PingMsg); ok {
+		return x.PingMsg
+	}
+	return nil
+}
+
+func (m *ClientMessage) GetBackupFinishedMsg() *BackupFinished {
+	if x, ok := m.GetPayload().(*ClientMessage_BackupFinishedMsg); ok {
+		return x.BackupFinishedMsg
+	}
+	return nil
+}
+
+// XXX_OneofFuncs is for the internal use of the proto package.
+func (*ClientMessage) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
+	return _ClientMessage_OneofMarshaler, _ClientMessage_OneofUnmarshaler, _ClientMessage_OneofSizer, []interface{}{
+		(*ClientMessage_RegisterMsg)(nil),
+		(*ClientMessage_PingMsg)(nil),
+		(*ClientMessage_BackupFinishedMsg)(nil),
+	}
+}
+
+func _ClientMessage_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
+	m := msg.(*ClientMessage)
+	// Payload
+	switch x := m.Payload.(type) {
+	case *ClientMessage_RegisterMsg:
+		b.EncodeVarint(5<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.RegisterMsg); err != nil {
+			return err
+		}
+	case *ClientMessage_PingMsg:
+		b.EncodeVarint(6<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.PingMsg); err != nil {
+			return err
+		}
+	case *ClientMessage_BackupFinishedMsg:
+		b.EncodeVarint(7<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.BackupFinishedMsg); err != nil {
+			return err
+		}
+	case nil:
+	default:
+		return fmt.Errorf("ClientMessage.Payload has unexpected type %T", x)
+	}
+	return nil
+}
+
+func _ClientMessage_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
+	m := msg.(*ClientMessage)
+	switch tag {
+	case 5: // Payload.RegisterMsg
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(RegisterPayload)
+		err := b.DecodeMessage(msg)
+		m.Payload = &ClientMessage_RegisterMsg{msg}
+		return true, err
+	case 6: // Payload.PingMsg
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(PongPayload)
+		err := b.DecodeMessage(msg)
+		m.Payload = &ClientMessage_PingMsg{msg}
+		return true, err
+	case 7: // Payload.BackupFinishedMsg
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(BackupFinished)
+		err := b.DecodeMessage(msg)
+		m.Payload = &ClientMessage_BackupFinishedMsg{msg}
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func _ClientMessage_OneofSizer(msg proto.Message) (n int) {
+	m := msg.(*ClientMessage)
+	// Payload
+	switch x := m.Payload.(type) {
+	case *ClientMessage_RegisterMsg:
+		s := proto.Size(x.RegisterMsg)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *ClientMessage_PingMsg:
+		s := proto.Size(x.PingMsg)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *ClientMessage_BackupFinishedMsg:
+		s := proto.Size(x.BackupFinishedMsg)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case nil:
+	default:
+		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
+	}
+	return n
+}
+
+type RegisterPayload struct {
+	NodeType             string   `protobuf:"bytes,1,opt,name=NodeType,proto3" json:"NodeType,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *RegisterPayload) Reset()         { *m = RegisterPayload{} }
+func (m *RegisterPayload) String() string { return proto.CompactTextString(m) }
+func (*RegisterPayload) ProtoMessage()    {}
+func (*RegisterPayload) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{2}
+}
+func (m *RegisterPayload) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RegisterPayload.Unmarshal(m, b)
+}
+func (m *RegisterPayload) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RegisterPayload.Marshal(b, m, deterministic)
+}
+func (dst *RegisterPayload) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RegisterPayload.Merge(dst, src)
+}
+func (m *RegisterPayload) XXX_Size() int {
+	return xxx_messageInfo_RegisterPayload.Size(m)
+}
+func (m *RegisterPayload) XXX_DiscardUnknown() {
+	xxx_messageInfo_RegisterPayload.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RegisterPayload proto.InternalMessageInfo
+
+func (m *RegisterPayload) GetNodeType() string {
+	if m != nil {
+		return m.NodeType
+	}
+	return ""
+}
+
+type PongPayload struct {
+	Timestamp            float32  `protobuf:"fixed32,1,opt,name=Timestamp,proto3" json:"Timestamp,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *PongPayload) Reset()         { *m = PongPayload{} }
+func (m *PongPayload) String() string { return proto.CompactTextString(m) }
+func (*PongPayload) ProtoMessage()    {}
+func (*PongPayload) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{3}
+}
+func (m *PongPayload) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PongPayload.Unmarshal(m, b)
+}
+func (m *PongPayload) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PongPayload.Marshal(b, m, deterministic)
+}
+func (dst *PongPayload) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PongPayload.Merge(dst, src)
+}
+func (m *PongPayload) XXX_Size() int {
+	return xxx_messageInfo_PongPayload.Size(m)
+}
+func (m *PongPayload) XXX_DiscardUnknown() {
+	xxx_messageInfo_PongPayload.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PongPayload proto.InternalMessageInfo
+
+func (m *PongPayload) GetTimestamp() float32 {
+	if m != nil {
+		return m.Timestamp
+	}
+	return 0
+}
+
+type StartBackup struct {
+	BackupType           BackupTypes      `protobuf:"varint,1,opt,name=BackupType,proto3,enum=messages.BackupTypes" json:"BackupType,omitempty"`
+	DestinationType      DestinationTypes `protobuf:"varint,2,opt,name=DestinationType,proto3,enum=messages.DestinationTypes" json:"DestinationType,omitempty"`
+	DestinationName      string           `protobuf:"bytes,3,opt,name=DestinationName,proto3" json:"DestinationName,omitempty"`
+	DestinationDir       string           `protobuf:"bytes,4,opt,name=DestinationDir,proto3" json:"DestinationDir,omitempty"`
+	CompressionType      CompressionTypes `protobuf:"varint,5,opt,name=CompressionType,proto3,enum=messages.CompressionTypes" json:"CompressionType,omitempty"`
+	Cypher               Cyphers          `protobuf:"varint,6,opt,name=Cypher,proto3,enum=messages.Cyphers" json:"Cypher,omitempty"`
+	OplogStartTime       float32          `protobuf:"fixed32,7,opt,name=OplogStartTime,proto3" json:"OplogStartTime,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *StartBackup) Reset()         { *m = StartBackup{} }
+func (m *StartBackup) String() string { return proto.CompactTextString(m) }
+func (*StartBackup) ProtoMessage()    {}
+func (*StartBackup) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{4}
+}
+func (m *StartBackup) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StartBackup.Unmarshal(m, b)
+}
+func (m *StartBackup) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StartBackup.Marshal(b, m, deterministic)
+}
+func (dst *StartBackup) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StartBackup.Merge(dst, src)
+}
+func (m *StartBackup) XXX_Size() int {
+	return xxx_messageInfo_StartBackup.Size(m)
+}
+func (m *StartBackup) XXX_DiscardUnknown() {
+	xxx_messageInfo_StartBackup.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StartBackup proto.InternalMessageInfo
+
+func (m *StartBackup) GetBackupType() BackupTypes {
+	if m != nil {
+		return m.BackupType
+	}
+	return BackupTypes_LOGICAL
+}
+
+func (m *StartBackup) GetDestinationType() DestinationTypes {
+	if m != nil {
+		return m.DestinationType
+	}
+	return DestinationTypes_FILE
+}
+
+func (m *StartBackup) GetDestinationName() string {
+	if m != nil {
+		return m.DestinationName
+	}
+	return ""
+}
+
+func (m *StartBackup) GetDestinationDir() string {
+	if m != nil {
+		return m.DestinationDir
+	}
+	return ""
+}
+
+func (m *StartBackup) GetCompressionType() CompressionTypes {
+	if m != nil {
+		return m.CompressionType
+	}
+	return CompressionTypes_NO_COMPRESSION
+}
+
+func (m *StartBackup) GetCypher() Cyphers {
+	if m != nil {
+		return m.Cypher
+	}
+	return Cyphers_NO_CYPHER
+}
+
+func (m *StartBackup) GetOplogStartTime() float32 {
+	if m != nil {
+		return m.OplogStartTime
+	}
+	return 0
+}
+
+type StopBackup struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *StopBackup) Reset()         { *m = StopBackup{} }
+func (m *StopBackup) String() string { return proto.CompactTextString(m) }
+func (*StopBackup) ProtoMessage()    {}
+func (*StopBackup) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{5}
+}
+func (m *StopBackup) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StopBackup.Unmarshal(m, b)
+}
+func (m *StopBackup) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StopBackup.Marshal(b, m, deterministic)
+}
+func (dst *StopBackup) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StopBackup.Merge(dst, src)
+}
+func (m *StopBackup) XXX_Size() int {
+	return xxx_messageInfo_StopBackup.Size(m)
+}
+func (m *StopBackup) XXX_DiscardUnknown() {
+	xxx_messageInfo_StopBackup.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StopBackup proto.InternalMessageInfo
+
+type Status struct {
+	DBBackUpRunning    bool        `protobuf:"varint,1,opt,name=DBBackUpRunning,proto3" json:"DBBackUpRunning,omitempty"`
+	OplogBackupRunning bool        `protobuf:"varint,2,opt,name=OplogBackupRunning,proto3" json:"OplogBackupRunning,omitempty"`
+	BackupType         BackupTypes `protobuf:"varint,3,opt,name=BackupType,proto3,enum=messages.BackupTypes" json:"BackupType,omitempty"`
+	BytesSent          uint64      `protobuf:"varint,4,opt,name=BytesSent,proto3" json:"BytesSent,omitempty"`
+	LastOplogTS        float32     `protobuf:"fixed32,5,opt,name=LastOplogTS,proto3" json:"LastOplogTS,omitempty"`
+	BackupCompleted    float32     `protobuf:"fixed32,6,opt,name=BackupCompleted,proto3" json:"BackupCompleted,omitempty"`
+	LastError          string      `protobuf:"bytes,7,opt,name=LastError,proto3" json:"LastError,omitempty"`
+	//
+	DestinationType      DestinationTypes `protobuf:"varint,8,opt,name=DestinationType,proto3,enum=messages.DestinationTypes" json:"DestinationType,omitempty"`
+	DestinationName      string           `protobuf:"bytes,9,opt,name=DestinationName,proto3" json:"DestinationName,omitempty"`
+	DestinationDir       string           `protobuf:"bytes,10,opt,name=DestinationDir,proto3" json:"DestinationDir,omitempty"`
+	CompressionType      CompressionTypes `protobuf:"varint,11,opt,name=CompressionType,proto3,enum=messages.CompressionTypes" json:"CompressionType,omitempty"`
+	Cypher               Cyphers          `protobuf:"varint,12,opt,name=Cypher,proto3,enum=messages.Cyphers" json:"Cypher,omitempty"`
+	OplogStartTime       float32          `protobuf:"fixed32,13,opt,name=OplogStartTime,proto3" json:"OplogStartTime,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *Status) Reset()         { *m = Status{} }
+func (m *Status) String() string { return proto.CompactTextString(m) }
+func (*Status) ProtoMessage()    {}
+func (*Status) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{6}
+}
+func (m *Status) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Status.Unmarshal(m, b)
+}
+func (m *Status) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Status.Marshal(b, m, deterministic)
+}
+func (dst *Status) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Status.Merge(dst, src)
+}
+func (m *Status) XXX_Size() int {
+	return xxx_messageInfo_Status.Size(m)
+}
+func (m *Status) XXX_DiscardUnknown() {
+	xxx_messageInfo_Status.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Status proto.InternalMessageInfo
+
+func (m *Status) GetDBBackUpRunning() bool {
+	if m != nil {
+		return m.DBBackUpRunning
+	}
+	return false
+}
+
+func (m *Status) GetOplogBackupRunning() bool {
+	if m != nil {
+		return m.OplogBackupRunning
+	}
+	return false
+}
+
+func (m *Status) GetBackupType() BackupTypes {
+	if m != nil {
+		return m.BackupType
+	}
+	return BackupTypes_LOGICAL
+}
+
+func (m *Status) GetBytesSent() uint64 {
+	if m != nil {
+		return m.BytesSent
+	}
+	return 0
+}
+
+func (m *Status) GetLastOplogTS() float32 {
+	if m != nil {
+		return m.LastOplogTS
+	}
+	return 0
+}
+
+func (m *Status) GetBackupCompleted() float32 {
+	if m != nil {
+		return m.BackupCompleted
+	}
+	return 0
+}
+
+func (m *Status) GetLastError() string {
+	if m != nil {
+		return m.LastError
+	}
+	return ""
+}
+
+func (m *Status) GetDestinationType() DestinationTypes {
+	if m != nil {
+		return m.DestinationType
+	}
+	return DestinationTypes_FILE
+}
+
+func (m *Status) GetDestinationName() string {
+	if m != nil {
+		return m.DestinationName
+	}
+	return ""
+}
+
+func (m *Status) GetDestinationDir() string {
+	if m != nil {
+		return m.DestinationDir
+	}
+	return ""
+}
+
+func (m *Status) GetCompressionType() CompressionTypes {
+	if m != nil {
+		return m.CompressionType
+	}
+	return CompressionTypes_NO_COMPRESSION
+}
+
+func (m *Status) GetCypher() Cyphers {
+	if m != nil {
+		return m.Cypher
+	}
+	return Cyphers_NO_CYPHER
+}
+
+func (m *Status) GetOplogStartTime() float32 {
+	if m != nil {
+		return m.OplogStartTime
+	}
+	return 0
+}
+
+type BackupFinished struct {
+	LastOplogTS          float32  `protobuf:"fixed32,1,opt,name=LastOplogTS,proto3" json:"LastOplogTS,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *BackupFinished) Reset()         { *m = BackupFinished{} }
+func (m *BackupFinished) String() string { return proto.CompactTextString(m) }
+func (*BackupFinished) ProtoMessage()    {}
+func (*BackupFinished) Descriptor() ([]byte, []int) {
+	return fileDescriptor_message_c08e95fdcc22b697, []int{7}
+}
+func (m *BackupFinished) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_BackupFinished.Unmarshal(m, b)
+}
+func (m *BackupFinished) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_BackupFinished.Marshal(b, m, deterministic)
+}
+func (dst *BackupFinished) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_BackupFinished.Merge(dst, src)
+}
+func (m *BackupFinished) XXX_Size() int {
+	return xxx_messageInfo_BackupFinished.Size(m)
+}
+func (m *BackupFinished) XXX_DiscardUnknown() {
+	xxx_messageInfo_BackupFinished.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_BackupFinished proto.InternalMessageInfo
+
+func (m *BackupFinished) GetLastOplogTS() float32 {
+	if m != nil {
+		return m.LastOplogTS
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*ServerMessage)(nil), "messages.ServerMessage")
 	proto.RegisterType((*ClientMessage)(nil), "messages.ClientMessage")
+	proto.RegisterType((*RegisterPayload)(nil), "messages.RegisterPayload")
+	proto.RegisterType((*PongPayload)(nil), "messages.PongPayload")
+	proto.RegisterType((*StartBackup)(nil), "messages.StartBackup")
+	proto.RegisterType((*StopBackup)(nil), "messages.StopBackup")
+	proto.RegisterType((*Status)(nil), "messages.Status")
+	proto.RegisterType((*BackupFinished)(nil), "messages.BackupFinished")
+	proto.RegisterEnum("messages.BackupTypes", BackupTypes_name, BackupTypes_value)
+	proto.RegisterEnum("messages.DestinationTypes", DestinationTypes_name, DestinationTypes_value)
+	proto.RegisterEnum("messages.CompressionTypes", CompressionTypes_name, CompressionTypes_value)
+	proto.RegisterEnum("messages.Cyphers", Cyphers_name, Cyphers_value)
 	proto.RegisterEnum("messages.ServerMessage_MessageType", ServerMessage_MessageType_name, ServerMessage_MessageType_value)
 	proto.RegisterEnum("messages.ClientMessage_MessageType", ClientMessage_MessageType_name, ClientMessage_MessageType_value)
 }
@@ -320,31 +1065,66 @@ var _Messages_serviceDesc = grpc.ServiceDesc{
 	Metadata: "message.proto",
 }
 
-func init() { proto.RegisterFile("message.proto", fileDescriptor_message_1aa938df7a712f9a) }
+func init() { proto.RegisterFile("message.proto", fileDescriptor_message_c08e95fdcc22b697) }
 
-var fileDescriptor_message_1aa938df7a712f9a = []byte{
-	// 361 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x92, 0xc1, 0x8f, 0x9a, 0x50,
-	0x10, 0xc6, 0x7d, 0x88, 0x16, 0x47, 0xd0, 0xd7, 0xe9, 0x41, 0xea, 0xc9, 0xd0, 0x0b, 0x87, 0x86,
-	0x34, 0xf6, 0xd0, 0x33, 0x2a, 0x5a, 0x62, 0x2a, 0xe4, 0xf1, 0x3c, 0x13, 0x6b, 0x5e, 0x5c, 0x12,
-	0x15, 0x02, 0xc4, 0xac, 0xe7, 0xfd, 0x7f, 0xf7, 0x6f, 0xd8, 0x88, 0x60, 0x24, 0x59, 0xf7, 0xb2,
-	0x27, 0xf8, 0x26, 0x33, 0xdf, 0xe4, 0xfb, 0xbd, 0x01, 0xed, 0x20, 0xb2, 0x6c, 0xb3, 0x13, 0x56,
-	0x92, 0xc6, 0x79, 0x8c, 0x4a, 0x29, 0x33, 0xe3, 0x95, 0x80, 0x16, 0x88, 0xf4, 0x24, 0xd2, 0x7f,
-	0xd7, 0x12, 0xea, 0xf0, 0xe5, 0x24, 0xd2, 0x2c, 0x8a, 0x8f, 0x3a, 0x19, 0x11, 0xb3, 0xc5, 0x2a,
-	0x89, 0x7f, 0x40, 0xce, 0xcf, 0x89, 0xd0, 0xa5, 0x11, 0x31, 0x7b, 0xe3, 0x1f, 0x56, 0x65, 0x62,
-	0xd5, 0x0c, 0xac, 0xf2, 0xcb, 0xcf, 0x89, 0x60, 0xc5, 0xc0, 0xc5, 0xb2, 0xec, 0xd5, 0x9b, 0x23,
-	0x62, 0xaa, 0xac, 0x92, 0x46, 0x02, 0xdd, 0xbb, 0x76, 0xec, 0x40, 0xcb, 0x61, 0xcc, 0x63, 0xb4,
-	0x81, 0x0a, 0xc8, 0xbe, 0xbb, 0x5a, 0x50, 0x82, 0xdf, 0xa0, 0xcf, 0x9c, 0x85, 0x1b, 0x70, 0x66,
-	0x73, 0xd7, 0x5b, 0x85, 0xde, 0x92, 0x4a, 0x48, 0x41, 0x0d, 0xb8, 0xcd, 0x78, 0x38, 0xb1, 0xa7,
-	0xcb, 0xb5, 0x4f, 0x9b, 0xd8, 0x87, 0x6e, 0xc0, 0x3d, 0xbf, 0x2a, 0xc8, 0xd8, 0x03, 0x58, 0x38,
-	0x3c, 0x0c, 0xb8, 0xcd, 0xd7, 0x01, 0x6d, 0x19, 0xb2, 0xd2, 0xa6, 0x5b, 0xe3, 0x45, 0x02, 0x6d,
-	0xba, 0x8f, 0xc4, 0x31, 0xff, 0x44, 0xe0, 0x9a, 0xc1, 0x3b, 0x81, 0x87, 0xa0, 0x6c, 0x8b, 0x16,
-	0x77, 0x56, 0x24, 0xee, 0xb0, 0x9b, 0xbe, 0x87, 0x21, 0xd7, 0x61, 0x44, 0x1f, 0xc2, 0xf0, 0x0a,
-	0x18, 0x2a, 0x28, 0x57, 0x18, 0x0e, 0xa3, 0x12, 0x22, 0xf4, 0xae, 0x71, 0xc3, 0x02, 0x86, 0x33,
-	0xa3, 0x4d, 0xfc, 0x0a, 0x5a, 0x59, 0x9b, 0xbb, 0x2b, 0x37, 0xf8, 0x4b, 0x65, 0x04, 0x68, 0xd7,
-	0x29, 0x8c, 0x19, 0x28, 0xe5, 0xaa, 0x0c, 0xe7, 0xa0, 0x56, 0xff, 0xd3, 0xa7, 0x4d, 0x8e, 0x83,
-	0x07, 0x39, 0x87, 0x83, 0x07, 0x2f, 0x6e, 0x34, 0x4c, 0xf2, 0x8b, 0x4c, 0x7e, 0xc2, 0xf7, 0x28,
-	0xb6, 0x76, 0x69, 0xb2, 0xb5, 0xc4, 0xf3, 0xe6, 0x90, 0xec, 0x45, 0x76, 0x1b, 0x98, 0x68, 0xd5,
-	0x0a, 0xff, 0x72, 0x80, 0x3e, 0xf9, 0xdf, 0x2e, 0x2e, 0xf1, 0xf7, 0x5b, 0x00, 0x00, 0x00, 0xff,
-	0xff, 0x56, 0x32, 0x82, 0x6b, 0x9a, 0x02, 0x00, 0x00,
+var fileDescriptor_message_c08e95fdcc22b697 = []byte{
+	// 921 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0x5d, 0x6f, 0xe3, 0x44,
+	0x14, 0x8d, 0x1d, 0x37, 0x89, 0xaf, 0x93, 0x74, 0x3a, 0x80, 0x36, 0x5b, 0xed, 0x43, 0x64, 0x04,
+	0x0a, 0x05, 0x22, 0x08, 0x8b, 0x78, 0x59, 0x84, 0xf2, 0xe1, 0x26, 0xd6, 0xa6, 0xb1, 0x35, 0xe3,
+	0x0a, 0xed, 0xbe, 0x44, 0xa6, 0x1d, 0xa5, 0x16, 0x8d, 0x6d, 0x79, 0xdc, 0x15, 0xf9, 0x8b, 0x3c,
+	0xf2, 0x5f, 0x90, 0x78, 0x44, 0x33, 0xb1, 0x6b, 0xc7, 0xdb, 0xa2, 0xa2, 0xdd, 0xa7, 0x78, 0xce,
+	0xdc, 0x73, 0x67, 0x7c, 0xce, 0xd1, 0x8d, 0xa1, 0xb3, 0x65, 0x9c, 0xfb, 0x1b, 0x36, 0x8c, 0x93,
+	0x28, 0x8d, 0x70, 0x2b, 0x5b, 0x72, 0xf3, 0x1f, 0x15, 0x3a, 0x94, 0x25, 0xef, 0x58, 0x72, 0xb1,
+	0x87, 0x70, 0x0f, 0x9a, 0xef, 0x58, 0xc2, 0x83, 0x28, 0xec, 0x29, 0x7d, 0x65, 0x70, 0x44, 0xf2,
+	0x25, 0xfe, 0x09, 0xb4, 0x74, 0x17, 0xb3, 0x9e, 0xda, 0x57, 0x06, 0xdd, 0xd1, 0xe7, 0xc3, 0xbc,
+	0xc9, 0xf0, 0xa0, 0xc1, 0x30, 0xfb, 0xf5, 0x76, 0x31, 0x23, 0x92, 0x20, 0x5a, 0x66, 0xb5, 0xbd,
+	0x7a, 0x5f, 0x19, 0xb4, 0x49, 0xbe, 0xc4, 0xbf, 0x40, 0x97, 0xa6, 0x7e, 0x92, 0x4e, 0xfc, 0xab,
+	0xdf, 0xef, 0xe2, 0x0b, 0xbe, 0xe9, 0x69, 0x7d, 0x65, 0x60, 0x8c, 0x3e, 0x2b, 0x35, 0x2f, 0xf6,
+	0x17, 0x35, 0x52, 0x29, 0xc7, 0xaf, 0xa0, 0x43, 0xd3, 0x28, 0x2e, 0xf8, 0x47, 0x92, 0xff, 0x69,
+	0x99, 0x9f, 0x6f, 0x2f, 0x6a, 0xe4, 0xb0, 0xd8, 0x8c, 0xc1, 0x28, 0xdd, 0x16, 0xeb, 0x70, 0x64,
+	0x11, 0xe2, 0x10, 0x54, 0xc3, 0x2d, 0xd0, 0x5c, 0x7b, 0x35, 0x47, 0x0a, 0xfe, 0x04, 0x8e, 0x89,
+	0x35, 0xb7, 0xa9, 0x47, 0xc6, 0x9e, 0xed, 0xac, 0xd6, 0xce, 0x6b, 0xa4, 0x62, 0x04, 0x6d, 0xea,
+	0x8d, 0x89, 0xb7, 0x9e, 0x8c, 0xa7, 0xaf, 0x2f, 0x5d, 0x54, 0xc7, 0xc7, 0x60, 0x50, 0xcf, 0x71,
+	0x73, 0x40, 0xc3, 0x5d, 0x80, 0xb9, 0xe5, 0xad, 0xa9, 0x37, 0xf6, 0x2e, 0x29, 0x3a, 0x32, 0xb5,
+	0x56, 0x03, 0x5d, 0x4d, 0x74, 0x68, 0xba, 0xfe, 0xee, 0x36, 0xf2, 0xaf, 0xcd, 0x3f, 0xeb, 0xd0,
+	0x99, 0xde, 0x06, 0x2c, 0x4c, 0x3f, 0x40, 0xfa, 0x83, 0x06, 0x0f, 0x48, 0x7f, 0x0a, 0xad, 0x2b,
+	0x59, 0x62, 0xcf, 0xa4, 0xf6, 0x3a, 0xb9, 0x5f, 0x97, 0x6d, 0xd1, 0x0e, 0x6d, 0xf9, 0x19, 0x0c,
+	0xc2, 0x36, 0x01, 0x4f, 0x59, 0x52, 0x68, 0xfa, 0xbc, 0x38, 0x35, 0xdf, 0xcc, 0x5e, 0x65, 0x51,
+	0x23, 0xe5, 0x7a, 0xfc, 0x3d, 0x34, 0xdd, 0x20, 0xdc, 0x08, 0x6a, 0xa3, 0x6a, 0xa7, 0x1b, 0x85,
+	0x9b, 0x82, 0x96, 0xd7, 0xe1, 0x05, 0x9c, 0xec, 0x6d, 0x39, 0x0f, 0xc2, 0x80, 0xdf, 0xb0, 0x6b,
+	0x41, 0x6e, 0x4a, 0x72, 0xaf, 0x20, 0x1f, 0x96, 0x2c, 0x6a, 0xe4, 0x7d, 0x92, 0x19, 0xfc, 0xa7,
+	0xa7, 0x8e, 0xf4, 0xb4, 0x0d, 0xad, 0xbd, 0xa7, 0x16, 0x41, 0x2a, 0xc6, 0xd0, 0xdd, 0xbb, 0xb6,
+	0x96, 0x9e, 0x5a, 0x33, 0x54, 0xc7, 0x27, 0xd0, 0xc9, 0xb0, 0x73, 0x7b, 0x65, 0xd3, 0x05, 0xd2,
+	0x30, 0x40, 0xe3, 0x71, 0x33, 0xbf, 0x85, 0xe3, 0x8a, 0x28, 0x42, 0xfa, 0x55, 0x74, 0x2d, 0x6f,
+	0x21, 0xed, 0xd4, 0xc9, 0xfd, 0xda, 0xfc, 0x1a, 0x8c, 0x92, 0x10, 0xf8, 0x05, 0xe8, 0x5e, 0xb0,
+	0x65, 0x3c, 0xf5, 0xb7, 0xb1, 0xac, 0x55, 0x49, 0x01, 0x98, 0x7f, 0xab, 0x60, 0x94, 0x62, 0x8f,
+	0x7f, 0x04, 0xd8, 0x3f, 0xdd, 0xb7, 0xee, 0x96, 0x15, 0x2e, 0xf6, 0x38, 0x29, 0x15, 0xe2, 0x19,
+	0x1c, 0xcf, 0x18, 0x4f, 0x83, 0xd0, 0x4f, 0x83, 0x28, 0xf4, 0x8a, 0x38, 0x9d, 0x16, 0xdc, 0x4a,
+	0x01, 0x27, 0x55, 0x0a, 0x1e, 0x1c, 0x74, 0x59, 0xf9, 0x5b, 0x96, 0xe5, 0xaa, 0x0a, 0xe3, 0x2f,
+	0xa1, 0x5b, 0x82, 0x66, 0x41, 0x22, 0x53, 0xa6, 0x93, 0x0a, 0x2a, 0xee, 0x35, 0x8d, 0xb6, 0x71,
+	0xc2, 0x38, 0xcf, 0xef, 0x75, 0x54, 0xbd, 0x57, 0xa5, 0x80, 0x93, 0x2a, 0x05, 0x7f, 0x05, 0x8d,
+	0xe9, 0x2e, 0xbe, 0x61, 0x89, 0x8c, 0x5c, 0x77, 0x74, 0x52, 0x22, 0x4b, 0x9c, 0x93, 0xac, 0x40,
+	0x5c, 0xcc, 0x89, 0x6f, 0xa3, 0x8d, 0xd4, 0x54, 0xc8, 0x2c, 0x83, 0xa6, 0x92, 0x0a, 0x6a, 0xb6,
+	0x01, 0x8a, 0x71, 0x61, 0xfe, 0xa5, 0x41, 0x83, 0xa6, 0x7e, 0x7a, 0xc7, 0xa5, 0x06, 0x13, 0x01,
+	0x5f, 0xc6, 0xe4, 0x2e, 0x0c, 0x83, 0x70, 0x23, 0x5d, 0x68, 0x91, 0x2a, 0x8c, 0x87, 0x80, 0x65,
+	0xd3, 0x7d, 0x8f, 0xbc, 0x58, 0x95, 0xc5, 0x0f, 0xec, 0x54, 0xac, 0xad, 0x3f, 0xd5, 0xda, 0x17,
+	0xa0, 0x4f, 0x76, 0x29, 0xe3, 0x94, 0x85, 0xa9, 0x54, 0x59, 0x23, 0x05, 0x80, 0xfb, 0x60, 0x2c,
+	0x7d, 0x9e, 0xca, 0xe3, 0x3c, 0x2a, 0xc5, 0x55, 0x49, 0x19, 0x12, 0x2f, 0xb4, 0xef, 0x26, 0x54,
+	0xbd, 0x65, 0x29, 0xbb, 0x96, 0x2a, 0xaa, 0xa4, 0x0a, 0x8b, 0x93, 0x04, 0xd1, 0x4a, 0x92, 0x28,
+	0x91, 0xb2, 0xe9, 0xa4, 0x00, 0x1e, 0x8a, 0x58, 0xeb, 0xa3, 0x44, 0x4c, 0x7f, 0x6a, 0xc4, 0xe0,
+	0xa9, 0x11, 0x33, 0x3e, 0x24, 0x62, 0xed, 0xff, 0x1f, 0xb1, 0xce, 0x83, 0x11, 0x1b, 0x41, 0xf7,
+	0x70, 0x82, 0x55, 0xcd, 0x52, 0xde, 0x33, 0xeb, 0x6c, 0x00, 0x46, 0x29, 0x07, 0xd8, 0x80, 0xe6,
+	0xd2, 0x99, 0xdb, 0xd3, 0xf1, 0x12, 0xd5, 0xc4, 0x60, 0xa3, 0xab, 0xb1, 0x4b, 0x17, 0x8e, 0x87,
+	0x94, 0xb3, 0x2f, 0x00, 0x55, 0xd5, 0x16, 0x43, 0xf0, 0xdc, 0x5e, 0x5a, 0xa8, 0x86, 0x9b, 0x50,
+	0x1f, 0xff, 0x4a, 0x91, 0x72, 0x66, 0x01, 0xaa, 0xbe, 0xbc, 0x98, 0x89, 0x2b, 0x67, 0x3d, 0x75,
+	0x2e, 0x5c, 0x62, 0x51, 0x6a, 0x3b, 0xab, 0xfd, 0xfc, 0x9c, 0xbf, 0xb5, 0x5d, 0xa4, 0xc8, 0x51,
+	0xb8, 0x1a, 0xbb, 0xee, 0x1b, 0xa4, 0x8a, 0x36, 0xcb, 0xb7, 0x2f, 0x51, 0xfd, 0xec, 0x15, 0x34,
+	0x33, 0x19, 0x70, 0x07, 0x74, 0xc1, 0x7e, 0xe3, 0x2e, 0x2c, 0x92, 0x9d, 0x64, 0x51, 0xa4, 0x88,
+	0x87, 0x99, 0x45, 0xf7, 0x24, 0x32, 0x7d, 0x89, 0xea, 0xf2, 0x81, 0x8e, 0x91, 0x36, 0x22, 0xd0,
+	0xca, 0xc6, 0x36, 0xc7, 0xe7, 0xd0, 0xce, 0x9f, 0xa7, 0x37, 0x7e, 0x8a, 0x9f, 0x3d, 0xf2, 0x7f,
+	0x77, 0xfa, 0xec, 0x91, 0x6f, 0x10, 0xb3, 0x36, 0x50, 0xbe, 0x53, 0x26, 0xdf, 0xc0, 0xf3, 0x20,
+	0x1a, 0x6e, 0x92, 0xf8, 0x6a, 0xc8, 0xfe, 0xf0, 0x45, 0x84, 0xf9, 0x3d, 0x61, 0xd2, 0xc9, 0x8f,
+	0x70, 0xc5, 0x27, 0x91, 0xab, 0xfc, 0xd6, 0x90, 0xdf, 0x46, 0x3f, 0xfc, 0x1b, 0x00, 0x00, 0xff,
+	0xff, 0xdc, 0x4d, 0xfd, 0xaf, 0x2c, 0x09, 0x00, 0x00,
 }

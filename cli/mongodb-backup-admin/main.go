@@ -42,6 +42,11 @@ func main() {
 	}
 	defer conn.Close()
 
+	processMessages(conn)
+
+}
+
+func processMessages(conn *grpc.ClientConn) {
 	apiClient := pbapi.NewApiClient(conn)
 	stream, err := apiClient.GetClients(context.Background(), &pbapi.Empty{})
 	if err != nil {

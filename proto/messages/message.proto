@@ -21,38 +21,114 @@ option java_outer_classname = "MessagesProto";
 package messages;
 
 service Messages {
-
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
 }
 
+enum BackupTypes {
+   LOGICAL  = 0;
+   SNAPSHOT = 1;
+}
+
+enum DestinationTypes {
+   FILE = 0; 
+   AWS  = 1;
+}
+
+enum CompressionTypes {
+   NO_COMPRESSION = 0;
+   GZIP           = 1;
+   SNAPPY         = 2;
+   LZ4            = 3;
+}
+
+enum Cyphers {
+    NO_CYPHER = 0;
+    AES       = 1;
+    DES       = 2;
+    RC4       = 3;
+    RSA       = 4;
+}
+
 message ServerMessage {
-  int32 version = 1;
   enum MessageType {
-      ERROR = 0;
-      PING = 1;
+      ERROR           = 0;
+      PING            = 1;
       REGISTRATION_OK = 2;
-      START_BACKUP = 3;
-      STOP_BACKUP = 4;
-      GET_STATUS = 5;
+      START_BACKUP    = 3;
+      STOP_BACKUP     = 4;
+      GET_STATUS      = 5;
       reserved 6 to 99;
   }
-  MessageType type = 2;
-  bytes message = 3;
+  
+  int32       version = 1;
+  MessageType type    = 2;
+  bytes       message = 3;
+  oneof Payload {
+    StartBackup StartBackupMsg = 4;
+    StopBackup  StopBackupMsg  = 5;
+  }
 }
 
 message ClientMessage {
-  int32 version = 1;
   enum MessageType {
-      ERROR = 0;
-      PONG = 1;
-      REGISTER = 2 ;
+      ERROR          = 0;
+      PONG           = 1;
+      REGISTER       = 2;
       BACKUP_STARTED = 3;
-      BACKUP_FINISH = 4;
-      STATUS = 5;
+      BACKUP_FINISH  = 4;
+      STATUS         = 5;
       reserved 6 to 99;
   }
-  MessageType type = 2;
-  string clientID = 3;
-  bytes message = 4;
+  
+  int32       version  = 1;
+  MessageType type     = 2;
+  string      clientID = 3;
+  bytes       message  = 4;
+  oneof Payload {
+    RegisterPayload RegisterMsg       = 5;
+    PongPayload     PingMsg           = 6;
+    BackupFinished  BackupFinishedMsg = 7;
+  }
 }
 
+message RegisterPayload {
+  string NodeType = 1;
+}
+
+message PongPayload {
+  float Timestamp = 1;
+}
+
+message StartBackup {
+  BackupTypes      BackupType      = 1;
+  DestinationTypes DestinationType = 2;
+  string           DestinationName = 3;
+  string           DestinationDir  = 4; // This is also used as S3 bucket name
+  CompressionTypes CompressionType = 5;
+  Cyphers          Cypher          = 6;
+  float            OplogStartTime  = 7;
+}
+
+message StopBackup {
+}
+
+message Status {
+  bool             DBBackUpRunning    = 1;
+  bool             OplogBackupRunning = 2;
+  BackupTypes      BackupType         = 3;
+  uint64           BytesSent          = 4;
+  float            LastOplogTS        = 5;
+  float            BackupCompleted    = 6; // TS when the backup has finish
+  string           LastError          = 7;
+  //
+  DestinationTypes DestinationType    = 8;
+  string           DestinationName    = 9;
+  string           DestinationDir     = 10; // This is also used as S3 bucket name
+  CompressionTypes CompressionType    = 11;
+  Cyphers          Cypher             = 12;
+  float            OplogStartTime     = 13;
+}
+
+message BackupFinished {
+  float LastOplogTS = 1;
+}
