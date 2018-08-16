@@ -11,7 +11,7 @@ import (
 //
 // https://docs.mongodb.com/manual/reference/command/isMaster/
 //
-func GetIsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
+func IsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
 	isMaster := mdbstructs.IsMaster{}
 	err := session.Run(bson.D{{"isMaster", "1"}}, &isMaster)
 	return &isMaster, err
