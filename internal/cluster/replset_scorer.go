@@ -92,11 +92,11 @@ func minVotesSecondary(members map[string]*ReplsetScoringMember) *ReplsetScoring
 	return minVotes
 }
 
-func getReplsetScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (map[string]*ReplsetScoringMember, error) {
+func (r *Replset) getReplsetScoringMembers() (map[string]*ReplsetScoringMember, error) {
 	members := map[string]*ReplsetScoringMember{}
-	for _, cnfMember := range config.Members {
+	for _, cnfMember := range r.config.Members {
 		var statusMember *mdbstructs.ReplsetStatusMember
-		for _, m := range status.Members {
+		for _, m := range r.status.Members {
 			if m.Name == cnfMember.Host {
 				statusMember = m
 				break
@@ -115,21 +115,20 @@ func getReplsetScoringMembers(config *mdbstructs.ReplsetConfig, status *mdbstruc
 }
 
 type ReplsetScorer struct {
-	status      *mdbstructs.ReplsetStatus
 	replsetTags map[string]string
 	members     map[string]*ReplsetScoringMember
 }
 
-func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus, replsetTags map[string]string) (*ReplsetScorer, error) {
+func (r *Replset) score(replsetTags map[string]string) (*ReplsetScorer, error) {
+	r.Lock()
+	defer r.Unlock()
+
 	var err error
 	var secondariesWithPriority int
 	var secondariesWithVotes int
 
-	scorer := &ReplsetScorer{
-		status:      status,
-		replsetTags: replsetTags,
-	}
-	scorer.members, err = getReplsetScoringMembers(config, status)
+	scorer := &ReplsetScorer{replsetTags: replsetTags}
+	scorer.members, err = r.getReplsetScoringMembers()
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +166,7 @@ func ScoreReplset(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetSt
 				}
 			}
 
-			replsetLag, err := GetReplsetLagDuration(status, GetReplsetStatusMember(status, member.config.Host))
+			replsetLag, err := r.getLagDuration(r.getStatusMember(member.config.Host))
 			if err != nil {
 				return nil, err
 			}

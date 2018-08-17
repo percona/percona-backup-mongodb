@@ -111,10 +111,8 @@ func (r *Replset) ID() *bson.ObjectId {
 // to become the source of the backup. The chosen node should cause
 // the least impact/risk possible during backup
 func (r *Replset) BackupSource() (*mdbstructs.ReplsetConfigMember, error) {
-	r.Lock()
-	defer r.Unlock()
-
-	scorer, err := ScoreReplset(r.config, r.status, nil)
+	// todo: pass replset-tags instead of nil
+	scorer, err := r.score(nil)
 	if err != nil {
 		return nil, err
 	}

@@ -123,7 +123,7 @@ func TestReplsetID(t *testing.T) {
 	}
 }
 
-func TestBackupSource(t *testing.T) {
+func TestReplsetBackupSource(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())

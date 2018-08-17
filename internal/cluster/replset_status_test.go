@@ -8,7 +8,7 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-func TestGetReplsetLagDuration(t *testing.T) {
+func TestReplsetGetLagDuration(t *testing.T) {
 	now := time.Now()
 	lastHB := now.Add(-10 * time.Second)
 	primaryTs, _ := bson.NewMongoTimestamp(now, 0)
@@ -40,7 +40,8 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 
 	// test the lag is 14.95 seconds for secondary (both secondary and primary not-self)
-	lag, err := GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
+	r := &Replset{status: &status}
+	lag, err := r.getLagDuration(r.GetStatusMember("test:27019"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}
@@ -49,9 +50,9 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 
 	// test the lag is 4.85 seconds (secondary is self)
-	status.Members[0].Optime.Ts = secondaryTs
-	status.Members[1].Optime.Ts = primaryTs
-	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
+	r.status.Members[0].Optime.Ts = secondaryTs
+	r.status.Members[1].Optime.Ts = primaryTs
+	lag, err = r.getLagDuration(r.GetStatusMember("test:27018"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}
@@ -60,9 +61,9 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 
 	// test lag is 0 seconds (compare host is primary - always 0s)
-	status.Members[0].State = mdbstructs.ReplsetMemberStateSecondary
-	status.Members[1].State = mdbstructs.ReplsetMemberStatePrimary
-	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27018"))
+	r.status.Members[0].State = mdbstructs.ReplsetMemberStateSecondary
+	r.status.Members[1].State = mdbstructs.ReplsetMemberStatePrimary
+	lag, err = r.getLagDuration(r.GetStatusMember("test:27018"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}
@@ -71,7 +72,7 @@ func TestGetReplsetLagDuration(t *testing.T) {
 	}
 
 	// test lag is 4.9 seconds (primary is self)
-	lag, err = GetReplsetLagDuration(&status, GetReplsetStatusMember(&status, "test:27019"))
+	lag, err = r.getLagDuration(r.GetStatusMember("test:27019"))
 	if err != nil {
 		t.Fatalf("Could not get lag: %v", err.Error())
 	}
