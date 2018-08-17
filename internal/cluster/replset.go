@@ -49,7 +49,12 @@ func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
 	return &status, err
 }
 
-// GetReplsetID returns the replica set ID
+// GetReplsetName returns the replica set name as a string
+func GetReplsetName(config *mdbstructs.ReplsetConfig) string {
+	return config.Name
+}
+
+// GetReplsetID returns the replica set ID as a bson.ObjectId
 func GetReplsetID(config *mdbstructs.ReplsetConfig) *bson.ObjectId {
 	return &config.Settings.ReplicaSetId
 }
