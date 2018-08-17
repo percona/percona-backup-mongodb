@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"sync"
+
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/mdbstructs"
@@ -27,43 +29,92 @@ func HasReplsetMemberTags(member *mdbstructs.ReplsetConfigMember, tags map[strin
 	return true
 }
 
-// GetConfig returns a struct representing the "replSetGetConfig" server
+// getReplsetConfig returns a struct representing the "replSetGetConfig" server
 // command
 //
 // https://docs.mongodb.com/manual/reference/command/replSetGetConfig/
 //
-func GetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
+func getReplsetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
 	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
-// GetStatus returns a struct representing the "replSetGetStatus" server
+// getReplsetStatus returns a struct representing the "replSetGetStatus" server
 // command
 //
 // https://docs.mongodb.com/manual/reference/command/replSetGetStatus/
 //
-func GetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
+func getReplsetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
 	status := mdbstructs.ReplsetStatus{}
 	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
 	return &status, err
 }
 
-// GetReplsetName returns the replica set name as a string
-func GetReplsetName(config *mdbstructs.ReplsetConfig) string {
-	return config.Name
+type Replset struct {
+	sync.Mutex
+	session *mgo.Session
+	config  *mdbstructs.ReplsetConfig
+	status  *mdbstructs.ReplsetStatus
 }
 
-// GetReplsetID returns the replica set ID as a bson.ObjectId
-func GetReplsetID(config *mdbstructs.ReplsetConfig) *bson.ObjectId {
-	return &config.Settings.ReplicaSetId
+func NewReplset(session *mgo.Session) (*Replset, error) {
+	r := &Replset{session: session}
+	return r, r.RefreshState()
 }
 
-// GetBackupSource returns the the most appropriate replica set member
+// RefreshState updates the replica set state
+func (r *Replset) RefreshState() error {
+	r.Lock()
+	defer r.Unlock()
+
+	var err error
+
+	r.config, err = getReplsetConfig(r.session)
+	if err != nil {
+		return err
+	}
+
+	r.status, err = getReplsetStatus(r.session)
+	return err
+}
+
+// Name returns the replica set name as a string
+func (r *Replset) Name() string {
+	r.Lock()
+	defer r.Unlock()
+	return r.config.Name
+}
+
+// Config returns the replica set status
+func (r *Replset) Config() *mdbstructs.ReplsetConfig {
+	r.Lock()
+	defer r.Unlock()
+	return r.config
+}
+
+// Status returns the replica set config
+func (r *Replset) Status() *mdbstructs.ReplsetStatus {
+	r.Lock()
+	defer r.Unlock()
+	return r.status
+}
+
+// ID returns the replica set ID as a bson.ObjectId
+func (r *Replset) ID() *bson.ObjectId {
+	r.Lock()
+	defer r.Unlock()
+	return &r.config.Settings.ReplicaSetId
+}
+
+// BackupSource returns the the most appropriate replica set member
 // to become the source of the backup. The chosen node should cause
 // the least impact/risk possible during backup
-func GetBackupSource(config *mdbstructs.ReplsetConfig, status *mdbstructs.ReplsetStatus) (*mdbstructs.ReplsetConfigMember, error) {
-	scorer, err := ScoreReplset(config, status, nil)
+func (r *Replset) BackupSource() (*mdbstructs.ReplsetConfigMember, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	scorer, err := ScoreReplset(r.config, r.status, nil)
 	if err != nil {
 		return nil, err
 	}
