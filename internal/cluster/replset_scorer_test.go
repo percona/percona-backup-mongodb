@@ -14,24 +14,19 @@ const (
 	testReplSetStatusSecondaryFile = "testdata/replSetGetStatus-secondary.bson"
 )
 
-func TestScoreReplset(t *testing.T) {
+func TestReplsetScore(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	config, err := getReplsetConfig(session)
+	r, err := NewReplset(session)
 	if err != nil {
-		t.Fatalf("Failed to run .getReplsetConfig(): %v", err.Error())
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	status, err := getReplsetStatus(session)
-	if err != nil {
-		t.Fatalf("Failed to run .getReplsetStatus(): %v", err.Error())
-	}
-
-	scorer, err := ScoreReplset(config, status, nil)
+	scorer, err := r.score(nil)
 	if err != nil {
 		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
 	} else if len(scorer.members) < 1 {
@@ -51,9 +46,13 @@ func TestScoreReplset(t *testing.T) {
 	}
 
 	// test w/replset tags
-	scorer, err = ScoreReplset(config, status, map[string]string{"role": "backup"})
+	r, err = NewReplset(session)
 	if err != nil {
-		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
+	}
+	scorer, err = r.score(map[string]string{"role": "backup"})
+	if err != nil {
+		t.Fatalf("Failed to run .score(): %v", err.Error())
 	}
 
 	winner = scorer.Winner()
@@ -68,7 +67,7 @@ func TestScoreReplset(t *testing.T) {
 		t.Fatalf("Expected .Winner() to return host %d, not %v", expectScore, winner.Score())
 	}
 
-	// make sure .ScoreReplset() returns the same winner consistently when
+	// make sure .score() returns the same winner consistently when
 	// using the Primary OR Secondary for the source of the replset status
 	// (replSetGetStatus)
 	getConfig := &mdbstructs.ReplSetGetConfig{}
@@ -77,15 +76,14 @@ func TestScoreReplset(t *testing.T) {
 		t.Fatalf("Cannot load test file %v: %v", testReplSetConfigFile, err.Error())
 	}
 	for _, statusFile := range []string{testReplSetStatusPrimaryFile, testReplSetStatusSecondaryFile} {
-		status := &mdbstructs.ReplsetStatus{}
-		err = loadBSONFile(statusFile, &status)
+		err = loadBSONFile(statusFile, r.status)
 		if err != nil {
 			t.Fatalf("Cannot load test file %v: %v", statusFile, err.Error())
 		}
 
-		scorer, err := ScoreReplset(getConfig.Config, status, nil)
+		scorer, err := r.score(nil)
 		if err != nil {
-			t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
+			t.Fatalf("Failed to run .score(): %v", err.Error())
 		}
 
 		winner := scorer.Winner()

@@ -18,20 +18,20 @@ func positiveDuration(duration time.Duration) time.Duration {
 
 // getMemberOpLag returns the operational latency of MongoDB Replica Set
 // heartbeats as a time duration
-func getMemberOpLag(status *mdbstructs.ReplsetStatus, member *mdbstructs.ReplsetStatusMember) time.Duration {
+func (r *Replset) getMemberOpLag(member *mdbstructs.ReplsetStatusMember) time.Duration {
 	heartbeatLag := member.LastHeartbeatRecv.Sub(member.LastHeartbeat)
-	heartbeatAge := status.Date.Sub(member.LastHeartbeatRecv)
+	heartbeatAge := r.status.Date.Sub(member.LastHeartbeatRecv)
 	return heartbeatLag + heartbeatAge
 }
 
-// GetReplsetLagDuration returns the lag between the replica set Primary
-// and the provided member host by considering the latency in Replica Set
+// getLagDuration returns the lag between the replica set Primary and the
+// provided member host by considering the latency in Replica Set
 // heartbeats and oplog timestamps of members
-func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compare *mdbstructs.ReplsetStatusMember) (time.Duration, error) {
+func (r *Replset) getLagDuration(compare *mdbstructs.ReplsetStatusMember) (time.Duration, error) {
 	var lag time.Duration
 	var opLag time.Duration
 
-	primary := GetReplsetStatusPrimary(status)
+	primary := r.getStatusPrimary()
 	if primary == nil {
 		return lag, errors.New("no primary")
 	} else if compare == nil {
@@ -43,10 +43,10 @@ func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compare *mdbstructs
 	var primaryOpLag time.Duration
 	var compareOpLag time.Duration
 	if !primary.Self {
-		primaryOpLag = getMemberOpLag(status, primary)
+		primaryOpLag = r.getMemberOpLag(primary)
 	}
 	if !compare.Self {
-		compareOpLag = getMemberOpLag(status, compare)
+		compareOpLag = r.getMemberOpLag(compare)
 	}
 
 	if !primary.Self && !compare.Self {
@@ -67,10 +67,8 @@ func GetReplsetLagDuration(status *mdbstructs.ReplsetStatus, compare *mdbstructs
 	return lag, nil
 }
 
-// GetReplsetStatusMember returns the status for a replica set  member, by host
-// name using the output of the MongoDB 'replSetGetStatus' server command.
-func GetReplsetStatusMember(status *mdbstructs.ReplsetStatus, host string) *mdbstructs.ReplsetStatusMember {
-	for _, member := range status.Members {
+func (r *Replset) getStatusMember(host string) *mdbstructs.ReplsetStatusMember {
+	for _, member := range r.status.Members {
 		if member.Name == host {
 			return member
 		}
@@ -78,13 +76,27 @@ func GetReplsetStatusMember(status *mdbstructs.ReplsetStatus, host string) *mdbs
 	return nil
 }
 
-// GetReplsetStatusMember returns the status for the replica set Primary member
-// using the output of the MongoDB 'replSetGetStatus' server command.
-func GetReplsetStatusPrimary(status *mdbstructs.ReplsetStatus) *mdbstructs.ReplsetStatusMember {
-	for _, member := range status.Members {
+func (r *Replset) getStatusPrimary() *mdbstructs.ReplsetStatusMember {
+	for _, member := range r.status.Members {
 		if member.State == mdbstructs.ReplsetMemberStatePrimary {
 			return member
 		}
 	}
 	return nil
+}
+
+// GetStatusMember returns the status for a replica set  member, by host
+// name using the output of the MongoDB 'replSetGetStatus' server command
+func (r *Replset) GetStatusMember(host string) *mdbstructs.ReplsetStatusMember {
+	r.Lock()
+	defer r.Unlock()
+	return r.getStatusMember(host)
+}
+
+// GetStatusPrimary returns the status for the replica set Primary
+// using the output of the MongoDB 'replSetGetStatus' server command
+func (r *Replset) GetStatusPrimary() *mdbstructs.ReplsetStatusMember {
+	r.Lock()
+	defer r.Unlock()
+	return r.getStatusPrimary()
 }
