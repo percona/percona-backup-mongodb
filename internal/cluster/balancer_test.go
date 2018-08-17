@@ -204,7 +204,13 @@ func TestBalancerRestoreState(t *testing.T) {
 		t.Fatal("Balancer .wasEnabled bool should be true")
 	}
 	err = b2.Stop()
-	b2.RestoreState()
+	if err != nil {
+		t.Fatalf("Failed to run .Stop(): %v", err.Error())
+	}
+	err = b2.RestoreState()
+	if err != nil {
+		t.Fatalf("Failed to run .RestoreState(): %v", err.Error())
+	}
 
 	isEnabled, err := b.IsEnabled()
 	if err != nil {

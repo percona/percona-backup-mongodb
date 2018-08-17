@@ -26,11 +26,15 @@ func NewBalancer(session *mgo.Session) (*Balancer, error) {
 }
 
 // RestoreState ensures the balancer is restored to its original state
-func (b *Balancer) RestoreState() {
-	isEnabled, _ := b.IsEnabled()
-	if b.wasEnabled && !isEnabled {
-		_ = b.Start()
+func (b *Balancer) RestoreState() error {
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		return err
 	}
+	if b.wasEnabled && !isEnabled {
+		return b.Start()
+	}
+	return nil
 }
 
 // getStatus returns a struct representing the result of the
