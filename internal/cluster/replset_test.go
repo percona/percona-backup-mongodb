@@ -45,12 +45,12 @@ func TestHasReplsetMemberTags(t *testing.T) {
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	rs, err := NewReplset(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	for _, member := range config.Members {
+	for _, member := range rs.Config().Members {
 		if member.Host == testSecondary2Host {
 			if !HasReplsetMemberTags(member, map[string]string{"role": "backup"}) {
 				t.Fatalf(".HasReplsetMemberTags() should have returned true for %v", testSecondary2Host)
@@ -59,16 +59,16 @@ func TestHasReplsetMemberTags(t *testing.T) {
 	}
 }
 
-func TestGetConfig(t *testing.T) {
+func TestGetReplsetConfig(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	config, err := getReplsetConfig(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
+		t.Fatalf("Failed to run .getReplsetConfig(): %v", err.Error())
 	} else if config.Name != testutils.MongoDBReplsetName {
 		t.Fatalf("Got unexpected output from .GetConfig(), expected: %v, got %v", testutils.MongoDBReplsetName, config.Name)
 	} else if len(config.Members) != 3 {
@@ -76,16 +76,16 @@ func TestGetConfig(t *testing.T) {
 	}
 }
 
-func TestGetStatus(t *testing.T) {
+func TestGetReplsetStatus(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	status, err := GetStatus(session)
+	status, err := getReplsetStatus(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
+		t.Fatalf("Failed to run .getReplsetStatus(): %v", err.Error())
 	} else if status.Set != testutils.MongoDBReplsetName {
 		t.Fatal("Got unexpected output from .GetStatus()")
 	} else if len(status.Members) != 3 {
@@ -93,56 +93,49 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
-func TestGetReplsetName(t *testing.T) {
+func TestReplsetName(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	rs, err := NewReplset(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
-	} else if GetReplsetName(config) != testutils.MongoDBReplsetName {
-		t.Fatal("Got unexpected output from .GetReplsetName()")
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
+	} else if rs.Name() != testutils.MongoDBReplsetName {
+		t.Fatal("Got unexpected output from .Name()")
 	}
 }
 
-func TestGetReplsetID(t *testing.T) {
+func TestReplsetID(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	rs, err := NewReplset(session)
 	if err != nil {
-		t.Fatalf("Could not get config from replset: %v", err.Error())
-	}
-
-	if GetReplsetID(config) == nil {
-		t.Fatal(".GetReplsetID() returned nil")
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
+	} else if rs.ID() == nil {
+		t.Fatal(".ID() returned nil")
 	}
 }
 
-func TestGetBackupSource(t *testing.T) {
+func TestBackupSource(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	rs, err := NewReplset(session)
 	if err != nil {
-		t.Fatalf("Could not get config from replset: %v", err.Error())
+		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	status, err := GetStatus(session)
-	if err != nil {
-		t.Fatalf("Could not get status from replset: %v", err.Error())
-	}
-
-	source, err := GetBackupSource(config, status)
+	source, err := rs.BackupSource()
 	if err != nil {
 		t.Fatalf("Failed to run .GetBackupSource(): %v", err.Error())
 	}

@@ -10,14 +10,50 @@ import (
 )
 
 // The amount of time in milliseconds to wait for a balancer
-// command to run
+// command to run. 60sec is the same default as mongo shell
 var BalancerCmdTimeoutMs = 60000
+
+type Balancer struct {
+	session    *mgo.Session
+	wasEnabled bool
+}
+
+func NewBalancer(session *mgo.Session) (*Balancer, error) {
+	var err error
+	b := &Balancer{session: session}
+	b.wasEnabled, err = b.IsEnabled()
+	return b, err
+}
+
+// RestoreState ensures the balancer is restored to its original state
+func (b *Balancer) RestoreState() error {
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		return err
+	}
+	if b.wasEnabled && !isEnabled {
+		return b.Start()
+	}
+	return nil
+}
+
+// getStatus returns a struct representing the result of the
+// MongoDB 'balancerStatus' command. This command will only
+// succeed on a session to a mongos process (as of MongoDB 3.6)
+//
+// https://docs.mongodb.com/manual/reference/command/balancerStatus/
+//
+func (b *Balancer) getStatus() (*mdbstructs.BalancerStatus, error) {
+	status := mdbstructs.BalancerStatus{}
+	err := b.session.Run(bson.D{{"balancerStatus", "1"}}, &status)
+	return &status, err
+}
 
 // runBalancerCommand is a helper for running a
 // balancerStart/balancerStop server command
-func runBalancerCommand(session *mgo.Session, balancerCommand string) error {
+func (b *Balancer) runBalancerCommand(balancerCommand string) error {
 	okResp := mdbstructs.OkResponse{}
-	err := session.Run(bson.D{
+	err := b.session.Run(bson.D{
 		{balancerCommand, "1"},
 		{"maxTimeMS", BalancerCmdTimeoutMs},
 	}, &okResp)
@@ -29,61 +65,57 @@ func runBalancerCommand(session *mgo.Session, balancerCommand string) error {
 	return nil
 }
 
-// GetBalancerStatus returns a struct representing the result of
-// the MongoDB 'balancerStatus' command. This command will only
-// succeed on a session to a mongos process (as of MongoDB 3.6)
-//
-// https://docs.mongodb.com/manual/reference/command/balancerStatus/
-//
-func GetBalancerStatus(session *mgo.Session) (*mdbstructs.BalancerStatus, error) {
-	balancerStatus := mdbstructs.BalancerStatus{}
-	err := session.Run(bson.D{{"balancerStatus", "1"}}, &balancerStatus)
-	return &balancerStatus, err
-}
-
-// IsBalancerEnabled returns a boolean reflecting if the balancer
+// IsEnabled returns a boolean reflecting if the balancer
 // is enabled
-func IsBalancerEnabled(status *mdbstructs.BalancerStatus) bool {
-	return status.Mode == mdbstructs.BalancerModeFull
+func (b *Balancer) IsEnabled() (bool, error) {
+	status, err := b.getStatus()
+	if err != nil {
+		return false, err
+	}
+	return status.Mode == mdbstructs.BalancerModeFull, nil
 }
 
-// IsBalancerRunning returns a boolean reflecting if the balancer
+// IsRunning returns a boolean reflecting if the balancer
 // is currently running
-func IsBalancerRunning(status *mdbstructs.BalancerStatus) bool {
-	return status.InBalancerRound
+func (b *Balancer) IsRunning() (bool, error) {
+	status, err := b.getStatus()
+	if err != nil {
+		return false, err
+	}
+	return status.InBalancerRound, nil
 }
 
-// StopBalancer performs a 'balancerStop' server command on
+// Stop performs a 'balancerStop' server command on
 // the provided session
 //
 // https://docs.mongodb.com/manual/reference/command/balancerStop/
 //
-func StopBalancer(session *mgo.Session) error {
-	return runBalancerCommand(session, "balancerStop")
+func (b *Balancer) Stop() error {
+	return b.runBalancerCommand("balancerStop")
 }
 
-// StartBalancer performs a 'balancerStart' server command on
+// Start performs a 'balancerStart' server command on
 // the provided session
 //
 // https://docs.mongodb.com/manual/reference/command/balancerStart/
 //
-func StartBalancer(session *mgo.Session) error {
-	return runBalancerCommand(session, "balancerStart")
+func (b *Balancer) Start() error {
+	return b.runBalancerCommand("balancerStart")
 }
 
-// StopBalancerAndWait performs a StopBalancer and then waits for
+// StopAndWait performs a Stop and then waits for
 // the balancer to stop running any balancer operations
-func StopBalancerAndWait(session *mgo.Session, retries int, retryInterval time.Duration) error {
-	err := StopBalancer(session)
+func (b *Balancer) StopAndWait(retries int, retryInterval time.Duration) error {
+	err := b.Stop()
 	if err != nil {
 		return err
 	}
 	var tries int
 	for tries < retries {
-		status, err := GetBalancerStatus(session)
+		isRunning, err := b.IsRunning()
 		if err != nil {
 			return err
-		} else if !IsBalancerRunning(status) {
+		} else if !isRunning {
 			return nil
 		}
 		tries++

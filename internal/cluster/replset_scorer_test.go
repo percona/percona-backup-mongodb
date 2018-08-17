@@ -21,14 +21,14 @@ func TestScoreReplset(t *testing.T) {
 	}
 	defer session.Close()
 
-	config, err := GetConfig(session)
+	config, err := getReplsetConfig(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
+		t.Fatalf("Failed to run .getReplsetConfig(): %v", err.Error())
 	}
 
-	status, err := GetStatus(session)
+	status, err := getReplsetStatus(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetStatus() on Replset struct: %v", err.Error())
+		t.Fatalf("Failed to run .getReplsetStatus(): %v", err.Error())
 	}
 
 	scorer, err := ScoreReplset(config, status, nil)
