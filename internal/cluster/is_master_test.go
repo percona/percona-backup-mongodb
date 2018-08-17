@@ -10,14 +10,14 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-func TestGetIsMaster(t *testing.T) {
+func TestIsMaster(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	isMaster, err := IsMaster(session)
 	if err != nil {
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
 	}
@@ -40,7 +40,7 @@ func TestIsReplset(t *testing.T) {
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	isMaster, err := IsMaster(session)
 	if err != nil {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
@@ -68,7 +68,7 @@ func TestIsMongos(t *testing.T) {
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	isMaster, err := IsMaster(session)
 	if err != nil {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
@@ -96,7 +96,7 @@ func TestIsConfigServer(t *testing.T) {
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	isMaster, err := IsMaster(session)
 	if err != nil {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
@@ -133,7 +133,7 @@ func TestIsShardedCluster(t *testing.T) {
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	isMaster, err := IsMaster(session)
 	if err != nil {
 		session.Close()
 		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())

@@ -93,6 +93,21 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
+func TestGetReplsetName(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	config, err := GetConfig(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetConfig() on Replset struct: %v", err.Error())
+	} else if GetReplsetName(config) != testutils.MongoDBReplsetName {
+		t.Fatal("Got unexpected output from .GetReplsetName()")
+	}
+}
+
 func TestGetReplsetID(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
