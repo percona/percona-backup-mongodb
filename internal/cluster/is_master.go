@@ -6,22 +6,26 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-// GetIsMaster returns a struct containing the output of the MongoDB 'isMaster'
+type IsMaster struct {
+	isMaster *mdbstructs.IsMaster
+}
+
+// NewIsMaster returns a struct for handling the output of the MongoDB 'isMaster'
 // server command.
 //
 // https://docs.mongodb.com/manual/reference/command/isMaster/
 //
-func IsMaster(session *mgo.Session) (*mdbstructs.IsMaster, error) {
-	isMaster := mdbstructs.IsMaster{}
-	err := session.Run(bson.D{{"isMaster", "1"}}, &isMaster)
-	return &isMaster, err
+func NewIsMaster(session *mgo.Session) (*IsMaster, error) {
+	i := IsMaster{}
+	err := session.Run(bson.D{{"isMaster", "1"}}, &i.isMaster)
+	return &i, err
 }
 
 // Use the 'SetName' field to determine if a node is a member of replication.
 // If 'SetName' is defined the node is a valid member.
 //
-func IsReplset(isMaster *mdbstructs.IsMaster) bool {
-	return isMaster.SetName != ""
+func (i *IsMaster) IsReplset() bool {
+	return i.isMaster.SetName != ""
 }
 
 // Use a combination of the 'isMaster', 'SetName' and 'Msg'
@@ -31,8 +35,8 @@ func IsReplset(isMaster *mdbstructs.IsMaster) bool {
 //
 // https://github.com/mongodb/mongo/blob/v3.6/src/mongo/s/commands/cluster_is_master_cmd.cpp#L112-L113
 //
-func IsMongos(isMaster *mdbstructs.IsMaster) bool {
-	return isMaster.IsMaster && !IsReplset(isMaster) && isMaster.Msg == "isdbgrid"
+func (i *IsMaster) IsMongos() bool {
+	return i.isMaster.IsMaster && !i.IsReplset() && i.isMaster.Msg == "isdbgrid"
 }
 
 // Use the undocumented 'configsvr' field to determine a node
@@ -42,8 +46,8 @@ func IsMongos(isMaster *mdbstructs.IsMaster) bool {
 //
 // https://github.com/mongodb/mongo/blob/v3.6/src/mongo/db/repl/replication_info.cpp#L355-L358
 //
-func IsConfigServer(isMaster *mdbstructs.IsMaster) bool {
-	if isMaster.ConfigSvr == 2 && IsReplset(isMaster) {
+func (i *IsMaster) IsConfigServer() bool {
+	if i.isMaster.ConfigSvr == 2 && i.IsReplset() {
 		return true
 	}
 	return false
@@ -53,15 +57,15 @@ func IsConfigServer(isMaster *mdbstructs.IsMaster) bool {
 // determine if a node is a mongod with the 'shardsvr'
 // cluster role.
 //
-func IsShardServer(isMaster *mdbstructs.IsMaster) bool {
-	return IsReplset(isMaster) && isMaster.ConfigServerState != nil
+func (i *IsMaster) IsShardServer() bool {
+	return i.IsReplset() && i.isMaster.ConfigServerState != nil
 }
 
 // The isMaster struct is from a Sharded Cluster if the seed host
 // is a valid mongos, config server or shard server.
 //
-func IsShardedCluster(isMaster *mdbstructs.IsMaster) bool {
-	if IsConfigServer(isMaster) || IsMongos(isMaster) || IsShardServer(isMaster) {
+func (i *IsMaster) IsShardedCluster() bool {
+	if i.IsConfigServer() || i.IsMongos() || i.IsShardServer() {
 		return true
 	}
 	return false
