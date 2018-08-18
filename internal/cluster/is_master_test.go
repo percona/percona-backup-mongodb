@@ -144,4 +144,10 @@ func TestIsMasterIsShardServer(t *testing.T) {
 	} else if !i.IsShardServer() {
 		t.Fatalf("Expected true from .IsShardServer()")
 	}
+
+	// replset-only node (should fail)
+	i.isMaster.ConfigServerState = nil
+	if i.IsShardServer() {
+		t.Fatalf("Expected false from .IsShardServer()")
+	}
 }
