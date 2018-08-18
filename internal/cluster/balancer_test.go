@@ -18,9 +18,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	err = StartBalancer(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		fmt.Printf("Failed to run .StartBalancer(): %v", err.Error())
+		fmt.Printf("Could not run .NewBalancer(): %v", err.Error())
+		os.Exit(1)
+	}
+
+	err = b.Start()
+	if err != nil {
+		fmt.Printf("Failed to run .Start(): %v", err.Error())
 		session.Close()
 		os.Exit(1)
 	}
@@ -29,69 +35,80 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestGetBalancerStatus(t *testing.T) {
+func TestBalancerGetStatus(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	status, err := GetBalancerStatus(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
+	}
+
+	status, err := b.getStatus()
+	if err != nil {
+		t.Fatalf("Failed to run .getStatus(): %v", err.Error())
 	}
 	if status == nil || status.Ok != 1 {
-		t.Fatal("Got unexpected result from .GetBalancerStatus()")
+		t.Fatal("Got unexpected result from .getStatus()")
 	}
 }
 
-func TestIsBalancerEnabled(t *testing.T) {
+func TestBalancerIsEnabled(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	status, err := GetBalancerStatus(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
 	}
 
-	if !IsBalancerEnabled(status) {
-		t.Fatal(".IsBalancerEnabled() should return true")
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		t.Fatalf("Failed to run .IsEnabled(): %v", err.Error())
+	} else if !isEnabled {
+		t.Fatal(".IsEnabled() should return true")
 	}
 }
 
-func TestStopBalancer(t *testing.T) {
+func TestBalancerStop(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	err = StopBalancer(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		t.Fatalf("Failed to run .StopBalancer(): %v", err.Error())
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
 	}
 
-	status, err := GetBalancerStatus(session)
+	err = b.Stop()
 	if err != nil {
-		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+		t.Fatalf("Failed to run .Stop(): %v", err.Error())
 	}
 
-	if IsBalancerEnabled(status) {
-		t.Fatal(".IsBalancerEnabled() should return false after .StopBalancer()")
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		t.Fatalf(".IsEnabled() returned an error: %v", err.Error())
+	} else if isEnabled {
+		t.Fatal(".IsEnabled() should return false after .Stop()")
 	}
 
 	// sometimes the balancer doesn't stop right away
 	tries := 1
 	maxTries := 60
 	for tries < maxTries {
-		status, err := GetBalancerStatus(session)
+		isRunning, err := b.IsRunning()
 		if err != nil {
-			t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+			t.Fatalf("Failed to run .IsRunning(): %v", err.Error())
 		}
-		if !IsBalancerRunning(status) {
+		if !isRunning {
 			break
 		}
 		time.Sleep(time.Second)
@@ -102,51 +119,103 @@ func TestStopBalancer(t *testing.T) {
 	}
 }
 
-func TestStopBalancerAndWait(t *testing.T) {
+func TestBalancerStopAndWait(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	err = StartBalancer(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		t.Fatalf("Failed to run .StartBalancer(): %v", err.Error())
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
 	}
 
-	err = StopBalancerAndWait(session, 10, time.Second)
+	err = b.Start()
 	if err != nil {
-		t.Fatalf("Failed to run .StopBalancerAndWait(): %v", err.Error())
+		t.Fatalf("Failed to run .Start(): %v", err.Error())
 	}
 
-	status, err := GetBalancerStatus(session)
+	err = b.StopAndWait(10, time.Second)
 	if err != nil {
-		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+		t.Fatalf("Failed to run .StopAndWait(): %v", err.Error())
 	}
 
-	if IsBalancerRunning(status) || IsBalancerEnabled(status) {
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		t.Fatalf("Failed to run .IsEnabled(): %v", err.Error())
+	}
+
+	isRunning, err := b.IsRunning()
+	if err != nil {
+		t.Fatalf("Failed to run .IsRunning(): %v", err.Error())
+	}
+
+	if isRunning || isEnabled {
 		t.Fatal("The balancer did not stop running")
 	}
 }
 
-func TestStartBalancer(t *testing.T) {
+func TestBalancerStart(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	err = StartBalancer(session)
+	b, err := NewBalancer(session)
 	if err != nil {
-		t.Fatalf("Failed to run .StartBalancer(): %v", err.Error())
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
 	}
 
-	status, err := GetBalancerStatus(session)
+	err = b.Start()
 	if err != nil {
-		t.Fatalf("Failed to run .GetBalancerStatus(): %v", err.Error())
+		t.Fatalf("Failed to run .Start(): %v", err.Error())
 	}
 
-	if !IsBalancerEnabled(status) {
-		t.Fatal(".IsBalancerEnabled() should return true after .StartBalancer()")
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		t.Fatalf("Failed to run .IsEnabled(): %v", err.Error())
+	} else if !isEnabled {
+		t.Fatal(".IsEnabled() should return true after .Start()")
+	}
+}
+
+func TestBalancerRestoreState(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to mongos: %v", err.Error())
+	}
+	defer session.Close()
+
+	// start the balancer before the test
+	b, err := NewBalancer(session)
+	if err != nil {
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
+	}
+	err = b.Start()
+	if err != nil {
+		t.Fatalf("Failed to run .Start(): %v", err.Error())
+	}
+
+	// create a new Balancer struct to test .RestoreState() after .Stop()
+	b2, err := NewBalancer(session)
+	if !b2.wasEnabled {
+		t.Fatal("Balancer .wasEnabled bool should be true")
+	}
+	err = b2.Stop()
+	if err != nil {
+		t.Fatalf("Failed to run .Stop(): %v", err.Error())
+	}
+	err = b2.RestoreState()
+	if err != nil {
+		t.Fatalf("Failed to run .RestoreState(): %v", err.Error())
+	}
+
+	isEnabled, err := b.IsEnabled()
+	if err != nil {
+		t.Fatalf("Failed to run .IsEnabled(): %v", err.Error())
+	} else if !isEnabled {
+		t.Fatal(".IsEnabled() should return true after .Start()")
 	}
 }

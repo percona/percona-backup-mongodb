@@ -2,172 +2,146 @@ package cluster
 
 import (
 	"testing"
-	"time"
 
 	"github.com/globalsign/mgo"
-	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-func TestGetIsMaster(t *testing.T) {
+func TestNewIsMaster(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	i, err := NewIsMaster(session)
 	if err != nil {
-		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
-	}
-	if isMaster == nil || isMaster.Ok != 1 {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if i == nil || i.isMaster.Ok != 1 {
 		t.Fatal("Got incomplete 'isMaster' output")
 	}
 }
 
-func TestIsReplset(t *testing.T) {
-	if !IsReplset(&mdbstructs.IsMaster{SetName: "test"}) {
-		t.Fatal("Expected true from .IsReplset()")
-	}
-	if IsReplset(&mdbstructs.IsMaster{SetName: ""}) {
-		t.Fatal("Expected false from .IsReplset()")
-	}
-
+func TestIsMasterIsReplset(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	i, err := NewIsMaster(session)
 	if err != nil {
-		session.Close()
-		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
-	}
-	if !IsReplset(isMaster) {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if !i.IsReplset() {
 		session.Close()
 		t.Fatalf("Expected true from .IsReplset()")
 	}
 }
 
-func TestIsMongos(t *testing.T) {
-	if !IsMongos(&mdbstructs.IsMaster{
-		IsMaster: true,
-		Msg:      "isdbgrid",
-	}) {
-		t.Fatal("Expected true from .IsMongos()")
+func TestIsMasterIsMongos(t *testing.T) {
+	// primary (should fail)
+	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
-	if IsMongos(&mdbstructs.IsMaster{IsMaster: true}) {
+	defer pSession.Close()
+
+	pi, err := NewIsMaster(pSession)
+	if err != nil {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if pi.IsMongos() {
 		t.Fatal("Expected false from .IsMongos()")
 	}
+	pSession.Close()
 
+	// mongos (should succeed)
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	i, err := NewIsMaster(session)
 	if err != nil {
-		session.Close()
-		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
-	}
-	if !IsMongos(isMaster) {
-		session.Close()
-		t.Fatalf("Expected true from .IsMongos()")
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if !i.IsMongos() {
+		t.Fatal("Expected true from .IsMongos()")
 	}
 }
 
-func TestIsConfigServer(t *testing.T) {
-	if !IsConfigServer(&mdbstructs.IsMaster{
-		ConfigSvr: 2,
-		SetName:   "csReplSet",
-	}) {
+func TestIsMasterIsConfigServer(t *testing.T) {
+	// primary (should fail)
+	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
+	}
+	defer pSession.Close()
+
+	pi, err := NewIsMaster(pSession)
+	if err != nil {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if pi.IsConfigServer() {
 		t.Fatal("Expected false from .IsConfigServer()")
 	}
-	if IsConfigServer(&mdbstructs.IsMaster{SetName: "csReplSet"}) {
+	pSession.Close()
+
+	// configsvr (should succeed)
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
+	}
+	defer session.Close()
+
+	i, err := NewIsMaster(session)
+	if err != nil {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if !i.IsConfigServer() {
 		t.Fatal("Expected true from .IsConfigServer()")
 	}
+}
 
+func TestIsMasterIsShardedCluster(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	i, err := NewIsMaster(session)
 	if err != nil {
-		session.Close()
-		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
-	}
-	if !IsConfigServer(isMaster) {
-		session.Close()
-		t.Fatalf("Expected true from .IsConfigServer()")
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if !i.IsShardedCluster() {
+		t.Fatalf("Expected true from .IsShardedCluster()")
 	}
 }
 
-func TestIsShardedCluster(t *testing.T) {
-	if !IsShardedCluster(&mdbstructs.IsMaster{
-		ConfigSvr: 2,
-		SetName:   "csReplSet",
-	}) {
-		t.Fatal("Expected true from IsShardedCluster()")
-	}
-	if !IsShardedCluster(&mdbstructs.IsMaster{
-		IsMaster: true,
-		Msg:      "isdbgrid",
-	}) {
-		t.Fatal("Expected true from IsShardedCluster()")
-	}
-	if IsShardedCluster(&mdbstructs.IsMaster{
-		IsMaster: true,
-		SetName:  "test",
-	}) {
-		t.Fatal("Expected true false IsShardedCluster()")
-	}
-
-	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+func TestIsMasterIsShardServer(t *testing.T) {
+	// configsvr (should fail)
+	cSession, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
+	defer cSession.Close()
+
+	ci, err := NewIsMaster(cSession)
+	if err != nil {
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if ci.IsShardServer() {
+		t.Fatalf("Expected false from .IsShardServer()")
+	}
+	cSession.Close()
+
+	// shardsvr (should succeed)
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to primary replset: %v", err.Error())
+	}
 	defer session.Close()
 
-	isMaster, err := GetIsMaster(session)
+	i, err := NewIsMaster(session)
 	if err != nil {
-		session.Close()
-		t.Fatalf("Could not run 'isMaster' command: %v", err.Error())
-	}
-	if !IsShardedCluster(isMaster) {
-		session.Close()
-		t.Fatalf("Expected true from .IsConfigServer()")
-	}
-}
-
-func TestIsShardServer(t *testing.T) {
-	if IsShardServer(&mdbstructs.IsMaster{
-		IsMaster: true,
-		SetName:  "test",
-	}) {
-		t.Fatal(".IsShardServer() should be false")
-	}
-	ts, _ := bson.NewMongoTimestamp(time.Now(), 0)
-	if IsShardServer(&mdbstructs.IsMaster{
-		IsMaster: true,
-		Msg:      "dbgrid",
-	}) {
-		t.Fatal(".IsShardServer() should be false")
-	}
-	if !IsShardServer(&mdbstructs.IsMaster{
-		IsMaster: true,
-		SetName:  "test",
-		ConfigServerState: &mdbstructs.ConfigServerState{
-			OpTime: &mdbstructs.OpTime{
-				Ts:   ts,
-				Term: int64(1),
-			},
-		},
-	}) {
-		t.Fatal(".IsShardServer() should be true")
+		t.Fatalf("Could not run NewIsMaster(): %v", err.Error())
+	} else if !i.IsShardServer() {
+		t.Fatalf("Expected true from .IsShardServer()")
 	}
 }
