@@ -25,8 +25,8 @@ service Messages {
 }
 
 enum BackupTypes {
-   LOGICAL  = 0;
-   SNAPSHOT = 1;
+   LOGICAL   = 0;
+   HOTBACKUP = 1;
 }
 
 enum DestinationTypes {
