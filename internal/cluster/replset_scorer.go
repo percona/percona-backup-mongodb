@@ -119,7 +119,7 @@ type ReplsetScorer struct {
 	members     map[string]*ReplsetScoringMember
 }
 
-func (r *Replset) score(replsetTags map[string]string) (*ReplsetScorer, error) {
+func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, error) {
 	r.Lock()
 	defer r.Unlock()
 
