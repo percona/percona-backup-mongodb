@@ -78,7 +78,7 @@ func TestOne(t *testing.T) {
 	t1 := time.Now().Truncate(time.Second)
 	clientID := "ABC123"
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 	agentClient := pb.NewMessagesClient(agentConn)
 	agentStream, err := agentClient.MessagesChat(context.Background())
 	registerMsg := &pb.ClientMessage{
