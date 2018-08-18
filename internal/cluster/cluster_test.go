@@ -7,7 +7,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
-func TestGetShardingState(t *testing.T) {
+func TestNewShardingState(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
@@ -18,26 +18,11 @@ func TestGetShardingState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to run .NewShardingState(): %v", err.Error())
 	} else if s.state.Ok != 1 || !s.state.Enabled || s.state.ShardName != testutils.MongoDBReplsetName || s.state.ConfigServer == "" {
-		t.Fatal("Got unexpected output from .GetShardingState()")
+		t.Fatal("Got unexpected output from .NewShardingState()")
 	}
 }
 
-func TestGetClusterID(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
-	if err != nil {
-		t.Fatalf("Failed to get mongos session: %v", err.Error())
-	}
-	defer session.Close()
-
-	clusterId, err := GetClusterID(session)
-	if err != nil {
-		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
-	} else if clusterId == nil {
-		t.Fatal(".GetClusterId() returned nil id")
-	}
-}
-
-func TestGetClusterIDShard(t *testing.T) {
+func TestShardingStateClusterID(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
@@ -46,7 +31,7 @@ func TestGetClusterIDShard(t *testing.T) {
 
 	s, err := NewShardingState(session)
 	if err != nil {
-		t.Fatalf("Failed to run .GetShardingState(): %v", err.Error())
+		t.Fatalf("Failed to run .NewShardingState(): %v", err.Error())
 	} else if s.ClusterID() == nil {
 		t.Fatal("Could not get cluster ID")
 	}
@@ -65,5 +50,20 @@ func TestGetClusterIDShard(t *testing.T) {
 
 	if mongosClusterId.Hex() != s.ClusterID().Hex() {
 		t.Fatal("Shard and mongos cluster IDs did not match")
+	}
+}
+
+func TestGetClusterID(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	if err != nil {
+		t.Fatalf("Failed to get mongos session: %v", err.Error())
+	}
+	defer session.Close()
+
+	clusterId, err := GetClusterID(session)
+	if err != nil {
+		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
+	} else if clusterId == nil {
+		t.Fatal(".GetClusterId() returned nil id")
 	}
 }
