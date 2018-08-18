@@ -66,7 +66,7 @@ func (m *ReplsetScoringMember) MultiplyScore(multiplier float64, msg ReplsetScor
 	m.log = append(m.log, msg)
 }
 
-func minPrioritySecondary(members map[string]*ReplsetScoringMember) *ReplsetScoringMember {
+func minPrioritySecondary(members []*ReplsetScoringMember) *ReplsetScoringMember {
 	var minPriority *ReplsetScoringMember
 	for _, member := range members {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Priority < 1 {
@@ -79,7 +79,7 @@ func minPrioritySecondary(members map[string]*ReplsetScoringMember) *ReplsetScor
 	return minPriority
 }
 
-func minVotesSecondary(members map[string]*ReplsetScoringMember) *ReplsetScoringMember {
+func minVotesSecondary(members []*ReplsetScoringMember) *ReplsetScoringMember {
 	var minVotes *ReplsetScoringMember
 	for _, member := range members {
 		if member.status.State != mdbstructs.ReplsetMemberStateSecondary || member.config.Votes < 1 {
@@ -92,8 +92,8 @@ func minVotesSecondary(members map[string]*ReplsetScoringMember) *ReplsetScoring
 	return minVotes
 }
 
-func (r *Replset) getReplsetScoringMembers() (map[string]*ReplsetScoringMember, error) {
-	members := map[string]*ReplsetScoringMember{}
+func (r *Replset) getReplsetScoringMembers() ([]*ReplsetScoringMember, error) {
+	members := []*ReplsetScoringMember{}
 	for _, cnfMember := range r.config.Members {
 		var statusMember *mdbstructs.ReplsetStatusMember
 		for _, m := range r.status.Members {
@@ -105,18 +105,18 @@ func (r *Replset) getReplsetScoringMembers() (map[string]*ReplsetScoringMember, 
 		if statusMember == nil {
 			return nil, errors.New("no status info")
 		}
-		members[cnfMember.Host] = &ReplsetScoringMember{
+		members = append(members, &ReplsetScoringMember{
 			config: cnfMember,
 			status: statusMember,
 			score:  baseScore,
-		}
+		})
 	}
 	return members, nil
 }
 
 type ReplsetScorer struct {
 	replsetTags map[string]string
-	members     map[string]*ReplsetScoringMember
+	members     []*ReplsetScoringMember
 }
 
 func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, error) {
@@ -203,7 +203,7 @@ func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, e
 	return scorer, nil
 }
 
-func (s *ReplsetScorer) All() map[string]*ReplsetScoringMember {
+func (s *ReplsetScorer) All() []*ReplsetScoringMember {
 	return s.members
 }
 
