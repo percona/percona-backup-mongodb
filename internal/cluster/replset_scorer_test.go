@@ -14,7 +14,7 @@ const (
 	testReplSetStatusSecondaryFile = "testdata/replSetGetStatus-secondary.bson"
 )
 
-func TestReplsetScore(t *testing.T) {
+func TestReplsetScoreMembers(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
@@ -26,7 +26,7 @@ func TestReplsetScore(t *testing.T) {
 		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	scorer, err := r.score(nil)
+	scorer, err := r.scoreMembers(nil)
 	if err != nil {
 		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
 	} else if len(scorer.members) < 1 {
@@ -50,7 +50,7 @@ func TestReplsetScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
-	scorer, err = r.score(map[string]string{"role": "backup"})
+	scorer, err = r.scoreMembers(map[string]string{"role": "backup"})
 	if err != nil {
 		t.Fatalf("Failed to run .score(): %v", err.Error())
 	}
@@ -81,7 +81,7 @@ func TestReplsetScore(t *testing.T) {
 			t.Fatalf("Cannot load test file %v: %v", statusFile, err.Error())
 		}
 
-		scorer, err := r.score(nil)
+		scorer, err := r.scoreMembers(nil)
 		if err != nil {
 			t.Fatalf("Failed to run .score(): %v", err.Error())
 		}
