@@ -11,8 +11,8 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/client"
+	"github.com/percona/mongodb-backup/internal/cluster"
 	pb "github.com/percona/mongodb-backup/proto/messages"
-	"github.com/percona/percona-toolkit/src/go/mongolib/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -72,11 +72,11 @@ func main() {
 	nodeType, err := getNodeType(mdbSession)
 
 	// Run the mongodb-backup agent
-	Run(conn, mdbSession, clientID, nodeType)
+	run(conn, mdbSession, clientID, nodeType)
 
 }
 
-func Run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID, nodeType string) {
+func run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string, nodeType pb.NodeType) {
 	messagesClient := pb.NewMessagesClient(conn)
 	rpcClient, err := client.NewClient(clientID, nodeType, messagesClient)
 	if err != nil {
@@ -140,19 +140,22 @@ func getgRPCOptions(opts *cliOptios) []grpc.DialOption {
 	return grpcOpts
 }
 
-func getNodeType(session *mgo.Session) (string, error) {
-	md := proto.MasterDoc{}
-	err := session.Run("isMaster", &md)
+func getNodeType(session *mgo.Session) (pb.NodeType, error) {
+	isMaster, err := cluster.NewIsMaster(session)
 	if err != nil {
-		return "", err
+		return pb.NodeType_UNDEFINED, err
 	}
-
-	if md.SetName != nil || md.Hosts != nil {
-		return "replset", nil
-	} else if md.Msg == "isdbgrid" {
-		// isdbgrid is always the msg value when calling isMaster on a mongos
-		// see http://docs.mongodb.org/manual/core/sharded-cluster-query-router/
-		return "mongos", nil
+	if isMaster.IsShardServer() {
+		return pb.NodeType_MONGOD_SHARDSVR, nil
 	}
-	return "mongod", nil
+	if isMaster.IsReplset() {
+		return pb.NodeType_MONGOD_REPLSET, nil
+	}
+	if isMaster.IsConfigServer() {
+		return pb.NodeType_MONGOD_CONFIGSVR, nil
+	}
+	if isMaster.IsMongos() {
+		return pb.NodeType_MONGOS, nil
+	}
+	return pb.NodeType_MONGOD, nil
 }

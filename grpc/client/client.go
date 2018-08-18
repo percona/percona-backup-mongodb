@@ -13,7 +13,7 @@ import (
 
 type Client struct {
 	id         string
-	nodeType   string
+	nodeType   pb.NodeType
 	grpcClient pb.MessagesClient
 	inMsgChan  chan *pb.ServerMessage
 	outMsgChan chan *pb.ClientMessage
@@ -25,7 +25,7 @@ type Client struct {
 	running bool
 }
 
-func NewClient(id string, nodeType string, grpcClient pb.MessagesClient) (*Client, error) {
+func NewClient(id string, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
 	if id == "" {
 		return nil, fmt.Errorf("ClientID cannot be empty")
 	}
@@ -63,7 +63,7 @@ func NewClient(id string, nodeType string, grpcClient pb.MessagesClient) (*Clien
 	}, nil
 }
 
-func (c *Client) NodeType() string {
+func (c *Client) NodeType() pb.NodeType {
 	return c.nodeType
 }
 

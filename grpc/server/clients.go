@@ -45,7 +45,7 @@ type Client struct {
 	streaming       bool
 }
 
-func NewClient(id string, nodeType string) *Client {
+func NewClient(id string, nodeType pb.NodeType) *Client {
 	client := &Client{
 		ID:       id,
 		lock:     &sync.Mutex{},

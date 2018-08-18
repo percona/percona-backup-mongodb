@@ -102,7 +102,7 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 	}
 
 	registerMsg := msg.GetRegisterMsg()
-	if registerMsg == nil || registerMsg.NodeType == "" {
+	if registerMsg == nil || registerMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
 	client := NewClient(msg.ClientID, registerMsg.NodeType)
