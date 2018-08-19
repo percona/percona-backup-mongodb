@@ -4,6 +4,7 @@ services:
   mongo1:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    user: root
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001} --shardsvr
     volumes:
@@ -11,9 +12,11 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongo2:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    user: root
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002} --shardsvr
     volumes:
@@ -21,9 +24,11 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongo3:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    user: root
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003} --shardsvr
     volumes:
@@ -31,9 +36,11 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./internal/hotbackup/testdata/backup:/data/backup:z
   configsvr:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    user: root
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet} --port=${TEST_MONGODB_CONFIGSVR1_PORT:-17004} --configsvr
     volumes:
@@ -41,6 +48,7 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongos:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
