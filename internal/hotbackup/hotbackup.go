@@ -2,16 +2,15 @@ package hotbackup
 
 import (
 	"errors"
+	"os"
 	"strings"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 type HotBackup struct {
 	backupDir string
-	response  *mdbstructs.OkResponse
 	removed   bool
 }
 
@@ -28,16 +27,12 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 	if !isLocalhostSession(session) {
 		return nil, errors.New("session must be direct session to localhost or 127.0.0.1")
 	}
-	hb := HotBackup{}
-	err := session.Run(bson.D{{"createBackup", 1}, {"backupDir", backupDir}}, &hb.response)
+	hb := HotBackup{backupDir: backupDir}
+	err := session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.backupDir}}, nil)
 	if err != nil {
 		return nil, err
 	}
 	return &hb, nil
-}
-
-func (hb *HotBackup) Response() *mdbstructs.OkResponse {
-	return hb.response
 }
 
 func (hb *HotBackup) Dir() string {
