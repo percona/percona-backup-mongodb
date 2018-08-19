@@ -1,6 +1,7 @@
 package hotbackup
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,7 +28,11 @@ func TestHotBackupNew(t *testing.T) {
 	containerBackupDir := filepath.Join(testBackupContainerPath, backupName)
 	realBackupDir := filepath.Join(testBackupRealPath, backupName)
 
-	// this should succeed
+	// this backup should succeed. use docker volume mount to check
+	// the hot backup dir was created
+	if _, err := os.Stat(realBackupDir); err == nil {
+		t.Fatalf("Backup dir should not exist before backup: %s", realBackupDir)
+	}
 	hb, err := New(session, containerBackupDir)
 	if err != nil {
 		t.Fatalf("Failed to run .New(): %v", err.Error())
@@ -41,5 +46,50 @@ func TestHotBackupNew(t *testing.T) {
 	_, err = New(session, containerBackupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
+	}
+}
+
+// TODO: use a real Hot Backup instead of simulation
+func TestHotBackupDir(t *testing.T) {
+	hb := &HotBackup{backupDir: "/dev/null"}
+	if hb.Dir() != "/dev/null" {
+		t.Fatal("Unexpected output from .Dir()")
+	}
+}
+
+// TODO: use a real Hot Backup instead of simulation
+func TestHotBackupRemove(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Could not create temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(tempDir)
+
+	hb := &HotBackup{backupDir: tempDir}
+	err = hb.Remove()
+	if err != nil {
+		t.Fatalf("Failed to run .Remove(): %v", err.Error())
+	} else if _, err := os.Stat(tempDir); err == nil {
+		t.Fatal("Backup dir should not exist after .Remove()")
+	} else if !hb.removed {
+		t.Fatal("'removed' field should be true after .Remove()")
+	}
+}
+
+// TODO: use a real Hot Backup instead of simulation
+func TestHotBackupClose(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Could not create temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(tempDir)
+
+	hb := &HotBackup{backupDir: tempDir}
+	hb.Close()
+
+	if !hb.removed {
+		t.Fatal("'removed' field should be true after .Close()")
+	} else if hb.backupDir != "" {
+		t.Fatal("'backupDir' field should be empty after .Close()")
 	}
 }
