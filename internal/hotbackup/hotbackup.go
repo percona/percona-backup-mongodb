@@ -7,6 +7,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func isLocalhostSession(session *mgo.Session) (bool, error) {
@@ -17,9 +18,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	}
 
 	// check the server host == os.Hostname
-	status := struct {
-		Host string `bson:"host"`
-	}{}
+	status := mdbstructs.ReplsetStatus{}
 	err = session.Run(bson.D{{"serverStatus", "1"}}, &status)
 	if err != nil {
 		return false, err

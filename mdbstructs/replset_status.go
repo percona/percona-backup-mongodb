@@ -74,6 +74,7 @@ type ReplsetStatusMember struct {
 }
 
 type ReplsetStatus struct {
+	Host                    string                 `bson:"host" json:"host"`
 	Set                     string                 `bson:"set" json:"set"`
 	Date                    time.Time              `bson:"date" json:"date"`
 	MyState                 ReplsetMemberState     `bson:"myState" json:"myState"`
