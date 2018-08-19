@@ -2,6 +2,7 @@ package hotbackup
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -24,10 +25,10 @@ func isLocalhostSession(session *mgo.Session) bool {
 }
 
 func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
-	hb := Hotbackup{}
 	if !isLocalhostSession(session) {
 		return nil, errors.New("session must be direct session to localhost or 127.0.0.1")
 	}
+	hb := HotBackup{}
 	err := session.Run(bson.D{{"createBackup", 1}, {"backupDir", backupDir}}, &hb.response)
 	if err != nil {
 		return nil, err
