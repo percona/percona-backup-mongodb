@@ -23,7 +23,7 @@ func TestHotBackupNew(t *testing.T) {
 	}
 	defer session.Close()
 
-	backupName := "backup-" + strconv.Itoa(int(time.Now().Unix()))
+	backupName := "primary-" + strconv.Itoa(int(time.Now().Unix()))
 	containerBackupDir := filepath.Join(testBackupContainerPath, backupName)
 	realBackupDir := filepath.Join(testBackupRealPath, backupName)
 
@@ -34,7 +34,7 @@ func TestHotBackupNew(t *testing.T) {
 	} else if hb.removed || hb.backupDir == "" {
 		t.Fatal("Got unexpected output from .New()")
 	} else if _, err := os.Stat(realBackupDir); os.IsNotExist(err) {
-		t.Fatal("Cannot find backup dir after backup")
+		t.Fatalf("Cannot find backup dir after backup: %s", realBackupDir)
 	}
 
 	// this should fail because the backup path already exists
