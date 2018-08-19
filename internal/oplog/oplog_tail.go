@@ -70,6 +70,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 	if session == nil {
 		return nil, fmt.Errorf("Invalid session (nil)")
 	}
+
 	oplogCol, err := determineOplogCollectionName(session)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot determine the oplog collection name")
@@ -83,7 +84,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		running:         true,
 	}
 	ot.readFunc = makeReader(ot)
-	go ot.tail()
+	//go ot.tail()
 	return ot, nil
 }
 
@@ -152,7 +153,6 @@ func (ot *OplogTail) tail() {
 				ot.lock.Unlock()
 				continue
 			}
-			iter.Close()
 		}
 		if iter.Timeout() {
 			continue
@@ -190,7 +190,6 @@ func (ot *OplogTail) tailQuery() bson.M {
 		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 		query["ts"] = bson.M{"$gte": mongoTimestamp}
 	} else {
-
 		query["ts"] = bson.M{"$gt": isMaster.IsMasterDoc().LastWrite.OpTime.Ts}
 	}
 	return query

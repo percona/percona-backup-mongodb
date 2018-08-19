@@ -6,6 +6,10 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001} --shardsvr
+    expose: 
+        - ${TEST_MONGODB_PRIMARY_PORT:-17001}
+    ports:
+      - ${TEST_MONGODB_PRIMARY_PORT:-17001}:${TEST_MONGODB_PRIMARY_PORT:-17001} 
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/mongod.key:/mongod.key:ro
@@ -16,6 +20,10 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002} --shardsvr
+    expose: 
+        - ${TEST_MONGODB_SECONDARY1_PORT:-17002}
+    ports:
+        - ${TEST_MONGODB_SECONDARY1_PORT:-17002}:${TEST_MONGODB_SECONDARY1_PORT:-17002}
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/mongod.key:/mongod.key:ro
@@ -26,6 +34,10 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003} --shardsvr
+    expose: 
+        - ${TEST_MONGODB_SECONDARY2_PORT:-17003}
+    ports:
+        - ${TEST_MONGODB_SECONDARY2_PORT:-17003}:${TEST_MONGODB_SECONDARY2_PORT:-17003}
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/mongod.key:/mongod.key:ro
@@ -36,6 +48,10 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongod.sh
     command: --replSet=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet} --port=${TEST_MONGODB_CONFIGSVR1_PORT:-17004} --configsvr
+    expose: 
+        - ${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
+    ports:
+        - ${TEST_MONGODB_CONFIGSVR1_PORT:-17004}:${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
     volumes:
     - ./scripts/entrypoint-mongod.sh:/entrypoint-mongod.sh:ro
     - ./scripts/mongod.key:/mongod.key:ro
@@ -46,6 +62,12 @@ services:
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
     entrypoint: /entrypoint-mongos.sh
     command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}/127.0.0.1:${TEST_MONGODB_CONFIGSVR1_PORT:-17004} 
+    expose: 
+        - ${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
+        - ${TEST_MONGODB_MONGOS_PORT:-17005}
+    ports:
+        - ${TEST_MONGODB_MONGOS_PORT:-17005}:${TEST_MONGODB_MONGOS_PORT:-17005}
+        - ${TEST_MONGODB_CONFIGSVR1_PORT:-17004}:${TEST_MONGODB_CONFIGSVR1_PORT:-17004}
     volumes:
     - ./scripts/entrypoint-mongos.sh:/entrypoint-mongos.sh:ro
     - ./scripts/mongod.key:/mongos.key:ro
