@@ -33,7 +33,7 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return hb, nil
+	return &hb, nil
 }
 
 func (hb *HotBackup) Response() *mdbstructs.OkResponse {
