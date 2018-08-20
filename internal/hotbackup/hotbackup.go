@@ -10,6 +10,10 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
+var (
+	ErrNotLocalhost = errors.New("session must be direct session to localhost")
+)
+
 func isLocalhostSession(session *mgo.Session) (bool, error) {
 	// get system hostname
 	hostname, err := os.Hostname()
@@ -57,7 +61,7 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 	if err != nil {
 		return nil, err
 	} else if !isLocalhost {
-		return nil, errors.New("session must be direct session to localhost or 127.0.0.1")
+		return nil, ErrNotLocalhost
 	}
 	hb := HotBackup{backupDir: backupDir}
 	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.backupDir}}, nil)
