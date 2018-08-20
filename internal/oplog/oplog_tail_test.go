@@ -35,7 +35,7 @@ var (
 )
 
 func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	for {
 		select {
 		case <-stop:
