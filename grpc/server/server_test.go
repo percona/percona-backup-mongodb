@@ -37,28 +37,31 @@ func TestServerAndClients(t *testing.T) {
 		}
 	}).AnyTimes()
 
+	stream.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+
 	messagesServer := NewMessagesServer()
 	// Start the chat server
 	go func() {
 		err = messagesServer.MessagesChat(stream) // this err var is global
 	}()
 	// Give some time so the go-routine can really start
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
 	msgChan <- responseMsg{
 		&pb.ClientMessage{
 			Type:     pb.ClientMessage_REGISTER,
 			ClientID: clientID,
+			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
 		},
 		nil,
 	}
-	time.Sleep(50 * time.Millisecond) // let the server process the message
 
+	time.Sleep(150 * time.Millisecond) // let the server process the message
 	// Check if the client has been registered
 	c := messagesServer.Clients()
 	gotClient, ok := c[clientID]
 	if !ok {
-		t.Errorf("Registration failed. ClientID %s is not in clients list", clientID)
+		t.Fatalf("Registration failed. ClientID %s is not in clients list", clientID)
 	}
 	if gotClient.streaming != true {
 		t.Errorf("Client is not streaming messages")
@@ -74,7 +77,7 @@ func TestServerAndClients(t *testing.T) {
 		},
 		nil,
 	}
-	time.Sleep(50 * time.Millisecond) // let the server process the message
+	time.Sleep(550 * time.Millisecond) // let the server process the message
 
 	if !gotClient.LastSeen.After(firstSeen) {
 		t.Errorf("Pong didn't update last seen field. First seen: %v, last seen: %v", firstSeen, gotClient.LastSeen)

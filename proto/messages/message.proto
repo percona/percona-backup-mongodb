@@ -24,29 +24,38 @@ service Messages {
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
 }
 
-enum BackupTypes {
+enum BackupType {
    LOGICAL   = 0;
    HOTBACKUP = 1;
 }
 
-enum DestinationTypes {
+enum DestinationType {
    FILE = 0; 
    AWS  = 1;
 }
 
-enum CompressionTypes {
+enum CompressionType {
    NO_COMPRESSION = 0;
    GZIP           = 1;
    SNAPPY         = 2;
    LZ4            = 3;
 }
 
-enum Cyphers {
+enum Cypher {
     NO_CYPHER = 0;
     AES       = 1;
     DES       = 2;
     RC4       = 3;
     RSA       = 4;
+}
+
+enum NodeType {
+    UNDEFINED        = 0; 
+    MONGOD           = 1; // mongod without replication enabled. We should ignore this nodetype at backup-time as it has no oplog (but still send it in the Register message)
+    MONGOD_REPLSET   = 2; // mongod with replication enabled and no sharding
+    MONGOD_SHARDSVR  = 3; // mongod that is a shard server
+    MONGOD_CONFIGSVR = 4; // mongod that is a sharding config serve
+    MONGOS           = 5; // mongos that is a sharding router
 }
 
 message ServerMessage {
@@ -99,33 +108,33 @@ message PongPayload {
 }
 
 message StartBackup {
-  BackupTypes      BackupType      = 1;
-  DestinationTypes DestinationType = 2;
-  string           DestinationName = 3;
-  string           DestinationDir  = 4; // This is also used as S3 bucket name
-  CompressionTypes CompressionType = 5;
-  Cyphers          Cypher          = 6;
-  float            OplogStartTime  = 7;
+  BackupType      BackupType      = 1;
+  DestinationType DestinationType = 2;
+  string          DestinationName = 3;
+  string          DestinationDir  = 4; // This is also used as S3 bucket name
+  CompressionType CompressionType = 5;
+  Cypher          Cypher          = 6;
+  float           OplogStartTime  = 7;
 }
 
 message StopBackup {
 }
 
 message Status {
-  bool             DBBackUpRunning    = 1;
-  bool             OplogBackupRunning = 2;
-  BackupTypes      BackupType         = 3;
-  uint64           BytesSent          = 4;
-  float            LastOplogTS        = 5;
-  float            BackupCompleted    = 6; // TS when the backup has finish
-  string           LastError          = 7;
+  bool       DBBackUpRunning    = 1;
+  bool       OplogBackupRunning = 2;
+  BackupType BackupType         = 3;
+  uint64     BytesSent          = 4;
+  float      LastOplogTS        = 5;
+  float      BackupCompleted    = 6; // TS when the backup has finish
+  string     LastError          = 7;
   //
-  DestinationTypes DestinationType    = 8;
-  string           DestinationName    = 9;
-  string           DestinationDir     = 10; // This is also used as S3 bucket name
-  CompressionTypes CompressionType    = 11;
-  Cyphers          Cypher             = 12;
-  float            OplogStartTime     = 13;
+  DestinationType DestinationType    = 8;
+  string          DestinationName    = 9;
+  string          DestinationDir     = 10; // This is also used as S3 bucket name
+  CompressionType CompressionType    = 11;
+  Cypher          Cypher             = 12;
+  float           OplogStartTime     = 13;
 }
 
 message BackupFinished {

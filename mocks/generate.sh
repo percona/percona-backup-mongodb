@@ -19,7 +19,7 @@ echo "Generating mocks for MessagesClient"
 mockgen github.com/percona/mongodb-backup/proto/api  ApiClient > mock_api/api_client.go
 
 echo "Generating mocks for MessagesServer"
-mockgen github.com/percona/mongodb-backup/proto/api  ApiServer > mock_messages/api_server.go
+mockgen github.com/percona/mongodb-backup/proto/api  ApiServer > mock_api/api_server.go
 
 echo "Generating mocks for Messages_MessagesChatServer"
 mockgen github.com/percona/mongodb-backup/proto/api  Api_GetClientsServer > mock_api/api_getclients_server.go

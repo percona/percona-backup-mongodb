@@ -68,7 +68,7 @@ func NewClient(id string, clusterID *bson.ObjectId, nodeType string, grpcClient 
 	}, nil
 }
 
-func (c *Client) NodeType() string {
+func (c *Client) NodeType() pb.NodeType {
 	return c.nodeType
 }
 
