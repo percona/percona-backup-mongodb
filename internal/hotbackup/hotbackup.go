@@ -47,8 +47,8 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 }
 
 type HotBackup struct {
-	backupDir string
-	removed   bool
+	dir     string
+	removed bool
 }
 
 // New creates a Percona Server for MongoDB Hot Backup. The provided
@@ -56,15 +56,15 @@ type HotBackup struct {
 //
 // https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html
 //
-func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
+func New(session *mgo.Session, dir string) (*HotBackup, error) {
 	isLocalhost, err := isLocalhostSession(session)
 	if err != nil {
 		return nil, err
 	} else if !isLocalhost {
 		return nil, ErrNotLocalhost
 	}
-	hb := HotBackup{backupDir: backupDir}
-	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.backupDir}}, nil)
+	hb := HotBackup{dir: dir}
+	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.dir}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 
 // Dir returns the path to the Hot Backup directory
 func (hb *HotBackup) Dir() string {
-	return hb.backupDir
+	return hb.dir
 }
 
 // Remove removes the Hot Backup directory and data
@@ -81,11 +81,11 @@ func (hb *HotBackup) Remove() error {
 	if hb.removed {
 		return nil
 	}
-	err := os.RemoveAll(hb.backupDir)
+	err := os.RemoveAll(hb.dir)
 	if err != nil {
 		return err
 	}
-	hb.backupDir = ""
+	hb.dir = ""
 	hb.removed = true
 	return nil
 }

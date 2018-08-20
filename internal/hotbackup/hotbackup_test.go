@@ -36,7 +36,7 @@ func TestHotBackupNew(t *testing.T) {
 	hb, err := New(session, containerBackupDir)
 	if err != nil {
 		t.Fatalf("Failed to run .New(): %v", err.Error())
-	} else if hb.removed || hb.backupDir == "" {
+	} else if hb.removed || hb.dir == "" {
 		t.Fatal("Got unexpected output from .New()")
 	} else if _, err := os.Stat(realBackupDir); os.IsNotExist(err) {
 		t.Fatalf("Cannot find backup dir after backup: %s", realBackupDir)
@@ -51,7 +51,7 @@ func TestHotBackupNew(t *testing.T) {
 
 // TODO: use a real Hot Backup instead of simulation
 func TestHotBackupDir(t *testing.T) {
-	hb := &HotBackup{backupDir: "/dev/null"}
+	hb := &HotBackup{dir: "/dev/null"}
 	if hb.Dir() != "/dev/null" {
 		t.Fatal("Unexpected output from .Dir()")
 	}
@@ -65,7 +65,7 @@ func TestHotBackupRemove(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	hb := &HotBackup{backupDir: tempDir}
+	hb := &HotBackup{dir: tempDir}
 	err = hb.Remove()
 	if err != nil {
 		t.Fatalf("Failed to run .Remove(): %v", err.Error())
@@ -84,12 +84,12 @@ func TestHotBackupClose(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	hb := &HotBackup{backupDir: tempDir}
+	hb := &HotBackup{dir: tempDir}
 	hb.Close()
 
 	if !hb.removed {
 		t.Fatal("'removed' field should be true after .Close()")
-	} else if hb.backupDir != "" {
-		t.Fatal("'backupDir' field should be empty after .Close()")
+	} else if hb.dir != "" {
+		t.Fatal("'dir' field should be empty after .Close()")
 	}
 }
