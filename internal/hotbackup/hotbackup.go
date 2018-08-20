@@ -56,14 +56,14 @@ type HotBackup struct {
 //
 // https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html
 //
-func New(session *mgo.Session, dir string) (*HotBackup, error) {
+func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 	isLocalhost, err := isLocalhostSession(session)
 	if err != nil {
 		return nil, err
 	} else if !isLocalhost {
 		return nil, ErrNotLocalhost
 	}
-	hb := HotBackup{dir: dir}
+	hb := HotBackup{dir: backupDir}
 	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.dir}}, nil)
 	if err != nil {
 		return nil, err
