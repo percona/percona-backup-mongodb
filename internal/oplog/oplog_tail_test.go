@@ -76,6 +76,20 @@ func TestBasicReader(t *testing.T) {
 	}
 	defer session.Close()
 
+	stopWriter := make(chan bool)
+	wSession := session.Clone()
+	defer wSession.Close()
+	go func() {
+		for {
+			select {
+			case <-stopWriter:
+				return
+			default:
+				wSession.DB("test").C("test").Insert(bson.M{"x": 1})
+			}
+		}
+	}()
+
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
@@ -84,6 +98,7 @@ func TestBasicReader(t *testing.T) {
 
 	buf := make([]byte, MaxBSONSize)
 	n, err := ot.Read(buf)
+	stopWriter <- true
 	if err != nil {
 		t.Errorf("Got error reading the oplog: %s", err)
 	}
