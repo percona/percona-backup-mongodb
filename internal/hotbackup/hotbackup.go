@@ -10,6 +10,10 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
+var (
+	ErrNotLocalhost = errors.New("session must be direct session to localhost")
+)
+
 func isLocalhostSession(session *mgo.Session) (bool, error) {
 	// get system hostname
 	hostname, err := os.Hostname()
@@ -23,7 +27,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	split := strings.Split(status.Host, ":")
+	split := strings.SplitN(status.Host, ":", 2)
 	if split[0] != hostname {
 		return false, nil
 	}
@@ -33,7 +37,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	if len(servers) != 1 {
 		return false, errors.New("session is not direct")
 	}
-	split = strings.Split(servers[0], ":")
+	split = strings.SplitN(servers[0], ":", 2)
 	for _, match := range []string{"127.0.0.1", "localhost", hostname} {
 		if split[0] == match {
 			return true, nil
@@ -43,8 +47,8 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 }
 
 type HotBackup struct {
-	backupDir string
-	removed   bool
+	dir     string
+	removed bool
 }
 
 // New creates a Percona Server for MongoDB Hot Backup. The provided
@@ -57,10 +61,10 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 	if err != nil {
 		return nil, err
 	} else if !isLocalhost {
-		return nil, errors.New("session must be direct session to localhost or 127.0.0.1")
+		return nil, ErrNotLocalhost
 	}
-	hb := HotBackup{backupDir: backupDir}
-	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.backupDir}}, nil)
+	hb := HotBackup{dir: backupDir}
+	err = session.Run(bson.D{{"createBackup", 1}, {"backupDir", hb.dir}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +73,7 @@ func New(session *mgo.Session, backupDir string) (*HotBackup, error) {
 
 // Dir returns the path to the Hot Backup directory
 func (hb *HotBackup) Dir() string {
-	return hb.backupDir
+	return hb.dir
 }
 
 // Remove removes the Hot Backup directory and data
@@ -77,11 +81,11 @@ func (hb *HotBackup) Remove() error {
 	if hb.removed {
 		return nil
 	}
-	err := os.RemoveAll(hb.backupDir)
+	err := os.RemoveAll(hb.dir)
 	if err != nil {
 		return err
 	}
-	hb.backupDir = ""
+	hb.dir = ""
 	hb.removed = true
 	return nil
 }
