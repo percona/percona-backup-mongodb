@@ -34,6 +34,22 @@ var (
 	samplesDir  string
 )
 
+func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	for {
+		select {
+		case <-stop:
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			err := session.DB("test").C("test").Insert(bson.M{"t": t.Name()})
+			if err != nil {
+				t.Logf("insert to test.test failed: %v", err.Error())
+			}
+		}
+	}
+}
+
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepSamples, "keep-samples", false, "Keep generated bson files")
 	flag.Parse()
@@ -76,6 +92,9 @@ func TestBasicReader(t *testing.T) {
 	}
 	defer session.Close()
 
+	stopWriter := make(chan bool)
+	go generateOplogTraffic(t, session, stopWriter)
+
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
@@ -84,6 +103,7 @@ func TestBasicReader(t *testing.T) {
 
 	buf := make([]byte, MaxBSONSize)
 	n, err := ot.Read(buf)
+	stopWriter <- true
 	if err != nil {
 		t.Errorf("Got error reading the oplog: %s", err)
 	}
@@ -117,6 +137,10 @@ func TestTailerCopy(t *testing.T) {
 	}
 
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Cannot connect to MongoDB: %s", err)
+	}
+
 	// Start tailing the oplog
 	ot, err := Open(session)
 	if err != nil {
@@ -126,10 +150,13 @@ func TestTailerCopy(t *testing.T) {
 
 	// Let the oplog tailer to run in the background for 1 second to collect
 	// some oplog documents
+	stopWriter := make(chan bool)
+	go generateOplogTraffic(t, session, stopWriter)
 	go func() {
 		time.Sleep(1 * time.Second)
 		ot.Close()
 	}()
+	stopWriter <- true
 
 	// Use the OplogTail Reader interface to write the documents to a file.
 	io.Copy(tmpfile, ot)
@@ -153,10 +180,13 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 
 	// Let the oplog tailer to run in the background for 1 second to collect
 	// some oplog documents
+	stopWriter := make(chan bool)
+	go generateOplogTraffic(t, session, stopWriter)
 	go func() {
 		time.Sleep(2 * time.Second)
 		ot.Close()
 	}()
+	stopWriter <- true
 
 	for {
 		// Read a document from the Oplog tailer
