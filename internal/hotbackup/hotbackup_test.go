@@ -73,6 +73,8 @@ func TestHotBackupRemove(t *testing.T) {
 		t.Fatal("Backup dir should not exist after .Remove()")
 	} else if !hb.removed {
 		t.Fatal("'removed' field should be true after .Remove()")
+	} else if hb.Remove() != nil {
+		t.Fatal("Failed to run .Remove()")
 	}
 }
 

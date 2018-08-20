@@ -23,7 +23,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 
 	// check the server host == os.Hostname
 	status := mdbstructs.ReplsetStatus{}
-	err = session.Run(bson.D{{"serverStatus", "1"}}, &status)
+	err = session.Run(bson.D{{"serverStatus", 1}}, &status)
 	if err != nil {
 		return false, err
 	}
