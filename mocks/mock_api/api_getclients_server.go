@@ -6,11 +6,10 @@ package mock_api
 
 import (
 	context "context"
-	reflect "reflect"
-
 	gomock "github.com/golang/mock/gomock"
 	api "github.com/percona/mongodb-backup/proto/api"
 	metadata "google.golang.org/grpc/metadata"
+	reflect "reflect"
 )
 
 // MockApi_GetClientsServer is a mock of Api_GetClientsServer interface

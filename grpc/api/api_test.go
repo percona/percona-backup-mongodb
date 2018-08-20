@@ -53,6 +53,7 @@ func TestServerAndClients(t *testing.T) {
 		&pb.ClientMessage{
 			Type:     pb.ClientMessage_REGISTER,
 			ClientID: clientID,
+			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
 		},
 		nil,
 	}
@@ -75,6 +76,7 @@ func TestServerAndClients(t *testing.T) {
 		&pb.ClientMessage{
 			Type:     pb.ClientMessage_PONG,
 			ClientID: clientID,
+			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
 		},
 		nil,
 	}
@@ -91,7 +93,7 @@ func TestServerAndClients(t *testing.T) {
 	})
 
 	apiServer := NewApiServer(messagesServer)
-	apiServer.GetClients(pbapi.Empty{}, apiStream)
+	apiServer.GetClients(&pbapi.Empty{}, apiStream)
 	msg := <-apiOutChan
 	if msg.(*pbapi.Client).ClientID != clientID {
 		t.Errorf("Received invalid clientID")
@@ -113,7 +115,7 @@ func TestServerAndClients(t *testing.T) {
 	}
 
 	// Check there are no messages in the stream after unregistring the client
-	apiServer.GetClients(pbapi.Empty{}, apiStream)
+	apiServer.GetClients(&pbapi.Empty{}, apiStream)
 	select {
 	case <-apiOutChan:
 		t.Error("Received a client but the clients list should be empty")

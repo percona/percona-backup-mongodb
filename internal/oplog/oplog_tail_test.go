@@ -34,7 +34,7 @@ var (
 	samplesDir  string
 )
 
-func init() {
+func TestMain(m *testing.M) {
 	flag.BoolVar(&keepSamples, "keep-samples", false, "Keep generated bson files")
 	flag.Parse()
 
@@ -49,6 +49,7 @@ func init() {
 	if testing.Verbose() {
 		fmt.Printf("Samples & helper binaries at %q\n", samplesDir)
 	}
+	os.Exit(m.Run())
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {
@@ -56,11 +57,13 @@ func TestDetermineOplogCollectionName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot connect to MongoDB: %s", err)
 	}
+	defer session.Close()
 
 	oplogCol, err := determineOplogCollectionName(session)
 	if err != nil {
 		t.Errorf("Cannot determine oplog collection name: %s", err)
 	}
+
 	if oplogCol == "" {
 		t.Errorf("Cannot determine oplog collection name. Got empty string")
 	}
@@ -68,10 +71,16 @@ func TestDetermineOplogCollectionName(t *testing.T) {
 
 func TestBasicReader(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		t.Fatalf("Cannot connect to MongoDB: %s", err)
+	}
+	defer session.Close()
+
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
+	defer ot.Close()
 
 	buf := make([]byte, MaxBSONSize)
 	n, err := ot.Read(buf)
@@ -113,6 +122,7 @@ func TestTailerCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
 	}
+	defer session.Close()
 
 	// Let the oplog tailer to run in the background for 1 second to collect
 	// some oplog documents

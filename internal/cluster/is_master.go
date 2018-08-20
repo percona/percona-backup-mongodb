@@ -17,8 +17,12 @@ type IsMaster struct {
 //
 func NewIsMaster(session *mgo.Session) (*IsMaster, error) {
 	i := IsMaster{}
-	err := session.Run(bson.D{{"isMaster", "1"}}, &i.isMaster)
+	err := session.Run(bson.D{{Name: "isMaster", Value: "1"}}, &i.isMaster)
 	return &i, err
+}
+
+func (i *IsMaster) IsMasterDoc() *mdbstructs.IsMaster {
+	return i.isMaster
 }
 
 // Use the 'SetName' field to determine if a node is a member of replication.
