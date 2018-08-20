@@ -116,6 +116,7 @@ services:
       context: .
       args:
       - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
+      - TEST_FULL_TARGET=${TEST_FULL_TARGET:-test-race}
     network_mode: host
     environment:
     - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-""}

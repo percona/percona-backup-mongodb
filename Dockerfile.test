@@ -5,4 +5,4 @@ WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
 
 RUN go get ./...
-CMD make test-race
+CMD make $TEST_FULL_TARGET
