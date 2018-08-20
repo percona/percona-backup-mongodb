@@ -85,7 +85,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		NumInsertionWorkers:      1,
 		StopOnError:              false,
 		BypassDocumentValidation: false,
-		PreserveUUID:             true,
+		PreserveUUID:             false,
 		// TempUsersColl            string `long:"tempUsersColl" default:"tempusers" hidden:"true"`
 		// TempRolesColl            string `long:"tempRolesColl" default:"temproles" hidden:"true"`
 		// BulkBufferSize           int    `long:"batchSize" default:"1000" hidden:"true"`
