@@ -40,8 +40,13 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	client, err := s.registerClient(msg)
 	if err != nil {
 		r := &pb.ServerMessage{
-			Type:    pb.ServerMessage_ERROR,
-			Message: []byte(ClientAlreadyExistsError.Error()),
+			Type: pb.ServerMessage_ERROR,
+			Payload: &pb.ServerMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
+					Message: "",
+				},
+			},
 		}
 		stream.Send(r)
 		return ClientAlreadyExistsError
@@ -69,11 +74,29 @@ func (s *MessagesServer) processInMessage(client *Client, msg *pb.ClientMessage)
 	client.LastSeen = time.Now()
 	switch msg.Type {
 	case pb.ClientMessage_REGISTER:
-		client.SendMsg(&pb.ServerMessage{Type: pb.ServerMessage_ERROR, Message: []byte("already registered")})
+		client.SendMsg(&pb.ServerMessage{
+			Type: pb.ServerMessage_ERROR,
+			Payload: &pb.ServerMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
+					Message: "",
+				},
+			},
+		},
+		)
 	case pb.ClientMessage_PONG:
 	default:
 		msgText := fmt.Sprintf("Message type %d is not implemented yet", msg.Type)
-		client.SendMsg(&pb.ServerMessage{Type: pb.ServerMessage_ERROR, Message: []byte(msgText)})
+		client.SendMsg(&pb.ServerMessage{
+			Type: pb.ServerMessage_ERROR,
+			Payload: &pb.ServerMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Code:    pb.ErrorType_NOT_IMPLEMENTED_YET,
+					Message: msgText,
+				},
+			},
+		},
+		)
 	}
 }
 
@@ -81,8 +104,13 @@ func (s *MessagesServer) readMessage(stream pb.Messages_MessagesChatServer) (*pb
 	in, err := stream.Recv()
 	if err != nil {
 		r := &pb.ServerMessage{
-			Type:    pb.ServerMessage_ERROR,
-			Message: []byte(err.Error()),
+			Type: pb.ServerMessage_ERROR,
+			Payload: &pb.ServerMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Code:    pb.ErrorType_COMMUNICATION_ERROR,
+					Message: "",
+				},
+			},
 		}
 		stream.Send(r)
 		return nil, err

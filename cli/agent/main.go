@@ -77,11 +77,11 @@ func main() {
 	clusterID, err := cluster.GetClusterID(mdbSession)
 
 	// Run the mongodb-backup agent
-	Run(conn, mdbSession, clientID, clusterID, nodeType)
+	run(conn, mdbSession, clientID, clusterID, nodeType)
 
 }
 
-func Run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string, clusterID *bson.ObjectId, nodeType string) {
+func run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string, clusterID *bson.ObjectId, nodeType pb.NodeType) {
 	messagesClient := pb.NewMessagesClient(conn)
 	rpcClient, err := client.NewClient(clientID, clusterID, nodeType, messagesClient)
 	if err != nil {

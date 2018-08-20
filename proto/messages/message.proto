@@ -24,6 +24,13 @@ service Messages {
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
 }
 
+enum ErrorType {
+   NO_ERROR                  = 0;
+   NOT_IMPLEMENTED_YET       = 1;
+   COMMUNICATION_ERROR       = 2;
+   CLIENT_ALREADY_REGISTERED = 3;
+}
+
 enum BackupType {
    LOGICAL   = 0;
    HOTBACKUP = 1;
@@ -72,8 +79,9 @@ message ServerMessage {
   int32       version = 1;
   MessageType type    = 2;
   oneof Payload {
-    StartBackup StartBackupMsg = 3;
-    StopBackup  StopBackupMsg  = 4;
+    Error       ErrorMsg       = 3;
+    StartBackup StartBackupMsg = 4;
+    StopBackup  StopBackupMsg  = 5;
   }
 }
 
@@ -99,12 +107,17 @@ message ClientMessage {
 }
 
 message RegisterPayload {
-  string NodeType  = 1;
-  string ClusterID = 2; // This field will hold a bson.ObjectIdHex
+  NodeType NodeType  = 1;
+  string ClusterID   = 2; // This field will hold a bson.ObjectIdHex
 }
 
 message PongPayload {
   float Timestamp = 1;
+}
+
+message Error {
+  string Message = 1;
+  ErrorType Code = 2;
 }
 
 message StartBackup {
