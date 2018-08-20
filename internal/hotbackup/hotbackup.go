@@ -51,8 +51,9 @@ type HotBackup struct {
 	removed bool
 }
 
-// New creates a Percona Server for MongoDB Hot Backup. The provided
-// MongoDB session must be a direct connection to localhost/127.0.0.1
+// New creates a Percona Server for MongoDB Hot Backup and outputs it
+// to the specified backup directory. The provided MongoDB session must
+// be a direct connection to localhost/127.0.0.1
 //
 // https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html
 //
