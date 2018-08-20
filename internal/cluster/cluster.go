@@ -6,22 +6,26 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-// GetShardingState returns a struct reflecting the output of the
+type ShardingState struct {
+	state *mdbstructs.ShardingState
+}
+
+// NewShardingState returns a struct reflecting the output of the
 // 'shardingState' server command. This command should be ran on a
 // shard mongod
 //
 // https://docs.mongodb.com/manual/reference/command/shardingState/
 //
-func GetShardingState(session *mgo.Session) (*mdbstructs.ShardingState, error) {
-	shardingState := mdbstructs.ShardingState{}
-	err := session.Run(bson.D{{"shardingState", "1"}}, &shardingState)
-	return &shardingState, err
+func NewShardingState(session *mgo.Session) (*ShardingState, error) {
+	s := ShardingState{}
+	err := session.Run(bson.D{{"shardingState", "1"}}, &s.state)
+	return &s, err
 }
 
 // GetClusterIDShard returns the cluster ID using the result of the
 // 'balancerState' server command
-func GetClusterIDShard(state *mdbstructs.ShardingState) *bson.ObjectId {
-	return &state.ClusterID
+func (s *ShardingState) ClusterID() *bson.ObjectId {
+	return &s.state.ClusterID
 }
 
 // GetClusterID returns the cluster ID using the 'config.version'

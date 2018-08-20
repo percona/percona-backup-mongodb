@@ -112,7 +112,7 @@ func (r *Replset) ID() *bson.ObjectId {
 // the least impact/risk possible during backup
 func (r *Replset) BackupSource() (*mdbstructs.ReplsetConfigMember, error) {
 	// todo: pass replset-tags instead of nil
-	scorer, err := r.score(nil)
+	scorer, err := r.scoreMembers(nil)
 	if err != nil {
 		return nil, err
 	}

@@ -35,6 +35,21 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestNewBalancer(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	if err != nil {
+		t.Fatalf("Could not connect to mongos: %v", err.Error())
+	}
+	defer session.Close()
+
+	b, err := NewBalancer(session)
+	if err != nil {
+		t.Fatalf("Could not run .NewBalancer(): %v", err.Error())
+	} else if b.session == nil {
+		t.Fatal("Got unexpected output from .NewBalancer()")
+	}
+}
+
 func TestBalancerGetStatus(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
 	if err != nil {
