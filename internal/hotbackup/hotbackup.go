@@ -23,7 +23,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	split := strings.Split(status.Host, ":")
+	split := strings.SplitN(status.Host, ":", 2)
 	if split[0] != hostname {
 		return false, nil
 	}
@@ -33,7 +33,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	if len(servers) != 1 {
 		return false, errors.New("session is not direct")
 	}
-	split = strings.Split(servers[0], ":")
+	split = strings.SplitN(servers[0], ":", 2)
 	for _, match := range []string{"127.0.0.1", "localhost", hostname} {
 		if split[0] == match {
 			return true, nil
