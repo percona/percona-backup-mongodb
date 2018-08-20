@@ -73,6 +73,8 @@ func TestHotBackupRemove(t *testing.T) {
 		t.Fatal("Backup dir should not exist after .Remove()")
 	} else if !hb.removed {
 		t.Fatal("'removed' field should be true after .Remove()")
+	} else if hb.Remove() != nil {
+		t.Fatal("Failed to run .Remove()")
 	}
 }
 
@@ -91,5 +93,7 @@ func TestHotBackupClose(t *testing.T) {
 		t.Fatal("'removed' field should be true after .Close()")
 	} else if hb.dir != "" {
 		t.Fatal("'dir' field should be empty after .Close()")
+	} else if _, err := os.Stat(tempDir); err == nil {
+		t.Fatal("Backup dir should not exist after .Close()")
 	}
 }

@@ -7,11 +7,11 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 var (
-	ErrNotLocalhost = errors.New("session must be direct session to localhost")
+	ErrNotLocalhost  = errors.New("session must be direct session to localhost")
+	ErrNotDirectConn = errors.New("session is not direct")
 )
 
 func isLocalhostSession(session *mgo.Session) (bool, error) {
@@ -22,8 +22,10 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	}
 
 	// check the server host == os.Hostname
-	status := mdbstructs.ReplsetStatus{}
-	err = session.Run(bson.D{{"serverStatus", "1"}}, &status)
+	status := struct {
+		Host string `bson:"host"`
+	}{}
+	err = session.Run(bson.D{{"serverStatus", 1}}, &status)
 	if err != nil {
 		return false, err
 	}
@@ -35,7 +37,7 @@ func isLocalhostSession(session *mgo.Session) (bool, error) {
 	// check connection is direct
 	servers := session.LiveServers()
 	if len(servers) != 1 {
-		return false, errors.New("session is not direct")
+		return false, ErrNotDirectConn
 	}
 	split = strings.SplitN(servers[0], ":", 2)
 	for _, match := range []string{"127.0.0.1", "localhost", hostname} {
@@ -51,8 +53,9 @@ type HotBackup struct {
 	removed bool
 }
 
-// New creates a Percona Server for MongoDB Hot Backup. The provided
-// MongoDB session must be a direct connection to localhost/127.0.0.1
+// New creates a Percona Server for MongoDB Hot Backup and outputs it
+// to the specified backup directory. The provided MongoDB session must
+// be a direct connection to localhost/127.0.0.1
 //
 // https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html
 //
