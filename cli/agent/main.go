@@ -10,7 +10,9 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/grpc/client"
+	"github.com/percona/mongodb-backup/internal/cluster"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/percona/percona-toolkit/src/go/mongolib/proto"
 	"google.golang.org/grpc"
@@ -70,15 +72,19 @@ func main() {
 
 	// Get MongoDB instance node type
 	nodeType, err := getNodeType(mdbSession)
+	if err != nil {
+		log.Fatalf("Cannot get node type: %s", err)
+	}
+	clusterID, err := cluster.GetClusterID(mdbSession)
 
 	// Run the mongodb-backup agent
-	Run(conn, mdbSession, clientID, nodeType)
+	Run(conn, mdbSession, clientID, clusterID, nodeType)
 
 }
 
-func Run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID, nodeType string) {
+func Run(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string, clusterID *bson.ObjectId, nodeType string) {
 	messagesClient := pb.NewMessagesClient(conn)
-	rpcClient, err := client.NewClient(clientID, nodeType, messagesClient)
+	rpcClient, err := client.NewClient(clientID, clusterID, nodeType, messagesClient)
 	if err != nil {
 		log.Fatalf("Cannot create the rpc client: %s", err)
 	}

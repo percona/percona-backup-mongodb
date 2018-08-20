@@ -185,18 +185,18 @@ func (ot *OplogTail) tailQuery() bson.M {
 	}
 	ot.lock.Unlock()
 
-	isMasterDoc, err := cluster.GetIsMaster(ot.session)
+	isMaster, err := cluster.NewIsMaster(ot.session)
 	if err != nil {
 		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 		query["ts"] = bson.M{"$gte": mongoTimestamp}
 	} else {
-		query["ts"] = bson.M{"$gt": isMasterDoc.LastWrite.OpTime.Ts}
+		query["ts"] = bson.M{"$gt": isMaster.IsMasterDoc().LastWrite.OpTime.Ts}
 	}
 	return query
 }
 
 func determineOplogCollectionName(session *mgo.Session) (string, error) {
-	isMasterDoc, err := cluster.GetIsMaster(session)
+	isMasterDoc, err := cluster.IsMaster(session)
 	if err != nil {
 		return "", errors.Wrap(err, "Cannot determine the oplog collection name")
 	}
