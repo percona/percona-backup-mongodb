@@ -44,7 +44,7 @@ var (
 )
 
 func Open(session *mgo.Session) (*OplogTail, error) {
-	ot, err := open(session)
+	ot, err := open(session.Clone())
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 }
 
 func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
-	ot, err := open(session)
+	ot, err := open(session.Clone())
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +111,9 @@ func (ot *OplogTail) Close() error {
 	if ot.isRunning() {
 		close(ot.stopChan)
 		return nil
+	}
+	if ot.session != nil {
+		ot.session.Close()
 	}
 	return fmt.Errorf("Tailer is already closed")
 }
