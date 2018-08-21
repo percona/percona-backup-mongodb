@@ -5,9 +5,15 @@ import (
 	"testing"
 )
 
+var DefaultMongod = "/usr/bin/mongod"
+
 func checkHotBackupTest(t *testing.T) {
-	if os.Getenv("TEST_MONGODB_HOTBACKUP") != "true" {
-		t.Skip("Skipping hotbackup test, TEST_MONGODB_HOTBACKUP is not 'true'")
+	testMongod := os.Getenv("TEST_MONGODB_MONGOD")
+	if testMongod == "" {
+		testMongod = DefaultMongod
+	}
+	if _, err := os.Stat(testMongod); os.IsNotExist(err) {
+		t.Skipf("Skipping hotbackup test, %s (env var TEST_MONGODB_MONGOD) does not exist", testMongod)
 	}
 }
 

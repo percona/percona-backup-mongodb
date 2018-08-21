@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	RestoreStopServerRetries = 120
-	RestoreStopServerWait    = 500 * time.Millisecond
+	RestoreStopServerRetries = 60 * 4
+	RestoreStopServerWait    = 250 * time.Millisecond
 )
 
 type Restore struct {
