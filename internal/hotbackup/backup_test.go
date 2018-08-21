@@ -17,7 +17,21 @@ const (
 	testBackupContainerPath = "/data/backup"
 )
 
-func TestHotBackupNewBackup(t *testing.T) {
+var ()
+
+func TestHotBackupNew(t *testing.T) {
+	var fi os.FileInfo
+	var err error
+	var runTest bool
+	if fi, err = os.Stat(testBackupContainerPath); err == nil {
+		runTest = true
+	} else if fi, err = os.Stat(testBackupRealPath); err == nil {
+		runTest = true
+	}
+	if !runTest || !fi.IsDir() {
+		t.Skipf("The directory %q (or %q) should be mounted on a docker volume. %s", testBackupContainerPath, testBackupRealPath, err)
+	}
+
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())

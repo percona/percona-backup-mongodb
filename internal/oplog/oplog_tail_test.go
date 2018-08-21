@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path"
@@ -30,8 +31,9 @@ const (
 )
 
 var (
-	keepSamples bool
-	samplesDir  string
+	keepSamples        bool
+	samplesDir         string
+	alternateOplogTest bool
 )
 
 func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
@@ -52,6 +54,7 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepSamples, "keep-samples", false, "Keep generated bson files")
+	flag.BoolVar(&alternateOplogTest, "alternate-oplog-test", false, "Use alternate method for oplog tailer test")
 	flag.Parse()
 
 	// Get root repository path using Git
@@ -249,7 +252,7 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 // That's why we are only running the tailer for just 1 second.
 // The correct way to send a complete oplog tail is using an S3 streamer.
 func TestUploadOplogToS3(t *testing.T) {
-	bucket := "percona-mongodb-backup-test"
+	bucket := fmt.Sprintf("percona-mongodb-backup-test-%05d", rand.Int63n(100000))
 	filename := "percona-mongodb-backup-oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
