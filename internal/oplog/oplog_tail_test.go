@@ -31,9 +31,8 @@ const (
 )
 
 var (
-	keepSamples        bool
-	samplesDir         string
-	alternateOplogTest bool
+	keepSamples bool
+	samplesDir  string
 )
 
 func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
@@ -54,7 +53,6 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepSamples, "keep-samples", false, "Keep generated bson files")
-	flag.BoolVar(&alternateOplogTest, "alternate-oplog-test", false, "Use alternate method for oplog tailer test")
 	flag.Parse()
 
 	// Get root repository path using Git
@@ -395,9 +393,6 @@ func TestReadIntoSmallBuffer(t *testing.T) {
 		n, err := ot.Read(buf)
 		if err != nil {
 			break
-		}
-		if testing.Verbose() {
-			fmt.Printf("Got %d bytes: %q\n", n, string(buf[:n]))
 		}
 		totalSize += n
 		result = append(result, buf[:n]...)

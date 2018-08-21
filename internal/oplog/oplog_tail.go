@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -20,12 +21,14 @@ type OplogTail struct {
 	oplogCollection     string
 	startOplogTimestamp *bson.MongoTimestamp
 	lastOplogTimestamp  *bson.MongoTimestamp
+	stopAtTimestampt    *bson.MongoTimestamp
 
-	totalSize         int64
-	docsCount         int64
+	totalSize         uint64
+	docsCount         uint64
 	remainingBytes    []byte
 	nextChunkPosition int
 
+	wg       *sync.WaitGroup
 	dataChan chan chanDataTye
 	stopChan chan bool
 	readFunc func([]byte) (int, error)
@@ -82,6 +85,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
 		running:         true,
+		wg:              &sync.WaitGroup{},
 	}
 	ot.readFunc = makeReader(ot)
 	return ot, nil
@@ -92,29 +96,44 @@ func open(session *mgo.Session) (*OplogTail, error) {
 func (ot *OplogTail) Read(buf []byte) (int, error) {
 	n, err := ot.readFunc(buf)
 	if err == nil {
-		ot.docsCount++
-		ot.totalSize += int64(n)
+		atomic.AddUint64(&ot.docsCount, 1)
+		atomic.AddUint64(&ot.totalSize, uint64(n))
 	}
 	return n, err
 }
 
-func (ot *OplogTail) Size() int64 {
-	return ot.totalSize
+func (ot *OplogTail) Size() uint64 {
+	return atomic.LoadUint64(&ot.totalSize)
 }
 
-func (ot *OplogTail) Count() int64 {
-	return ot.docsCount
+func (ot *OplogTail) Count() uint64 {
+	return atomic.LoadUint64(&ot.docsCount)
+}
+
+// Cancel stopts the tailer immediatelly without waiting the tailer to reach the
+// document having timestamp = IsMasterDoc().LastWrite.OpTime.Ts
+func (ot *OplogTail) Cancel() {
+	close(ot.stopChan)
+	ot.wg.Wait()
 }
 
 func (ot *OplogTail) Close() error {
-	if ot.isRunning() {
+	if !ot.isRunning() {
+		return fmt.Errorf("Tailer is already closed")
+	}
+
+	ismaster, err := cluster.NewIsMaster(ot.session)
+	if err != nil {
 		close(ot.stopChan)
-		return nil
+		return fmt.Errorf("Cannot get master doc LastWrite.Optime: %s", err)
 	}
-	if ot.session != nil {
-		ot.session.Close()
-	}
-	return fmt.Errorf("Tailer is already closed")
+
+	ot.lock.Lock()
+	ot.stopAtTimestampt = &ismaster.IsMasterDoc().LastWrite.OpTime.Ts
+	ot.lock.Unlock()
+
+	ot.wg.Wait()
+	return nil
 }
 
 func (ot *OplogTail) isRunning() bool {
@@ -130,9 +149,11 @@ func (ot *OplogTail) setRunning(state bool) {
 }
 
 func (ot *OplogTail) tail() {
-	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
-	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Tail(-time.Second)
+	ot.wg.Add(1)
+	defer ot.wg.Done()
+	defer close(ot.stopChan)
+
+	iter := ot.makeIterator()
 	for {
 		select {
 		case <-ot.stopChan:
@@ -151,16 +172,40 @@ func (ot *OplogTail) tail() {
 					ot.startOplogTimestamp = &oplog.Timestamp
 				}
 				ot.lastOplogTimestamp = &oplog.Timestamp
+				continue
 			}
 		}
-		//if iter.Timeout() {
-		//	continue
-		//}
+		ot.lock.Lock()
+		if ot.stopAtTimestampt != nil && ot.lastOplogTimestamp != nil &&
+			ot.lastOplogTimestamp.Time().After(ot.stopAtTimestampt.Time()) {
+			iter.Close()
+			ot.lock.Unlock()
+			return
+		}
+		if iter.Timeout() {
+			if ot.stopAtTimestampt != nil {
+				iter.Close()
+				ot.lock.Unlock()
+				return
+			}
+		}
+		ot.lock.Unlock()
 		if iter.Err() != nil {
 			iter.Close()
+			iter = ot.makeIterator()
 		}
-		iter = col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
 	}
+}
+
+// TODO
+// Maybe if stopAtTimestampt is nil, we can replace the timeout by -1 to avoid restarting the
+// tailer query unnecessarily but I am following the two rules in the matter of optimization:
+// Rule 1: Don't do it.
+// Rule 2 (for experts only). Don't do it yet
+func (ot *OplogTail) makeIterator() *mgo.Iter {
+	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
+	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
+	return col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Tail(1 * time.Second)
 }
 
 // tailQuery returns a bson.M query filter for the oplog tail

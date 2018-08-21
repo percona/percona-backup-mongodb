@@ -72,10 +72,11 @@ func TestBasicApplyLog(t *testing.T) {
 	// It seems like the oplog tailing is delayed so calling ot.Close() inmediatelly
 	// make the oplog tailer to stop before reading all documents
 	if alternateOplogTest {
-		for ot.Count() < int64(docCount) {
+		for ot.Count() < uint64(docCount) {
 			time.Sleep(time.Second)
 		}
 	}
+
 	ot.Close()
 
 	wg.Wait()
