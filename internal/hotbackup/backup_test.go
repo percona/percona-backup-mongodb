@@ -8,56 +8,47 @@ import (
 	"testing"
 	"time"
 
-	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/globalsign/mgo/dbtest"
 )
 
 const (
-	testBackupRealPath      = "testdata/backup"
-	testBackupContainerPath = "/data/backup"
+	testBackupPath = "testdata/backup"
+	testDBPath     = "testdata/dbpath"
 )
 
 var ()
 
 func TestHotBackupNew(t *testing.T) {
-	var fi os.FileInfo
-	var err error
-	var runTest bool
-	if fi, err = os.Stat(testBackupContainerPath); err == nil {
-		runTest = true
-	} else if fi, err = os.Stat(testBackupRealPath); err == nil {
-		runTest = true
-	}
-	if !runTest || !fi.IsDir() {
-		t.Skipf("The directory %q (or %q) should be mounted on a docker volume. %s", testBackupContainerPath, testBackupRealPath, err)
-	}
+	var server dbtest.DBServer
+	dbpath, _ := filepath.Abs(testDBPath)
+	server.SetPath(dbpath)
+	defer server.Stop()
 
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
-	if err != nil {
-		t.Fatalf("Failed to get primary session: %v", err.Error())
-	}
+	session := server.Session()
 	defer session.Close()
 
 	backupName := "primary-" + strconv.Itoa(int(time.Now().Unix()))
-	containerBackupDir := filepath.Join(testBackupContainerPath, backupName)
-	realBackupDir := filepath.Join(testBackupRealPath, backupName)
+	backupBase, _ := filepath.Abs(testBackupPath)
+	backupDir := filepath.Join(backupBase, backupName)
 
 	// this backup should succeed. use docker volume mount to check
 	// the hot backup dir was created
-	if _, err := os.Stat(realBackupDir); err == nil {
-		t.Fatalf("Backup dir should not exist before backup: %s", realBackupDir)
+	if _, err := os.Stat(backupDir); err == nil {
+		t.Fatalf("Backup dir should not exist before backup: %s", backupDir)
 	}
-	b, err := NewBackup(session, containerBackupDir)
+	b, err := NewBackup(session, backupDir)
 	if err != nil {
 		t.Fatalf("Failed to run .New(): %v", err.Error())
 	} else if b.removed || b.dir == "" {
 		t.Fatal("Got unexpected output from .New()")
-	} else if _, err := os.Stat(realBackupDir); os.IsNotExist(err) {
-		t.Fatalf("Cannot find backup dir after backup: %s", realBackupDir)
+	} else if _, err := os.Stat(backupDir); os.IsNotExist(err) {
+		t.Fatalf("Cannot find backup dir after backup: %s", backupDir)
+	} else if _, err := os.Stat(filepath.Join(backupDir, "storage.bson")); os.IsNotExist(err) {
+		t.Fatalf("Cannot fine storage.bson file in backup dir: %s", backupDir)
 	}
 
 	// this should fail because the backup path already exists
-	_, err = NewBackup(session, containerBackupDir)
+	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
 	}
