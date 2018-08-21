@@ -25,7 +25,7 @@ func TestHotBackupNew(t *testing.T) {
 			t.Fatalf("Cannot make test dir %s: %v", testDBPath, err.Error())
 		}
 	}
-	defer os.RemoveAll(testDBPath)
+	//defer os.RemoveAll(testDBPath)
 
 	var server dbtest.DBServer
 	dbpath, _ := filepath.Abs(testDBPath)
@@ -54,7 +54,7 @@ func TestHotBackupNew(t *testing.T) {
 	} else if _, err := os.Stat(filepath.Join(backupDir, "storage.bson")); os.IsNotExist(err) {
 		t.Fatalf("Cannot fine storage.bson file in backup dir: %s", backupDir)
 	}
-	defer b.Remove()
+	//defer b.Remove()
 
 	// this should fail because the backup path already exists
 	_, err = NewBackup(session, backupDir)
