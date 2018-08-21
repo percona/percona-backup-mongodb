@@ -2,36 +2,33 @@ package hotbackup
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/globalsign/mgo/dbtest"
 )
 
-var ()
+const (
+	testWiredTigerHotBackupArchive = "testdata/wiredTiger-HotBackup.tar.gz"
+	testRestorePath                = "testdata/restore"
+)
 
-func TestHotBackupStopServer(t *testing.T) {
-	if os.Getenv("TEST_MONGODB_HOTBACKUP") != "true" {
-		t.Skip("Skipping hotbackup test, TEST_MONGODB_HOTBACKUP is not 'true'")
-	}
+func TestHotBackupRestoreStopServer(t *testing.T) {
+	checkHotBackupTest(t)
 
-	if _, err := os.Stat(testDBPath); os.IsNotExist(err) {
-		err := os.MkdirAll(testDBPath, 0777)
-		if err != nil {
-			t.Fatalf("Cannot make test dir %s: %v", testDBPath, err.Error())
-		}
-	}
+	cleanupDBPath(t)
 	defer os.RemoveAll(testDBPath)
 
 	var server dbtest.DBServer
 	dbpath, _ := filepath.Abs(testDBPath)
 	server.SetPath(dbpath)
-	defer server.Stop()
+	server.SetMonitor(false)
 
 	session := server.Session()
 	defer session.Close()
 
-	restore, err := NewRestore(session, testDBPath)
+	restore, err := NewRestore(session, testRestorePath, testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to run .NewRestore(): %v", err.Error())
 	}
@@ -39,5 +36,47 @@ func TestHotBackupStopServer(t *testing.T) {
 	err = restore.stopServer()
 	if err != nil {
 		t.Fatalf("Failed to run .stopServer(): %v", err.Error())
+	} else if len(restore.serverArgv) <= 1 {
+		t.Fatal("Server argv is not greater than 1")
+	} else if !restore.serverShutdown {
+		t.Fatal("Server serverShutdown flag is not true")
+	}
+}
+
+// TODO: check file ownership before/after
+func TestHotBackupRestoreDBPath(t *testing.T) {
+	checkHotBackupTest(t)
+	cleanupDBPath(t)
+	defer os.RemoveAll(testDBPath)
+
+	if _, err := os.Stat(testRestorePath); err == nil {
+		err := os.RemoveAll(testRestorePath)
+		if err != nil {
+			t.Fatalf("Failed to cleanup restore dir: %v", err.Error())
+		}
+	}
+	err := os.MkdirAll(testRestorePath, 0777)
+	if err != nil {
+		t.Fatalf("Failed to setup restore dir: %v", err.Error())
+	}
+	defer os.RemoveAll(testRestorePath)
+
+	// un-archive the hotbackup test archive file
+	cmd := exec.Command("tar", "-C", testRestorePath, "-xzf", testWiredTigerHotBackupArchive)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to uncompress test dbpath: %v", err.Error())
+	}
+
+	restore, err := NewRestore(nil, testRestorePath, testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to run .NewRestore(): %v", err.Error())
+	}
+
+	// restore the hotbackup to the dbpath
+	err = restore.restoreDBPath()
+	if err != nil {
+		t.Fatalf("Failed to run .restoreDBPath(): %v", err.Error())
+	} else if _, err := os.Stat(filepath.Join(testRestorePath, "storage.bson")); os.IsNotExist(err) {
+		t.Fatal("Restored dbpath does not contain storage.bson!")
 	}
 }

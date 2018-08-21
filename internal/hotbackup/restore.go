@@ -9,32 +9,44 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/otiai10/copy"
+	flock "github.com/theckman/go-flock"
+)
+
+var (
+	RestoreStopServerRetries = 120
+	RestoreStopServerWait    = 500 * time.Millisecond
 )
 
 type Restore struct {
+	backupPath     string
 	dbPath         string
 	session        *mgo.Session
 	serverArgv     []string
 	serverShutdown bool
+	moveBackup     bool
 	restored       bool
 }
 
-func NewRestore(session *mgo.Session, dbPath string) (*Restore, error) {
+func NewRestore(session *mgo.Session, backupPath, dbPath string) (*Restore, error) {
 	return &Restore{
-		dbPath:  dbPath,
-		session: session,
+		backupPath: backupPath,
+		dbPath:     dbPath,
+		session:    session,
 	}, nil
 }
 
-func (r *Restore) isServerRunning() bool {
-	if r.session.Ping() == nil {
-		return true
+func (r *Restore) isServerRunning() (bool, error) {
+	if r.session != nil && r.session.Ping() == nil {
+		return true, nil
 	}
 	lockFile := filepath.Join(r.dbPath, "mongod.lock")
-	if _, err := os.Stat(lockFile); os.IsNotExist(err) {
-		return false
+	fi, err := os.Create(lockFile)
+	if err != nil {
+		return false, err
 	}
-	return true
+	defer fi.Close()
+	return flock.NewFlock(lockFile).Locked(), nil
 }
 
 func (r *Restore) getServerCmdLine() ([]string, error) {
@@ -47,24 +59,29 @@ func (r *Restore) getServerCmdLine() ([]string, error) {
 
 func (r *Restore) waitForShutdown() error {
 	var tries int
-	for tries < 60 {
-		if !r.isServerRunning() {
+	for tries < RestoreStopServerRetries {
+		running, err := r.isServerRunning()
+		if err != nil {
+			return err
+		} else if !running {
 			r.serverShutdown = true
 			return nil
 		}
-		time.Sleep(time.Second)
+		time.Sleep(RestoreStopServerWait)
 		tries++
 	}
 	return errors.New("server did not stop")
 }
 
 func (r *Restore) stopServer() error {
-	if !r.isServerRunning() {
+	running, err := r.isServerRunning()
+	if err != nil {
+		return err
+	} else if !running {
 		return nil
 	}
 
 	// get running server command-line
-	var err error
 	r.serverArgv, err = r.getServerCmdLine()
 	if err != nil {
 		return err
@@ -77,8 +94,26 @@ func (r *Restore) stopServer() error {
 	} else if err.Error() != "EOF" {
 		return err
 	}
+	r.session.Close()
+	r.session = nil
 
 	return r.waitForShutdown()
+}
+
+func (r *Restore) restoreDBPath() error {
+	// move backup to dbpath if enabled
+	// or copy if not
+	var err error
+	if r.moveBackup {
+		err = os.Rename(r.backupPath, r.dbPath)
+	} else {
+		err = copy.Copy(r.backupPath, r.dbPath)
+	}
+	if err != nil {
+		return err
+	}
+	r.restored = true
+	return nil
 }
 
 func (r *Restore) startServer() error {

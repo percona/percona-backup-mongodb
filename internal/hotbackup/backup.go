@@ -15,7 +15,6 @@ type Backup struct {
 func checkHotBackup(session *mgo.Session) error {
 	resp := struct {
 		Commands map[string]interface{} `bson:"commands"`
-		Ok       int                    `bson:"ok"`
 	}{}
 	err := session.Run(bson.D{{"listCommands", 1}}, &resp)
 	if err != nil {

@@ -17,21 +17,15 @@ const (
 )
 
 func TestHotBackupNewBackup(t *testing.T) {
-	if os.Getenv("TEST_MONGODB_HOTBACKUP") != "true" {
-		t.Skip("Skipping hotbackup test, TEST_MONGODB_HOTBACKUP is not 'true'")
-	}
+	checkHotBackupTest(t)
 
-	if _, err := os.Stat(testDBPath); os.IsNotExist(err) {
-		err := os.MkdirAll(testDBPath, 0777)
-		if err != nil {
-			t.Fatalf("Cannot make test dir %s: %v", testDBPath, err.Error())
-		}
-	}
+	cleanupDBPath(t)
 	defer os.RemoveAll(testDBPath)
 
 	var server dbtest.DBServer
 	dbpath, _ := filepath.Abs(testDBPath)
 	server.SetPath(dbpath)
+	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
 	session := server.Session()
@@ -59,6 +53,7 @@ func TestHotBackupNewBackup(t *testing.T) {
 	defer b.Remove()
 
 	// this should fail because the backup path already exists
+	cleanupDBPath(t)
 	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
