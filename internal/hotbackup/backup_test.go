@@ -16,9 +16,11 @@ const (
 	testDBPath     = "testdata/dbpath"
 )
 
-var ()
+func TestHotBackupNewBackup(t *testing.T) {
+	if os.Getenv("TEST_MONGODB_HOTBACKUP") != "true" {
+		t.Skip("Skipping hotbackup test, TEST_MONGODB_HOTBACKUP is not 'true'")
+	}
 
-func TestHotBackupNew(t *testing.T) {
 	if _, err := os.Stat(testDBPath); os.IsNotExist(err) {
 		err := os.MkdirAll(testDBPath, 0777)
 		if err != nil {
