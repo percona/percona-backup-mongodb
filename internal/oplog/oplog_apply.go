@@ -1,7 +1,6 @@
 package oplog
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/globalsign/mgo"
@@ -33,8 +32,7 @@ func (oa *OplogApply) Run() error {
 		result := bson.M{}
 		err := oa.dbSession.Run(bson.M{"applyOps": []bson.M{dest}}, result)
 		if err != nil {
-			fmt.Println("----------------------------------------------------------------------------------------------------")
-			fmt.Printf("Error: %s\nDocument:\n%+v\n", err, dest)
+			return err
 		}
 	}
 }

@@ -33,7 +33,8 @@ type ClientStatus struct {
 
 type Client struct {
 	ID              string       `json:"id"`
-	NodeType        string       `json:"node_type"`
+	NodeType        pb.NodeType  `json:"node_type"`
+	ClusterID       string       `json:"client_id"`
 	LastCommandSent int          `json:"last_command_ent"`
 	LastSeen        time.Time    `json:"last_seen"`
 	Status          ClientStatus `json:"Status"`
@@ -45,7 +46,7 @@ type Client struct {
 	streaming       bool
 }
 
-func NewClient(id string, nodeType pb.NodeType) *Client {
+func NewClient(id string, nodeType pb.NodeType, clientID string) *Client {
 	client := &Client{
 		ID:       id,
 		lock:     &sync.Mutex{},

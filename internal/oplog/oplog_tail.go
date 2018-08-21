@@ -84,7 +84,6 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		running:         true,
 	}
 	ot.readFunc = makeReader(ot)
-	//go ot.tail()
 	return ot, nil
 }
 
@@ -133,7 +132,7 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
 	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
-	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Iter()
+	iter := col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Tail(-time.Second)
 	for {
 		select {
 		case <-ot.stopChan:
@@ -148,18 +147,15 @@ func (ot *OplogTail) tail() {
 			err := result.Unmarshal(&oplog)
 			if err == nil {
 				ot.dataChan <- result.Data
-				ot.lock.Lock()
 				if ot.startOplogTimestamp == nil {
 					ot.startOplogTimestamp = &oplog.Timestamp
 				}
 				ot.lastOplogTimestamp = &oplog.Timestamp
-				ot.lock.Unlock()
-				continue
 			}
 		}
-		if iter.Timeout() {
-			continue
-		}
+		//if iter.Timeout() {
+		//	continue
+		//}
 		if iter.Err() != nil {
 			iter.Close()
 		}
@@ -192,9 +188,10 @@ func (ot *OplogTail) tailQuery() bson.M {
 	if err != nil {
 		mongoTimestamp, _ := bson.NewMongoTimestamp(time.Now(), 0)
 		query["ts"] = bson.M{"$gte": mongoTimestamp}
-	} else {
-		query["ts"] = bson.M{"$gt": isMaster.IsMasterDoc().LastWrite.OpTime.Ts}
+		return query
 	}
+
+	query["ts"] = bson.M{"$gt": isMaster.IsMasterDoc().LastWrite.OpTime.Ts}
 	return query
 }
 

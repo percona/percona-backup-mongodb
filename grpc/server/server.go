@@ -15,7 +15,7 @@ type MessagesServer struct {
 }
 
 type RegisterPayload struct {
-	NodeType string `bson:"NodeType"`
+	NodeType pb.NodeType `bson:"NodeType"`
 }
 
 func NewMessagesServer() *MessagesServer {
@@ -28,6 +28,25 @@ func NewMessagesServer() *MessagesServer {
 
 func (s *MessagesServer) Clients() map[string]*Client {
 	return s.clients
+}
+
+// IsShardedSystem returns if a system is sharded.
+// It check if the Node Type is:
+// - Mongos
+// - Config Server
+// - Shard Server
+// or if the ClusterID is not empty because in a sharded system, the cluster id
+// is never empty.
+func (s *MessagesServer) IsShardedSystem() bool {
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_MONGOS ||
+			client.NodeType == pb.NodeType_MONGOD_CONFIGSVR ||
+			client.NodeType == pb.NodeType_MONGOD_SHARDSVR ||
+			client.ClusterID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents
@@ -133,7 +152,7 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 	if registerMsg == nil || registerMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
-	client := NewClient(msg.ClientID, registerMsg.NodeType)
+	client := NewClient(msg.ClientID, registerMsg.NodeType, registerMsg.ClusterID)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }
