@@ -12,13 +12,21 @@ import (
 )
 
 const (
-	testBackupPath = "testdata/backup"
+	testBackupPath = "testdata"
 	testDBPath     = "testdata/dbpath"
 )
 
 var ()
 
 func TestHotBackupNew(t *testing.T) {
+	if _, err := os.Stat(testDBPath); os.IsNotExist(err) {
+		err := os.MkdirAll(testDBPath, 0777)
+		if err != nil {
+			t.Fatalf("Cannot make test dir %s: %v", testDBPath, err.Error())
+		}
+	}
+	defer os.RemoveAll(testDBPath)
+
 	var server dbtest.DBServer
 	dbpath, _ := filepath.Abs(testDBPath)
 	server.SetPath(dbpath)
@@ -46,6 +54,7 @@ func TestHotBackupNew(t *testing.T) {
 	} else if _, err := os.Stat(filepath.Join(backupDir, "storage.bson")); os.IsNotExist(err) {
 		t.Fatalf("Cannot fine storage.bson file in backup dir: %s", backupDir)
 	}
+	defer b.Remove()
 
 	// this should fail because the backup path already exists
 	_, err = NewBackup(session, backupDir)
