@@ -49,12 +49,6 @@ func TestHotBackupRestoreDBPath(t *testing.T) {
 	cleanupDBPath(t)
 	defer os.RemoveAll(testDBPath)
 
-	if _, err := os.Stat(testRestorePath); err == nil {
-		err := os.RemoveAll(testRestorePath)
-		if err != nil {
-			t.Fatalf("Failed to cleanup restore dir: %v", err.Error())
-		}
-	}
 	err := os.MkdirAll(testRestorePath, 0777)
 	if err != nil {
 		t.Fatalf("Failed to setup restore dir: %v", err.Error())
