@@ -13,6 +13,7 @@ import (
 
 type Client struct {
 	id         string
+	clusterID  *bson.ObjectId
 	nodeType   pb.NodeType
 	grpcClient pb.MessagesClient
 	inMsgChan  chan *pb.ServerMessage
@@ -25,7 +26,7 @@ type Client struct {
 	running bool
 }
 
-func NewClient(id string, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
+func NewClient(id string, clusterID *bson.ObjectId, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
 	if id == "" {
 		return nil, fmt.Errorf("ClientID cannot be empty")
 	}
@@ -34,11 +35,15 @@ func NewClient(id string, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*
 		return nil, err
 	}
 
-	msg, _ := bson.Marshal(bson.M{"NodeType": nodeType})
 	m := &pb.ClientMessage{
 		Type:     pb.ClientMessage_REGISTER,
 		ClientID: id,
-		Message:  msg,
+		Payload: &pb.ClientMessage_RegisterMsg{
+			RegisterMsg: &pb.RegisterPayload{
+				NodeType:  nodeType,
+				ClusterID: clusterID.Hex(),
+			},
+		},
 	}
 
 	if err := stream.Send(m); err != nil {

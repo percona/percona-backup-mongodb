@@ -16,9 +16,10 @@ type ShardingState struct {
 //
 // https://docs.mongodb.com/manual/reference/command/shardingState/
 //
+// TODO: Do we need this or can we just use GetClusterID?
 func NewShardingState(session *mgo.Session) (*ShardingState, error) {
 	s := ShardingState{}
-	err := session.Run(bson.D{{"shardingState", "1"}}, &s.state)
+	err := session.Run(bson.D{{Name: "shardingState", Value: "1"}}, &s.state)
 	return &s, err
 }
 

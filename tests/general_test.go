@@ -84,8 +84,12 @@ func TestOne(t *testing.T) {
 	registerMsg := &pb.ClientMessage{
 		Type:     pb.ClientMessage_REGISTER,
 		ClientID: clientID,
-		Message:  []byte(`{"node_type": "primary"}`),
-		Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
+		Payload: &pb.ClientMessage_RegisterMsg{
+			RegisterMsg: &pb.RegisterPayload{
+				NodeType:  pb.NodeType_MONGOD,
+				ClusterID: "",
+			},
+		},
 	}
 	err = agentStream.Send(registerMsg)
 	if err != nil {

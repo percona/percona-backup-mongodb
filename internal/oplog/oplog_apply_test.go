@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -53,7 +54,9 @@ func TestBasicApplyLog(t *testing.T) {
 
 	for i := 0; i < docCount; i++ {
 		rec := bson.M{"id": i, "name": fmt.Sprintf("name_%03d", i)}
-		col.Insert(rec)
+		if err := col.Insert(rec); err != nil {
+			t.Fatalf("Cannot insert row: %v\n%s", rec, err)
+		}
 	}
 
 	n, err := col.Find(nil).Count()
@@ -64,6 +67,14 @@ func TestBasicApplyLog(t *testing.T) {
 
 	if n != docCount {
 		t.Errorf("Invalid document count. Want %d, got %d", docCount, n)
+	}
+
+	// It seems like the oplog tailing is delayed so calling ot.Close() inmediatelly
+	// make the oplog tailer to stop before reading all documents
+	if alternateOplogTest {
+		for ot.Count() < int64(docCount) {
+			time.Sleep(time.Second)
+		}
 	}
 	ot.Close()
 
@@ -83,7 +94,7 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	if n != 0 {
-		t.Errorf("Invalid document count. Want %d, got %d", docCount, n)
+		t.Errorf("Invalid document count after applying oplog. Want %d, got %d", docCount, n)
 		return
 	}
 
