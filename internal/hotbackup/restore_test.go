@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/globalsign/mgo/bson"
 	"github.com/globalsign/mgo/dbtest"
 )
 
@@ -18,7 +19,6 @@ const (
 
 func TestHotBackupRestoreStopServer(t *testing.T) {
 	checkHotBackupTest(t)
-
 	cleanupDBPath(t)
 	defer os.RemoveAll(testDBPath)
 
@@ -72,5 +72,22 @@ func TestHotBackupRestoreDBPath(t *testing.T) {
 		t.Fatalf("Failed to run .restoreDBPath(): %v", err.Error())
 	} else if _, err := os.Stat(filepath.Join(testRestorePath, "storage.bson")); os.IsNotExist(err) {
 		t.Fatal("Restored dbpath does not contain storage.bson!")
+	}
+
+	// start a wiredTiger test server using the restore data path
+	var server dbtest.DBServer
+	dbpath, _ := filepath.Abs(testDBPath)
+	server.SetPath(dbpath)
+	server.SetEngine("wiredTiger")
+	defer server.Stop()
+
+	// get a test session
+	session := server.Session()
+	defer session.Close()
+
+	// check the test hotbackup contains the doc in 'test.test': { _id "hotbackup", msg: "this should restore" }
+	err = session.DB(testDB).C(testColl).Find(bson.M{"_id": "hotbackup", "msg": "this should restore"}).One(nil)
+	if err != nil {
+		t.Fatalf("Cannot find test doc in restored collection '%s.%s': %v", testDB, testColl, err.Error())
 	}
 }
