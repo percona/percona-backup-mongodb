@@ -7,5 +7,5 @@ COPY . .
 RUN wget https://repo.percona.com/apt/percona-release_0.1-7.stretch_all.deb && dpkg -i percona-release_0.1-7.stretch_all.deb
 RUN apt-get update && apt-get install -y percona-server-mongodb-36-server
 
-RUN go get -u github.com/golang/dep/cmd/dep && dep ensure 
-CMD make $TEST_FULL_TARGET
+RUN make vendor
+CMD make test

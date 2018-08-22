@@ -2,6 +2,15 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/10gen/openssl"
+  packages = [
+    ".",
+    "utils"
+  ]
+  revision = "58f60a8e59ba35b53e6821bda7003c4ea626dbf9"
+
+[[projects]]
   name = "github.com/alecthomas/kingpin"
   packages = ["."]
   revision = "947dcec5ba9c011838740e680966fd7087a71d0d"
@@ -101,6 +110,12 @@
   version = "v1.2.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/howeyc/gopass"
+  packages = ["."]
+  revision = "bf9dde6d0d2c004a008c27aaee91170c786f6db8"
+
+[[projects]]
   name = "github.com/jessevdk/go-flags"
   packages = ["."]
   revision = "c6ca198ec95c841fdb89fc0de7496fed11ab854e"
@@ -112,26 +127,32 @@
   revision = "0b12d6b5"
 
 [[projects]]
+  branch = "v3.6"
   name = "github.com/mongodb/mongo-tools"
   packages = [
+    "common",
+    "common/archive",
     "common/auth",
     "common/bsonutil",
+    "common/connstring",
     "common/db",
-    "common/db/command",
     "common/db/kerberos",
     "common/db/openssl",
+    "common/db/tlsgo",
+    "common/failpoint",
+    "common/intents",
     "common/json",
     "common/log",
     "common/options",
+    "common/password",
     "common/progress",
+    "common/text",
     "common/util",
     "mongodump",
-    "mongodump/options",
     "mongorestore",
-    "mongorestore/options"
+    "mongorestore/ns"
   ]
-  revision = "c883408a5e63e7677fcbdb03979de027faf88c00"
-  version = "2.7.8"
+  revision = "874ad456ffec7463c476e976c72b9bf2379b668d"
 
 [[projects]]
   branch = "master"
@@ -147,15 +168,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/spacemonkeygo/openssl"
-  packages = [
-    ".",
-    "utils"
-  ]
-  revision = "33d609e316a1cd0b4b658d66a7715ecbe5042544"
-
-[[projects]]
-  branch = "master"
   name = "github.com/spacemonkeygo/spacelog"
   packages = ["."]
   revision = "2296661a0572a51438413369004fa931c2641923"
@@ -165,6 +177,12 @@
   packages = ["."]
   revision = "dd99ba217509348e899885ee977b6e2acb18179c"
   version = "v0.5.0"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["ssh/terminal"]
+  revision = "614d502a4dac94afa3a6ce146bd1736da82514c6"
 
 [[projects]]
   branch = "master"
@@ -183,7 +201,10 @@
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
-  packages = ["unix"]
+  packages = [
+    "unix",
+    "windows"
+  ]
   revision = "3b58ed4ad3395d483fc92d5d14123ce2c3581fec"
 
 [[projects]]
@@ -268,6 +289,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c3a59f2b82f4bd68264fe8870052c55b58cb565aa2dd81b3fe96407d02960f54"
+  inputs-digest = "64ab8d489e9be200524e1e610dd7f8fd1819e09abafa6dd5db92fb763ebc4c8d"
   solver-name = "gps-cdcl"
   solver-version = 1
