@@ -103,8 +103,8 @@ test-full: test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-mongodb-backup-agent: vendor cli/agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-agent cli/agent/main.go
+mongodb-backup-agent: vendor cli/mongodb-backup-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-agent cli/mongodb-backup-agent/main.go
 
 mongodb-backup-admin: vendor cli/mongodb-backup-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
 	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-admin cli/mongodb-backup-admin/main.go
