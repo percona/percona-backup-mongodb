@@ -30,14 +30,9 @@ $(GOPATH)/bin/dep:
 vendor: $(GOPATH)/bin/dep Gopkg.lock Gopkg.toml
 	$(GOPATH)/bin/dep ensure
 
-test-race: vendor
-ifeq ($(GO_TEST_CODECOV), true)
-	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
-else
-	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
-endif
-
 define TEST_ENV
+	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
+	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
 	TEST_MONGODB_ADMIN_USERNAME=$(TEST_MONGODB_ADMIN_USERNAME) \
 	TEST_MONGODB_ADMIN_PASSWORD=$(TEST_MONGODB_ADMIN_PASSWORD) \
 	TEST_MONGODB_USERNAME=$(TEST_MONGODB_USERNAME) \
@@ -48,14 +43,23 @@ define TEST_ENV
 	TEST_MONGODB_SECONDARY1_PORT=$(TEST_MONGODB_SECONDARY1_PORT) \
 	TEST_MONGODB_SECONDARY2_PORT=$(TEST_MONGODB_SECONDARY2_PORT) \
 	TEST_MONGODB_CONFIGSVR1_PORT=$(TEST_MONGODB_CONFIGSVR1_PORT) \
-	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT)
+	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT) \
+	GOCACHE=$(GOCACHE)
 endef
 
 .env:
 	@echo -e $(TEST_ENV) | tr ' ' '\n' >.env
+
+test-race: .env vendor
+ifeq ($(GO_TEST_CODECOV), true)
+	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
+else
+	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
+endif
 	
-test: vendor 
-	GOCACHE=$(GOCACHE) go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
+test: .env vendor
+	$(shell cat .env) \
+	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
 test-cluster: .env
 	docker-compose up \
@@ -65,10 +69,10 @@ test-cluster: .env
 	init
 	scripts/init-cluster-wait.sh
 
-test-cluster-clean:
+test-cluster-clean: .env
 	docker-compose down -v
 
-test-full: test-cluster-clean test-cluster
+test-full: .env test-cluster-clean test-cluster
 	docker-compose up \
 	--build \
 	--no-deps \
