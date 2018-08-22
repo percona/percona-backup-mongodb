@@ -4,6 +4,7 @@ GO_TEST_PATH?=./...
 GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
+GO_BUILD_LDFLAGS?=-w -s
 
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
@@ -21,7 +22,7 @@ TEST_MONGODB_MONGOS_PORT?=17005
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: test
+all: mongodb-backup-admin mongodb-backup-agent mongodb-backupd
 
 $(GOPATH)/bin/dep:
 	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
@@ -102,5 +103,14 @@ test-full: test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-clean: test-clean
-	rm -rf vendor 2>/dev/null || true
+mongodb-backup-agent: vendor cli/agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-agent cli/agent/main.go
+
+mongodb-backup-admin: vendor cli/mongodb-backup-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-admin cli/mongodb-backup-admin/main.go
+
+mongodb-backupd: vendor cli/mongodb-backupd/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backupd cli/mongodb-backupd/main.go
+
+clean:
+	rm -rf mongodb-backup-agent mongodb-backup-admin mongodb-backupd vendor 2>/dev/null || true
