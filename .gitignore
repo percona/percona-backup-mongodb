@@ -1,3 +1,4 @@
+.env
 test-out
 mongodb-backup-admin
 mongodb-backup-agent
