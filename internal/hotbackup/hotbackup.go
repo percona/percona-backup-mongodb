@@ -15,6 +15,20 @@ var (
 	ErrNotDirectConn = errors.New("session is not direct")
 )
 
+func checkHotBackup(session *mgo.Session) error {
+	resp := struct {
+		Commands map[string]interface{} `bson:"commands"`
+	}{}
+	err := session.Run(bson.D{{"listCommands", 1}}, &resp)
+	if err != nil {
+		return err
+	}
+	if _, ok := resp.Commands["createBackup"]; ok {
+		return nil
+	}
+	return ErrUnsupported
+}
+
 func checkLocalhostSession(session *mgo.Session) error {
 	// get system hostname
 	hostname, err := os.Hostname()

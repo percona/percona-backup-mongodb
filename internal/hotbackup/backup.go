@@ -12,20 +12,6 @@ type Backup struct {
 	removed bool
 }
 
-func checkHotBackup(session *mgo.Session) error {
-	resp := struct {
-		Commands map[string]interface{} `bson:"commands"`
-	}{}
-	err := session.Run(bson.D{{"listCommands", 1}}, &resp)
-	if err != nil {
-		return err
-	}
-	if _, ok := resp.Commands["createBackup"]; ok {
-		return nil
-	}
-	return ErrUnsupported
-}
-
 // NewBackup creates a Percona Server for MongoDB Hot Backup and outputs
 // it to the specified backup directory. The provided MongoDB session
 // must be a direct connection to localhost/127.0.0.1

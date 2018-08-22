@@ -1,3 +1,2 @@
 test-out
-internal/hotbackup/testdata/backup
-internal/hotbackup/testdata/dbpath
+vendor
