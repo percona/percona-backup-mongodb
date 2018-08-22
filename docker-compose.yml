@@ -10,7 +10,6 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
-    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongo2:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
@@ -20,7 +19,6 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
-    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongo3:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
@@ -30,7 +28,6 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
-    - ./internal/hotbackup/testdata/backup:/data/backup:z
   configsvr:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
@@ -40,7 +37,6 @@ services:
     - ./scripts/mongod.key:/mongod.key:ro
     - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
     - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
-    - ./internal/hotbackup/testdata/backup:/data/backup:z
   mongos:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
