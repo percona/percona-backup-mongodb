@@ -68,7 +68,7 @@ services:
   test:
     build:
       dockerfile: Dockerfile.test
-      context: .
+      context: docker
       args:
       - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
     network_mode: host

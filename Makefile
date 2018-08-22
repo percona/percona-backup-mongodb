@@ -47,10 +47,10 @@ define TEST_ENV
 	GOCACHE=off
 endef
 
-.env:
+env:
 	@echo -e $(TEST_ENV) | tr ' ' '\n' >.env
 
-test-race: .env vendor
+test-race: env vendor
 ifeq ($(GO_TEST_CODECOV), true)
 	$(shell cat .env) \
 	go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
@@ -59,11 +59,11 @@ else
 	go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 	
-test: .env vendor
+test: env vendor
 	$(shell cat .env) \
 	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
-test-cluster: .env
+test-cluster: env
 	docker-compose up \
 	--detach \
 	--force-recreate \
@@ -71,10 +71,10 @@ test-cluster: .env
 	init
 	scripts/init-cluster-wait.sh
 
-test-cluster-clean: .env
+test-cluster-clean: env
 	docker-compose down -v
 
-test-full: .env test-cluster-clean test-cluster
+test-full: env test-cluster-clean test-cluster
 	docker-compose up \
 	--build \
 	--no-deps \
