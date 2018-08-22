@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -18,35 +19,48 @@ var (
 	RestoreStopServerWait    = 250 * time.Millisecond
 )
 
+func getOwnerUid(path string) (*uint32, error) {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil, err
+	}
+	uid := fi.Sys().(*syscall.Stat_t).Uid
+	return &uid, nil
+}
+
 type Restore struct {
 	backupPath     string
 	dbPath         string
 	session        *mgo.Session
 	serverArgv     []string
 	serverShutdown bool
+	serverLock     string
+	uid            *uint32
 	moveBackup     bool
 	restored       bool
 }
 
 func NewRestore(session *mgo.Session, backupPath, dbPath string) (*Restore, error) {
+	lockFile := filepath.Join(dbPath, "mongod.lock")
+	uid, err := getOwnerUid(lockFile)
 	return &Restore{
 		backupPath: backupPath,
 		dbPath:     dbPath,
+		serverLock: lockFile,
 		session:    session,
-	}, nil
+		uid:        uid,
+	}, err
+}
+
+func (r *Restore) lockDBPath() error {
+	return nil
 }
 
 func (r *Restore) isServerRunning() (bool, error) {
 	if r.session != nil && r.session.Ping() == nil {
 		return true, nil
 	}
-	lockFile := filepath.Join(r.dbPath, "mongod.lock")
-	fi, err := os.Create(lockFile)
-	if err != nil {
-		return false, err
-	}
-	defer fi.Close()
-	return flock.NewFlock(lockFile).Locked(), nil
+	return flock.NewFlock(r.serverLock).Locked(), nil
 }
 
 func (r *Restore) getServerCmdLine() ([]string, error) {
@@ -58,18 +72,23 @@ func (r *Restore) getServerCmdLine() ([]string, error) {
 }
 
 func (r *Restore) waitForShutdown() error {
-	var tries int
+	tries := 0
+	ticker := time.NewTicker(RestoreStopServerWait)
 	for tries < RestoreStopServerRetries {
-		running, err := r.isServerRunning()
-		if err != nil {
-			return err
-		} else if !running {
-			r.serverShutdown = true
-			return nil
+		select {
+		case <-ticker.C:
+			running, err := r.isServerRunning()
+			if err != nil {
+				return err
+			} else if !running {
+				ticker.Stop()
+				r.serverShutdown = true
+				return nil
+			}
+			tries++
 		}
-		time.Sleep(RestoreStopServerWait)
-		tries++
 	}
+	ticker.Stop()
 	return errors.New("server did not stop")
 }
 
@@ -103,7 +122,13 @@ func (r *Restore) stopServer() error {
 func (r *Restore) restoreDBPath() error {
 	// move backup to dbpath if enabled
 	// or copy if not
-	var err error
+	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "storage.bson"))
+	if err != nil {
+		return err
+	} else if backupUid != nil && *backupUid != *r.uid {
+		return errors.New("uids do not match")
+	}
+
 	if r.moveBackup {
 		err = os.Rename(r.backupPath, r.dbPath)
 	} else {

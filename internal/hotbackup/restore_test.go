@@ -3,7 +3,9 @@ package hotbackup
 import (
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/globalsign/mgo/dbtest"
@@ -61,12 +63,11 @@ func TestHotBackupRestoreDBPath(t *testing.T) {
 		t.Fatalf("Failed to uncompress test dbpath: %v", err.Error())
 	}
 
-	restore, err := NewRestore(nil, testRestorePath, testDBPath)
-	if err != nil {
-		t.Fatalf("Failed to run .NewRestore(): %v", err.Error())
-	}
-
 	// restore the hotbackup to the dbpath
+	currentUser, _ := user.Current()
+	uidInt, _ := strconv.Atoi(currentUser.Uid)
+	uid := uint32(uidInt)
+	restore := &Restore{backupPath: testRestorePath, dbPath: testDBPath, uid: &uid}
 	err = restore.restoreDBPath()
 	if err != nil {
 		t.Fatalf("Failed to run .restoreDBPath(): %v", err.Error())
