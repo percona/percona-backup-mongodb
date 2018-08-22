@@ -45,7 +45,6 @@ func TestHotBackupRestoreStopServer(t *testing.T) {
 	}
 }
 
-// TODO: check file ownership before/after
 func TestHotBackupRestoreDBPath(t *testing.T) {
 	checkHotBackupTest(t)
 	cleanupDBPath(t)
