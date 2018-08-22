@@ -5,6 +5,19 @@ Progress:
 - [x] Oplog tailer
 - [ ] S3 streamer [WIP]
 
+## Building
+
+Building the project requires:
+1. Go 1.10 or above
+1. Makefile
+
+To build the project:
+```
+make
+```
+
+A successful build outputs binaries: *mongodb-backup-admin*, *mongodb-backup-agent* and *mongodb-backupd*.
+
 ## Testing
 
 The integration testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.

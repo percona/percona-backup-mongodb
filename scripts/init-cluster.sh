@@ -1,8 +1,8 @@
 #!/bin/bash
 
 tries=1
-max_tries=15
-sleep_secs=3
+max_tries=45
+sleep_secs=1
 
 cp /rootCA.crt /tmp/rootCA.crt
 cp /client.pem /tmp/client.pem

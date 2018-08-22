@@ -1,2 +1,5 @@
 test-out
-internal/hotbackup/testdata/backup
+mongodb-backup-admin
+mongodb-backup-agent
+mongodb-backupd
+vendor

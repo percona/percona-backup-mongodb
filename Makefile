@@ -4,8 +4,8 @@ GO_TEST_PATH?=./...
 GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
+GO_BUILD_LDFLAGS?=-w -s
 
-TEST_FULL_TARGET?=test-race
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
 TEST_MONGODB_ADMIN_PASSWORD?=admin123456
@@ -22,16 +22,22 @@ TEST_MONGODB_MONGOS_PORT?=17005
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: test
+all: mongodb-backup-admin mongodb-backup-agent mongodb-backupd
 
-test-race:
+$(GOPATH)/bin/dep:
+	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
+
+vendor: $(GOPATH)/bin/dep Gopkg.lock Gopkg.toml
+	$(GOPATH)/bin/dep ensure
+
+test-race: vendor
 ifeq ($(GO_TEST_CODECOV), true)
 	GOCACHE=$(GOCACHE) go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 else
 	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 
-test:
+test: vendor
 	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
 	TEST_MONGODB_ADMIN_USERNAME=$(TEST_MONGODB_ADMIN_USERNAME) \
@@ -72,7 +78,6 @@ test-cluster-clean:
 	docker-compose down -v
 
 test-full: test-cluster-clean test-cluster
-	TEST_FULL_TARGET=$(TEST_FULL_TARGET) \
 	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
 	GOLANG_DOCKERHUB_TAG=$(GOLANG_DOCKERHUB_TAG) \
@@ -98,4 +103,14 @@ test-full: test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-clean: test-clean
+mongodb-backup-agent: vendor cli/agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-agent cli/agent/main.go
+
+mongodb-backup-admin: vendor cli/mongodb-backup-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-admin cli/mongodb-backup-admin/main.go
+
+mongodb-backupd: vendor cli/mongodb-backupd/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backupd cli/mongodb-backupd/main.go
+
+clean:
+	rm -rf mongodb-backup-agent mongodb-backup-admin mongodb-backupd vendor 2>/dev/null || true

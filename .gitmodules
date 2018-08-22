@@ -1,0 +1,3 @@
+[submodule "vendor/github.com/globalsign/mgo"]
+	path = vendor/github.com/globalsign/mgo
+	url = https://github.com/timvaillancourt/mgo
