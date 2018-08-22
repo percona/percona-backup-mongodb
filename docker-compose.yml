@@ -3,64 +3,64 @@ version: '3'
 services:
   mongo1:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_PRIMARY_PORT:-17001} --shardsvr
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_RS} --port=${TEST_MONGODB_PRIMARY_PORT} --shardsvr
     volumes:
-    - ./scripts/entrypoint-mongod.sh:/entrypoint.sh:ro
-    - ./scripts/mongod.key:/mongod.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
   mongo2:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY1_PORT:-17002} --shardsvr
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_RS} --port=${TEST_MONGODB_SECONDARY1_PORT} --shardsvr
     volumes:
-    - ./scripts/entrypoint-mongod.sh:/entrypoint.sh:ro
-    - ./scripts/mongod.key:/mongod.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
   mongo3:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --replSet=${TEST_PSMDB_RSNAME:-rs} --port=${TEST_MONGODB_SECONDARY2_PORT:-17003} --shardsvr
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_RS} --port=${TEST_MONGODB_SECONDARY2_PORT} --shardsvr
     volumes:
-    - ./scripts/entrypoint-mongod.sh:/entrypoint.sh:ro
-    - ./scripts/mongod.key:/mongod.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
-  configsvr:
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
+  configsvr1:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --replSet=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet} --port=${TEST_MONGODB_CONFIGSVR1_PORT:-17004} --configsvr
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_CONFIGSVR_RS} --port=${TEST_MONGODB_CONFIGSVR1_PORT} --configsvr
     volumes:
-    - ./scripts/entrypoint-mongod.sh:/entrypoint.sh:ro
-    - ./scripts/mongod.key:/mongod.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongod.pem:ro
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
   mongos:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
-    command: --port=${TEST_MONGODB_MONGOS_PORT:-17005} --configdb=${TEST_MONGODB_CONFIGSVR_RS:-csReplSet}/127.0.0.1:${TEST_MONGODB_CONFIGSVR1_PORT:-17004} 
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
+    command: --port=${TEST_MONGODB_MONGOS_PORT} --configdb=${TEST_MONGODB_CONFIGSVR_RS}/127.0.0.1:${TEST_MONGODB_CONFIGSVR1_PORT} 
     volumes:
-    - ./scripts/entrypoint-mongos.sh:/entrypoint.sh:ro
-    - ./scripts/mongod.key:/mongos.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/mongodb.pem:/mongos.pem:ro
+    - ./docker/test/entrypoint-mongos.sh:/entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongos.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongos.pem:ro
     depends_on:
-    - configsvr
+    - configsvr1
   init:
     network_mode: host
-    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION:-latest}
+    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
     entrypoint: /init-cluster.sh
     volumes:
-    - ./scripts/init-cluster.sh:/init-cluster.sh:ro
-    - ./scripts/mongod.key:/mongod.key:ro
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/client.pem:/client.pem:ro
+    - ./docker/test/init-cluster.sh:/init-cluster.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/client.pem:/client.pem:ro
     env_file:
     - .env
     depends_on:
-    - configsvr
+    - configsvr1
     - mongos
     - mongo1
     - mongo2
@@ -68,18 +68,18 @@ services:
   test:
     build:
       dockerfile: Dockerfile.test
-      context: .
+      context: docker
       args:
-      - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG:-1.10-stretch}
+      - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG}
     network_mode: host
     env_file:
     - .env
     volumes:
     - ./test-out:/tmp/out
-    - ./scripts/ssl/rootCA.crt:/rootCA.crt:ro
-    - ./scripts/ssl/client.pem:/client.pem:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/client.pem:/client.pem:ro
     depends_on:
-    - configsvr
+    - configsvr1
     - mongo1
     - mongo2
     - mongo3

@@ -17,7 +17,7 @@ TEST_MONGODB_SECONDARY1_PORT?=17002
 TEST_MONGODB_SECONDARY2_PORT?=17003
 TEST_MONGODB_CONFIGSVR_RS?=csReplSet
 TEST_MONGODB_CONFIGSVR1_PORT?=17004
-TEST_MONGODB_MONGOS_PORT?=17005
+TEST_MONGODB_MONGOS_PORT?=17000
 
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
@@ -33,6 +33,8 @@ vendor: $(GOPATH)/bin/dep Gopkg.lock Gopkg.toml
 define TEST_ENV
 	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
+	GOCACHE=off \
+	GOLANG_DOCKERHUB_TAG=$(GOLANG_DOCKERHUB_TAG) \
 	TEST_MONGODB_ADMIN_USERNAME=$(TEST_MONGODB_ADMIN_USERNAME) \
 	TEST_MONGODB_ADMIN_PASSWORD=$(TEST_MONGODB_ADMIN_PASSWORD) \
 	TEST_MONGODB_USERNAME=$(TEST_MONGODB_USERNAME) \
@@ -44,13 +46,13 @@ define TEST_ENV
 	TEST_MONGODB_SECONDARY2_PORT=$(TEST_MONGODB_SECONDARY2_PORT) \
 	TEST_MONGODB_CONFIGSVR1_PORT=$(TEST_MONGODB_CONFIGSVR1_PORT) \
 	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT) \
-	GOCACHE=off
+	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION)
 endef
 
-.env:
+env:
 	@echo -e $(TEST_ENV) | tr ' ' '\n' >.env
 
-test-race: .env vendor
+test-race: env vendor
 ifeq ($(GO_TEST_CODECOV), true)
 	$(shell cat .env) \
 	go test -v -race -coverprofile=$(GO_TEST_COVER_PROFILE) -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
@@ -59,22 +61,22 @@ else
 	go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 	
-test: .env vendor
+test: env vendor
 	$(shell cat .env) \
 	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
-test-cluster: .env
+test-cluster: env
 	docker-compose up \
 	--detach \
 	--force-recreate \
 	--renew-anon-volumes \
 	init
-	scripts/init-cluster-wait.sh
+	docker/test/init-cluster-wait.sh
 
-test-cluster-clean: .env
+test-cluster-clean: env
 	docker-compose down -v
 
-test-full: .env test-cluster-clean test-cluster
+test-full: env test-cluster-clean test-cluster
 	docker-compose up \
 	--build \
 	--no-deps \
