@@ -1,6 +1,7 @@
 package hotbackup
 
 import (
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
@@ -14,23 +15,26 @@ import (
 
 const (
 	testWiredTigerHotBackupArchive = "testdata/wiredTiger-HotBackup.tar.gz"
-	testRestorePath                = "testdata/restore"
 )
 
 func TestHotBackupRestoreStopServer(t *testing.T) {
 	checkHotBackupTest(t)
-	cleanupDBPath(t)
-	defer os.RemoveAll(testDBPath)
+
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create temp dbpath: %v", err.Error())
+	}
+	defer os.RemoveAll(tmpDBPath)
 
 	var server dbtest.DBServer
-	dbpath, _ := filepath.Abs(testDBPath)
+	dbpath, _ := filepath.Abs(tmpDBPath)
 	server.SetPath(dbpath)
 	server.SetMonitor(false)
 
 	session := server.Session()
 	defer session.Close()
 
-	restore, err := NewRestore(session, testRestorePath, testDBPath)
+	restore, err := NewRestore(session, "", tmpDBPath)
 	if err != nil {
 		t.Fatalf("Failed to run .NewRestore(): %v", err.Error())
 	}
@@ -47,37 +51,46 @@ func TestHotBackupRestoreStopServer(t *testing.T) {
 
 func TestHotBackupRestoreDBPath(t *testing.T) {
 	checkHotBackupTest(t)
-	cleanupDBPath(t)
-	defer os.RemoveAll(testDBPath)
 
-	err := os.MkdirAll(testRestorePath, 0777)
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
 	if err != nil {
-		t.Fatalf("Failed to setup restore dir: %v", err.Error())
+		t.Fatalf("Failed to create temp dbpath: %v", err.Error())
 	}
-	defer os.RemoveAll(testRestorePath)
+	defer os.RemoveAll(tmpDBPath)
+
+	restoreTmpPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create restore dir: %v", err.Error())
+	}
+	defer os.RemoveAll(restoreTmpPath)
 
 	// un-archive the hotbackup test archive file
-	cmd := exec.Command("tar", "-C", testRestorePath, "-xzf", testWiredTigerHotBackupArchive)
+	cmd := exec.Command("tar", "-C", restoreTmpPath, "-xzf", testWiredTigerHotBackupArchive)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to uncompress test dbpath: %v", err.Error())
 	}
 
-	// restore the hotbackup to the dbpath
 	currentUser, _ := user.Current()
 	uidInt, _ := strconv.Atoi(currentUser.Uid)
 	uid := uint32(uidInt)
-	restore := &Restore{backupPath: testRestorePath, dbPath: testDBPath, uid: &uid}
+	restore := &Restore{
+		backupPath: restoreTmpPath,
+		dbPath:     tmpDBPath,
+		uid:        &uid,
+		lockFile:   filepath.Join(tmpDBPath, "mongod.lock"),
+	}
+
+	// restore the hotbackup to the dbpath
 	err = restore.restoreDBPath()
 	if err != nil {
 		t.Fatalf("Failed to run .restoreDBPath(): %v", err.Error())
-	} else if _, err := os.Stat(filepath.Join(testRestorePath, "storage.bson")); os.IsNotExist(err) {
+	} else if _, err := os.Stat(filepath.Join(restoreTmpPath, "storage.bson")); os.IsNotExist(err) {
 		t.Fatal("Restored dbpath does not contain storage.bson!")
 	}
 
 	// start a wiredTiger test server using the restore data path
 	var server dbtest.DBServer
-	dbpath, _ := filepath.Abs(testDBPath)
-	server.SetPath(dbpath)
+	server.SetPath(tmpDBPath)
 	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
@@ -89,5 +102,28 @@ func TestHotBackupRestoreDBPath(t *testing.T) {
 	err = session.DB(testDB).C(testColl).Find(bson.M{"_id": "hotbackup", "msg": "this should restore"}).One(nil)
 	if err != nil {
 		t.Fatalf("Cannot find test doc in restored collection '%s.%s': %v", testDB, testColl, err.Error())
+	}
+}
+
+func TestHotBackupRestoreClose(t *testing.T) {
+	tmpfile, err := ioutil.TempFile("", t.Name())
+	if err != nil {
+		t.Fatalf("Could not create tmpfile for lock test: %v", err.Error())
+	}
+	tmpfile.Close()
+	defer os.Remove(tmpfile.Name())
+
+	restore := &Restore{lockFile: tmpfile.Name()}
+	err = restore.getLock()
+	if err != nil {
+		t.Fatalf("Could not lock tmpfile: %v", err.Error())
+	} else if !restore.lock.Locked() {
+		t.Fatal(".getLock() did not lock the lockfile")
+	}
+
+	restore.Close()
+
+	if restore.lock.Locked() {
+		t.Fatal(".Close() did not unlock the lockfile")
 	}
 }

@@ -13,18 +13,19 @@ import (
 
 const (
 	testBackupPath = "testdata"
-	testDBPath     = "testdata/dbpath"
 )
 
 func TestHotBackupNewBackup(t *testing.T) {
 	checkHotBackupTest(t)
 
-	cleanupDBPath(t)
-	defer os.RemoveAll(testDBPath)
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create temp dbpath: %v", err.Error())
+	}
+	defer os.RemoveAll(tmpDBPath)
 
 	var server dbtest.DBServer
-	dbpath, _ := filepath.Abs(testDBPath)
-	server.SetPath(dbpath)
+	server.SetPath(tmpDBPath)
 	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
@@ -53,7 +54,6 @@ func TestHotBackupNewBackup(t *testing.T) {
 	defer b.Remove()
 
 	// this should fail because the backup path already exists
-	cleanupDBPath(t)
 	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")

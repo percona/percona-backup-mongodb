@@ -132,6 +132,18 @@ func (r *Restore) stopServer() error {
 	return r.waitForShutdown()
 }
 
+func (r *Restore) getLock() error {
+	if r.lock == nil {
+		r.lock = flock.NewFlock(r.lockFile)
+	}
+
+	err := r.lock.Lock()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *Restore) restoreDBPath() error {
 	err := r.checkBackupPath()
 	if err != nil {
@@ -147,14 +159,11 @@ func (r *Restore) restoreDBPath() error {
 		return errors.New("uids do not match")
 	}
 
-	if r.lock == nil {
-		r.lock = flock.NewFlock(r.lockFile)
+	err = r.getLock()
+	if err != nil {
+		return err
 	}
-	//err = r.lock.Lock()
-	//if err != nil {
-	//	return err
-	//}
-	//defer r.lock.Unlock()
+	defer r.lock.Unlock()
 
 	if r.moveBackup {
 		err = os.Rename(r.backupPath, r.dbPath)
@@ -164,6 +173,7 @@ func (r *Restore) restoreDBPath() error {
 	if err != nil {
 		return err
 	}
+
 	r.restored = true
 	return nil
 }
