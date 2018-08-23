@@ -34,7 +34,8 @@ type Restore struct {
 	session        *mgo.Session
 	serverArgv     []string
 	serverShutdown bool
-	serverLock     string
+	lockFile       string
+	lock           *flock.Flock
 	uid            *uint32
 	moveBackup     bool
 	restored       bool
@@ -46,21 +47,33 @@ func NewRestore(session *mgo.Session, backupPath, dbPath string) (*Restore, erro
 	return &Restore{
 		backupPath: backupPath,
 		dbPath:     dbPath,
-		serverLock: lockFile,
+		lockFile:   lockFile,
 		session:    session,
 		uid:        uid,
 	}, err
 }
 
-func (r *Restore) lockDBPath() error {
+func (r *Restore) Close() {
+	if r.lock != nil && r.lock.Locked() {
+		r.lock.Unlock()
+	}
+}
+
+func (r *Restore) checkBackupPath() error {
+	wtBackupFile := filepath.Join(r.backupPath, "WiredTiger.backup")
+	if _, err := os.Stat(wtBackupFile); os.IsNotExist(err) {
+		return errors.New("could not find WiredTiger.backup file")
+	}
 	return nil
 }
 
 func (r *Restore) isServerRunning() (bool, error) {
 	if r.session != nil && r.session.Ping() == nil {
 		return true, nil
+	} else if r.lock == nil {
+		r.lock = flock.NewFlock(r.lockFile)
 	}
-	return flock.NewFlock(r.serverLock).Locked(), nil
+	return r.lock.Locked(), nil
 }
 
 func (r *Restore) getServerCmdLine() ([]string, error) {
@@ -120,14 +133,28 @@ func (r *Restore) stopServer() error {
 }
 
 func (r *Restore) restoreDBPath() error {
+	err := r.checkBackupPath()
+	if err != nil {
+		return err
+	}
+
 	// move backup to dbpath if enabled
 	// or copy if not
-	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "storage.bson"))
+	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "WiredTiger.backup"))
 	if err != nil {
 		return err
 	} else if backupUid != nil && *backupUid != *r.uid {
 		return errors.New("uids do not match")
 	}
+
+	if r.lock == nil {
+		r.lock = flock.NewFlock(r.lockFile)
+	}
+	//err = r.lock.Lock()
+	//if err != nil {
+	//	return err
+	//}
+	//defer r.lock.Unlock()
 
 	if r.moveBackup {
 		err = os.Rename(r.backupPath, r.dbPath)
