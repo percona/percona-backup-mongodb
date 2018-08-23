@@ -11,10 +11,6 @@ import (
 	"github.com/globalsign/mgo/dbtest"
 )
 
-const (
-	testBackupPath = "testdata"
-)
-
 func TestHotBackupNewBackup(t *testing.T) {
 	checkHotBackupTest(t)
 
@@ -32,8 +28,13 @@ func TestHotBackupNewBackup(t *testing.T) {
 	session := server.Session()
 	defer session.Close()
 
+	backupBase, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(backupBase)
+
 	backupName := "primary-" + strconv.Itoa(int(time.Now().Unix()))
-	backupBase, _ := filepath.Abs(testBackupPath)
 	backupDir := filepath.Join(backupBase, backupName)
 
 	// this backup should succeed. use docker volume mount to check
