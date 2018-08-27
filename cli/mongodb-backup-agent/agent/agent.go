@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"log"
 	"sync"
 
@@ -17,6 +18,7 @@ type Agent struct {
 	clientID       string
 	clusterID      *bson.ObjectId
 	nodeType       pb.NodeType
+	nodeName       string
 	replicasetName string
 	replicasetID   string
 	status         *pb.Status
@@ -34,7 +36,7 @@ func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (
 		log.Printf("Cannot get cluster id: %s", err)
 	}
 
-	nodeType, err := getNodeType(mdbSession)
+	nodeType, nodeName, err := getNodeTypeAndName(mdbSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot get node type")
 	}
@@ -45,7 +47,7 @@ func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (
 	}
 
 	messagesClient := pb.NewMessagesClient(conn)
-	rpcClient, err := client.NewClient(clientID, replset.Name(), clusterID, replset.ID(), nodeType, messagesClient)
+	rpcClient, err := client.NewClient(clientID, nodeName, replset.Name(), clusterID, replset.ID(), nodeType, messagesClient)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot create the rpc client")
 	}
@@ -53,6 +55,7 @@ func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (
 	agent := &Agent{
 		clientID:       clientID,
 		nodeType:       nodeType,
+		nodeName:       nodeName,
 		grpcClientConn: conn,
 		mdbSession:     mdbSession,
 		grpcClient:     rpcClient,
@@ -75,6 +78,16 @@ func (a *Agent) Stop() {
 	close(a.stopChan)
 	a.wg.Wait()
 	a.grpcClient.StopStreamIO()
+}
+
+func (a *Agent) BackupSource() (string, error) {
+	r, err := cluster.NewReplset(a.mdbSession)
+	if err != nil {
+		return "", fmt.Errorf("Cannot get winner %s", err)
+	}
+
+	winner, err := r.BackupSource(nil)
+	return winner, err
 }
 
 func (a *Agent) processMessages() {
@@ -100,26 +113,27 @@ func (a *Agent) processMessages() {
 				},
 			}
 			a.grpcClient.OutMsgChan() <- outmsg
+		case pb.ServerMessage_GET_BACKUP_SOURCE:
 		}
 	}
 }
 
-func getNodeType(session *mgo.Session) (pb.NodeType, error) {
+func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
 	isMaster, err := cluster.NewIsMaster(session)
 	if err != nil {
-		return pb.NodeType_UNDEFINED, err
+		return pb.NodeType_UNDEFINED, "", err
 	}
 	if isMaster.IsShardServer() {
-		return pb.NodeType_MONGOD_SHARDSVR, nil
+		return pb.NodeType_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsReplset() {
-		return pb.NodeType_MONGOD_REPLSET, nil
+		return pb.NodeType_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsConfigServer() {
-		return pb.NodeType_MONGOD_CONFIGSVR, nil
+		return pb.NodeType_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsMongos() {
-		return pb.NodeType_MONGOS, nil
+		return pb.NodeType_MONGOS, isMaster.IsMasterDoc().Me, nil
 	}
-	return pb.NodeType_MONGOD, nil
+	return pb.NodeType_MONGOD, isMaster.IsMasterDoc().Me, nil
 }

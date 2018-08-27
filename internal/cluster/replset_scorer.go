@@ -119,7 +119,7 @@ type ReplsetScorer struct {
 	members     []*ReplsetScoringMember
 }
 
-func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, error) {
+func (r *Replset) BackupSource(replsetTags map[string]string) (string, error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -130,7 +130,7 @@ func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, e
 	scorer := &ReplsetScorer{replsetTags: replsetTags}
 	scorer.members, err = r.getReplsetScoringMembers()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	for _, member := range scorer.members {
@@ -168,7 +168,7 @@ func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, e
 
 			replsetLag, err := r.getLagDuration(r.getStatusMember(member.config.Host))
 			if err != nil {
-				return nil, err
+				return "", err
 			}
 			if replsetLag < maxOkReplsetLagDuration {
 				member.MultiplyScore(replsetOkLagMultiplier, msgMemberReplsetLagOk)
@@ -197,22 +197,15 @@ func (r *Replset) scoreMembers(replsetTags map[string]string) (*ReplsetScorer, e
 		}
 	}
 
-	if scorer.Winner() == nil {
-		return scorer, errors.New("found no winner")
-	}
-	return scorer, nil
-}
-
-func (s *ReplsetScorer) All() []*ReplsetScoringMember {
-	return s.members
-}
-
-func (s *ReplsetScorer) Winner() *ReplsetScoringMember {
 	var winner *ReplsetScoringMember
-	for _, member := range s.All() {
+	for _, member := range scorer.members {
 		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
 		}
 	}
-	return winner
+
+	if winner == nil {
+		return "", fmt.Errorf("Cannot find a winner")
+	}
+	return winner.config.Host, nil
 }

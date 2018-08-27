@@ -27,11 +27,6 @@ all: mongodb-backup-admin mongodb-backup-agent mongodb-backupd
 $(GOPATH)/bin/dep:
 	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
 
-compile-proto:
-	protoc -I proto/messages/ proto/messages/message.proto --go_out=plugins=grpc:proto/messages
-	protoc -I proto/api/ proto/api/api.proto --go_out=plugins=grpc:proto/api
-
-test:
 vendor: $(GOPATH)/bin/dep Gopkg.lock Gopkg.toml
 	$(GOPATH)/bin/dep ensure
 
@@ -51,8 +46,6 @@ define TEST_ENV
 	TEST_MONGODB_SECONDARY2_PORT=$(TEST_MONGODB_SECONDARY2_PORT) \
 	TEST_MONGODB_CONFIGSVR1_PORT=$(TEST_MONGODB_CONFIGSVR1_PORT) \
 	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT) \
-	GOCACHE=$(GOCACHE) \
-	go test -v -count=1 -timeout 1m -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH) 
 	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION)
 endef
 
@@ -71,7 +64,6 @@ endif
 test: env vendor
 	$(shell cat .env) \
 	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
->>>>>>> master
 
 test-cluster: env
 	docker-compose up \

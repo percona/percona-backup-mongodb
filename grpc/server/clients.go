@@ -37,6 +37,7 @@ var (
 type Client struct {
 	ID              string      `json:"id"`
 	NodeType        pb.NodeType `json:"node_type"`
+	NodeName        string      `json:"node_name"`
 	ClusterID       string      `json:"client_id"`
 	ReplicasetName  string      `json:"replicaset_name"`
 	ReplicasetID    string      `json:"replicasert_id"`
@@ -51,13 +52,14 @@ type Client struct {
 	streaming       bool
 }
 
-func NewClient(id, clusterID, replicasetID, replicasetName string, nodeType pb.NodeType) *Client {
+func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nodeType pb.NodeType) *Client {
 	client := &Client{
 		ID:             id,
 		ClusterID:      clusterID,
 		ReplicasetID:   replicasetID,
 		ReplicasetName: replicasetName,
 		NodeType:       nodeType,
+		NodeName:       nodeName,
 		lock:           &sync.Mutex{},
 		pongChan:       make(chan time.Time),
 		LastSeen:       time.Now(),

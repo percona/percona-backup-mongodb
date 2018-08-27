@@ -27,6 +27,18 @@ func (s *MessagesServer) Clients() map[string]*Client {
 	return s.clients
 }
 
+func (s *MessagesServer) AgentsByReplicaset() map[string][]*Client {
+	replicas := make(map[string][]*Client)
+	for _, client := range s.clients {
+		if _, ok := replicas[client.ReplicasetID]; !ok {
+			replicas[client.ReplicasetID] = make([]*Client, 0)
+		}
+		replicas[client.ReplicasetID] = append(replicas[client.ReplicasetID], client)
+
+	}
+	return replicas
+}
+
 func (s *MessagesServer) GetClientsStatus() {
 }
 
@@ -161,7 +173,7 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
-	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType)
+	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }

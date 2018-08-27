@@ -15,6 +15,7 @@ type Client struct {
 	id         string
 	clusterID  *bson.ObjectId
 	nodeType   pb.NodeType
+	nodeName   string
 	grpcClient pb.MessagesClient
 	inMsgChan  chan *pb.ServerMessage
 	outMsgChan chan *pb.ClientMessage
@@ -27,7 +28,7 @@ type Client struct {
 	running bool
 }
 
-func NewClient(id, name string, clusterID, replicasetID *bson.ObjectId, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
+func NewClient(id, nodeName, replsetName string, clusterID, replicasetID *bson.ObjectId, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
 	if id == "" {
 		return nil, fmt.Errorf("ClientID cannot be empty")
 	}
@@ -49,8 +50,9 @@ func NewClient(id, name string, clusterID, replicasetID *bson.ObjectId, nodeType
 		Payload: &pb.ClientMessage_RegisterMsg{
 			RegisterMsg: &pb.RegisterPayload{
 				NodeType:       nodeType,
+				NodeName:       nodeName,
 				ClusterID:      clusterIDString,
-				ReplicasetName: name,
+				ReplicasetName: replsetName,
 				ReplicasetID:   replicasetID.Hex(),
 			},
 		},
@@ -74,6 +76,7 @@ func NewClient(id, name string, clusterID, replicasetID *bson.ObjectId, nodeType
 	c := &Client{
 		id:         id,
 		nodeType:   nodeType,
+		nodeName:   nodeName,
 		grpcClient: grpcClient,
 		inMsgChan:  make(chan *pb.ServerMessage),
 		outMsgChan: make(chan *pb.ClientMessage),

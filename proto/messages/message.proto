@@ -67,14 +67,15 @@ enum NodeType {
 
 message ServerMessage {
   enum MessageType {
-      ERROR           = 0;
-      ACK             = 1;
-      PING            = 2;
-      REGISTRATION_OK = 3;
-      START_BACKUP    = 4;
-      STOP_BACKUP     = 5;
-      GET_STATUS      = 6;
-      reserved 7 to 99;
+      ERROR             = 0;
+      ACK               = 1;
+      PING              = 2;
+      REGISTRATION_OK   = 3;
+      START_BACKUP      = 4;
+      STOP_BACKUP       = 5;
+      GET_STATUS        = 6;
+      GET_BACKUP_SOURCE = 7;
+      reserved 8 to 99;
   }
   
   int32       version = 1;
@@ -106,14 +107,16 @@ message ClientMessage {
     PongPayload     PingMsg           = 5;
     BackupFinished  BackupFinishedMsg = 6;
     Status StatusMsg                  = 7;
+    string BackupSource               = 8;
   }
 }
 
 message RegisterPayload {
   NodeType NodeType     = 1;
-  string ClusterID      = 2; // This field will hold a bson.ObjectIdHex
-  string ReplicasetID   = 3;
-  string ReplicasetName = 4;
+  string NodeName       = 2;
+  string ClusterID      = 3; // This field will hold a bson.ObjectIdHex
+  string ReplicasetID   = 4;
+  string ReplicasetName = 5;
 }
 
 message PongPayload {

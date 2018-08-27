@@ -165,21 +165,25 @@ func TestTwo(t *testing.T) {
 	agentServerAddr := fmt.Sprintf("127.0.0.1:%s", port)
 	agentConn, err := grpc.Dial(agentServerAddr, clientOpts...)
 
-	ports := []string{testutils.MongoDBPrimaryPort, testutils.MongoDBSecondary1Port, testutils.MongoDBSecondary2Port,
-		testutils.MongoDBMongosPort}
-	for _, port := range ports {
+	ports := []string{testutils.MongoDBPrimaryPort, testutils.MongoDBSecondary1Port, testutils.MongoDBSecondary2Port}
+
+	agents := []*agent.Agent{}
+	for i, port := range ports {
 		di := testutils.DialInfoForPort(port)
 		session, err := mgo.DialWithInfo(di)
-		log.Printf("Connecting agent #1 to: %s\n", di.Addrs[0])
+		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])
 		if err != nil {
 			t.Fatalf("Cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
 		}
 
-		bagent, err := agent.NewAgent(agentConn, session, "PMB-001")
+		agentID := fmt.Sprintf("PMB-%03d", i)
+
+		bagent, err := agent.NewAgent(agentConn, session, agentID)
 		if err != nil {
-			t.Fatalf("Cannot create an agent instance PMB-001: %s", err)
+			t.Fatalf("Cannot create an agent instance %s: %s", agentID, err)
 		}
 		bagent.Start()
+		agents = append(agents, bagent)
 	}
 
 	clientsList := messagesServer.Clients()
@@ -188,6 +192,7 @@ func TestTwo(t *testing.T) {
 			fmt.Printf("Key: %s ************************\n", key)
 			fmt.Printf("ID               : %s\n", client.ID)
 			fmt.Printf("Node Type        : %v\n", client.NodeType)
+			fmt.Printf("Node Name        : %v\n", client.NodeName)
 			fmt.Printf("Cluster ID       : %v\n", client.ClusterID)
 			fmt.Printf("Last command sent: %v\n", client.LastCommandSent)
 			fmt.Printf("Last seen        : %v\n", client.LastSeen)
@@ -199,10 +204,22 @@ func TestTwo(t *testing.T) {
 			fmt.Printf("   RunningDBBackup   : %v\n", client.Status.DBBackUpRunning)
 		}
 	}
-	s, err := clientsList["PMB-001"].GetStatus()
-	pretty.Println(s)
+	agentsByReplicaset := messagesServer.AgentsByReplicaset()
+	for replicasetName, agents := range agentsByReplicaset {
+		if len(agents) == 0 {
+			break
+		}
+		agent := agents[0]
+		break
+	}
+	pretty.Println(agentsByReplicaset)
+
+	//s, err := clientsList["PMB-001"].GetStatus()
+	//pretty.Println(s)
 	time.Sleep(1 * time.Second)
-	bagent.Stop()
+	for _, bagent := range agents {
+		bagent.Stop()
+	}
 	close(stopChan)
 	wg.Wait()
 }
