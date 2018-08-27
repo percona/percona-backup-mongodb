@@ -51,9 +51,8 @@ services:
   init:
     network_mode: host
     image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
-    entrypoint: /init-cluster.sh
     volumes:
-    - ./docker/test/init-cluster.sh:/init-cluster.sh:ro
+    - ./docker/test/init-cluster.sh:/entrypoint.sh:ro
     - ./docker/test/mongod.key:/mongod.key:ro
     - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
     - ./docker/test/ssl/client.pem:/client.pem:ro

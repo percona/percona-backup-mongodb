@@ -7,7 +7,7 @@ chmod 400 /tmp/mongos.key /tmp/mongos.pem /tmp/mongod-rootCA.pem
 
 /usr/bin/mongos \
 	--keyFile=/tmp/mongos.key \
-	--bind_ip=0.0.0.0 \
+	--bind_ip=127.0.0.1 \
 	--sslMode=preferSSL \
 	--sslCAFile=/tmp/mongod-rootCA.crt \
 	--sslPEMKeyFile=/tmp/mongos.pem \
