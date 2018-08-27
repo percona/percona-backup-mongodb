@@ -23,7 +23,7 @@ func NewShardingState(session *mgo.Session) (*ShardingState, error) {
 	return &s, err
 }
 
-// GetClusterIDShard returns the cluster ID using the result of the
+// ClusterID returns the cluster ID using the result of the
 // 'balancerState' server command
 func (s *ShardingState) ClusterID() *bson.ObjectId {
 	return &s.state.ClusterID
@@ -33,10 +33,22 @@ func (s *ShardingState) ClusterID() *bson.ObjectId {
 // collection. This will only succeeed on a mongos or config server,
 // use .GetClusterIDShard instead on shard servers
 func GetClusterID(session *mgo.Session) (*bson.ObjectId, error) {
+	nodeType, err := getNodeType(session)
+	if err != nil {
+		return nil, err
+	}
+	if nodeType != NodeTypeMongos && nodeType != NodeTypeMongodConfigSvr {
+		ss, err := NewShardingState(session)
+		if err != nil {
+			return nil, err
+		}
+		return ss.ClusterID(), nil
+	}
+
 	configVersion := struct {
 		ClusterId bson.ObjectId `bson:"clusterId"`
 	}{}
-	err := session.DB(configDB).C("version").Find(bson.M{"_id": 1}).One(&configVersion)
+	err = session.DB(configDB).C("version").Find(bson.M{"_id": 1}).One(&configVersion)
 	if err != nil {
 		return nil, err
 	}

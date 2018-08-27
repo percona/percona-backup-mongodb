@@ -10,8 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/globalsign/mgo"
+	"github.com/kr/pretty"
+	"github.com/percona/mongodb-backup/cli/mongodb-backup-agent/agent"
 	"github.com/percona/mongodb-backup/grpc/api"
 	"github.com/percona/mongodb-backup/grpc/server"
+	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"google.golang.org/grpc"
@@ -117,6 +121,89 @@ func TestOne(t *testing.T) {
 
 	close(stopChan)
 	agentStream.CloseSend()
+	wg.Wait()
+}
+
+func TestTwo(t *testing.T) {
+	var opts []grpc.ServerOption
+	stopChan := make(chan interface{})
+	wg := &sync.WaitGroup{}
+
+	// Start the grpc server
+	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the sever/agents gRPC server
+	grpcServer := grpc.NewServer(opts...)
+	messagesServer := server.NewMessagesServer()
+	pb.RegisterMessagesServer(grpcServer, messagesServer)
+
+	wg.Add(1)
+	log.Printf("Starting agents gRPC server. Listening on %s", lis.Addr().String())
+	runAgentsGRPCServer(grpcServer, lis, stopChan, wg)
+
+	//
+	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", apiPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the server gRPC API
+	apiGrpcServer := grpc.NewServer(opts...)
+	apiServer := api.NewApiServer(messagesServer)
+	pbapi.RegisterApiServer(apiGrpcServer, apiServer)
+
+	wg.Add(1)
+	log.Printf("Starting API gRPC server. Listening on %s", apilis.Addr().String())
+	runAgentsGRPCServer(apiGrpcServer, apilis, stopChan, wg)
+
+	// Let's start an agent
+	clientOpts := []grpc.DialOption{grpc.WithInsecure()}
+
+	agentServerAddr := fmt.Sprintf("127.0.0.1:%s", port)
+	agentConn, err := grpc.Dial(agentServerAddr, clientOpts...)
+
+	ports := []string{testutils.MongoDBPrimaryPort, testutils.MongoDBSecondary1Port, testutils.MongoDBSecondary2Port,
+		testutils.MongoDBMongosPort}
+	for _, port := range ports {
+		di := testutils.DialInfoForPort(port)
+		session, err := mgo.DialWithInfo(di)
+		log.Printf("Connecting agent #1 to: %s\n", di.Addrs[0])
+		if err != nil {
+			t.Fatalf("Cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
+		}
+
+		bagent, err := agent.NewAgent(agentConn, session, "PMB-001")
+		if err != nil {
+			t.Fatalf("Cannot create an agent instance PMB-001: %s", err)
+		}
+		bagent.Start()
+	}
+
+	clientsList := messagesServer.Clients()
+	if testing.Verbose() {
+		for key, client := range clientsList {
+			fmt.Printf("Key: %s ************************\n", key)
+			fmt.Printf("ID               : %s\n", client.ID)
+			fmt.Printf("Node Type        : %v\n", client.NodeType)
+			fmt.Printf("Cluster ID       : %v\n", client.ClusterID)
+			fmt.Printf("Last command sent: %v\n", client.LastCommandSent)
+			fmt.Printf("Last seen        : %v\n", client.LastSeen)
+			fmt.Printf("Replicaset name  : %v\n", client.ReplicasetName)
+			fmt.Printf("Replicaset ID    : %v\n", client.ReplicasetID)
+			fmt.Printf("Status\n")
+			fmt.Printf("   ReplicaSetVersion : %v\n", client.Status.ReplicasetVersion)
+			fmt.Printf("   LastOplogTime     : %v\n", client.Status.LastOplogTs)
+			fmt.Printf("   RunningDBBackup   : %v\n", client.Status.DBBackUpRunning)
+		}
+	}
+	s, err := clientsList["PMB-001"].GetStatus()
+	pretty.Println(s)
+	time.Sleep(1 * time.Second)
+	bagent.Stop()
+	close(stopChan)
 	wg.Wait()
 }
 

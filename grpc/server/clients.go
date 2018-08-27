@@ -14,30 +14,35 @@ var (
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
 )
 
-type ClientStatus struct {
-	ReplicaSetUUID    string    `json:"replica_set_uuid"`
-	ReplicaSetName    string    `json:"replica_set_name"`
-	ReplicaSetVersion int64     `json:"replica_set_version"`
-	LastOplogTime     time.Time `json:"last_oplog_time"`
-	//
-	RunningDBBackup    bool      `json:"running_db_backup"`
-	RunningOplogBackup bool      `json:"running_oplog_backup"`
-	Compression        string    `json:"compression"`
-	Encrypted          string    `json:"encrypted"`
-	Destination        string    `json:"destination"`
-	Filename           string    `json:"filename"`
-	Started            time.Time `json:"started"`
-	Finished           time.Time `json:"finished"`
-	LastError          string    `json:"last_error"`
-}
+//type ClientStatus struct {
+//	ReplicaSetUUID    string    `json:"replica_set_uuid"`
+//	ReplicaSetName    string    `json:"replica_set_name"`
+//	ReplicaSetVersion int64     `json:"replica_set_version"`
+//	LastOplogTs       time.Time `json:"last_oplog_time"`
+//	BackupCompleted   time.Time `json:"backup_completed"`
+//	//
+//	BackupType         pb.BackupType `json:"backup_type"`
+//	BytesSent          uint64        `json:"bytes_sent"`
+//	RunningDBBackup    bool          `json:"running_db_backup"`
+//	RunningOplogBackup bool          `json:"running_oplog_backup"`
+//	Compression        string        `json:"compression"`
+//	Encrypted          string        `json:"encrypted"`
+//	Destination        string        `json:"destination"`
+//	Filename           string        `json:"filename"`
+//	Started            time.Time     `json:"started"`
+//	Finished           time.Time     `json:"finished"`
+//	LastError          string        `json:"last_error"`
+//}
 
 type Client struct {
-	ID              string       `json:"id"`
-	NodeType        pb.NodeType  `json:"node_type"`
-	ClusterID       string       `json:"client_id"`
-	LastCommandSent int          `json:"last_command_ent"`
-	LastSeen        time.Time    `json:"last_seen"`
-	Status          ClientStatus `json:"Status"`
+	ID              string      `json:"id"`
+	NodeType        pb.NodeType `json:"node_type"`
+	ClusterID       string      `json:"client_id"`
+	ReplicasetName  string      `json:"replicaset_name"`
+	ReplicasetID    string      `json:"replicasert_id"`
+	LastCommandSent string      `json:"last_command_ent"`
+	LastSeen        time.Time   `json:"last_seen"`
+	Status          pb.Status   `json:"Status"`
 	//
 	inMessagesChan  chan *pb.ClientMessage
 	outMessagesChan chan *pb.ServerMessage
@@ -46,12 +51,16 @@ type Client struct {
 	streaming       bool
 }
 
-func NewClient(id string, nodeType pb.NodeType, clientID string) *Client {
+func NewClient(id, clusterID, replicasetID, replicasetName string, nodeType pb.NodeType) *Client {
 	client := &Client{
-		ID:       id,
-		lock:     &sync.Mutex{},
-		pongChan: make(chan time.Time),
-		LastSeen: time.Now(),
+		ID:             id,
+		ClusterID:      clusterID,
+		ReplicasetID:   replicasetID,
+		ReplicasetName: replicasetName,
+		NodeType:       nodeType,
+		lock:           &sync.Mutex{},
+		pongChan:       make(chan time.Time),
+		LastSeen:       time.Now(),
 	}
 	return client
 }
@@ -87,7 +96,7 @@ func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
 				c.inMessagesChan <- nil
 				return
 			}
-			notify.PostTimeout(in.Type, time.Now(), 1*time.Millisecond)
+			notify.PostTimeout(in.Type, in, 1*time.Millisecond)
 			c.inMessagesChan <- in
 		}
 	}()
@@ -130,6 +139,23 @@ func (c *Client) Ping() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("Ping timeout")
 	case pongTS := <-c.pongChan:
 		return pongTS, nil
+	}
+}
+
+func (c *Client) GetStatus() (*pb.Status, error) {
+	msgChan := notify.Start(pb.ClientMessage_STATUS)
+	defer notify.Stop(pb.ClientMessage_STATUS, msgChan)
+
+	c.outMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS}
+
+	// wait for pong
+	select {
+	case <-time.After(2 * time.Second):
+		return nil, fmt.Errorf("Get status timeout")
+	case msg := <-msgChan:
+		clientMsg := msg.(*pb.ClientMessage)
+		statusMsg := clientMsg.GetStatusMsg()
+		return statusMsg, nil
 	}
 }
 

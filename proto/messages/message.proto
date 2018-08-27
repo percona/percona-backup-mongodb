@@ -68,12 +68,13 @@ enum NodeType {
 message ServerMessage {
   enum MessageType {
       ERROR           = 0;
-      PING            = 1;
-      REGISTRATION_OK = 2;
-      START_BACKUP    = 3;
-      STOP_BACKUP     = 4;
-      GET_STATUS      = 5;
-      reserved 6 to 99;
+      ACK             = 1;
+      PING            = 2;
+      REGISTRATION_OK = 3;
+      START_BACKUP    = 4;
+      STOP_BACKUP     = 5;
+      GET_STATUS      = 6;
+      reserved 7 to 99;
   }
   
   int32       version = 1;
@@ -88,12 +89,13 @@ message ServerMessage {
 message ClientMessage {
   enum MessageType {
       ERROR          = 0;
-      PONG           = 1;
-      REGISTER       = 2;
-      BACKUP_STARTED = 3;
-      BACKUP_FINISH  = 4;
-      STATUS         = 5;
-      reserved 6 to 99;
+      ACK            = 1;
+      PONG           = 2;
+      REGISTER       = 3;
+      BACKUP_STARTED = 4;
+      BACKUP_FINISH  = 5;
+      STATUS         = 6;
+      reserved 7 to 99;
   }
   
   int32       version  = 1;
@@ -103,12 +105,15 @@ message ClientMessage {
     RegisterPayload RegisterMsg       = 4;
     PongPayload     PingMsg           = 5;
     BackupFinished  BackupFinishedMsg = 6;
+    Status StatusMsg                  = 7;
   }
 }
 
 message RegisterPayload {
-  NodeType NodeType  = 1;
-  string ClusterID   = 2; // This field will hold a bson.ObjectIdHex
+  NodeType NodeType     = 1;
+  string ClusterID      = 2; // This field will hold a bson.ObjectIdHex
+  string ReplicasetID   = 3;
+  string ReplicasetName = 4;
 }
 
 message PongPayload {
@@ -127,7 +132,7 @@ message StartBackup {
   string          DestinationDir  = 4; // This is also used as S3 bucket name
   CompressionType CompressionType = 5;
   Cypher          Cypher          = 6;
-  float           OplogStartTime  = 7;
+  int64           OplogStartTime  = 7;
 }
 
 message StopBackup {
@@ -138,18 +143,19 @@ message Status {
   bool       OplogBackupRunning = 2;
   BackupType BackupType         = 3;
   uint64     BytesSent          = 4;
-  float      LastOplogTS        = 5;
-  float      BackupCompleted    = 6; // TS when the backup has finish
+  int64      LastOplogTs        = 5;
+  int64      BackupCompleted    = 6; // TS when the backup has finish
   string     LastError          = 7;
+  uint64     ReplicasetVersion  = 8;
   //
-  DestinationType DestinationType    = 8;
-  string          DestinationName    = 9;
-  string          DestinationDir     = 10; // This is also used as S3 bucket name
-  CompressionType CompressionType    = 11;
-  Cypher          Cypher             = 12;
-  float           OplogStartTime     = 13;
+  DestinationType DestinationType    = 9;
+  string          DestinationName    = 10;
+  string          DestinationDir     = 11; // This is also used as S3 bucket name
+  CompressionType CompressionType    = 12;
+  Cypher          Cypher             = 13;
+  int64           OplogStartTime     = 14;
 }
 
 message BackupFinished {
-  float LastOplogTS = 1;
+  int64 LastOplogTs = 1;
 }

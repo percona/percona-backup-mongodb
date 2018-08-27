@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"fmt"
+	"log"
 	"sync"
 
 	"github.com/globalsign/mgo"
@@ -16,6 +16,11 @@ import (
 type Agent struct {
 	clientID       string
 	clusterID      *bson.ObjectId
+	nodeType       pb.NodeType
+	replicasetName string
+	replicasetID   string
+	status         *pb.Status
+	//
 	grpcClientConn *grpc.ClientConn
 	grpcClient     *client.Client
 	mdbSession     *mgo.Session
@@ -26,7 +31,7 @@ type Agent struct {
 func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (*Agent, error) {
 	clusterID, err := cluster.GetClusterID(mdbSession)
 	if err != nil {
-		return nil, errors.Wrap(err, "Cannot get MongoDB cluster id")
+		log.Printf("Cannot get cluster id: %s", err)
 	}
 
 	nodeType, err := getNodeType(mdbSession)
@@ -34,17 +39,25 @@ func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (
 		return nil, errors.Wrap(err, "Cannot get node type")
 	}
 
+	replset, err := cluster.NewReplset(mdbSession)
+	if err != nil {
+		return nil, err
+	}
+
 	messagesClient := pb.NewMessagesClient(conn)
-	rpcClient, err := client.NewClient(clientID, clusterID, nodeType, messagesClient)
+	rpcClient, err := client.NewClient(clientID, replset.Name(), clusterID, replset.ID(), nodeType, messagesClient)
 	if err != nil {
 		return nil, errors.Wrap(err, "Cannot create the rpc client")
 	}
 
 	agent := &Agent{
 		clientID:       clientID,
+		nodeType:       nodeType,
 		grpcClientConn: conn,
 		mdbSession:     mdbSession,
 		grpcClient:     rpcClient,
+		replicasetName: replset.Name(),
+		replicasetID:   replset.ID().Hex(),
 		wg:             &sync.WaitGroup{},
 	}
 
@@ -53,6 +66,7 @@ func NewAgent(conn *grpc.ClientConn, mdbSession *mgo.Session, clientID string) (
 
 func (a *Agent) Start() {
 	a.stopChan = make(chan bool)
+	a.wg.Add(1)
 	go a.processMessages()
 	a.grpcClient.StartStreamIO()
 }
@@ -64,7 +78,6 @@ func (a *Agent) Stop() {
 }
 
 func (a *Agent) processMessages() {
-	a.wg.Add(1)
 	defer a.wg.Done()
 	for {
 		var inMsg *pb.ServerMessage
@@ -77,11 +90,16 @@ func (a *Agent) processMessages() {
 			return
 		}
 
-		fmt.Printf("%+v\n", inMsg)
-
 		switch inMsg.Type {
 		case pb.ServerMessage_GET_STATUS:
-			//default:
+			outmsg := &pb.ClientMessage{
+				ClientID: a.clientID,
+				Type:     pb.ClientMessage_STATUS,
+				Payload: &pb.ClientMessage_StatusMsg{
+					StatusMsg: a.status,
+				},
+			}
+			a.grpcClient.OutMsgChan() <- outmsg
 		}
 	}
 }

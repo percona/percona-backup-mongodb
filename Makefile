@@ -31,6 +31,10 @@ else
 	GOCACHE=$(GOCACHE) go test -v -race -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 endif
 
+compile-proto:
+	protoc -I proto/messages/ proto/messages/message.proto --go_out=plugins=grpc:proto/messages
+	protoc -I proto/api/ proto/api/api.proto --go_out=plugins=grpc:proto/api
+
 test:
 	AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 	AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY) \
@@ -46,7 +50,7 @@ test:
 	TEST_MONGODB_CONFIGSVR1_PORT=$(TEST_MONGODB_CONFIGSVR1_PORT) \
 	TEST_MONGODB_MONGOS_PORT=$(TEST_MONGODB_MONGOS_PORT) \
 	GOCACHE=$(GOCACHE) \
-	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
+	go test -v -count=1 -timeout 1m -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH) 
 
 test-cluster:
 	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION) \

@@ -31,7 +31,7 @@ var (
 	MongoDBUser                 = os.Getenv(envMongoDBUser)
 	MongoDBPassword             = os.Getenv(envMongoDBPassword)
 	MongoDBTimeout              = time.Duration(10) * time.Second
-	defaultAddr                 = []string{MongoDBHost + ":17001"}
+	defaultAddr                 = []string{MongoDBHost + ":19001"}
 )
 
 func dialInfo(addrs []string) *mgo.DialInfo {
@@ -46,6 +46,14 @@ func dialInfo(addrs []string) *mgo.DialInfo {
 		di.Username = MongoDBUser
 		di.Password = MongoDBPassword
 	}
+	return di
+}
+
+func DialInfoForPort(port string) *mgo.DialInfo {
+	di := dialInfo([]string{
+		MongoDBHost + ":" + port,
+	})
+	di.Direct = false
 	return di
 }
 

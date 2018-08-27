@@ -9,13 +9,10 @@ import (
 )
 
 type MessagesServer struct {
-	stopChan chan struct{}
-	lock     *sync.Mutex
-	clients  map[string]*Client
-}
-
-type RegisterPayload struct {
-	NodeType pb.NodeType `bson:"NodeType"`
+	stopChan         chan struct{}
+	lock             *sync.Mutex
+	clients          map[string]*Client
+	cmdBroadcastChan chan interface{}
 }
 
 func NewMessagesServer() *MessagesServer {
@@ -28,6 +25,9 @@ func NewMessagesServer() *MessagesServer {
 
 func (s *MessagesServer) Clients() map[string]*Client {
 	return s.clients
+}
+
+func (s *MessagesServer) GetClientsStatus() {
 }
 
 // IsShardedSystem returns if a system is sharded.
@@ -70,6 +70,10 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 		stream.Send(r)
 		return ClientAlreadyExistsError
 	}
+	r := &pb.ServerMessage{
+		Type: pb.ServerMessage_REGISTRATION_OK,
+	}
+	stream.Send(r)
 
 	if err = client.StartStreamIO(stream); err != nil {
 		return err
@@ -85,6 +89,10 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 				return nil
 			}
 			s.processInMessage(client, msg)
+		case cmd := <-s.cmdBroadcastChan:
+			switch cmd {
+			default:
+			}
 		}
 	}
 }
@@ -104,6 +112,7 @@ func (s *MessagesServer) processInMessage(client *Client, msg *pb.ClientMessage)
 		},
 		)
 	case pb.ClientMessage_PONG:
+		client.LastSeen = time.Now()
 	default:
 		msgText := fmt.Sprintf("Message type %d is not implemented yet", msg.Type)
 		client.SendMsg(&pb.ServerMessage{
@@ -148,11 +157,11 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 		return nil, ClientAlreadyExistsError
 	}
 
-	registerMsg := msg.GetRegisterMsg()
-	if registerMsg == nil || registerMsg.NodeType == pb.NodeType_UNDEFINED {
+	regMsg := msg.GetRegisterMsg()
+	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
-	client := NewClient(msg.ClientID, registerMsg.NodeType, registerMsg.ClusterID)
+	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }
