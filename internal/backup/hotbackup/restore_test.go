@@ -2,6 +2,7 @@ package hotbackup
 
 import (
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/globalsign/mgo/dbtest"
 )
@@ -90,12 +92,66 @@ func TestHotBackupRestoreDBPath(t *testing.T) {
 
 	// start a wiredTiger test server using the restore data path
 	var server dbtest.DBServer
-	server.SetPath(tmpDBPath)
+	server.SetPath(restore.dbPath)
 	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
 	// get a test session
 	session := server.Session()
+	defer session.Close()
+
+	// check the test hotbackup contains the doc in 'test.test': { _id "hotbackup", msg: "this should restore" }
+	err = session.DB(testDB).C(testColl).Find(bson.M{"_id": "hotbackup", "msg": "this should restore"}).One(nil)
+	if err != nil {
+		t.Fatalf("Cannot find test doc in restored collection '%s.%s': %v", testDB, testColl, err.Error())
+	}
+}
+
+func TestHotBackupRestoreStartServer(t *testing.T) {
+	checkHotBackupTest(t)
+
+	var err error
+	restore := &Restore{}
+	restore.dbPath, err = ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create dbpath dir: %v", err.Error())
+	}
+	defer os.RemoveAll(restore.dbPath)
+
+	// un-archive the hotbackup test archive file to the dbPath
+	cmd := exec.Command("tar", "-C", restore.dbPath, "-xvzf", testWiredTigerHotBackupArchive)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to uncompress test dbpath: %v", err.Error())
+	}
+
+	// get random tcp port to listen on
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("unable to listen on a local address: " + err.Error())
+	}
+	addr := l.Addr().(*net.TCPAddr)
+	l.Close()
+	restore.serverAddr = addr.String()
+
+	// start the server with the hotbackup restored to the dbpath
+	restore.serverArgv = []string{
+		defaultMongod,
+		"--dbpath=" + restore.dbPath,
+		"--bind_ip=127.0.0.1",
+		"--port=" + strconv.Itoa(addr.Port),
+		"--storageEngine=wiredTiger",
+	}
+	err = restore.startServer()
+	if err != nil {
+		t.Fatalf("Failed to run .StartServer(): %v", err.Error())
+	}
+	defer restore.stopServer()
+
+	// dial the server
+	session, err := mgo.Dial(restore.serverAddr)
+	if err != nil {
+		t.Fatalf("Cannot connect to test db server: %v", err.Error())
+	}
 	defer session.Close()
 
 	// check the test hotbackup contains the doc in 'test.test': { _id "hotbackup", msg: "this should restore" }

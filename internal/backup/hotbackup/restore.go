@@ -32,6 +32,7 @@ type Restore struct {
 	backupPath     string
 	dbPath         string
 	session        *mgo.Session
+	serverAddr     string
 	serverArgv     []string
 	serverShutdown bool
 	lockFile       string
@@ -49,6 +50,7 @@ func NewRestore(session *mgo.Session, backupPath, dbPath string) (*Restore, erro
 		dbPath:     dbPath,
 		lockFile:   lockFile,
 		session:    session,
+		serverAddr: session.LiveServers()[0],
 		uid:        uid,
 	}, err
 }
@@ -152,7 +154,7 @@ func (r *Restore) restoreDBPath() error {
 
 	// move backup to dbpath if enabled
 	// or copy if not
-	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "WiredTiger.backup"))
+	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "storage.bson"))
 	if err != nil {
 		return err
 	} else if backupUid != nil && *backupUid != *r.uid {
@@ -179,6 +181,25 @@ func (r *Restore) restoreDBPath() error {
 }
 
 func (r *Restore) startServer() error {
-	mongod := exec.Command(r.serverArgv[0], r.serverArgv[:1]...)
-	return mongod.Start()
+	mongod := exec.Command(r.serverArgv[0], r.serverArgv[1:]...)
+	err := mongod.Start()
+	if err != nil {
+		return err
+	}
+
+	var tries int
+	for tries <= 120 {
+		var err error
+		r.session, err = mgo.Dial(r.serverAddr)
+		if err != nil {
+			continue
+		}
+		if r.session.Ping() == nil {
+			return nil
+		}
+		r.session.Close()
+		time.Sleep(500 * time.Millisecond)
+		tries++
+	}
+	return errors.New("could not start server")
 }

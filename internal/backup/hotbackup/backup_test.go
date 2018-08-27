@@ -11,7 +11,7 @@ import (
 	"github.com/globalsign/mgo/dbtest"
 )
 
-func TestHotBackupNewBackup(t *testing.T) {
+func TestHotBackupNewBackupWiredTiger(t *testing.T) {
 	checkHotBackupTest(t)
 
 	tmpDBPath, err := ioutil.TempDir("", t.Name())
@@ -58,6 +58,31 @@ func TestHotBackupNewBackup(t *testing.T) {
 	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
+	}
+}
+
+func TestHotBackupNewBackupMMAPv1(t *testing.T) {
+	// this should fail because mmapv1 is used
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(tmpDBPath)
+
+	var server dbtest.DBServer
+	server.SetPath(tmpDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	server.SetEngine("mmapv1")
+	defer server.Stop()
+
+	session := server.Session()
+	defer session.Close()
+
+	_, err = NewBackup(session, "/data/db/.backup")
+	if err == nil || err.Error() != ErrMsgUnsupportedEngine {
+		t.Fatal(".NewBackup() should return an unsupported engine error for mmapv1")
 	}
 }
 
