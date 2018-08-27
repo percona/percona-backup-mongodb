@@ -1,8 +1,0 @@
-ARG GOLANG_DOCKERHUB_TAG
-FROM golang:$GOLANG_DOCKERHUB_TAG
-
-WORKDIR /go/src/github.com/percona/mongodb-backup
-COPY . .
-
-RUN go get ./...
-CMD make $TEST_FULL_TARGET

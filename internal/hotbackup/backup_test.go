@@ -8,50 +8,53 @@ import (
 	"testing"
 	"time"
 
-	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/globalsign/mgo/dbtest"
 )
 
 const (
-	testBackupRealPath      = "testdata/backup"
-	testBackupContainerPath = "/data/backup"
+	testBackupPath = "testdata"
+	testDBPath     = "testdata/dbpath"
 )
 
-var ()
+func TestHotBackupNewBackup(t *testing.T) {
+	checkHotBackupTest(t)
 
-func TestHotBackupNew(t *testing.T) {
-	if fi, err := os.Stat(testBackupContainerPath); err != nil {
-		t.Skipf("The directory %q should be mounted on a docker volume. %s", testBackupContainerPath, err)
-	} else if !fi.IsDir() {
-		t.Skipf("The directory %q should be mounted on a docker volume. %s", testBackupContainerPath, err)
-	}
+	cleanupDBPath(t)
+	defer os.RemoveAll(testDBPath)
 
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
-	if err != nil {
-		t.Fatalf("Failed to get primary session: %v", err.Error())
-	}
+	var server dbtest.DBServer
+	dbpath, _ := filepath.Abs(testDBPath)
+	server.SetPath(dbpath)
+	server.SetEngine("wiredTiger")
+	defer server.Stop()
+
+	session := server.Session()
 	defer session.Close()
 
 	backupName := "primary-" + strconv.Itoa(int(time.Now().Unix()))
-	containerBackupDir := filepath.Join(testBackupContainerPath, backupName)
-	realBackupDir := filepath.Join(testBackupRealPath, backupName)
+	backupBase, _ := filepath.Abs(testBackupPath)
+	backupDir := filepath.Join(backupBase, backupName)
 
 	// this backup should succeed. use docker volume mount to check
 	// the hot backup dir was created
-	if _, err := os.Stat(realBackupDir); err == nil {
-		t.Fatalf("Backup dir should not exist before backup: %s", realBackupDir)
+	if _, err := os.Stat(backupDir); err == nil {
+		t.Fatalf("Backup dir should not exist before backup: %s", backupDir)
 	}
-	hb, err := New(session, containerBackupDir)
+	b, err := NewBackup(session, backupDir)
 	if err != nil {
 		t.Fatalf("Failed to run .New(): %v", err.Error())
-	} else if hb.removed || hb.dir == "" {
+	} else if b.removed || b.dir == "" {
 		t.Fatal("Got unexpected output from .New()")
-	} else if _, err := os.Stat(realBackupDir); os.IsNotExist(err) {
-		t.Fatalf("Cannot find backup dir after backup: %s", realBackupDir)
+	} else if _, err := os.Stat(backupDir); os.IsNotExist(err) {
+		t.Fatalf("Cannot find backup dir after backup: %s", backupDir)
+	} else if _, err := os.Stat(filepath.Join(backupDir, "storage.bson")); os.IsNotExist(err) {
+		t.Fatalf("Cannot fine storage.bson file in backup dir: %s", backupDir)
 	}
+	defer b.Remove()
 
 	// this should fail because the backup path already exists
-	_, err = New(session, containerBackupDir)
+	cleanupDBPath(t)
+	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
 	}
@@ -59,8 +62,8 @@ func TestHotBackupNew(t *testing.T) {
 
 // TODO: use a real Hot Backup instead of simulation
 func TestHotBackupDir(t *testing.T) {
-	hb := &HotBackup{dir: "/dev/null"}
-	if hb.Dir() != "/dev/null" {
+	b := &Backup{dir: "/dev/null"}
+	if b.Dir() != "/dev/null" {
 		t.Fatal("Unexpected output from .Dir()")
 	}
 }
@@ -73,15 +76,15 @@ func TestHotBackupRemove(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	hb := &HotBackup{dir: tempDir}
-	err = hb.Remove()
+	b := &Backup{dir: tempDir}
+	err = b.Remove()
 	if err != nil {
 		t.Fatalf("Failed to run .Remove(): %v", err.Error())
 	} else if _, err := os.Stat(tempDir); err == nil {
 		t.Fatal("Backup dir should not exist after .Remove()")
-	} else if !hb.removed {
+	} else if !b.removed {
 		t.Fatal("'removed' field should be true after .Remove()")
-	} else if hb.Remove() != nil {
+	} else if b.Remove() != nil {
 		t.Fatal("Failed to run .Remove()")
 	}
 }
@@ -94,12 +97,12 @@ func TestHotBackupClose(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	hb := &HotBackup{dir: tempDir}
-	hb.Close()
+	b := &Backup{dir: tempDir}
+	b.Close()
 
-	if !hb.removed {
+	if !b.removed {
 		t.Fatal("'removed' field should be true after .Close()")
-	} else if hb.dir != "" {
+	} else if b.dir != "" {
 		t.Fatal("'dir' field should be empty after .Close()")
 	} else if _, err := os.Stat(tempDir); err == nil {
 		t.Fatal("Backup dir should not exist after .Close()")

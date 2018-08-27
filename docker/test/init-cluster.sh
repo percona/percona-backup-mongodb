@@ -1,8 +1,8 @@
 #!/bin/bash
 
 tries=1
-max_tries=15
-sleep_secs=3
+max_tries=45
+sleep_secs=1
 
 cp /rootCA.crt /tmp/rootCA.crt
 cp /client.pem /tmp/client.pem
@@ -107,8 +107,8 @@ for MONGODB_PORT in ${TEST_MONGODB_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}
 						{ db: "admin", role: "backup" },
 						{ db: "admin", role: "clusterMonitor" },
 						{ db: "admin", role: "restore" },
-						{ db: "test", role: "readWrite" },
-                        { db: "config", role: "read" }
+						{ db: "config", role: "read" },
+						{ db: "test", role: "readWrite" }
 					]
 				})' \
 				admin
