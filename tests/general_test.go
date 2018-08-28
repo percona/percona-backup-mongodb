@@ -7,7 +7,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/kr/pretty"
@@ -174,6 +173,7 @@ func TestTwo(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
 		}
+		session.SetMode(mgo.Eventual, true)
 
 		agentID := fmt.Sprintf("PMB-%03d", i)
 
@@ -214,19 +214,24 @@ func TestTwo(t *testing.T) {
 
 	status, err := firstClient.GetStatus()
 	if err != nil {
-		fmt.Printf("Cannot get first client status: %s\n", err)
 		t.Errorf("Cannot get first client status: %s", err)
 	}
 	pretty.Println(status)
 
-	time.Sleep(1 * time.Second)
+	backupSource, err := firstClient.GetBackupSource()
+	if err != nil {
+		t.Errorf("Cannot get backup source: %s", err)
+	}
+	if backupSource == "" {
+		t.Error("Received empty backup source")
+	}
+
 	for _, client := range clients {
 		client.Stop()
 	}
+
 	messagesServer.Stop()
-	print("closing stopchan")
 	close(stopChan)
-	print("eait")
 	wg.Wait()
 }
 

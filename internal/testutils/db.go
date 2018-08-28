@@ -53,7 +53,7 @@ func DialInfoForPort(port string) *mgo.DialInfo {
 	di := dialInfo([]string{
 		MongoDBHost + ":" + port,
 	})
-	di.Direct = false
+	di.Direct = true
 	return di
 }
 

@@ -47,12 +47,18 @@ func (c *Client) Ping() {
 	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_PING})
 }
 
-func (c *Client) GetStatus() (*pb.Status, error) {
-	fmt.Println("ASASASAS")
-	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
-	fmt.Println("receiving")
+func (c *Client) GetBackupSource() (string, error) {
+	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_BACKUP_SOURCE})
 	msg, err := c.stream.Recv()
-	fmt.Println("received")
+	if err != nil {
+		return "", err
+	}
+	return msg.GetBackupSourceMsg(), nil
+}
+
+func (c *Client) GetStatus() (*pb.Status, error) {
+	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
+	msg, err := c.stream.Recv()
 	if err != nil {
 		return nil, err
 	}

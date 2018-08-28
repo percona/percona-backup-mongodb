@@ -8,10 +8,9 @@ import (
 )
 
 type MessagesServer struct {
-	stopChan         chan struct{}
-	lock             *sync.Mutex
-	clients          map[string]*Client
-	cmdBroadcastChan chan interface{}
+	stopChan chan struct{}
+	lock     *sync.Mutex
+	clients  map[string]*Client
 }
 
 func NewMessagesServer() *MessagesServer {
@@ -92,6 +91,8 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	}
 	stream.Send(r)
 
+	// Keep the stream open until we receive the stop signal
+	// The client will continue processing incomming messages to the stream
 	<-s.stopChan
 
 	return nil

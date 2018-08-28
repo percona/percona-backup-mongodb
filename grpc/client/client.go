@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"time"
 
@@ -86,6 +87,7 @@ func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) 
 }
 
 func (c *Client) Stop() {
+	c.stream.CloseSend()
 	c.cancelFunc()
 }
 
@@ -93,6 +95,7 @@ func (c *Client) processIncommingServerMessages() {
 	for {
 		msg, err := c.stream.Recv()
 		if err != nil {
+			log.Printf("Error reading client incoming messages: %s", err)
 			return
 		}
 
@@ -101,7 +104,9 @@ func (c *Client) processIncommingServerMessages() {
 			c.processPing()
 		case pb.ServerMessage_GET_BACKUP_SOURCE:
 			c.processGetBackupSource()
+		case pb.ServerMessage_GET_STATUS:
 		default:
+			log.Printf("Unknown message type: %v", msg.Type)
 			c.stream.Send(&pb.ClientMessage{
 				Type:     pb.ClientMessage_ERROR,
 				ClientID: c.clientID,
