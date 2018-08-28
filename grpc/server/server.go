@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	pb "github.com/percona/mongodb-backup/proto/messages"
 )
@@ -17,17 +16,22 @@ type MessagesServer struct {
 
 func NewMessagesServer() *MessagesServer {
 	messagesServer := &MessagesServer{
-		lock:    &sync.Mutex{},
-		clients: make(map[string]*Client),
+		lock:     &sync.Mutex{},
+		clients:  make(map[string]*Client),
+		stopChan: make(chan struct{}),
 	}
 	return messagesServer
+}
+
+func (s *MessagesServer) Stop() {
+	close(s.stopChan)
 }
 
 func (s *MessagesServer) Clients() map[string]*Client {
 	return s.clients
 }
 
-func (s *MessagesServer) AgentsByReplicaset() map[string][]*Client {
+func (s *MessagesServer) ClientsByReplicaset() map[string][]*Client {
 	replicas := make(map[string][]*Client)
 	for _, client := range s.clients {
 		if _, ok := replicas[client.ReplicasetID]; !ok {
@@ -63,12 +67,12 @@ func (s *MessagesServer) IsShardedSystem() bool {
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents
 func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) error {
-	msg, err := s.readMessage(stream)
+	msg, err := stream.Recv()
 	if err != nil {
 		return err
 	}
 
-	client, err := s.registerClient(msg)
+	client, err := s.registerClient(stream, msg)
 	if err != nil {
 		r := &pb.ServerMessage{
 			Type: pb.ServerMessage_ERROR,
@@ -82,83 +86,18 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 		stream.Send(r)
 		return ClientAlreadyExistsError
 	}
+	s.clients[msg.ClientID] = client
 	r := &pb.ServerMessage{
 		Type: pb.ServerMessage_REGISTRATION_OK,
 	}
 	stream.Send(r)
 
-	if err = client.StartStreamIO(stream); err != nil {
-		return err
-	}
+	<-s.stopChan
 
-	for {
-		select {
-		case <-s.stopChan:
-			return nil
-		case msg := <-client.InMsgChan():
-			if msg == nil {
-				s.unregisterClient(client)
-				return nil
-			}
-			s.processInMessage(client, msg)
-		case cmd := <-s.cmdBroadcastChan:
-			switch cmd {
-			default:
-			}
-		}
-	}
+	return nil
 }
 
-func (s *MessagesServer) processInMessage(client *Client, msg *pb.ClientMessage) {
-	client.LastSeen = time.Now()
-	switch msg.Type {
-	case pb.ClientMessage_REGISTER:
-		client.SendMsg(&pb.ServerMessage{
-			Type: pb.ServerMessage_ERROR,
-			Payload: &pb.ServerMessage_ErrorMsg{
-				ErrorMsg: &pb.Error{
-					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
-					Message: "",
-				},
-			},
-		},
-		)
-	case pb.ClientMessage_PONG:
-		client.LastSeen = time.Now()
-	default:
-		msgText := fmt.Sprintf("Message type %d is not implemented yet", msg.Type)
-		client.SendMsg(&pb.ServerMessage{
-			Type: pb.ServerMessage_ERROR,
-			Payload: &pb.ServerMessage_ErrorMsg{
-				ErrorMsg: &pb.Error{
-					Code:    pb.ErrorType_NOT_IMPLEMENTED_YET,
-					Message: msgText,
-				},
-			},
-		},
-		)
-	}
-}
-
-func (s *MessagesServer) readMessage(stream pb.Messages_MessagesChatServer) (*pb.ClientMessage, error) {
-	in, err := stream.Recv()
-	if err != nil {
-		r := &pb.ServerMessage{
-			Type: pb.ServerMessage_ERROR,
-			Payload: &pb.ServerMessage_ErrorMsg{
-				ErrorMsg: &pb.Error{
-					Code:    pb.ErrorType_COMMUNICATION_ERROR,
-					Message: "",
-				},
-			},
-		}
-		stream.Send(r)
-		return nil, err
-	}
-	return in, nil
-}
-
-func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) {
+func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) (*Client, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if msg.ClientID == "" {
@@ -173,7 +112,7 @@ func (s *MessagesServer) registerClient(msg *pb.ClientMessage) (*Client, error) 
 	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
-	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType)
+	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType, stream)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }

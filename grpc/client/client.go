@@ -3,57 +3,55 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
-	"sync"
+	"math/rand"
+	"time"
 
-	"github.com/globalsign/mgo/bson"
+	"github.com/globalsign/mgo"
+	"github.com/percona/mongodb-backup/internal/cluster"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc"
 )
 
 type Client struct {
-	id         string
-	clusterID  *bson.ObjectId
-	nodeType   pb.NodeType
-	nodeName   string
+	clientID   string
+	mdbSession *mgo.Session
 	grpcClient pb.MessagesClient
-	inMsgChan  chan *pb.ServerMessage
-	outMsgChan chan *pb.ClientMessage
-	stopChan   chan struct{}
 	stream     pb.Messages_MessagesChatClient
-	ctxCancel  context.CancelFunc
-	//
-	waitg   *sync.WaitGroup
-	lock    *sync.Mutex
-	running bool
+	cancelFunc context.CancelFunc
 }
 
-func NewClient(id, nodeName, replsetName string, clusterID, replicasetID *bson.ObjectId, nodeType pb.NodeType, grpcClient pb.MessagesClient) (*Client, error) {
-	if id == "" {
-		return nil, fmt.Errorf("ClientID cannot be empty")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := grpcClient.MessagesChat(ctx)
+func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) {
+	replset, err := cluster.NewReplset(mdbSession)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 
 	clusterIDString := ""
-	if clusterID != nil {
+	if clusterID, _ := cluster.GetClusterID(mdbSession); clusterID != nil {
 		clusterIDString = clusterID.Hex()
 	}
 
+	nodeType, nodeName, err := getNodeTypeAndName(mdbSession)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot get node type")
+	}
+
+	grpcClient := pb.NewMessagesClient(conn)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	stream, err := grpcClient.MessagesChat(ctx)
+
 	m := &pb.ClientMessage{
 		Type:     pb.ClientMessage_REGISTER,
-		ClientID: id,
+		ClientID: fmt.Sprintf("%05d", rand.Int63n(1000000)),
 		Payload: &pb.ClientMessage_RegisterMsg{
 			RegisterMsg: &pb.RegisterPayload{
 				NodeType:       nodeType,
 				NodeName:       nodeName,
 				ClusterID:      clusterIDString,
-				ReplicasetName: replsetName,
-				ReplicasetID:   replicasetID.Hex(),
+				ReplicasetName: replset.Name(),
+				ReplicasetID:   replset.ID().Hex(),
 			},
 		},
 	}
@@ -74,78 +72,97 @@ func NewClient(id, nodeName, replsetName string, clusterID, replicasetID *bson.O
 	}
 
 	c := &Client{
-		id:         id,
-		nodeType:   nodeType,
-		nodeName:   nodeName,
+		clientID:   nodeName,
 		grpcClient: grpcClient,
-		inMsgChan:  make(chan *pb.ServerMessage),
-		outMsgChan: make(chan *pb.ClientMessage),
+		mdbSession: mdbSession,
 		stream:     stream,
-		lock:       &sync.Mutex{},
-		waitg:      &sync.WaitGroup{},
-		ctxCancel:  cancel,
+		cancelFunc: cancel,
 	}
+
+	// start listening server messages
+	go c.processIncommingServerMessages()
+
 	return c, nil
 }
 
-func (c *Client) NodeType() pb.NodeType {
-	return c.nodeType
+func (c *Client) Stop() {
+	c.cancelFunc()
 }
 
-func (c *Client) OutMsgChan() chan<- *pb.ClientMessage {
-	return c.outMsgChan
-}
-
-func (c *Client) InMsgChan() <-chan *pb.ServerMessage {
-	return c.inMsgChan
-}
-
-func (c *Client) StartStreamIO() error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	c.running = true
-	c.stopChan = make(chan struct{})
-
-	go func() {
-		for {
-			in, err := c.stream.Recv()
-			if err == io.EOF {
-				c.inMsgChan <- nil
-				close(c.stopChan)
-				return
-			}
-			c.inMsgChan <- in
+func (c *Client) processIncommingServerMessages() {
+	for {
+		msg, err := c.stream.Recv()
+		if err != nil {
+			return
 		}
-	}()
 
-	c.waitg.Add(1)
-	go func() {
-		for {
-			select {
-			case <-c.stopChan:
-				c.waitg.Done()
-				return
-			case msg := <-c.outMsgChan:
-				c.stream.Send(msg)
-			}
+		switch msg.Type {
+		case pb.ServerMessage_PING:
+			c.processPing()
+		case pb.ServerMessage_GET_BACKUP_SOURCE:
+			c.processGetBackupSource()
+		default:
+			c.stream.Send(&pb.ClientMessage{
+				Type:     pb.ClientMessage_ERROR,
+				ClientID: c.clientID,
+				Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Message type %v is not implemented yet", msg.Type)},
+			})
 		}
-	}()
-
-	return nil
+	}
 }
 
-func (c *Client) StopStreamIO() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+func (c *Client) processPing() {
+	c.stream.Send(&pb.ClientMessage{
+		Type:     pb.ClientMessage_PONG,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.PongPayload{Timestamp: time.Now().Unix()}},
+	})
+}
 
-	if !c.running {
+func (c *Client) processGetBackupSource() {
+	r, err := cluster.NewReplset(c.mdbSession)
+	if err != nil {
+		c.stream.Send(&pb.ClientMessage{
+			Type:     pb.ClientMessage_ERROR,
+			ClientID: c.clientID,
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: err.Error()},
+		})
 		return
 	}
 
-	c.ctxCancel()
-	c.stream.CloseSend()
-	close(c.stopChan)
-	c.waitg.Wait()
-	c.running = false
+	winner, err := r.BackupSource(nil)
+	if err != nil {
+		c.stream.Send(&pb.ClientMessage{
+			Type:     pb.ClientMessage_ERROR,
+			ClientID: c.clientID,
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot get backoup source: %s", err)},
+		})
+		return
+	}
+
+	c.stream.Send(&pb.ClientMessage{
+		Type:     pb.ClientMessage_BACKUP_SOURCE,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: winner},
+	})
+}
+
+func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
+	isMaster, err := cluster.NewIsMaster(session)
+	if err != nil {
+		return pb.NodeType_UNDEFINED, "", err
+	}
+	if isMaster.IsShardServer() {
+		return pb.NodeType_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
+	}
+	if isMaster.IsReplset() {
+		return pb.NodeType_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
+	}
+	if isMaster.IsConfigServer() {
+		return pb.NodeType_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
+	}
+	if isMaster.IsMongos() {
+		return pb.NodeType_MONGOS, isMaster.IsMasterDoc().Me, nil
+	}
+	return pb.NodeType_MONGOD, isMaster.IsMasterDoc().Me, nil
 }

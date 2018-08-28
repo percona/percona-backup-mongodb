@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/percona/mongodb-backup/internal/notify"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 )
 
@@ -13,26 +12,6 @@ var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
 )
-
-//type ClientStatus struct {
-//	ReplicaSetUUID    string    `json:"replica_set_uuid"`
-//	ReplicaSetName    string    `json:"replica_set_name"`
-//	ReplicaSetVersion int64     `json:"replica_set_version"`
-//	LastOplogTs       time.Time `json:"last_oplog_time"`
-//	BackupCompleted   time.Time `json:"backup_completed"`
-//	//
-//	BackupType         pb.BackupType `json:"backup_type"`
-//	BytesSent          uint64        `json:"bytes_sent"`
-//	RunningDBBackup    bool          `json:"running_db_backup"`
-//	RunningOplogBackup bool          `json:"running_oplog_backup"`
-//	Compression        string        `json:"compression"`
-//	Encrypted          string        `json:"encrypted"`
-//	Destination        string        `json:"destination"`
-//	Filename           string        `json:"filename"`
-//	Started            time.Time     `json:"started"`
-//	Finished           time.Time     `json:"finished"`
-//	LastError          string        `json:"last_error"`
-//}
 
 type Client struct {
 	ID              string      `json:"id"`
@@ -45,14 +24,11 @@ type Client struct {
 	LastSeen        time.Time   `json:"last_seen"`
 	Status          pb.Status   `json:"Status"`
 	//
-	inMessagesChan  chan *pb.ClientMessage
-	outMessagesChan chan *pb.ServerMessage
-	pongChan        chan time.Time
-	lock            *sync.Mutex
-	streaming       bool
+	stream pb.Messages_MessagesChatServer
+	lock   *sync.Mutex
 }
 
-func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nodeType pb.NodeType) *Client {
+func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nodeType pb.NodeType, stream pb.Messages_MessagesChatServer) *Client {
 	client := &Client{
 		ID:             id,
 		ClusterID:      clusterID,
@@ -60,111 +36,26 @@ func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nod
 		ReplicasetName: replicasetName,
 		NodeType:       nodeType,
 		NodeName:       nodeName,
+		stream:         stream,
 		lock:           &sync.Mutex{},
-		pongChan:       make(chan time.Time),
 		LastSeen:       time.Now(),
 	}
 	return client
 }
 
-func (c *Client) IsStreaming() bool {
-	return c.streaming
-}
-
-func (c *Client) InMsgChan() chan *pb.ClientMessage {
-	return c.inMessagesChan
-}
-
-func (c *Client) OutMsgChan() chan *pb.ServerMessage {
-	return c.outMessagesChan
-}
-
-func (c *Client) StartStreamIO(stream pb.Messages_MessagesChatServer) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	if c.streaming {
-		return fmt.Errorf("Already reading from the stream")
-	}
-
-	c.inMessagesChan = make(chan *pb.ClientMessage)
-	c.outMessagesChan = make(chan *pb.ServerMessage, 100)
-	c.streaming = true
-
-	go func() {
-		for {
-			in, err := stream.Recv()
-			if err != nil {
-				// A nil message will signal the process to stop on the server
-				c.inMessagesChan <- nil
-				return
-			}
-			notify.PostTimeout(in.Type, in, 1*time.Millisecond)
-			c.inMessagesChan <- in
-		}
-	}()
-
-	go func() {
-		for {
-			msg, ok := <-c.outMessagesChan
-			if !ok {
-				return
-			}
-			if err := stream.Send(msg); err != nil {
-				return
-			}
-		}
-	}()
-	return nil
-}
-
-func (c *Client) StopStreamIO() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	if !c.streaming {
-		return
-	}
-
-	c.streaming = false
-	close(c.outMessagesChan)
-}
-
-func (c *Client) Ping() (time.Time, error) {
-	pongChan := notify.Start(pb.ClientMessage_PONG)
-	defer notify.Stop(pb.ClientMessage_PONG, pongChan)
-
-	c.outMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_PING}
-
-	// wait for pong
-	select {
-	case <-time.After(2 * time.Second):
-		return time.Time{}, fmt.Errorf("Ping timeout")
-	case pongTS := <-c.pongChan:
-		return pongTS, nil
-	}
+func (c *Client) Ping() {
+	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_PING})
 }
 
 func (c *Client) GetStatus() (*pb.Status, error) {
-	msgChan := notify.Start(pb.ClientMessage_STATUS)
-	defer notify.Stop(pb.ClientMessage_STATUS, msgChan)
-
-	c.outMessagesChan <- &pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS}
-
-	// wait for pong
-	select {
-	case <-time.After(2 * time.Second):
-		return nil, fmt.Errorf("Get status timeout")
-	case msg := <-msgChan:
-		clientMsg := msg.(*pb.ClientMessage)
-		statusMsg := clientMsg.GetStatusMsg()
-		return statusMsg, nil
+	fmt.Println("ASASASAS")
+	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
+	fmt.Println("receiving")
+	msg, err := c.stream.Recv()
+	fmt.Println("received")
+	if err != nil {
+		return nil, err
 	}
-}
-
-func (c *Client) SendMsg(msg *pb.ServerMessage) error {
-	if !c.streaming {
-		return fmt.Errorf("not streaming")
-	}
-	c.outMessagesChan <- msg
-	return nil
+	statusMsg := msg.GetStatusMsg()
+	return statusMsg, nil
 }
