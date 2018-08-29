@@ -11,18 +11,19 @@ import (
 var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
+	timeout                  = 1 * time.Second
 )
 
 type Client struct {
-	ID              string      `json:"id"`
-	NodeType        pb.NodeType `json:"node_type"`
-	NodeName        string      `json:"node_name"`
-	ClusterID       string      `json:"client_id"`
-	ReplicasetName  string      `json:"replicaset_name"`
-	ReplicasetID    string      `json:"replicasert_id"`
-	LastCommandSent string      `json:"last_command_ent"`
-	LastSeen        time.Time   `json:"last_seen"`
-	Status          pb.Status   `json:"Status"`
+	ID              string            `json:"id"`
+	NodeType        pb.NodeType       `json:"node_type"`
+	NodeName        string            `json:"node_name"`
+	ClusterID       string            `json:"client_id"`
+	ReplicasetName  string            `json:"replicaset_name"`
+	ReplicasetID    string            `json:"replicasert_id"`
+	LastCommandSent string            `json:"last_command_ent"`
+	LastSeen        time.Time         `json:"last_seen"`
+	Status          *pb.StatusPayload `json:"Status"`
 	//
 	stream pb.Messages_MessagesChatServer
 	lock   *sync.Mutex
@@ -39,6 +40,7 @@ func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nod
 		stream:         stream,
 		lock:           &sync.Mutex{},
 		LastSeen:       time.Now(),
+		Status:         &pb.StatusPayload{},
 	}
 	return client
 }
@@ -56,7 +58,7 @@ func (c *Client) GetBackupSource() (string, error) {
 	return msg.GetBackupSourceMsg(), nil
 }
 
-func (c *Client) GetStatus() (*pb.Status, error) {
+func (c *Client) GetStatus() (*pb.StatusPayload, error) {
 	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
 	msg, err := c.stream.Recv()
 	if err != nil {

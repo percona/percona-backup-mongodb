@@ -127,6 +127,18 @@
   revision = "0b12d6b5"
 
 [[projects]]
+  name = "github.com/kr/pretty"
+  packages = ["."]
+  revision = "73f6ac0b30a98e433b289500d779f50c1a6f0712"
+  version = "v0.1.0"
+
+[[projects]]
+  name = "github.com/kr/text"
+  packages = ["."]
+  revision = "e2ffdb16a802fe2bb95e2e35ff34f0e53aeef34f"
+  version = "v0.1.0"
+
+[[projects]]
   branch = "v3.6"
   name = "github.com/mongodb/mongo-tools"
   packages = [
@@ -289,6 +301,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "842c3ac5441031a8e2da3202ce671c8d1591f5b23cfabbfa57acaefc70a5c880"
+  inputs-digest = "1d38246a586265d8980fedaffd0d217da3d17d5aba8c42fb810d8785f818ab6c"
   solver-name = "gps-cdcl"
   solver-version = 1

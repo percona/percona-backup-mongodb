@@ -19,10 +19,10 @@ type Client struct {
 	mdbSession *mgo.Session
 	grpcClient pb.MessagesClient
 	stream     pb.Messages_MessagesChatClient
-	cancelFunc context.CancelFunc
+	status     pb.StatusPayload
 }
 
-func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) {
+func NewClient(ctx context.Context, mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) {
 	replset, err := cluster.NewReplset(mdbSession)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,6 @@ func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) 
 
 	grpcClient := pb.NewMessagesClient(conn)
 
-	ctx, cancel := context.WithCancel(context.TODO())
 	stream, err := grpcClient.MessagesChat(ctx)
 
 	m := &pb.ClientMessage{
@@ -58,17 +57,14 @@ func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) 
 	}
 
 	if err := stream.Send(m); err != nil {
-		cancel()
 		return nil, errors.Wrap(err, "Failed to send registration message")
 	}
 
 	response, err := stream.Recv()
 	if err != nil {
-		cancel()
 		return nil, errors.Wrap(err, "Error while receiving the registration response from the server")
 	}
 	if response.Type != pb.ServerMessage_REGISTRATION_OK {
-		cancel()
 		return nil, fmt.Errorf("Invalid registration response type: %d", response.Type)
 	}
 
@@ -77,7 +73,9 @@ func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) 
 		grpcClient: grpcClient,
 		mdbSession: mdbSession,
 		stream:     stream,
-		cancelFunc: cancel,
+		status: pb.StatusPayload{
+			BackupType: pb.BackupType_LOGICAL,
+		},
 	}
 
 	// start listening server messages
@@ -88,14 +86,12 @@ func NewClient(mdbSession *mgo.Session, conn *grpc.ClientConn) (*Client, error) 
 
 func (c *Client) Stop() {
 	c.stream.CloseSend()
-	c.cancelFunc()
 }
 
 func (c *Client) processIncommingServerMessages() {
 	for {
 		msg, err := c.stream.Recv()
-		if err != nil {
-			log.Printf("Error reading client incoming messages: %s", err)
+		if err != nil { // Stream has been closed
 			return
 		}
 
@@ -105,6 +101,7 @@ func (c *Client) processIncommingServerMessages() {
 		case pb.ServerMessage_GET_BACKUP_SOURCE:
 			c.processGetBackupSource()
 		case pb.ServerMessage_GET_STATUS:
+			c.processStatus()
 		default:
 			log.Printf("Unknown message type: %v", msg.Type)
 			c.stream.Send(&pb.ClientMessage{
@@ -121,6 +118,32 @@ func (c *Client) processPing() {
 		Type:     pb.ClientMessage_PONG,
 		ClientID: c.clientID,
 		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.PongPayload{Timestamp: time.Now().Unix()}},
+	})
+}
+
+func (c *Client) processStatus() {
+	log.Println("enviando status")
+	c.stream.Send(&pb.ClientMessage{
+		Type:     pb.ClientMessage_STATUS,
+		ClientID: c.clientID,
+		Payload: &pb.ClientMessage_StatusMsg{
+			StatusMsg: &pb.StatusPayload{
+				DBBackUpRunning:    c.status.DBBackUpRunning,
+				OplogBackupRunning: c.status.OplogBackupRunning,
+				BackupType:         c.status.BackupType,
+				BytesSent:          c.status.BytesSent,
+				LastOplogTs:        c.status.LastOplogTs,
+				BackupCompleted:    c.status.BackupCompleted,
+				LastError:          c.status.LastError,
+				ReplicasetVersion:  c.status.ReplicasetVersion,
+				DestinationType:    c.status.DestinationType,
+				DestinationName:    c.status.DestinationName,
+				DestinationDir:     c.status.DestinationDir,
+				CompressionType:    c.status.CompressionType,
+				Cypher:             c.status.Cypher,
+				OplogStartTime:     c.status.OplogStartTime,
+			},
+		},
 	})
 }
 
@@ -160,11 +183,13 @@ func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
 	if isMaster.IsShardServer() {
 		return pb.NodeType_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
 	}
-	if isMaster.IsReplset() {
-		return pb.NodeType_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
-	}
+	// Don't change the order. A config server can also be a replica set so we need to call this BEFORE
+	// calling .IsReplset()
 	if isMaster.IsConfigServer() {
 		return pb.NodeType_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
+	}
+	if isMaster.IsReplset() {
+		return pb.NodeType_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsMongos() {
 		return pb.NodeType_MONGOS, isMaster.IsMasterDoc().Me, nil

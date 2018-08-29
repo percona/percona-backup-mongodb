@@ -66,9 +66,6 @@ func TestServerAndClients(t *testing.T) {
 	if !ok {
 		t.Errorf("Registration failed. ClientID %s is not in clients list", clientID)
 	}
-	if !gotClient.IsStreaming() {
-		t.Errorf("Client is not streaming messages")
-	}
 
 	firstSeen := gotClient.LastSeen
 
