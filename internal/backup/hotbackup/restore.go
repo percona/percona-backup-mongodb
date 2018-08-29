@@ -32,9 +32,11 @@ type Restore struct {
 	backupPath     string
 	dbPath         string
 	session        *mgo.Session
+	serverAddr     string
 	serverArgv     []string
 	serverShutdown bool
-	serverLock     string
+	lockFile       string
+	lock           *flock.Flock
 	uid            *uint32
 	moveBackup     bool
 	restored       bool
@@ -46,21 +48,34 @@ func NewRestore(session *mgo.Session, backupPath, dbPath string) (*Restore, erro
 	return &Restore{
 		backupPath: backupPath,
 		dbPath:     dbPath,
-		serverLock: lockFile,
+		lockFile:   lockFile,
 		session:    session,
+		serverAddr: session.LiveServers()[0],
 		uid:        uid,
 	}, err
 }
 
-func (r *Restore) lockDBPath() error {
+func (r *Restore) Close() {
+	if r.lock != nil && r.lock.Locked() {
+		r.lock.Unlock()
+	}
+}
+
+func (r *Restore) checkBackupPath() error {
+	wtBackupFile := filepath.Join(r.backupPath, "WiredTiger.backup")
+	if _, err := os.Stat(wtBackupFile); os.IsNotExist(err) {
+		return errors.New("could not find WiredTiger.backup file")
+	}
 	return nil
 }
 
 func (r *Restore) isServerRunning() (bool, error) {
 	if r.session != nil && r.session.Ping() == nil {
 		return true, nil
+	} else if r.lock == nil {
+		r.lock = flock.NewFlock(r.lockFile)
 	}
-	return flock.NewFlock(r.serverLock).Locked(), nil
+	return r.lock.Locked(), nil
 }
 
 func (r *Restore) getServerCmdLine() ([]string, error) {
@@ -119,7 +134,24 @@ func (r *Restore) stopServer() error {
 	return r.waitForShutdown()
 }
 
+func (r *Restore) getLock() error {
+	if r.lock == nil {
+		r.lock = flock.NewFlock(r.lockFile)
+	}
+
+	err := r.lock.Lock()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *Restore) restoreDBPath() error {
+	err := r.checkBackupPath()
+	if err != nil {
+		return err
+	}
+
 	// move backup to dbpath if enabled
 	// or copy if not
 	backupUid, err := getOwnerUid(filepath.Join(r.backupPath, "storage.bson"))
@@ -129,6 +161,12 @@ func (r *Restore) restoreDBPath() error {
 		return errors.New("uids do not match")
 	}
 
+	err = r.getLock()
+	if err != nil {
+		return err
+	}
+	defer r.lock.Unlock()
+
 	if r.moveBackup {
 		err = os.Rename(r.backupPath, r.dbPath)
 	} else {
@@ -137,11 +175,31 @@ func (r *Restore) restoreDBPath() error {
 	if err != nil {
 		return err
 	}
+
 	r.restored = true
 	return nil
 }
 
 func (r *Restore) startServer() error {
-	mongod := exec.Command(r.serverArgv[0], r.serverArgv[:1]...)
-	return mongod.Start()
+	mongod := exec.Command(r.serverArgv[0], r.serverArgv[1:]...)
+	err := mongod.Start()
+	if err != nil {
+		return err
+	}
+
+	var tries int
+	for tries <= 120 {
+		var err error
+		r.session, err = mgo.Dial(r.serverAddr)
+		if err != nil {
+			continue
+		}
+		if r.session.Ping() == nil {
+			return nil
+		}
+		r.session.Close()
+		time.Sleep(500 * time.Millisecond)
+		tries++
+	}
+	return errors.New("could not start server")
 }

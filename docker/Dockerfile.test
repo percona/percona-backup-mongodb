@@ -11,4 +11,4 @@ COPY --chown=mongod:mongod . .
 
 USER mongod
 RUN make vendor
-CMD make test
+CMD make test && make

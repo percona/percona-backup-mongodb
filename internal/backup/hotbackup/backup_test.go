@@ -11,28 +11,30 @@ import (
 	"github.com/globalsign/mgo/dbtest"
 )
 
-const (
-	testBackupPath = "testdata"
-	testDBPath     = "testdata/dbpath"
-)
-
-func TestHotBackupNewBackup(t *testing.T) {
+func TestHotBackupNewBackupWiredTiger(t *testing.T) {
 	checkHotBackupTest(t)
 
-	cleanupDBPath(t)
-	defer os.RemoveAll(testDBPath)
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create temp dbpath: %v", err.Error())
+	}
+	defer os.RemoveAll(tmpDBPath)
 
 	var server dbtest.DBServer
-	dbpath, _ := filepath.Abs(testDBPath)
-	server.SetPath(dbpath)
+	server.SetPath(tmpDBPath)
 	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
 	session := server.Session()
 	defer session.Close()
 
+	backupBase, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(backupBase)
+
 	backupName := "primary-" + strconv.Itoa(int(time.Now().Unix()))
-	backupBase, _ := filepath.Abs(testBackupPath)
 	backupDir := filepath.Join(backupBase, backupName)
 
 	// this backup should succeed. use docker volume mount to check
@@ -53,10 +55,34 @@ func TestHotBackupNewBackup(t *testing.T) {
 	defer b.Remove()
 
 	// this should fail because the backup path already exists
-	cleanupDBPath(t)
 	_, err = NewBackup(session, backupDir)
 	if err == nil {
 		t.Fatal("Expected failure from .New() on second attempt")
+	}
+}
+
+func TestHotBackupNewBackupMMAPv1(t *testing.T) {
+	// this should fail because mmapv1 is used
+	tmpDBPath, err := ioutil.TempDir("", t.Name())
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	defer os.RemoveAll(tmpDBPath)
+
+	var server dbtest.DBServer
+	server.SetPath(tmpDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
+	}
+	server.SetEngine("mmapv1")
+	defer server.Stop()
+
+	session := server.Session()
+	defer session.Close()
+
+	_, err = NewBackup(session, "/data/db/.backup")
+	if err == nil || err.Error() != ErrMsgUnsupportedEngine {
+		t.Fatal(".NewBackup() should return an unsupported engine error for mmapv1")
 	}
 }
 

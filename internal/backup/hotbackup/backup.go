@@ -7,6 +7,10 @@ import (
 	"github.com/globalsign/mgo/bson"
 )
 
+const (
+	ErrMsgUnsupportedEngine = "This engine doesn't support hot backup."
+)
+
 type Backup struct {
 	dir     string
 	removed bool
