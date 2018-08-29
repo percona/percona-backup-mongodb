@@ -82,8 +82,7 @@
     "internal/sasl",
     "internal/scram"
   ]
-  revision = "d1bb1297f2d4958e0f124dc749452d2fd7f381b8"
-  source = "github.com/timvaillancourt/mgo"
+  revision = "17e24ca935d32ddc5b6995d74e285a72972adb36"
 
 [[projects]]
   name = "github.com/go-ini/ini"
@@ -289,6 +288,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "842c3ac5441031a8e2da3202ce671c8d1591f5b23cfabbfa57acaefc70a5c880"
+  inputs-digest = "ad96b1e0c9c1e42f16b07ac6592d5976196bac8cf79ac02aa8e389160b993a31"
   solver-name = "gps-cdcl"
   solver-version = 1
