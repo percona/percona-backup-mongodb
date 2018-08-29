@@ -110,11 +110,11 @@ func (r *Replset) ID() *bson.ObjectId {
 // BackupSource returns the the most appropriate replica set member
 // to become the source of the backup. The chosen node should cause
 // the least impact/risk possible during backup
-func (r *Replset) BackupSource() (*mdbstructs.ReplsetConfigMember, error) {
-	// todo: pass replset-tags instead of nil
-	scorer, err := r.scoreMembers(nil)
-	if err != nil {
-		return nil, err
-	}
-	return scorer.Winner().config, nil
-}
+//func (r *Replset) BackupSource() (*mdbstructs.ReplsetConfigMember, error) {
+//	// todo: pass replset-tags instead of nil
+//	scorer, err := r.scoreMembers(nil)
+//	if err != nil {
+//		return nil, err
+//	}
+//	return scorer.Winner().config, nil
+//}

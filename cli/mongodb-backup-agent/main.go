@@ -9,7 +9,7 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/cli/mongodb-backup-agent/agent"
+	"github.com/percona/mongodb-backup/grpc/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -46,18 +46,12 @@ func main() {
 	}
 	defer mdbSession.Close()
 
-	agent, err := agent.NewAgent(conn, mdbSession, clientID)
-	if err != nil {
-		log.Fatalf("Cannot start backup agent: %s", err)
-	}
-
-	agent.Start()
-
+	client, err := client.NewClient(mdbSession, conn)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
 	<-c
-	agent.Stop()
+	client.Stop()
 }
 
 func processCliArgs() (*cliOptios, error) {

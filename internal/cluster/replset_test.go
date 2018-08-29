@@ -135,11 +135,11 @@ func TestReplsetBackupSource(t *testing.T) {
 		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	source, err := rs.BackupSource()
+	source, err := rs.BackupSource(nil)
 	if err != nil {
 		t.Fatalf("Failed to run .GetBackupSource(): %v", err.Error())
 	}
-	if source.Host != testSecondary2Host {
+	if source != testSecondary2Host {
 		t.Fatal("Got unexpected output from .GetBackupSource()")
 	}
 }
