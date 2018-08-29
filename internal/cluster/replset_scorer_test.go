@@ -26,45 +26,25 @@ func TestReplsetScoreMembers(t *testing.T) {
 		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
 	}
 
-	scorer, err := r.scoreMembers(nil)
+	winner, err := r.BackupSource(nil)
 	if err != nil {
-		t.Fatalf("Failed to run .ScoreReplset(): %v", err.Error())
-	} else if len(scorer.members) < 1 {
-		t.Fatal("Got zero scored members from .ScoreReplset()")
+		t.Fatalf("Cannot get backup source: %s", err)
+	}
+	if winner == "" {
+		t.Errorf("Got empty backup source")
 	}
 
-	winner := scorer.Winner()
-	if winner == nil {
-		t.Fatal(".Winner() returned nil")
-	}
-
-	expectScore := 217
-	if winner.Name() != testSecondary2Host {
-		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
-	} else if winner.Score() != expectScore {
-		t.Fatalf("Expected .Winner() to return host %d, not %v", expectScore, winner.Score())
+	if winner != testSecondary2Host {
+		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner)
 	}
 
 	// test w/replset tags
-	r, err = NewReplset(session)
+	winner, err = r.BackupSource(map[string]string{"role": "backup"})
 	if err != nil {
-		t.Fatalf("Failed to run .NewReplset(): %v", err.Error())
+		t.Fatalf("Cannot get backup source: %s", err)
 	}
-	scorer, err = r.scoreMembers(map[string]string{"role": "backup"})
-	if err != nil {
-		t.Fatalf("Failed to run .score(): %v", err.Error())
-	}
-
-	winner = scorer.Winner()
-	if winner == nil {
-		t.Fatal(".Winner() returned nil")
-	}
-
-	expectScore = 391
-	if winner.Name() != testSecondary2Host {
-		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
-	} else if winner.Score() != expectScore {
-		t.Fatalf("Expected .Winner() to return host %d, not %v", expectScore, winner.Score())
+	if winner != testSecondary2Host {
+		t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner)
 	}
 
 	// make sure .score() returns the same winner consistently when
@@ -81,18 +61,13 @@ func TestReplsetScoreMembers(t *testing.T) {
 			t.Fatalf("Cannot load test file %v: %v", statusFile, err.Error())
 		}
 
-		scorer, err := r.scoreMembers(nil)
+		winner, err = r.BackupSource(map[string]string{"role": "backup"})
 		if err != nil {
-			t.Fatalf("Failed to run .score(): %v", err.Error())
+			t.Fatalf("Cannot get backup source: %s", err)
+		}
+		if winner != testSecondary2Host {
+			t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner)
 		}
 
-		winner := scorer.Winner()
-		if winner == nil {
-			t.Fatal(".Winner() returned nil")
-		}
-
-		if winner.Name() != testSecondary2Host {
-			t.Fatalf("Expected .Winner() to return host %v, not %v", testSecondary2Host, winner.Name())
-		}
 	}
 }

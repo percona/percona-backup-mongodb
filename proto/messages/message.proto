@@ -67,13 +67,15 @@ enum NodeType {
 
 message ServerMessage {
   enum MessageType {
-      ERROR           = 0;
-      PING            = 1;
-      REGISTRATION_OK = 2;
-      START_BACKUP    = 3;
-      STOP_BACKUP     = 4;
-      GET_STATUS      = 5;
-      reserved 6 to 99;
+      ERROR             = 0;
+      ACK               = 1;
+      PING              = 2;
+      REGISTRATION_OK   = 3;
+      START_BACKUP      = 4;
+      STOP_BACKUP       = 5;
+      GET_STATUS        = 6;
+      GET_BACKUP_SOURCE = 7;
+      reserved 8 to 99;
   }
   
   int32       version = 1;
@@ -88,31 +90,39 @@ message ServerMessage {
 message ClientMessage {
   enum MessageType {
       ERROR          = 0;
-      PONG           = 1;
-      REGISTER       = 2;
-      BACKUP_STARTED = 3;
-      BACKUP_FINISH  = 4;
-      STATUS         = 5;
-      reserved 6 to 99;
+      ACK            = 1;
+      PONG           = 2;
+      REGISTER       = 3;
+      BACKUP_STARTED = 4;
+      BACKUP_FINISH  = 5;
+      STATUS         = 6;
+      BACKUP_SOURCE  = 7;
+      reserved 8 to 99;
   }
   
   int32       version  = 1;
   MessageType type     = 2;
   string      clientID = 3;
   oneof Payload {
-    RegisterPayload RegisterMsg       = 4;
-    PongPayload     PingMsg           = 5;
-    BackupFinished  BackupFinishedMsg = 6;
+    string                 ErrorMsg          = 4;
+    RegisterPayload        RegisterMsg       = 5;
+    PongPayload            PingMsg           = 6;
+    BackupFinishedPayload  BackupFinishedMsg = 7;
+    StatusPayload          StatusMsg         = 8;
+    string                 BackupSourceMsg   = 9;
   }
 }
 
 message RegisterPayload {
-  NodeType NodeType  = 1;
-  string ClusterID   = 2; // This field will hold a bson.ObjectIdHex
+  NodeType NodeType     = 1;
+  string NodeName       = 2;
+  string ClusterID      = 3; // This field will hold a bson.ObjectIdHex
+  string ReplicasetID   = 4;
+  string ReplicasetName = 5;
 }
 
 message PongPayload {
-  float Timestamp = 1;
+  int64 Timestamp = 1;
 }
 
 message Error {
@@ -127,29 +137,30 @@ message StartBackup {
   string          DestinationDir  = 4; // This is also used as S3 bucket name
   CompressionType CompressionType = 5;
   Cypher          Cypher          = 6;
-  float           OplogStartTime  = 7;
+  int64           OplogStartTime  = 7;
 }
 
 message StopBackup {
 }
 
-message Status {
-  bool       DBBackUpRunning    = 1;
-  bool       OplogBackupRunning = 2;
-  BackupType BackupType         = 3;
-  uint64     BytesSent          = 4;
-  float      LastOplogTS        = 5;
-  float      BackupCompleted    = 6; // TS when the backup has finish
-  string     LastError          = 7;
+message StatusPayload {
+  BackupType BackupType         = 1;
+  uint64     BytesSent          = 2;
+  int64      LastOplogTs        = 3;
+  int64      BackupCompleted    = 4; // TS when the backup has finish
+  string     LastError          = 5;
+  uint64     ReplicasetVersion  = 6;
   //
-  DestinationType DestinationType    = 8;
-  string          DestinationName    = 9;
-  string          DestinationDir     = 10; // This is also used as S3 bucket name
-  CompressionType CompressionType    = 11;
-  Cypher          Cypher             = 12;
-  float           OplogStartTime     = 13;
+  DestinationType DestinationType    = 7;
+  string          DestinationName    = 8;
+  string          DestinationDir     = 9; // This is also used as S3 bucket name
+  CompressionType CompressionType    = 10;
+  Cypher          Cypher             = 11;
+  int64           OplogStartTime     = 12;
+  int64       DBBackUpRunning    = 13;
+  int64       OplogBackupRunning = 14;
 }
 
-message BackupFinished {
-  float LastOplogTS = 1;
+message BackupFinishedPayload {
+  int64 LastOplogTs = 1;
 }
