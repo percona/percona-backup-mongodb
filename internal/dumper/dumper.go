@@ -64,9 +64,9 @@ func NewMongodump(i *MongodumpInput) (*Mongodump, error) {
 		// Archive = "-" means, for mongodump, use the provider Writer
 		// instead of creating a file. This is not clear at plain sight,
 		// you nee to look the code to discover it.
-		Archive: "-",
-		Gzip:    i.Gzip,
-		Oplog:   i.Oplog,
+		Archive:                "-",
+		Gzip:                   i.Gzip,
+		Oplog:                  i.Oplog,
 		NumParallelCollections: i.Threads,
 	}
 

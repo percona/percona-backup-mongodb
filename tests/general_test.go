@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -89,7 +90,15 @@ func TestGlobal(t *testing.T) {
 
 		agentID := fmt.Sprintf("PMB-%03d", i)
 
-		client, err := client.NewClient(ctx, session, clientConn)
+		dbConnOpts := client.ConnectionOptions{
+			Host:           testutils.MongoDBHost,
+			Port:           port,
+			User:           di.Username,
+			Password:       di.Password,
+			ReplicasetName: di.ReplicaSetName,
+		}
+
+		client, err := client.NewClient(ctx, dbConnOpts, client.SSLOptions{}, clientConn)
 		if err != nil {
 			t.Fatalf("Cannot create an agent instance %s: %s", agentID, err)
 		}
@@ -171,4 +180,20 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, stopChan cha
 		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
 		grpcServer.GracefulStop()
 	}()
+}
+
+func hostPart(addr string) string {
+	m := strings.Split(addr, ":")
+	if len(m) > 0 {
+		return m[0]
+	}
+	return ""
+}
+
+func portPart(addr string) string {
+	m := strings.Split(addr, ":")
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
 }

@@ -67,3 +67,20 @@ func (c *Client) GetStatus() (*pb.StatusPayload, error) {
 	statusMsg := msg.GetStatusMsg()
 	return statusMsg, nil
 }
+
+func (c *Client) StartBackup(opts *pb.StartBackup) {
+	c.stream.Send(&pb.ServerMessage{
+		Type: pb.ServerMessage_START_BACKUP,
+		Payload: &pb.ServerMessage_StartBackupMsg{
+			StartBackupMsg: &pb.StartBackup{
+				BackupType:      opts.BackupType,
+				DestinationType: opts.DestinationType,
+				DestinationName: opts.DestinationName,
+				DestinationDir:  opts.DestinationDir,
+				CompressionType: opts.CompressionType,
+				Cypher:          opts.Cypher,
+				OplogStartTime:  opts.OplogStartTime,
+			},
+		},
+	})
+}

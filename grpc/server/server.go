@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -96,6 +97,10 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	<-s.stopChan
 
 	return nil
+}
+
+func (s *MessagesServer) BackupCompleted(ctx context.Context, msg *pb.BackupCompletedMsg) (*pb.AckMsg, error) {
+	return nil, fmt.Errorf("BackupCompleted() not implemented yet")
 }
 
 func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) (*Client, error) {
