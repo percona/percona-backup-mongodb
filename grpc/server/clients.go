@@ -15,15 +15,15 @@ var (
 )
 
 type Client struct {
-	ID              string            `json:"id"`
-	NodeType        pb.NodeType       `json:"node_type"`
-	NodeName        string            `json:"node_name"`
-	ClusterID       string            `json:"client_id"`
-	ReplicasetName  string            `json:"replicaset_name"`
-	ReplicasetID    string            `json:"replicasert_id"`
-	LastCommandSent string            `json:"last_command_ent"`
-	LastSeen        time.Time         `json:"last_seen"`
-	Status          *pb.StatusPayload `json:"Status"`
+	ID              string      `json:"id"`
+	NodeType        pb.NodeType `json:"node_type"`
+	NodeName        string      `json:"node_name"`
+	ClusterID       string      `json:"client_id"`
+	ReplicasetName  string      `json:"replicaset_name"`
+	ReplicasetID    string      `json:"replicasert_id"`
+	LastCommandSent string      `json:"last_command_ent"`
+	LastSeen        time.Time   `json:"last_seen"`
+	Status          *pb.Status  `json:"Status"`
 	//
 	stream pb.Messages_MessagesChatServer
 	lock   *sync.Mutex
@@ -40,7 +40,7 @@ func NewClient(id, clusterID, nodeName, replicasetID, replicasetName string, nod
 		stream:         stream,
 		lock:           &sync.Mutex{},
 		LastSeen:       time.Now(),
-		Status:         &pb.StatusPayload{},
+		Status:         &pb.Status{},
 	}
 	return client
 }
@@ -58,17 +58,18 @@ func (c *Client) GetBackupSource() (string, error) {
 	return msg.GetBackupSourceMsg(), nil
 }
 
-func (c *Client) GetStatus() (*pb.StatusPayload, error) {
+func (c *Client) GetStatus() (*pb.Status, error) {
 	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
 	msg, err := c.stream.Recv()
 	if err != nil {
 		return nil, err
 	}
 	statusMsg := msg.GetStatusMsg()
+	c.Status = statusMsg
 	return statusMsg, nil
 }
 
-func (c *Client) StartBackup(opts *pb.StartBackup) {
+func (c *Client) StartBackup(opts *pb.StartBackup) error {
 	c.stream.Send(&pb.ServerMessage{
 		Type: pb.ServerMessage_START_BACKUP,
 		Payload: &pb.ServerMessage_StartBackupMsg{
@@ -83,4 +84,10 @@ func (c *Client) StartBackup(opts *pb.StartBackup) {
 			},
 		},
 	})
+	if msg, err := c.stream.Recv(); err != nil {
+		return err
+	} else if ack := msg.GetAckMsg(); ack == nil {
+		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
+	}
+	return nil
 }

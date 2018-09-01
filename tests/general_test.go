@@ -3,12 +3,14 @@ package test_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/api"
@@ -154,6 +156,29 @@ func TestGlobal(t *testing.T) {
 		t.Error("Received empty backup source")
 	}
 	log.Printf("Received backup source: %v", backupSource)
+
+	backupSources, err := messagesServer.BackupSourceByReplicaset()
+	if err != nil {
+		t.Errorf("Cannot get backup sources by replica set: %s", err)
+	} else {
+		for replName, client := range backupSources {
+			fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
+			tmpDir, err := ioutil.TempDir("", "dump_test.")
+			if err != nil {
+				t.Errorf("Cannot create temporary file for testing: %s", err)
+			}
+			client.StartBackup(&pb.StartBackup{
+				BackupType:      pb.BackupType_LOGICAL,
+				DestinationType: pb.DestinationType_FILE,
+				DestinationName: "test",
+				DestinationDir:  tmpDir,
+				CompressionType: pb.CompressionType_NO_COMPRESSION,
+				Cypher:          pb.Cypher_NO_CYPHER,
+				OplogStartTime:  time.Now().Unix(),
+			})
+			messagesServer.WaitBackupFinish()
+		}
+	}
 
 	for _, client := range clients {
 		client.Stop()

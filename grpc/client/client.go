@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
-	"math/rand"
 	"os"
 	"path"
 	"sync"
@@ -15,6 +13,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/cluster"
 	"github.com/percona/mongodb-backup/internal/dumper"
+	"github.com/percona/mongodb-backup/internal/oplog"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
@@ -25,14 +24,17 @@ type flusher interface {
 }
 
 type Client struct {
-	clientID   string
-	mdbSession *mgo.Session
-	grpcClient pb.MessagesClient
-	connOpts   ConnectionOptions
-	sslOpts    SSLOptions
+	clientID       string
+	replicasetName string
+	replicasetID   string
+	oplogTailer    *oplog.OplogTail
+	mdbSession     *mgo.Session
+	grpcClient     pb.MessagesClient
+	connOpts       ConnectionOptions
+	sslOpts        SSLOptions
 	//
 	lock       *sync.Mutex
-	status     pb.StatusPayload
+	status     pb.Status
 	streamLock *sync.Mutex
 	stream     pb.Messages_MessagesChatClient
 }
@@ -94,10 +96,10 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 	stream, err := grpcClient.MessagesChat(ctx)
 
 	m := &pb.ClientMessage{
+		ClientID: nodeName,
 		Type:     pb.ClientMessage_REGISTER,
-		ClientID: fmt.Sprintf("%05d", rand.Int63n(1000000)),
 		Payload: &pb.ClientMessage_RegisterMsg{
-			RegisterMsg: &pb.RegisterPayload{
+			RegisterMsg: &pb.Register{
 				NodeType:       nodeType,
 				NodeName:       nodeName,
 				ClusterID:      clusterIDString,
@@ -120,11 +122,13 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 	}
 
 	c := &Client{
-		clientID:   nodeName,
-		grpcClient: grpcClient,
-		mdbSession: mdbSession,
-		stream:     stream,
-		status: pb.StatusPayload{
+		clientID:       nodeName,
+		replicasetName: replset.Name(),
+		replicasetID:   replset.ID().Hex(),
+		grpcClient:     grpcClient,
+		mdbSession:     mdbSession,
+		stream:         stream,
+		status: pb.Status{
 			BackupType: pb.BackupType_LOGICAL,
 		},
 		connOpts: mdbConnOpts,
@@ -177,10 +181,11 @@ func (c *Client) processIncommingServerMessages() {
 			c.streamSend(&pb.ClientMessage{
 				Type:     pb.ClientMessage_ACK,
 				ClientID: c.clientID,
-				Payload:  &pb.ClientMessage_AckMsg{AckMsg: "Backup started"},
+				Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 			})
+		case pb.ServerMessage_STOP_OPLOG_TAIL:
+			c.processStopOplogTail(msg)
 		default:
-			log.Printf("Unknown message type: %v", msg.Type)
 			c.streamSend(&pb.ClientMessage{
 				Type:     pb.ClientMessage_ERROR,
 				ClientID: c.clientID,
@@ -194,7 +199,7 @@ func (c *Client) processPing() {
 	c.streamSend(&pb.ClientMessage{
 		Type:     pb.ClientMessage_PONG,
 		ClientID: c.clientID,
-		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.PongPayload{Timestamp: time.Now().Unix()}},
+		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
 	})
 }
 
@@ -219,18 +224,85 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) error {
 	}
 
 	c.status.DBBackUpRunning = true
-	c.status.OplogBackupRunning = true
 
-	go c.startBackup(msg)
+	extension := c.getFileExtension(msg)
+
+	go c.runDBBackup(msg, ".dump"+extension)
 	return nil
 }
 
-func (c *Client) startBackup(msg *pb.StartBackup) {
+func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	writers := []io.WriteCloser{}
 
 	defer func() {
 		// Close all the chained writers. If the implement the Flush() method, like gzip writer,
-		// call it to flush the writer before closing it
+		// call it to flush the internal buffer before closing it
+		for i := len(writers); i < 0; i-- {
+			if _, ok := writers[i].(flusher); ok {
+				writers[i].(flusher).Flush()
+			}
+			writers[i].Close()
+		}
+		c.lock.Lock()
+		c.status.OplogBackupRunning = false
+		c.lock.Unlock()
+	}()
+
+	switch msg.GetDestinationType() {
+	case pb.DestinationType_FILE:
+		fw, err := os.Create(path.Join(msg.GetDestinationDir(), msg.GetDestinationName()+extension))
+		if err != nil {
+			// TODO Stream error msg to the server
+		}
+		writers = append(writers, fw)
+	}
+
+	switch msg.GetCypher() {
+	case pb.Cypher_NO_CYPHER:
+		//TODO: Add cyphers
+	}
+
+	switch msg.GetCompressionType() {
+	case pb.CompressionType_GZIP:
+		// chain gzip writer to the previous writer
+		gzw := gzip.NewWriter(writers[len(writers)-1])
+		writers = append(writers, gzw)
+	}
+
+	var err error
+	c.oplogTailer, err = oplog.Open(c.mdbSession)
+	if err != nil {
+		//TODO return error
+	}
+
+	c.lock.Lock()
+	c.status.OplogBackupRunning = true
+	c.lock.Unlock()
+	io.Copy(writers[len(writers)-1], c.oplogTailer)
+
+}
+
+func (c *Client) getFileExtension(msg *pb.StartBackup) string {
+	ext := ""
+
+	switch msg.GetCypher() {
+	case pb.Cypher_NO_CYPHER:
+	}
+
+	switch msg.GetCompressionType() {
+	case pb.CompressionType_GZIP:
+		ext = ext + ".gzip"
+	}
+
+	return ext
+}
+
+func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
+	writers := []io.WriteCloser{}
+
+	defer func() {
+		// Close all the chained writers. If the implement the Flush() method, like gzip writer,
+		// call it to flush the internal buffer before closing it
 		for i := len(writers); i < 0; i-- {
 			if _, ok := writers[i].(flusher); ok {
 				writers[i].(flusher).Flush()
@@ -239,13 +311,12 @@ func (c *Client) startBackup(msg *pb.StartBackup) {
 		}
 		c.lock.Lock()
 		c.status.DBBackUpRunning = true
-		c.status.OplogBackupRunning = true
 		c.lock.Unlock()
 	}()
 
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_FILE:
-		fw, err := os.Create(path.Join(msg.GetDestinationDir(), msg.GetDestinationName()))
+		fw, err := os.Create(path.Join(msg.GetDestinationDir(), msg.GetDestinationName()+extension))
 		if err != nil {
 			// TODO Stream error msg to the server
 		}
@@ -281,6 +352,29 @@ func (c *Client) startBackup(msg *pb.StartBackup) {
 
 	mdump.Start()
 	err = mdump.Wait()
+
+	c.lock.Lock()
+	c.status.DBBackUpRunning = false
+	c.lock.Unlock()
+
+	if err != nil {
+		finishMsg := &pb.DBBackupFinishStatus{
+			ClientID: c.clientID,
+			OK:       false,
+			Ts:       time.Now().Unix(),
+			Error:    err.Error(),
+		}
+		c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
+		return
+	}
+
+	finishMsg := &pb.DBBackupFinishStatus{
+		ClientID: c.clientID,
+		OK:       true,
+		Ts:       time.Now().Unix(),
+		Error:    "",
+	}
+	c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
 }
 
 func (c *Client) processStatus() {
@@ -288,7 +382,7 @@ func (c *Client) processStatus() {
 		Type:     pb.ClientMessage_STATUS,
 		ClientID: c.clientID,
 		Payload: &pb.ClientMessage_StatusMsg{
-			StatusMsg: &pb.StatusPayload{
+			StatusMsg: &pb.Status{
 				DBBackUpRunning:    c.status.DBBackUpRunning,
 				OplogBackupRunning: c.status.OplogBackupRunning,
 				BackupType:         c.status.BackupType,

@@ -4,14 +4,21 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/percona/mongodb-backup/internal/notify"
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pkg/errors"
+	"github.com/prometheus/common/log"
 )
 
 type MessagesServer struct {
-	stopChan chan struct{}
-	lock     *sync.Mutex
-	clients  map[string]*Client
+	stopChan              chan struct{}
+	lock                  *sync.Mutex
+	clients               map[string]*Client
+	replicasRunningBackup map[string]bool
+	backupRunning         bool
+	backupFinishChan      chan struct{}
 }
 
 func NewMessagesServer() *MessagesServer {
@@ -41,6 +48,96 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]*Client {
 
 	}
 	return replicas
+}
+
+func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) {
+	sources := make(map[string]*Client)
+
+	for _, client := range s.clients {
+		if _, ok := sources[client.ReplicasetID]; !ok {
+			backupSource, err := client.GetBackupSource()
+			if err != nil {
+				return nil, fmt.Errorf("Cannot get best client for replicaset %q: %s", client.ReplicasetID, err)
+			}
+			bestClient := s.getClientByNodeName(backupSource)
+			if bestClient == nil {
+				return nil, fmt.Errorf("Cannot get best client for replicaset %q. No such client %q", client.ReplicasetID, bestClient)
+			}
+			sources[client.ReplicasetID] = bestClient
+		}
+	}
+
+	return sources, nil
+}
+
+func (s *MessagesServer) ReplicasetsRunningBackup() map[string]*Client {
+	replicasets := make(map[string]*Client)
+
+	for _, client := range s.clients {
+		client.GetStatus()
+		if client.Status.OplogBackupRunning || client.Status.DBBackUpRunning {
+			replicasets[client.ReplicasetID] = client
+		}
+	}
+
+	if len(replicasets) == 0 {
+		notify.Post("backup-finish", time.Now())
+	}
+	return replicasets
+}
+
+func (s *MessagesServer) WaitBackupFinish() {
+	c := notify.Start("backup-finish")
+	<-c
+}
+
+func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
+	if s.isBackupRunning() {
+		return fmt.Errorf("Backup is already running")
+	}
+	s.backupFinishChan = make(chan struct{})
+	clients, err := s.BackupSourceByReplicaset()
+	if err != nil {
+		return errors.Wrapf(err, "Cannot start backup. Cannot find backup source for replicas")
+	}
+
+	s.setBackupRunning(true)
+	for replName, client := range clients {
+		s.replicasRunningBackup[replName] = true
+		client.StartBackup(&pb.StartBackup{
+			BackupType:      opts.GetBackupType(),
+			DestinationType: opts.GetDestinationType(),
+			DestinationName: opts.GetDestinationName(),
+			DestinationDir:  opts.GetDestinationDir(),
+			CompressionType: opts.GetCompressionType(),
+			Cypher:          opts.GetCypher(),
+			OplogStartTime:  opts.GetOplogStartTime(),
+		})
+	}
+
+	s.backupFinishChan = make(chan struct{})
+	return nil
+}
+
+func (s *MessagesServer) setBackupRunning(status bool) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.backupRunning = status
+}
+
+func (s *MessagesServer) isBackupRunning() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.backupRunning
+}
+
+func (s *MessagesServer) getClientByNodeName(name string) *Client {
+	for _, client := range s.clients {
+		if client.NodeName == name {
+			return client
+		}
+	}
+	return nil
 }
 
 func (s *MessagesServer) GetClientsStatus() {
@@ -74,6 +171,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 
 	client, err := s.registerClient(stream, msg)
 	if err != nil {
+		log.Errorf("Cannot register client: %s", err)
 		r := &pb.ServerMessage{
 			Type: pb.ServerMessage_ERROR,
 			Payload: &pb.ServerMessage_ErrorMsg{
@@ -99,7 +197,18 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	return nil
 }
 
-func (s *MessagesServer) BackupCompleted(ctx context.Context, msg *pb.BackupCompletedMsg) (*pb.AckMsg, error) {
+func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.Ack, error) {
+	client := s.getClientByNodeName(msg.GetClientID())
+	client.lock.Lock()
+	client.Status.DBBackUpRunning = false
+	client.Status.OplogBackupRunning = false
+	client.lock.Unlock()
+
+	s.ReplicasetsRunningBackup()
+	return nil, fmt.Errorf("BackupCompleted() not implemented yet")
+}
+
+func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
 	return nil, fmt.Errorf("BackupCompleted() not implemented yet")
 }
 
