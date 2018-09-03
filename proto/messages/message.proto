@@ -153,7 +153,7 @@ message DBBackupFinishStatus {
 message OplogBackupFinishStatus {
     string ClientID = 1;
     bool   OK       = 2;
-    bool   Ts       = 3;
+    int64  Ts       = 3;
     string Error    = 4;
 }
 

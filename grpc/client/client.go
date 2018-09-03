@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"sync"
@@ -20,7 +21,7 @@ import (
 )
 
 type flusher interface {
-	Flush()
+	Flush() error
 }
 
 type Client struct {
@@ -154,6 +155,18 @@ func (c *Client) Stop() {
 	c.stream.CloseSend()
 }
 
+func (c *Client) IsDbBackupRunning() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.status.DBBackUpRunning
+}
+
+func (c *Client) IsOplogBackupRunning() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.status.OplogBackupRunning
+}
+
 func (c *Client) processIncommingServerMessages() {
 	for {
 		msg, err := c.stream.Recv()
@@ -171,6 +184,7 @@ func (c *Client) processIncommingServerMessages() {
 		case pb.ServerMessage_START_BACKUP:
 			startBackupMsg := msg.GetStartBackupMsg()
 			if err := c.processStartBackup(startBackupMsg); err != nil {
+				log.Printf("Cannot start backup %s", err)
 				c.streamSend(&pb.ClientMessage{
 					Type:     pb.ClientMessage_ERROR,
 					ClientID: c.clientID,
@@ -184,7 +198,8 @@ func (c *Client) processIncommingServerMessages() {
 				Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 			})
 		case pb.ServerMessage_STOP_OPLOG_TAIL:
-			c.processStopOplogTail(msg)
+			stopOplogTailMsg := msg.GetStopOplogTailMsg()
+			c.processStopOplogTail(stopOplogTailMsg)
 		default:
 			c.streamSend(&pb.ClientMessage{
 				Type:     pb.ClientMessage_ERROR,
@@ -223,30 +238,16 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) error {
 		return fmt.Errorf("%s is not a directory", msg.GetDestinationDir())
 	}
 
-	c.status.DBBackUpRunning = true
-
 	extension := c.getFileExtension(msg)
 
 	go c.runDBBackup(msg, ".dump"+extension)
+	go c.runOplogBackup(msg, ".oplog"+extension)
+
 	return nil
 }
 
 func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	writers := []io.WriteCloser{}
-
-	defer func() {
-		// Close all the chained writers. If the implement the Flush() method, like gzip writer,
-		// call it to flush the internal buffer before closing it
-		for i := len(writers); i < 0; i-- {
-			if _, ok := writers[i].(flusher); ok {
-				writers[i].(flusher).Flush()
-			}
-			writers[i].Close()
-		}
-		c.lock.Lock()
-		c.status.OplogBackupRunning = false
-		c.lock.Unlock()
-	}()
 
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_FILE:
@@ -278,41 +279,43 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	c.lock.Lock()
 	c.status.OplogBackupRunning = true
 	c.lock.Unlock()
-	io.Copy(writers[len(writers)-1], c.oplogTailer)
 
-}
+	n, err := io.Copy(writers[len(writers)-1], c.oplogTailer)
+	c.status.BytesSent += uint64(n)
 
-func (c *Client) getFileExtension(msg *pb.StartBackup) string {
-	ext := ""
+	for i := len(writers); i < 0; i-- {
+		if _, ok := writers[i].(flusher); ok {
+			writers[i].(flusher).Flush()
+		}
+		writers[i].Close()
+	}
+	c.lock.Lock()
+	c.status.OplogBackupRunning = false
+	c.lock.Unlock()
 
-	switch msg.GetCypher() {
-	case pb.Cypher_NO_CYPHER:
+	if err != nil {
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientID: c.clientID,
+			OK:       false,
+			Ts:       time.Now().Unix(),
+			Error:    err.Error(),
+		}
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
 	}
 
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_GZIP:
-		ext = ext + ".gzip"
+	finishMsg := &pb.OplogBackupFinishStatus{
+		ClientID: c.clientID,
+		OK:       true,
+		Ts:       time.Now().Unix(),
+		Error:    "",
 	}
+	c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
 
-	return ext
 }
 
 func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 	writers := []io.WriteCloser{}
-
-	defer func() {
-		// Close all the chained writers. If the implement the Flush() method, like gzip writer,
-		// call it to flush the internal buffer before closing it
-		for i := len(writers); i < 0; i-- {
-			if _, ok := writers[i].(flusher); ok {
-				writers[i].(flusher).Flush()
-			}
-			writers[i].Close()
-		}
-		c.lock.Lock()
-		c.status.DBBackUpRunning = true
-		c.lock.Unlock()
-	}()
 
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_FILE:
@@ -347,15 +350,23 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 
 	mdump, err := dumper.NewMongodump(mi)
 	if err != nil {
+		log.Fatalf("Cannot call mongodump: %s", err)
 		//TODO send error
 	}
+
+	c.setDBBackupRunning(true)
 
 	mdump.Start()
 	err = mdump.Wait()
 
-	c.lock.Lock()
-	c.status.DBBackUpRunning = false
-	c.lock.Unlock()
+	for i := len(writers); i < 0; i-- {
+		if _, ok := writers[i].(flusher); ok {
+			writers[i].(flusher).Flush()
+		}
+		writers[i].Close()
+	}
+
+	c.setDBBackupRunning(false)
 
 	if err != nil {
 		finishMsg := &pb.DBBackupFinishStatus{
@@ -377,7 +388,39 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 	c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
 }
 
+func (c *Client) setDBBackupRunning(status bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.status.DBBackUpRunning = status
+}
+
+func (c *Client) setOplogBackupRunning(status bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.status.OplogBackupRunning = status
+}
+
+func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
+	if err := c.oplogTailer.Close(); err != nil {
+		c.streamSend(&pb.ClientMessage{
+			Type:     pb.ClientMessage_ERROR,
+			ClientID: c.clientID,
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot stop oplog tail: %s", err.Error())},
+		})
+		log.Printf("Error stopping the oplog tailer: %s", err)
+		return
+	}
+	c.streamSend(&pb.ClientMessage{
+		Type:     pb.ClientMessage_ACK,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_AckMsg{},
+	})
+}
+
 func (c *Client) processStatus() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	c.streamSend(&pb.ClientMessage{
 		Type:     pb.ClientMessage_STATUS,
 		ClientID: c.clientID,
@@ -456,4 +499,19 @@ func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
 		return pb.NodeType_MONGOS, isMaster.IsMasterDoc().Me, nil
 	}
 	return pb.NodeType_MONGOD, isMaster.IsMasterDoc().Me, nil
+}
+
+func (c *Client) getFileExtension(msg *pb.StartBackup) string {
+	ext := ""
+
+	switch msg.GetCypher() {
+	case pb.Cypher_NO_CYPHER:
+	}
+
+	switch msg.GetCompressionType() {
+	case pb.CompressionType_GZIP:
+		ext = ext + ".gzip"
+	}
+
+	return ext
 }

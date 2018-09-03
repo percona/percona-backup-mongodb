@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"os"
-	"strings"
+	"path"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -16,13 +18,20 @@ import (
 	"github.com/percona/mongodb-backup/grpc/api"
 	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/percona/mongodb-backup/grpc/server"
+	"github.com/percona/mongodb-backup/internal/restore"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"google.golang.org/grpc"
+	"gopkg.in/mgo.v2/bson"
 )
 
 var port, apiPort string
+
+const (
+	dbName  = "test"
+	colName = "test_col"
+)
 
 func TestMain(m *testing.M) {
 
@@ -111,24 +120,6 @@ func TestGlobal(t *testing.T) {
 	if len(clientsList) != 3 {
 		t.Errorf("Want 3 connected clients, got %d", len(clientsList))
 	}
-	// Left here for debugging
-	// if testing.Verbose() {
-	// 	for key, client := range clientsList {
-	// 		fmt.Printf("Key: %s ************************\n", key)
-	// 		fmt.Printf("ID               : %s\n", client.ID)
-	// 		fmt.Printf("Node Type        : %v\n", client.NodeType)
-	// 		fmt.Printf("Node Name        : %v\n", client.NodeName)
-	// 		fmt.Printf("Cluster ID       : %v\n", client.ClusterID)
-	// 		fmt.Printf("Last command sent: %v\n", client.LastCommandSent)
-	// 		fmt.Printf("Last seen        : %v\n", client.LastSeen)
-	// 		fmt.Printf("Replicaset name  : %v\n", client.ReplicasetName)
-	// 		fmt.Printf("Replicaset ID    : %v\n", client.ReplicasetID)
-	// 		fmt.Printf("Status\n")
-	// 		fmt.Printf("   ReplicaSetVersion : %v\n", client.Status.ReplicasetVersion)
-	// 		fmt.Printf("   LastOplogTime     : %v\n", client.Status.LastOplogTs)
-	// 		fmt.Printf("   RunningDBBackup   : %v\n", client.Status.DBBackUpRunning)
-	// 	}
-	// }
 
 	clientsByReplicaset := messagesServer.ClientsByReplicaset()
 	var firstClient *server.Client
@@ -159,27 +150,52 @@ func TestGlobal(t *testing.T) {
 
 	backupSources, err := messagesServer.BackupSourceByReplicaset()
 	if err != nil {
-		t.Errorf("Cannot get backup sources by replica set: %s", err)
-	} else {
-		for replName, client := range backupSources {
-			fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
-			tmpDir, err := ioutil.TempDir("", "dump_test.")
-			if err != nil {
-				t.Errorf("Cannot create temporary file for testing: %s", err)
-			}
-			client.StartBackup(&pb.StartBackup{
-				BackupType:      pb.BackupType_LOGICAL,
-				DestinationType: pb.DestinationType_FILE,
-				DestinationName: "test",
-				DestinationDir:  tmpDir,
-				CompressionType: pb.CompressionType_NO_COMPRESSION,
-				Cypher:          pb.Cypher_NO_CYPHER,
-				OplogStartTime:  time.Now().Unix(),
-			})
-			messagesServer.WaitBackupFinish()
-		}
+		t.Fatalf("Cannot get backup sources by replica set: %s", err)
 	}
 
+	// Genrate random data so we have something in the oplog
+	sc := make(chan bool)
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	generateDataToBackup(t, session)
+	go generateOplogTraffic(t, session, sc)
+
+	tmpDir, err := ioutil.TempDir("", "dump_test.")
+	if err != nil {
+		t.Fatalf("Cannot create temporary file for testing: %s", err)
+	}
+
+	// Start the backup. Backup just the first replicaset (sorted by name) so we can test the restore
+	replNames := sortedReplicaNames(backupSources)
+	replName := replNames[0]
+	client := backupSources[replName]
+
+	fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
+	if testing.Verbose() {
+		log.Printf("Temp dir for backup: %s", tmpDir)
+	}
+
+	err = client.StartBackup(&pb.StartBackup{
+		BackupType:      pb.BackupType_LOGICAL,
+		DestinationType: pb.DestinationType_FILE,
+		DestinationName: "test",
+		DestinationDir:  tmpDir,
+		CompressionType: pb.CompressionType_NO_COMPRESSION,
+		Cypher:          pb.Cypher_NO_CYPHER,
+		OplogStartTime:  time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+
+	messagesServer.WaitBackupFinish()
+	messagesServer.StopOplogTail()
+	stopChan <- true
+	messagesServer.WaitBackupFinish()
+
+	fmt.Println("stoppping clients")
 	for _, client := range clients {
 		client.Stop()
 	}
@@ -188,6 +204,8 @@ func TestGlobal(t *testing.T) {
 	messagesServer.Stop()
 	close(stopChan)
 	wg.Wait()
+
+	testRestore(t, session, tmpDir)
 }
 
 func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, stopChan chan interface{}, wg *sync.WaitGroup) {
@@ -207,18 +225,94 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, stopChan cha
 	}()
 }
 
-func hostPart(addr string) string {
-	m := strings.Split(addr, ":")
-	if len(m) > 0 {
-		return m[0]
+func testRestore(t *testing.T, session *mgo.Session, dir string) {
+	if err := session.DB(dbName).C(colName).DropCollection(); err != nil {
+		t.Fatalf("Cannot clean up %s.%s collection: %s", dbName, colName, err)
 	}
-	return ""
+
+	count, err := session.DB(dbName).C(colName).Find(nil).Count()
+	if err != nil {
+		t.Fatalf("Cannot count number of rows in the test collection %s: %s", colName, err)
+	}
+
+	if count > 0 {
+		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want 0", colName, count)
+	}
+
+	input := &restore.MongoRestoreInput{
+		// this file was generated with the dump pkg
+		Archive:  path.Join(dir, "test.dump"),
+		DryRun:   false,
+		Host:     testutils.MongoDBHost,
+		Port:     testutils.MongoDBPrimaryPort,
+		Username: testutils.MongoDBUser,
+		Password: testutils.MongoDBPassword,
+		Gzip:     false,
+		Oplog:    false,
+		Threads:  1,
+		Reader:   nil,
+	}
+
+	r, err := restore.NewMongoRestore(input)
+	if err != nil {
+		t.Errorf("Cannot instantiate mongo restore instance: %s", err)
+		t.FailNow()
+	}
+
+	if err := r.Start(); err != nil {
+		t.Errorf("Cannot start restore: %s", err)
+	}
+
+	if err := r.Wait(); err != nil {
+		t.Errorf("Error while trying to restore: %s", err)
+	}
+
+	count, err = session.DB(dbName).C(colName).Find(nil).Count()
+	if err != nil {
+		t.Fatalf("Cannot count number of rows in the test collection %q after restore: %s", colName, err)
+	}
+
+	if count < 100 {
+		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want 100", colName, count)
+	}
 }
 
-func portPart(addr string) string {
-	m := strings.Split(addr, ":")
-	if len(m) > 1 {
-		return m[1]
+func sortedReplicaNames(replicas map[string]*server.Client) []string {
+	a := []string{}
+	for key, _ := range replicas {
+		a = append(a, key)
 	}
-	return ""
+	sort.Strings(a)
+	return a
+}
+
+func generateDataToBackup(t *testing.T, session *mgo.Session) {
+	// Don't check for error because the collection might not exist.
+	session.DB(dbName).C(colName).DropCollection()
+
+	for i := 0; i < 100; i++ {
+		err := session.DB(dbName).C(colName).Insert(bson.M{"number": i})
+		if err != nil {
+			t.Fatalf("Cannot insert data to back up: %s", err)
+		}
+	}
+}
+
+func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	for {
+		select {
+		case <-stop:
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			// number + 10000 just to differentiate this data from the data generated
+			// in generateDataToBackup() so we can test a dump restore + oplog apply
+			number := rand.Int63n(9999) + 10000
+			err := session.DB(dbName).C(colName).Insert(bson.M{"number": number})
+			if err != nil {
+				t.Logf("insert to test.test failed: %v", err.Error())
+			}
+		}
+	}
 }

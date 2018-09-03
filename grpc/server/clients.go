@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -59,6 +60,8 @@ func (c *Client) GetBackupSource() (string, error) {
 }
 
 func (c *Client) GetStatus() (*pb.Status, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.stream.Send(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS})
 	msg, err := c.stream.Recv()
 	if err != nil {
@@ -70,6 +73,10 @@ func (c *Client) GetStatus() (*pb.Status, error) {
 }
 
 func (c *Client) StartBackup(opts *pb.StartBackup) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	log.Printf("Starting the backup. Sending command to the client")
+	c.setBackupRunning(true)
 	c.stream.Send(&pb.ServerMessage{
 		Type: pb.ServerMessage_START_BACKUP,
 		Payload: &pb.ServerMessage_StartBackupMsg{
@@ -85,9 +92,42 @@ func (c *Client) StartBackup(opts *pb.StartBackup) error {
 		},
 	})
 	if msg, err := c.stream.Recv(); err != nil {
+		c.setBackupRunning(false)
+		return err
+	} else if ack := msg.GetAckMsg(); ack == nil {
+		c.setBackupRunning(false)
+		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
+	}
+	return nil
+}
+
+func (c *Client) setBackupRunning(status bool) {
+	// c.lock.Lock()
+	// defer c.lock.Unlock()
+	c.Status.DBBackUpRunning = status
+}
+
+func (c *Client) StopOplogTail() error {
+	c.stream.Send(&pb.ServerMessage{
+		Type:    pb.ServerMessage_STOP_OPLOG_TAIL,
+		Payload: &pb.ServerMessage_StopOplogTailMsg{},
+	})
+	if msg, err := c.stream.Recv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
 		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
 	}
 	return nil
+}
+
+func (c *Client) IsDbBackupRunning() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.Status.DBBackUpRunning
+}
+
+func (c *Client) IsOplogBackupRunning() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.Status.OplogBackupRunning
 }
