@@ -120,8 +120,10 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 	if len(replicasets) == 0 {
 		notify.Post(EVENT_OPLOG_FINISH, time.Now())
 	}
+	close(s.oplogBackupFinishChan)
 	return &pb.Ack{}, nil
 }
+
 func (s *MessagesServer) Stop() {
 	close(s.stopChan)
 }
@@ -220,7 +222,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 }
 
 func (s *MessagesServer) StopOplogTail() error {
-	if !s.isBackupRunning() {
+	if !s.isOplogBackupRunning() {
 		return fmt.Errorf("Backup is not running")
 	}
 	clients, err := s.BackupSourceByReplicaset()
@@ -230,6 +232,9 @@ func (s *MessagesServer) StopOplogTail() error {
 	for _, client := range clients {
 		if client.IsOplogBackupRunning() {
 			err := client.StopOplogTail()
+			if err != nil {
+				log.Errorf("Error calling client.StopOplogTail: %s", err)
+			}
 			return err
 		}
 	}
@@ -248,7 +253,7 @@ func (s *MessagesServer) WaitBackupFinish() {
 	<-s.dbBackupFinishChan
 }
 
-func (s *MessagesServer) WaitOplogBackupFinis() {
+func (s *MessagesServer) WaitOplogBackupFinish() {
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
 		return
@@ -266,6 +271,14 @@ func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.backupRunning
+}
+
+func (s *MessagesServer) isOplogBackupRunning() bool {
+	repl := s.ReplicasetsRunningOplogBackup()
+	if len(repl) > 0 {
+		return true
+	}
+	return false
 }
 
 func (s *MessagesServer) getClientByNodeName(name string) *Client {

@@ -2,11 +2,11 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -73,10 +73,7 @@ func (c *Client) GetStatus() (*pb.Status, error) {
 }
 
 func (c *Client) StartBackup(opts *pb.StartBackup) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	log.Printf("Starting the backup. Sending command to the client")
-	c.setBackupRunning(true)
+	c.setDBBackupRunning(true)
 	c.stream.Send(&pb.ServerMessage{
 		Type: pb.ServerMessage_START_BACKUP,
 		Payload: &pb.ServerMessage_StartBackupMsg{
@@ -92,26 +89,31 @@ func (c *Client) StartBackup(opts *pb.StartBackup) error {
 		},
 	})
 	if msg, err := c.stream.Recv(); err != nil {
-		c.setBackupRunning(false)
+		c.setDBBackupRunning(false)
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
-		c.setBackupRunning(false)
+		c.setDBBackupRunning(false)
 		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
 	}
 	return nil
 }
 
-func (c *Client) setBackupRunning(status bool) {
-	// c.lock.Lock()
-	// defer c.lock.Unlock()
+func (c *Client) setDBBackupRunning(status bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.Status.DBBackUpRunning = status
 }
 
 func (c *Client) StopOplogTail() error {
-	c.stream.Send(&pb.ServerMessage{
+	log.Printf("Stopping oplog tail")
+	err := c.stream.Send(&pb.ServerMessage{
 		Type:    pb.ServerMessage_STOP_OPLOG_TAIL,
-		Payload: &pb.ServerMessage_StopOplogTailMsg{},
+		Payload: &pb.ServerMessage_StopOplogTailMsg{&pb.StopOplogTail{}},
 	})
+	if err != nil {
+		log.Printf("Error in client.StopOplogTail stream.Send(...): %s", err)
+	}
+
 	if msg, err := c.stream.Recv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {

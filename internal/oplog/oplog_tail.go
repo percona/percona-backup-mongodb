@@ -28,13 +28,14 @@ type OplogTail struct {
 	remainingBytes    []byte
 	nextChunkPosition int
 
-	wg       *sync.WaitGroup
-	dataChan chan chanDataTye
-	stopChan chan bool
-	readFunc func([]byte) (int, error)
-	lock     sync.Mutex
-	isEOF    bool
-	running  bool
+	wg             *sync.WaitGroup
+	dataChan       chan chanDataTye
+	stopChan       chan bool
+	readerStopChan chan bool
+	readFunc       func([]byte) (int, error)
+	lock           sync.Mutex
+	isEOF          bool
+	running        bool
 }
 
 const (
@@ -84,6 +85,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		oplogCollection: oplogCol,
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
+		readerStopChan:  make(chan bool),
 		running:         true,
 		wg:              &sync.WaitGroup{},
 	}
@@ -133,6 +135,7 @@ func (ot *OplogTail) Close() error {
 	ot.lock.Unlock()
 
 	ot.wg.Wait()
+
 	return nil
 }
 
@@ -151,14 +154,13 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
-	defer close(ot.stopChan)
 
 	iter := ot.makeIterator()
 	for {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
-			ot.setRunning(false)
+			//ot.setRunning(false)
 			return
 		default:
 		}
@@ -167,21 +169,27 @@ func (ot *OplogTail) tail() {
 			oplog := mdbstructs.OplogTimestampOnly{}
 			err := result.Unmarshal(&oplog)
 			if err == nil {
-				ot.dataChan <- result.Data
+				ot.lastOplogTimestamp = &oplog.Timestamp
 				if ot.startOplogTimestamp == nil {
 					ot.startOplogTimestamp = &oplog.Timestamp
 				}
-				ot.lastOplogTimestamp = &oplog.Timestamp
+				ot.lock.Lock()
+				if ot.stopAtTimestampt != nil {
+					if ot.lastOplogTimestamp != nil {
+						if ot.lastOplogTimestamp.Time().After(ot.stopAtTimestampt.Time()) {
+							iter.Close()
+							ot.lock.Unlock()
+							close(ot.readerStopChan)
+							return
+						}
+					}
+				}
+				ot.lock.Unlock()
+				ot.dataChan <- result.Data
 				continue
 			}
 		}
 		ot.lock.Lock()
-		if ot.stopAtTimestampt != nil && ot.lastOplogTimestamp != nil &&
-			ot.lastOplogTimestamp.Time().After(ot.stopAtTimestampt.Time()) {
-			iter.Close()
-			ot.lock.Unlock()
-			return
-		}
 		if iter.Timeout() {
 			if ot.stopAtTimestampt != nil {
 				iter.Close()
@@ -288,7 +296,7 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 		}
 
 		select {
-		case <-ot.stopChan:
+		case <-ot.readerStopChan:
 			ot.readFunc = func([]byte) (int, error) {
 				return 0, fmt.Errorf("file alredy closed")
 			}
@@ -313,6 +321,8 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 			}
 			copy(buf, doc)
 			return retSize, nil
+		case <-time.After(5 * time.Second):
+			return 0, io.EOF
 		}
 	}
 }

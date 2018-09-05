@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/oplog"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -273,7 +273,7 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	var err error
 	c.oplogTailer, err = oplog.Open(c.mdbSession)
 	if err != nil {
-		//TODO return error
+		log.Printf("Cannot start oplog backup: %s", err)
 	}
 
 	c.lock.Lock()
@@ -281,7 +281,12 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	c.lock.Unlock()
 
 	n, err := io.Copy(writers[len(writers)-1], c.oplogTailer)
+	if err != nil {
+		log.Fatalf("Cannot copy oplog tailer to buffer: %s", err)
+	}
+	c.lock.Lock()
 	c.status.BytesSent += uint64(n)
+	c.lock.Unlock()
 
 	for i := len(writers); i < 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
@@ -311,7 +316,6 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 		Error:    "",
 	}
 	c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
-
 }
 
 func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
@@ -401,27 +405,27 @@ func (c *Client) setOplogBackupRunning(status bool) {
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
-	if err := c.oplogTailer.Close(); err != nil {
-		c.streamSend(&pb.ClientMessage{
-			Type:     pb.ClientMessage_ERROR,
-			ClientID: c.clientID,
-			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot stop oplog tail: %s", err.Error())},
-		})
-		log.Printf("Error stopping the oplog tailer: %s", err)
-		return
-	}
 	c.streamSend(&pb.ClientMessage{
 		Type:     pb.ClientMessage_ACK,
 		ClientID: c.clientID,
-		Payload:  &pb.ClientMessage_AckMsg{},
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	})
+	if err := c.oplogTailer.Close(); err != nil {
+		//c.grpcClient.OplogBackupFinished(context.Background(), &pb.ClientMessage
+		//c.streamSend(&pb.ClientMessage{
+		//	Type:     pb.ClientMessage_ERROR,
+		//	ClientID: c.clientID,
+		//	Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot stop oplog tail: %s", err.Error())},
+		//})
+		log.Printf("Error stopping the oplog tailer: %s", err)
+		return
+	}
 }
 
 func (c *Client) processStatus() {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 
-	c.streamSend(&pb.ClientMessage{
+	msg := &pb.ClientMessage{
 		Type:     pb.ClientMessage_STATUS,
 		ClientID: c.clientID,
 		Payload: &pb.ClientMessage_StatusMsg{
@@ -442,7 +446,10 @@ func (c *Client) processStatus() {
 				OplogStartTime:     c.status.OplogStartTime,
 			},
 		},
-	})
+	}
+	c.lock.Unlock()
+
+	c.streamSend(msg)
 }
 
 func (c *Client) processGetBackupSource() {
@@ -476,7 +483,11 @@ func (c *Client) processGetBackupSource() {
 func (c *Client) streamSend(msg *pb.ClientMessage) error {
 	c.streamLock.Lock()
 	defer c.streamLock.Unlock()
-	return c.stream.Send(msg)
+	err := c.stream.Send(msg)
+	if err != nil {
+		log.Printf("Error en streamSend: %s.\nMessage: %+v", err, msg)
+	}
+	return err
 }
 
 func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {

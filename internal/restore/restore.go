@@ -12,17 +12,19 @@ import (
 )
 
 type MongoRestoreInput struct {
-	Archive  string
-	DryRun   bool // Used only for testing
-	Host     string
-	Port     string
-	Username string
-	Password string
-	AuthDB   string
-	Gzip     bool
-	Oplog    bool
-	Threads  int
-	Reader   io.ReadCloser
+	Archive           string
+	DryRun            bool // Used only for testing
+	Host              string
+	Port              string
+	Username          string
+	Password          string
+	AuthDB            string
+	Gzip              bool
+	Oplog             bool
+	Threads           int
+	SkipUsersAndRoles bool
+
+	Reader io.ReadCloser
 }
 
 type MongoRestore struct {
@@ -99,11 +101,12 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 	}
 
 	restore := &mongorestore.MongoRestore{
-		ToolOptions:     toolOpts,
-		OutputOptions:   outputOpts,
-		InputOptions:    inputOpts,
-		NSOptions:       &mongorestore.NSOptions{},
-		SessionProvider: provider,
+		ToolOptions:       toolOpts,
+		OutputOptions:     outputOpts,
+		InputOptions:      inputOpts,
+		NSOptions:         &mongorestore.NSOptions{},
+		SkipUsersAndRoles: i.SkipUsersAndRoles,
+		SessionProvider:   provider,
 	}
 
 	if err := restore.ParseAndValidateOptions(); err != nil {
