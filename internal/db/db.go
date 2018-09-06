@@ -58,7 +58,7 @@ func validateConnection(conn *tls.Conn, tlsConfig *tls.Config, dnsName string) e
 }
 
 type Config struct {
-	Host     string
+	Addrs    []string
 	Username string
 	Password string
 	CertFile string
@@ -70,7 +70,7 @@ type Config struct {
 func NewDialInfo(config *Config) (*mgo.DialInfo, error) {
 	dialInfo := &mgo.DialInfo{
 		AppName:  appName,
-		Addrs:    []string{config.Host},
+		Addrs:    config.Addrs,
 		Username: config.Username,
 		Password: config.Password,
 		Direct:   true,

@@ -2,9 +2,11 @@ package testutils
 
 import (
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/globalsign/mgo"
+	"github.com/percona/mongodb-backup/internal/db"
 )
 
 const (
@@ -31,73 +33,92 @@ var (
 	MongoDBUser                 = os.Getenv(envMongoDBUser)
 	MongoDBPassword             = os.Getenv(envMongoDBPassword)
 	MongoDBTimeout              = time.Duration(10) * time.Second
+	MongoDBSSLDir               = filepath.Abs("../../docker/test/ssl")
+	MongoDBSSLPEMKeyFile        = filepath.Join(MongoDBSSLDir, "client.pem")
+	MongoDBSSLCACertFile        = filepath.Join(MongoDBSSLDir, "rootCA.crt")
 	defaultAddr                 = []string{MongoDBHost + ":19001"}
 )
 
-func dialInfo(addrs []string) *mgo.DialInfo {
-	di := &mgo.DialInfo{
-		Addrs:   addrs,
-		Timeout: MongoDBTimeout,
+func dialInfo(addrs []string) (*mgo.DialInfo, error) {
+	di, err := db.NewDialInfo(&db.Config{
+		Host:     addrs,
+		Username: MongoDBUser,
+		Password: MongoDBPassword,
+		CertFile: MongoDBSSLPEMKeyFile,
+		CAFile:   MongoDBSSLCACertFile,
+		Timeout:  MongoDBTimeout,
+	})
+	if err != nil {
+		return nil, err
 	}
 	if MongoDBReplsetName != "" {
 		di.ReplicaSetName = MongoDBReplsetName
 	}
-	if MongoDBUser != "" && MongoDBPassword != "" {
-		di.Username = MongoDBUser
-		di.Password = MongoDBPassword
+	return di, nil
+}
+
+func DialInfoForPort(t *testing.T, port string) *mgo.DialInfo {
+	di, err := dialInfo([]string{
+		MongoDBHost + ":" + port,
+	})
+	if err != nil {
+		t.Fatalf(".DialInfoForPort() failed: %v", err.Error())
 	}
 	return di
 }
 
-func DialInfoForPort(port string) *mgo.DialInfo {
-	di := dialInfo([]string{
-		MongoDBHost + ":" + port,
-	})
-	di.Direct = true
-	return di
-}
-
-func PrimaryDialInfo() *mgo.DialInfo {
+func PrimaryDialInfo(t *testing.T) *mgo.DialInfo {
 	addrs := defaultAddr
 	if MongoDBPrimaryPort != "" {
 		addrs = []string{MongoDBHost + ":" + MongoDBPrimaryPort}
 	}
-	di := dialInfo(addrs)
-	di.Direct = true
+	di, err := dialInfo(addrs)
+	if err != nil {
+		t.Fatalf(".PrimaryDialInfo() failed: %v", err.Error())
+	}
 	return di
 }
 
-func ReplsetDialInfo() *mgo.DialInfo {
+func ReplsetDialInfo(t *testing.T) *mgo.DialInfo {
+	var err error
 	var di *mgo.DialInfo
 	if MongoDBSecondary1Port != "" && MongoDBSecondary2Port != "" {
-		di = PrimaryDialInfo()
+		di, err = PrimaryDialInfo()
 	} else {
-		di = dialInfo([]string{
+		di, err = dialInfo([]string{
 			MongoDBHost + ":" + MongoDBPrimaryPort,
 			MongoDBHost + ":" + MongoDBSecondary1Port,
 			MongoDBHost + ":" + MongoDBSecondary2Port,
 		})
 	}
+	if err != nil {
+		t.Fatalf(".ReplsetDialInfo() failed: %v", err.Error())
+	}
 	di.Direct = false
 	return di
 }
 
-func ConfigsvrReplsetDialInfo() *mgo.DialInfo {
+func ConfigsvrReplsetDialInfo(t *testing.T) *mgo.DialInfo {
 	if MongoDBConfigsvrReplsetName == "" || MongoDBConfigsvr1Port == "" {
 		return &mgo.DialInfo{}
 	}
-	di := dialInfo([]string{MongoDBHost + ":" + MongoDBConfigsvr1Port})
+	di, err := dialInfo([]string{MongoDBHost + ":" + MongoDBConfigsvr1Port})
+	if err != nil {
+		t.Fatalf(".ConfigsvrReplsetDialInfo() failed: %v", err.Error())
+	}
 	di.ReplicaSetName = MongoDBConfigsvrReplsetName
 	di.Direct = false
 	return di
 }
 
-func MongosDialInfo() *mgo.DialInfo {
+func MongosDialInfo(t *testing.T) *mgo.DialInfo {
 	if MongoDBMongosPort == "" {
 		return &mgo.DialInfo{}
 	}
-	di := dialInfo([]string{MongoDBHost + ":" + MongoDBMongosPort})
-	di.Direct = true
+	di, err := dialInfo([]string{MongoDBHost + ":" + MongoDBMongosPort})
+	if err != nil {
+		t.Fatalf(".MongosDialInfo() failed: %v", err.Error())
+	}
 	di.ReplicaSetName = ""
 	return di
 }
