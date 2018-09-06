@@ -167,6 +167,18 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/prometheus/common"
+  packages = ["log"]
+  revision = "c7de2306084e37d54b8be01f3541a8464345e9a5"
+
+[[projects]]
+  name = "github.com/sirupsen/logrus"
+  packages = ["."]
+  revision = "3e01752db0189b9157070a0e1668a620f9a85da2"
+  version = "v1.0.6"
+
+[[projects]]
+  branch = "master"
   name = "github.com/spacemonkeygo/spacelog"
   packages = ["."]
   revision = "2296661a0572a51438413369004fa931c2641923"
@@ -202,7 +214,9 @@
   name = "golang.org/x/sys"
   packages = [
     "unix",
-    "windows"
+    "windows",
+    "windows/registry",
+    "windows/svc/eventlog"
   ]
   revision = "d99a578cf41bfccdeaf48b0845c823a4b8b0ad5e"
 
@@ -266,6 +280,12 @@
   ]
   revision = "32fb0ac620c32ba40a4626ddf94d90d12cce3455"
   version = "v1.14.0"
+
+[[projects]]
+  name = "gopkg.in/alecthomas/kingpin.v2"
+  packages = ["."]
+  revision = "947dcec5ba9c011838740e680966fd7087a71d0d"
+  version = "v2.2.6"
 
 [[projects]]
   branch = "v2"

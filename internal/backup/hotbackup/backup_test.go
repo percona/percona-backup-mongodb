@@ -12,6 +12,7 @@ import (
 )
 
 func TestHotBackupNewBackupWiredTiger(t *testing.T) {
+	t.Skip("Sandbox does not support hotback")
 	checkHotBackupTest(t)
 
 	tmpDBPath, err := ioutil.TempDir("", t.Name())
@@ -62,6 +63,7 @@ func TestHotBackupNewBackupWiredTiger(t *testing.T) {
 }
 
 func TestHotBackupNewBackupMMAPv1(t *testing.T) {
+	t.Skip("Sandbox does not support hotback")
 	// this should fail because mmapv1 is used
 	tmpDBPath, err := ioutil.TempDir("", t.Name())
 	if err != nil {

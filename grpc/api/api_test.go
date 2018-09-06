@@ -54,7 +54,7 @@ func TestServerAndClients(t *testing.T) {
 		&pb.ClientMessage{
 			Type:     pb.ClientMessage_REGISTER,
 			ClientID: clientID,
-			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
+			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.Register{NodeType: pb.NodeType_MONGOD}},
 		},
 		nil,
 	}
@@ -74,7 +74,7 @@ func TestServerAndClients(t *testing.T) {
 		&pb.ClientMessage{
 			Type:     pb.ClientMessage_PONG,
 			ClientID: clientID,
-			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.RegisterPayload{NodeType: pb.NodeType_MONGOD}},
+			Payload:  &pb.ClientMessage_RegisterMsg{RegisterMsg: &pb.Register{NodeType: pb.NodeType_MONGOD}},
 		},
 		nil,
 	}
