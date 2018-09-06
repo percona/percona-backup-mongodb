@@ -68,8 +68,8 @@
     "service/s3/s3manager",
     "service/sts"
   ]
-  revision = "505514fea21d88b799f6fbef79fb0c0b108e3437"
-  version = "v1.15.17"
+  revision = "8b15f938ed215522a37275106e847f6f0be85fe8"
+  version = "v1.15.23"
 
 [[projects]]
   branch = "development"
@@ -82,8 +82,7 @@
     "internal/sasl",
     "internal/scram"
   ]
-  revision = "d1bb1297f2d4958e0f124dc749452d2fd7f381b8"
-  source = "github.com/timvaillancourt/mgo"
+  revision = "17e24ca935d32ddc5b6995d74e285a72972adb36"
 
 [[projects]]
   name = "github.com/go-ini/ini"
@@ -208,7 +207,7 @@
     "internal/timeseries",
     "trace"
   ]
-  revision = "922f4815f713f213882e8ef45e0d315b164d705c"
+  revision = "8a410e7b638dca158bf9e766925842f6651ff828"
 
 [[projects]]
   branch = "master"
@@ -219,7 +218,7 @@
     "windows/registry",
     "windows/svc/eventlog"
   ]
-  revision = "3b58ed4ad3395d483fc92d5d14123ce2c3581fec"
+  revision = "d99a578cf41bfccdeaf48b0845c823a4b8b0ad5e"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -309,6 +308,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "d28267bd6b22a432a653512f37c87bb0eb5bdec78e1772f759ea9172c22bf255"
+  inputs-digest = "ad96b1e0c9c1e42f16b07ac6592d5976196bac8cf79ac02aa8e389160b993a31"
   solver-name = "gps-cdcl"
   solver-version = 1
