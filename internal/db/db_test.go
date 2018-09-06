@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,13 +112,13 @@ func TestValidateConnection(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = validateConnection(conn, tlsConfig, host)
+	err = validateConnection(conn, tlsConfig, testutils.MongoDBHost)
 	if err != nil {
 		t.Fatalf("Failed to run .validateConnection(): %v", err.Error())
 	}
 
 	err = validateConnection(conn, tlsConfig, "this.should.fail")
-	if err == nil || err.Error() != "x509: certificate is not valid for any names, but wanted to match this.should.fail" {
+	if err == nil || !(strings.HasPrefix(err.Error(), "x509: certificate is valid for ") && strings.HasSuffix(err.Error(), " not this.should.fail")) {
 		t.Fatalf("Expected an error from .validateConnection(): %v", err.Error())
 	}
 }
