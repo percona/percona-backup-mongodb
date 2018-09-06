@@ -158,13 +158,13 @@ shard2=${TEST_MONGODB_S2_RS}'/127.0.0.1:'${TEST_MONGODB_S2_PRIMARY_PORT}',127.0.
 for shard in $shard1 $shard2; do
 	tries=1
 	while [ $tries -lt $max_tries ]; do
-		ISMASTER=$(/usr/bin/mongo ${MONGO_FLAGS} \
+		ADDSHARD=$(/usr/bin/mongo ${MONGO_FLAGS} \
 			--username=${TEST_MONGODB_ADMIN_USERNAME} \
 			--password=${TEST_MONGODB_ADMIN_PASSWORD} \
 			--port=${TEST_MONGODB_MONGOS_PORT} \
 			--eval='printjson(sh.addShard("'$shard'").ok)' \
 			admin 2>/dev/null)
-		[ $? == 0 ] && [ "$ISMASTER" == "1" ] && break
+		[ $? == 0 ] && [ "$ADDSHARD" == "1" ] && break
 		echo "# INFO: retrying sh.addShard() check for '$shard' in $sleep_secs secs (try $tries/$max_tries)"
 		sleep $sleep_secs
 		tries=$(($tries + 1))
@@ -175,3 +175,41 @@ for shard in $shard1 $shard2; do
 	fi
 	echo "# INFO: added shard: $shard"
 done
+
+tries=1
+while [ $tries -lt $max_tries ]; do
+	ENABLESHARDING=$(/usr/bin/mongo ${MONGO_FLAGS} \
+		--username=${TEST_MONGODB_ADMIN_USERNAME} \
+		--password=${TEST_MONGODB_ADMIN_PASSWORD} \
+		--port=${TEST_MONGODB_MONGOS_PORT} \
+		--eval='sh.enableSharding("test").ok' \
+		admin 2>/dev/null)
+	[ $? == 0 ] && [ "$ENABLESHARDING" == "1" ] && break
+	echo "# INFO: retrying sh.enableSharding(\"test\") check in $sleep_secs secs (try $tries/$max_tries)"
+	sleep $sleep_secs
+	tries=$(($tries + 1))
+done
+if [ $tries -ge $max_tries ]; then
+	echo "# ERROR: reached max tries $max_tries for '$shard', exiting"
+	exit 1
+fi
+echo "# INFO: \"test\" database is now sharded"
+
+tries=1
+while [ $tries -lt $max_tries ]; do
+	SHARDCOL=$(/usr/bin/mongo ${MONGO_FLAGS} \
+		--username=${TEST_MONGODB_ADMIN_USERNAME} \
+		--password=${TEST_MONGODB_ADMIN_PASSWORD} \
+		--port=${TEST_MONGODB_MONGOS_PORT} \
+		--eval='sh.shardCollection("test.test", {_id: 1}).ok' \
+		admin 2>/dev/null)
+	[ $? == 0 ] && [ "$ENABLESHARDING" == "1" ] && break
+	echo "# INFO: retrying sh.shardCollection(\"test.test\", {_id: 1}) check in $sleep_secs secs (try $tries/$max_tries)"
+	sleep $sleep_secs
+	tries=$(($tries + 1))
+done
+if [ $tries -ge $max_tries ]; then
+	echo "# ERROR: reached max tries $max_tries for '$shard', exiting"
+	exit 1
+fi
+echo "# INFO: \"test.test\" collection is now sharded"
