@@ -63,7 +63,7 @@ endif
 	
 test: env vendor
 	$(shell cat .env) \
-	go test -v -covermode=atomic $(GO_TEST_EXTRA) $(GO_TEST_PATH)
+	go test -covermode=atomic -count 1 -race -timeout 2m $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
 test-cluster: env
 	docker-compose up \

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
@@ -20,6 +22,29 @@ type cliOptios struct {
 	serverAddress *string
 	tls           *bool
 	caFile        *string
+
+	// MongoDB connection options
+	mongodbConnOptions struct {
+		Host                string
+		Port                string
+		User                string
+		Password            string
+		ReplicasetName      string
+		Timeout             int
+		TCPKeepAliveSeconds int
+	}
+
+	// MongoDB connection SSL options
+	mongodbSslOptions struct {
+		UseSSL              bool
+		SSLCAFile           string
+		SSLPEMKeyFile       string
+		SSLPEMKeyPassword   string
+		SSLCRLFile          string
+		SSLAllowInvalidCert bool
+		SSLAllowInvalidHost bool
+		SSLFipsMode         bool
+	}
 }
 
 func main() {
@@ -38,15 +63,28 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
+	log.Printf("Connected to the gRPC server at %s", *opts.serverAddress)
 
 	// Connect to the MongoDB instance
-	mdbSession, err := mgo.Dial(*opts.serverAddress)
+	var di *mgo.DialInfo
+	if *opts.dsn == "" {
+		di = &mgo.DialInfo{
+			Addrs: []string{opts.mongodbConnOptions.Host + ":" + opts.mongodbConnOptions.Port},
+		}
+	} else {
+		di, err = mgo.ParseURL(*opts.dsn)
+		if err != nil {
+			log.Fatalf("Cannot parse MongoDB dsn %q, %s", *opts.dsn, err)
+		}
+	}
+	mdbSession, err := mgo.DialWithInfo(di)
 	if err != nil {
-		log.Fatalf("Cannot connect to the %s: %s", *opts.serverAddress, err)
+		log.Fatalf("Cannot connect to MongoDB on %s: %s", di.Addrs[0], err)
 	}
 	defer mdbSession.Close()
+	log.Printf("Connected to MongoDB at %s", di.Addrs[0])
 
-	client, err := client.NewClient(mdbSession, conn)
+	client, err := client.NewClient(context.Background(), opts.mongodbConnOptions, opts.mongodbSslOptions, conn)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
@@ -64,11 +102,32 @@ func processCliArgs() (*cliOptios, error) {
 		caFile:        app.Flag("ca-file", "CA file").String(),
 	}
 
+	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.mongodbConnOptions.Host)
+	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.mongodbConnOptions.Port)
+	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.mongodbConnOptions.User)
+	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.mongodbConnOptions.Password)
+	app.Flag("replicaset", "Replicaset name").StringVar(&opts.mongodbConnOptions.ReplicasetName)
+
 	_, err := app.Parse(os.Args[1:])
 	if err != nil {
 		return nil, err
 	}
 
+	if *opts.dsn != "" {
+		di, err := mgo.ParseURL(*opts.dsn)
+		if err != nil {
+			return nil, err
+		}
+		parts := strings.Split(di.Addrs[0], ":")
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid host:port: %s", di.Addrs[0])
+		}
+		opts.mongodbConnOptions.Host = parts[0]
+		opts.mongodbConnOptions.Port = parts[1]
+		opts.mongodbConnOptions.User = di.Username
+		opts.mongodbConnOptions.Password = di.Password
+		opts.mongodbConnOptions.ReplicasetName = di.ReplicaSetName
+	}
 	return opts, nil
 }
 
