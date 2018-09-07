@@ -16,21 +16,21 @@ import (
 const testSSLDir = "../../docker/test/ssl"
 
 var (
-	testSSLPEMKey = filepath.Join(testSSLDir, "mongodb.pem")
-	testSSLCACert = filepath.Join(testSSLDir, "rootCA.crt")
+	TestSSLPEMKey = filepath.Join(testSSLDir, "mongodb.pem")
+	TestSSLCACert = filepath.Join(testSSLDir, "rootCA.crt")
 )
 
 func TestNewDialInfo(t *testing.T) {
 	// missing certificate files
 	_, err := NewDialInfo(&Config{
 		CertFile: "/does/not/exist",
-		CAFile:   testSSLCACert,
+		CAFile:   TestSSLCACert,
 	})
 	if err == nil {
 		t.Fatal("Expected an error for .NewDialInfo() on missing PEM key file")
 	}
 	_, err = NewDialInfo(&Config{
-		CertFile: testSSLPEMKey,
+		CertFile: TestSSLPEMKey,
 		CAFile:   "/does/not/exist",
 	})
 	if err == nil {
@@ -44,13 +44,13 @@ func TestNewDialInfo(t *testing.T) {
 	tmpFile.Write([]byte("this is not an x509 certificate"))
 	_, err = NewDialInfo(&Config{
 		CertFile: tmpFile.Name(),
-		CAFile:   testSSLCACert,
+		CAFile:   TestSSLCACert,
 	})
 	if err == nil {
 		t.Fatal("Expected an error from .NewDialInfo() on malformed PEM certificate file")
 	}
 	_, err = NewDialInfo(&Config{
-		CertFile: testSSLPEMKey,
+		CertFile: TestSSLPEMKey,
 		CAFile:   tmpFile.Name(),
 	})
 	if err == nil {
@@ -59,8 +59,8 @@ func TestNewDialInfo(t *testing.T) {
 
 	// test insecure mode
 	di, err := NewDialInfo(&Config{
-		CertFile: testSSLPEMKey,
-		CAFile:   testSSLCACert,
+		CertFile: TestSSLPEMKey,
+		CAFile:   TestSSLCACert,
 		Insecure: true,
 	})
 	if err != nil {
@@ -72,8 +72,8 @@ func TestNewDialInfo(t *testing.T) {
 		Host:     testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
 		Username: testutils.MongoDBUser,
 		Password: testutils.MongoDBPassword,
-		CertFile: testSSLPEMKey,
-		CAFile:   testSSLCACert,
+		CertFile: TestSSLPEMKey,
+		CAFile:   TestSSLCACert,
 		Timeout:  time.Second,
 	})
 	if err != nil {
@@ -91,14 +91,14 @@ func TestNewDialInfo(t *testing.T) {
 }
 
 func TestValidateConnection(t *testing.T) {
-	roots, err := loadCaCertificate(testSSLCACert)
+	roots, err := loadCaCertificate(TestSSLCACert)
 	if err != nil {
 		t.Fatalf("Could not load test root CA cert: %v", err.Error())
 	}
 
-	certificates, err := tls.LoadX509KeyPair(testSSLPEMKey, testSSLPEMKey)
+	certificates, err := tls.LoadX509KeyPair(TestSSLPEMKey, TestSSLPEMKey)
 	if err != nil {
-		t.Fatalf("Cannot load key pair from '%s': %v", testSSLPEMKey, err)
+		t.Fatalf("Cannot load key pair from '%s': %v", TestSSLPEMKey, err)
 	}
 
 	host := testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort

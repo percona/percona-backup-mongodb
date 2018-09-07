@@ -84,6 +84,10 @@ func TestMain(m *testing.M) {
 		filename = f
 	}
 
+	if os.Getenv("DISABLE_AWS_TESTS") == "1" {
+		log.Printf("Env var DISABLE_AWS_TESTS=1 . Skipping internal/s3writer/s3_test.go")
+		return
+	}
 	os.Exit(m.Run())
 }
 

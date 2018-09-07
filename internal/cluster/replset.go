@@ -36,7 +36,7 @@ func HasReplsetMemberTags(member *mdbstructs.ReplsetConfigMember, tags map[strin
 //
 func getReplsetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 	rsGetConfig := mdbstructs.ReplSetGetConfig{}
-	err := session.Run(bson.D{{"replSetGetConfig", "1"}}, &rsGetConfig)
+	err := session.Run(bson.D{{Name: "replSetGetConfig", Value: "1"}}, &rsGetConfig)
 	return rsGetConfig.Config, err
 }
 
@@ -47,7 +47,7 @@ func getReplsetConfig(session *mgo.Session) (*mdbstructs.ReplsetConfig, error) {
 //
 func getReplsetStatus(session *mgo.Session) (*mdbstructs.ReplsetStatus, error) {
 	status := mdbstructs.ReplsetStatus{}
-	err := session.Run(bson.D{{"replSetGetStatus", "1"}}, &status)
+	err := session.Run(bson.D{{Name: "replSetGetStatus", Value: "1"}}, &status)
 	return &status, err
 }
 
