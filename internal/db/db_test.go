@@ -69,7 +69,9 @@ func TestNewDialInfo(t *testing.T) {
 
 	// test secure mode
 	di, err = NewDialInfo(&Config{
-		Host:     testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort,
+		Addrs: []string{
+			testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "primary"),
+		},
 		Username: testutils.MongoDBUser,
 		Password: testutils.MongoDBPassword,
 		CertFile: TestSSLPEMKey,
@@ -101,7 +103,7 @@ func TestValidateConnection(t *testing.T) {
 		t.Fatalf("Cannot load key pair from '%s': %v", TestSSLPEMKey, err)
 	}
 
-	host := testutils.MongoDBHost + ":" + testutils.MongoDBPrimaryPort
+	host := testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "primary")
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{certificates},
 		RootCAs:      roots,

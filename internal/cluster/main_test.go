@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	testSecondary2Host = testutils.MongoDBHost + ":" + testutils.MongoDBSecondary2Port
+	testSecondary2Host = testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "secondary2")
 )
 
 func loadBSONFile(file string, out interface{}) error {
