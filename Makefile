@@ -81,6 +81,7 @@ test-cluster: env
 	docker-compose up \
 	--detach \
 	--force-recreate \
+	--always-recreate-deps \
 	--renew-anon-volumes \
 	init
 	docker/test/init-cluster-wait.sh
