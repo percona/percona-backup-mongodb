@@ -5,10 +5,11 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestNewIsMaster(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -23,7 +24,7 @@ func TestNewIsMaster(t *testing.T) {
 }
 
 func TestIsMasterIsReplset(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -40,7 +41,7 @@ func TestIsMasterIsReplset(t *testing.T) {
 
 func TestIsMasterIsMongos(t *testing.T) {
 	// primary (should fail)
-	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	pSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -55,7 +56,7 @@ func TestIsMasterIsMongos(t *testing.T) {
 	pSession.Close()
 
 	// mongos (should succeed)
-	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -71,7 +72,7 @@ func TestIsMasterIsMongos(t *testing.T) {
 
 func TestIsMasterIsConfigServer(t *testing.T) {
 	// primary (should fail)
-	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	pSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -86,7 +87,7 @@ func TestIsMasterIsConfigServer(t *testing.T) {
 	pSession.Close()
 
 	// configsvr (should succeed)
-	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -101,7 +102,7 @@ func TestIsMasterIsConfigServer(t *testing.T) {
 }
 
 func TestIsMasterIsShardedCluster(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -117,7 +118,7 @@ func TestIsMasterIsShardedCluster(t *testing.T) {
 
 func TestIsMasterIsShardServer(t *testing.T) {
 	// configsvr (should fail)
-	cSession, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo())
+	cSession, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -132,7 +133,7 @@ func TestIsMasterIsShardServer(t *testing.T) {
 	cSession.Close()
 
 	// shardsvr (should succeed)
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary replset: %v", err.Error())
 	}

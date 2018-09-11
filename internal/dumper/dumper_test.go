@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/percona/mongodb-backup/internal/testutils"
@@ -29,9 +30,10 @@ func TestWriteToFile(t *testing.T) {
 	}
 	diag("Using temporary file %q", tmpFile.Name())
 
+	host := strings.SplitN(testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "primary"), ":", 2)
 	mi := &MongodumpInput{
-		Host:     testutils.MongoDBHost,
-		Port:     testutils.MongoDBPrimaryPort,
+		Host:     host[0],
+		Port:     host[1],
 		Username: testutils.MongoDBUser,
 		Password: testutils.MongoDBPassword,
 		Gzip:     false,

@@ -5,10 +5,11 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestNewShardingState(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
@@ -17,13 +18,13 @@ func TestNewShardingState(t *testing.T) {
 	s, err := NewShardingState(session)
 	if err != nil {
 		t.Fatalf("Failed to run .NewShardingState(): %v", err.Error())
-	} else if s.state.Ok != 1 || !s.state.Enabled || s.state.ShardName != testutils.MongoDBReplsetName || s.state.ConfigServer == "" {
+	} else if s.state.Ok != 1 || !s.state.Enabled || s.state.ShardName != testutils.MongoDBShard1ReplsetName || s.state.ConfigServer == "" {
 		t.Fatal("Got unexpected output from .NewShardingState()")
 	}
 }
 
 func TestShardingStateClusterID(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
@@ -37,7 +38,7 @@ func TestShardingStateClusterID(t *testing.T) {
 	}
 
 	// check clusterId fetched from the shard/primary is same as mongos
-	mongosSession, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	mongosSession, err := mgo.DialWithInfo(db.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}
@@ -54,7 +55,7 @@ func TestShardingStateClusterID(t *testing.T) {
 }
 
 func TestGetClusterID(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.MongosDialInfo())
+	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}
