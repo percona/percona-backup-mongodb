@@ -5,6 +5,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/internal/testutils/db"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
@@ -15,7 +16,7 @@ const (
 )
 
 func TestReplsetScoreMembers(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}

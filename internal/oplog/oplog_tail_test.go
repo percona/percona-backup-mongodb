@@ -19,6 +19,7 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/internal/testutils/db"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -70,7 +71,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Cannot connect to MongoDB: %s", err)
 	}
@@ -87,7 +88,7 @@ func TestDetermineOplogCollectionName(t *testing.T) {
 }
 
 func TestBasicReader(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Cannot connect to MongoDB: %s", err)
 	}
@@ -137,7 +138,7 @@ func TestTailerCopy(t *testing.T) {
 		defer os.Remove(tmpfile.Name()) // clean up
 	}
 
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Cannot connect to MongoDB: %s", err)
 	}
@@ -170,7 +171,7 @@ func TestTailerCopy(t *testing.T) {
 }
 
 func TestSeveralOplogDocTypes(t *testing.T) {
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	// Start tailing the oplog
 	defer session.Close()
 
@@ -256,7 +257,7 @@ func TestUploadOplogToS3(t *testing.T) {
 	bucket := fmt.Sprintf("percona-mongodb-backup-test-%05d", rand.Int63n(100000))
 	filename := "percona-mongodb-backup-oplog"
 
-	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	mdbSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Errorf("Cannot connect to MongoDB: %s", err)
 		t.Fail()
