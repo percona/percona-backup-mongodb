@@ -160,7 +160,6 @@ func (ot *OplogTail) tail() {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
-			//ot.setRunning(false)
 			return
 		default:
 		}
@@ -298,7 +297,7 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 		select {
 		case <-ot.readerStopChan:
 			ot.readFunc = func([]byte) (int, error) {
-				return 0, fmt.Errorf("file alredy closed")
+				return 0, fmt.Errorf("already closed")
 			}
 			return 0, io.EOF
 		case doc := <-ot.dataChan:
@@ -321,8 +320,8 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 			}
 			copy(buf, doc)
 			return retSize, nil
-		case <-time.After(5 * time.Second):
-			return 0, io.EOF
+			//case <-time.After(5 * time.Second):
+			//	return 0, io.EOF
 		}
 	}
 }

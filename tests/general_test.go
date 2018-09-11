@@ -27,6 +27,7 @@ import (
 )
 
 var port, apiPort string
+var grpcServerShutdownTimeout = 30
 
 const (
 	dbName  = "test"
@@ -74,7 +75,7 @@ func TestGlobal(t *testing.T) {
 
 	wg.Add(1)
 	log.Printf("Starting agents gRPC server. Listening on %s", lis.Addr().String())
-	runAgentsGRPCServer(grpcServer, lis, gRPCServerStopChan, wg)
+	runAgentsGRPCServer(grpcServer, lis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
 
 	//
 	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", apiPort))
@@ -89,7 +90,7 @@ func TestGlobal(t *testing.T) {
 
 	wg.Add(1)
 	log.Printf("Starting API gRPC server. Listening on %s", apilis.Addr().String())
-	runAgentsGRPCServer(apiGrpcServer, apilis, gRPCServerStopChan, wg)
+	runAgentsGRPCServer(apiGrpcServer, apilis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
 
 	// Let's start an agent
 	clientOpts := []grpc.DialOption{grpc.WithInsecure()}
@@ -235,23 +236,6 @@ func TestGlobal(t *testing.T) {
 	testOplogApply(t, session, tmpDir, max.Number)
 }
 
-func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, stopChan chan interface{}, wg *sync.WaitGroup) {
-	go func() {
-		err := grpcServer.Serve(lis)
-		if err != nil {
-			log.Printf("Cannot start agents gRPC server: %s", err)
-		}
-		log.Println("Stopping server " + lis.Addr().String())
-		wg.Done()
-	}()
-
-	go func() {
-		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		grpcServer.GracefulStop()
-	}()
-}
-
 func testRestore(t *testing.T, session *mgo.Session, dir string) {
 	log.Println("Starting mongo restore")
 	if err := session.DB(dbName).C(colName).DropCollection(); err != nil {
@@ -381,4 +365,33 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 			i++
 		}
 	}
+}
+func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
+	go func() {
+		err := grpcServer.Serve(lis)
+		if err != nil {
+			log.Printf("Cannot start agents gRPC server: %s", err)
+		}
+		log.Println("Stopping server " + lis.Addr().String())
+		wg.Done()
+	}()
+
+	go func() {
+		<-stopChan
+		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
+		// Try to Gracefuly stop the gRPC server.
+		c := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			c <- struct{}{}
+		}()
+
+		// If after shutdownTimeout the server hasn't stop, just kill it.
+		select {
+		case <-c:
+			return
+		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
+			grpcServer.Stop()
+		}
+	}()
 }

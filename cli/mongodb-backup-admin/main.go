@@ -99,7 +99,6 @@ func printConnectedAgents(clients []*pbapi.Client) {
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
-
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
 	opts := &cliOptions{
 		clientID:    kingpin.Flag("client-id", "Client ID").Required().String(),

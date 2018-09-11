@@ -96,6 +96,12 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 
 	stream, err := grpcClient.MessagesChat(ctx)
 
+	log.Infof("Cluster ID     : %s", clusterIDString)
+	log.Infof("Node type      : %s", nodeType)
+	log.Infof("Node name      : %s", nodeName)
+	log.Infof("Replicaset name: %s", replset.Name())
+	log.Infof("Replicaset ID  : %s", replset.ID().Hex())
+
 	m := &pb.ClientMessage{
 		ClientID: nodeName,
 		Type:     pb.ClientMessage_REGISTER,
@@ -110,6 +116,7 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 		},
 	}
 
+	log.Infof("Registering node ...")
 	if err := stream.Send(m); err != nil {
 		return nil, errors.Wrap(err, "Failed to send registration message")
 	}
@@ -121,6 +128,7 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 	if response.Type != pb.ServerMessage_REGISTRATION_OK {
 		return nil, fmt.Errorf("Invalid registration response type: %d", response.Type)
 	}
+	log.Infof("Node registration OK.")
 
 	c := &Client{
 		clientID:       nodeName,
@@ -211,14 +219,20 @@ func (c *Client) processIncommingServerMessages() {
 }
 
 func (c *Client) processPing() {
-	c.streamSend(&pb.ClientMessage{
+	log.Debug("Received Ping command")
+	msg := (&pb.ClientMessage{
 		Type:     pb.ClientMessage_PONG,
 		ClientID: c.clientID,
 		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
 	})
+	log.Debugf("Sending PING response: %+v", msg)
+	c.streamSend(msg)
 }
 
 func (c *Client) processStartBackup(msg *pb.StartBackup) error {
+	log.Info("Received StartBackup command")
+	log.Debugf("Received start backup command: %+v", *msg)
+
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -247,6 +261,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) error {
 }
 
 func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
+	log.Info("Starting oplog backup")
 	writers := []io.WriteCloser{}
 
 	switch msg.GetDestinationType() {
@@ -273,52 +288,80 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 	var err error
 	c.oplogTailer, err = oplog.Open(c.mdbSession)
 	if err != nil {
-		log.Printf("Cannot start oplog backup: %s", err)
+		log.Errorf("Cannot open the oplog tailer: %s", err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientID: c.clientID,
+			OK:       false,
+			Ts:       time.Now().Unix(),
+			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
+		}
+		log.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
 	}
 
-	c.lock.Lock()
-	c.status.OplogBackupRunning = true
-	c.lock.Unlock()
-
+	c.setOplogBackupRunning(true)
 	n, err := io.Copy(writers[len(writers)-1], c.oplogTailer)
 	if err != nil {
-		log.Fatalf("Cannot copy oplog tailer to buffer: %s", err)
+		c.setOplogBackupRunning(false)
+		log.Errorf("Error while copying data from the oplog tailer: %s", err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientID: c.clientID,
+			OK:       false,
+			Ts:       time.Now().Unix(),
+			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
+		}
+		log.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
 	}
+
 	c.lock.Lock()
 	c.status.BytesSent += uint64(n)
 	c.lock.Unlock()
 
 	for i := len(writers); i < 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
-			writers[i].(flusher).Flush()
+			if err = writers[i].(flusher).Flush(); err != nil {
+				break
+			}
 		}
-		writers[i].Close()
+		if err = writers[i].Close(); err != nil {
+			break
+		}
 	}
-	c.lock.Lock()
-	c.status.OplogBackupRunning = false
-	c.lock.Unlock()
-
+	c.setOplogBackupRunning(false)
 	if err != nil {
+		err := fmt.Errorf("Cannot flush/close oplog chained writer: %s", err)
+		log.Error(err)
 		finishMsg := &pb.OplogBackupFinishStatus{
 			ClientID: c.clientID,
 			OK:       false,
 			Ts:       time.Now().Unix(),
 			Error:    err.Error(),
 		}
+		log.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
 		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
 		return
 	}
 
+	log.Info("Oplog backup completed")
 	finishMsg := &pb.OplogBackupFinishStatus{
 		ClientID: c.clientID,
 		OK:       true,
 		Ts:       time.Now().Unix(),
 		Error:    "",
 	}
-	c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+	log.Debugf("Sending OplogFinishStatus to the gRPC server: %+v", *finishMsg)
+	if ack, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+		log.Errorf("Cannot call OplogFinishStatus RPC method: %s", err)
+	} else {
+		log.Debugf("Received ACK from OplogFinishStatus RPC method: %+v", *ack)
+	}
 }
 
 func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
+	log.Info("Starting DB backup")
 	writers := []io.WriteCloser{}
 
 	switch msg.GetDestinationType() {
@@ -351,6 +394,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 		Threads:  1,
 		Writer:   writers[len(writers)-1],
 	}
+	log.Debugf("Calling Mongodump using: %+v", *mi)
 
 	mdump, err := dumper.NewMongodump(mi)
 	if err != nil {
@@ -365,14 +409,19 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 
 	for i := len(writers); i < 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
-			writers[i].(flusher).Flush()
+			if err = writers[i].(flusher).Flush(); err != nil {
+				break
+			}
 		}
-		writers[i].Close()
+		if err := writers[i].Close(); err != nil {
+			break
+		}
 	}
 
 	c.setDBBackupRunning(false)
 
 	if err != nil {
+		log.Errorf("Cannot flush/close the MongoDump writer: %s", err)
 		finishMsg := &pb.DBBackupFinishStatus{
 			ClientID: c.clientID,
 			OK:       false,
@@ -383,13 +432,20 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 		return
 	}
 
+	log.Info("DB dump completed")
+
 	finishMsg := &pb.DBBackupFinishStatus{
 		ClientID: c.clientID,
 		OK:       true,
 		Ts:       time.Now().Unix(),
 		Error:    "",
 	}
-	c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
+	log.Debugf("Sending DBBackupFinishStatus to the gRPC server: %+v", *finishMsg)
+	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
+		log.Errorf("Cannot call DBBackupFinished RPC method: %s", err)
+	} else {
+		log.Debugf("Recieved ACK from DBBackupFinished RPC method: %+v", *ack)
+	}
 }
 
 func (c *Client) setDBBackupRunning(status bool) {
@@ -405,24 +461,34 @@ func (c *Client) setOplogBackupRunning(status bool) {
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
-	c.streamSend(&pb.ClientMessage{
+	log.Info("Received StopOplogTail command")
+	out := &pb.ClientMessage{
 		Type:     pb.ClientMessage_ACK,
 		ClientID: c.clientID,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-	})
+	}
+	log.Debugf("Sending ACK message to the gRPC server")
+	c.streamSend(out)
+
 	if err := c.oplogTailer.Close(); err != nil {
-		//c.grpcClient.OplogBackupFinished(context.Background(), &pb.ClientMessage
-		//c.streamSend(&pb.ClientMessage{
-		//	Type:     pb.ClientMessage_ERROR,
-		//	ClientID: c.clientID,
-		//	Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot stop oplog tail: %s", err.Error())},
-		//})
-		log.Printf("Error stopping the oplog tailer: %s", err)
-		return
+		log.Errorf("Cannot stop the oplog tailer: %s", err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientID: c.clientID,
+			OK:       false,
+			Ts:       time.Now().Unix(),
+			Error:    fmt.Sprintf("Cannot close the oplog tailer: %s", err),
+		}
+		log.Debugf("Sending OplogFinishStatus with error to the gRPC server: %+v", *finishMsg)
+		if ack, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+			log.Errorf("Cannot call OplogBackupFinished RPC method: %s", err)
+		} else {
+			log.Debugf("Received ACK from OplogBackupFinished RPC method: %+v", *ack)
+		}
 	}
 }
 
 func (c *Client) processStatus() {
+	log.Info("Received Status command")
 	c.lock.Lock()
 
 	msg := &pb.ClientMessage{
@@ -449,35 +515,45 @@ func (c *Client) processStatus() {
 	}
 	c.lock.Unlock()
 
+	log.Debugf("Sending status to the gRPC server: %+v", *msg)
 	c.streamSend(msg)
 }
 
 func (c *Client) processGetBackupSource() {
+	log.Debugf("Received GetBackupSource command")
 	r, err := cluster.NewReplset(c.mdbSession)
 	if err != nil {
-		c.streamSend(&pb.ClientMessage{
+		log.Errorf("Cannot instantiate a cluster.NewReplset: %s", err)
+		msg := &pb.ClientMessage{
 			Type:     pb.ClientMessage_ERROR,
 			ClientID: c.clientID,
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: err.Error()},
-		})
+		}
+		log.Debugf("Sending error message to the RPC server: %+v", *msg)
+		c.streamSend(msg)
 		return
 	}
 
 	winner, err := r.BackupSource(nil)
 	if err != nil {
-		c.streamSend(&pb.ClientMessage{
+		log.Errorf("Cannot get a backup source winner: %s", err)
+		msg := &pb.ClientMessage{
 			Type:     pb.ClientMessage_ERROR,
 			ClientID: c.clientID,
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot get backoup source: %s", err)},
-		})
+		}
+		log.Debugf("Sending error response to the RPC server: %+v", *msg)
+		c.streamSend(msg)
 		return
 	}
 
-	c.streamSend(&pb.ClientMessage{
+	msg := &pb.ClientMessage{
 		Type:     pb.ClientMessage_BACKUP_SOURCE,
 		ClientID: c.clientID,
 		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: winner},
-	})
+	}
+	log.Debugf("Sending GetBackupSource response to the RPC server: %+v", *msg)
+	c.streamSend(msg)
 }
 
 func (c *Client) streamSend(msg *pb.ClientMessage) error {

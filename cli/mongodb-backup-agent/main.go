@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -12,6 +11,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/client"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -22,6 +22,8 @@ type cliOptios struct {
 	serverAddress *string
 	tls           *bool
 	caFile        *string
+	debug         *bool
+	quiet         *bool
 
 	// MongoDB connection options
 	mongodbConnOptions struct {
@@ -53,17 +55,25 @@ func main() {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
 
+	log.SetLevel(log.InfoLevel)
+	if *opts.quiet {
+		log.SetLevel(log.ErrorLevel)
+	}
+	if *opts.debug {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	grpcOpts := getgRPCOptions(opts)
 	clientID := fmt.Sprintf("ABC%04d", rand.Int63n(10000))
-	log.Printf("Using Client ID: %s", clientID)
+	log.Infof("Using Client ID: %s", clientID)
 
 	// Connect to the mongodb-backup gRPC server
 	conn, err := grpc.Dial(*opts.serverAddress, grpcOpts...)
 	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
+		log.Fatalf("Fail to connect to the gRPC server at %q: %v", *opts.serverAddress, err)
 	}
 	defer conn.Close()
-	log.Printf("Connected to the gRPC server at %s", *opts.serverAddress)
+	log.Infof("Connected to the gRPC server at %s", *opts.serverAddress)
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo
@@ -74,15 +84,15 @@ func main() {
 	} else {
 		di, err = mgo.ParseURL(*opts.dsn)
 		if err != nil {
-			log.Fatalf("Cannot parse MongoDB dsn %q, %s", *opts.dsn, err)
+			log.Fatalf("Cannot parse MongoDB DSN %q, %s", *opts.dsn, err)
 		}
 	}
 	mdbSession, err := mgo.DialWithInfo(di)
 	if err != nil {
-		log.Fatalf("Cannot connect to MongoDB on %s: %s", di.Addrs[0], err)
+		log.Fatalf("Cannot connect to MongoDB at %s: %s", di.Addrs[0], err)
 	}
 	defer mdbSession.Close()
-	log.Printf("Connected to MongoDB at %s", di.Addrs[0])
+	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
 
 	client, err := client.NewClient(context.Background(), opts.mongodbConnOptions, opts.mongodbSslOptions, conn)
 	c := make(chan os.Signal, 1)
@@ -100,6 +110,8 @@ func processCliArgs() (*cliOptios, error) {
 		serverAddress: app.Flag("server-address", "MongoDB backup server address").String(),
 		tls:           app.Flag("tls", "Use TLS").Bool(),
 		caFile:        app.Flag("ca-file", "CA file").String(),
+		debug:         app.Flag("debug", "Enable debug log level").Bool(),
+		quiet:         app.Flag("quiet", "Quiet mode. Log only errors").Bool(),
 	}
 
 	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.mongodbConnOptions.Host)
