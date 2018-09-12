@@ -98,11 +98,12 @@ func TestGlobal(t *testing.T) {
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", port)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
 
-	ports := []string{testutils.MongoDBPrimaryPort, testutils.MongoDBSecondary1Port, testutils.MongoDBSecondary2Port}
+	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port}
+	repls := []string{testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName}
 
 	clients := []*client.Client{}
 	for i, port := range ports {
-		di := testutils.DialInfoForPort(port)
+		di := testutils.DialInfoForPort(t, repls[i], port)
 		session, err := mgo.DialWithInfo(di)
 		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])
 		if err != nil {
@@ -166,7 +167,7 @@ func TestGlobal(t *testing.T) {
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
@@ -212,6 +213,7 @@ func TestGlobal(t *testing.T) {
 		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
+	log.Info("Stopping the oplog tailer")
 	err = messagesServer.StopOplogTail()
 	if err != nil {
 		t.Errorf("Cannot stop the oplog tailer: %s", err)
@@ -220,7 +222,14 @@ func TestGlobal(t *testing.T) {
 
 	close(oplogGeneratorStopChan)
 	log.Debug("Waiting oplog backup to finish")
+	log.Println(">>>>>>>>>>>>>>>>.1")
+	err = messagesServer.StopOplogTail()
+	if err != nil {
+		t.Errorf("Cannot stop the oplog tailer: %s", err)
+	}
+	log.Println(">>>>>>>>>>>>>>>>.1.1")
 	messagesServer.WaitOplogBackupFinish()
+	log.Println(">>>>>>>>>>>>>>>>.2")
 
 	log.Debug("Calling Stop() on all clients")
 	for _, client := range clients {
@@ -257,7 +266,7 @@ func testRestore(t *testing.T, session *mgo.Session, dir string) {
 		Archive:  path.Join(dir, "test.dump"),
 		DryRun:   false,
 		Host:     testutils.MongoDBHost,
-		Port:     testutils.MongoDBPrimaryPort,
+		Port:     testutils.MongoDBShard1PrimaryPort,
 		Username: testutils.MongoDBUser,
 		Password: testutils.MongoDBPassword,
 		Gzip:     false,

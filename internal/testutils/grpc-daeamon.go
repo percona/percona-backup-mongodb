@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/globalsign/mgo"
@@ -40,7 +41,7 @@ type GrpcDaemon struct {
 	cancelFunc         context.CancelFunc
 }
 
-func NewGrpcDaemon(ctx context.Context) (*GrpcDaemon, error) {
+func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 	var opts []grpc.ServerOption
 	d := &GrpcDaemon{
 		clients: make([]*client.Client, 0),
@@ -90,10 +91,11 @@ func NewGrpcDaemon(ctx context.Context) (*GrpcDaemon, error) {
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", TEST_GRPC_MESSAGES_PORT)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
 
-	ports := []string{MongoDBPrimaryPort, MongoDBSecondary1Port, MongoDBSecondary2Port}
+	ports := []string{MongoDBShard1PrimaryPort, MongoDBShard1Secondary1Port, MongoDBShard1Secondary2Port}
+	repls := []string{MongoDBShard1ReplsetName, MongoDBShard1ReplsetName, MongoDBShard1ReplsetName}
 
 	for i, port := range ports {
-		di := DialInfoForPort(port)
+		di := DialInfoForPort(t, repls[i], port)
 		pretty.Println(di)
 		session, err := mgo.DialWithInfo(di)
 		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])

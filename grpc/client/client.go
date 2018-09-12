@@ -461,7 +461,7 @@ func (c *Client) setOplogBackupRunning(status bool) {
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
-	log.Info("Received StopOplogTail command")
+	log.Printf("Received StopOplogTail command for client: %s", c.clientID)
 	out := &pb.ClientMessage{
 		Type:     pb.ClientMessage_ACK,
 		ClientID: c.clientID,
@@ -484,11 +484,24 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 		} else {
 			log.Debugf("Received ACK from OplogBackupFinished RPC method: %+v", *ack)
 		}
+		return
+	}
+	finishMsg := &pb.OplogBackupFinishStatus{
+		ClientID: c.clientID,
+		OK:       true,
+		Ts:       time.Now().Unix(),
+		Error:    "",
+	}
+	log.Printf("Sending OplogFinishStatus OK to the gRPC server: %+v", *finishMsg)
+	if ack, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+		log.Errorf("Cannot call OplogBackupFinished RPC method: %s", err)
+	} else {
+		log.Debugf("Received ACK from OplogBackupFinished RPC method: %+v", *ack)
 	}
 }
 
 func (c *Client) processStatus() {
-	log.Info("Received Status command")
+	log.Debug("Received Status command")
 	c.lock.Lock()
 
 	msg := &pb.ClientMessage{
@@ -520,7 +533,7 @@ func (c *Client) processStatus() {
 }
 
 func (c *Client) processGetBackupSource() {
-	log.Debugf("Received GetBackupSource command")
+	log.Debug("Received GetBackupSource command")
 	r, err := cluster.NewReplset(c.mdbSession)
 	if err != nil {
 		log.Errorf("Cannot instantiate a cluster.NewReplset: %s", err)

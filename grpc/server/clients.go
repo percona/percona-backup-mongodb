@@ -105,10 +105,10 @@ func (c *Client) setDBBackupRunning(status bool) {
 }
 
 func (c *Client) StopOplogTail() error {
-	log.Printf("Stopping oplog tail")
+	log.Debugf("Stopping oplog tail for client: %s", c.NodeName)
 	err := c.stream.Send(&pb.ServerMessage{
 		Type:    pb.ServerMessage_STOP_OPLOG_TAIL,
-		Payload: &pb.ServerMessage_StopOplogTailMsg{&pb.StopOplogTail{}},
+		Payload: &pb.ServerMessage_StopOplogTailMsg{StopOplogTailMsg: &pb.StopOplogTail{}},
 	})
 	if err != nil {
 		log.Printf("Error in client.StopOplogTail stream.Send(...): %s", err)

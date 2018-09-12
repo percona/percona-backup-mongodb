@@ -9,7 +9,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/notify"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
-	"github.com/prometheus/common/log"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -111,10 +111,13 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 }
 
 func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
+	log.Println("???????????????????????????????????????????????????????????????????????????????")
 	client := s.getClientByNodeName(msg.GetClientID())
+	fmt.Println("locking 2")
 	client.lock.Lock()
 	client.Status.OplogBackupRunning = false
 	client.lock.Unlock()
+	fmt.Println("unlocked")
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
@@ -231,6 +234,7 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	for _, client := range clients {
 		if client.IsOplogBackupRunning() {
+			log.Printf("Stopping oplog tail in client %s", client.NodeName)
 			err := client.StopOplogTail()
 			if err != nil {
 				log.Errorf("Error calling client.StopOplogTail: %s", err)
@@ -282,7 +286,10 @@ func (s *MessagesServer) isOplogBackupRunning() bool {
 }
 
 func (s *MessagesServer) getClientByNodeName(name string) *Client {
+	fmt.Println("locking 1")
 	s.lock.Lock()
+	defer fmt.Println("unlocking 1")
+	fmt.Println("locked 1")
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeName == name {

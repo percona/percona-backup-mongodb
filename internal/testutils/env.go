@@ -2,7 +2,9 @@ package testutils
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -38,9 +40,11 @@ var (
 	MongoDBUser                 = os.Getenv(envMongoDBUser)
 	MongoDBPassword             = os.Getenv(envMongoDBPassword)
 	MongoDBTimeout              = time.Duration(10) * time.Second
-	MongoDBSSLDir               = "../../docker/test/ssl"
+	MongoDBSSLDir               = "../docker/test/ssl"
 	MongoDBSSLPEMKeyFile        = filepath.Join(MongoDBSSLDir, "client.pem")
 	MongoDBSSLCACertFile        = filepath.Join(MongoDBSSLDir, "rootCA.crt")
+
+	basedir string
 
 	// test mongodb hosts map
 	hosts = map[string]map[string]string{
@@ -59,6 +63,19 @@ var (
 		},
 	}
 )
+
+func BaseDir() string {
+	if basedir != "" {
+		return basedir
+	}
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+
+	basedir = strings.TrimSpace(string(out))
+	return basedir
+}
 
 func GetMongoDBAddr(rs, name string) string {
 	if _, ok := hosts[rs]; !ok {
