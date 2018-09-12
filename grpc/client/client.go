@@ -28,6 +28,7 @@ type Client struct {
 	clientID       string
 	replicasetName string
 	replicasetID   string
+	nodeName       string
 	oplogTailer    *oplog.OplogTail
 	mdbSession     *mgo.Session
 	grpcClient     pb.MessagesClient
@@ -136,6 +137,7 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 		replicasetID:   replset.ID().Hex(),
 		grpcClient:     grpcClient,
 		mdbSession:     mdbSession,
+		nodeName:       nodeName,
 		stream:         stream,
 		status: pb.Status{
 			BackupType: pb.BackupType_LOGICAL,
@@ -182,6 +184,7 @@ func (c *Client) processIncommingServerMessages() {
 			return
 		}
 
+		log.Debugf("Client %s -> incoming message: %+v", c.nodeName, msg)
 		switch msg.Type {
 		case pb.ServerMessage_PING:
 			c.processPing()
@@ -461,7 +464,7 @@ func (c *Client) setOplogBackupRunning(status bool) {
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
-	log.Printf("Received StopOplogTail command for client: %s", c.clientID)
+	log.Debugf("Received StopOplogTail command for client: %s", c.clientID)
 	out := &pb.ClientMessage{
 		Type:     pb.ClientMessage_ACK,
 		ClientID: c.clientID,
@@ -469,6 +472,8 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 	log.Debugf("Sending ACK message to the gRPC server")
 	c.streamSend(out)
+
+	c.setOplogBackupRunning(false)
 
 	if err := c.oplogTailer.Close(); err != nil {
 		log.Errorf("Cannot stop the oplog tailer: %s", err)
@@ -486,13 +491,14 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 		}
 		return
 	}
+
 	finishMsg := &pb.OplogBackupFinishStatus{
 		ClientID: c.clientID,
 		OK:       true,
 		Ts:       time.Now().Unix(),
 		Error:    "",
 	}
-	log.Printf("Sending OplogFinishStatus OK to the gRPC server: %+v", *finishMsg)
+	log.Debugf("Sending OplogFinishStatus OK to the gRPC server: %+v", *finishMsg)
 	if ack, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
 		log.Errorf("Cannot call OplogBackupFinished RPC method: %s", err)
 	} else {
@@ -556,7 +562,9 @@ func (c *Client) processGetBackupSource() {
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot get backoup source: %s", err)},
 		}
 		log.Debugf("Sending error response to the RPC server: %+v", *msg)
-		c.streamSend(msg)
+		if err = c.streamSend(msg); err != nil {
+			log.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+		}
 		return
 	}
 
@@ -572,11 +580,7 @@ func (c *Client) processGetBackupSource() {
 func (c *Client) streamSend(msg *pb.ClientMessage) error {
 	c.streamLock.Lock()
 	defer c.streamLock.Unlock()
-	err := c.stream.Send(msg)
-	if err != nil {
-		log.Printf("Error en streamSend: %s.\nMessage: %+v", err, msg)
-	}
-	return err
+	return c.stream.Send(msg)
 }
 
 func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {

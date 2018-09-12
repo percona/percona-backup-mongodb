@@ -69,7 +69,10 @@ func Post(event interface{}, data interface{}) error {
 		return fmt.Errorf("There are no listeners for this event: %q", event)
 	}
 	for _, outputChan := range outChans {
-		outputChan <- data
+		select {
+		case outputChan <- data:
+		default:
+		}
 	}
 
 	return nil

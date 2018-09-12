@@ -35,6 +35,7 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	log.SetLevel(log.ErrorLevel)
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
 	}
@@ -128,12 +129,17 @@ func TestGlobal(t *testing.T) {
 		clients = append(clients, client)
 	}
 
+	log.Debug("Getting list of connected clients")
 	clientsList := messagesServer.Clients()
+	log.Debugf("Clients: %+v\n", clientsList)
 	if len(clientsList) != 3 {
 		t.Errorf("Want 3 connected clients, got %d", len(clientsList))
 	}
 
+	log.Debug("Getting list of clients by replicaset")
 	clientsByReplicaset := messagesServer.ClientsByReplicaset()
+	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
+
 	var firstClient *server.Client
 	for _, client := range clientsByReplicaset {
 		if len(client) == 0 {
@@ -143,7 +149,9 @@ func TestGlobal(t *testing.T) {
 		break
 	}
 
+	log.Debugf("Getting first client status")
 	status, err := firstClient.GetStatus()
+	log.Debugf("Client status: %+v\n", status)
 	if err != nil {
 		t.Errorf("Cannot get first client status: %s", err)
 	}
@@ -151,7 +159,9 @@ func TestGlobal(t *testing.T) {
 		t.Errorf("The default backup type should be 0 (Logical). Got backup type: %v", status.BackupType)
 	}
 
+	log.Debugf("Getting backup source")
 	backupSource, err := firstClient.GetBackupSource()
+	log.Debugf("Backup source: %+v\n", backupSource)
 	if err != nil {
 		t.Errorf("Cannot get backup source: %s", err)
 	}
@@ -184,7 +194,7 @@ func TestGlobal(t *testing.T) {
 		log.Printf("Temp dir for backup: %s", tmpDir)
 	}
 
-	err = client.StartBackup(&pb.StartBackup{
+	err = messagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_LOGICAL,
 		DestinationType: pb.DestinationType_FILE,
 		DestinationName: "test",
@@ -216,20 +226,12 @@ func TestGlobal(t *testing.T) {
 	log.Info("Stopping the oplog tailer")
 	err = messagesServer.StopOplogTail()
 	if err != nil {
-		t.Errorf("Cannot stop the oplog tailer: %s", err)
+		t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
 		t.FailNow()
 	}
 
 	close(oplogGeneratorStopChan)
-	log.Debug("Waiting oplog backup to finish")
-	log.Println(">>>>>>>>>>>>>>>>.1")
-	err = messagesServer.StopOplogTail()
-	if err != nil {
-		t.Errorf("Cannot stop the oplog tailer: %s", err)
-	}
-	log.Println(">>>>>>>>>>>>>>>>.1.1")
 	messagesServer.WaitOplogBackupFinish()
-	log.Println(">>>>>>>>>>>>>>>>.2")
 
 	log.Debug("Calling Stop() on all clients")
 	for _, client := range clients {
