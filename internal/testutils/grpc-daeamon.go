@@ -3,7 +3,6 @@ package testutils
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path"
@@ -12,12 +11,12 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo"
-	"github.com/kr/pretty"
 	"github.com/percona/mongodb-backup/grpc/api"
 	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/percona/mongodb-backup/grpc/server"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -31,7 +30,7 @@ var grpcServerShutdownTimeout = 30
 type GrpcDaemon struct {
 	grpcServer4Api     *grpc.Server
 	grpcServer4Clients *grpc.Server
-	messagesServer     *server.MessagesServer
+	MessagesServer     *server.MessagesServer
 	ApiServer          *api.ApiServer
 	msgListener        net.Listener
 	apiListener        net.Listener
@@ -39,13 +38,20 @@ type GrpcDaemon struct {
 	wg                 *sync.WaitGroup
 	ctx                context.Context
 	cancelFunc         context.CancelFunc
+	logger             *logrus.Logger
 }
 
-func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
+func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*GrpcDaemon, error) {
+	if logger == nil {
+		logger = logrus.New()
+		logger.SetLevel(logrus.StandardLogger().Level)
+		logger.Out = logrus.StandardLogger().Out
+	}
 	var opts []grpc.ServerOption
 	d := &GrpcDaemon{
 		clients: make([]*client.Client, 0),
 		wg:      &sync.WaitGroup{},
+		logger:  logger,
 	}
 
 	tmpDir := path.Join(os.TempDir(), "dump_test")
@@ -64,11 +70,11 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 	d.ctx, d.cancelFunc = context.WithCancel(ctx)
 	// This is the sever/agents gRPC server
 	d.grpcServer4Clients = grpc.NewServer(opts...)
-	d.messagesServer = server.NewMessagesServer()
-	pb.RegisterMessagesServer(d.grpcServer4Clients, d.messagesServer)
+	d.MessagesServer = server.NewMessagesServer(logger)
+	pb.RegisterMessagesServer(d.grpcServer4Clients, d.MessagesServer)
 
 	d.wg.Add(1)
-	log.Printf("Starting agents gRPC server. Listening on %s", d.msgListener.Addr().String())
+	logger.Printf("Starting agents gRPC server. Listening on %s", d.msgListener.Addr().String())
 	d.runAgentsGRPCServer(d.ctx, d.grpcServer4Clients, d.msgListener, grpcServerShutdownTimeout, d.wg)
 
 	//
@@ -79,11 +85,11 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 
 	// This is the server gRPC API
 	d.grpcServer4Api = grpc.NewServer(opts...)
-	d.ApiServer = api.NewApiServer(d.messagesServer)
+	d.ApiServer = api.NewApiServer(d.MessagesServer)
 	pbapi.RegisterApiServer(d.grpcServer4Api, d.ApiServer)
 
 	d.wg.Add(1)
-	log.Printf("Starting API gRPC server. Listening on %s", d.apiListener.Addr().String())
+	logger.Printf("Starting API gRPC server. Listening on %s", d.apiListener.Addr().String())
 	d.runAgentsGRPCServer(d.ctx, d.grpcServer4Api, d.apiListener, grpcServerShutdownTimeout, d.wg)
 
 	clientOpts := []grpc.DialOption{grpc.WithInsecure()}
@@ -91,14 +97,19 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", TEST_GRPC_MESSAGES_PORT)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
 
-	ports := []string{MongoDBShard1PrimaryPort, MongoDBShard1Secondary1Port, MongoDBShard1Secondary2Port}
-	repls := []string{MongoDBShard1ReplsetName, MongoDBShard1ReplsetName, MongoDBShard1ReplsetName}
+	ports := []string{MongoDBShard1PrimaryPort, MongoDBShard1Secondary1Port, MongoDBShard1Secondary2Port,
+		MongoDBShard2PrimaryPort, MongoDBShard2Secondary1Port, MongoDBShard2Secondary2Port,
+		MongoDBConfigsvr1Port, // MongoDBConfigsvr2Port, MongoDBConfigsvr3Port,
+		MongoDBMongosPort}
+	repls := []string{MongoDBShard1ReplsetName, MongoDBShard1ReplsetName, MongoDBShard1ReplsetName,
+		MongoDBShard2ReplsetName, MongoDBShard2ReplsetName, MongoDBShard2ReplsetName,
+		MongoDBConfigsvrReplsetName, // MongoDBConfigsvrReplsetName, MongoDBConfigsvrReplsetName,
+		""}
 
 	for i, port := range ports {
 		di := DialInfoForPort(t, repls[i], port)
-		pretty.Println(di)
 		session, err := mgo.DialWithInfo(di)
-		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])
+		logger.Infof("Connecting agent #%d to: %s\n", i, di.Addrs[0])
 		if err != nil {
 			return nil, fmt.Errorf("cannot create a new agent; cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
 		}
@@ -114,7 +125,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 			ReplicasetName: di.ReplicaSetName,
 		}
 
-		client, err := client.NewClient(d.ctx, dbConnOpts, client.SSLOptions{}, clientConn)
+		client, err := client.NewClient(d.ctx, dbConnOpts, client.SSLOptions{}, clientConn, logger)
 		if err != nil {
 			return nil, fmt.Errorf("Cannot create an agent instance %s: %s", agentID, err)
 		}
@@ -125,26 +136,30 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T) (*GrpcDaemon, error) {
 }
 
 func (d *GrpcDaemon) Stop() {
+	d.MessagesServer.Stop()
 	d.cancelFunc()
-	d.messagesServer.Stop()
 	d.wg.Wait()
 	d.msgListener.Close()
 	d.apiListener.Close()
+}
+
+func (d *GrpcDaemon) ClientsCount() int {
+	return len(d.clients)
 }
 
 func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, wg *sync.WaitGroup) {
 	go func() {
 		err := grpcServer.Serve(lis)
 		if err != nil {
-			log.Printf("Cannot start agents gRPC server: %s", err)
+			d.logger.Printf("Cannot start agents gRPC server: %s", err)
 		}
-		log.Println("Stopping server " + lis.Addr().String())
+		d.logger.Println("Stopping server " + lis.Addr().String())
 		wg.Done()
 	}()
 
 	go func() {
 		<-ctx.Done()
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
+		d.logger.Printf("Gracefuly stopping server at %s", lis.Addr().String())
 		// Try to Gracefuly stop the gRPC server.
 		c := make(chan struct{})
 		go func() {

@@ -61,6 +61,7 @@ type Replset struct {
 func NewReplset(session *mgo.Session) (*Replset, error) {
 	r := &Replset{session: session}
 	return r, r.RefreshState()
+
 }
 
 // RefreshState updates the replica set state

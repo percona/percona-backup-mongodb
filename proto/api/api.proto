@@ -23,33 +23,63 @@ package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
+  rpc StartBackup(StartBackupParams) returns (StartBackupResponse) {}
 }
 
 message Empty {}
 
 message ClientStatus {
-  string ReplicaSetUUID  = 1;
-  string ReplicaSetName = 2;
-  int64  ReplicaSetVersion = 3; 
-  int64 LastOplogTime = 4;     
-  bool   RunningDBBackup = 5;    
-  bool   RunningOplogBackup = 6;
-  string Compression = 7;       
-  string Encrypted = 8;         
-  string Destination = 9;       
-  string Filename = 10;          
-  int64 Started = 11;           
-  int64 Finished = 12;          
-  string LastError = 13;         
+  string ReplicaSetUUID     = 1;
+  string ReplicaSetName     = 2;
+  uint64 ReplicaSetVersion  = 3; 
+  bool   RunningDBBackup    = 4;    
+  bool   RunningOplogBackup = 5;
+  string BackupType         = 6;
+  string Compression        = 7;       
+  string Encrypted          = 8;         
+  string Destination        = 9;       
+  string Dirname            = 10;
+  string Filename           = 11;          
+  int64  Started            = 12;           
+  int64  Finished           = 13;
+  int64  StartOplogTs       = 14;
+  int64  LastOplogTs        = 15;
+  string LastError          = 16;         
 }
 
 message Client {
-  int32        version = 1;
-  string       ClientID = 2;
-  ClientStatus Status = 3;
-  int64       LastSeen = 4; // Unix time format
+  int32        version         = 1;
+  string       ID              = 2;
+  string       NodeType        = 3;
+  string       NodeName        = 4;
+  string       ClusterID       = 5;
+  string       ReplicasetName  = 6;
+  string       ReplicasetID    = 7;
+  string       LastCommandSent = 8;
+  int64        LastSeen        = 9;
+  ClientStatus Status          = 10;
 }
 
-message StartBackup {
-  int32 version = 1;
+message StartBackupParams {
+  string BackupType         = 1;
+  string Compression        = 2;       
+  string Encrypted          = 3;         
+  string Destination        = 4;       
+  string Dirname            = 5;
+  string Filename           = 6;          
+  int64  StartOplogTs       = 7;
+}
+
+message BackupReplica {
+  string AgentID         = 1;
+  string NodeType        = 2;
+  string NodeName        = 3;
+  string ClusterID       = 4;
+  string ReplicasetName  = 5;
+  string ReplicasetID    = 6;
+  int64  StartedAt       = 7;
+}
+    
+message StartBackupResponse {
+
 }

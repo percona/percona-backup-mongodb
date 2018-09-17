@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
@@ -58,7 +58,7 @@ func main() {
 
 	switch cmd {
 	case "list-agents":
-		clients, err := getConnectedAgents(conn)
+		clients, err := connectedAgents(conn)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -67,7 +67,7 @@ func main() {
 
 }
 
-func getConnectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
+func connectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 	apiClient := pbapi.NewApiClient(conn)
 	stream, err := apiClient.GetClients(context.Background(), &pbapi.Empty{})
 	if err != nil {
@@ -94,7 +94,7 @@ func printConnectedAgents(clients []*pbapi.Client) {
 	}
 	fmt.Println(strings.Repeat("-", 100))
 	for _, client := range clients {
-		fmt.Printf("%s  -  %s  -  %v\n", client.ClientID, client.Status, time.Unix(client.LastSeen, 0))
+		fmt.Printf("%s  -  %s  -  %v\n", client.ID, client.Status, time.Unix(client.LastSeen, 0))
 	}
 }
 

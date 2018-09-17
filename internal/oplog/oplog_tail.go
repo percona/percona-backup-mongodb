@@ -139,6 +139,20 @@ func (ot *OplogTail) Close() error {
 	return nil
 }
 
+func (ot *OplogTail) CloseAt(ts bson.MongoTimestamp) error {
+	if !ot.isRunning() {
+		return fmt.Errorf("Tailer is already closed")
+	}
+
+	ot.lock.Lock()
+	ot.stopAtTimestampt = &ts
+	ot.lock.Unlock()
+
+	ot.wg.Wait()
+
+	return nil
+}
+
 func (ot *OplogTail) isRunning() bool {
 	ot.lock.Lock()
 	defer ot.lock.Unlock()
@@ -164,6 +178,7 @@ func (ot *OplogTail) tail() {
 		default:
 		}
 		result := bson.Raw{}
+
 		if iter.Next(&result) {
 			oplog := mdbstructs.OplogTimestampOnly{}
 			err := result.Unmarshal(&oplog)
@@ -202,6 +217,18 @@ func (ot *OplogTail) tail() {
 			iter = ot.makeIterator()
 		}
 	}
+}
+
+func (ot *OplogTail) getStopAtTimestamp() *bson.MongoTimestamp {
+	ot.lock.Lock()
+	defer ot.lock.Unlock()
+	return ot.stopAtTimestampt
+}
+
+func (ot *OplogTail) setStopAtTimestamp(ts bson.MongoTimestamp) {
+	ot.lock.Lock()
+	defer ot.lock.Unlock()
+	ot.stopAtTimestampt = &ts
 }
 
 // TODO
