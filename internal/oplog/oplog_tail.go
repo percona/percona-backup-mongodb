@@ -139,6 +139,20 @@ func (ot *OplogTail) Close() error {
 	return nil
 }
 
+func (ot *OplogTail) CloseAt(ts bson.MongoTimestamp) error {
+	if !ot.isRunning() {
+		return fmt.Errorf("Tailer is already closed")
+	}
+
+	ot.lock.Lock()
+	ot.stopAtTimestampt = &ts
+	ot.lock.Unlock()
+
+	ot.wg.Wait()
+
+	return nil
+}
+
 func (ot *OplogTail) isRunning() bool {
 	ot.lock.Lock()
 	defer ot.lock.Unlock()
@@ -160,11 +174,11 @@ func (ot *OplogTail) tail() {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
-			//ot.setRunning(false)
 			return
 		default:
 		}
 		result := bson.Raw{}
+
 		if iter.Next(&result) {
 			oplog := mdbstructs.OplogTimestampOnly{}
 			err := result.Unmarshal(&oplog)
@@ -203,6 +217,18 @@ func (ot *OplogTail) tail() {
 			iter = ot.makeIterator()
 		}
 	}
+}
+
+func (ot *OplogTail) getStopAtTimestamp() *bson.MongoTimestamp {
+	ot.lock.Lock()
+	defer ot.lock.Unlock()
+	return ot.stopAtTimestampt
+}
+
+func (ot *OplogTail) setStopAtTimestamp(ts bson.MongoTimestamp) {
+	ot.lock.Lock()
+	defer ot.lock.Unlock()
+	ot.stopAtTimestampt = &ts
 }
 
 // TODO
@@ -298,7 +324,7 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 		select {
 		case <-ot.readerStopChan:
 			ot.readFunc = func([]byte) (int, error) {
-				return 0, fmt.Errorf("file alredy closed")
+				return 0, fmt.Errorf("already closed")
 			}
 			return 0, io.EOF
 		case doc := <-ot.dataChan:
@@ -321,8 +347,8 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 			}
 			copy(buf, doc)
 			return retSize, nil
-		case <-time.After(5 * time.Second):
-			return 0, io.EOF
+			//case <-time.After(5 * time.Second):
+			//	return 0, io.EOF
 		}
 	}
 }

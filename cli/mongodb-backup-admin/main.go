@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/alecthomas/kingpin"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
@@ -19,12 +19,17 @@ import (
 
 type cliOptions struct {
 	app        *kingpin.Application
-	clientID   *string
 	tls        *bool
 	caFile     *string
 	serverAddr *string
 
 	listClients *kingpin.CmdClause
+
+	startBackup          *kingpin.CmdClause
+	backupType           *string
+	destinationType      *string
+	compressionAlgorithm *string
+	encryptionAlgorithm  *string
 }
 
 func main() {
@@ -56,18 +61,30 @@ func main() {
 	}
 	defer conn.Close()
 
+	apiClient := pbapi.NewApiClient(conn)
+	if err != nil {
+		log.Fatalf("Cannot connect to the API: %s", err)
+	}
+
 	switch cmd {
 	case "list-agents":
-		clients, err := getConnectedAgents(conn)
+		clients, err := connectedAgents(conn)
 		if err != nil {
-			log.Fatal(err)
+			log.Debugf("Cannot connect to the gRPC server: %s", err)
+			log.Fatal("Cannot connect to the gRPC server")
 		}
 		printConnectedAgents(clients)
+	case "start-backup":
+		err := startBackup(apiClient, opts)
+		if err != nil {
+			log.Fatal(err)
+			log.Fatalf("Cannot connect to the gRPC server: %s", err)
+		}
 	}
 
 }
 
-func getConnectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
+func connectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 	apiClient := pbapi.NewApiClient(conn)
 	stream, err := apiClient.GetClients(context.Background(), &pbapi.Empty{})
 	if err != nil {
@@ -84,6 +101,7 @@ func getConnectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 		}
 		clients = append(clients, msg)
 	}
+	sort.Slice(clients, func(i, j int) bool { return clients[i].NodeName < clients[j].NodeName })
 	return clients, nil
 }
 
@@ -92,21 +110,69 @@ func printConnectedAgents(clients []*pbapi.Client) {
 		fmt.Println("There are no agents connected to the backup master")
 		return
 	}
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Println("      Node Name       -    Node Type         -     Replicaset     -  Backup Running  -            Last Seen")
 	for _, client := range clients {
-		fmt.Printf("%s  -  %s  -  %v\n", client.ClientID, client.Status, time.Unix(client.LastSeen, 0))
+		runningBackup := "false"
+		if client.Status.GetRunningDBBackup() {
+			runningBackup = "true"
+		}
+		fmt.Printf("%20s  - %20s - %18s -       %5s      -  %v\n", client.ID, client.NodeType, client.ReplicasetName, runningBackup, time.Unix(client.LastSeen, 0))
 	}
 }
 
-func processCliArgs(args []string) (string, *cliOptions, error) {
+func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
+	msg := &pbapi.RunBackupParams{
+		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
+		Cypher:          pbapi.Cypher_NO_CYPHER,
+	}
 
+	switch *opts.backupType {
+	case "logical":
+		msg.BackupType = pbapi.BackupType_LOGICAL
+	case "hot":
+		msg.BackupType = pbapi.BackupType_LOGICAL
+	}
+
+	switch *opts.destinationType {
+	case "logical":
+		msg.DestinationType = pbapi.DestinationType_FILE
+	case "aws":
+		msg.DestinationType = pbapi.DestinationType_AWS
+	}
+
+	switch *opts.compressionAlgorithm {
+	case "gzip":
+		msg.CompressionType = pbapi.CompressionType_GZIP
+	}
+
+	switch *opts.encryptionAlgorithm {
+	}
+
+	_, err := apiClient.RunBackup(context.Background(), msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
+	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
+	startBackupCmd := app.Command("start-backup", "Start a backup")
+
 	opts := &cliOptions{
-		clientID:    kingpin.Flag("client-id", "Client ID").Required().String(),
-		tls:         kingpin.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").Bool(),
-		caFile:      kingpin.Flag("ca-file", "The file containning the CA root cert file").String(),
-		serverAddr:  kingpin.Flag("server-addr", "The server address in the format of host:port").Default("127.0.0.1:10001").String(),
-		listClients: kingpin.Command("list-agents", "List all agents connected to the server"),
+		tls:        app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").Bool(),
+		caFile:     app.Flag("ca-file", "The file containning the CA root cert file").String(),
+		serverAddr: app.Flag("server-addr", "The server address in the format of host:port").Default("127.0.0.1:10001").String(),
+
+		listClients: listClientsCmd,
+
+		startBackup:          startBackupCmd,
+		backupType:           startBackupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
+		destinationType:      startBackupCmd.Flag("destination-type", "Backup destination type").Enum("file", "aws"),
+		compressionAlgorithm: startBackupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
+		encryptionAlgorithm:  startBackupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 	}
 
 	cmd, err := app.Parse(args)

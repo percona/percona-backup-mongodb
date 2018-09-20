@@ -23,33 +23,89 @@ package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
+  rpc RunBackup(RunBackupParams) returns (Error) {}
+}
+
+enum BackupType {
+   LOGICAL   = 0;
+   HOTBACKUP = 1;
+}
+
+enum DestinationType {
+   FILE = 0; 
+   AWS  = 1;
+}
+
+enum CompressionType {
+   NO_COMPRESSION = 0;
+   GZIP           = 1;
+   SNAPPY         = 2;
+   LZ4            = 3;
+}
+
+enum Cypher {
+    NO_CYPHER = 0;
+    AES       = 1;
+    DES       = 2;
+    RC4       = 3;
+    RSA       = 4;
 }
 
 message Empty {}
+message Error {
+    string Message = 1;
+    int64  Code    = 2;
+}
 
 message ClientStatus {
-  string ReplicaSetUUID  = 1;
-  string ReplicaSetName = 2;
-  int64  ReplicaSetVersion = 3; 
-  int64 LastOplogTime = 4;     
-  bool   RunningDBBackup = 5;    
-  bool   RunningOplogBackup = 6;
-  string Compression = 7;       
-  string Encrypted = 8;         
-  string Destination = 9;       
-  string Filename = 10;          
-  int64 Started = 11;           
-  int64 Finished = 12;          
-  string LastError = 13;         
+  string ReplicaSetUUID     = 1;
+  string ReplicaSetName     = 2;
+  uint64 ReplicaSetVersion  = 3; 
+  bool   RunningDBBackup    = 4;    
+  bool   RunningOplogBackup = 5;
+  string BackupType         = 6;
+  string Compression        = 7;       
+  string Encrypted          = 8;         
+  string Destination        = 9;       
+  string Dirname            = 10;
+  string Filename           = 11;          
+  int64  Started            = 12;           
+  int64  Finished           = 13;
+  int64  StartOplogTs       = 14;
+  int64  LastOplogTs        = 15;
+  string LastError          = 16;         
 }
 
 message Client {
-  int32        version = 1;
-  string       ClientID = 2;
-  ClientStatus Status = 3;
-  int64       LastSeen = 4; // Unix time format
+  int32        version         = 1;
+  string       ID              = 2;
+  string       NodeType        = 3;
+  string       NodeName        = 4;
+  string       ClusterID       = 5;
+  string       ReplicasetName  = 6;
+  string       ReplicasetID    = 7;
+  string       LastCommandSent = 8;
+  int64        LastSeen        = 9;
+  ClientStatus Status          = 10;
 }
 
-message StartBackup {
-  int32 version = 1;
+message RunBackupParams {
+  BackupType      BackupType      = 1;
+  CompressionType CompressionType = 2;       
+  Cypher          Cypher          = 3;         
+  DestinationType DestinationType = 4;       
+  string          Dirname         = 5;
+  string          Filename        = 6;          
+  int64           StartOplogTs    = 7;
 }
+
+message BackupReplica {
+  string AgentID         = 1;
+  string NodeType        = 2;
+  string NodeName        = 3;
+  string ClusterID       = 4;
+  string ReplicasetName  = 5;
+  string ReplicasetID    = 6;
+  int64  StartedAt       = 7;
+}
+    

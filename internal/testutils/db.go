@@ -1,22 +1,21 @@
-package db
+package testutils
 
 import (
 	"testing"
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/db"
-	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
 func dialInfo(addrs []string, rs string) (*mgo.DialInfo, error) {
 	di, err := db.NewDialInfo(&db.Config{
 		Addrs:    addrs,
 		Replset:  rs,
-		Username: testutils.MongoDBUser,
-		Password: testutils.MongoDBPassword,
-		CertFile: testutils.MongoDBSSLPEMKeyFile,
-		CAFile:   testutils.MongoDBSSLCACertFile,
-		Timeout:  testutils.MongoDBTimeout,
+		Username: MongoDBUser,
+		Password: MongoDBPassword,
+		CertFile: MongoDBSSLPEMKeyFile,
+		CAFile:   MongoDBSSLCACertFile,
+		Timeout:  MongoDBTimeout,
 	})
 	if err != nil {
 		return nil, err
@@ -26,7 +25,7 @@ func dialInfo(addrs []string, rs string) (*mgo.DialInfo, error) {
 
 func DialInfoForPort(t *testing.T, rs, port string) *mgo.DialInfo {
 	di, err := dialInfo([]string{
-		testutils.MongoDBHost + ":" + port},
+		MongoDBHost + ":" + port},
 		rs,
 	)
 	if err != nil {
@@ -37,7 +36,7 @@ func DialInfoForPort(t *testing.T, rs, port string) *mgo.DialInfo {
 
 func PrimaryDialInfo(t *testing.T, rs string) *mgo.DialInfo {
 	di, err := dialInfo([]string{
-		testutils.GetMongoDBAddr(rs, "primary")},
+		GetMongoDBAddr(rs, "primary")},
 		rs,
 	)
 	if err != nil {
@@ -48,7 +47,7 @@ func PrimaryDialInfo(t *testing.T, rs string) *mgo.DialInfo {
 
 func ReplsetDialInfo(t *testing.T, rs string) *mgo.DialInfo {
 	di, err := dialInfo(
-		testutils.GetMongoDBReplsetAddrs(rs),
+		GetMongoDBReplsetAddrs(rs),
 		rs,
 	)
 	if err != nil {
@@ -60,8 +59,8 @@ func ReplsetDialInfo(t *testing.T, rs string) *mgo.DialInfo {
 
 func ConfigsvrReplsetDialInfo(t *testing.T) *mgo.DialInfo {
 	di, err := dialInfo(
-		testutils.GetMongoDBReplsetAddrs(testutils.MongoDBConfigsvrReplsetName),
-		testutils.MongoDBConfigsvrReplsetName,
+		GetMongoDBReplsetAddrs(MongoDBConfigsvrReplsetName),
+		MongoDBConfigsvrReplsetName,
 	)
 	if err != nil {
 		t.Fatalf(".ConfigsvrReplsetDialInfo() failed: %v", err.Error())
@@ -71,7 +70,7 @@ func ConfigsvrReplsetDialInfo(t *testing.T) *mgo.DialInfo {
 }
 
 func MongosDialInfo(t *testing.T) *mgo.DialInfo {
-	di, err := dialInfo([]string{testutils.MongoDBHost + ":" + testutils.MongoDBMongosPort}, "")
+	di, err := dialInfo([]string{MongoDBHost + ":" + MongoDBMongosPort}, "")
 	if err != nil {
 		t.Fatalf(".MongosDialInfo() failed: %v", err.Error())
 	}

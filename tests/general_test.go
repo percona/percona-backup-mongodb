@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/grpc/api"
@@ -23,17 +24,29 @@ import (
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/testdata"
 	"gopkg.in/mgo.v2/bson"
 )
 
 var port, apiPort string
+var grpcServerShutdownTimeout = 30
 
 const (
 	dbName  = "test"
 	colName = "test_col"
 )
 
+type cliOptions struct {
+	app        *kingpin.Application
+	clientID   *string
+	tls        *bool
+	caFile     *string
+	serverAddr *string
+}
+
 func TestMain(m *testing.M) {
+	log.SetLevel(log.ErrorLevel)
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
 	}
@@ -48,7 +61,166 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestGlobalWithDaemon(t *testing.T) {
+	d, err := testutils.NewGrpcDaemon(context.Background(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir) // Don't check for errors. The path might not exist
+	err = os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		log.Printf("Cannot create temp dir %q, %s", tmpDir, err)
+	}
+
+	log.Debug("Getting list of connected clients")
+	clientsList := d.MessagesServer.Clients()
+	log.Debugf("Clients: %+v\n", clientsList)
+	if len(clientsList) != d.ClientsCount() {
+		t.Errorf("Want %d connected clients, got %d", d.ClientsCount(), len(clientsList))
+	}
+
+	log.Debug("Getting list of clients by replicaset")
+	clientsByReplicaset := d.MessagesServer.ClientsByReplicaset()
+	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
+
+	var firstClient *server.Client
+	for _, client := range clientsByReplicaset {
+		if len(client) == 0 {
+			break
+		}
+		firstClient = client[0]
+		break
+	}
+
+	log.Debugf("Getting first client status")
+	status, err := firstClient.Status()
+	log.Debugf("Client status: %+v\n", status)
+	if err != nil {
+		t.Errorf("Cannot get first client status: %s", err)
+	}
+	if status.BackupType != pb.BackupType_LOGICAL {
+		t.Errorf("The default backup type should be 0 (Logical). Got backup type: %v", status.BackupType)
+	}
+
+	log.Debugf("Getting backup source")
+	backupSource, err := firstClient.GetBackupSource()
+	log.Debugf("Backup source: %+v\n", backupSource)
+	if err != nil {
+		t.Errorf("Cannot get backup source: %s", err)
+	}
+	if backupSource == "" {
+		t.Error("Received empty backup source")
+	}
+	log.Printf("Received backup source: %v", backupSource)
+
+	wantbs := map[string]*server.Client{
+		"5b9e5545c003eb6bd5e94803": &server.Client{
+			ID:             "127.0.0.1:17003",
+			NodeType:       pb.NodeType(3),
+			NodeName:       "127.0.0.1:17003",
+			ClusterID:      "5b9e5548fcaf061d1ed3830d",
+			ReplicasetName: "rs1",
+			ReplicasetUUID: "5b9e5545c003eb6bd5e94803",
+		},
+		"5b9e55461f4c8f50f48c6002": &server.Client{
+			ID:             "127.0.0.1:17006",
+			NodeType:       pb.NodeType(3),
+			NodeName:       "127.0.0.1:17006",
+			ClusterID:      "5b9e5548fcaf061d1ed3830d",
+			ReplicasetName: "rs2",
+			ReplicasetUUID: "5b9e55461f4c8f50f48c6002",
+		},
+		"5b9e5546fcaf061d1ed382ed": &server.Client{
+			ID:             "127.0.0.1:17007",
+			NodeType:       pb.NodeType(4),
+			NodeName:       "127.0.0.1:17007",
+			ClusterID:      "",
+			ReplicasetName: "csReplSet",
+			ReplicasetUUID: "5b9e5546fcaf061d1ed382ed",
+		},
+	}
+	backupSources, err := d.MessagesServer.BackupSourceByReplicaset()
+	if err != nil {
+		t.Fatalf("Cannot get backup sources by replica set: %s", err)
+	}
+
+	okCount := 0
+	for _, s := range backupSources {
+		for _, bs := range wantbs {
+			if s.ID == bs.ID && s.NodeType == bs.NodeType && s.NodeName == bs.NodeName && bs.ReplicasetUUID == s.ReplicasetUUID {
+				okCount++
+			}
+		}
+	}
+
+	// Genrate random data so we have something in the oplog
+	oplogGeneratorStopChan := make(chan bool)
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	generateDataToBackup(t, session)
+	go generateOplogTraffic(t, session, oplogGeneratorStopChan)
+
+	// Start the backup. Backup just the first replicaset (sorted by name) so we can test the restore
+	replNames := sortedReplicaNames(backupSources)
+	replName := replNames[0]
+	client := backupSources[replName]
+
+	fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
+	if testing.Verbose() {
+		log.Printf("Temp dir for backup: %s", tmpDir)
+	}
+
+	err = d.MessagesServer.StartBackup(&pb.StartBackup{
+		BackupType:      pb.BackupType_LOGICAL,
+		DestinationType: pb.DestinationType_FILE,
+		DestinationName: "test",
+		DestinationDir:  tmpDir,
+		CompressionType: pb.CompressionType_NO_COMPRESSION,
+		Cypher:          pb.Cypher_NO_CYPHER,
+		OplogStartTime:  time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+	d.MessagesServer.WaitBackupFinish()
+
+	// I want to know how many documents are in the DB. These docs are being generated by the go-routine
+	// generateOplogTraffic(). Since we are stopping the log tailer AFTER counting how many docs we have
+	// in the DB, the test restore funcion is going to check that after restoring the db and applying the
+	// oplog, the max `number` field in the DB sould be higher that maxnumber.Number if the backup
+	// is correct
+
+	type maxnumber struct {
+		Number int64 `bson:"number"`
+	}
+	var max maxnumber
+	err = session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&max)
+	if err != nil {
+		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	}
+
+	log.Info("Stopping the oplog tailer")
+	err = d.MessagesServer.StopOplogTail()
+	if err != nil {
+		t.Fatalf("Cannot stop the oplog tailer: %s", err)
+	}
+
+	close(oplogGeneratorStopChan)
+	d.MessagesServer.WaitOplogBackupFinish()
+
+	t.Log("Skipping restore tests in new replicaset sandbox")
+	//testRestore(t, session, tmpDir)
+	//testOplogApply(t, session, tmpDir, max.Number)
+
+	d.Stop()
+}
+
 func TestGlobal(t *testing.T) {
+	t.Skip("testing new daemon")
 	var opts []grpc.ServerOption
 	gRPCServerStopChan := make(chan interface{})
 	wg := &sync.WaitGroup{}
@@ -69,12 +241,12 @@ func TestGlobal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	// This is the sever/agents gRPC server
 	grpcServer := grpc.NewServer(opts...)
-	messagesServer := server.NewMessagesServer()
+	messagesServer := server.NewMessagesServer(nil)
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
 	wg.Add(1)
 	log.Printf("Starting agents gRPC server. Listening on %s", lis.Addr().String())
-	runAgentsGRPCServer(grpcServer, lis, gRPCServerStopChan, wg)
+	runAgentsGRPCServer(grpcServer, lis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
 
 	//
 	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", apiPort))
@@ -89,7 +261,7 @@ func TestGlobal(t *testing.T) {
 
 	wg.Add(1)
 	log.Printf("Starting API gRPC server. Listening on %s", apilis.Addr().String())
-	runAgentsGRPCServer(apiGrpcServer, apilis, gRPCServerStopChan, wg)
+	runAgentsGRPCServer(apiGrpcServer, apilis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
 
 	// Let's start an agent
 	clientOpts := []grpc.DialOption{grpc.WithInsecure()}
@@ -97,11 +269,12 @@ func TestGlobal(t *testing.T) {
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", port)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
 
-	ports := []string{testutils.MongoDBPrimaryPort, testutils.MongoDBSecondary1Port, testutils.MongoDBSecondary2Port}
+	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port}
+	repls := []string{testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName}
 
 	clients := []*client.Client{}
 	for i, port := range ports {
-		di := testutils.DialInfoForPort(port)
+		di := testutils.DialInfoForPort(t, repls[i], port)
 		session, err := mgo.DialWithInfo(di)
 		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])
 		if err != nil {
@@ -119,19 +292,24 @@ func TestGlobal(t *testing.T) {
 			ReplicasetName: di.ReplicaSetName,
 		}
 
-		client, err := client.NewClient(ctx, dbConnOpts, client.SSLOptions{}, clientConn)
+		client, err := client.NewClient(ctx, tmpDir, dbConnOpts, client.SSLOptions{}, clientConn, nil)
 		if err != nil {
 			t.Fatalf("Cannot create an agent instance %s: %s", agentID, err)
 		}
 		clients = append(clients, client)
 	}
 
+	log.Debug("Getting list of connected clients")
 	clientsList := messagesServer.Clients()
+	log.Debugf("Clients: %+v\n", clientsList)
 	if len(clientsList) != 3 {
 		t.Errorf("Want 3 connected clients, got %d", len(clientsList))
 	}
 
+	log.Debug("Getting list of clients by replicaset")
 	clientsByReplicaset := messagesServer.ClientsByReplicaset()
+	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
+
 	var firstClient *server.Client
 	for _, client := range clientsByReplicaset {
 		if len(client) == 0 {
@@ -141,7 +319,9 @@ func TestGlobal(t *testing.T) {
 		break
 	}
 
-	status, err := firstClient.GetStatus()
+	log.Debugf("Getting first client status")
+	status, err := firstClient.Status()
+	log.Debugf("Client status: %+v\n", status)
 	if err != nil {
 		t.Errorf("Cannot get first client status: %s", err)
 	}
@@ -149,7 +329,9 @@ func TestGlobal(t *testing.T) {
 		t.Errorf("The default backup type should be 0 (Logical). Got backup type: %v", status.BackupType)
 	}
 
+	log.Debugf("Getting backup source")
 	backupSource, err := firstClient.GetBackupSource()
+	log.Debugf("Backup source: %+v\n", backupSource)
 	if err != nil {
 		t.Errorf("Cannot get backup source: %s", err)
 	}
@@ -165,7 +347,7 @@ func TestGlobal(t *testing.T) {
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo())
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
@@ -182,7 +364,7 @@ func TestGlobal(t *testing.T) {
 		log.Printf("Temp dir for backup: %s", tmpDir)
 	}
 
-	err = client.StartBackup(&pb.StartBackup{
+	err = messagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_LOGICAL,
 		DestinationType: pb.DestinationType_FILE,
 		DestinationName: "test",
@@ -211,14 +393,14 @@ func TestGlobal(t *testing.T) {
 		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
-	err = messagesServer.StopOplogTail()
-	if err != nil {
-		t.Errorf("Cannot stop the oplog tailer: %s", err)
-		t.FailNow()
-	}
+	// log.Info("Stopping the oplog tailer")
+	// err = messagesServer.StopOplogTail()
+	// if err != nil {
+	// 	t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
+	// 	t.FailNow()
+	// }
 
 	close(oplogGeneratorStopChan)
-	log.Debug("Waiting oplog backup to finish")
 	messagesServer.WaitOplogBackupFinish()
 
 	log.Debug("Calling Stop() on all clients")
@@ -233,23 +415,6 @@ func TestGlobal(t *testing.T) {
 
 	testRestore(t, session, tmpDir)
 	testOplogApply(t, session, tmpDir, max.Number)
-}
-
-func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, stopChan chan interface{}, wg *sync.WaitGroup) {
-	go func() {
-		err := grpcServer.Serve(lis)
-		if err != nil {
-			log.Printf("Cannot start agents gRPC server: %s", err)
-		}
-		log.Println("Stopping server " + lis.Addr().String())
-		wg.Done()
-	}()
-
-	go func() {
-		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		grpcServer.GracefulStop()
-	}()
 }
 
 func testRestore(t *testing.T, session *mgo.Session, dir string) {
@@ -273,7 +438,7 @@ func testRestore(t *testing.T, session *mgo.Session, dir string) {
 		Archive:  path.Join(dir, "test.dump"),
 		DryRun:   false,
 		Host:     testutils.MongoDBHost,
-		Port:     testutils.MongoDBPrimaryPort,
+		Port:     testutils.MongoDBShard1PrimaryPort,
 		Username: testutils.MongoDBUser,
 		Password: testutils.MongoDBPassword,
 		Gzip:     false,
@@ -381,4 +546,60 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 			i++
 		}
 	}
+}
+func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
+	go func() {
+		err := grpcServer.Serve(lis)
+		if err != nil {
+			log.Printf("Cannot start agents gRPC server: %s", err)
+		}
+		log.Println("Stopping server " + lis.Addr().String())
+		wg.Done()
+	}()
+
+	go func() {
+		<-stopChan
+		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
+		// Try to Gracefuly stop the gRPC server.
+		c := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			c <- struct{}{}
+		}()
+
+		// If after shutdownTimeout the server hasn't stop, just kill it.
+		select {
+		case <-c:
+			return
+		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
+			grpcServer.Stop()
+		}
+	}()
+}
+
+func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
+	var grpcOpts []grpc.DialOption
+
+	if opts.serverAddr == nil || *opts.serverAddr == "" {
+		return nil, fmt.Errorf("Invalid server address (nil or empty)")
+	}
+
+	if opts.tls != nil && *opts.tls {
+		if opts.caFile != nil && *opts.caFile == "" {
+			*opts.caFile = testdata.Path("ca.pem")
+		}
+		creds, err := credentials.NewClientTLSFromFile(*opts.caFile, "")
+		if err != nil {
+			log.Fatalf("Failed to create TLS credentials %v", err)
+		}
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
+	} else {
+		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+	}
+
+	conn, err := grpc.Dial(*opts.serverAddr, grpcOpts...)
+	if err != nil {
+		log.Fatalf("fail to dial: %v", err)
+	}
+	return conn, err
 }

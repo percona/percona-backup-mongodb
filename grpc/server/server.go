@@ -10,6 +10,7 @@ import (
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/log"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,16 +19,27 @@ const (
 )
 
 type MessagesServer struct {
-	stopChan              chan struct{}
-	lock                  *sync.Mutex
-	clients               map[string]*Client
-	replicasRunningBackup map[string]bool
+	stopChan chan struct{}
+	lock     *sync.Mutex
+	clients  map[string]*Client
+	// Current backup status
+	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
+	lastOplogTs           int64           // Timestamp in Unix format
 	backupRunning         bool
+	oplogBackupRunning    bool
+	err                   error
+	//
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
+	logger                *logrus.Logger
 }
 
-func NewMessagesServer() *MessagesServer {
+func NewMessagesServer(logger *logrus.Logger) *MessagesServer {
+	if logger == nil {
+		logger = logrus.New()
+		logger.SetLevel(logrus.StandardLogger().Level)
+		logger.Out = logrus.StandardLogger().Out
+	}
 	bfc := notify.Start(EVENT_BACKUP_FINISH)
 	ofc := notify.Start(EVENT_OPLOG_FINISH)
 	messagesServer := &MessagesServer{
@@ -36,11 +48,27 @@ func NewMessagesServer() *MessagesServer {
 		stopChan:              make(chan struct{}),
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
+		replicasRunningBackup: make(map[string]bool),
+		logger:                logger,
 	}
 	return messagesServer
 }
 
-func (s *MessagesServer) GetClientsStatus() {
+func (s *MessagesServer) Stop() {
+	close(s.stopChan)
+}
+
+func (s *MessagesServer) GetClientsStatus() map[string][]Client {
+	replicas := make(map[string][]Client)
+	for _, client := range s.clients {
+		client.Status()
+		if _, ok := replicas[client.ReplicasetUUID]; !ok {
+			replicas[client.ReplicasetUUID] = make([]Client, 0)
+		}
+		replicas[client.ReplicasetUUID] = append(replicas[client.ReplicasetUUID], *client)
+
+	}
+	return replicas
 }
 
 // IsShardedSystem returns if a system is sharded.
@@ -62,72 +90,6 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-// MessagesChat is the method exposed by gRPC to stream messages between the server and agents
-func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) error {
-	msg, err := stream.Recv()
-	if err != nil {
-		return err
-	}
-
-	client, err := s.registerClient(stream, msg)
-	if err != nil {
-		log.Errorf("Cannot register client: %s", err)
-		r := &pb.ServerMessage{
-			Type: pb.ServerMessage_ERROR,
-			Payload: &pb.ServerMessage_ErrorMsg{
-				ErrorMsg: &pb.Error{
-					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
-					Message: "",
-				},
-			},
-		}
-		stream.Send(r)
-		return ClientAlreadyExistsError
-	}
-	s.clients[msg.ClientID] = client
-	r := &pb.ServerMessage{
-		Type: pb.ServerMessage_REGISTRATION_OK,
-	}
-	stream.Send(r)
-
-	// Keep the stream open until we receive the stop signal
-	// The client will continue processing incomming messages to the stream
-	<-s.stopChan
-
-	return nil
-}
-
-func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.Ack, error) {
-	client := s.getClientByNodeName(msg.GetClientID())
-	client.lock.Lock()
-	client.Status.DBBackUpRunning = false
-	client.lock.Unlock()
-
-	replicasets := s.ReplicasetsRunningDBBackup()
-	if len(replicasets) == 0 {
-		notify.Post(EVENT_BACKUP_FINISH, time.Now())
-	}
-	return &pb.Ack{}, nil
-}
-
-func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
-	client := s.getClientByNodeName(msg.GetClientID())
-	client.lock.Lock()
-	client.Status.OplogBackupRunning = false
-	client.lock.Unlock()
-
-	replicasets := s.ReplicasetsRunningOplogBackup()
-	if len(replicasets) == 0 {
-		notify.Post(EVENT_OPLOG_FINISH, time.Now())
-	}
-	close(s.oplogBackupFinishChan)
-	return &pb.Ack{}, nil
-}
-
-func (s *MessagesServer) Stop() {
-	close(s.stopChan)
-}
-
 func (s *MessagesServer) Clients() map[string]*Client {
 	return s.clients
 }
@@ -135,32 +97,40 @@ func (s *MessagesServer) Clients() map[string]*Client {
 func (s *MessagesServer) ClientsByReplicaset() map[string][]*Client {
 	replicas := make(map[string][]*Client)
 	for _, client := range s.clients {
-		if _, ok := replicas[client.ReplicasetID]; !ok {
-			replicas[client.ReplicasetID] = make([]*Client, 0)
+		if _, ok := replicas[client.ReplicasetUUID]; !ok {
+			replicas[client.ReplicasetUUID] = make([]*Client, 0)
 		}
-		replicas[client.ReplicasetID] = append(replicas[client.ReplicasetID], client)
+		replicas[client.ReplicasetUUID] = append(replicas[client.ReplicasetUUID], client)
 
 	}
 	return replicas
 }
 
 func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	sources := make(map[string]*Client)
-
 	for _, client := range s.clients {
-		if _, ok := sources[client.ReplicasetID]; !ok {
+		if _, ok := sources[client.ReplicasetUUID]; !ok {
+			if client.NodeType == pb.NodeType_MONGOS {
+				continue
+			}
 			backupSource, err := client.GetBackupSource()
 			if err != nil {
-				return nil, fmt.Errorf("Cannot get best client for replicaset %q: %s", client.ReplicasetID, err)
+				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
+			}
+			fmt.Printf("Received backup source from client %s: %s\n", client.NodeName, backupSource)
+			if err != nil {
+				return nil, fmt.Errorf("Cannot get best client for replicaset %q: %s", client.ReplicasetUUID, err)
 			}
 			bestClient := s.getClientByNodeName(backupSource)
 			if bestClient == nil {
-				return nil, fmt.Errorf("Cannot get best client for replicaset %q. No such client %q", client.ReplicasetID, bestClient)
+				bestClient = client
+				//continue
 			}
-			sources[client.ReplicasetID] = bestClient
+			sources[client.ReplicasetUUID] = bestClient
 		}
 	}
-
 	return sources, nil
 }
 
@@ -168,14 +138,11 @@ func (s *MessagesServer) ReplicasetsRunningOplogBackup() map[string]*Client {
 	replicasets := make(map[string]*Client)
 
 	// use sync.Map?
-	s.lock.Lock()
 	for _, client := range s.clients {
-		client.GetStatus()
-		if client.Status.OplogBackupRunning {
-			replicasets[client.ReplicasetID] = client
+		if client.IsOplogTailerRunning() {
+			replicasets[client.ReplicasetUUID] = client
 		}
 	}
-	s.lock.Unlock()
 
 	return replicasets
 }
@@ -183,15 +150,11 @@ func (s *MessagesServer) ReplicasetsRunningOplogBackup() map[string]*Client {
 func (s *MessagesServer) ReplicasetsRunningDBBackup() map[string]*Client {
 	replicasets := make(map[string]*Client)
 
-	s.lock.Lock()
 	for _, client := range s.clients {
-		client.GetStatus()
-		if client.Status.DBBackUpRunning {
-			replicasets[client.ReplicasetID] = client
+		if client.IsDBBackupRunning() {
+			replicasets[client.ReplicasetUUID] = client
 		}
 	}
-	s.lock.Unlock()
-
 	return replicasets
 }
 
@@ -204,13 +167,18 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrapf(err, "Cannot start backup. Cannot find backup source for replicas")
 	}
 
+	s.reset()
 	s.setBackupRunning(true)
+	s.setOplogBackupRunning(true)
+
 	for replName, client := range clients {
+		s.logger.Printf("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
-		client.StartBackup(&pb.StartBackup{
+		destinationName := fmt.Sprintf("%s_%s_%s", time.Now().Format("2006-01-02_15.04.05"), client.ReplicasetName, opts.GetDestinationName())
+		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
 			DestinationType: opts.GetDestinationType(),
-			DestinationName: opts.GetDestinationName(),
+			DestinationName: destinationName,
 			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
@@ -221,26 +189,61 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	return nil
 }
 
+func (s *MessagesServer) StopBalancer() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_MONGOS {
+			return client.stopBalancer()
+		}
+	}
+	return fmt.Errorf("No MongoS server found to stop the balancer")
+}
+
+func (s *MessagesServer) cancelBackup() error {
+	if !s.isOplogBackupRunning() {
+		return fmt.Errorf("Backup is not running")
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	var gerr error
+	for _, client := range s.clients {
+		if err := client.stopBackup(); err != nil {
+			gerr = errors.Wrapf(err, "cannot stop backup on %s", client.ID)
+		}
+	}
+	return gerr
+}
+
+// StopOplogTail calls ever agent StopOplogTail(ts) method using the last oplog timestamp reported by the clients
+// when they call DBBackupFinished after mongodump finish on each client. That way s.lastOplogTs has the last
+// timestamp of the slowest backup
 func (s *MessagesServer) StopOplogTail() error {
 	if !s.isOplogBackupRunning() {
 		return fmt.Errorf("Backup is not running")
 	}
-	clients, err := s.BackupSourceByReplicaset()
-	if err != nil {
-		return errors.Wrapf(err, "Cannot stop oplog tailers. Cannot find backup source for replicas")
+	// This should never happen. We get the last oplog timestamp when agents call DBBackupFinished
+	if s.lastOplogTs == 0 {
+		log.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
+		s.lastOplogTs = time.Now().Unix()
 	}
-	for _, client := range clients {
-		if client.IsOplogBackupRunning() {
-			err := client.StopOplogTail()
+
+	var gErr error
+	for _, client := range s.clients {
+		s.logger.Debugf("Checking if client %s is running the backup: %v", client.NodeName, client.IsOplogTailerRunning())
+		if client.IsOplogTailerRunning() {
+			s.logger.Debugf("Stopping oplog tail in client %s at %s", client.NodeName, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
+			err := client.StopOplogTail(s.lastOplogTs)
 			if err != nil {
-				log.Errorf("Error calling client.StopOplogTail: %s", err)
+				gErr = errors.Wrapf(gErr, "client: %s, error: %s", client.NodeName, err)
 			}
-			return err
 		}
 	}
-
 	s.setBackupRunning(false)
 
+	if gErr != nil {
+		return errors.Wrap(gErr, "cannot stop oplog tailer")
+	}
 	return nil
 }
 
@@ -249,7 +252,6 @@ func (s *MessagesServer) WaitBackupFinish() {
 	if len(replicasets) == 0 {
 		return
 	}
-
 	<-s.dbBackupFinishChan
 }
 
@@ -260,6 +262,99 @@ func (s *MessagesServer) WaitOplogBackupFinish() {
 	}
 	<-s.oplogBackupFinishChan
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// gRPC methods
+// ---------------------------------------------------------------------------------------------------------------------
+
+// MessagesChat is the method exposed by gRPC to stream messages between the server and agents
+func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) error {
+	msg, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Registering new client: %s", msg.GetClientID())
+	client, err := s.registerClient(stream, msg)
+	if err != nil {
+		s.logger.Errorf("Cannot register client: %s", err)
+		r := &pb.ServerMessage{
+			Type: pb.ServerMessage_ERROR,
+			Payload: &pb.ServerMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
+					Message: "",
+				},
+			},
+		}
+		err = stream.Send(r)
+
+		return ClientAlreadyExistsError
+	}
+	s.clients[msg.ClientID] = client
+	r := &pb.ServerMessage{
+		Type: pb.ServerMessage_REGISTRATION_OK,
+	}
+	defer s.unregisterClient(client)
+
+	if err := stream.Send(r); err != nil {
+		return err
+	}
+
+	// Keep the stream open
+	<-stream.Context().Done()
+
+	return nil
+}
+
+// DBBackupFinished process backup finished message from clients.
+// After the mongodump call finishes, clients should call this method to inform the event to the server
+func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.Ack, error) {
+	if !msg.GetOK() {
+
+	}
+
+	client := s.getClientByNodeName(msg.GetClientID())
+	if client == nil {
+		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
+	}
+	client.SetDBBackupRunning(false)
+
+	replicasets := s.ReplicasetsRunningDBBackup()
+
+	// Keep the last (bigger) oplog timestamp from all clients running the backup.
+	// When all clients finish the backup, we will call CloseAt(s.lastOplogTs) on all clients to have a consistent
+	// stop time for all oplogs.
+	lastOplogTs := msg.GetTs()
+	if lastOplogTs > s.lastOplogTs {
+		s.lastOplogTs = lastOplogTs
+	}
+
+	if len(replicasets) == 0 {
+		notify.Post(EVENT_BACKUP_FINISH, time.Now())
+	}
+	return &pb.Ack{}, nil
+}
+
+// OplogBackupFinished process oplog tailer finished message from clients.
+// After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
+func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
+	client := s.getClientByNodeName(msg.GetClientID())
+	if client == nil {
+		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
+	}
+	client.SetOplogTailerRunning(false)
+
+	replicasets := s.ReplicasetsRunningOplogBackup()
+	if len(replicasets) == 0 {
+		notify.Post(EVENT_OPLOG_FINISH, time.Now())
+	}
+	return &pb.Ack{}, nil
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------------------------------------------------
 
 func (s *MessagesServer) setBackupRunning(status bool) {
 	s.lock.Lock()
@@ -274,16 +369,27 @@ func (s *MessagesServer) isBackupRunning() bool {
 }
 
 func (s *MessagesServer) isOplogBackupRunning() bool {
-	repl := s.ReplicasetsRunningOplogBackup()
-	if len(repl) > 0 {
-		return true
-	}
-	return false
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.oplogBackupRunning
+}
+
+func (s *MessagesServer) setOplogBackupRunning(status bool) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.oplogBackupRunning = status
+}
+
+func (s *MessagesServer) reset() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.lastOplogTs = 0
+	s.backupRunning = false
+	s.oplogBackupRunning = false
+	s.err = nil
 }
 
 func (s *MessagesServer) getClientByNodeName(name string) *Client {
-	s.lock.Lock()
-	defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeName == name {
 			return client
@@ -299,23 +405,26 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 		return nil, fmt.Errorf("Invalid client ID (empty)")
 	}
 
-	if _, exists := s.clients[msg.ClientID]; exists {
-		return nil, ClientAlreadyExistsError
+	if client, exists := s.clients[msg.ClientID]; exists {
+		if err := client.Ping(); err != nil {
+			s.unregisterClient(client) // Since we already know the client ID is valid, it will never return an error
+		} else {
+			return nil, ClientAlreadyExistsError
+		}
 	}
 
 	regMsg := msg.GetRegisterMsg()
 	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
-	client := NewClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType, stream)
+	s.logger.Debugf("Register msg: %+v", regMsg)
+	client := newClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType, stream, s.logger)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }
 
 func (s *MessagesServer) unregisterClient(client *Client) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
+	log.Infof("Unregistering client %s", client.ID)
 	if _, exists := s.clients[client.ID]; !exists {
 		return UnknownClientID
 	}

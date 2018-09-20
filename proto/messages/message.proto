@@ -68,10 +68,31 @@ enum NodeType {
 }
 
 message Ack {}
+message Empty {}
+message GetBackupSource {}
+message CancelBackup {}
+message GetStatus {}
+message Ping {}
+message StartBalancer {}
+message StopBalancer {}
 
 message Error {
   string Message = 1;
   ErrorType Code = 2;
+}
+
+message StartBackup {
+  BackupType      BackupType      = 1;
+  DestinationType DestinationType = 2;
+  string          DestinationName = 3;
+  string          DestinationDir  = 4; // This is also used as S3 bucket name
+  CompressionType CompressionType = 5;
+  Cypher          Cypher          = 6;
+  int64           OplogStartTime  = 7;
+}
+
+message StopOplogTail {
+  int64 Ts    = 1;
 }
 
 message ServerMessage {
@@ -85,34 +106,26 @@ message ServerMessage {
       GET_STATUS        = 6;
       GET_BACKUP_SOURCE = 7;
       STOP_OPLOG_TAIL   = 8;
-      reserved 9 to 99;
+      STOP_BALANCER     = 9;
+      RESTART_BALANCER  = 10;
+      RESTORE_BALANCER  = 11;
+      reserved 12 to 99;
   }
   
   int32       version = 1;
   MessageType type    = 2;
   oneof Payload {
-    Ack                 AckMsg           = 3;
-    Error               ErrorMsg         = 4;
-    StartBackup         StartBackupMsg   = 5;
-    StopBackup          StopBackupMsg    = 6;
-    StopOplogTail       StopOplogTailMsg = 7;
+    Empty               EmptyMsg         = 3;
+    GetBackupSource     BackupSourceMsg  = 4;
+    GetStatus           GetStatusMsg     = 5;
+    Ping                PingMsg          = 6;
+    Error               ErrorMsg         = 7;
+    StartBalancer       StartBalancerMsg = 8;
+    StopBalancer        StopBalancerMsg  = 9;
+    StartBackup         StartBackupMsg   = 10;
+    CancelBackup        CancelBackupMsg  = 11;
+    StopOplogTail       StopOplogTailMsg = 12;
   }
-}
-
-message StartBackup {
-  BackupType      BackupType      = 1;
-  DestinationType DestinationType = 2;
-  string          DestinationName = 3;
-  string          DestinationDir  = 4; // This is also used as S3 bucket name
-  CompressionType CompressionType = 5;
-  Cypher          Cypher          = 6;
-  int64           OplogStartTime  = 7;
-}
-
-message StopBackup {
-}
-
-message StopOplogTail {
 }
 
 message ClientMessage {
@@ -133,14 +146,18 @@ message ClientMessage {
   string      clientID = 3;
   oneof Payload {
     Ack                     AckMsg            = 4;
-    string                  ErrorMsg          = 5;
-    string                  BackupSourceMsg   = 6;
+    Error                   ErrorMsg          = 5;
+    BackupSource            BackupSourceMsg   = 6;
     Register                RegisterMsg       = 7;
     Pong                    PingMsg           = 8;
     DBBackupFinishStatus    BackupFinishedMsg = 9;
     OplogBackupFinishStatus OplogFinishedMsg  = 10;
     Status                  StatusMsg         = 11;
   }
+}
+
+message BackupSource {
+    string SourceClient = 1;
 }
 
 message DBBackupFinishStatus {
@@ -163,6 +180,7 @@ message Register {
   string ClusterID      = 3; // This field will hold a bson.ObjectIdHex
   string ReplicasetID   = 4;
   string ReplicasetName = 5;
+  string BackupDir      = 6;
 }
 
 message Pong {
@@ -170,8 +188,8 @@ message Pong {
 }
 
 message Status {
-  bool       DBBackUpRunning    = 1;
-  bool       OplogBackupRunning = 2;
+  bool       RunningDBBackUp    = 1;
+  bool       RunningOplogBackup = 2;
   BackupType BackupType         = 3;
   uint64     BytesSent          = 4;
   int64      LastOplogTs        = 5;
@@ -179,10 +197,10 @@ message Status {
   string     LastError          = 7;
   uint64     ReplicasetVersion  = 8;
   //
-  DestinationType DestinationType    = 9;
-  string          DestinationName    = 10;
-  string          DestinationDir     = 11; // This is also used as S3 bucket name
-  CompressionType CompressionType    = 12;
-  Cypher          Cypher             = 13;
-  int64           OplogStartTime     = 14;
+  DestinationType DestinationType = 9;
+  string          DestinationName = 10;
+  string          DestinationDir  = 11; // This is also used as S3 bucket name
+  CompressionType CompressionType = 12;
+  Cypher          Cypher          = 13;
+  int64           StartOplogTs    = 14;
 }
