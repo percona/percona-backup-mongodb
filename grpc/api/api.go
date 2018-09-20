@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"path/filepath"
+	"time"
 
 	"github.com/percona/mongodb-backup/grpc/server"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type ApiServer struct {
@@ -17,6 +20,14 @@ func NewApiServer(server *server.MessagesServer) *ApiServer {
 	return &ApiServer{
 		messagesServer: server,
 	}
+}
+
+var (
+	logger = logrus.New()
+)
+
+func init() {
+	logger.SetLevel(logrus.DebugLevel)
 }
 
 func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
@@ -58,7 +69,33 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 	return nil
 }
 
-func (a *ApiServer) StartBackup(context.Context, *pbapi.StartBackupParams) (*pbapi.StartBackupResponse, error) {
+// StartBackup starts a backup by calling server's StartBackup gRPC method
+// This call waits until the backup finish
+func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
+	msg := &pb.StartBackup{
+		OplogStartTime:  time.Now().Unix(),
+		BackupType:      pb.BackupType(opts.BackupType),
+		DestinationType: pb.DestinationType(opts.DestinationType),
+		CompressionType: pb.CompressionType(opts.CompressionType),
+		Cypher:          pb.Cypher(opts.Cypher),
+	}
 
-	return nil, nil
+	if err := a.messagesServer.StartBackup(msg); err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
+	logger.Debug("Backup started")
+	logger.Debug("Waiting for backup to finish")
+
+	a.messagesServer.WaitBackupFinish()
+	logger.Debug("Stopping oplog")
+	err := a.messagesServer.StopOplogTail()
+	if err != nil {
+		logger.Fatalf("Cannot stop oplog tailer %s", err)
+		return &pbapi.Error{Message: err.Error()}, err
+	}
+	logger.Debug("Waiting oplog to finish")
+	a.messagesServer.WaitOplogBackupFinish()
+	logger.Debug("Oplog finished")
+
+	return &pbapi.Error{}, nil
 }

@@ -67,12 +67,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
-	//serverAddr := "127.0.0.1:" + testutils.TEST_GRPC_API_PORT
-	//conn, err := getApiConn(&cliOptions{serverAddr: &serverAddr})
-	//if err != nil {
-	//	t.Fatalf("Cannot connect to the API: %s", err)
-	//}
-
 	tmpDir := path.Join(os.TempDir(), "dump_test")
 	os.RemoveAll(tmpDir) // Don't check for errors. The path might not exist
 	err = os.MkdirAll(tmpDir, os.ModePerm)
@@ -212,17 +206,11 @@ func TestGlobalWithDaemon(t *testing.T) {
 	log.Info("Stopping the oplog tailer")
 	err = d.MessagesServer.StopOplogTail()
 	if err != nil {
-		t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
-		t.FailNow()
+		t.Fatalf("Cannot stop the oplog tailer: %s", err)
 	}
 
 	close(oplogGeneratorStopChan)
 	d.MessagesServer.WaitOplogBackupFinish()
-
-	//log.Debug("Calling Stop() on all clients")
-	//for _, client := range clients {
-	//	client.Stop()
-	//}
 
 	t.Log("Skipping restore tests in new replicaset sandbox")
 	//testRestore(t, session, tmpDir)
@@ -304,7 +292,7 @@ func TestGlobal(t *testing.T) {
 			ReplicasetName: di.ReplicaSetName,
 		}
 
-		client, err := client.NewClient(ctx, dbConnOpts, client.SSLOptions{}, clientConn, nil)
+		client, err := client.NewClient(ctx, tmpDir, dbConnOpts, client.SSLOptions{}, clientConn, nil)
 		if err != nil {
 			t.Fatalf("Cannot create an agent instance %s: %s", agentID, err)
 		}
@@ -405,12 +393,12 @@ func TestGlobal(t *testing.T) {
 		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
-	log.Info("Stopping the oplog tailer")
-	err = messagesServer.StopOplogTail()
-	if err != nil {
-		t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
-		t.FailNow()
-	}
+	// log.Info("Stopping the oplog tailer")
+	// err = messagesServer.StopOplogTail()
+	// if err != nil {
+	// 	t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
+	// 	t.FailNow()
+	// }
 
 	close(oplogGeneratorStopChan)
 	messagesServer.WaitOplogBackupFinish()
@@ -589,7 +577,7 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 	}()
 }
 
-func getApiConn(opts *cliOptions) (*grpc.ClientConn, error) {
+func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 	var grpcOpts []grpc.DialOption
 
 	if opts.serverAddr == nil || *opts.serverAddr == "" {

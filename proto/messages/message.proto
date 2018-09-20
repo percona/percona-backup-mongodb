@@ -69,10 +69,30 @@ enum NodeType {
 
 message Ack {}
 message Empty {}
+message GetBackupSource {}
+message CancelBackup {}
+message GetStatus {}
+message Ping {}
+message StartBalancer {}
+message StopBalancer {}
 
 message Error {
   string Message = 1;
   ErrorType Code = 2;
+}
+
+message StartBackup {
+  BackupType      BackupType      = 1;
+  DestinationType DestinationType = 2;
+  string          DestinationName = 3;
+  string          DestinationDir  = 4; // This is also used as S3 bucket name
+  CompressionType CompressionType = 5;
+  Cypher          Cypher          = 6;
+  int64           OplogStartTime  = 7;
+}
+
+message StopOplogTail {
+  int64 Ts    = 1;
 }
 
 message ServerMessage {
@@ -96,39 +116,16 @@ message ServerMessage {
   MessageType type    = 2;
   oneof Payload {
     Empty               EmptyMsg         = 3;
-    BackupSource        BackupSourceMsg  = 4;
+    GetBackupSource     BackupSourceMsg  = 4;
     GetStatus           GetStatusMsg     = 5;
     Ping                PingMsg          = 6;
     Error               ErrorMsg         = 7;
     StartBalancer       StartBalancerMsg = 8;
     StopBalancer        StopBalancerMsg  = 9;
     StartBackup         StartBackupMsg   = 10;
-    StopBackup          StopBackupMsg    = 11;
+    CancelBackup        CancelBackupMsg  = 11;
     StopOplogTail       StopOplogTailMsg = 12;
   }
-}
-
-message BackupSource {}
-message Ping {}
-message GetStatus {}
-message StartBalancer {}
-message StopBalancer {}
-
-message StartBackup {
-  BackupType      BackupType      = 1;
-  DestinationType DestinationType = 2;
-  string          DestinationName = 3;
-  string          DestinationDir  = 4; // This is also used as S3 bucket name
-  CompressionType CompressionType = 5;
-  Cypher          Cypher          = 6;
-  int64           OplogStartTime  = 7;
-}
-
-message StopBackup {
-}
-
-message StopOplogTail {
-  int64 Ts    = 1;
 }
 
 message ClientMessage {
@@ -149,14 +146,18 @@ message ClientMessage {
   string      clientID = 3;
   oneof Payload {
     Ack                     AckMsg            = 4;
-    string                  ErrorMsg          = 5;
-    string                  BackupSourceMsg   = 6;
+    Error                   ErrorMsg          = 5;
+    BackupSource            BackupSourceMsg   = 6;
     Register                RegisterMsg       = 7;
     Pong                    PingMsg           = 8;
     DBBackupFinishStatus    BackupFinishedMsg = 9;
     OplogBackupFinishStatus OplogFinishedMsg  = 10;
     Status                  StatusMsg         = 11;
   }
+}
+
+message BackupSource {
+    string SourceClient = 1;
 }
 
 message DBBackupFinishStatus {
@@ -179,6 +180,7 @@ message Register {
   string ClusterID      = 3; // This field will hold a bson.ObjectIdHex
   string ReplicasetID   = 4;
   string ReplicasetName = 5;
+  string BackupDir      = 6;
 }
 
 message Pong {

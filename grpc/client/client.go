@@ -28,9 +28,15 @@ type flusher interface {
 
 type Client struct {
 	clientID       string
+	ctx            context.Context
 	replicasetName string
 	replicasetID   string
+	nodeType       pb.NodeType
 	nodeName       string
+	clusterID      string
+	backupDir      string
+	doneChan       chan struct{}
+	mongoDumper    *dumper.Mongodump
 	oplogTailer    *oplog.OplogTail
 	mdbSession     *mgo.Session
 	grpcClient     pb.MessagesClient
@@ -71,7 +77,8 @@ var (
 	balancerStopTimeout = 30 * time.Second
 )
 
-func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions, conn *grpc.ClientConn, logger *logrus.Logger) (*Client, error) {
+func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
+	conn *grpc.ClientConn, logger *logrus.Logger) (*Client, error) {
 	// If the provided logger is nil, create a new logger and copy Logrus standard logger level and writer
 	if logger == nil {
 		logger = logrus.New()
@@ -87,10 +94,12 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 		ReplicaSetName: mdbConnOpts.ReplicasetName,
 		// ReadPreference *ReadPreference
 		// Safe Safe
-		// FailFast bool
-		Direct: true,
+		FailFast: true,
+		Direct:   true,
+		Source:   "admin",
 	}
 	mdbSession, err := mgo.DialWithInfo(di)
+
 	mdbSession.SetMode(mgo.Eventual, true)
 
 	nodeType, nodeName, err := getNodeTypeAndName(mdbSession)
@@ -119,42 +128,50 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 	grpcClient := pb.NewMessagesClient(conn)
 
 	stream, err := grpcClient.MessagesChat(ctx)
-
-	m := &pb.ClientMessage{
-		ClientID: nodeName,
-		Type:     pb.ClientMessage_REGISTER,
-		Payload: &pb.ClientMessage_RegisterMsg{
-			RegisterMsg: &pb.Register{
-				NodeType:       nodeType,
-				NodeName:       nodeName,
-				ClusterID:      clusterIDString,
-				ReplicasetName: replicasetName,
-				ReplicasetID:   replicasetID,
-			},
-		},
-	}
-
-	logger.Infof("Registering node ...")
-	if err := stream.Send(m); err != nil {
-		return nil, errors.Wrap(err, "Failed to send registration message")
-	}
-
-	response, err := stream.Recv()
 	if err != nil {
-		return nil, errors.Wrap(err, "Error while receiving the registration response from the server")
+		return nil, errors.Wrap(err, "cannot connect to the gRPC server")
 	}
-	if response.Type != pb.ServerMessage_REGISTRATION_OK {
-		return nil, fmt.Errorf("Invalid registration response type: %d", response.Type)
-	}
-	logger.Infof("Node registration OK.")
+
+	// m := &pb.ClientMessage{
+	// 	ClientID: nodeName,
+	// 	Type:     pb.ClientMessage_REGISTER,
+	// 	Payload: &pb.ClientMessage_RegisterMsg{
+	// 		RegisterMsg: &pb.Register{
+	// 			NodeType:       nodeType,
+	// 			NodeName:       nodeName,
+	// 			ClusterID:      clusterIDString,
+	// 			ReplicasetName: replicasetName,
+	// 			ReplicasetID:   replicasetID,
+	// 			BackupDir:      backupDir,
+	// 		},
+	// 	},
+	// }
+
+	// logger.Infof("Registering node ...")
+	// if err := stream.Send(m); err != nil {
+	// 	return nil, errors.Wrap(err, "Failed to send registration message")
+	// }
+
+	// response, err := stream.Recv()
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, "Error while receiving the registration response from the server")
+	// }
+	// if response.Type != pb.ServerMessage_REGISTRATION_OK {
+	// 	return nil, fmt.Errorf("Invalid registration response type: %d", response.Type)
+	// }
+	// logger.Infof("Node registration OK.")
 
 	c := &Client{
 		clientID:       nodeName,
+		ctx:            ctx,
+		backupDir:      backupDir,
 		replicasetName: replicasetName,
 		replicasetID:   replicasetID,
 		grpcClient:     grpcClient,
 		mdbSession:     mdbSession,
 		nodeName:       nodeName,
+		nodeType:       nodeType,
+		clusterID:      clusterIDString,
 		stream:         stream,
 		status: pb.Status{
 			BackupType: pb.BackupType_LOGICAL,
@@ -163,6 +180,7 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 		sslOpts:  mdbSSLOpts,
 		logger:   logger,
 		lock:     &sync.Mutex{},
+		doneChan: make(chan struct{}),
 		// This lock is used to sync the access to the stream Send() method.
 		// For example, if the backup is running, we can receive a Ping request from
 		// the server but while we are sending the Ping response, the backup can finish
@@ -172,11 +190,63 @@ func NewClient(ctx context.Context, mdbConnOpts ConnectionOptions, mdbSSLOpts SS
 		// access to it with a mutex
 		streamLock: &sync.Mutex{},
 	}
+	c.connect()
+	if err := c.register(); err != nil {
+		return nil, err
+	}
 
 	// start listening server messages
 	go c.processIncommingServerMessages()
 
 	return c, nil
+}
+
+func (c *Client) connect() {
+	for {
+		log.Infof("Reconnecting with the gRPC server")
+		stream, err := c.grpcClient.MessagesChat(c.ctx)
+		if err != nil {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		c.stream = stream
+		return
+	}
+}
+
+func (c *Client) register() error {
+	m := &pb.ClientMessage{
+		ClientID: c.nodeName,
+		Type:     pb.ClientMessage_REGISTER,
+		Payload: &pb.ClientMessage_RegisterMsg{
+			RegisterMsg: &pb.Register{
+				NodeType:       c.nodeType,
+				NodeName:       c.nodeName,
+				ClusterID:      c.clusterID,
+				ReplicasetName: c.replicasetName,
+				ReplicasetID:   c.replicasetID,
+				BackupDir:      c.backupDir,
+			},
+		},
+	}
+	c.logger.Infof("Registering node ...")
+	if err := c.stream.Send(m); err != nil {
+		return err
+	}
+
+	response, err := c.stream.Recv()
+	if err != nil {
+		return err
+	}
+	if response.Type != pb.ServerMessage_REGISTRATION_OK {
+		return err
+	}
+	c.logger.Info("Node registered")
+	return nil
+}
+
+func (c *Client) Done() <-chan struct{} {
+	return c.doneChan
 }
 
 func (c *Client) Stop() {
@@ -199,69 +269,57 @@ func (c *Client) processIncommingServerMessages() {
 	for {
 		msg, err := c.stream.Recv()
 		if err != nil { // Stream has been closed
-			return
+			c.connect()
+			c.register()
+			continue
 		}
 
-		var response *pb.ClientMessage
+		//var response *pb.ClientMessage
 
 		c.logger.Debugf("Client %s -> incoming message: %+v", c.nodeName, msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
-			response, err = c.processStatus()
+			c.processStatus()
 		case *pb.ServerMessage_BackupSourceMsg:
 			c.processGetBackupSource()
 		case *pb.ServerMessage_PingMsg:
-			response, err = c.processPing()
+			c.processPing()
 		//
 		case *pb.ServerMessage_StartBackupMsg:
 			startBackupMsg := msg.GetStartBackupMsg()
-			response, err = c.processStartBackup(startBackupMsg)
+			c.processStartBackup(startBackupMsg)
 		case *pb.ServerMessage_StopOplogTailMsg:
 			stopOplogTailMsg := msg.GetStopOplogTailMsg()
 			c.processStopOplogTail(stopOplogTailMsg)
-		case *pb.ServerMessage_StopBackupMsg:
+		case *pb.ServerMessage_CancelBackupMsg:
+			err = c.processCancelBackup()
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
-			response, err = c.processStopBalancer()
+			c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
-			response, err = c.processStartBalancer()
+			c.processStartBalancer()
 		default:
-			err = fmt.Errorf("Message type %v is not implemented yet", msg.Type)
-		}
-
-		if err != nil {
-			errMsg := &pb.ClientMessage{
-				Type:     pb.ClientMessage_ERROR,
-				ClientID: c.clientID,
-				Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: err.Error()},
-			}
-			if err = c.streamSend(errMsg); err != nil {
-				c.logger.Errorf("Cannot stream error response to the server: %s. Out message: %+v", err, *errMsg)
-			}
-			continue
-		}
-		// The default response is ACK. If there is no other response returned from a specific method call, send ACK
-		if response == nil {
-			response = &pb.ClientMessage{
-				Type:     pb.ClientMessage_ACK,
-				ClientID: c.clientID,
-				Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-			}
-		}
-		if err = c.streamSend(response); err != nil {
-			c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v", err, *response)
+			err = fmt.Errorf("Message type %v is not implemented yet", msg.Payload)
 		}
 	}
 }
 
-func (c *Client) processPing() (*pb.ClientMessage, error) {
+func (c *Client) processCancelBackup() error {
+	err := c.mongoDumper.Stop()
+	c.oplogTailer.Cancel()
+	return err
+}
+
+func (c *Client) processPing() {
 	c.logger.Debug("Received Ping command")
 	msg := &pb.ClientMessage{
 		Type:     pb.ClientMessage_PONG,
 		ClientID: c.clientID,
 		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
 	}
-	return msg, nil
+	if err := c.streamSend(msg); err != nil {
+		c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
+	}
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -288,7 +346,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 	return nil, nil
 }
 
-func (c *Client) processStartBackup(msg *pb.StartBackup) (*pb.ClientMessage, error) {
+func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	fmt.Printf("Starting backup on client: %s\n", c.nodeName)
 	c.logger.Infof("%s: Received StartBackup command", c.nodeName)
 	c.logger.Debugf("%s: Received start backup command: %+v", c.nodeName, *msg)
@@ -297,19 +355,23 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) (*pb.ClientMessage, err
 	defer c.lock.Unlock()
 
 	if c.status.RunningDBBackUp {
-		return nil, fmt.Errorf("Backup already running")
+		c.sendError(fmt.Errorf("Backup already running"))
+		return
 	}
 	// Validate backup type by asking MongoDB capabilities?
 	if msg.BackupType != pb.BackupType_LOGICAL {
-		return nil, fmt.Errorf("Hot Backup is not implemented yet")
+		c.sendError(fmt.Errorf("Hot Backup is not implemented yet"))
+		return
 	}
 
-	fi, err := os.Stat(msg.GetDestinationDir())
+	fi, err := os.Stat(c.backupDir)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Error while checking destination directory: %s", msg.GetDestinationDir())
+		c.sendError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+		return
 	}
 	if !fi.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", msg.GetDestinationDir())
+		c.sendError(fmt.Errorf("%s is not a directory", c.backupDir))
+		return
 	}
 
 	extension := c.getFileExtension(msg)
@@ -317,7 +379,36 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) (*pb.ClientMessage, err
 	go c.runDBBackup(msg, ".dump"+extension)
 	go c.runOplogBackup(msg, ".oplog"+extension)
 
-	return nil, nil
+	response := &pb.ClientMessage{
+		Type:     pb.ClientMessage_ACK,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+	if err = c.streamSend(response); err != nil {
+		c.logger.Errorf("processStartBackup error: cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *response, response.Payload)
+	}
+}
+
+func (c *Client) sendACK() {
+	response := &pb.ClientMessage{
+		Type:     pb.ClientMessage_ACK,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+	if err := c.streamSend(response); err != nil {
+		c.logger.Errorf("sendACK error: cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *response, response.Payload)
+	}
+}
+
+func (c *Client) sendError(err error) {
+	response := &pb.ClientMessage{
+		Type:     pb.ClientMessage_ERROR,
+		ClientID: c.clientID,
+		Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+	}
+	if err := c.streamSend(response); err != nil {
+		c.logger.Errorf("sendError error: cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *response, response.Payload)
+	}
 }
 
 func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
@@ -326,9 +417,16 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_FILE:
-		fw, err := os.Create(path.Join(msg.GetDestinationDir(), msg.GetDestinationName()+extension))
+		fw, err := os.Create(path.Join(c.backupDir, msg.GetDestinationName()+extension))
 		if err != nil {
-			// TODO Stream error msg to the server
+			finishMsg := &pb.OplogBackupFinishStatus{
+				ClientID: c.clientID,
+				OK:       false,
+				Ts:       time.Now().Unix(),
+				Error:    fmt.Sprintf("Cannot create destination file: %s", err),
+			}
+			c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
+			c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
 		}
 		writers = append(writers, fw)
 	}
@@ -421,12 +519,13 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, extension string) {
 }
 
 func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
+	var err error
 	c.logger.Info("Starting DB backup")
 	writers := []io.WriteCloser{}
 
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_FILE:
-		fw, err := os.Create(path.Join(msg.GetDestinationDir(), msg.GetDestinationName()+extension))
+		fw, err := os.Create(path.Join(c.backupDir, msg.GetDestinationName()+extension))
 		if err != nil {
 			// TODO Stream error msg to the server
 		}
@@ -456,7 +555,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 	}
 	c.logger.Debugf("Calling Mongodump using: %+v", *mi)
 
-	mdump, err := dumper.NewMongodump(mi)
+	c.mongoDumper, err = dumper.NewMongodump(mi)
 	if err != nil {
 		c.logger.Fatalf("Cannot call mongodump: %s", err)
 		//TODO send error
@@ -464,39 +563,55 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, extension string) {
 
 	c.setDBBackupRunning(true)
 
-	mdump.Start()
-	err = mdump.Wait()
+	c.mongoDumper.Start()
+	dumpErr := c.mongoDumper.Wait()
 
+	var wErr error
 	for i := len(writers); i < 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
 			if err = writers[i].(flusher).Flush(); err != nil {
-				break
+				wErr = errors.Wrap(err, "Cannot flush writer")
 			}
 		}
 		if err := writers[i].Close(); err != nil {
-			break
+			wErr = errors.Wrap(err, "Cannot close writer")
 		}
+	}
+	if wErr != nil {
+		c.logger.Errorf("Cannot flush/close the MongoDump writer: %s", err)
+		c.sendBackupError(err.Error())
+		return
 	}
 
 	c.setDBBackupRunning(false)
 
-	if err != nil {
-		c.logger.Errorf("Cannot flush/close the MongoDump writer: %s", err)
-
-		finishMsg := &pb.DBBackupFinishStatus{
-			ClientID: c.clientID,
-			OK:       false,
-			Ts:       0,
-			Error:    err.Error(),
-		}
-		c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
+	if dumpErr != nil {
+		c.sendBackupError("backup was cancelled")
+		c.logger.Info("DB dump cancelled")
 		return
 	}
 
 	c.logger.Info("DB dump completed")
+	c.sendBackupFinishOK()
+}
 
-	// This should never happen.
+func (c *Client) sendBackupError(errMsg string) {
+	finishMsg := &pb.DBBackupFinishStatus{
+		ClientID: c.clientID,
+		OK:       false,
+		Ts:       0,
+		Error:    errMsg,
+	}
+	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
+		c.logger.Errorf("Cannot call DBBackupFinished (cancel) RPC method: %s", err)
+	} else {
+		c.logger.Debugf("Recieved ACK from DBBackupFinished (cancel) RPC method: %+v", *ack)
+	}
+}
+
+func (c *Client) sendBackupFinishOK() {
 	ismaster, err := cluster.NewIsMaster(c.mdbSession)
+	// This should never happen.
 	if err != nil {
 		log.Errorf("cannot get LastWrite.OpTime.Ts from MongoDB: %s", err)
 		finishMsg := &pb.DBBackupFinishStatus{
@@ -536,6 +651,7 @@ func (c *Client) setOplogBackupRunning(status bool) {
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
+	fmt.Printf("Received StopOplogTail command for client: %s\n", c.clientID)
 	c.logger.Debugf("Received StopOplogTail command for client: %s", c.clientID)
 	out := &pb.ClientMessage{
 		Type:     pb.ClientMessage_ACK,
@@ -543,7 +659,9 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("Sending ACK message to the gRPC server")
+	fmt.Printf("Sending ACK message to the gRPC server")
 	c.streamSend(out)
+	fmt.Println(">>>>> 1")
 
 	c.setOplogBackupRunning(false)
 
@@ -578,7 +696,7 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 }
 
-func (c *Client) processStatus() (*pb.ClientMessage, error) {
+func (c *Client) processStatus() {
 	c.logger.Debug("Received Status command")
 	c.lock.Lock()
 
@@ -607,7 +725,9 @@ func (c *Client) processStatus() (*pb.ClientMessage, error) {
 	c.lock.Unlock()
 
 	c.logger.Debugf("Sending status to the gRPC server: %+v", *msg)
-	return msg, nil
+	if err := c.streamSend(msg); err != nil {
+		c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, msg, msg.Payload)
+	}
 }
 
 func (c *Client) processGetBackupSource() {
@@ -617,7 +737,7 @@ func (c *Client) processGetBackupSource() {
 		msg := &pb.ClientMessage{
 			Type:     pb.ClientMessage_BACKUP_SOURCE,
 			ClientID: c.clientID,
-			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: c.nodeName},
+			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: c.nodeName}},
 		}
 		c.logger.Debugf("Sending GetBackupSource response to the RPC server: %+v", *msg)
 		c.streamSend(msg)
@@ -630,7 +750,7 @@ func (c *Client) processGetBackupSource() {
 		msg := &pb.ClientMessage{
 			Type:     pb.ClientMessage_ERROR,
 			ClientID: c.clientID,
-			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: fmt.Sprintf("Cannot get backoup source: %s", err)},
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
 		}
 		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
 		if err = c.streamSend(msg); err != nil {
@@ -645,7 +765,7 @@ func (c *Client) processGetBackupSource() {
 	msg := &pb.ClientMessage{
 		Type:     pb.ClientMessage_BACKUP_SOURCE,
 		ClientID: c.clientID,
-		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: winner},
+		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: winner}},
 	}
 	c.logger.Debugf("%s -> Sending GetBackupSource response to the RPC server: %+v (winner: %q)", c.nodeName, *msg, winner)
 	c.streamSend(msg)

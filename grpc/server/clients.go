@@ -56,26 +56,33 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 	return client
 }
 
-func (c *Client) Ping() {
-	c.streamSend(&pb.ServerMessage{Type: pb.ServerMessage_PING})
+func (c *Client) Ping() error {
+	c.logger.Debug("sending ping")
+	return c.streamSend(&pb.ServerMessage{Type: pb.ServerMessage_PING})
 }
 
 func (c *Client) GetBackupSource() (string, error) {
-	if err := c.streamSend(&pb.ServerMessage{Type: pb.ServerMessage_GET_BACKUP_SOURCE}); err != nil {
+	if err := c.streamSend(&pb.ServerMessage{
+		Type:    pb.ServerMessage_GET_BACKUP_SOURCE,
+		Payload: &pb.ServerMessage_BackupSourceMsg{BackupSourceMsg: &pb.GetBackupSource{}},
+	}); err != nil {
 		return "", err
 	}
 	msg, err := c.stream.Recv()
 	if err != nil {
 		return "", err
 	}
-	if errMsg := msg.GetErrorMsg(); errMsg != "" {
+	if errMsg := msg.GetErrorMsg(); errMsg != nil {
 		return "", fmt.Errorf("Cannot get backup source for client %s: %s", c.NodeName, errMsg)
 	}
-	return msg.GetBackupSourceMsg(), nil
+	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
 func (c *Client) Status() (pb.Status, error) {
-	if err := c.streamSend(&pb.ServerMessage{Type: pb.ServerMessage_GET_STATUS}); err != nil {
+	if err := c.streamSend(&pb.ServerMessage{
+		Type:    pb.ServerMessage_GET_STATUS,
+		Payload: &pb.ServerMessage_GetStatusMsg{GetStatusMsg: &pb.GetStatus{}},
+	}); err != nil {
 		return pb.Status{}, err
 	}
 	msg, err := c.stream.Recv()
@@ -107,11 +114,13 @@ func (c *Client) stopBalancer() error {
 	if err != nil {
 		return err
 	}
-	if ack := msg.GetAckMsg(); ack != nil {
+
+	switch msg.Payload.(type) {
+	case *pb.ClientMessage_AckMsg:
 		return nil
-	}
-	if errMsg := msg.GetErrorMsg(); errMsg != "" {
-		return fmt.Errorf("%s", errMsg)
+	case *pb.ClientMessage_ErrorMsg:
+		errMsg := msg.GetErrorMsg()
+		return fmt.Errorf("%s", errMsg.Message)
 	}
 	return fmt.Errorf("unknown respose type %T", msg)
 }
@@ -147,7 +156,7 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 func (c *Client) stopBackup() error {
 	msg := &pb.ServerMessage{
 		Type:    pb.ServerMessage_STOP_BACKUP,
-		Payload: &pb.ServerMessage_StopBackupMsg{},
+		Payload: &pb.ServerMessage_CancelBackupMsg{},
 	}
 	if err := c.streamSend(msg); err != nil {
 		return err
@@ -187,6 +196,7 @@ func (c *Client) IsOplogTailerRunning() (status bool) {
 
 func (c *Client) StopOplogTail(ts int64) error {
 	c.logger.Debugf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
+	fmt.Printf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	err := c.streamSend(&pb.ServerMessage{
 		Type:    pb.ServerMessage_STOP_OPLOG_TAIL,
 		Payload: &pb.ServerMessage_StopOplogTailMsg{StopOplogTailMsg: &pb.StopOplogTail{Ts: ts}},

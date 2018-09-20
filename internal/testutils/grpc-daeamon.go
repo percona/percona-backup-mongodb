@@ -125,7 +125,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 			ReplicasetName: di.ReplicaSetName,
 		}
 
-		client, err := client.NewClient(d.ctx, dbConnOpts, client.SSLOptions{}, clientConn, logger)
+		client, err := client.NewClient(d.ctx, tmpDir, dbConnOpts, client.SSLOptions{}, clientConn, logger)
 		if err != nil {
 			return nil, fmt.Errorf("Cannot create an agent instance %s: %s", agentID, err)
 		}

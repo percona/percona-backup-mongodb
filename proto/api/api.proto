@@ -23,10 +23,39 @@ package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
-  rpc StartBackup(StartBackupParams) returns (StartBackupResponse) {}
+  rpc RunBackup(RunBackupParams) returns (Error) {}
+}
+
+enum BackupType {
+   LOGICAL   = 0;
+   HOTBACKUP = 1;
+}
+
+enum DestinationType {
+   FILE = 0; 
+   AWS  = 1;
+}
+
+enum CompressionType {
+   NO_COMPRESSION = 0;
+   GZIP           = 1;
+   SNAPPY         = 2;
+   LZ4            = 3;
+}
+
+enum Cypher {
+    NO_CYPHER = 0;
+    AES       = 1;
+    DES       = 2;
+    RC4       = 3;
+    RSA       = 4;
 }
 
 message Empty {}
+message Error {
+    string Message = 1;
+    int64  Code    = 2;
+}
 
 message ClientStatus {
   string ReplicaSetUUID     = 1;
@@ -60,14 +89,14 @@ message Client {
   ClientStatus Status          = 10;
 }
 
-message StartBackupParams {
-  string BackupType         = 1;
-  string Compression        = 2;       
-  string Encrypted          = 3;         
-  string Destination        = 4;       
-  string Dirname            = 5;
-  string Filename           = 6;          
-  int64  StartOplogTs       = 7;
+message RunBackupParams {
+  BackupType      BackupType      = 1;
+  CompressionType CompressionType = 2;       
+  Cypher          Cypher          = 3;         
+  DestinationType DestinationType = 4;       
+  string          Dirname         = 5;
+  string          Filename        = 6;          
+  int64           StartOplogTs    = 7;
 }
 
 message BackupReplica {
@@ -80,6 +109,3 @@ message BackupReplica {
   int64  StartedAt       = 7;
 }
     
-message StartBackupResponse {
-
-}

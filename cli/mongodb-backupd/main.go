@@ -13,7 +13,7 @@ import (
 	"github.com/percona/mongodb-backup/grpc/server"
 	apipb "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
@@ -28,7 +28,17 @@ type cliOptions struct {
 	grpcPort        *int
 	apiPort         *int
 	shutdownTimeout *int
+	debug           *bool
 }
+
+var (
+	log = logrus.New()
+)
+
+const (
+	defaultGrpcPort = "10000"
+	defaultAPIPort  = "10001"
+)
 
 func processCliParams() (*cliOptions, error) {
 	var err error
@@ -38,9 +48,10 @@ func processCliParams() (*cliOptions, error) {
 		tls:             app.Flag("tls", "Enable TLS").Bool(),
 		certFile:        app.Flag("cert-file", "Cert file for gRPC client connections").String(),
 		keyFile:         app.Flag("key-file", "Key file for gRPC client connections").String(),
-		grpcPort:        app.Flag("grpc-port", "Listening port for client connections").Int(),
-		apiPort:         app.Flag("api-port", "Listening por for API client connecions").Int(),
-		shutdownTimeout: app.Flag("shutdown-timeout", "Server shutdown timeout").Default("30").Int(),
+		grpcPort:        app.Flag("grpc-port", "Listening port for client connections").Default(defaultGrpcPort).Int(),
+		apiPort:         app.Flag("api-port", "Listening por for API client connecions").Default(defaultAPIPort).Int(),
+		shutdownTimeout: app.Flag("shutdown-timeout", "Server shutdown timeout").Default("3").Int(),
+		debug:           app.Flag("debug", "Enable debug log level").Bool(),
 	}
 
 	opts.cmd, err = app.Parse(os.Args[1:])
@@ -54,6 +65,9 @@ func main() {
 	opts, err := processCliParams()
 	if err != nil {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
+	}
+	if *opts.debug {
+		log.SetLevel(logrus.DebugLevel)
 	}
 
 	log.Infof("Starting clients gRPC net listener on port: %d", *opts.grpcPort)
@@ -83,7 +97,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	grpcServer := grpc.NewServer(grpcOpts...)
-	messagesServer := server.NewMessagesServer()
+	messagesServer := server.NewMessagesServer(log)
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
 	wg.Add(1)
@@ -109,6 +123,7 @@ func main() {
 
 func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
 	go func() {
+		fmt.Printf("Starting grpc server on port %v\n", lis.Addr().String())
 		err := grpcServer.Serve(lis)
 		if err != nil {
 			log.Printf("Cannot start agents gRPC server: %s", err)
@@ -126,11 +141,12 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 			c <- struct{}{}
 		}()
 
-		// If after shutdownTimeout the server hasn't stop, just kill it.
+		// If after shutdownTimeout seconds the server hasn't stop, just kill it.
 		select {
 		case <-c:
 			return
 		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
+			log.Printf("Stopping server at %s", lis.Addr().String())
 			grpcServer.Stop()
 		}
 	}()
