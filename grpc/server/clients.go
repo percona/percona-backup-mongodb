@@ -25,7 +25,10 @@ type Client struct {
 	LastCommandSent string      `json:"last_command_sent"`
 	LastSeen        time.Time   `json:"last_seen"`
 	logger          *logrus.Logger
-	//
+
+	streamStoppedChan chan string
+	streamRecvChan    chan *pb.ClientMessage
+
 	streamLock *sync.Mutex
 	stream     pb.Messages_MessagesChatServer
 	statusLock *sync.Mutex
@@ -33,27 +36,56 @@ type Client struct {
 }
 
 func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
-	stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
+	stream pb.Messages_MessagesChatServer, logger *logrus.Logger, streamStoppedChan chan string) *Client {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
 		logger.Out = logrus.StandardLogger().Out
 	}
+
 	client := &Client{
-		ID:             id,
-		ClusterID:      clusterID,
-		ReplicasetUUID: replicasetUUID,
-		ReplicasetName: replicasetName,
-		NodeType:       nodeType,
-		NodeName:       nodeName,
-		stream:         stream,
-		LastSeen:       time.Now(),
-		status:         pb.Status{},
-		streamLock:     &sync.Mutex{},
-		statusLock:     &sync.Mutex{},
-		logger:         logger,
+		ID:                id,
+		ClusterID:         clusterID,
+		ReplicasetUUID:    replicasetUUID,
+		ReplicasetName:    replicasetName,
+		NodeType:          nodeType,
+		NodeName:          nodeName,
+		stream:            stream,
+		LastSeen:          time.Now(),
+		status:            pb.Status{},
+		streamLock:        &sync.Mutex{},
+		statusLock:        &sync.Mutex{},
+		logger:            logger,
+		streamStoppedChan: streamStoppedChan,
+		streamRecvChan:    make(chan *pb.ClientMessage),
 	}
+	go client.handleStreamRecv()
 	return client
+}
+
+func (c *Client) handleStreamRecv() {
+	for {
+		msg, err := c.stream.Recv()
+		if err != nil {
+			if c.streamStoppedChan != nil {
+				select {
+				case c.streamStoppedChan <- c.ID:
+				default:
+				}
+			}
+			return
+		}
+		c.streamRecvChan <- msg
+	}
+}
+
+func (c *Client) streamRecv() (*pb.ClientMessage, error) {
+	select {
+	case msg := <-c.streamRecvChan:
+		return msg, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("Timeout reading from the stream")
+	}
 }
 
 func (c *Client) Ping() error {
@@ -68,7 +100,7 @@ func (c *Client) GetBackupSource() (string, error) {
 	}); err != nil {
 		return "", err
 	}
-	msg, err := c.stream.Recv()
+	msg, err := c.streamRecv()
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +117,7 @@ func (c *Client) Status() (pb.Status, error) {
 	}); err != nil {
 		return pb.Status{}, err
 	}
-	msg, err := c.stream.Recv()
+	msg, err := c.streamRecv()
 	if err != nil {
 		return pb.Status{}, err
 	}
@@ -110,7 +142,7 @@ func (c *Client) stopBalancer() error {
 	if err != nil {
 		return err
 	}
-	msg, err := c.stream.Recv()
+	msg, err := c.streamRecv()
 	if err != nil {
 		return err
 	}
@@ -143,7 +175,7 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 	if err != nil {
 		return err
 	}
-	if msg, err := c.stream.Recv(); err != nil {
+	if msg, err := c.streamRecv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
 		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
@@ -161,7 +193,7 @@ func (c *Client) stopBackup() error {
 	if err := c.streamSend(msg); err != nil {
 		return err
 	}
-	if msg, err := c.stream.Recv(); err != nil {
+	if msg, err := c.streamRecv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
 		return fmt.Errorf("Invalid client response to stop backup message. Want 'ack', got %T", msg)
@@ -205,7 +237,7 @@ func (c *Client) StopOplogTail(ts int64) error {
 		c.logger.Errorf("Error in client.StopOplogTail stream.Send(...): %s", err)
 	}
 
-	if msg, err := c.stream.Recv(); err != nil {
+	if msg, err := c.streamRecv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
 		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)

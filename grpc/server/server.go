@@ -29,6 +29,7 @@ type MessagesServer struct {
 	oplogBackupRunning    bool
 	err                   error
 	//
+	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	logger                *logrus.Logger
@@ -40,18 +41,34 @@ func NewMessagesServer(logger *logrus.Logger) *MessagesServer {
 		logger.SetLevel(logrus.StandardLogger().Level)
 		logger.Out = logrus.StandardLogger().Out
 	}
+
 	bfc := notify.Start(EVENT_BACKUP_FINISH)
 	ofc := notify.Start(EVENT_OPLOG_FINISH)
+
 	messagesServer := &MessagesServer{
 		lock:                  &sync.Mutex{},
 		clients:               make(map[string]*Client),
+		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
 		replicasRunningBackup: make(map[string]bool),
 		logger:                logger,
 	}
+
+	go messagesServer.handleClientDisconnection()
+
 	return messagesServer
+}
+
+func (s *MessagesServer) handleClientDisconnection() {
+	for {
+		clientID := <-s.clientDisconnetedChan
+		log.Infof("Client %s has been disconnected", clientID)
+		s.unregisterClient(clientID)
+		// TODO: Check if backup is running to stop it or to tell a different client in the
+		// same replicaset to start a new backup
+	}
 }
 
 func (s *MessagesServer) Stop() {
@@ -90,8 +107,15 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-func (s *MessagesServer) Clients() map[string]*Client {
-	return s.clients
+func (s *MessagesServer) Clients() map[string]Client {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	c := make(map[string]Client)
+	for id, client := range s.clients {
+		c[id] = *client
+	}
+	return c
 }
 
 func (s *MessagesServer) ClientsByReplicaset() map[string][]*Client {
@@ -295,7 +319,6 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	r := &pb.ServerMessage{
 		Type: pb.ServerMessage_REGISTRATION_OK,
 	}
-	defer s.unregisterClient(client)
 
 	if err := stream.Send(r); err != nil {
 		return err
@@ -407,7 +430,7 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 
 	if client, exists := s.clients[msg.ClientID]; exists {
 		if err := client.Ping(); err != nil {
-			s.unregisterClient(client) // Since we already know the client ID is valid, it will never return an error
+			s.unregisterClient(client.ID) // Since we already know the client ID is valid, it will never return an error
 		} else {
 			return nil, ClientAlreadyExistsError
 		}
@@ -418,17 +441,21 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 		return nil, fmt.Errorf("Node type in register payload cannot be empty")
 	}
 	s.logger.Debugf("Register msg: %+v", regMsg)
-	client := newClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName, regMsg.NodeType, stream, s.logger)
+	client := newClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName,
+		regMsg.NodeType, stream, s.logger, s.clientDisconnetedChan)
 	s.clients[msg.ClientID] = client
 	return client, nil
 }
 
-func (s *MessagesServer) unregisterClient(client *Client) error {
-	log.Infof("Unregistering client %s", client.ID)
-	if _, exists := s.clients[client.ID]; !exists {
+func (s *MessagesServer) unregisterClient(id string) error {
+	log.Infof("Unregistering client %s", id)
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if _, exists := s.clients[id]; !exists {
 		return UnknownClientID
 	}
 
-	delete(s.clients, client.ID)
+	delete(s.clients, id)
 	return nil
 }
