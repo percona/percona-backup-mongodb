@@ -16,6 +16,7 @@ import (
 	"github.com/percona/mongodb-backup/grpc/server"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -34,11 +35,12 @@ type GrpcDaemon struct {
 	ApiServer          *api.ApiServer
 	msgListener        net.Listener
 	apiListener        net.Listener
-	clients            []*client.Client
 	wg                 *sync.WaitGroup
 	ctx                context.Context
 	cancelFunc         context.CancelFunc
 	logger             *logrus.Logger
+	lock               *sync.Mutex
+	clients            []*client.Client
 }
 
 func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*GrpcDaemon, error) {
@@ -52,6 +54,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 		clients: make([]*client.Client, 0),
 		wg:      &sync.WaitGroup{},
 		logger:  logger,
+		lock:    &sync.Mutex{},
 	}
 
 	tmpDir := path.Join(os.TempDir(), "dump_test")
@@ -136,6 +139,14 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 }
 
 func (d *GrpcDaemon) Stop() {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	for _, client := range d.clients {
+		if err := client.Stop(); err != nil {
+			log.Errorf("Cannot stop client %s: %s", client.ID(), err)
+		}
+	}
 	d.MessagesServer.Stop()
 	d.cancelFunc()
 	d.wg.Wait()
@@ -144,7 +155,13 @@ func (d *GrpcDaemon) Stop() {
 }
 
 func (d *GrpcDaemon) ClientsCount() int {
+	d.lock.Lock()
+	defer d.lock.Unlock()
 	return len(d.clients)
+}
+
+func (d *GrpcDaemon) Clients() []*client.Client {
+	return d.clients
 }
 
 func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, wg *sync.WaitGroup) {
@@ -175,4 +192,6 @@ func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.S
 			grpcServer.Stop()
 		}
 	}()
+
+	time.Sleep(2 * time.Second)
 }

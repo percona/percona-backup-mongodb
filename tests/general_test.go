@@ -14,13 +14,10 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/bsonfile"
-	"github.com/percona/mongodb-backup/grpc/api"
-	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/percona/mongodb-backup/grpc/server"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -213,208 +210,28 @@ func TestGlobalWithDaemon(t *testing.T) {
 	d.MessagesServer.WaitOplogBackupFinish()
 
 	t.Log("Skipping restore tests in new replicaset sandbox")
-	//testRestore(t, session, tmpDir)
-	//testOplogApply(t, session, tmpDir, max.Number)
 
 	d.Stop()
 }
 
-func TestGlobal(t *testing.T) {
-	t.Skip("testing new daemon")
-	var opts []grpc.ServerOption
-	gRPCServerStopChan := make(chan interface{})
-	wg := &sync.WaitGroup{}
-
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Don't check for errors. The path might not exist
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+func TestClientDisconnect(t *testing.T) {
+	d, err := testutils.NewGrpcDaemon(context.Background(), t, nil)
 	if err != nil {
-		log.Printf("Cannot create temp dir %q, %s", tmpDir, err)
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
-	// Start the grpc server
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", port))
-	if err != nil {
-		t.Fatal(err)
+	clientsCount1 := len(d.MessagesServer.Clients())
+	// Disconnect a client to check if the server detects the disconnection immediatelly
+	d.Clients()[0].Stop()
+
+	time.Sleep(2 * time.Second)
+
+	clientsCount2 := len(d.MessagesServer.Clients())
+
+	if clientsCount2 >= clientsCount1 {
+		t.Errorf("Invalid clients count. Want < %d, got %d", clientsCount1, clientsCount2)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	// This is the sever/agents gRPC server
-	grpcServer := grpc.NewServer(opts...)
-	messagesServer := server.NewMessagesServer(nil)
-	pb.RegisterMessagesServer(grpcServer, messagesServer)
-
-	wg.Add(1)
-	log.Printf("Starting agents gRPC server. Listening on %s", lis.Addr().String())
-	runAgentsGRPCServer(grpcServer, lis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
-
-	//
-	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", apiPort))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// This is the server gRPC API
-	apiGrpcServer := grpc.NewServer(opts...)
-	apiServer := api.NewApiServer(messagesServer)
-	pbapi.RegisterApiServer(apiGrpcServer, apiServer)
-
-	wg.Add(1)
-	log.Printf("Starting API gRPC server. Listening on %s", apilis.Addr().String())
-	runAgentsGRPCServer(apiGrpcServer, apilis, grpcServerShutdownTimeout, gRPCServerStopChan, wg)
-
-	// Let's start an agent
-	clientOpts := []grpc.DialOption{grpc.WithInsecure()}
-
-	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", port)
-	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
-
-	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port}
-	repls := []string{testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName}
-
-	clients := []*client.Client{}
-	for i, port := range ports {
-		di := testutils.DialInfoForPort(t, repls[i], port)
-		session, err := mgo.DialWithInfo(di)
-		log.Printf("Connecting agent #%d to: %s\n", i, di.Addrs[0])
-		if err != nil {
-			t.Fatalf("Cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
-		}
-		session.SetMode(mgo.Eventual, true)
-
-		agentID := fmt.Sprintf("PMB-%03d", i)
-
-		dbConnOpts := client.ConnectionOptions{
-			Host:           testutils.MongoDBHost,
-			Port:           port,
-			User:           di.Username,
-			Password:       di.Password,
-			ReplicasetName: di.ReplicaSetName,
-		}
-
-		client, err := client.NewClient(ctx, tmpDir, dbConnOpts, client.SSLOptions{}, clientConn, nil)
-		if err != nil {
-			t.Fatalf("Cannot create an agent instance %s: %s", agentID, err)
-		}
-		clients = append(clients, client)
-	}
-
-	log.Debug("Getting list of connected clients")
-	clientsList := messagesServer.Clients()
-	log.Debugf("Clients: %+v\n", clientsList)
-	if len(clientsList) != 3 {
-		t.Errorf("Want 3 connected clients, got %d", len(clientsList))
-	}
-
-	log.Debug("Getting list of clients by replicaset")
-	clientsByReplicaset := messagesServer.ClientsByReplicaset()
-	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
-
-	var firstClient *server.Client
-	for _, client := range clientsByReplicaset {
-		if len(client) == 0 {
-			break
-		}
-		firstClient = client[0]
-		break
-	}
-
-	log.Debugf("Getting first client status")
-	status, err := firstClient.Status()
-	log.Debugf("Client status: %+v\n", status)
-	if err != nil {
-		t.Errorf("Cannot get first client status: %s", err)
-	}
-	if status.BackupType != pb.BackupType_LOGICAL {
-		t.Errorf("The default backup type should be 0 (Logical). Got backup type: %v", status.BackupType)
-	}
-
-	log.Debugf("Getting backup source")
-	backupSource, err := firstClient.GetBackupSource()
-	log.Debugf("Backup source: %+v\n", backupSource)
-	if err != nil {
-		t.Errorf("Cannot get backup source: %s", err)
-	}
-	if backupSource == "" {
-		t.Error("Received empty backup source")
-	}
-	log.Printf("Received backup source: %v", backupSource)
-
-	backupSources, err := messagesServer.BackupSourceByReplicaset()
-	if err != nil {
-		t.Fatalf("Cannot get backup sources by replica set: %s", err)
-	}
-
-	// Genrate random data so we have something in the oplog
-	oplogGeneratorStopChan := make(chan bool)
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
-	if err != nil {
-		log.Fatalf("Cannot connect to the DB: %s", err)
-	}
-	generateDataToBackup(t, session)
-	go generateOplogTraffic(t, session, oplogGeneratorStopChan)
-
-	// Start the backup. Backup just the first replicaset (sorted by name) so we can test the restore
-	replNames := sortedReplicaNames(backupSources)
-	replName := replNames[0]
-	client := backupSources[replName]
-
-	fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
-	if testing.Verbose() {
-		log.Printf("Temp dir for backup: %s", tmpDir)
-	}
-
-	err = messagesServer.StartBackup(&pb.StartBackup{
-		BackupType:      pb.BackupType_LOGICAL,
-		DestinationType: pb.DestinationType_FILE,
-		DestinationName: "test",
-		DestinationDir:  tmpDir,
-		CompressionType: pb.CompressionType_NO_COMPRESSION,
-		Cypher:          pb.Cypher_NO_CYPHER,
-		OplogStartTime:  time.Now().Unix(),
-	})
-	if err != nil {
-		t.Fatalf("Cannot start backup: %s", err)
-	}
-	messagesServer.WaitBackupFinish()
-
-	// I want to know how many documents are in the DB. These docs are being generated by the go-routine
-	// generateOplogTraffic(). Since we are stopping the log tailer AFTER counting how many docs we have
-	// in the DB, the test restore funcion is going to check that after restoring the db and applying the
-	// oplog, the max `number` field in the DB sould be higher that maxnumber.Number if the backup
-	// is correct
-
-	type maxnumber struct {
-		Number int64 `bson:"number"`
-	}
-	var max maxnumber
-	err = session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&max)
-	if err != nil {
-		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
-	}
-
-	// log.Info("Stopping the oplog tailer")
-	// err = messagesServer.StopOplogTail()
-	// if err != nil {
-	// 	t.Errorf("<<< 1 >> Cannot stop the oplog tailer: %s", err)
-	// 	t.FailNow()
-	// }
-
-	close(oplogGeneratorStopChan)
-	messagesServer.WaitOplogBackupFinish()
-
-	log.Debug("Calling Stop() on all clients")
-	for _, client := range clients {
-		client.Stop()
-	}
-
-	close(gRPCServerStopChan)
-	cancel()
-	messagesServer.Stop()
-	wg.Wait()
-
-	testRestore(t, session, tmpDir)
-	testOplogApply(t, session, tmpDir, max.Number)
+	d.Stop()
 }
 
 func testRestore(t *testing.T, session *mgo.Session, dir string) {
