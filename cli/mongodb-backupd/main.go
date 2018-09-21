@@ -23,6 +23,7 @@ type cliOptions struct {
 	app             *kingpin.Application
 	cmd             string
 	tls             *bool
+	workDir         *string
 	certFile        *string
 	keyFile         *string
 	grpcPort        *int
@@ -46,6 +47,7 @@ func processCliParams() (*cliOptions, error) {
 	opts := &cliOptions{
 		app:             app,
 		tls:             app.Flag("tls", "Enable TLS").Bool(),
+		workDir:         app.Flag("work-dir", "Working directory for backup metadata").String(),
 		certFile:        app.Flag("cert-file", "Cert file for gRPC client connections").String(),
 		keyFile:         app.Flag("key-file", "Key file for gRPC client connections").String(),
 		grpcPort:        app.Flag("grpc-port", "Listening port for client connections").Default(defaultGrpcPort).Int(),
@@ -97,7 +99,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	grpcServer := grpc.NewServer(grpcOpts...)
-	messagesServer := server.NewMessagesServer(log)
+	messagesServer := server.NewMessagesServer(*opts.workDir, log)
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
 	wg.Add(1)

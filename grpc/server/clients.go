@@ -134,10 +134,32 @@ func (c *Client) Status() (pb.Status, error) {
 	return *statusMsg, nil
 }
 
+func (c *Client) startBalancer() error {
+	err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_StartBalancerMsg{},
+	})
+	if err != nil {
+		return err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return err
+	}
+
+	switch msg.Payload.(type) {
+	case *pb.ClientMessage_AckMsg:
+		return nil
+	case *pb.ClientMessage_ErrorMsg:
+		errMsg := msg.GetErrorMsg()
+		return fmt.Errorf("%s", errMsg.Message)
+	}
+	return fmt.Errorf("unknown respose type %T", msg)
+}
+
 func (c *Client) stopBalancer() error {
 	err := c.streamSend(&pb.ServerMessage{
 		Type:    pb.ServerMessage_STOP_BALANCER,
-		Payload: &pb.ServerMessage_EmptyMsg{},
+		Payload: &pb.ServerMessage_StopBalancerMsg{},
 	})
 	if err != nil {
 		return err

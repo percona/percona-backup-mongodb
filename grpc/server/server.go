@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"path"
 	"sync"
 	"time"
 
@@ -29,13 +30,15 @@ type MessagesServer struct {
 	oplogBackupRunning    bool
 	err                   error
 	//
+	workDir               string
+	lastBackupMetadata    *BackupMetadata
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	logger                *logrus.Logger
 }
 
-func NewMessagesServer(logger *logrus.Logger) *MessagesServer {
+func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -53,6 +56,7 @@ func NewMessagesServer(logger *logrus.Logger) *MessagesServer {
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
 		replicasRunningBackup: make(map[string]bool),
+		workDir:               workDir,
 		logger:                logger,
 	}
 
@@ -186,6 +190,17 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	if s.isBackupRunning() {
 		return fmt.Errorf("Backup is already running")
 	}
+
+	s.lastBackupMetadata = NewBackupMetadata()
+
+	s.lastBackupMetadata.StartTs = time.Now()
+	s.lastBackupMetadata.Replicasets = make(map[string]ReplicasetMetadata)
+	s.lastBackupMetadata.BackupType = opts.GetBackupType()
+	s.lastBackupMetadata.DestinationType = opts.GetDestinationType()
+	s.lastBackupMetadata.DestinationDir = opts.GetDestinationDir()
+	s.lastBackupMetadata.CompressionType = opts.GetCompressionType()
+	s.lastBackupMetadata.Cypher = opts.GetCypher()
+
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup. Cannot find backup source for replicas")
@@ -198,7 +213,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	for replName, client := range clients {
 		s.logger.Printf("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
-		destinationName := fmt.Sprintf("%s_%s_%s", time.Now().Format("2006-01-02_15.04.05"), client.ReplicasetName, opts.GetDestinationName())
+		destinationName := fmt.Sprintf("%s_%s_%s", s.lastBackupMetadata.StartTs.Format("2006-01-02_15.04.05"), client.ReplicasetName, opts.GetDestinationName())
+
+		s.lastBackupMetadata.AddReplicaset(client.ReplicasetName, client.ReplicasetUUID, destinationName)
+
 		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
 			DestinationType: opts.GetDestinationType(),
@@ -210,9 +228,28 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		})
 	}
 
+	metadataFilename := path.Join(s.workDir, fmt.Sprintf("%s.json", s.lastBackupMetadata.StartTs.Format("2006-01-02_15.04.05")))
+	err = s.lastBackupMetadata.WriteMetadataToFile(metadataFilename)
+	if err != nil {
+		log.Warn("Cannot write metadata file %s: %s", metadataFilename, err)
+	}
 	return nil
 }
 
+// StartBalancer restarts the balancer if this is a sharded system
+func (s *MessagesServer) StartBalancer() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_MONGOS {
+			return client.startBalancer()
+		}
+	}
+	// This is not a sharded system. There is nothing to do.
+	return nil
+}
+
+// StopBalancer stops the balancer if this is a sharded system
 func (s *MessagesServer) StopBalancer() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -221,7 +258,8 @@ func (s *MessagesServer) StopBalancer() error {
 			return client.stopBalancer()
 		}
 	}
-	return fmt.Errorf("No MongoS server found to stop the balancer")
+	// This is not a sharded system. There is nothing to do.
+	return nil
 }
 
 func (s *MessagesServer) cancelBackup() error {
