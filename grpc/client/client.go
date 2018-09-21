@@ -209,7 +209,6 @@ func (c *Client) register() error {
 
 	m := &pb.ClientMessage{
 		ClientID: c.nodeName,
-		Type:     pb.ClientMessage_REGISTER,
 		Payload: &pb.ClientMessage_RegisterMsg{
 			RegisterMsg: &pb.Register{
 				NodeType:       c.nodeType,
@@ -230,7 +229,7 @@ func (c *Client) register() error {
 	if err != nil {
 		return err
 	}
-	if response.Type != pb.ServerMessage_REGISTRATION_OK {
+	if _, ok := response.Payload.(*pb.ServerMessage_AckMsg); !ok {
 		return err
 	}
 	c.logger.Info("Node registered")
@@ -309,7 +308,6 @@ func (c *Client) processCancelBackup() error {
 func (c *Client) processPing() {
 	c.logger.Debug("Received Ping command")
 	msg := &pb.ClientMessage{
-		Type:     pb.ClientMessage_PONG,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
 	}
@@ -375,7 +373,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	go c.runOplogBackup(msg, ".oplog"+extension)
 
 	response := &pb.ClientMessage{
-		Type:     pb.ClientMessage_ACK,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
@@ -386,7 +383,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 
 func (c *Client) sendACK() {
 	response := &pb.ClientMessage{
-		Type:     pb.ClientMessage_ACK,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
@@ -397,7 +393,6 @@ func (c *Client) sendACK() {
 
 func (c *Client) sendError(err error) {
 	response := &pb.ClientMessage{
-		Type:     pb.ClientMessage_ERROR,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
 	}
@@ -648,7 +643,6 @@ func (c *Client) setOplogBackupRunning(status bool) {
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	c.logger.Debugf("Received StopOplogTail command for client: %s", c.id)
 	out := &pb.ClientMessage{
-		Type:     pb.ClientMessage_ACK,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
@@ -693,7 +687,6 @@ func (c *Client) processStatus() {
 	c.lock.Lock()
 
 	msg := &pb.ClientMessage{
-		Type:     pb.ClientMessage_STATUS,
 		ClientID: c.id,
 		Payload: &pb.ClientMessage_StatusMsg{
 			StatusMsg: &pb.Status{
@@ -727,7 +720,6 @@ func (c *Client) processGetBackupSource() {
 	r, err := cluster.NewReplset(c.mdbSession)
 	if err != nil {
 		msg := &pb.ClientMessage{
-			Type:     pb.ClientMessage_BACKUP_SOURCE,
 			ClientID: c.id,
 			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: c.nodeName}},
 		}
@@ -740,7 +732,6 @@ func (c *Client) processGetBackupSource() {
 	if err != nil {
 		c.logger.Errorf("Cannot get a backup source winner: %s", err)
 		msg := &pb.ClientMessage{
-			Type:     pb.ClientMessage_ERROR,
 			ClientID: c.id,
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
 		}
@@ -755,7 +746,6 @@ func (c *Client) processGetBackupSource() {
 	}
 
 	msg := &pb.ClientMessage{
-		Type:     pb.ClientMessage_BACKUP_SOURCE,
 		ClientID: c.id,
 		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: winner}},
 	}
