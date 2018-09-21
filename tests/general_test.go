@@ -26,8 +26,10 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-var port, apiPort string
-var grpcServerShutdownTimeout = 30
+var (
+	port, apiPort             string
+	grpcServerShutdownTimeout = 30
+)
 
 const (
 	dbName  = "test"
@@ -59,16 +61,18 @@ func TestMain(m *testing.M) {
 }
 
 func TestGlobalWithDaemon(t *testing.T) {
-	d, err := testutils.NewGrpcDaemon(context.Background(), t, nil)
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
-	}
-
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Don't check for errors. The path might not exist
-	err = os.MkdirAll(tmpDir, os.ModePerm)
-	if err != nil {
-		log.Printf("Cannot create temp dir %q, %s", tmpDir, err)
 	}
 
 	log.Debug("Getting list of connected clients")
@@ -110,7 +114,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if backupSource == "" {
 		t.Error("Received empty backup source")
 	}
-	log.Printf("Received backup source: %v", backupSource)
 
 	wantbs := map[string]*server.Client{
 		"5b9e5545c003eb6bd5e94803": &server.Client{
@@ -166,7 +169,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 	replName := replNames[0]
 	client := backupSources[replName]
 
-	fmt.Printf("Replicaset: %s, Client: %s\n", replName, client.NodeName)
 	if testing.Verbose() {
 		log.Printf("Temp dir for backup: %s", tmpDir)
 	}
@@ -215,7 +217,16 @@ func TestGlobalWithDaemon(t *testing.T) {
 }
 
 func TestClientDisconnect(t *testing.T) {
-	d, err := testutils.NewGrpcDaemon(context.Background(), t, nil)
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}

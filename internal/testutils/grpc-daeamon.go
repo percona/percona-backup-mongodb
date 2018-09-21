@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"path"
 	"sync"
 	"testing"
 	"time"
@@ -43,7 +41,7 @@ type GrpcDaemon struct {
 	clients            []*client.Client
 }
 
-func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*GrpcDaemon, error) {
+func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *logrus.Logger) (*GrpcDaemon, error) {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -56,13 +54,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 		logger:  logger,
 		lock:    &sync.Mutex{},
 	}
-
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Don't check for errors. The path might not exist
-	err := os.MkdirAll(tmpDir, os.ModePerm)
-	if err != nil {
-		return nil, fmt.Errorf("Cannot create temp dir %q, %s", tmpDir, err)
-	}
+	var err error
 
 	// Start the grpc server
 	d.msgListener, err = net.Listen("tcp", fmt.Sprintf("localhost:%s", TEST_GRPC_MESSAGES_PORT))
@@ -73,7 +65,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 	d.ctx, d.cancelFunc = context.WithCancel(ctx)
 	// This is the sever/agents gRPC server
 	d.grpcServer4Clients = grpc.NewServer(opts...)
-	d.MessagesServer = server.NewMessagesServer(logger)
+	d.MessagesServer = server.NewMessagesServer(workDir, logger)
 	pb.RegisterMessagesServer(d.grpcServer4Clients, d.MessagesServer)
 
 	d.wg.Add(1)
@@ -128,7 +120,7 @@ func NewGrpcDaemon(ctx context.Context, t *testing.T, logger *logrus.Logger) (*G
 			ReplicasetName: di.ReplicaSetName,
 		}
 
-		client, err := client.NewClient(d.ctx, tmpDir, dbConnOpts, client.SSLOptions{}, clientConn, logger)
+		client, err := client.NewClient(d.ctx, workDir, dbConnOpts, client.SSLOptions{}, clientConn, logger)
 		if err != nil {
 			return nil, fmt.Errorf("Cannot create an agent instance %s: %s", agentID, err)
 		}

@@ -80,6 +80,11 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 		Cypher:          pb.Cypher(opts.Cypher),
 	}
 
+	logger.Debug("Stopping the balancer")
+	if err := a.messagesServer.StopBalancer(); err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
+
 	if err := a.messagesServer.StartBackup(msg); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
@@ -97,5 +102,9 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	a.messagesServer.WaitOplogBackupFinish()
 	logger.Debug("Oplog finished")
 
+	logger.Debug("Starting the balancer")
+	if err := a.messagesServer.StartBalancer(); err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
 	return &pbapi.Error{}, nil
 }
