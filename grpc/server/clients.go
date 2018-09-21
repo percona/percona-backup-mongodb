@@ -90,12 +90,11 @@ func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 
 func (c *Client) Ping() error {
 	c.logger.Debug("sending ping")
-	return c.streamSend(&pb.ServerMessage{Type: pb.ServerMessage_PING})
+	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{}})
 }
 
 func (c *Client) GetBackupSource() (string, error) {
 	if err := c.streamSend(&pb.ServerMessage{
-		Type:    pb.ServerMessage_GET_BACKUP_SOURCE,
 		Payload: &pb.ServerMessage_BackupSourceMsg{BackupSourceMsg: &pb.GetBackupSource{}},
 	}); err != nil {
 		return "", err
@@ -112,7 +111,6 @@ func (c *Client) GetBackupSource() (string, error) {
 
 func (c *Client) Status() (pb.Status, error) {
 	if err := c.streamSend(&pb.ServerMessage{
-		Type:    pb.ServerMessage_GET_STATUS,
 		Payload: &pb.ServerMessage_GetStatusMsg{GetStatusMsg: &pb.GetStatus{}},
 	}); err != nil {
 		return pb.Status{}, err
@@ -158,7 +156,6 @@ func (c *Client) startBalancer() error {
 
 func (c *Client) stopBalancer() error {
 	err := c.streamSend(&pb.ServerMessage{
-		Type:    pb.ServerMessage_STOP_BALANCER,
 		Payload: &pb.ServerMessage_StopBalancerMsg{},
 	})
 	if err != nil {
@@ -181,7 +178,6 @@ func (c *Client) stopBalancer() error {
 
 func (c *Client) startBackup(opts *pb.StartBackup) error {
 	err := c.streamSend(&pb.ServerMessage{
-		Type: pb.ServerMessage_START_BACKUP,
 		Payload: &pb.ServerMessage_StartBackupMsg{
 			StartBackupMsg: &pb.StartBackup{
 				BackupType:      opts.BackupType,
@@ -209,7 +205,6 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 
 func (c *Client) stopBackup() error {
 	msg := &pb.ServerMessage{
-		Type:    pb.ServerMessage_STOP_BACKUP,
 		Payload: &pb.ServerMessage_CancelBackupMsg{},
 	}
 	if err := c.streamSend(msg); err != nil {
@@ -252,7 +247,6 @@ func (c *Client) StopOplogTail(ts int64) error {
 	c.logger.Debugf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	fmt.Printf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	err := c.streamSend(&pb.ServerMessage{
-		Type:    pb.ServerMessage_STOP_OPLOG_TAIL,
 		Payload: &pb.ServerMessage_StopOplogTailMsg{StopOplogTailMsg: &pb.StopOplogTail{Ts: ts}},
 	})
 	if err != nil {

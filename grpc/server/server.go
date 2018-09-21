@@ -341,7 +341,6 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	if err != nil {
 		s.logger.Errorf("Cannot register client: %s", err)
 		r := &pb.ServerMessage{
-			Type: pb.ServerMessage_ERROR,
 			Payload: &pb.ServerMessage_ErrorMsg{
 				ErrorMsg: &pb.Error{
 					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
@@ -355,7 +354,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 	}
 	s.clients[msg.ClientID] = client
 	r := &pb.ServerMessage{
-		Type: pb.ServerMessage_REGISTRATION_OK,
+		Payload: &pb.ServerMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 
 	if err := stream.Send(r); err != nil {

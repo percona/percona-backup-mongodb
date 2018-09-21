@@ -96,63 +96,33 @@ message StopOplogTail {
 }
 
 message ServerMessage {
-  enum MessageType {
-      ERROR             = 0;
-      ACK               = 1;
-      PING              = 2;
-      REGISTRATION_OK   = 3;
-      START_BACKUP      = 4;
-      STOP_BACKUP       = 5;
-      GET_STATUS        = 6;
-      GET_BACKUP_SOURCE = 7;
-      STOP_OPLOG_TAIL   = 8;
-      STOP_BALANCER     = 9;
-      RESTART_BALANCER  = 10;
-      RESTORE_BALANCER  = 11;
-      reserved 12 to 99;
-  }
-  
   int32       version = 1;
-  MessageType type    = 2;
   oneof Payload {
-    Empty               EmptyMsg         = 3;
-    GetBackupSource     BackupSourceMsg  = 4;
-    GetStatus           GetStatusMsg     = 5;
-    Ping                PingMsg          = 6;
-    Error               ErrorMsg         = 7;
-    StartBalancer       StartBalancerMsg = 8;
-    StopBalancer        StopBalancerMsg  = 9;
-    StartBackup         StartBackupMsg   = 10;
-    CancelBackup        CancelBackupMsg  = 11;
-    StopOplogTail       StopOplogTailMsg = 12;
+    Ack                 AckMsg           = 2;
+    GetBackupSource     BackupSourceMsg  = 3;
+    GetStatus           GetStatusMsg     = 4;
+    Ping                PingMsg          = 5;
+    Error               ErrorMsg         = 6;
+    StartBalancer       StartBalancerMsg = 7;
+    StopBalancer        StopBalancerMsg  = 8;
+    StartBackup         StartBackupMsg   = 9;
+    CancelBackup        CancelBackupMsg  = 10;
+    StopOplogTail       StopOplogTailMsg = 11;
   }
 }
 
 message ClientMessage {
-  enum MessageType {
-      ERROR          = 0;
-      ACK            = 1;
-      PONG           = 2;
-      REGISTER       = 3;
-      BACKUP_STARTED = 4;
-      BACKUP_FINISH  = 5;
-      STATUS         = 6;
-      BACKUP_SOURCE  = 7;
-      reserved 8 to 99;
-  }
-  
   int32       version  = 1;
-  MessageType type     = 2;
-  string      clientID = 3;
+  string      clientID = 2;
   oneof Payload {
-    Ack                     AckMsg            = 4;
-    Error                   ErrorMsg          = 5;
-    BackupSource            BackupSourceMsg   = 6;
-    Register                RegisterMsg       = 7;
-    Pong                    PingMsg           = 8;
-    DBBackupFinishStatus    BackupFinishedMsg = 9;
-    OplogBackupFinishStatus OplogFinishedMsg  = 10;
-    Status                  StatusMsg         = 11;
+    Ack                     AckMsg            = 3;
+    Error                   ErrorMsg          = 4;
+    BackupSource            BackupSourceMsg   = 5;
+    Register                RegisterMsg       = 6;
+    Pong                    PingMsg           = 7;
+    DBBackupFinishStatus    BackupFinishedMsg = 8;
+    OplogBackupFinishStatus OplogFinishedMsg  = 9; 
+    Status                  StatusMsg         = 10;
   }
 }
 

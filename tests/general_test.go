@@ -165,9 +165,10 @@ func TestGlobalWithDaemon(t *testing.T) {
 	go generateOplogTraffic(t, session, oplogGeneratorStopChan)
 
 	// Start the backup. Backup just the first replicaset (sorted by name) so we can test the restore
-	replNames := sortedReplicaNames(backupSources)
-	replName := replNames[0]
-	client := backupSources[replName]
+	// replNames := sortedReplicaNames(backupSources)
+	// replName := replNames[0]
+	// client := backupSources[replName]
+	// TODO UPDATE BACKUP TESTING CODE !!!
 
 	if testing.Verbose() {
 		log.Printf("Temp dir for backup: %s", tmpDir)
