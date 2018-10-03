@@ -3,6 +3,7 @@ package test_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path"
@@ -62,8 +63,8 @@ func TestMain(m *testing.M) {
 
 func TestGlobalWithDaemon(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	//defer os.RemoveAll(tmpDir) // Clean up after testing.
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -86,7 +87,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	clientsByReplicaset := d.MessagesServer.ClientsByReplicaset()
 	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
 
-	var firstClient *server.Client
+	var firstClient server.Client
 	for _, client := range clientsByReplicaset {
 		if len(client) == 0 {
 			break
@@ -96,7 +97,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	log.Debugf("Getting first client status")
-	status, err := firstClient.Status()
+	status, err := firstClient.GetStatus()
 	log.Debugf("Client status: %+v\n", status)
 	if err != nil {
 		t.Errorf("Cannot get first client status: %s", err)
@@ -157,28 +158,24 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
-	generateDataToBackup(t, session)
-	go generateOplogTraffic(t, session, oplogGeneratorStopChan)
+	generateDataToBackup(t, s1Session)
+	go generateOplogTraffic(t, s1Session, oplogGeneratorStopChan)
 
-	// Start the backup. Backup just the first replicaset (sorted by name) so we can test the restore
-	// replNames := sortedReplicaNames(backupSources)
-	// replName := replNames[0]
-	// client := backupSources[replName]
-	// TODO UPDATE BACKUP TESTING CODE !!!
-
-	if testing.Verbose() {
-		log.Printf("Temp dir for backup: %s", tmpDir)
+	// Also generate random data on shard 2
+	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
+	generateDataToBackup(t, s2Session)
+	go generateOplogTraffic(t, s2Session, oplogGeneratorStopChan)
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_LOGICAL,
 		DestinationType: pb.DestinationType_FILE,
-		DestinationName: "test",
-		DestinationDir:  tmpDir,
 		CompressionType: pb.CompressionType_NO_COMPRESSION,
 		Cypher:          pb.Cypher_NO_CYPHER,
 		OplogStartTime:  time.Now().Unix(),
@@ -194,11 +191,18 @@ func TestGlobalWithDaemon(t *testing.T) {
 	// oplog, the max `number` field in the DB sould be higher that maxnumber.Number if the backup
 	// is correct
 
-	type maxnumber struct {
+	type maxNumber struct {
 		Number int64 `bson:"number"`
 	}
-	var max maxnumber
-	err = session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&max)
+	var beforeMaxS1, beforeMaxS2 maxNumber
+	var afterMaxS1, afterMaxS2 maxNumber
+
+	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&beforeMaxS1)
+	if err != nil {
+		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	}
+
+	err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&beforeMaxS2)
 	if err != nil {
 		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
@@ -212,19 +216,39 @@ func TestGlobalWithDaemon(t *testing.T) {
 	close(oplogGeneratorStopChan)
 	d.MessagesServer.WaitOplogBackupFinish()
 
-	t.Log("Skipping restore tests in new replicaset sandbox")
+	cleanupDBForRestore(t, s1Session)
+	cleanupDBForRestore(t, s2Session)
+
+	log.Info("Starting restore test")
+	testRestoreWithMetadata(t, d)
+
+	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
+	if err != nil {
+		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	}
+
+	err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS2)
+	if err != nil {
+		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	}
+
+	if afterMaxS1.Number < beforeMaxS1.Number {
+		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d", beforeMaxS1.Number, afterMaxS1.Number)
+	}
+
+	if afterMaxS2.Number < beforeMaxS2.Number {
+		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", beforeMaxS2.Number, afterMaxS2.Number)
+	}
 
 	d.Stop()
 }
 
 func TestClientDisconnect(t *testing.T) {
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+	tmpDir, err := ioutil.TempDir("", "pmb_")
 	if err != nil {
-		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
+	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
 	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
@@ -308,6 +332,17 @@ func testRestore(t *testing.T, session *mgo.Session, dir string) {
 
 }
 
+func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon) {
+	m := d.MessagesServer.LastBackupMetadata()
+
+	if err := d.MessagesServer.RestoreBackUp(m, true); err != nil {
+		t.Errorf("Cannot restore using backup metadata: %s", err)
+	}
+
+	log.Infof("Wating restore to finish")
+	d.MessagesServer.WaitRestoreFinish()
+}
+
 func testOplogApply(t *testing.T, session *mgo.Session, dir string, minOplogDocs int64) {
 	log.Print("Starting oplog apply test")
 	oplogFile := path.Join(dir, "test.oplog")
@@ -356,6 +391,13 @@ func generateDataToBackup(t *testing.T, session *mgo.Session) {
 		if err != nil {
 			t.Fatalf("Cannot insert data to back up: %s", err)
 		}
+	}
+}
+
+func cleanupDBForRestore(t *testing.T, session *mgo.Session) {
+	err := session.DB(dbName).C(colName).DropCollection()
+	if err != nil {
+		t.Errorf("Cannot cleanup database: %s", err)
 	}
 }
 

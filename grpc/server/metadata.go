@@ -15,7 +15,8 @@ import (
 type ReplicasetMetadata struct {
 	ReplicasetUUID  string `json:"replicaset_uuid"`
 	ReplicasetName  string `json:"replicaset_name"`
-	DestinationName string `json:"destination_name"`
+	DBBackupName    string `json:"db_backup_name"`
+	OplogBackupName string `json:"oplog_backup_name"`
 }
 
 type BackupMetadata struct {
@@ -33,10 +34,16 @@ type BackupMetadata struct {
 	Replicasets map[string]ReplicasetMetadata `json:"replicas"` // key is replicaset name
 }
 
-func NewBackupMetadata() *BackupMetadata {
+func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 	return &BackupMetadata{
-		Replicasets: make(map[string]ReplicasetMetadata),
-		lock:        &sync.Mutex{},
+		Replicasets:     make(map[string]ReplicasetMetadata),
+		lock:            &sync.Mutex{},
+		StartTs:         time.Now(),
+		BackupType:      opts.GetBackupType(),
+		DestinationType: opts.GetDestinationType(),
+		DestinationDir:  opts.GetDestinationDir(),
+		CompressionType: opts.GetCompressionType(),
+		Cypher:          opts.GetCypher(),
 	}
 }
 
@@ -54,17 +61,21 @@ func LoadMetadataFromFile(name string) (*BackupMetadata, error) {
 }
 
 // AddReplicaset adds backup info for a replicaset using the replicaset name as the key
-func (b *BackupMetadata) AddReplicaset(replName, replUUID, destinationName string) error {
+func (b *BackupMetadata) AddReplicaset(replName, replUUID, dbBackupName, oplogBackupName string) error {
 	b.lock.Lock()
 
 	if _, ok := b.Replicasets[replName]; ok {
 		return fmt.Errorf("Info for replicaset %s already exists", replName)
 	}
 
+	// Key is replicaset name instead of UUID because the UUID is randomly generated so, on a
+	// new and shiny environment created to restore a backup, the UUID will be different.
+	// On restore, we will try to restore each replicaset by name to the matching cluster.
 	b.Replicasets[replName] = ReplicasetMetadata{
 		ReplicasetUUID:  replUUID,
 		ReplicasetName:  replName,
-		DestinationName: destinationName,
+		DBBackupName:    dbBackupName,
+		OplogBackupName: oplogBackupName,
 	}
 
 	b.lock.Unlock()
@@ -87,7 +98,7 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	buf, err := json.Marshal(b)
+	buf, err := json.MarshalIndent(b, "", "    ")
 	if err != nil {
 		return errors.Wrap(err, "cannot encode backup metadata")
 	}

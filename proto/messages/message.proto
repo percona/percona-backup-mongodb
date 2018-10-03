@@ -24,6 +24,7 @@ service Messages {
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
   rpc DBBackupFinished(DBBackupFinishStatus) returns (Ack) {}
   rpc OplogBackupFinished(OplogBackupFinishStatus) returns (Ack) {}
+  rpc RestoreCompleted(RestoreComplete) returns (Ack) {}
 }
 
 enum ErrorType {
@@ -67,6 +68,12 @@ enum NodeType {
     MONGOS           = 5; // mongos that is a sharding router
 }
 
+enum RestoreStatus {
+    Not_Running    = 0;
+    RestoringDB    = 1;
+    RestoringOplog = 2;
+}
+
 message Ack {}
 message Empty {}
 message GetBackupSource {}
@@ -76,6 +83,23 @@ message Ping {}
 message StartBalancer {}
 message StopBalancer {}
 
+message RestoreBackup {
+  BackupType      BackupType        = 1;
+  DestinationType SourceType        = 2;
+  string          SourceBucket      = 3; // This is also used as S3 bucket name
+  string          DBSourceName      = 4;
+  string          OplogSourceName   = 5;
+  CompressionType CompressionType   = 6;
+  Cypher          Cypher            = 7;
+  int64           OplogStartTime    = 8;
+  bool            SkipUsersAndRoles = 9; // Used only for testing
+}
+
+message RestoreComplete {
+  string ClientID = 1;
+  Error  Err      = 2;
+}
+
 message Error {
   string Message = 1;
   ErrorType Code = 2;
@@ -84,11 +108,12 @@ message Error {
 message StartBackup {
   BackupType      BackupType      = 1;
   DestinationType DestinationType = 2;
-  string          DestinationName = 3;
-  string          DestinationDir  = 4; // This is also used as S3 bucket name
-  CompressionType CompressionType = 5;
-  Cypher          Cypher          = 6;
-  int64           OplogStartTime  = 7;
+  string          DBBackupName    = 3;
+  string          OplogBackupName = 4;
+  string          DestinationDir  = 5; // This is also used as S3 bucket name
+  CompressionType CompressionType = 6;
+  Cypher          Cypher          = 7;
+  int64           OplogStartTime  = 8;
 }
 
 message StopOplogTail {
@@ -108,6 +133,7 @@ message ServerMessage {
     StartBackup         StartBackupMsg   = 9;
     CancelBackup        CancelBackupMsg  = 10;
     StopOplogTail       StopOplogTailMsg = 11;
+    RestoreBackup       RestoreBackupMsg = 12;
   }
 }
 
@@ -158,19 +184,19 @@ message Pong {
 }
 
 message Status {
-  bool       RunningDBBackUp    = 1;
-  bool       RunningOplogBackup = 2;
-  BackupType BackupType         = 3;
-  uint64     BytesSent          = 4;
-  int64      LastOplogTs        = 5;
-  int64      BackupCompleted    = 6; // TS when the backup has finish
-  string     LastError          = 7;
-  uint64     ReplicasetVersion  = 8;
-  //
-  DestinationType DestinationType = 9;
-  string          DestinationName = 10;
-  string          DestinationDir  = 11; // This is also used as S3 bucket name
-  CompressionType CompressionType = 12;
-  Cypher          Cypher          = 13;
-  int64           StartOplogTs    = 14;
+  bool            RunningDBBackUp    = 1;
+  bool            RunningOplogBackup = 2;
+  RestoreStatus   RestoreStatus      = 3;
+  BackupType      BackupType         = 4;
+  uint64          BytesSent          = 5;
+  int64           LastOplogTs        = 6;
+  int64           BackupCompleted    = 7; // TS when the backup has finish
+  string          LastError          = 8;
+  uint64          ReplicasetVersion  = 9;
+  DestinationType DestinationType    = 10;
+  string          DestinationName    = 11;
+  string          DestinationDir     = 12; // This is also used as S3 bucket name
+  CompressionType CompressionType    = 13;
+  Cypher          Cypher             = 14;
+  int64           StartOplogTs       = 15;
 }

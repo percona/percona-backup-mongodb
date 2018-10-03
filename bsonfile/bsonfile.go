@@ -22,7 +22,7 @@ const (
 	MaxBSONSize = 16 * 1024 * 1024 // 16MB - maximum BSON document size
 )
 
-func NewBSONReader(r io.Reader) (*BSONFile, error) {
+func NewBSONReader(r io.Reader) (io.ReadCloser, error) {
 	if r == nil {
 		return nil, fmt.Errorf("The reader cannot be null")
 	}
@@ -42,6 +42,15 @@ func OpenFile(filename string) (*BSONFile, error) {
 
 func (b *BSONFile) Close() error {
 	return b.fh.Close()
+}
+
+func (b *BSONFile) Read(buf []byte) (int, error) {
+	var err error
+	buf, err = b.next()
+	if err != nil {
+		return 0, err
+	}
+	return len(buf), nil
 }
 
 func (b *BSONFile) ReadNext() ([]byte, error) {

@@ -35,6 +35,8 @@ type Client struct {
 	status     pb.Status
 }
 
+// newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
+// real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
 func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
 	stream pb.Messages_MessagesChatServer, logger *logrus.Logger, streamStoppedChan chan string) *Client {
 	if logger == nil {
@@ -63,36 +65,6 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 	return client
 }
 
-func (c *Client) handleStreamRecv() {
-	for {
-		msg, err := c.stream.Recv()
-		if err != nil {
-			if c.streamStoppedChan != nil {
-				select {
-				case c.streamStoppedChan <- c.ID:
-				default:
-				}
-			}
-			return
-		}
-		c.streamRecvChan <- msg
-	}
-}
-
-func (c *Client) streamRecv() (*pb.ClientMessage, error) {
-	select {
-	case msg := <-c.streamRecvChan:
-		return msg, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("Timeout reading from the stream")
-	}
-}
-
-func (c *Client) Ping() error {
-	c.logger.Debug("sending ping")
-	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{}})
-}
-
 func (c *Client) GetBackupSource() (string, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_BackupSourceMsg{BackupSourceMsg: &pb.GetBackupSource{}},
@@ -109,7 +81,13 @@ func (c *Client) GetBackupSource() (string, error) {
 	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
-func (c *Client) Status() (pb.Status, error) {
+func (c *Client) Status() pb.Status {
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+	return c.status
+}
+
+func (c *Client) GetStatus() (pb.Status, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_GetStatusMsg{GetStatusMsg: &pb.GetStatus{}},
 	}); err != nil {
@@ -132,6 +110,142 @@ func (c *Client) Status() (pb.Status, error) {
 	return *statusMsg, nil
 }
 
+func (c *Client) handleStreamRecv() {
+	for {
+		msg, err := c.stream.Recv()
+		if err != nil {
+			if c.streamStoppedChan != nil {
+				select {
+				case c.streamStoppedChan <- c.ID:
+				default:
+				}
+			}
+			return
+		}
+		c.streamRecvChan <- msg
+	}
+}
+
+func (c *Client) isDBBackupRunning() bool {
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+	return c.status.RunningDBBackUp
+}
+
+func (c *Client) isOplogBackupRunning() bool {
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+	return c.status.RunningOplogBackup
+}
+
+func (c *Client) isOplogTailerRunning() (status bool) {
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+
+	return c.status.RunningOplogBackup
+}
+
+func (c *Client) isRestoreRunning() (status bool) {
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+
+	return c.status.RestoreStatus != 0
+}
+
+func (c *Client) ping() error {
+	c.logger.Debug("sending ping")
+	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{}})
+}
+
+func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
+	outMsg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_RestoreBackupMsg{
+			RestoreBackupMsg: &pb.RestoreBackup{
+				BackupType:        msg.BackupType,
+				SourceType:        msg.SourceType,
+				SourceBucket:      msg.SourceBucket,
+				DBSourceName:      msg.DBSourceName,
+				OplogSourceName:   msg.OplogSourceName,
+				CompressionType:   msg.CompressionType,
+				Cypher:            msg.Cypher,
+				OplogStartTime:    msg.OplogStartTime,
+				SkipUsersAndRoles: msg.SkipUsersAndRoles,
+			},
+		},
+	}
+	if err := c.streamSend(outMsg); err != nil {
+		return err
+	}
+
+	response, err := c.streamRecv()
+	if err != nil {
+		return err
+	}
+	switch response.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return fmt.Errorf("Cannot start restore on client %s: %s", c.NodeName, response.GetErrorMsg())
+	case *pb.ClientMessage_AckMsg:
+		return nil
+	}
+	return fmt.Errorf("Unkown response type for Restore message: %T, %+v", response.Payload, response.Payload)
+}
+
+func (c *Client) setDBBackupRunning(status bool) {
+	c.statusLock.Lock()
+	c.status.RunningDBBackUp = status
+	c.statusLock.Unlock()
+}
+
+func (c *Client) setOplogTailerRunning(status bool) {
+	c.statusLock.Lock()
+	c.status.RunningOplogBackup = status
+	c.statusLock.Unlock()
+}
+
+func (c *Client) setRestoreRunning(status bool) {
+	fmt.Printf("client %v set restore running lock\n", c.ID)
+	fmt.Printf("client %v set restore running unlock\n", c.ID)
+
+	c.statusLock.Lock()
+	defer c.statusLock.Unlock()
+	if status {
+		c.status.RestoreStatus = pb.RestoreStatus_RestoringDB
+		return
+	}
+	c.status.RestoreStatus = pb.RestoreStatus_Not_Running
+}
+
+func (c *Client) startBackup(opts *pb.StartBackup) error {
+	msg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_StartBackupMsg{
+			StartBackupMsg: &pb.StartBackup{
+				BackupType:      opts.BackupType,
+				DestinationType: opts.DestinationType,
+				DBBackupName:    opts.DBBackupName,
+				OplogBackupName: opts.OplogBackupName,
+				DestinationDir:  opts.DestinationDir,
+				CompressionType: opts.CompressionType,
+				Cypher:          opts.Cypher,
+				OplogStartTime:  opts.OplogStartTime,
+			},
+		},
+	}
+	if err := c.streamSend(msg); err != nil {
+		return err
+	}
+	response, err := c.streamRecv()
+	if err != nil {
+		return err
+	}
+	switch response.Payload.(type) {
+	case *pb.ClientMessage_AckMsg:
+		c.setDBBackupRunning(true)
+		c.setOplogTailerRunning(true)
+		return nil
+	}
+	return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", response.Payload)
+}
+
 func (c *Client) startBalancer() error {
 	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_StartBalancerMsg{},
@@ -145,13 +259,27 @@ func (c *Client) startBalancer() error {
 	}
 
 	switch msg.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return fmt.Errorf("%s", msg.GetErrorMsg().Message)
 	case *pb.ClientMessage_AckMsg:
 		return nil
-	case *pb.ClientMessage_ErrorMsg:
-		errMsg := msg.GetErrorMsg()
-		return fmt.Errorf("%s", errMsg.Message)
 	}
 	return fmt.Errorf("unknown respose type %T", msg)
+}
+
+func (c *Client) stopBackup() error {
+	msg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_CancelBackupMsg{},
+	}
+	if err := c.streamSend(msg); err != nil {
+		return err
+	}
+	if msg, err := c.streamRecv(); err != nil {
+		return err
+	} else if ack := msg.GetAckMsg(); ack == nil {
+		return fmt.Errorf("Invalid client response to stop backup message. Want 'ack', got %T", msg)
+	}
+	return nil
 }
 
 func (c *Client) stopBalancer() error {
@@ -176,74 +304,7 @@ func (c *Client) stopBalancer() error {
 	return fmt.Errorf("unknown respose type %T", msg)
 }
 
-func (c *Client) startBackup(opts *pb.StartBackup) error {
-	err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_StartBackupMsg{
-			StartBackupMsg: &pb.StartBackup{
-				BackupType:      opts.BackupType,
-				DestinationType: opts.DestinationType,
-				DestinationName: opts.DestinationName,
-				DestinationDir:  opts.DestinationDir,
-				CompressionType: opts.CompressionType,
-				Cypher:          opts.Cypher,
-				OplogStartTime:  opts.OplogStartTime,
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-	if msg, err := c.streamRecv(); err != nil {
-		return err
-	} else if ack := msg.GetAckMsg(); ack == nil {
-		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
-	}
-	c.SetDBBackupRunning(true)
-	c.SetOplogTailerRunning(true)
-	return nil
-}
-
-func (c *Client) stopBackup() error {
-	msg := &pb.ServerMessage{
-		Payload: &pb.ServerMessage_CancelBackupMsg{},
-	}
-	if err := c.streamSend(msg); err != nil {
-		return err
-	}
-	if msg, err := c.streamRecv(); err != nil {
-		return err
-	} else if ack := msg.GetAckMsg(); ack == nil {
-		return fmt.Errorf("Invalid client response to stop backup message. Want 'ack', got %T", msg)
-	}
-	return nil
-}
-
-func (c *Client) SetDBBackupRunning(status bool) {
-	c.statusLock.Lock()
-	c.status.RunningDBBackUp = status
-	c.statusLock.Unlock()
-}
-
-func (c *Client) SetOplogTailerRunning(status bool) {
-	c.statusLock.Lock()
-	c.status.RunningOplogBackup = status
-	c.statusLock.Unlock()
-}
-
-func (c *Client) IsDBBackupRunning() (status bool) {
-	c.statusLock.Lock()
-	defer c.statusLock.Unlock()
-	return c.status.RunningDBBackUp
-}
-
-func (c *Client) IsOplogTailerRunning() (status bool) {
-	c.statusLock.Lock()
-	defer c.statusLock.Unlock()
-
-	return c.status.RunningOplogBackup
-}
-
-func (c *Client) StopOplogTail(ts int64) error {
+func (c *Client) stopOplogTail(ts int64) error {
 	c.logger.Debugf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	fmt.Printf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	err := c.streamSend(&pb.ServerMessage{
@@ -261,16 +322,13 @@ func (c *Client) StopOplogTail(ts int64) error {
 	return nil
 }
 
-func (c *Client) IsDbBackupRunning() bool {
-	c.statusLock.Lock()
-	defer c.statusLock.Unlock()
-	return c.status.RunningDBBackUp
-}
-
-func (c *Client) IsRunningOplogBackup() bool {
-	c.statusLock.Lock()
-	defer c.statusLock.Unlock()
-	return c.status.RunningOplogBackup
+func (c *Client) streamRecv() (*pb.ClientMessage, error) {
+	select {
+	case msg := <-c.streamRecvChan:
+		return msg, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("Timeout reading from the stream")
+	}
 }
 
 func (c *Client) streamSend(msg *pb.ServerMessage) error {

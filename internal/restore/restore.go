@@ -107,13 +107,12 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		NSOptions:         &mongorestore.NSOptions{},
 		SkipUsersAndRoles: i.SkipUsersAndRoles,
 		SessionProvider:   provider,
+		InputReader:       i.Reader,
 	}
 
 	if err := restore.ParseAndValidateOptions(); err != nil {
 		return nil, err
 	}
-
-	restore.InputReader = nil
 
 	return &MongoRestore{
 		MongoRestoreInput: i,
