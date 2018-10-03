@@ -8,7 +8,6 @@ import (
 	"github.com/percona/mongodb-backup/grpc/server"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,12 +30,9 @@ func init() {
 }
 
 func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
-	for _, clients := range a.messagesServer.GetClientsStatus() {
-		for _, client := range clients {
-			status, err := client.Status()
-			if err != nil {
-				return errors.Wrapf(err, "cannot get the status for client %q", client.ID)
-			}
+	for _, clientsByReplicasets := range a.messagesServer.ClientsByReplicaset() {
+		for _, client := range clientsByReplicasets {
+			status := client.Status()
 
 			c := &pbapi.Client{
 				ID:              client.ID,
@@ -72,12 +68,17 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
 func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
+
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
 		DestinationType: pb.DestinationType(opts.DestinationType),
 		CompressionType: pb.CompressionType(opts.CompressionType),
 		Cypher:          pb.Cypher(opts.Cypher),
+		// DBBackupName & OplogBackupName are going to be set in server.go
+		// We cannot set them here because the backup name will include the replicaset name so, it will
+		// be different for each client/MongoDB instance
+		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
 	logger.Debug("Stopping the balancer")

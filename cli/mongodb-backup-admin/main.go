@@ -30,6 +30,9 @@ type cliOptions struct {
 	destinationType      *string
 	compressionAlgorithm *string
 	encryptionAlgorithm  *string
+
+	restore         *kingpin.CmdClause
+	restoreMetadata *string
 }
 
 func main() {
