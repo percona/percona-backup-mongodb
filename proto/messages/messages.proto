@@ -13,6 +13,7 @@
 // limitations under the License.
 
 syntax = "proto3";
+option go_package = "github.com/percona/mongodb-backup/proto/messages";
 
 option java_multiple_files = true;
 option java_package = "io.grpc.examples.messages";
@@ -82,6 +83,26 @@ message GetStatus {}
 message Ping {}
 message StartBalancer {}
 message StopBalancer {}
+
+message ReplicasetMetadata {
+	string ReplicasetUUID  = 1;
+	string ReplicasetName  = 2;
+	string DBBackupName    = 3;
+	string OplogBackupName = 4;
+}
+
+message BackupMetadata {
+	int64           StartTs                     = 1;
+	int64           EndTs                       = 2;
+	BackupType      BackupType                  = 3;
+	int64           OplogStartTime              = 4;
+	int64           LastOplogTs                 = 5;
+	DestinationType DestinationType             = 6;
+	string          DestinationDir              = 7;
+	Cypher          Cypher                      = 8;
+	CompressionType CompressionType             = 9;
+	map<string, ReplicasetMetadata> Replicasets = 10;
+}
 
 message RestoreBackup {
   BackupType      BackupType        = 1;

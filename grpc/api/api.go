@@ -65,6 +65,11 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 	return nil
 }
 
+// LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
+func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.Empty) (*pb.BackupMetadata, error) {
+	return a.messagesServer.LastBackupMetadata(), nil
+}
+
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
 func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
