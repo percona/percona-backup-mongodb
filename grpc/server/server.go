@@ -139,8 +139,8 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-func (s MessagesServer) LastBackupMetadata() *BackupMetadata {
-	return s.lastBackupMetadata
+func (s MessagesServer) LastBackupMetadata() *pb.BackupMetadata {
+	return s.lastBackupMetadata.Metadata()
 }
 
 func (s *MessagesServer) ReplicasetsRunningDBBackup() map[string]*Client {
@@ -182,7 +182,7 @@ func (s *MessagesServer) ReplicasetsRunningRestore() map[string]*Client {
 
 // RestoreBackUp will run a restore on each client, using the provided backup metadata to choose the source for each
 // replicaset.
-func (s *MessagesServer) RestoreBackUp(bm *BackupMetadata, SkipUsersAndRoles bool) error {
+func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, SkipUsersAndRoles bool) error {
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup restore. Cannot find backup source for replicas")
@@ -282,7 +282,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		})
 	}
 
-	metadataFilename := path.Join(s.workDir, fmt.Sprintf("%s.json", s.lastBackupMetadata.StartTs.Format(time.RFC3339)))
+	metadataFilename := path.Join(s.workDir, fmt.Sprintf("%s.json", time.Unix(s.lastBackupMetadata.Metadata().StartTs, 0).Format(time.RFC3339)))
 	err = s.lastBackupMetadata.WriteMetadataToFile(metadataFilename)
 	if err != nil {
 		log.Warn("Cannot write metadata file %s: %s", metadataFilename, err)

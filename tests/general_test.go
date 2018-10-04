@@ -19,6 +19,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -220,7 +221,11 @@ func TestGlobalWithDaemon(t *testing.T) {
 	cleanupDBForRestore(t, s2Session)
 
 	log.Info("Starting restore test")
-	testRestoreWithMetadata(t, d)
+	md, err := d.ApiServer.LastBackupMetadata(context.Background(), &pbapi.Empty{})
+	if err != nil {
+		t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
+	}
+	testRestoreWithMetadata(t, d, md)
 
 	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
 	if err != nil {
@@ -332,10 +337,8 @@ func testRestore(t *testing.T, session *mgo.Session, dir string) {
 
 }
 
-func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon) {
-	m := d.MessagesServer.LastBackupMetadata()
-
-	if err := d.MessagesServer.RestoreBackUp(m, true); err != nil {
+func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon, md *pb.BackupMetadata) {
+	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}
 

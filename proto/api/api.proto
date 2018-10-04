@@ -1,4 +1,3 @@
-
 // Copyright 2015 gRPC authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,6 +14,10 @@
 
 syntax = "proto3";
 
+option go_package = "github.com/percona/mongodb-backup/proto/api";
+
+import "messages/messages.proto";
+
 option java_multiple_files = true;
 option java_package = "io.grpc.examples.messages";
 option java_outer_classname = "MessagesProto";
@@ -24,6 +27,7 @@ package api;
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
   rpc RunBackup(RunBackupParams) returns (Error) {}
+  rpc LastBackupMetadata(Empty) returns (messages.BackupMetadata) {}
 }
 
 enum BackupType {
