@@ -8,6 +8,7 @@ import (
 	"github.com/percona/mongodb-backup/grpc/server"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,6 +64,23 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 			stream.Send(c)
 		}
 	}
+	return nil
+}
+
+func (a *ApiServer) BackupsMetadata(m *pbapi.Empty, stream pbapi.Api_BackupsMetadataServer) error {
+	bmd, err := a.messagesServer.ListBackups()
+	if err != nil {
+		return errors.Wrap(err, "cannot get backups metadata listing")
+	}
+
+	for name, md := range bmd {
+		msg := &pbapi.MetadataFile{
+			Filename: name,
+			Metadata: &md,
+		}
+		stream.Send(msg)
+	}
+
 	return nil
 }
 

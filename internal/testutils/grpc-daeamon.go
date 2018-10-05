@@ -130,6 +130,14 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	return d, nil
 }
 
+func (d *GrpcDaemon) APIClient() *grpc.Server {
+	return d.grpcServer4Api
+}
+
+func (d *GrpcDaemon) MessagesClient() *grpc.Server {
+	return d.grpcServer4Clients
+}
+
 func (d *GrpcDaemon) Stop() {
 	d.lock.Lock()
 	defer d.lock.Unlock()
