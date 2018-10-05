@@ -26,6 +26,7 @@ func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
+			Description:     opts.GetDescription(),
 			Replicasets:     make(map[string]*pb.ReplicasetMetadata),
 		},
 		lock: &sync.Mutex{},

@@ -101,7 +101,8 @@ message BackupMetadata {
 	string          DestinationDir              = 7;
 	Cypher          Cypher                      = 8;
 	CompressionType CompressionType             = 9;
-	map<string, ReplicasetMetadata> Replicasets = 10;
+    string          Description                 = 10;
+	map<string, ReplicasetMetadata> Replicasets = 11;
 }
 
 message RestoreBackup {

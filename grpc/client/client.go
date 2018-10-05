@@ -911,9 +911,6 @@ func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
 }
 
 func (c *Client) restoreOplog(opts *pb.RestoreBackup) error {
-	log.Infof("--> %s Restoring Oplog ...", c.id)
-	log.Infof("--> %s Oplog restore completed...", c.id)
-
 	var reader bsonfile.BSONReader
 	var err error
 	switch opts.SourceType {
