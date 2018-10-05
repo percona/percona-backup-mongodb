@@ -460,6 +460,14 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		return nil, err
 	}
 	c.logger.Debugf("Balancer has been started by %s", c.nodeName)
+
+	out := &pb.ClientMessage{
+		ClientID: c.id,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+	c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
+	c.streamSend(out)
+
 	return nil, nil
 }
 
@@ -504,7 +512,15 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 	if err := balancer.StopAndWait(balancerStopRetries, balancerStopTimeout); err != nil {
 		return nil, err
 	}
+
 	c.logger.Debugf("Balancer has been stopped by %s", c.nodeName)
+	out := &pb.ClientMessage{
+		ClientID: c.id,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+	c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
+	c.streamSend(out)
+
 	return nil, nil
 }
 

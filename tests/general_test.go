@@ -180,6 +180,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 		CompressionType: pb.CompressionType_NO_COMPRESSION,
 		Cypher:          pb.Cypher_NO_CYPHER,
 		OplogStartTime:  time.Now().Unix(),
+		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
