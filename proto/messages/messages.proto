@@ -136,6 +136,7 @@ message StartBackup {
   CompressionType CompressionType = 7;
   Cypher          Cypher          = 8;
   int64           OplogStartTime  = 9;
+  string          Description     = 10;
 }
 
 message StopOplogTail {
