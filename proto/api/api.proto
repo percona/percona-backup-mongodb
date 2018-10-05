@@ -101,6 +101,7 @@ message RunBackupParams {
   string          Dirname         = 5;
   string          Filename        = 6;          
   int64           StartOplogTs    = 7;
+  string          Description     = 8;
 }
 
 message BackupReplica {
