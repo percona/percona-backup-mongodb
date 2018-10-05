@@ -30,6 +30,7 @@ type cliOptions struct {
 	destinationType      *string
 	compressionAlgorithm *string
 	encryptionAlgorithm  *string
+	description          *string
 
 	restore         *kingpin.CmdClause
 	restoreMetadata *string
@@ -127,6 +128,7 @@ func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunBackupParams{
 		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_NO_CYPHER,
+		Description:     *opts.description,
 	}
 
 	switch *opts.backupType {
@@ -176,6 +178,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		destinationType:      startBackupCmd.Flag("destination-type", "Backup destination type").Enum("file", "aws"),
 		compressionAlgorithm: startBackupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  startBackupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
+		description:          startBackupCmd.Flag("description", "Backup description").Required().String(),
 	}
 
 	cmd, err := app.Parse(args)

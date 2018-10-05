@@ -278,6 +278,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
 			OplogStartTime:  opts.GetOplogStartTime(),
+			Description:     opts.Description,
 		})
 	}
 
@@ -477,7 +478,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
 	}
-	log.Infof("---> Received RestoreCompleted from client %v", msg.GetClientID())
+	log.Debugf("Received RestoreCompleted from client %v", msg.GetClientID())
 	client.setRestoreRunning(false)
 
 	replicasets := s.ReplicasetsRunningOplogBackup()

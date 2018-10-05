@@ -4,9 +4,11 @@ import (
 	"context"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/percona/mongodb-backup/grpc/server"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +35,7 @@ func TestApiWithDaemon(t *testing.T) {
 		DestinationType: pbapi.DestinationType_FILE,
 		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_NO_CYPHER,
+		Description:     "test backup",
 	}
 
 	_, err = d.ApiServer.RunBackup(context.Background(), msg)
@@ -64,9 +67,11 @@ func TestApiWithDaemon(t *testing.T) {
 	}
 	prefix := p[0]
 
+	jsonFile := prefix + ".json"
+
 	metadataFound := false
 	for _, name := range names {
-		if name == prefix+".json" {
+		if name == jsonFile {
 			metadataFound = true
 		}
 		if !strings.HasPrefix(name, prefix) {
@@ -75,7 +80,16 @@ func TestApiWithDaemon(t *testing.T) {
 	}
 
 	if !metadataFound {
-		t.Errorf("Metadata file %s was not found", prefix+".json")
+		t.Errorf("Metadata file %s was not found", jsonFile)
+	}
+
+	md, err := server.LoadMetadataFromFile(filepath.Join(tmpDir, jsonFile))
+	if md.Metadata().Description == "" {
+		t.Errorf("Empty description in backup metadata")
+	}
+
+	if len(md.Metadata().Replicasets) < 3 {
+		t.Errorf("Invalid replicasets count in metadata. Want 3, got %d", len(md.Metadata().Replicasets))
 	}
 
 	d.Stop()
