@@ -12,7 +12,7 @@ import (
 var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
-	timeout                  = 1 * time.Second
+	timeout                  = 10 * time.Second
 )
 
 type Client struct {
@@ -203,9 +203,6 @@ func (c *Client) setOplogTailerRunning(status bool) {
 }
 
 func (c *Client) setRestoreRunning(status bool) {
-	fmt.Printf("client %v set restore running lock\n", c.ID)
-	fmt.Printf("client %v set restore running unlock\n", c.ID)
-
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 	if status {
@@ -248,7 +245,7 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 
 func (c *Client) startBalancer() error {
 	err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_StartBalancerMsg{},
+		Payload: &pb.ServerMessage_StartBalancerMsg{StartBalancerMsg: &pb.StartBalancer{}},
 	})
 	if err != nil {
 		return err
@@ -284,7 +281,7 @@ func (c *Client) stopBackup() error {
 
 func (c *Client) stopBalancer() error {
 	err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_StopBalancerMsg{},
+		Payload: &pb.ServerMessage_StopBalancerMsg{StopBalancerMsg: &pb.StopBalancer{}},
 	})
 	if err != nil {
 		return err

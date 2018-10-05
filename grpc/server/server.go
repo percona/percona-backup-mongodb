@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -139,8 +139,8 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-func (s MessagesServer) LastBackupMetadata() *pb.BackupMetadata {
-	return s.lastBackupMetadata.Metadata()
+func (s MessagesServer) LastBackupMetadata() *BackupMetadata {
+	return s.lastBackupMetadata
 }
 
 func (s *MessagesServer) ReplicasetsRunningDBBackup() map[string]*Client {
@@ -247,7 +247,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return fmt.Errorf("Cannot start a backup while a restore is still running")
 	}
 
-	ts := time.Now().Format(time.RFC3339)
 	ext := getFileExtension(pb.CompressionType(opts.CompressionType), pb.Cypher(opts.Cypher))
 
 	s.lastBackupMetadata = NewBackupMetadata(opts)
@@ -265,8 +264,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		s.logger.Printf("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
 
-		dbBackupName := fmt.Sprintf("%s_%s.dump%s", ts, client.ReplicasetName, ext)
-		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", ts, client.ReplicasetName, ext)
+		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
+		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
 		s.lastBackupMetadata.AddReplicaset(client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 
@@ -282,11 +281,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		})
 	}
 
-	metadataFilename := path.Join(s.workDir, fmt.Sprintf("%s.json", time.Unix(s.lastBackupMetadata.Metadata().StartTs, 0).Format(time.RFC3339)))
-	err = s.lastBackupMetadata.WriteMetadataToFile(metadataFilename)
-	if err != nil {
-		log.Warn("Cannot write metadata file %s: %s", metadataFilename, err)
-	}
 	return nil
 }
 
@@ -369,11 +363,20 @@ func (s *MessagesServer) WaitOplogBackupFinish() {
 }
 
 func (s *MessagesServer) WaitRestoreFinish() {
-	//replicasets := s.ReplicasetsRunningRestore()
-	//if len(replicasets) == 0 {
-	//	return
-	//}
+	replicasets := s.ReplicasetsRunningRestore()
+	if len(replicasets) == 0 {
+		return
+	}
 	<-s.restoreFinishChan
+}
+
+func (s *MessagesServer) WriteBackupMetadata(filename string) error {
+	return s.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
+}
+
+// WorkDir returns the server working directory.
+func (s *MessagesServer) WorkDir() string {
+	return s.workDir
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

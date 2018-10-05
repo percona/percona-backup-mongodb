@@ -13,6 +13,7 @@ import (
 
 type ApiServer struct {
 	messagesServer *server.MessagesServer
+	workDir        string
 }
 
 func NewApiServer(server *server.MessagesServer) *ApiServer {
@@ -67,19 +68,19 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 
 // LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
 func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.Empty) (*pb.BackupMetadata, error) {
-	return a.messagesServer.LastBackupMetadata(), nil
+	return a.messagesServer.LastBackupMetadata().Metadata(), nil
 }
 
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
 func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
-
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
 		DestinationType: pb.DestinationType(opts.DestinationType),
 		CompressionType: pb.CompressionType(opts.CompressionType),
 		Cypher:          pb.Cypher(opts.Cypher),
+		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
 		// DBBackupName & OplogBackupName are going to be set in server.go
 		// We cannot set them here because the backup name will include the replicaset name so, it will
 		// be different for each client/MongoDB instance
@@ -90,7 +91,9 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	if err := a.messagesServer.StopBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
+	logger.Debug("Balancer stopped")
 
+	logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
@@ -108,9 +111,15 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	a.messagesServer.WaitOplogBackupFinish()
 	logger.Debug("Oplog finished")
 
+	mdFilename := msg.NamePrefix + ".json"
+
+	logger.Debugf("Writing metadata to %s", mdFilename)
+	a.messagesServer.WriteBackupMetadata(mdFilename)
+
 	logger.Debug("Starting the balancer")
 	if err := a.messagesServer.StartBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
+	logger.Debug("Balancer started")
 	return &pbapi.Error{}, nil
 }

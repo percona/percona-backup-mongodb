@@ -129,12 +129,13 @@ message Error {
 message StartBackup {
   BackupType      BackupType      = 1;
   DestinationType DestinationType = 2;
-  string          DBBackupName    = 3;
-  string          OplogBackupName = 4;
-  string          DestinationDir  = 5; // This is also used as S3 bucket name
-  CompressionType CompressionType = 6;
-  Cypher          Cypher          = 7;
-  int64           OplogStartTime  = 8;
+  string          NamePrefix      = 3; 
+  string          DBBackupName    = 4;
+  string          OplogBackupName = 5;
+  string          DestinationDir  = 6; // This is also used as S3 bucket name
+  CompressionType CompressionType = 7;
+  Cypher          Cypher          = 8;
+  int64           OplogStartTime  = 9;
 }
 
 message StopOplogTail {
