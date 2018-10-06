@@ -10,6 +10,7 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -34,6 +35,8 @@ type cliOptions struct {
 
 	restore         *kingpin.CmdClause
 	restoreMetadata *string
+
+	listBackups *kingpin.CmdClause
 }
 
 func main() {
@@ -74,15 +77,26 @@ func main() {
 	case "list-agents":
 		clients, err := connectedAgents(conn)
 		if err != nil {
-			log.Debugf("Cannot connect to the gRPC server: %s", err)
-			log.Fatal("Cannot connect to the gRPC server")
+			log.Errorf("Cannot get the list of connected agents: %s", err)
+			break
 		}
 		printConnectedAgents(clients)
+	case "list-backups":
+		md, err := getAvailableBackups(conn)
+		if err != nil {
+			log.Errorf("Cannot get the list of available backups: %s", err)
+			break
+		}
+		if len(md) > 0 {
+			printAvailableBackups(md)
+			return
+		}
+		fmt.Println("No backups found")
 	case "start-backup":
 		err := startBackup(apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
-			log.Fatalf("Cannot connect to the gRPC server: %s", err)
+			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
 	}
 
@@ -107,6 +121,34 @@ func connectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 	}
 	sort.Slice(clients, func(i, j int) bool { return clients[i].NodeName < clients[j].NodeName })
 	return clients, nil
+}
+
+func getAvailableBackups(conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, error) {
+	apiClient := pbapi.NewApiClient(conn)
+	stream, err := apiClient.BackupsMetadata(context.Background(), &pbapi.Empty{})
+	if err != nil {
+		return nil, err
+	}
+
+	mds := make(map[string]*pb.BackupMetadata)
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, errors.Wrap(err, "Cannot get the connected agents list")
+		}
+		mds[msg.Filename] = msg.Metadata
+	}
+
+	return mds, nil
+}
+
+func printAvailableBackups(md map[string]*pb.BackupMetadata) {
+	for name, _ := range md {
+		fmt.Println(name)
+	}
 }
 
 func printConnectedAgents(clients []*pbapi.Client) {
@@ -164,6 +206,7 @@ func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
 	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
+	listBackups := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
 	startBackupCmd := app.Command("start-backup", "Start a backup")
 
 	opts := &cliOptions{
@@ -179,6 +222,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		compressionAlgorithm: startBackupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  startBackupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 		description:          startBackupCmd.Flag("description", "Backup description").Required().String(),
+		listBackups:          listBackups,
 	}
 
 	cmd, err := app.Parse(args)
