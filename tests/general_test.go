@@ -174,13 +174,16 @@ func TestGlobalWithDaemon(t *testing.T) {
 	generateDataToBackup(t, s2Session)
 	go generateOplogTraffic(t, s2Session, oplogGeneratorStopChan)
 
+	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
+
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_LOGICAL,
 		DestinationType: pb.DestinationType_FILE,
 		CompressionType: pb.CompressionType_NO_COMPRESSION,
 		Cypher:          pb.Cypher_NO_CYPHER,
-		OplogStartTime:  time.Now().Unix(),
-		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      backupNamePrefix,
+		Description:     "general_test_backup",
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
@@ -217,6 +220,26 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	close(oplogGeneratorStopChan)
 	d.MessagesServer.WaitOplogBackupFinish()
+
+	// Test list backups
+	log.Debug("Testing backup metadata")
+	mdFilename := backupNamePrefix + ".json"
+	d.MessagesServer.WriteBackupMetadata(mdFilename)
+	bms, err := d.MessagesServer.ListBackups()
+	if err != nil {
+		t.Errorf("Cannot get backups metadata listing: %s", err)
+	} else {
+		if bms == nil {
+			t.Errorf("Backups metadata listing is nil")
+		} else {
+			if len(bms) != 1 {
+				t.Errorf("Backups metadata listing is empty")
+			}
+			if _, ok := bms[mdFilename]; !ok {
+				t.Errorf("Backup metadata for %q doesn't exists", mdFilename)
+			}
+		}
+	}
 
 	cleanupDBForRestore(t, s1Session)
 	cleanupDBForRestore(t, s2Session)

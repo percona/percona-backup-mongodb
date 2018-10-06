@@ -11,8 +11,39 @@ import (
 	"github.com/percona/mongodb-backup/grpc/server"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/metadata"
 )
+
+// Mock stream interface to avoid connecting to the API server via TCP
+// We just need to test the methods but the server is running locally
+type mockBackupsMetadataStream struct {
+	files map[string]*pb.BackupMetadata
+}
+
+func newMockBackupsMetadataStream() *mockBackupsMetadataStream {
+	return &mockBackupsMetadataStream{
+		files: make(map[string]*pb.BackupMetadata),
+	}
+}
+
+func (m *mockBackupsMetadataStream) SendMsg(imsg interface{}) error {
+	msg := imsg.(*pbapi.MetadataFile)
+	m.files[msg.Filename] = msg.Metadata
+	return nil
+}
+
+func (m *mockBackupsMetadataStream) Send(msg *pbapi.MetadataFile) error {
+	m.files[msg.Filename] = msg.Metadata
+	return nil
+}
+
+func (m *mockBackupsMetadataStream) Context() context.Context       { return context.TODO() }
+func (m *mockBackupsMetadataStream) RecvMsg(im interface{}) error   { return nil }
+func (m *mockBackupsMetadataStream) SetHeader(h metadata.MD) error  { return nil }
+func (m *mockBackupsMetadataStream) SendHeader(h metadata.MD) error { return nil }
+func (m *mockBackupsMetadataStream) SetTrailer(h metadata.MD)       {}
 
 // Why this is not in the grpc/api dir? Because the daemon implemented to test the whole behavior
 // imports proto/api so if we try to use the daemon from the api package we would end up having
@@ -65,11 +96,11 @@ func TestApiWithDaemon(t *testing.T) {
 			t.Errorf("Invalid backup file names prefix. It should be date_shard, got %s", names[0])
 		}
 	}
+
 	prefix := p[0]
-
 	jsonFile := prefix + ".json"
-
 	metadataFound := false
+
 	for _, name := range names {
 		if name == jsonFile {
 			metadataFound = true
@@ -90,6 +121,25 @@ func TestApiWithDaemon(t *testing.T) {
 
 	if len(md.Metadata().Replicasets) < 3 {
 		t.Errorf("Invalid replicasets count in metadata. Want 3, got %d", len(md.Metadata().Replicasets))
+	}
+
+	stream := newMockBackupsMetadataStream()
+
+	err = d.ApiServer.BackupsMetadata(&pbapi.Empty{}, stream)
+	if err != nil {
+		t.Errorf("Cannot get backups metadata: %s", err)
+	}
+
+	if len(stream.files) != 1 {
+		t.Errorf("Invalid backup metadata files list. Want 1 file, got %d", len(stream.files))
+	}
+
+	if jf, ok := stream.files[jsonFile]; !ok {
+		t.Errorf("%s file entry is missing", jsonFile)
+	} else {
+		if jf.Description != msg.Description {
+			t.Errorf("Invalid backup description. Want %q, got %q", msg.Description, jf.Description)
+		}
 	}
 
 	d.Stop()

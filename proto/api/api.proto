@@ -28,6 +28,7 @@ service Api {
   rpc GetClients(Empty) returns (stream Client) {}
   rpc RunBackup(RunBackupParams) returns (Error) {}
   rpc LastBackupMetadata(Empty) returns (messages.BackupMetadata) {}
+  rpc BackupsMetadata(Empty) returns (stream MetadataFile) {}
 }
 
 enum BackupType {
@@ -91,6 +92,11 @@ message Client {
   string       LastCommandSent = 8;
   int64        LastSeen        = 9;
   ClientStatus Status          = 10;
+}
+
+message MetadataFile {
+  string                  Filename = 1;
+  messages.BackupMetadata Metadata = 2;
 }
 
 message RunBackupParams {

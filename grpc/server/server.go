@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +53,9 @@ func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	bfc := notify.Start(EVENT_BACKUP_FINISH)
 	ofc := notify.Start(EVENT_OPLOG_FINISH)
 	rbf := notify.Start(EVENT_RESTORE_FINISH)
+	if workDir == "" {
+		workDir = "."
+	}
 
 	messagesServer := &MessagesServer{
 		lock:                  &sync.Mutex{},
@@ -139,8 +144,30 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-func (s MessagesServer) LastBackupMetadata() *BackupMetadata {
+func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 	return s.lastBackupMetadata
+}
+
+func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
+	files, err := ioutil.ReadDir(s.workDir)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot list workdir %q backup filenames", s.workDir)
+	}
+
+	backups := make(map[string]pb.BackupMetadata)
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+		filename := filepath.Join(s.workDir, file.Name())
+		bm, err := LoadMetadataFromFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid backup metadata file %s: %s", filename, err)
+		}
+		backups[file.Name()] = *bm.Metadata()
+	}
+
+	return backups, nil
 }
 
 func (s *MessagesServer) ReplicasetsRunningDBBackup() map[string]*Client {
