@@ -274,6 +274,7 @@ func (c *Client) processIncommingServerMessages() {
 		//var response *pb.ClientMessage
 
 		c.logger.Debugf("Client %s -> incoming message: %+v", c.nodeName, msg)
+		c.logger.Infof("Client %s -> incoming message: %+v", c.nodeName, msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
 			c.processStatus()
@@ -397,6 +398,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 func (c *Client) sendRestoreComplete(err error) error {
 	msg := &pb.RestoreComplete{
 		ClientID: c.id,
+		Err:      &pb.Error{},
 	}
 	if err != nil {
 		msg.Err = &pb.Error{

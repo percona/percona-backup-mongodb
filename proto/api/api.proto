@@ -27,6 +27,7 @@ package api;
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
   rpc RunBackup(RunBackupParams) returns (Error) {}
+  rpc RunRestore(RunRestoreParams) returns (Error) {}
   rpc LastBackupMetadata(Empty) returns (messages.BackupMetadata) {}
   rpc BackupsMetadata(Empty) returns (stream MetadataFile) {}
 }
@@ -108,6 +109,11 @@ message RunBackupParams {
   string          Filename        = 6;          
   int64           StartOplogTs    = 7;
   string          Description     = 8;
+}
+
+message RunRestoreParams {
+  string MetadataFile      = 1;
+  bool   SkipUsersAndRoles = 2;
 }
 
 message BackupReplica {
