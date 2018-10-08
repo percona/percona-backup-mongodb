@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y percona-server-mongodb-36-server
 
 
 WORKDIR /go/src/github.com/percona/mongodb-backup
+COPY . .
 RUN chown -R mongod.mongod /go
-COPY --chown=mongod:mongod . .
-
 USER mongod
+
 RUN make vendor
 CMD make test && make
