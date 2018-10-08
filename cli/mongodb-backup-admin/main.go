@@ -146,9 +146,11 @@ func getAvailableBackups(conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, 
 }
 
 func printAvailableBackups(md map[string]*pb.BackupMetadata) {
-	for name, _ := range md {
-		fmt.Println(name)
+	fmt.Println("      Metadata file name       -  Description")
+	for name, md := range md {
+		fmt.Printf("%30s - %s\n", name, md.Description)
 	}
+	fmt.Println("")
 }
 
 func printConnectedAgents(clients []*pbapi.Client) {
