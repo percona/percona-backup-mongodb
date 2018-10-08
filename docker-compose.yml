@@ -115,8 +115,8 @@ services:
     - s2-mongo3
   test:
     build:
-      dockerfile: Dockerfile.test
-      context: docker
+      dockerfile: docker/Dockerfile.test
+      context: .
       args:
       - GOLANG_DOCKERHUB_TAG=${GOLANG_DOCKERHUB_TAG}
     network_mode: host
