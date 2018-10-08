@@ -26,18 +26,27 @@ type cliOptions struct {
 
 	listClients *kingpin.CmdClause
 
-	startBackup          *kingpin.CmdClause
+	backup               *kingpin.CmdClause
 	backupType           *string
 	destinationType      *string
 	compressionAlgorithm *string
 	encryptionAlgorithm  *string
 	description          *string
 
-	restore         *kingpin.CmdClause
-	restoreMetadata *string
+	restore                  *kingpin.CmdClause
+	restoreMetadataFile      *string
+	restoreSkipUsersAndRoles *bool
 
 	listBackups *kingpin.CmdClause
 }
+
+var (
+	conn *grpc.ClientConn
+)
+
+const (
+	defaultServerAddr = "127.0.0.1:10001"
+)
 
 func main() {
 	cmd, opts, err := processCliArgs(os.Args[1:])
@@ -62,7 +71,7 @@ func main() {
 		grpcOpts = append(grpcOpts, grpc.WithInsecure())
 	}
 
-	conn, err := grpc.Dial(*opts.serverAddr, grpcOpts...)
+	conn, err = grpc.Dial(*opts.serverAddr, grpcOpts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -92,11 +101,18 @@ func main() {
 			return
 		}
 		fmt.Println("No backups found")
-	case "start-backup":
+	case "backup":
 		err := startBackup(apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
+		}
+	case "restore":
+		fmt.Println("restoring")
+		err := restoreBackup(apiClient, opts)
+		if err != nil {
+			log.Fatal(err)
+			log.Fatalf("Cannot send the RestoreBackup command to the gRPC server: %s", err)
 		}
 	}
 
@@ -145,10 +161,36 @@ func getAvailableBackups(conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, 
 	return mds, nil
 }
 
+// This function is used by autocompletion. Currently, when it is called, the gRPC connection is nil
+// because command line parameters havent been processed yet.
+// Maybe in the future, we could read the defaults from a config file. For now, just try to connect
+// to a server running on the local host
+func listAvailableBackups() (backups []string) {
+	var err error
+	if conn == nil {
+		conn, err = grpc.Dial(defaultServerAddr, []grpc.DialOption{grpc.WithInsecure()}...)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+	}
+
+	mds, err := getAvailableBackups(conn)
+	if err != nil {
+		return
+	}
+
+	for name, md := range mds {
+		backup := fmt.Sprintf("%s -> %s", name, md.Description)
+		backups = append(backups, backup)
+	}
+	return
+}
+
 func printAvailableBackups(md map[string]*pb.BackupMetadata) {
 	fmt.Println("      Metadata file name       -  Description")
-	for name, md := range md {
-		fmt.Printf("%30s - %s\n", name, md.Description)
+	for name, metadata := range md {
+		fmt.Printf("%30s - %s\n", name, metadata.Description)
 	}
 	fmt.Println("")
 }
@@ -205,26 +247,47 @@ func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
 	return nil
 }
 
+func restoreBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
+	msg := &pbapi.RunRestoreParams{
+		MetadataFile:      *opts.restoreMetadataFile,
+		SkipUsersAndRoles: *opts.restoreSkipUsersAndRoles,
+	}
+
+	_, err := apiClient.RunRestore(context.Background(), msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
 	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
-	listBackups := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
-	startBackupCmd := app.Command("start-backup", "Start a backup")
+	listBackupsCmd := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
+	backupCmd := app.Command("start-backup", "Start a backup")
+	restoreCmd := app.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
 		tls:        app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").Bool(),
 		caFile:     app.Flag("ca-file", "The file containning the CA root cert file").String(),
-		serverAddr: app.Flag("server-addr", "The server address in the format of host:port").Default("127.0.0.1:10001").String(),
+		serverAddr: app.Flag("server-addr", "The server address in the format of host:port").Default(defaultServerAddr).String(),
 
 		listClients: listClientsCmd,
 
-		startBackup:          startBackupCmd,
-		backupType:           startBackupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
-		destinationType:      startBackupCmd.Flag("destination-type", "Backup destination type").Enum("file", "aws"),
-		compressionAlgorithm: startBackupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
-		encryptionAlgorithm:  startBackupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
-		description:          startBackupCmd.Flag("description", "Backup description").Required().String(),
-		listBackups:          listBackups,
+		backup:               backupCmd,
+		backupType:           backupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
+		destinationType:      backupCmd.Flag("destination-type", "Backup destination type").Enum("file", "aws"),
+		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
+		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
+		description:          backupCmd.Flag("description", "Backup description").Required().String(),
+
+		listBackups: listBackupsCmd,
+
+		restore: restoreCmd,
+		restoreMetadataFile: restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").
+			HintAction(listAvailableBackups).Required().String(),
+		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
 	}
 
 	cmd, err := app.Parse(args)

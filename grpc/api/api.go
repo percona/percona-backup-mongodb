@@ -142,3 +142,12 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	logger.Debug("Balancer started")
 	return &pbapi.Error{}, nil
 }
+
+func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.Error, error) {
+	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
+	if err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
+
+	return &pbapi.Error{}, nil
+}

@@ -207,9 +207,21 @@ func (s *MessagesServer) ReplicasetsRunningRestore() map[string]*Client {
 	return replicasets
 }
 
+// RestoreBackupFromMetadataFile is just a wrappwe around RestoreBackUp that receives a metadata filename
+// loads and parse it and then call RestoreBackUp
+func (s *MessagesServer) RestoreBackupFromMetadataFile(filename string, skipUsersAndRoles bool) error {
+	filename = filepath.Join(s.workDir, filename)
+	bm, err := LoadMetadataFromFile(filename)
+	if err != nil {
+		return fmt.Errorf("Invalid backup metadata file %s: %s", filename, err)
+	}
+
+	return s.RestoreBackUp(bm.Metadata(), skipUsersAndRoles)
+}
+
 // RestoreBackUp will run a restore on each client, using the provided backup metadata to choose the source for each
 // replicaset.
-func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, SkipUsersAndRoles bool) error {
+func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles bool) error {
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup restore. Cannot find backup source for replicas")
@@ -226,7 +238,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, SkipUsersAndRoles 
 	s.setRestoreRunning(true)
 
 	for replName, client := range clients {
-		s.logger.Printf("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
+		s.logger.Printf("Starting restore for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
@@ -239,7 +251,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, SkipUsersAndRoles 
 					OplogSourceName:   metadata.OplogBackupName,
 					CompressionType:   bm.CompressionType,
 					Cypher:            bm.Cypher,
-					SkipUsersAndRoles: SkipUsersAndRoles,
+					SkipUsersAndRoles: skipUsersAndRoles,
 				})
 			}
 		}
