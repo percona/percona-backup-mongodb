@@ -62,7 +62,7 @@ define TEST_ENV
 endef
 
 env:
-	@echo -e $(TEST_ENV) | tr ' ' '\n' >.env
+	@echo $(TEST_ENV) | tr ' ' '\n' >.env
 
 test-race: env vendor
 ifeq ($(GO_TEST_CODECOV), true)
