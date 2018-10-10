@@ -15,6 +15,7 @@ import (
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
+	"github.com/percona/mongodb-backup/internal/loghook"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
 	pb "github.com/percona/mongodb-backup/proto/messages"
@@ -51,6 +52,7 @@ type Client struct {
 	//
 	streamLock *sync.Mutex
 	stream     pb.Messages_MessagesChatClient
+	logStream  pb.Messages_LoggingClient
 }
 
 type ConnectionOptions struct {
@@ -200,7 +202,18 @@ func (c *Client) connect() {
 		c.lock.Lock()
 		c.running = true
 		c.lock.Unlock()
-		return
+
+		// Hook the gRPC logging stream into logrus.
+		// By doing this, all regular logrus calls will also send the log entries to the gRPC server
+		logStream, err := c.grpcClient.Logging(c.ctx)
+		if err != nil {
+			log.Errorf("Cannot start gRPC logging stream: %s", err)
+			return
+		}
+		c.logStream = logStream
+		logrusHook := loghook.NewGrpcLogging(c.id, logStream)
+		c.logger.AddHook(logrusHook)
+		return // remember we are in a reconnect for loop and we need to exit it
 	}
 }
 

@@ -20,6 +20,7 @@ const (
 	EVENT_BACKUP_FINISH = iota
 	EVENT_OPLOG_FINISH
 	EVENT_RESTORE_FINISH
+	logBufferSize = 500
 )
 
 type MessagesServer struct {
@@ -40,6 +41,7 @@ type MessagesServer struct {
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
+	clientsLogChan        chan *pb.LogEntry
 	logger                *logrus.Logger
 }
 
@@ -62,6 +64,7 @@ func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		clients:               make(map[string]*Client),
 		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
+		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
 		restoreFinishChan:     rbf,
@@ -453,6 +456,31 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 		notify.Post(EVENT_BACKUP_FINISH, time.Now())
 	}
 	return &pb.Ack{}, nil
+}
+
+func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		level := logrus.Level(msg.GetLevel())
+		switch level {
+		case logrus.PanicLevel:
+			s.logger.Panicf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		case logrus.FatalLevel:
+			s.logger.Fatalf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		case logrus.ErrorLevel:
+			s.logger.Errorf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		case logrus.WarnLevel:
+			s.logger.Warnf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		case logrus.InfoLevel:
+			s.logger.Infof("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		case logrus.DebugLevel:
+			s.logger.Debugf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+		}
+	}
+	return nil
 }
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents

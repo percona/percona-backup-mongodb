@@ -22,57 +22,60 @@ option java_outer_classname = "MessagesProto";
 package messages;
 
 service Messages {
+  // streams
+  rpc Logging(stream LogEntry) returns (Ack) {}
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
+  // Invidividual responses
   rpc DBBackupFinished(DBBackupFinishStatus) returns (Ack) {}
   rpc OplogBackupFinished(OplogBackupFinishStatus) returns (Ack) {}
   rpc RestoreCompleted(RestoreComplete) returns (Ack) {}
 }
 
 enum ErrorType {
-   NO_ERROR                  = 0;
-   NOT_IMPLEMENTED_YET       = 1;
-   COMMUNICATION_ERROR       = 2;
-   CLIENT_ALREADY_REGISTERED = 3;
+  NO_ERROR                  = 0;
+  NOT_IMPLEMENTED_YET       = 1;
+  COMMUNICATION_ERROR       = 2;
+  CLIENT_ALREADY_REGISTERED = 3;
 }
 
 enum BackupType {
-   LOGICAL   = 0;
-   HOTBACKUP = 1;
+  LOGICAL   = 0;
+  HOTBACKUP = 1;
 }
 
 enum DestinationType {
-   FILE = 0; 
-   AWS  = 1;
+  FILE = 0; 
+  AWS  = 1;
 }
 
 enum CompressionType {
-   NO_COMPRESSION = 0;
-   GZIP           = 1;
-   SNAPPY         = 2;
-   LZ4            = 3;
+  NO_COMPRESSION = 0;
+  GZIP           = 1;
+  SNAPPY         = 2;
+  LZ4            = 3;
 }
 
 enum Cypher {
-    NO_CYPHER = 0;
-    AES       = 1;
-    DES       = 2;
-    RC4       = 3;
-    RSA       = 4;
+  NO_CYPHER = 0;
+  AES       = 1;
+  DES       = 2;
+  RC4       = 3;
+  RSA       = 4;
 }
 
 enum NodeType {
-    UNDEFINED        = 0; 
-    MONGOD           = 1; // mongod without replication enabled. We should ignore this nodetype at backup-time as it has no oplog (but still send it in the Register message)
-    MONGOD_REPLSET   = 2; // mongod with replication enabled and no sharding
-    MONGOD_SHARDSVR  = 3; // mongod that is a shard server
-    MONGOD_CONFIGSVR = 4; // mongod that is a sharding config serve
-    MONGOS           = 5; // mongos that is a sharding router
+  UNDEFINED        = 0; 
+  MONGOD           = 1; // mongod without replication enabled. We should ignore this nodetype at backup-time as it has no oplog (but still send it in the Register message)
+  MONGOD_REPLSET   = 2; // mongod with replication enabled and no sharding
+  MONGOD_SHARDSVR  = 3; // mongod that is a shard server
+  MONGOD_CONFIGSVR = 4; // mongod that is a sharding config serve
+  MONGOS           = 5; // mongos that is a sharding router
 }
 
 enum RestoreStatus {
-    Not_Running    = 0;
-    RestoringDB    = 1;
-    RestoringOplog = 2;
+  Not_Running    = 0;
+  RestoringDB    = 1;
+  RestoringOplog = 2;
 }
 
 message Ack {}
@@ -85,24 +88,31 @@ message StartBalancer {}
 message StopBalancer {}
 
 message ReplicasetMetadata {
-	string ReplicasetUUID  = 1;
-	string ReplicasetName  = 2;
-	string DBBackupName    = 3;
-	string OplogBackupName = 4;
+  string ReplicasetUUID  = 1;
+  string ReplicasetName  = 2;
+  string DBBackupName    = 3;
+  string OplogBackupName = 4;
 }
 
 message BackupMetadata {
-	int64           StartTs                     = 1;
-	int64           EndTs                       = 2;
-	BackupType      BackupType                  = 3;
-	int64           OplogStartTime              = 4;
-	int64           LastOplogTs                 = 5;
-	DestinationType DestinationType             = 6;
-	string          DestinationDir              = 7;
-	Cypher          Cypher                      = 8;
-	CompressionType CompressionType             = 9;
-    string          Description                 = 10;
-	map<string, ReplicasetMetadata> Replicasets = 11;
+  int64           StartTs                     = 1;
+  int64           EndTs                       = 2;
+  BackupType      BackupType                  = 3;
+  int64           OplogStartTime              = 4;
+  int64           LastOplogTs                 = 5;
+  DestinationType DestinationType             = 6;
+  string          DestinationDir              = 7;
+  Cypher          Cypher                      = 8;
+  CompressionType CompressionType             = 9;
+  string          Description                 = 10;
+  map<string, ReplicasetMetadata> Replicasets = 11;
+}
+
+message LogEntry {
+  string ClientID = 1;
+  uint32 Level    = 2;
+  int64  Ts       = 3;
+  string Message  = 4;
 }
 
 message RestoreBackup {
@@ -177,21 +187,21 @@ message ClientMessage {
 }
 
 message BackupSource {
-    string SourceClient = 1;
+  string SourceClient = 1;
 }
 
 message DBBackupFinishStatus {
-    string ClientID = 1;
-    bool   OK       = 2;
-    int64  Ts       = 3;
-    string Error    = 4;
+  string ClientID = 1;
+  bool   OK       = 2;
+  int64  Ts       = 3;
+  string Error    = 4;
 }
 
 message OplogBackupFinishStatus {
-    string ClientID = 1;
-    bool   OK       = 2;
-    int64  Ts       = 3;
-    string Error    = 4;
+  string ClientID = 1;
+  bool   OK       = 2;
+  int64  Ts       = 3;
+  string Error    = 4;
 }
 
 message Register {
