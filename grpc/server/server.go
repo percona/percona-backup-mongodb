@@ -20,6 +20,7 @@ const (
 	EVENT_BACKUP_FINISH = iota
 	EVENT_OPLOG_FINISH
 	EVENT_RESTORE_FINISH
+	logBufferSize = 500
 )
 
 type MessagesServer struct {
@@ -35,15 +36,30 @@ type MessagesServer struct {
 	err                   error
 	//
 	workDir               string
+	clientLoggingEnabled  bool
 	lastBackupMetadata    *BackupMetadata
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
+	clientsLogChan        chan *pb.LogEntry
 	logger                *logrus.Logger
 }
 
 func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, logger)
+	go messagesServer.handleClientDisconnection()
+	return messagesServer
+}
+
+func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, logger)
+	messagesServer.clientLoggingEnabled = true
+	go messagesServer.handleClientDisconnection()
+	return messagesServer
+}
+
+func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -62,6 +78,7 @@ func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		clients:               make(map[string]*Client),
 		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
+		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
 		restoreFinishChan:     rbf,
@@ -69,8 +86,6 @@ func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		workDir:               workDir,
 		logger:                logger,
 	}
-
-	go messagesServer.handleClientDisconnection()
 
 	return messagesServer
 }
@@ -453,6 +468,32 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 		notify.Post(EVENT_BACKUP_FINISH, time.Now())
 	}
 	return &pb.Ack{}, nil
+}
+
+func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		level := logrus.Level(msg.GetLevel())
+		logLine := fmt.Sprintf("-> Client: %s, %+v", msg.GetClientID(), strings.TrimSpace(msg.GetMessage()))
+		switch level {
+		case logrus.PanicLevel:
+			s.logger.Panicf(logLine)
+		case logrus.FatalLevel:
+			s.logger.Fatalf(logLine)
+		case logrus.ErrorLevel:
+			s.logger.Errorf(logLine)
+		case logrus.WarnLevel:
+			s.logger.Warnf(logLine)
+		case logrus.InfoLevel:
+			s.logger.Infof(logLine)
+		case logrus.DebugLevel:
+			s.logger.Debugf(logLine)
+		}
+	}
+	return nil
 }
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents

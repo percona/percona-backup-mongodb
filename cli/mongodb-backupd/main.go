@@ -20,16 +20,17 @@ import (
 )
 
 type cliOptions struct {
-	app             *kingpin.Application
-	cmd             string
-	tls             *bool
-	workDir         *string
-	certFile        *string
-	keyFile         *string
-	grpcPort        *int
-	apiPort         *int
-	shutdownTimeout *int
-	debug           *bool
+	app                  *kingpin.Application
+	cmd                  string
+	tls                  *bool
+	workDir              *string
+	certFile             *string
+	keyFile              *string
+	grpcPort             *int
+	apiPort              *int
+	shutdownTimeout      *int
+	debug                *bool
+	enableClientsLogging *bool
 }
 
 var (
@@ -54,6 +55,8 @@ func processCliParams() (*cliOptions, error) {
 		apiPort:         app.Flag("api-port", "Listening por for API client connecions").Default(defaultAPIPort).Int(),
 		shutdownTimeout: app.Flag("shutdown-timeout", "Server shutdown timeout").Default("3").Int(),
 		debug:           app.Flag("debug", "Enable debug log level").Bool(),
+		enableClientsLogging: app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").
+			Default("true").Bool(),
 	}
 
 	opts.cmd, err = app.Parse(os.Args[1:])
@@ -98,8 +101,13 @@ func main() {
 	stopChan := make(chan interface{})
 	wg := &sync.WaitGroup{}
 
+	var messagesServer *server.MessagesServer
 	grpcServer := grpc.NewServer(grpcOpts...)
-	messagesServer := server.NewMessagesServer(*opts.workDir, log)
+	if *opts.enableClientsLogging {
+		messagesServer = server.NewMessagesServerWithClientLogging(*opts.workDir, log)
+	} else {
+		messagesServer = server.NewMessagesServer(*opts.workDir, log)
+	}
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
 	wg.Add(1)
@@ -118,7 +126,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 
 	<-c
-	log.Infof("Stop signal received. Stopping the agent")
+	log.Infof("Stop signal received. Stopping the server")
 	close(stopChan)
 	wg.Wait()
 }

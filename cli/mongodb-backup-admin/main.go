@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"time"
 
@@ -71,6 +72,8 @@ func main() {
 		grpcOpts = append(grpcOpts, grpc.WithInsecure())
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	conn, err = grpc.Dial(*opts.serverAddr, grpcOpts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
@@ -82,16 +85,24 @@ func main() {
 		log.Fatalf("Cannot connect to the API: %s", err)
 	}
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	go func() {
+		<-c
+		cancel()
+	}()
+
 	switch cmd {
 	case "list-agents":
-		clients, err := connectedAgents(conn)
+		clients, err := connectedAgents(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of connected agents: %s", err)
 			break
 		}
 		printConnectedAgents(clients)
 	case "list-backups":
-		md, err := getAvailableBackups(conn)
+		md, err := getAvailableBackups(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of available backups: %s", err)
 			break
@@ -102,25 +113,28 @@ func main() {
 		}
 		fmt.Println("No backups found")
 	case "backup":
-		err := startBackup(apiClient, opts)
+		err := startBackup(ctx, apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
 	case "restore":
 		fmt.Println("restoring")
-		err := restoreBackup(apiClient, opts)
+		err := restoreBackup(ctx, apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the RestoreBackup command to the gRPC server: %s", err)
 		}
+	default:
+		log.Fatalf("Unknown command %q", cmd)
 	}
 
+	cancel()
 }
 
-func connectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
+func connectedAgents(ctx context.Context, conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 	apiClient := pbapi.NewApiClient(conn)
-	stream, err := apiClient.GetClients(context.Background(), &pbapi.Empty{})
+	stream, err := apiClient.GetClients(ctx, &pbapi.Empty{})
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +153,9 @@ func connectedAgents(conn *grpc.ClientConn) ([]*pbapi.Client, error) {
 	return clients, nil
 }
 
-func getAvailableBackups(conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, error) {
+func getAvailableBackups(ctx context.Context, conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, error) {
 	apiClient := pbapi.NewApiClient(conn)
-	stream, err := apiClient.BackupsMetadata(context.Background(), &pbapi.Empty{})
+	stream, err := apiClient.BackupsMetadata(ctx, &pbapi.Empty{})
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +189,7 @@ func listAvailableBackups() (backups []string) {
 		defer conn.Close()
 	}
 
-	mds, err := getAvailableBackups(conn)
+	mds, err := getAvailableBackups(context.TODO(), conn)
 	if err != nil {
 		return
 	}
@@ -210,7 +224,7 @@ func printConnectedAgents(clients []*pbapi.Client) {
 	}
 }
 
-func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
+func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunBackupParams{
 		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_NO_CYPHER,
@@ -239,7 +253,7 @@ func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
 	switch *opts.encryptionAlgorithm {
 	}
 
-	_, err := apiClient.RunBackup(context.Background(), msg)
+	_, err := apiClient.RunBackup(ctx, msg)
 	if err != nil {
 		return err
 	}
@@ -247,13 +261,13 @@ func startBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
 	return nil
 }
 
-func restoreBackup(apiClient pbapi.ApiClient, opts *cliOptions) error {
+func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunRestoreParams{
 		MetadataFile:      *opts.restoreMetadataFile,
 		SkipUsersAndRoles: *opts.restoreSkipUsersAndRoles,
 	}
 
-	_, err := apiClient.RunRestore(context.Background(), msg)
+	_, err := apiClient.RunRestore(ctx, msg)
 	if err != nil {
 		return err
 	}
@@ -265,7 +279,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
 	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
 	listBackupsCmd := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
-	backupCmd := app.Command("start-backup", "Start a backup")
+	backupCmd := app.Command("backup", "Start a backup")
 	restoreCmd := app.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
