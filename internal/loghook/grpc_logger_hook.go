@@ -24,20 +24,16 @@ func NewGrpcLogging(clientID string, clientLogChan pb.Messages_LoggingClient) *G
 }
 
 func (hook *GrpcLogging) Fire(entry *logrus.Entry) error {
-	line, err := entry.String()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to read entry, %v", err)
-		return err
-	}
-
 	msg := &pb.LogEntry{
 		ClientID: hook.clientID,
 		Level:    uint32(entry.Level),
 		Ts:       time.Now().UTC().Unix(),
-		Message:  line,
+		Message:  entry.Message,
 	}
 
-	hook.stream.Send(msg)
+	if err := hook.stream.Send(msg); err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to send log to stream: %v", err)
+	}
 
 	return nil
 }
@@ -45,7 +41,7 @@ func (hook *GrpcLogging) Fire(entry *logrus.Entry) error {
 func (hook *GrpcLogging) Levels() []logrus.Level {
 	levels := []logrus.Level{}
 
-	for i := uint32(hook.level); i < uint32(logrus.PanicLevel); i++ {
+	for i := uint32(hook.level); i < uint32(logrus.DebugLevel); i++ {
 		levels = append(levels, logrus.Level(i))
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
+	"github.com/percona/mongodb-backup/internal/loghook"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
 	pb "github.com/percona/mongodb-backup/proto/messages"
@@ -202,16 +203,16 @@ func (c *Client) connect() {
 		c.running = true
 		c.lock.Unlock()
 
-		// // Hook the gRPC logging stream into logrus.
-		// // By doing this, all regular logrus calls will also send the log entries to the gRPC server
-		// logStream, err := c.grpcClient.Logging(c.ctx)
-		// if err != nil {
-		// 	log.Errorf("Cannot start gRPC logging stream: %s", err)
-		// 	return
-		// }
-		// c.logStream = logStream
-		// logrusHook := loghook.NewGrpcLogging(c.id, logStream)
-		// c.logger.AddHook(logrusHook)
+		// Hook the gRPC logging stream into logrus.
+		// By doing this, all regular logrus calls will also send the log entries to the gRPC server
+		logStream, err := c.grpcClient.Logging(c.ctx)
+		if err != nil {
+			log.Errorf("Cannot start gRPC logging stream: %s", err)
+			return
+		}
+		c.logStream = logStream
+		logrusHook := loghook.NewGrpcLogging(c.id, c.logStream)
+		c.logger.AddHook(logrusHook)
 		return // remember we are in a reconnect for loop and we need to exit it
 	}
 }
@@ -285,8 +286,7 @@ func (c *Client) processIncommingServerMessages() {
 
 		//var response *pb.ClientMessage
 
-		c.logger.Debugf("Client %s -> incoming message: %+v", c.nodeName, msg)
-		c.logger.Infof("Client %s -> incoming message: %+v", c.nodeName, msg)
+		c.logger.Debugf("Incoming message: %+v", msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
 			c.processStatus()
@@ -427,8 +427,7 @@ func (c *Client) sendRestoreComplete(err error) error {
 }
 
 func (c *Client) processStartBackup(msg *pb.StartBackup) {
-	c.logger.Infof("%s: Received StartBackup command", c.nodeName)
-	c.logger.Debugf("%s: Received start backup command: %+v", c.nodeName, *msg)
+	c.logger.Info("Received StartBackup command")
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -473,7 +472,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 	if err := balancer.Start(); err != nil {
 		return nil, err
 	}
-	c.logger.Debugf("Balancer has been started by %s", c.nodeName)
+	c.logger.Debugf("Balancer has been started by me")
 
 	out := &pb.ClientMessage{
 		ClientID: c.id,

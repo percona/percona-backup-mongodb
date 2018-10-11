@@ -36,6 +36,7 @@ type MessagesServer struct {
 	err                   error
 	//
 	workDir               string
+	clientLoggingEnabled  bool
 	lastBackupMetadata    *BackupMetadata
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
@@ -46,6 +47,19 @@ type MessagesServer struct {
 }
 
 func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, logger)
+	go messagesServer.handleClientDisconnection()
+	return messagesServer
+}
+
+func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, logger)
+	messagesServer.clientLoggingEnabled = true
+	go messagesServer.handleClientDisconnection()
+	return messagesServer
+}
+
+func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -72,8 +86,6 @@ func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		workDir:               workDir,
 		logger:                logger,
 	}
-
-	go messagesServer.handleClientDisconnection()
 
 	return messagesServer
 }
@@ -465,19 +477,20 @@ func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
 			return err
 		}
 		level := logrus.Level(msg.GetLevel())
+		logLine := fmt.Sprintf("-> Client: %s, %+v", msg.GetClientID(), strings.TrimSpace(msg.GetMessage()))
 		switch level {
 		case logrus.PanicLevel:
-			s.logger.Panicf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Panicf(logLine)
 		case logrus.FatalLevel:
-			s.logger.Fatalf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Fatalf(logLine)
 		case logrus.ErrorLevel:
-			s.logger.Errorf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Errorf(logLine)
 		case logrus.WarnLevel:
-			s.logger.Warnf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Warnf(logLine)
 		case logrus.InfoLevel:
-			s.logger.Infof("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Infof(logLine)
 		case logrus.DebugLevel:
-			s.logger.Debugf("Client: %s, Ts: %v, Message: %+v", msg.GetClientID(), time.Unix(msg.GetTs(), 0), msg.GetMessage())
+			s.logger.Debugf(logLine)
 		}
 	}
 	return nil
