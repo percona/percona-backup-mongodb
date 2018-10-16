@@ -8,53 +8,49 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
+	"github.com/kr/pretty"
 	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	yaml "gopkg.in/yaml.v2"
 )
 
-type cliOptios struct {
-	app           *kingpin.Application
-	dsn           *string
-	pidFile       *string
-	serverAddress *string
-	backupDir     *string
-	tls           *bool
-	caFile        *string
-	debug         *bool
-	quiet         *bool
+type cliOptions struct {
+	app                  *kingpin.Application
+	configFile           string
+	generateSampleConfig bool
+
+	BackupDir     string `yaml:"backup_dir"`
+	CAFile        string `yaml:"ca_file"`
+	CertFile      string `yaml:"cert_file"`
+	DSN           string `yaml:"dsn"`
+	Debug         bool   `yaml:"debug"`
+	KeyFile       string `yaml:"key_file"`
+	PIDFile       string `yaml:"pid_file"`
+	Quiet         bool   `yaml:"quiet"`
+	ServerAddress string `yaml:"server_address"`
+	TLS           bool   `yaml:"tls"`
 
 	// MongoDB connection options
-	mongodbConnOptions struct {
-		Host                string
-		Port                string
-		User                string
-		Password            string
-		ReplicasetName      string
-		Timeout             int
-		TCPKeepAliveSeconds int
-	}
+	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options"`
 
 	// MongoDB connection SSL options
-	mongodbSslOptions struct {
-		UseSSL              bool
-		SSLCAFile           string
-		SSLPEMKeyFile       string
-		SSLPEMKeyPassword   string
-		SSLCRLFile          string
-		SSLAllowInvalidCert bool
-		SSLAllowInvalidHost bool
-		SSLFipsMode         bool
-	}
+	MongodbSslOptions client.SSLOptions `yaml:"mongodb_ssl_options"`
 }
+
+const (
+	sampleConfigFile = "config.sample.yml"
+)
 
 func main() {
 	log := logrus.New()
@@ -63,11 +59,21 @@ func main() {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
 
+	pretty.Println(opts)
+
+	if opts.generateSampleConfig {
+		if err := writeSampleConfig(sampleConfigFile, opts); err != nil {
+			log.Fatalf("Cannot write sample config file %s: %s", sampleConfigFile, err)
+		}
+		log.Printf("Sample config was written to %s\n", sampleConfigFile)
+		return
+	}
+
 	log.SetLevel(logrus.InfoLevel)
-	if *opts.quiet {
+	if opts.Quiet {
 		log.SetLevel(logrus.ErrorLevel)
 	}
-	if *opts.debug {
+	if opts.Debug {
 		log.SetLevel(logrus.DebugLevel)
 	}
 	log.SetLevel(logrus.DebugLevel)
@@ -77,29 +83,29 @@ func main() {
 	log.Infof("Using Client ID: %s", clientID)
 
 	// Connect to the mongodb-backup gRPC server
-	conn, err := grpc.Dial(*opts.serverAddress, grpcOpts...)
+	conn, err := grpc.Dial(opts.ServerAddress, grpcOpts...)
 	if err != nil {
-		log.Fatalf("Fail to connect to the gRPC server at %q: %v", *opts.serverAddress, err)
+		log.Fatalf("Fail to connect to the gRPC server at %q: %v", opts.ServerAddress, err)
 	}
 	defer conn.Close()
-	log.Infof("Connected to the gRPC server at %s", *opts.serverAddress)
+	log.Infof("Connected to the gRPC server at %s", opts.ServerAddress)
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo
-	if *opts.dsn == "" {
+	if opts.DSN == "" {
 		di = &mgo.DialInfo{
-			Addrs:          []string{opts.mongodbConnOptions.Host + ":" + opts.mongodbConnOptions.Port},
-			Username:       opts.mongodbConnOptions.User,
-			Password:       opts.mongodbConnOptions.Password,
-			ReplicaSetName: opts.mongodbConnOptions.ReplicasetName,
+			Addrs:          []string{opts.MongodbConnOptions.Host + ":" + opts.MongodbConnOptions.Port},
+			Username:       opts.MongodbConnOptions.User,
+			Password:       opts.MongodbConnOptions.Password,
+			ReplicaSetName: opts.MongodbConnOptions.ReplicasetName,
 			FailFast:       true,
 			Source:         "admin",
 		}
 	} else {
-		di, err = mgo.ParseURL(*opts.dsn)
+		di, err = mgo.ParseURL(opts.DSN)
 		di.FailFast = true
 		if err != nil {
-			log.Fatalf("Cannot parse MongoDB DSN %q, %s", *opts.dsn, err)
+			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.DSN, err)
 		}
 	}
 
@@ -110,7 +116,7 @@ func main() {
 	defer mdbSession.Close()
 	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
 
-	client, err := client.NewClient(context.Background(), *opts.backupDir, opts.mongodbConnOptions, opts.mongodbSslOptions, conn, log)
+	client, err := client.NewClient(context.Background(), opts.BackupDir, opts.MongodbConnOptions, opts.MongodbSslOptions, conn, log)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,70 +128,181 @@ func main() {
 	client.Stop()
 }
 
-func processCliArgs() (*cliOptios, error) {
+func processCliArgs() (*cliOptions, error) {
 	app := kingpin.New("mongodb-backup-client", "MongoDB backup client")
-	opts := &cliOptios{
-		app:           app,
-		dsn:           app.Flag("dsn", "MongoDB connection string").String(),
-		serverAddress: app.Flag("server-address", "MongoDB backup server address").Default("127.0.0.1:10000").String(),
-		backupDir:     app.Flag("backup-dir", "Directory where to store the backups").Default("/tmp").String(),
-		tls:           app.Flag("tls", "Use TLS").Bool(),
-		pidFile:       app.Flag("pid-file", "pid file").String(),
-		caFile:        app.Flag("ca-file", "CA file").String(),
-		debug:         app.Flag("debug", "Enable debug log level").Bool(),
-		quiet:         app.Flag("quiet", "Quiet mode. Log only errors").Bool(),
+	opts := &cliOptions{
+		app: app,
 	}
+	app.Flag("config-file", "Config file name").Default("config.yml").StringVar(&opts.configFile)
+	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
+	//
+	app.Flag("dsn", "MongoDB connection string").StringVar(&opts.DSN)
+	app.Flag("server-address", "Backup server address").Default("127.0.0.1:10000").StringVar(&opts.ServerAddress)
+	app.Flag("backup-dir", "Directory where to store the backups").Default("/tmp").StringVar(&opts.BackupDir)
+	app.Flag("tls", "Use TLS").BoolVar(&opts.TLS)
+	app.Flag("pid-file", "pid file").StringVar(&opts.PIDFile)
+	app.Flag("ca-file", "CA file").StringVar(&opts.CAFile)
+	app.Flag("cert-file", "Cert file").StringVar(&opts.CertFile)
+	app.Flag("key-file", "Key file").StringVar(&opts.KeyFile)
+	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
+	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
 
-	//TODO: Remove defaults. These values are only here to test during development
-	// These params should be Required()
-	app.Flag("mongodb-host", "MongoDB host").Default("127.0.0.1").StringVar(&opts.mongodbConnOptions.Host)
-	app.Flag("mongodb-port", "MongoDB port").Default(os.Getenv("TEST_MONGODB_S1_PRIMARY_PORT")).StringVar(&opts.mongodbConnOptions.Port)
-	app.Flag("mongodb-user", "MongoDB username").Default(os.Getenv("TEST_MONGODB_USERNAME")).StringVar(&opts.mongodbConnOptions.User)
-	app.Flag("mongodb-password", "MongoDB password").Default(os.Getenv("TEST_MONGODB_PASSWORD")).StringVar(&opts.mongodbConnOptions.Password)
-	app.Flag("replicaset", "Replicaset name").Default(os.Getenv("TEST_MONGODB_S1_RS")).StringVar(&opts.mongodbConnOptions.ReplicasetName)
+	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.MongodbConnOptions.Host)
+	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.MongodbConnOptions.Port)
+	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
+	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
+	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
 
 	_, err := app.Parse(os.Args[1:])
 	if err != nil {
 		return nil, err
 	}
 
-	if *opts.pidFile != "" {
-		if err := writePidFile(*opts.pidFile); err != nil {
-			return nil, errors.Wrapf(err, "cannot write pid file %q", *opts.pidFile)
+	//TODO: Remove defaults. These values are only here to test during development
+	// These params should be Required()
+	yamlOpts := &cliOptions{
+		MongodbConnOptions: client.ConnectionOptions{
+			Host:           "127.0.0.1",
+			Port:           os.Getenv("TEST_MONGODB_S1_PRIMARY_PORT"),
+			User:           os.Getenv("TEST_MONGODB_USERNAME"),
+			Password:       os.Getenv("TEST_MONGODB_PASSWORD"),
+			ReplicasetName: os.Getenv("TEST_MONGODB_S1_RS"),
+		},
+	}
+
+	if opts.configFile != "" {
+		loadOptionsFromFile(opts.configFile, yamlOpts)
+	}
+
+	mergeOptions(opts, yamlOpts)
+	validateOptions(yamlOpts)
+	return yamlOpts, nil
+}
+
+func loadOptionsFromFile(filename string, opts *cliOptions) error {
+	buf, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return errors.Wrap(err, "cannot load configuration from file")
+	}
+	if err = yaml.Unmarshal(buf, opts); err != nil {
+		return errors.Wrapf(err, "cannot unmarshal yaml file %s", filename)
+	}
+	return nil
+}
+
+func validateOptions(opts *cliOptions) error {
+	if opts.PIDFile != "" {
+		if err := writePidFile(opts.PIDFile); err != nil {
+			return errors.Wrapf(err, "cannot write pid file %q", opts.PIDFile)
 		}
 	}
 
-	if *opts.dsn != "" {
-		di, err := mgo.ParseURL(*opts.dsn)
+	if opts.DSN != "" {
+		di, err := mgo.ParseURL(opts.DSN)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		parts := strings.Split(di.Addrs[0], ":")
 		if len(parts) < 2 {
-			return nil, fmt.Errorf("invalid host:port: %s", di.Addrs[0])
+			return fmt.Errorf("invalid host:port: %s", di.Addrs[0])
 		}
-		opts.mongodbConnOptions.Host = parts[0]
-		opts.mongodbConnOptions.Port = parts[1]
-		opts.mongodbConnOptions.User = di.Username
-		opts.mongodbConnOptions.Password = di.Password
-		opts.mongodbConnOptions.ReplicasetName = di.ReplicaSetName
+		opts.MongodbConnOptions.Host = parts[0]
+		opts.MongodbConnOptions.Port = parts[1]
+		opts.MongodbConnOptions.User = di.Username
+		opts.MongodbConnOptions.Password = di.Password
+		opts.MongodbConnOptions.ReplicasetName = di.ReplicaSetName
 	}
 
-	fi, err := os.Stat(*opts.backupDir)
+	fi, err := os.Stat(opts.BackupDir)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid backup destination dir")
+		return errors.Wrap(err, "invalid backup destination dir")
 	}
 	if !fi.IsDir() {
-		return nil, fmt.Errorf("%q is not a directory", *opts.backupDir)
+		return fmt.Errorf("%q is not a directory", opts.BackupDir)
 	}
 
-	return opts, nil
+	return nil
 }
 
-func getgRPCOptions(opts *cliOptios) []grpc.DialOption {
+// This function takes yamlOpts as the default values and then, if the user has specified different
+// values for some options, they will be overwitten.
+func mergeOptions(opts, yamlOpts *cliOptions) {
+	if opts.TLS != false {
+		yamlOpts.TLS = opts.TLS
+	}
+	if opts.BackupDir != "" {
+		yamlOpts.BackupDir = opts.BackupDir
+	}
+	if opts.CAFile != "" {
+		yamlOpts.CAFile = opts.CAFile
+	}
+	if opts.CertFile != "" {
+		yamlOpts.CertFile = opts.CertFile
+	}
+	if opts.KeyFile != "" {
+		yamlOpts.KeyFile = opts.KeyFile
+	}
+	if opts.Debug != false {
+		yamlOpts.Debug = opts.Debug
+	}
+	if opts.generateSampleConfig != false {
+		yamlOpts.generateSampleConfig = opts.generateSampleConfig
+	}
+	if opts.DSN != "" {
+		yamlOpts.DSN = opts.DSN
+	}
+	app.Flag("server-address", "MongoDB backup server address").Default("127.0.0.1:10000").StringVar(&opts.ServerAddress)
+	app.Flag("backup-dir", "Directory where to store the backups").Default("/tmp").StringVar(&opts.BackupDir)
+	app.Flag("tls", "Use TLS").BoolVar(&opts.TLS)
+	app.Flag("pid-file", "pid file").StringVar(&opts.PIDFile)
+	app.Flag("ca-file", "CA file").StringVar(&opts.CAFile)
+	app.Flag("cert-file", "Cert file").StringVar(&opts.CertFile)
+	app.Flag("key-file", "Key file").StringVar(&opts.KeyFile)
+	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
+	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
+
+	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.MongodbConnOptions.Host)
+	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.MongodbConnOptions.Port)
+	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
+	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
+	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
+}
+
+func expandDirs(opts *cliOptions) {
+	opts.BackupDir = expandHomeDir(opts.BackupDir)
+	opts.CAFile = expandHomeDir(opts.CAFile)
+	opts.CertFile = expandHomeDir(opts.CertFile)
+	opts.KeyFile = expandHomeDir(opts.KeyFile)
+	opts.PIDFile = expandHomeDir(opts.PIDFile)
+}
+
+func expandHomeDir(path string) string {
+	usr, _ := user.Current()
+	dir := usr.HomeDir
+	if path == "~" {
+		return dir
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(dir, path[2:])
+	}
+	return path
+}
+
+func writeSampleConfig(filename string, opts *cliOptions) error {
+	buf, err := yaml.Marshal(opts)
+	if err != nil {
+		return err
+	}
+	if err = ioutil.WriteFile(filename, buf, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "cannot write sample config to %s", filename)
+	}
+	return nil
+}
+
+func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 	var grpcOpts []grpc.DialOption
-	if *opts.tls {
-		creds, err := credentials.NewClientTLSFromFile(*opts.caFile, "")
+	if opts.TLS {
+		creds, err := credentials.NewClientTLSFromFile(opts.CAFile, "")
 		if err != nil {
 			log.Fatalf("Failed to create TLS credentials %v", err)
 		}
