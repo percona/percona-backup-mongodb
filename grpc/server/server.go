@@ -340,7 +340,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
 		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
-		s.lastBackupMetadata.AddReplicaset(client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
+		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 
 		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),

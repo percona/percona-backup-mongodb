@@ -34,7 +34,7 @@ func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 }
 
 // AddReplicaset adds backup info for a replicaset using the replicaset name as the key
-func (b *BackupMetadata) AddReplicaset(replName, replUUID, dbBackupName, oplogBackupName string) error {
+func (b *BackupMetadata) AddReplicaset(clusterID, replName, replUUID, dbBackupName, oplogBackupName string) error {
 	b.lock.Lock()
 
 	if _, ok := b.metadata.Replicasets[replName]; ok {
@@ -45,6 +45,7 @@ func (b *BackupMetadata) AddReplicaset(replName, replUUID, dbBackupName, oplogBa
 	// new and shiny environment created to restore a backup, the UUID will be different.
 	// On restore, we will try to restore each replicaset by name to the matching cluster.
 	b.metadata.Replicasets[replName] = &pb.ReplicasetMetadata{
+		ClusterID:       clusterID,
 		ReplicasetUUID:  replUUID,
 		ReplicasetName:  replName,
 		DBBackupName:    dbBackupName,

@@ -88,10 +88,11 @@ message StartBalancer {}
 message StopBalancer {}
 
 message ReplicasetMetadata {
-  string ReplicasetUUID  = 1;
-  string ReplicasetName  = 2;
-  string DBBackupName    = 3;
-  string OplogBackupName = 4;
+  string ClusterID       = 1;
+  string ReplicasetUUID  = 2;
+  string ReplicasetName  = 3;
+  string DBBackupName    = 4;
+  string OplogBackupName = 5;
 }
 
 message BackupMetadata {

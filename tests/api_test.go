@@ -123,6 +123,15 @@ func TestApiWithDaemon(t *testing.T) {
 		t.Errorf("Invalid replicasets count in metadata. Want 3, got %d", len(md.Metadata().Replicasets))
 	}
 
+	mrs1, ok := md.Metadata().Replicasets["rs1"]
+	if !ok {
+		t.Errorf("Missing rs1 in backup metadata")
+	} else {
+		if mrs1.GetClusterID() == "" {
+			t.Errorf("Missing cluster ID for replicaset 1")
+		}
+	}
+
 	stream := newMockBackupsMetadataStream()
 
 	err = d.ApiServer.BackupsMetadata(&pbapi.Empty{}, stream)
