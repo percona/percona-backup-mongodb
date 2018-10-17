@@ -90,6 +90,25 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	return messagesServer
 }
 
+func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	sources := make(map[string]string)
+	for _, client := range s.clients {
+		if _, ok := sources[client.ReplicasetName]; !ok {
+			if client.NodeType == pb.NodeType_MONGOS {
+				continue
+			}
+			backupSource, err := client.GetBackupSource()
+			if err != nil {
+				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
+			}
+			sources[client.ReplicasetName] = backupSource
+		}
+	}
+	return sources, nil
+}
+
 func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -109,7 +128,7 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			}
 			bestClient := s.getClientByNodeName(backupSource)
 			if bestClient == nil {
-				bestClient = client
+				return nil, fmt.Errorf("Cannot get the client connected to MongoDB %s", backupSource)
 			}
 			sources[client.ReplicasetName] = bestClient
 		}
@@ -476,22 +495,26 @@ func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
 		if err != nil {
 			return err
 		}
-		level := logrus.Level(msg.GetLevel())
-		logLine := fmt.Sprintf("-> Client: %s, %+v", msg.GetClientID(), strings.TrimSpace(msg.GetMessage()))
-		switch level {
-		case logrus.PanicLevel:
-			s.logger.Panicf(logLine)
-		case logrus.FatalLevel:
-			s.logger.Fatalf(logLine)
-		case logrus.ErrorLevel:
-			s.logger.Errorf(logLine)
-		case logrus.WarnLevel:
-			s.logger.Warnf(logLine)
-		case logrus.InfoLevel:
-			s.logger.Infof(logLine)
-		case logrus.DebugLevel:
-			s.logger.Debugf(logLine)
-		}
+		_ = fmt.Sprintf("-> Client: %s, %s \n\n", msg.GetClientID(), msg.GetMessage())
+
+		//level := logrus.Level(msg.GetLevel())
+		//msgText := strings.TrimSpace(msg.GetMessage())
+
+		//logLine := fmt.Sprintf("-> Client: %s, %s", msg.GetClientID(), msgText)
+		//switch level {
+		//case logrus.PanicLevel:
+		//	s.logger.Panic(logLine)
+		//case logrus.FatalLevel:
+		//	s.logger.Fatal(logLine)
+		//case logrus.ErrorLevel:
+		//	s.logger.Error(logLine)
+		//case logrus.WarnLevel:
+		//	s.logger.Warn(logLine)
+		//case logrus.InfoLevel:
+		//	s.logger.Info(logLine)
+		//case logrus.DebugLevel:
+		//	s.logger.Debug(logLine)
+		//}
 	}
 	return nil
 }

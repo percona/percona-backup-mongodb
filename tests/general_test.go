@@ -48,6 +48,8 @@ type cliOptions struct {
 
 func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
+	log.SetFormatter(&log.TextFormatter{})
+
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
 	}
@@ -64,8 +66,8 @@ func TestMain(m *testing.M) {
 
 func TestGlobalWithDaemon(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
-	//defer os.RemoveAll(tmpDir) // Clean up after testing.
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -296,6 +298,47 @@ func TestClientDisconnect(t *testing.T) {
 	if clientsCount2 >= clientsCount1 {
 		t.Errorf("Invalid clients count. Want < %d, got %d", clientsCount1, clientsCount2)
 	}
+	d.Stop()
+}
+
+func TestBackupSourceByReplicaset(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "pmb_")
+	if err != nil {
+		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	bs, err := d.MessagesServer.BackupSourceByReplicaset()
+	if err != nil {
+		t.Errorf("Cannot get the BackupSourceByReplicaset: %s", err)
+	}
+
+	// Lets's stop the "winner" client for rs1. That way, next call to BackupSourceByReplicaset should fail
+	// since there won't be an agent running on that MongoDB instance
+	time.Sleep(2 * time.Second)
+	for _, client := range d.Clients() {
+		if client.NodeName() == bs["rs1"].NodeName {
+			client.Stop()
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+
+	bs2, err := d.MessagesServer.BackupSourceByReplicaset()
+	if err == nil {
+		t.Errorf("BackupSourceByReplicaset should fail since we manually killed the 'winner' agent")
+	}
+	if bs2 != nil {
+		t.Errorf("BackupSourceByReplicaset should fail since we manually killed the 'winner' agent (want nil response)")
+	}
+
+	time.Sleep(2 * time.Second)
 	d.Stop()
 }
 
