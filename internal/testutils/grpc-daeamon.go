@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -43,7 +44,15 @@ type GrpcDaemon struct {
 
 func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *logrus.Logger) (*GrpcDaemon, error) {
 	if logger == nil {
-		logger = logrus.New()
+		logger = &logrus.Logger{
+			Out: os.Stderr,
+			Formatter: &logrus.TextFormatter{
+				FullTimestamp:          true,
+				DisableLevelTruncation: true,
+			},
+			Hooks: make(logrus.LevelHooks),
+			Level: logrus.DebugLevel,
+		}
 		logger.SetLevel(logrus.StandardLogger().Level)
 		logger.Out = logrus.StandardLogger().Out
 	}
