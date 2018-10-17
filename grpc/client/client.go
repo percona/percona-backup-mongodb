@@ -109,6 +109,14 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 		return nil, errors.Wrap(err, "Cannot get node type")
 	}
 
+	bi, err := mdbSession.BuildInfo()
+	if err != nil {
+		return nil, errors.Wrapf(err, "Cannot get build info")
+	}
+	if !bi.VersionAtLeast(3, 4) {
+		return nil, fmt.Errorf("You need at least MongoDB version 3.4 to run this tool")
+	}
+
 	var replicasetName, replicasetID string
 
 	if nodeType != pb.NodeType_MONGOS {
