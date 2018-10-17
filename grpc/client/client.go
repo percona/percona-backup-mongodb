@@ -56,25 +56,25 @@ type Client struct {
 }
 
 type ConnectionOptions struct {
-	Host                string
-	Port                string
-	User                string
-	Password            string
-	ReplicasetName      string
-	Timeout             int
-	TCPKeepAliveSeconds int
+	Host                string `yaml:"host"`
+	Port                string `yaml:"port"`
+	User                string `yaml:"user"`
+	Password            string `yaml:"password"`
+	ReplicasetName      string `yaml:"replicaset_name"`
+	Timeout             int    `yaml:"timeout"`
+	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds"`
 }
 
 // Struct holding ssl-related options
 type SSLOptions struct {
-	UseSSL              bool
-	SSLCAFile           string
-	SSLPEMKeyFile       string
-	SSLPEMKeyPassword   string
-	SSLCRLFile          string
-	SSLAllowInvalidCert bool
-	SSLAllowInvalidHost bool
-	SSLFipsMode         bool
+	UseSSL              bool   `yaml:"use_ssl"`
+	SSLCAFile           string `yaml:"sslca_file"`
+	SSLPEMKeyFile       string `yaml:"sslpem_key_file"`
+	SSLPEMKeyPassword   string `yaml:"sslpem_key_password"`
+	SSLCRLFile          string `yaml:"sslcrl_file"`
+	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert"`
+	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host"`
+	SSLFipsMode         bool   `yaml:"ssl_fips_mode"`
 }
 
 var (

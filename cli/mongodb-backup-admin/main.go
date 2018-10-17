@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"sort"
@@ -17,13 +18,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
+	yaml "gopkg.in/yaml.v2"
 )
 
 type cliOptions struct {
-	app        *kingpin.Application
-	tls        *bool
-	caFile     *string
-	serverAddr *string
+	app *kingpin.Application
+
+	TLS        bool   `yaml:"tls"`
+	CAFile     string `yaml:"ca_file"`
+	ServerAddr string `yaml:"server_addr"`
+	configFile *string
 
 	listClients *kingpin.CmdClause
 
@@ -42,11 +46,9 @@ type cliOptions struct {
 }
 
 var (
-	conn *grpc.ClientConn
-)
-
-const (
+	conn              *grpc.ClientConn
 	defaultServerAddr = "127.0.0.1:10001"
+	defaultConfigFile = "~/.pmb-admin.yml"
 )
 
 func main() {
@@ -59,11 +61,11 @@ func main() {
 	}
 
 	var grpcOpts []grpc.DialOption
-	if *opts.tls {
-		if *opts.caFile == "" {
-			*opts.caFile = testdata.Path("ca.pem")
+	if opts.TLS {
+		if opts.CAFile == "" {
+			opts.CAFile = testdata.Path("ca.pem")
 		}
-		creds, err := credentials.NewClientTLSFromFile(*opts.caFile, "")
+		creds, err := credentials.NewClientTLSFromFile(opts.CAFile, "")
 		if err != nil {
 			log.Fatalf("Failed to create TLS credentials %v", err)
 		}
@@ -74,7 +76,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	conn, err = grpc.Dial(*opts.serverAddr, grpcOpts...)
+	conn, err = grpc.Dial(opts.ServerAddr, grpcOpts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -250,7 +252,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		msg.CompressionType = pbapi.CompressionType_GZIP
 	}
 
-	switch *opts.encryptionAlgorithm {
+	switch opts.encryptionAlgorithm {
 	}
 
 	_, err := apiClient.RunBackup(ctx, msg)
@@ -283,9 +285,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	restoreCmd := app.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
-		tls:        app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").Bool(),
-		caFile:     app.Flag("ca-file", "The file containning the CA root cert file").String(),
-		serverAddr: app.Flag("server-addr", "The server address in the format of host:port").Default(defaultServerAddr).String(),
+		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).String(),
 
 		listClients: listClientsCmd,
 
@@ -304,6 +304,17 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
 	}
 
+	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
+	app.Flag("ca-file", "The file containning the CA root cert file").StringVar(&opts.CAFile)
+	app.Flag("server-addr", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+
+	yamlOpts := &cliOptions{
+		ServerAddr: defaultServerAddr,
+	}
+	if *opts.configFile != "" {
+		err := loadOptionsFromFile(defaultConfigFile, yamlOpts)
+	}
+
 	cmd, err := app.Parse(args)
 	if err != nil {
 		return "", nil, err
@@ -314,4 +325,24 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	return cmd, opts, nil
+}
+
+func loadOptionsFromFile(filename string, opts *cliOptions) error {
+	buf, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return errors.Wrap(err, "cannot load configuration from file")
+	}
+	if err = yaml.Unmarshal(buf, opts); err != nil {
+		return errors.Wrapf(err, "cannot unmarshal yaml file %s", filename)
+	}
+	return nil
+}
+
+func mergeOptions(opts, yamlOpts *cliOptions) {
+	if opts.CAFile == "" {
+		opts.CAFile = yamlOpts.CAFile
+	}
+	if opts.ServerAddr == "" {
+		opts.ServerAddr = yamlOpts.ServerAddr
+	}
 }
