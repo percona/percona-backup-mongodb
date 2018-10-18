@@ -312,7 +312,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		ServerAddr: defaultServerAddr,
 	}
 	if *opts.configFile != "" {
-		err := loadOptionsFromFile(defaultConfigFile, yamlOpts)
+		loadOptionsFromFile(defaultConfigFile, yamlOpts)
 	}
 
 	cmd, err := app.Parse(args)
