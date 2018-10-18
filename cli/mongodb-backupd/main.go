@@ -15,6 +15,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/percona/mongodb-backup/grpc/api"
 	"github.com/percona/mongodb-backup/grpc/server"
+	"github.com/percona/mongodb-backup/internal/logger"
 	apipb "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
@@ -35,15 +36,13 @@ type cliOptions struct {
 	CertFile             string `yaml:"cert_file"`
 	KeyFile              string `yaml:"key_file"`
 	GrpcPort             int    `yaml:"grpc_port"`
-	ApiPort              int    `yaml:"api_port"`
+	APIPort              int    `yaml:"api_port"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
+	LogFile              string `yaml:"log_file"`
+	UseSysLog            bool   `yaml:"sys_log_url"`
 	Debug                bool   `yaml:"debug"`
 	EnableClientsLogging bool   `yaml:"enable_clients_logging"`
 }
-
-var (
-	log = logrus.New()
-)
 
 const (
 	defaultGrpcPort        = 10000
@@ -53,11 +52,22 @@ const (
 	defaultDebugMode       = true
 )
 
+var (
+	log = logrus.New()
+)
+
 func main() {
 	opts, err := processCliParams()
 	if err != nil {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
+
+	if opts.UseSysLog {
+		log = logger.NewSyslogLogger()
+	} else {
+		log = logger.NewDefaultLogger(opts.LogFile)
+	}
+
 	if opts.Debug {
 		log.SetLevel(logrus.DebugLevel)
 	}
@@ -65,7 +75,7 @@ func main() {
 	log.Infof("Starting clients gRPC net listener on port: %d", opts.GrpcPort)
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", opts.GrpcPort))
 
-	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", opts.ApiPort))
+	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", opts.APIPort))
 
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -162,8 +172,10 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("cert-file", "Cert file for gRPC client connections").StringVar(&opts.CertFile)
 	app.Flag("key-file", "Key file for gRPC client connections").StringVar(&opts.KeyFile)
 	app.Flag("grpc-port", "Listening port for client connections").IntVar(&opts.GrpcPort)
-	app.Flag("api-port", "Listening por for API client connecions").IntVar(&opts.ApiPort)
+	app.Flag("api-port", "Listening por for API client connecions").IntVar(&opts.APIPort)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
+	app.Flag("log-file", "Write logs to file").StringVar(&opts.LogFile)
+	app.Flag("use-syslog", "Also send the logs to the local syslog server").BoolVar(&opts.UseSysLog)
 	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
 	app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 
@@ -174,13 +186,13 @@ func processCliParams() (*cliOptions, error) {
 
 	yamlOpts := &cliOptions{
 		GrpcPort:             defaultGrpcPort,
-		ApiPort:              defaultAPIPort,
+		APIPort:              defaultAPIPort,
 		ShutdownTimeout:      defaultShutdownTimeout,
 		Debug:                defaultDebugMode,
 		EnableClientsLogging: defaultClientsLogging,
 	}
 	if opts.configFile != "" {
-		err = loadOptionsFromFile(expandHomeDir(opts.configFile), yamlOpts)
+		loadOptionsFromFile(expandHomeDir(opts.configFile), yamlOpts)
 	}
 	mergeOptions(opts, yamlOpts)
 	expandDirs(yamlOpts)
@@ -216,14 +228,17 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	if opts.GrpcPort != 0 {
 		yamlOpts.GrpcPort = opts.GrpcPort
 	}
-	if opts.ApiPort != 0 {
-		yamlOpts.ApiPort = opts.ApiPort
+	if opts.APIPort != 0 {
+		yamlOpts.APIPort = opts.APIPort
 	}
 	if opts.ShutdownTimeout != 0 {
 		yamlOpts.ShutdownTimeout = opts.ShutdownTimeout
 	}
 	if opts.EnableClientsLogging != false {
 		yamlOpts.EnableClientsLogging = opts.EnableClientsLogging
+	}
+	if opts.UseSysLog == true {
+		yamlOpts.UseSysLog = true
 	}
 	if opts.Debug != false {
 		yamlOpts.Debug = opts.Debug

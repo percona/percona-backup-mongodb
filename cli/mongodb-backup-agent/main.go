@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -16,8 +15,8 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
-	"github.com/kr/pretty"
 	"github.com/percona/mongodb-backup/grpc/client"
+	"github.com/percona/mongodb-backup/internal/logger"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -36,10 +35,12 @@ type cliOptions struct {
 	DSN           string `yaml:"dsn"`
 	Debug         bool   `yaml:"debug"`
 	KeyFile       string `yaml:"key_file"`
+	LogFile       string `yaml:"log_file"`
 	PIDFile       string `yaml:"pid_file"`
 	Quiet         bool   `yaml:"quiet"`
 	ServerAddress string `yaml:"server_address"`
 	TLS           bool   `yaml:"tls"`
+	UseSysLog     bool   `yaml:"use_syslog"`
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options"`
@@ -52,14 +53,25 @@ const (
 	sampleConfigFile = "config.sample.yml"
 )
 
+var (
+	log = logrus.New()
+)
+
 func main() {
-	log := logrus.New()
 	opts, err := processCliArgs()
 	if err != nil {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
 
-	pretty.Println(opts)
+	if opts.UseSysLog {
+		log = logger.NewSyslogLogger()
+	} else {
+		log = logger.NewDefaultLogger(opts.LogFile)
+	}
+
+	if opts.Debug {
+		log.SetLevel(logrus.DebugLevel)
+	}
 
 	if opts.generateSampleConfig {
 		if err := writeSampleConfig(sampleConfigFile, opts); err != nil {
@@ -69,7 +81,6 @@ func main() {
 		return
 	}
 
-	log.SetLevel(logrus.InfoLevel)
 	if opts.Quiet {
 		log.SetLevel(logrus.ErrorLevel)
 	}
@@ -146,6 +157,8 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("key-file", "Key file").StringVar(&opts.KeyFile)
 	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
 	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
+	app.Flag("log-file", "Log file").StringVar(&opts.LogFile)
+	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 
 	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.MongodbConnOptions.Host)
 	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.MongodbConnOptions.Port)
@@ -160,15 +173,7 @@ func processCliArgs() (*cliOptions, error) {
 
 	//TODO: Remove defaults. These values are only here to test during development
 	// These params should be Required()
-	yamlOpts := &cliOptions{
-		MongodbConnOptions: client.ConnectionOptions{
-			Host:           "127.0.0.1",
-			Port:           os.Getenv("TEST_MONGODB_S1_PRIMARY_PORT"),
-			User:           os.Getenv("TEST_MONGODB_USERNAME"),
-			Password:       os.Getenv("TEST_MONGODB_PASSWORD"),
-			ReplicasetName: os.Getenv("TEST_MONGODB_S1_RS"),
-		},
-	}
+	yamlOpts := &cliOptions{}
 
 	if opts.configFile != "" {
 		loadOptionsFromFile(opts.configFile, yamlOpts)
@@ -176,7 +181,7 @@ func processCliArgs() (*cliOptions, error) {
 
 	mergeOptions(opts, yamlOpts)
 	validateOptions(yamlOpts)
-	return yamlOpts, nil
+	return opts, nil
 }
 
 func loadOptionsFromFile(filename string, opts *cliOptions) error {
@@ -251,21 +256,6 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	if opts.DSN != "" {
 		yamlOpts.DSN = opts.DSN
 	}
-	app.Flag("server-address", "MongoDB backup server address").Default("127.0.0.1:10000").StringVar(&opts.ServerAddress)
-	app.Flag("backup-dir", "Directory where to store the backups").Default("/tmp").StringVar(&opts.BackupDir)
-	app.Flag("tls", "Use TLS").BoolVar(&opts.TLS)
-	app.Flag("pid-file", "pid file").StringVar(&opts.PIDFile)
-	app.Flag("ca-file", "CA file").StringVar(&opts.CAFile)
-	app.Flag("cert-file", "Cert file").StringVar(&opts.CertFile)
-	app.Flag("key-file", "Key file").StringVar(&opts.KeyFile)
-	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
-	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
-
-	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.MongodbConnOptions.Host)
-	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.MongodbConnOptions.Port)
-	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
-	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
-	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
 }
 
 func expandDirs(opts *cliOptions) {
@@ -332,4 +322,20 @@ func writePidFile(pidFile string) error {
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
 	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+}
+
+func getDefaultLogger() *logrus.Logger {
+	logger := &logrus.Logger{
+		Out: os.Stderr,
+		Formatter: &logrus.TextFormatter{
+			FullTimestamp:          true,
+			DisableLevelTruncation: true,
+		},
+		Hooks: make(logrus.LevelHooks),
+		Level: logrus.InfoLevel,
+	}
+	logger.SetLevel(logrus.StandardLogger().Level)
+	logger.Out = logrus.StandardLogger().Out
+
+	return logger
 }
