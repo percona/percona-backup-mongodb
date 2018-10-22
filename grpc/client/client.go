@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,11 @@ type SSLOptions struct {
 	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert"`
 	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host"`
 	SSLFipsMode         bool   `yaml:"ssl_fips_mode"`
+}
+
+type shardsMap struct {
+	Map map[string]string `bson:"map"`
+	OK  int               `bson:"ok"`
 }
 
 var (
@@ -190,6 +196,10 @@ func (c *Client) NodeName() string {
 	return c.nodeName
 }
 
+func (c *Client) ReplicasetName() string {
+	return c.replicasetName
+}
+
 func (c *Client) isRunning() bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -209,9 +219,9 @@ func (c *Client) connect() {
 			continue
 		}
 		c.stream = stream
-		//c.lock.Lock()
-		//c.running = true
-		//c.lock.Unlock()
+		c.lock.Lock()
+		c.running = true
+		c.lock.Unlock()
 
 		return // remember we are in a reconnect for loop and we need to exit it
 	}
@@ -252,10 +262,6 @@ func (c *Client) register() error {
 }
 
 func (c *Client) Stop() error {
-	if !c.isRunning() {
-		return fmt.Errorf("Client is not running")
-	}
-
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.running = false
@@ -292,6 +298,8 @@ func (c *Client) processIncommingServerMessages() {
 			c.processStatus()
 		case *pb.ServerMessage_BackupSourceMsg:
 			c.processGetBackupSource()
+		case *pb.ServerMessage_ListReplicasets:
+			c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
 			c.processPing()
 		//
@@ -359,6 +367,52 @@ func (c *Client) processGetBackupSource() {
 	}
 	c.logger.Debugf("%s -> Sending GetBackupSource response to the RPC server: %+v (winner: %q)", c.nodeName, *msg, winner)
 	c.streamSend(msg)
+}
+
+func (c *Client) processListReplicasets() error {
+	var sm shardsMap
+	err := c.mdbSession.Run("getShardMap", &sm)
+	if err != nil {
+		c.logger.Errorf("Cannot getShardMap: %s", err)
+		msg := &pb.ClientMessage{
+			ClientID: c.id,
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot getShardMap: %s", err)}},
+		}
+
+		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
+		if err = c.streamSend(msg); err != nil {
+			c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+		}
+		return errors.Wrap(err, "processListShards: getShardMap")
+	}
+
+	replicasets := []string{}
+	/* Example
+	mongos> db.getSiblingDB('admin').runCommand('getShardMap')
+	{
+	        "map" : {
+	                "config" : "localhost:19001,localhost:19002,localhost:19003",
+	                "localhost:17001" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	                "r1" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	                "r1/localhost:17001,localhost:17002,localhost:17003" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	        },
+	        "ok" : 1
+	}
+	*/
+	for key, _ := range sm.Map {
+		m := strings.Split(key, "/")
+		if len(m) < 2 {
+			continue
+		}
+		replicasets = append(replicasets, m[0])
+	}
+
+	msg := &pb.ClientMessage{
+		ClientID: c.id,
+		Payload:  &pb.ClientMessage_ReplicasetsMsg{ReplicasetsMsg: &pb.Replicasets{Replicasets: replicasets}},
+	}
+	c.streamSend(msg)
+	return nil
 }
 
 func (c *Client) processPing() {

@@ -83,6 +83,7 @@ message Empty {}
 message GetBackupSource {}
 message CancelBackup {}
 message GetStatus {}
+message ListReplicasets {}
 message Ping {}
 message StartBalancer {}
 message StopBalancer {}
@@ -96,17 +97,17 @@ message ReplicasetMetadata {
 }
 
 message BackupMetadata {
-  int64           StartTs                     = 1;
-  int64           EndTs                       = 2;
-  BackupType      BackupType                  = 3;
-  int64           OplogStartTime              = 4;
-  int64           LastOplogTs                 = 5;
-  DestinationType DestinationType             = 6;
-  string          DestinationDir              = 7;
-  Cypher          Cypher                      = 8;
-  CompressionType CompressionType             = 9;
-  string          Description                 = 10;
-  map<string, ReplicasetMetadata> Replicasets = 11;
+  int64                           StartTs         = 1;
+  int64                           EndTs           = 2;
+  BackupType                      BackupType      = 3;
+  int64                           OplogStartTime  = 4;
+  int64                           LastOplogTs     = 5;
+  DestinationType                 DestinationType = 6;
+  string                          DestinationDir  = 7;
+  Cypher                          Cypher          = 8;
+  CompressionType                 CompressionType = 9;
+  string                          Description     = 10;
+  map<string, ReplicasetMetadata> Replicasets     = 11;
 }
 
 message LogEntry {
@@ -169,6 +170,7 @@ message ServerMessage {
     CancelBackup        CancelBackupMsg  = 10;
     StopOplogTail       StopOplogTailMsg = 11;
     RestoreBackup       RestoreBackupMsg = 12;
+    ListReplicasets     ListReplicasets  = 13;
   }
 }
 
@@ -184,6 +186,7 @@ message ClientMessage {
     DBBackupFinishStatus    BackupFinishedMsg = 8;
     OplogBackupFinishStatus OplogFinishedMsg  = 9; 
     Status                  StatusMsg         = 10;
+    Replicasets             ReplicasetsMsg    = 11;
   }
 }
 
@@ -216,6 +219,10 @@ message Register {
 
 message Pong {
   int64 Timestamp = 1;
+}
+
+message Replicasets {
+  repeated string Replicasets = 1;
 }
 
 message Status {
