@@ -301,6 +301,44 @@ func TestClientDisconnect(t *testing.T) {
 	d.Stop()
 }
 
+func TestValidateReplicasetAgents(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "pmb_")
+	if err != nil {
+		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
+		t.Errorf("Invalid number of connected agents: %s", err)
+	}
+
+	log.Info("Stopping agents connected to replicaset rs1")
+	time.Sleep(10 * time.Second)
+	for _, client := range d.Clients() {
+		if client.ReplicasetName() == "rs1" {
+			fmt.Printf("Stopping client: %s, rs: %s\n", client.NodeName(), client.ReplicasetName())
+			client.Stop()
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	if err := d.MessagesServer.ValidateReplicasetAgents(); err == nil {
+		t.Errorf("We manually disconnected agents from rs1. ValidateReplicasetAgents should return an error")
+	}
+
+	if err := d.MessagesServer.StartBackup(&pb.StartBackup{}); err == nil {
+		t.Errorf("We manually disconnected agents from rs1. StartBackup/ValidateReplicasetAgents should return an error")
+	}
+
+	d.Stop()
+}
+
 func TestBackupSourceByReplicaset(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "pmb_")
 	if err != nil {

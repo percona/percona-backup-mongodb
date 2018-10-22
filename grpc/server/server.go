@@ -320,6 +320,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return fmt.Errorf("Cannot start a backup while a restore is still running")
 	}
 
+	if err := s.ValidateReplicasetAgents(); err != nil {
+		return errors.Wrap(err, "cannot start a backup while not all MongoDB instances have a backup agent")
+	}
+
 	ext := getFileExtension(pb.CompressionType(opts.CompressionType), pb.Cypher(opts.Cypher))
 
 	s.lastBackupMetadata = NewBackupMetadata(opts)
@@ -516,7 +520,6 @@ func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
 		//	s.logger.Debug(logLine)
 		//}
 	}
-	return nil
 }
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents
@@ -617,6 +620,44 @@ func (s *MessagesServer) getClientByNodeName(name string) *Client {
 			return client
 		}
 	}
+	return nil
+}
+
+// validateReplicasetAgents will run getShardMap and parse the results on a config server.
+// With that list, we can validate if we have at least one agent connected to each replicaset.
+// Currently it is mandatory to have one agent ON EACH cluster member.
+// Maybe in the future we can relax the requirements because having one agent per replicaset might
+// be enough but it needs more testing.
+func (s *MessagesServer) ValidateReplicasetAgents() error {
+	var err error
+	var repls []string
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_MONGOD_CONFIGSVR {
+			repls, err = client.listReplicasets()
+			if err != nil {
+				return errors.Wrap(err, "cannot get repliscasets list using getShardMap")
+			}
+			break
+		}
+	}
+
+	for _, repl := range repls {
+		haveRepl := false
+		for _, client := range s.clients {
+			if client.ReplicasetName == repl {
+				haveRepl = true
+				break
+			}
+		}
+		if !haveRepl {
+			return fmt.Errorf("There are not agents for replicaset %q", repl)
+		}
+	}
+
 	return nil
 }
 

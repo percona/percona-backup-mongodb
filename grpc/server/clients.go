@@ -152,6 +152,34 @@ func (c *Client) isRestoreRunning() (status bool) {
 	return c.status.RestoreStatus != 0
 }
 
+// listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
+// It makes sense to call it only on config servers since it runs "getShardMap" on MongoDB and that
+// only return valid values on config servers.
+// By parsing the results of getShardMap, we can know which replicasets are running in the cluster
+// and we will use that list to validate we have agents connected to all replicasets, otherwise,
+// a backup would be incomplete.
+func (c *Client) listReplicasets() ([]string, error) {
+	c.logger.Debug("sending ping")
+	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_ListReplicasets{ListReplicasets: &pb.ListReplicasets{}}})
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := c.streamRecv()
+	if err != nil {
+		return nil, err
+	}
+
+	switch response.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return nil, fmt.Errorf("Cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
+	case *pb.ClientMessage_ReplicasetsMsg:
+		shards := response.GetReplicasetsMsg()
+		return shards.Replicasets, nil
+	}
+	return nil, fmt.Errorf("Unkown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+}
+
 func (c *Client) ping() error {
 	c.logger.Debug("sending ping")
 	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{}})
