@@ -5,3 +5,6 @@ mongodb-backup-admin
 mongodb-backup-agent
 mongodb-backupd
 vendor
+pmb-agent
+pmb-coordinator
+pmb-admin
