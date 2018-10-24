@@ -21,7 +21,6 @@ import (
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -177,7 +176,7 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 		// access to it with a mutex
 		streamLock: &sync.Mutex{},
 	}
-	c.connect()
+
 	if err := c.register(); err != nil {
 		return nil, err
 	}
@@ -212,7 +211,7 @@ func (c *Client) connect() {
 	}
 
 	for {
-		log.Infof("Reconnecting with the gRPC server")
+		c.logger.Infof("Reconnecting with the gRPC server")
 		stream, err := c.grpcClient.MessagesChat(c.ctx)
 		if err != nil {
 			time.Sleep(3 * time.Second)
@@ -247,18 +246,23 @@ func (c *Client) register() error {
 	}
 	c.logger.Infof("Registering node ...")
 	if err := c.stream.Send(m); err != nil {
-		return err
+		return errors.Wrapf(err, "cannot register node %s", c.nodeName)
 	}
 
 	response, err := c.stream.Recv()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "error detected while receiving the RegisterMsg ACK")
 	}
-	if _, ok := response.Payload.(*pb.ServerMessage_AckMsg); !ok {
-		return err
+
+	switch response.Payload.(type) {
+	case *pb.ServerMessage_AckMsg:
+		c.logger.Info("Node registered")
+		return nil
+	case *pb.ServerMessage_ErrorMsg:
+		return fmt.Errorf(response.GetErrorMsg().GetMessage())
 	}
-	c.logger.Info("Node registered")
-	return nil
+
+	return fmt.Errorf("Unknow response type %T", response.Payload)
 }
 
 func (c *Client) Stop() error {
@@ -831,7 +835,7 @@ func (c *Client) sendBackupFinishOK() {
 	ismaster, err := cluster.NewIsMaster(c.mdbSession)
 	// This should never happen.
 	if err != nil {
-		log.Errorf("cannot get LastWrite.OpTime.Ts from MongoDB: %s", err)
+		c.logger.Errorf("cannot get LastWrite.OpTime.Ts from MongoDB: %s", err)
 		finishMsg := &pb.DBBackupFinishStatus{
 			ClientID: c.id,
 			OK:       false,

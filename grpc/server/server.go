@@ -12,7 +12,6 @@ import (
 	"github.com/percona/mongodb-backup/internal/notify"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,14 +47,12 @@ type MessagesServer struct {
 
 func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	messagesServer := newMessagesServer(workDir, logger)
-	go messagesServer.handleClientDisconnection()
 	return messagesServer
 }
 
 func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
 	messagesServer := newMessagesServer(workDir, logger)
 	messagesServer.clientLoggingEnabled = true
-	go messagesServer.handleClientDisconnection()
 	return messagesServer
 }
 
@@ -401,7 +398,7 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	// This should never happen. We get the last oplog timestamp when agents call DBBackupFinished
 	if s.lastOplogTs == 0 {
-		log.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
+		s.logger.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
 		s.lastOplogTs = time.Now().Unix()
 	}
 
@@ -499,39 +496,39 @@ func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
 		if err != nil {
 			return err
 		}
-		_ = fmt.Sprintf("-> Client: %s, %s \n\n", msg.GetClientID(), msg.GetMessage())
 
-		//level := logrus.Level(msg.GetLevel())
-		//msgText := strings.TrimSpace(msg.GetMessage())
+		level := logrus.Level(msg.GetLevel())
+		msgText := strings.TrimSpace(msg.GetMessage())
 
-		//logLine := fmt.Sprintf("-> Client: %s, %s", msg.GetClientID(), msgText)
-		//switch level {
-		//case logrus.PanicLevel:
-		//	s.logger.Panic(logLine)
-		//case logrus.FatalLevel:
-		//	s.logger.Fatal(logLine)
-		//case logrus.ErrorLevel:
-		//	s.logger.Error(logLine)
-		//case logrus.WarnLevel:
-		//	s.logger.Warn(logLine)
-		//case logrus.InfoLevel:
-		//	s.logger.Info(logLine)
-		//case logrus.DebugLevel:
-		//	s.logger.Debug(logLine)
-		//}
+		logLine := fmt.Sprintf("-> Client: %s, %s", msg.GetClientID(), msgText)
+		switch level {
+		case logrus.PanicLevel:
+			s.logger.Panic(logLine)
+		case logrus.FatalLevel:
+			s.logger.Fatal(logLine)
+		case logrus.ErrorLevel:
+			s.logger.Error(logLine)
+		case logrus.WarnLevel:
+			s.logger.Warn(logLine)
+		case logrus.InfoLevel:
+			s.logger.Info(logLine)
+		case logrus.DebugLevel:
+			s.logger.Debug(logLine)
+		}
 	}
 }
 
 // MessagesChat is the method exposed by gRPC to stream messages between the server and agents
 func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) error {
+	// This first message should be a RegisterMsg
 	msg, err := stream.Recv()
 	if err != nil {
 		return err
 	}
 
-	log.Debugf("Registering new client: %s", msg.GetClientID())
-	client, err := s.registerClient(stream, msg)
-	if err != nil {
+	clientID := msg.GetClientID()
+	s.logger.Debugf("Registering new client: %s", clientID)
+	if err := s.registerClient(stream, msg); err != nil {
 		s.logger.Errorf("Cannot register client: %s", err)
 		r := &pb.ServerMessage{
 			Payload: &pb.ServerMessage_ErrorMsg{
@@ -545,7 +542,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 
 		return ClientAlreadyExistsError
 	}
-	s.clients[msg.ClientID] = client
+
 	r := &pb.ServerMessage{
 		Payload: &pb.ServerMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
@@ -556,6 +553,9 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 
 	// Keep the stream open
 	<-stream.Context().Done()
+	if err := s.unregisterClient(clientID); err != nil {
+		s.logger.Errorf("Client %s stream was closed but cannot unregister client: %s", clientID, err)
+	}
 
 	return nil
 }
@@ -584,7 +584,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
 	}
-	log.Debugf("Received RestoreCompleted from client %v", msg.GetClientID())
+	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientID())
 	client.setRestoreRunning(false)
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
@@ -661,16 +661,6 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 	return nil
 }
 
-func (s *MessagesServer) handleClientDisconnection() {
-	for {
-		clientID := <-s.clientDisconnetedChan
-		log.Infof("Client %s has been disconnected", clientID)
-		s.unregisterClient(clientID)
-		// TODO: Check if backup is running to stop it or to tell a different client in the
-		// same replicaset to start a new backup
-	}
-}
-
 func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -689,30 +679,32 @@ func (s *MessagesServer) isRestoreRunning() bool {
 	return s.restoreRunning
 }
 
-func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) (*Client, error) {
+func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if msg.ClientID == "" {
-		return nil, fmt.Errorf("Invalid client ID (empty)")
+		return fmt.Errorf("Invalid client ID (empty)")
 	}
 
 	if client, exists := s.clients[msg.ClientID]; exists {
 		if err := client.ping(); err != nil {
-			s.unregisterClient(client.ID) // Since we already know the client ID is valid, it will never return an error
+			delete(s.clients, msg.ClientID)
 		} else {
-			return nil, ClientAlreadyExistsError
+			return ClientAlreadyExistsError
 		}
 	}
 
 	regMsg := msg.GetRegisterMsg()
 	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
-		return nil, fmt.Errorf("Node type in register payload cannot be empty")
+		return fmt.Errorf("Node type in register payload cannot be empty")
 	}
 	s.logger.Debugf("Register msg: %+v", regMsg)
 	client := newClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName,
-		regMsg.NodeType, stream, s.logger, s.clientDisconnetedChan)
+		regMsg.NodeType, stream, s.logger)
+
 	s.clients[msg.ClientID] = client
-	return client, nil
+
+	return nil
 }
 
 func (s *MessagesServer) reset() {
@@ -744,9 +736,7 @@ func (s *MessagesServer) setRestoreRunning(status bool) {
 }
 
 func (s *MessagesServer) unregisterClient(id string) error {
-	log.Infof("Unregistering client %s", id)
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.logger.Infof("Unregistering client %s", id)
 
 	if _, exists := s.clients[id]; !exists {
 		return UnknownClientID
