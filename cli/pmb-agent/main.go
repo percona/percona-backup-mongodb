@@ -12,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/percona/mongodb-backup/internal/logger"
+	"github.com/percona/mongodb-backup/internal/loghook"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -90,7 +92,8 @@ func main() {
 	log.SetLevel(logrus.DebugLevel)
 
 	grpcOpts := getgRPCOptions(opts)
-	clientID := fmt.Sprintf("ABC%04d", rand.Int63n(10000))
+	rand.Seed(time.Now().UnixNano())
+	clientID := fmt.Sprintf("ABC%s", opts.MongodbConnOptions.Port)
 	log.Infof("Using Client ID: %s", clientID)
 
 	// Connect to the mongodb-backup gRPC server
@@ -100,6 +103,13 @@ func main() {
 	}
 	defer conn.Close()
 	log.Infof("Connected to the gRPC server at %s", opts.ServerAddress)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logHook, err := loghook.NewGrpcLogging(ctx, clientID, conn)
+	logHook.SetLevel(log.Level)
+	log.AddHook(logHook)
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo

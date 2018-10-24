@@ -26,8 +26,7 @@ type Client struct {
 	LastSeen        time.Time   `json:"last_seen"`
 	logger          *logrus.Logger
 
-	streamStoppedChan chan string
-	streamRecvChan    chan *pb.ClientMessage
+	streamRecvChan chan *pb.ClientMessage
 
 	streamLock *sync.Mutex
 	stream     pb.Messages_MessagesChatServer
@@ -38,7 +37,7 @@ type Client struct {
 // newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
 // real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
 func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
-	stream pb.Messages_MessagesChatServer, logger *logrus.Logger, streamStoppedChan chan string) *Client {
+	stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -46,20 +45,19 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 	}
 
 	client := &Client{
-		ID:                id,
-		ClusterID:         clusterID,
-		ReplicasetUUID:    replicasetUUID,
-		ReplicasetName:    replicasetName,
-		NodeType:          nodeType,
-		NodeName:          nodeName,
-		stream:            stream,
-		LastSeen:          time.Now(),
-		status:            pb.Status{},
-		streamLock:        &sync.Mutex{},
-		statusLock:        &sync.Mutex{},
-		logger:            logger,
-		streamStoppedChan: streamStoppedChan,
-		streamRecvChan:    make(chan *pb.ClientMessage),
+		ID:             id,
+		ClusterID:      clusterID,
+		ReplicasetUUID: replicasetUUID,
+		ReplicasetName: replicasetName,
+		NodeType:       nodeType,
+		NodeName:       nodeName,
+		stream:         stream,
+		LastSeen:       time.Now(),
+		status:         pb.Status{},
+		streamLock:     &sync.Mutex{},
+		statusLock:     &sync.Mutex{},
+		logger:         logger,
+		streamRecvChan: make(chan *pb.ClientMessage),
 	}
 	go client.handleStreamRecv()
 	return client
@@ -114,12 +112,6 @@ func (c *Client) handleStreamRecv() {
 	for {
 		msg, err := c.stream.Recv()
 		if err != nil {
-			if c.streamStoppedChan != nil {
-				select {
-				case c.streamStoppedChan <- c.ID:
-				default:
-				}
-			}
 			return
 		}
 		c.streamRecvChan <- msg
@@ -182,7 +174,7 @@ func (c *Client) listReplicasets() ([]string, error) {
 
 func (c *Client) ping() error {
 	c.logger.Debug("sending ping")
-	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{}})
+	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
 }
 
 func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {

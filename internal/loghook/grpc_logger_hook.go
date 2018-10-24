@@ -1,26 +1,45 @@
 package loghook
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 type GrpcLogging struct {
 	clientID string
-	stream   pb.Messages_LoggingClient
+	ctx      context.Context
+	grpcConn *grpc.ClientConn
 	level    logrus.Level
+	stream   pb.Messages_LoggingClient
 }
 
-func NewGrpcLogging(clientID string, clientLogChan pb.Messages_LoggingClient) *GrpcLogging {
-	return &GrpcLogging{
+func NewGrpcLogging(ctx context.Context, clientID string, grpcConn *grpc.ClientConn) (*GrpcLogging, error) {
+	glog := &GrpcLogging{
+		ctx:      ctx,
 		clientID: clientID,
-		stream:   clientLogChan,
+		grpcConn: grpcConn,
 		level:    logrus.ErrorLevel,
 	}
+	if err := glog.connect(); err != nil {
+		return nil, err
+	}
+	return glog, nil
+}
+
+func (hook *GrpcLogging) connect() (err error) {
+	grpcClient := pb.NewMessagesClient(hook.grpcConn)
+	hook.stream, err = grpcClient.Logging(hook.ctx)
+	if err != nil {
+		return errors.Wrap(err, "cannot connect to the gRPC server")
+	}
+	return nil
 }
 
 func (hook *GrpcLogging) Fire(entry *logrus.Entry) error {
@@ -39,13 +58,7 @@ func (hook *GrpcLogging) Fire(entry *logrus.Entry) error {
 }
 
 func (hook *GrpcLogging) Levels() []logrus.Level {
-	levels := []logrus.Level{}
-
-	for i := uint32(hook.level); i < uint32(logrus.DebugLevel); i++ {
-		levels = append(levels, logrus.Level(i))
-	}
-
-	return levels
+	return logrus.AllLevels
 }
 
 func (hook *GrpcLogging) SetLevel(level logrus.Level) {

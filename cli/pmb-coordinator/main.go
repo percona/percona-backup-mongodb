@@ -50,6 +50,7 @@ const (
 	defaultShutdownTimeout = 5 // Seconds
 	defaultClientsLogging  = true
 	defaultDebugMode       = true
+	defaultWorkDir         = "~/percona-mongodb-backup"
 )
 
 var (
@@ -189,16 +190,33 @@ func processCliParams() (*cliOptions, error) {
 		APIPort:              defaultAPIPort,
 		ShutdownTimeout:      defaultShutdownTimeout,
 		Debug:                defaultDebugMode,
+		WorkDir:              defaultWorkDir,
 		EnableClientsLogging: defaultClientsLogging,
 	}
 	if opts.configFile != "" {
 		loadOptionsFromFile(expandHomeDir(opts.configFile), yamlOpts)
 	}
+
 	mergeOptions(opts, yamlOpts)
 	expandDirs(yamlOpts)
 	// Return yamlOpts instead of opts because it has the defaults + the command line parameters
 	// we want to overwrite
+	if err = checkWorkDir(yamlOpts.WorkDir); err != nil {
+		return nil, err
+	}
 	return yamlOpts, err
+}
+
+func checkWorkDir(dir string) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		log.Infof("Work dir %s doesn't exist. Creating it", dir)
+		return os.MkdirAll(dir, os.ModePerm)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("Cannot use %s for backups metadata. It is not a directory", dir)
+	}
+	return err
 }
 
 func loadOptionsFromFile(filename string, opts *cliOptions) error {
