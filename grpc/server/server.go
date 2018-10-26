@@ -300,7 +300,11 @@ func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) stri
 
 	switch compressionType {
 	case pb.CompressionType_GZIP:
-		ext = ext + ".gzip"
+		ext = ext + ".gz"
+	case pb.CompressionType_LZ4:
+		ext = ext + ".lz4"
+	case pb.CompressionType_SNAPPY:
+		ext = ext + ".snappy"
 	}
 
 	return ext
@@ -737,6 +741,8 @@ func (s *MessagesServer) setRestoreRunning(status bool) {
 
 func (s *MessagesServer) unregisterClient(id string) error {
 	s.logger.Infof("Unregistering client %s", id)
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	if _, exists := s.clients[id]; !exists {
 		return UnknownClientID

@@ -5,20 +5,24 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/apex/log"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/golang/snappy"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -683,20 +687,28 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	case pb.DestinationType_FILE:
 		fw, err := os.Create(path.Join(c.backupDir, msg.GetDBBackupName()))
 		if err != nil {
+			log.Errorf("Cannot create backup file: %s", err)
 			// TODO Stream error msg to the server
 		}
 		writers = append(writers, fw)
 	}
+
 	switch msg.GetCypher() {
 	case pb.Cypher_NO_CYPHER:
 		//TODO: Add cyphers
 	}
 
+	// chain compression writer to the previous writer
 	switch msg.GetCompressionType() {
 	case pb.CompressionType_GZIP:
-		// chain gzip writer to the previous writer
 		gzw := gzip.NewWriter(writers[len(writers)-1])
 		writers = append(writers, gzw)
+	case pb.CompressionType_LZ4:
+		lz4w := lz4.NewWriter(writers[len(writers)-1])
+		writers = append(writers, lz4w)
+	case pb.CompressionType_SNAPPY:
+		snappyw := snappy.NewWriter(writers[len(writers)-1])
+		writers = append(writers, snappyw)
 	}
 
 	mi := &dumper.MongodumpInput{
@@ -723,7 +735,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	dumpErr := c.mongoDumper.Wait()
 
 	var wErr error
-	for i := len(writers); i < 0; i-- {
+	for i := len(writers) - 1; i >= 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
 			if err = writers[i].(flusher).Flush(); err != nil {
 				wErr = errors.Wrap(err, "Cannot flush writer")
@@ -781,6 +793,12 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 		// chain gzip writer to the previous writer
 		gzw := gzip.NewWriter(writers[len(writers)-1])
 		writers = append(writers, gzw)
+	case pb.CompressionType_LZ4:
+		lz4w := lz4.NewWriter(writers[len(writers)-1])
+		writers = append(writers, lz4w)
+	case pb.CompressionType_SNAPPY:
+		snappyw := snappy.NewWriter(writers[len(writers)-1])
+		writers = append(writers, snappyw)
 	}
 
 	var err error
@@ -818,7 +836,7 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	c.status.BytesSent += uint64(n)
 	c.lock.Unlock()
 
-	for i := len(writers); i < 0; i-- {
+	for i := len(writers) - 1; i >= 0; i-- {
 		if _, ok := writers[i].(flusher); ok {
 			if err = writers[i].(flusher).Flush(); err != nil {
 				break
@@ -951,31 +969,33 @@ func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
 	return pb.NodeType_MONGOD, isMaster.IsMasterDoc().Me, nil
 }
 
-func (c *Client) getFileExtension(msg *pb.StartBackup) string {
-	ext := ""
-
-	switch msg.GetCypher() {
-	case pb.Cypher_NO_CYPHER:
-	}
-
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_GZIP:
-		ext = ext + ".gzip"
-	}
-
-	return ext
-}
-
 func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
-	var reader io.ReadCloser
+	readers := []io.ReadCloser{}
+
 	switch opts.SourceType {
 	case pb.DestinationType_FILE:
-		reader, err = os.Open(path.Join(c.backupDir, opts.DBSourceName))
+		reader, err := os.Open(path.Join(c.backupDir, opts.DBSourceName))
 		if err != nil {
 			return errors.Wrap(err, "cannot open restore source file")
 		}
+		readers = append(readers, reader)
 	default:
 		return fmt.Errorf("Restoring from sources other than file is not implemented yet")
+	}
+
+	switch opts.GetCompressionType() {
+	case pb.CompressionType_GZIP:
+		gzr, err := gzip.NewReader(readers[len(readers)-1])
+		if err != nil {
+			return errors.Wrap(err, "cannot create a gzip reader")
+		}
+		readers = append(readers, gzr)
+	case pb.CompressionType_LZ4:
+		lz4r := lz4.NewReader(readers[len(readers)-1])
+		readers = append(readers, ioutil.NopCloser(lz4r))
+	case pb.CompressionType_SNAPPY:
+		snappyr := snappy.NewReader(readers[len(readers)-1])
+		readers = append(readers, ioutil.NopCloser(snappyr))
 	}
 
 	// We need to set Archive = "-" so MongoRestore can use the provided reader.
@@ -995,7 +1015,7 @@ func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
 		Gzip:     false,
 		Oplog:    false,
 		Threads:  1,
-		Reader:   reader,
+		Reader:   readers[len(readers)-1],
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.
@@ -1018,18 +1038,37 @@ func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
 	return nil
 }
 
-func (c *Client) restoreOplog(opts *pb.RestoreBackup) error {
-	var reader bsonfile.BSONReader
-	var err error
+func (c *Client) restoreOplog(opts *pb.RestoreBackup) (err error) {
+	// var reader bsonfile.BSONReader
+	readers := []io.ReadCloser{}
+
 	switch opts.SourceType {
 	case pb.DestinationType_FILE:
-		reader, err = bsonfile.OpenFile(path.Join(c.backupDir, opts.OplogSourceName))
+		filer, err := os.Open(path.Join(c.backupDir, opts.OplogSourceName))
 		if err != nil {
 			return errors.Wrap(err, "cannot open oplog restore source file")
 		}
+		readers = append(readers, filer)
 	default:
 		return fmt.Errorf("Restoring oplogs from sources other than file is not implemented yet")
 	}
+
+	switch opts.GetCompressionType() {
+	case pb.CompressionType_GZIP:
+		gzr, err := gzip.NewReader(readers[len(readers)-1])
+		if err != nil {
+			return errors.Wrap(err, "cannot create a gzip reader")
+		}
+		readers = append(readers, gzr)
+	case pb.CompressionType_LZ4:
+		lz4r := lz4.NewReader(readers[len(readers)-1])
+		readers = append(readers, ioutil.NopCloser(lz4r))
+	case pb.CompressionType_SNAPPY:
+		snappyr := snappy.NewReader(readers[len(readers)-1])
+		readers = append(readers, ioutil.NopCloser(snappyr))
+	}
+
+	bsonReader, err := bsonfile.NewBSONReader(readers[len(readers)-1])
 
 	di := &mgo.DialInfo{
 		Addrs:    []string{fmt.Sprintf("%s:%s", c.connOpts.Host, c.connOpts.Port)},
@@ -1041,7 +1080,7 @@ func (c *Client) restoreOplog(opts *pb.RestoreBackup) error {
 		return errors.Wrap(err, "cannot connect to MongoDB to apply the oplog")
 	}
 	// Replay the oplog
-	oa, err := oplog.NewOplogApply(session, reader)
+	oa, err := oplog.NewOplogApply(session, bsonReader)
 	if err != nil {
 		return errors.Wrap(err, "cannot instantiate the oplog applier")
 	}
