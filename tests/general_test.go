@@ -380,6 +380,67 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	d.Stop()
 }
 
+func TestBackup1(t *testing.T) {
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	//defer os.RemoveAll(tmpDir) // Clean up after testing.
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	// Genrate random data so we have something in the oplog
+	oplogGeneratorStopChan := make(chan bool)
+	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	generateDataToBackup(t, s1Session)
+	go generateOplogTraffic(t, s1Session, oplogGeneratorStopChan)
+
+	// Also generate random data on shard 2
+	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	generateDataToBackup(t, s2Session)
+	go generateOplogTraffic(t, s2Session, oplogGeneratorStopChan)
+
+	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
+
+	msg := &pb.StartBackup{
+		BackupType:      pb.BackupType_LOGICAL,
+		DestinationType: pb.DestinationType_FILE,
+		CompressionType: pb.CompressionType_GZIP,
+		Cypher:          pb.Cypher_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      backupNamePrefix,
+		Description:     "general_test_backup",
+	}
+	if err := d.MessagesServer.StartBackup(msg); err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+
+	fmt.Printf("starting backup: %s\n", backupNamePrefix)
+
+	d.MessagesServer.WaitBackupFinish()
+	err = d.MessagesServer.StopOplogTail()
+	if err != nil {
+		t.Fatalf("Cannot stop the oplog tailer: %s", err)
+	}
+
+	close(oplogGeneratorStopChan)
+	d.MessagesServer.WaitOplogBackupFinish()
+
+	d.Stop()
+}
+
 func testRestore(t *testing.T, session *mgo.Session, dir string) {
 	log.Println("Starting mongo restore")
 	if err := session.DB(dbName).C(colName).DropCollection(); err != nil {
