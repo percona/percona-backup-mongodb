@@ -37,19 +37,19 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 			status := client.Status()
 
 			c := &pbapi.Client{
-				ID:              client.ID,
+				Id:              client.ID,
 				NodeType:        client.NodeType.String(),
 				NodeName:        client.NodeName,
-				ClusterID:       client.ClusterID,
+				ClusterId:       client.ClusterID,
 				ReplicasetName:  client.ReplicasetName,
-				ReplicasetID:    client.ReplicasetUUID,
+				ReplicasetId:    client.ReplicasetUUID,
 				LastCommandSent: client.LastCommandSent,
 				LastSeen:        client.LastSeen.Unix(),
 				Status: &pbapi.ClientStatus{
-					ReplicaSetUUID:    client.ReplicasetUUID,
-					ReplicaSetName:    client.ReplicasetName,
-					ReplicaSetVersion: status.ReplicasetVersion,
-					RunningDBBackup:   status.RunningDBBackUp,
+					ReplicasetUuid:    client.ReplicasetUUID,
+					ReplicasetName:    client.ReplicasetName,
+					ReplicasetVersion: status.ReplicasetVersion,
+					RunningDbBackup:   status.RunningDbBackup,
 					Compression:       status.CompressionType.String(),
 					Encrypted:         status.Cypher.String(),
 					Destination:       status.DestinationType.String(),
@@ -76,7 +76,7 @@ func (a *ApiServer) BackupsMetadata(m *pbapi.Empty, stream pbapi.Api_BackupsMeta
 	for name, md := range bmd {
 		msg := &pbapi.MetadataFile{
 			Filename: name,
-			Metadata: &md,
+			Metadata: &pbapi.BackupMetadata(md),
 		}
 		stream.Send(msg)
 	}

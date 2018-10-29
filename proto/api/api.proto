@@ -14,115 +14,147 @@
 
 syntax = "proto3";
 
-option go_package = "github.com/percona/mongodb-backup/proto/api";
-
-import "messages/messages.proto";
+option go_package = "apipb";
 
 option java_multiple_files = true;
-option java_package = "io.grpc.examples.messages";
-option java_outer_classname = "MessagesProto";
+option java_package = "com.api";
+option java_outer_classname = "ApiProto";
 
 package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
   rpc RunBackup(RunBackupParams) returns (Error) {}
-  rpc RunRestore(RunRestoreParams) returns (Error) {}
-  rpc LastBackupMetadata(Empty) returns (messages.BackupMetadata) {}
-  rpc BackupsMetadata(Empty) returns (stream MetadataFile) {}
+  rpc RunRestore(RunRestoreParams) returns (RunRestoreResponse) {}
+  rpc LastBackupMetadata(LastBackupMetadataParams) returns (BackupMetadata) {}
+  rpc BackupsMetadata(BackupsMetadataParams) returns (stream MetadataFile) {}
 }
 
 enum BackupType {
-   LOGICAL   = 0;
-   HOTBACKUP = 1;
+   BACKUP_TYPE_INVALID   = 0;
+   BACKUP_TYPE_LOGICAL   = 1;
+   BACKUP_TYPE_HOTBACKUP = 2;
 }
 
 enum DestinationType {
-   FILE = 0; 
-   AWS  = 1;
+   DESTINATION_TYPE_INVALID = 0;
+   DESTINATION_TYPE_FILE    = 1; 
+   DESTINATION_TYPE_AWS     = 2;
 }
 
 enum CompressionType {
-   NO_COMPRESSION = 0;
-   GZIP           = 1;
-   SNAPPY         = 2;
-   LZ4            = 3;
+   COMPRESSION_TYPE_INVALID        = 0;
+   COMPRESSION_TYPE_NO_COMPRESSION = 1;
+   COMPRESSION_TYPE_GZIP           = 2;
+   COMPRESSION_TYPE_SNAPPY         = 3;
+   COMPRESSION_TYPE_LZ4            = 4;
 }
 
 enum Cypher {
-    NO_CYPHER = 0;
-    AES       = 1;
-    DES       = 2;
-    RC4       = 3;
-    RSA       = 4;
+    CYPHER_INVALID   = 0;
+    CYPHER_NO_CYPHER = 1;
+    CYPHER_AES       = 2;
+    CYPHER_DES       = 3;
+    CYPHER_RC4       = 4;
+    CYPHER_RSA       = 5;
 }
 
 message Empty {}
+message BackupsMetadataParams {}
+message LastBackupMetadataParams {}
+
 message Error {
-    string Message = 1;
-    int64  Code    = 2;
+    string message = 1;
+    int64  code    = 2;
+}
+
+message ReplicasetMetadata {
+  string cluster_id        = 1;
+  string replicaset_uuid   = 2;
+  string replicaset_name   = 3;
+  string db_backup_name    = 4;
+  string oplog_backup_name = 5;
+}
+
+
+message BackupMetadata {
+  int64                           start_ts         = 1;
+  int64                           end_ts           = 2;
+  BackupType                      backup_type      = 3;
+  int64                           oplog_start_time = 4;
+  int64                           last_oplog_ts    = 5;
+  DestinationType                 destination_type = 6;
+  string                          destination_dir  = 7;
+  Cypher                          cypher           = 8;
+  CompressionType                 compression_type = 9;
+  string                          description      = 10;
+  map<string, ReplicasetMetadata> replicasets      = 11;
 }
 
 message ClientStatus {
-  string ReplicaSetUUID     = 1;
-  string ReplicaSetName     = 2;
-  uint64 ReplicaSetVersion  = 3; 
-  bool   RunningDBBackup    = 4;    
-  bool   RunningOplogBackup = 5;
-  string BackupType         = 6;
-  string Compression        = 7;       
-  string Encrypted          = 8;         
-  string Destination        = 9;       
-  string Dirname            = 10;
-  string Filename           = 11;          
-  int64  Started            = 12;           
-  int64  Finished           = 13;
-  int64  StartOplogTs       = 14;
-  int64  LastOplogTs        = 15;
-  string LastError          = 16;         
+  string replicaset_uuid      = 1;
+  string replicaset_name      = 2;
+  uint64 replicaset_version   = 3; 
+  bool   running_db_backup    = 4;    
+  bool   running_oplog_backup = 5;
+  string backup_type          = 6;
+  string compression          = 7;       
+  string encrypted            = 8;         
+  string destination          = 9;       
+  string dirname              = 10;
+  string filename             = 11;          
+  int64  started              = 12;           
+  int64  finished             = 13;
+  int64  start_oplog_ts       = 14;
+  int64  last_oplog_ts        = 15;
+  string last_error           = 16;         
 }
 
 message Client {
-  int32        version         = 1;
-  string       ID              = 2;
-  string       NodeType        = 3;
-  string       NodeName        = 4;
-  string       ClusterID       = 5;
-  string       ReplicasetName  = 6;
-  string       ReplicasetID    = 7;
-  string       LastCommandSent = 8;
-  int64        LastSeen        = 9;
-  ClientStatus Status          = 10;
+  int32        version           = 1;
+  string       id                = 2;
+  string       node_type         = 3;
+  string       node_name         = 4;
+  string       cluster_id        = 5;
+  string       replicaset_name   = 6;
+  string       replicaset_id     = 7;
+  string       last_command_sent = 8;
+  int64        last_seen         = 9;
+  ClientStatus status            = 10;
 }
 
 message MetadataFile {
-  string                  Filename = 1;
-  messages.BackupMetadata Metadata = 2;
+  string         filename = 1;
+  BackupMetadata metadata = 2;
 }
 
 message RunBackupParams {
-  BackupType      BackupType      = 1;
-  CompressionType CompressionType = 2;       
-  Cypher          Cypher          = 3;         
-  DestinationType DestinationType = 4;       
-  string          Dirname         = 5;
-  string          Filename        = 6;          
-  int64           StartOplogTs    = 7;
-  string          Description     = 8;
+  BackupType      backup_type      = 1;
+  CompressionType compression_type = 2;       
+  Cypher          cypher           = 3;         
+  DestinationType destination_type = 4;       
+  string          dirname          = 5;
+  string          filename         = 6;          
+  int64           start_oplog_ts   = 7;
+  string          description      = 8;
 }
 
 message RunRestoreParams {
-  string MetadataFile      = 1;
-  bool   SkipUsersAndRoles = 2;
+  string metadata_file        = 1;
+  bool   skip_users_and_roles = 2;
+}
+
+message RunRestoreResponse {
+  string error = 1;
 }
 
 message BackupReplica {
-  string AgentID         = 1;
-  string NodeType        = 2;
-  string NodeName        = 3;
-  string ClusterID       = 4;
-  string ReplicasetName  = 5;
-  string ReplicasetID    = 6;
-  int64  StartedAt       = 7;
+  string agent_id         = 1;
+  string node_type        = 2;
+  string node_name        = 3;
+  string cluster_id       = 4;
+  string replicaset_name  = 5;
+  string replicaset_id    = 6;
+  int64  started_at       = 7;
 }
     

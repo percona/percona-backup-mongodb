@@ -121,7 +121,7 @@ func (c *Client) handleStreamRecv() {
 func (c *Client) isDBBackupRunning() bool {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
-	return c.status.RunningDBBackUp
+	return c.status.RunningDbBackup
 }
 
 func (c *Client) isOplogBackupRunning() bool {
@@ -184,7 +184,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 				BackupType:        msg.BackupType,
 				SourceType:        msg.SourceType,
 				SourceBucket:      msg.SourceBucket,
-				DBSourceName:      msg.DBSourceName,
+				DbSourceName:      msg.DbSourceName,
 				OplogSourceName:   msg.OplogSourceName,
 				CompressionType:   msg.CompressionType,
 				Cypher:            msg.Cypher,
@@ -212,7 +212,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 
 func (c *Client) setDBBackupRunning(status bool) {
 	c.statusLock.Lock()
-	c.status.RunningDBBackUp = status
+	c.status.RunningDbBackup = status
 	c.statusLock.Unlock()
 }
 
@@ -226,10 +226,10 @@ func (c *Client) setRestoreRunning(status bool) {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 	if status {
-		c.status.RestoreStatus = pb.RestoreStatus_RestoringDB
+		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGDB
 		return
 	}
-	c.status.RestoreStatus = pb.RestoreStatus_Not_Running
+	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 }
 
 func (c *Client) startBackup(opts *pb.StartBackup) error {
@@ -238,7 +238,7 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 			StartBackupMsg: &pb.StartBackup{
 				BackupType:      opts.BackupType,
 				DestinationType: opts.DestinationType,
-				DBBackupName:    opts.DBBackupName,
+				DbBackupName:    opts.DbBackupName,
 				OplogBackupName: opts.OplogBackupName,
 				DestinationDir:  opts.DestinationDir,
 				CompressionType: opts.CompressionType,

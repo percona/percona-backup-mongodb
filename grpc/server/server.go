@@ -93,7 +93,7 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 	sources := make(map[string]string)
 	for _, client := range s.clients {
 		if _, ok := sources[client.ReplicasetName]; !ok {
-			if client.NodeType == pb.NodeType_MONGOS {
+			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
 				continue
 			}
 			backupSource, err := client.GetBackupSource()
@@ -112,7 +112,7 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 	sources := make(map[string]*Client)
 	for _, client := range s.clients {
 		if _, ok := sources[client.ReplicasetName]; !ok {
-			if client.NodeType == pb.NodeType_MONGOS {
+			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
 				continue
 			}
 			backupSource, err := client.GetBackupSource()
@@ -165,9 +165,9 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 // is never empty.
 func (s *MessagesServer) IsShardedSystem() bool {
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_MONGOS ||
-			client.NodeType == pb.NodeType_MONGOD_CONFIGSVR ||
-			client.NodeType == pb.NodeType_MONGOD_SHARDSVR ||
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS ||
+			client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR ||
+			client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_SHARDSVR ||
 			client.ClusterID != "" {
 			return true
 		}
@@ -278,7 +278,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					BackupType:        bm.BackupType,
 					SourceType:        bm.DestinationType,
 					SourceBucket:      bm.DestinationDir,
-					DBSourceName:      metadata.DBBackupName,
+					DbSourceName:      metadata.DbBackupName,
 					OplogSourceName:   metadata.OplogBackupName,
 					CompressionType:   bm.CompressionType,
 					Cypher:            bm.Cypher,
@@ -295,15 +295,15 @@ func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) stri
 	ext := ""
 
 	switch cypher {
-	case pb.Cypher_NO_CYPHER:
+	case pb.Cypher_CYPHER_NO_CYPHER:
 	}
 
 	switch compressionType {
-	case pb.CompressionType_GZIP:
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
 		ext = ext + ".gz"
-	case pb.CompressionType_LZ4:
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
 		ext = ext + ".lz4"
-	case pb.CompressionType_SNAPPY:
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		ext = ext + ".snappy"
 	}
 
@@ -350,7 +350,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
 			DestinationType: opts.GetDestinationType(),
-			DBBackupName:    dbBackupName,
+			DbBackupName:    dbBackupName,
 			OplogBackupName: oplogBackupName,
 			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
@@ -368,7 +368,7 @@ func (s *MessagesServer) StartBalancer() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_MONGOS {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
 			return client.startBalancer()
 		}
 	}
@@ -385,7 +385,7 @@ func (s *MessagesServer) StopBalancer() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_MONGOS {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
 			return client.stopBalancer()
 		}
 	}
@@ -465,16 +465,16 @@ func (s *MessagesServer) WorkDir() string {
 // DBBackupFinished process backup finished message from clients.
 // After the mongodump call finishes, clients should call this method to inform the event to the server
 func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.Ack, error) {
-	if !msg.GetOK() {
+	if !msg.GetOk() {
 
 	}
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	client := s.getClientByNodeName(msg.GetClientID())
+	client := s.getClientByNodeName(msg.GetClientId())
 	if client == nil {
-		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
+		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
 	client.setDBBackupRunning(false)
 
@@ -504,7 +504,7 @@ func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
 		level := logrus.Level(msg.GetLevel())
 		msgText := strings.TrimSpace(msg.GetMessage())
 
-		logLine := fmt.Sprintf("-> Client: %s, %s", msg.GetClientID(), msgText)
+		logLine := fmt.Sprintf("-> Client: %s, %s", msg.GetClientId(), msgText)
 		switch level {
 		case logrus.PanicLevel:
 			s.logger.Panic(logLine)
@@ -530,14 +530,14 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 		return err
 	}
 
-	clientID := msg.GetClientID()
+	clientID := msg.GetClientId()
 	s.logger.Debugf("Registering new client: %s", clientID)
 	if err := s.registerClient(stream, msg); err != nil {
 		s.logger.Errorf("Cannot register client: %s", err)
 		r := &pb.ServerMessage{
 			Payload: &pb.ServerMessage_ErrorMsg{
 				ErrorMsg: &pb.Error{
-					Code:    pb.ErrorType_CLIENT_ALREADY_REGISTERED,
+					Code:    pb.ErrorType_ERROR_TYPE_CLIENT_ALREADY_REGISTERED,
 					Message: "",
 				},
 			},
@@ -567,9 +567,9 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 // OplogBackupFinished process oplog tailer finished message from clients.
 // After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
 func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
-	client := s.getClientByNodeName(msg.GetClientID())
+	client := s.getClientByNodeName(msg.GetClientId())
 	if client == nil {
-		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
+		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
 	client.setOplogTailerRunning(false)
 
@@ -584,11 +584,11 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.Ack, error) {
-	client := s.getClientByNodeName(msg.GetClientID())
+	client := s.getClientByNodeName(msg.GetClientId())
 	if client == nil {
-		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientID())
+		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
-	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientID())
+	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
 	client.setRestoreRunning(false)
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
@@ -640,7 +640,7 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 	defer s.lock.Unlock()
 
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_MONGOD_CONFIGSVR {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 			repls, err = client.listReplicasets()
 			if err != nil {
 				return errors.Wrap(err, "cannot get repliscasets list using getShardMap")
@@ -686,27 +686,27 @@ func (s *MessagesServer) isRestoreRunning() bool {
 func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if msg.ClientID == "" {
+	if msg.ClientId == "" {
 		return fmt.Errorf("Invalid client ID (empty)")
 	}
 
-	if client, exists := s.clients[msg.ClientID]; exists {
+	if client, exists := s.clients[msg.ClientId]; exists {
 		if err := client.ping(); err != nil {
-			delete(s.clients, msg.ClientID)
+			delete(s.clients, msg.ClientId)
 		} else {
 			return ClientAlreadyExistsError
 		}
 	}
 
 	regMsg := msg.GetRegisterMsg()
-	if regMsg == nil || regMsg.NodeType == pb.NodeType_UNDEFINED {
+	if regMsg == nil || regMsg.NodeType == pb.NodeType_NODE_TYPE_INVALID {
 		return fmt.Errorf("Node type in register payload cannot be empty")
 	}
 	s.logger.Debugf("Register msg: %+v", regMsg)
-	client := newClient(msg.ClientID, regMsg.ClusterID, regMsg.NodeName, regMsg.ReplicasetID, regMsg.ReplicasetName,
+	client := newClient(msg.ClientId, regMsg.ClusterId, regMsg.NodeName, regMsg.ReplicasetId, regMsg.ReplicasetName,
 		regMsg.NodeType, stream, s.logger)
 
-	s.clients[msg.ClientID] = client
+	s.clients[msg.ClientId] = client
 
 	return nil
 }

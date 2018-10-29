@@ -13,10 +13,10 @@
 // limitations under the License.
 
 syntax = "proto3";
-option go_package = "github.com/percona/mongodb-backup/proto/messages";
+option go_package = "messages";
 
 option java_multiple_files = true;
-option java_package = "io.grpc.examples.messages";
+option java_package = "com.messages";
 option java_outer_classname = "MessagesProto";
 
 package messages;
@@ -26,59 +26,67 @@ service Messages {
   rpc Logging(stream LogEntry) returns (Ack) {}
   rpc MessagesChat(stream ClientMessage) returns (stream ServerMessage) {}
   // Invidividual responses
-  rpc DBBackupFinished(DBBackupFinishStatus) returns (Ack) {}
-  rpc OplogBackupFinished(OplogBackupFinishStatus) returns (Ack) {}
-  rpc RestoreCompleted(RestoreComplete) returns (Ack) {}
+  rpc DBBackupFinished(DBBackupFinishStatus) returns (DBBackupFinishedAck) {}
+  rpc OplogBackupFinished(OplogBackupFinishStatus) returns (OplogBackupFinishedAck) {}
+  rpc RestoreCompleted(RestoreComplete) returns (RestoreCompletedAck) {}
 }
 
 enum ErrorType {
-  NO_ERROR                  = 0;
-  NOT_IMPLEMENTED_YET       = 1;
-  COMMUNICATION_ERROR       = 2;
-  CLIENT_ALREADY_REGISTERED = 3;
+  ERROR_TYPE_INVALID                   = 0;
+  ERROR_TYPE_NOT_IMPLEMENTED_YET       = 1;
+  ERROR_TYPE_COMMUNICATION_ERROR       = 2;
+  ERROR_TYPE_CLIENT_ALREADY_REGISTERED = 3;
 }
 
 enum BackupType {
-  LOGICAL   = 0;
-  HOTBACKUP = 1;
+  BACKUP_TYPE_INVALID   = 0;
+  BACKUP_TYPE_LOGICAL   = 1;
+  BACKUP_TYPE_HOTBACKUP = 2;
 }
 
 enum DestinationType {
-  FILE = 0; 
-  AWS  = 1;
+  DESTINATION_TYPE_INVALID = 0;
+  DESTINATION_TYPE_FILE    = 1; 
+  DESTINATION_TYPE_AWS     = 2;
 }
 
 enum CompressionType {
-  NO_COMPRESSION = 0;
-  GZIP           = 1;
-  SNAPPY         = 2;
-  LZ4            = 3;
+  COMPRESSION_TYPE_INVALID        = 0;
+  COMPRESSION_TYPE_NO_COMPRESSION = 1;
+  COMPRESSION_TYPE_GZIP           = 2;
+  COMPRESSION_TYPE_SNAPPY         = 3;
+  COMPRESSION_TYPE_LZ4            = 4;
 }
 
 enum Cypher {
-  NO_CYPHER = 0;
-  AES       = 1;
-  DES       = 2;
-  RC4       = 3;
-  RSA       = 4;
+  CYPHER_INVALID   = 0;
+  CYPHER_NO_CYPHER = 1;
+  CYPHER_AES       = 2;
+  CYPHER_DES       = 3;
+  CYPHER_RC4       = 4;
+  CYPHER_RSA       = 5;
 }
 
 enum NodeType {
-  UNDEFINED        = 0; 
-  MONGOD           = 1; // mongod without replication enabled. We should ignore this nodetype at backup-time as it has no oplog (but still send it in the Register message)
-  MONGOD_REPLSET   = 2; // mongod with replication enabled and no sharding
-  MONGOD_SHARDSVR  = 3; // mongod that is a shard server
-  MONGOD_CONFIGSVR = 4; // mongod that is a sharding config serve
-  MONGOS           = 5; // mongos that is a sharding router
+  NODE_TYPE_INVALID          = 0; 
+  NODE_TYPE_MONGOD           = 1; // mongod without replication enabled. We should ignore this nodetype at backup-time as it has no oplog (but still send it in the Register message)
+  NODE_TYPE_MONGOD_REPLSET   = 2; // mongod with replication enabled and no sharding
+  NODE_TYPE_MONGOD_SHARDSVR  = 3; // mongod that is a shard server
+  NODE_TYPE_MONGOD_CONFIGSVR = 4; // mongod that is a sharding config serve
+  NODE_TYPE_MONGOS           = 5; // mongos that is a sharding router
 }
 
 enum RestoreStatus {
-  Not_Running    = 0;
-  RestoringDB    = 1;
-  RestoringOplog = 2;
+  RESTORE_STATUS_INVALID        = 0;
+  RESTORE_STATUS_NOT_RUNNING    = 1;
+  RESTORE_STATUS_RESTORINGDB    = 2;
+  RESTORE_STATUS_RESTORINGOPLOG = 3;
 }
 
 message Ack {}
+message DBBackupFinishedAck {}
+message OplogBackupFinishedAck {}
+message RestoreCompletedAck {}
 message Empty {}
 message GetBackupSource {}
 message CancelBackup {}
@@ -89,156 +97,156 @@ message StartBalancer {}
 message StopBalancer {}
 
 message ReplicasetMetadata {
-  string ClusterID       = 1;
-  string ReplicasetUUID  = 2;
-  string ReplicasetName  = 3;
-  string DBBackupName    = 4;
-  string OplogBackupName = 5;
+  string cluster_id        = 1;
+  string replicaset_uuid   = 2;
+  string replicaset_name   = 3;
+  string db_backup_name    = 4;
+  string oplog_backup_name = 5;
 }
 
 message BackupMetadata {
-  int64                           StartTs         = 1;
-  int64                           EndTs           = 2;
-  BackupType                      BackupType      = 3;
-  int64                           OplogStartTime  = 4;
-  int64                           LastOplogTs     = 5;
-  DestinationType                 DestinationType = 6;
-  string                          DestinationDir  = 7;
-  Cypher                          Cypher          = 8;
-  CompressionType                 CompressionType = 9;
-  string                          Description     = 10;
-  map<string, ReplicasetMetadata> Replicasets     = 11;
+  int64                           start_ts         = 1;
+  int64                           end_ts           = 2;
+  BackupType                      backup_type      = 3;
+  int64                           oplog_start_time = 4;
+  int64                           last_oplog_ts    = 5;
+  DestinationType                 destination_type = 6;
+  string                          destination_dir  = 7;
+  Cypher                          cypher           = 8;
+  CompressionType                 compression_type = 9;
+  string                          description      = 10;
+  map<string, ReplicasetMetadata> replicasets      = 11;
 }
 
 message LogEntry {
-  string ClientID = 1;
-  uint32 Level    = 2;
-  int64  Ts       = 3;
-  string Message  = 4;
+  string client_id = 1;
+  uint32 level     = 2;
+  int64  ts        = 3;
+  string message   = 4;
 }
 
 message RestoreBackup {
-  BackupType      BackupType        = 1;
-  DestinationType SourceType        = 2;
-  string          SourceBucket      = 3; // This is also used as S3 bucket name
-  string          DBSourceName      = 4;
-  string          OplogSourceName   = 5;
-  CompressionType CompressionType   = 6;
-  Cypher          Cypher            = 7;
-  int64           OplogStartTime    = 8;
-  bool            SkipUsersAndRoles = 9; // Used only for testing
+  BackupType      backup_type          = 1;
+  DestinationType source_type          = 2;
+  string          source_bucket        = 3; // This is also used as S3 bucket name
+  string          db_source_name       = 4;
+  string          oplog_source_name    = 5;
+  CompressionType compression_type     = 6;
+  Cypher          cypher               = 7;
+  int64           oplog_start_time     = 8;
+  bool            skip_users_and_roles = 9; // Used only for testing
 }
 
 message RestoreComplete {
-  string ClientID = 1;
-  Error  Err      = 2;
+  string client_id = 1;
+  Error  err       = 2;
 }
 
 message Error {
-  string Message = 1;
-  ErrorType Code = 2;
+  string    message = 1;
+  ErrorType code    = 2;
 }
 
 message StartBackup {
-  BackupType      BackupType      = 1;
-  DestinationType DestinationType = 2;
-  string          NamePrefix      = 3; 
-  string          DBBackupName    = 4;
-  string          OplogBackupName = 5;
-  string          DestinationDir  = 6; // This is also used as S3 bucket name
-  CompressionType CompressionType = 7;
-  Cypher          Cypher          = 8;
-  int64           OplogStartTime  = 9;
-  string          Description     = 10;
+  BackupType      backup_type       = 1;
+  DestinationType destination_type  = 2;
+  string          name_prefix       = 3; 
+  string          db_backup_name    = 4;
+  string          oplog_backup_name = 5;
+  string          destination_dir   = 6; // This is also used as S3 bucket name
+  CompressionType compression_type  = 7;
+  Cypher          cypher            = 8;
+  int64           oplog_start_time  = 9;
+  string          description       = 10;
 }
 
 message StopOplogTail {
-  int64 Ts    = 1;
+  int64 ts = 1;
 }
 
 message ServerMessage {
-  int32       version = 1;
-  oneof Payload {
-    Ack                 AckMsg           = 2;
-    GetBackupSource     BackupSourceMsg  = 3;
-    GetStatus           GetStatusMsg     = 4;
-    Ping                PingMsg          = 5;
-    Error               ErrorMsg         = 6;
-    StartBalancer       StartBalancerMsg = 7;
-    StopBalancer        StopBalancerMsg  = 8;
-    StartBackup         StartBackupMsg   = 9;
-    CancelBackup        CancelBackupMsg  = 10;
-    StopOplogTail       StopOplogTailMsg = 11;
-    RestoreBackup       RestoreBackupMsg = 12;
-    ListReplicasets     ListReplicasets  = 13;
+  int32                 version             = 1;
+  oneof payload {
+    Ack                 ack_msg             = 2;
+    GetBackupSource     backup_source_msg   = 3;
+    GetStatus           get_status_msg      = 4;
+    Ping                ping_msg            = 5;
+    Error               error_msg           = 6;
+    StartBalancer       start_balancer_msg  = 7;
+    StopBalancer        stop_balancer_msg   = 8;
+    StartBackup         start_backup_msg    = 9;
+    CancelBackup        cancel_backup_msg   = 10;
+    StopOplogTail       stop_oplog_tail_msg = 11;
+    RestoreBackup       restore_backup_msg  = 12;
+    ListReplicasets     list_replicasets    = 13;
   }
 }
 
 message ClientMessage {
-  int32       version  = 1;
-  string      clientID = 2;
-  oneof Payload {
-    Ack                     AckMsg            = 3;
-    Error                   ErrorMsg          = 4;
-    BackupSource            BackupSourceMsg   = 5;
-    Register                RegisterMsg       = 6;
-    Pong                    PingMsg           = 7;
-    DBBackupFinishStatus    BackupFinishedMsg = 8;
-    OplogBackupFinishStatus OplogFinishedMsg  = 9; 
-    Status                  StatusMsg         = 10;
-    Replicasets             ReplicasetsMsg    = 11;
+  int32                     version             = 1;
+  string                    client_id           = 2;
+  oneof payload {
+    Ack                     ack_msg             = 3;
+    Error                   error_msg           = 4;
+    BackupSource            backup_source_msg   = 5;
+    Register                register_msg        = 6;
+    Pong                    ping_msg            = 7;
+    DBBackupFinishStatus    backup_finished_msg = 8;
+    OplogBackupFinishStatus oplog_finished_msg  = 9; 
+    Status                  status_msg          = 10;
+    Replicasets             replicasets_msg     = 11;
   }
 }
 
 message BackupSource {
-  string SourceClient = 1;
+  string source_client = 1;
 }
 
 message DBBackupFinishStatus {
-  string ClientID = 1;
-  bool   OK       = 2;
-  int64  Ts       = 3;
-  string Error    = 4;
+  string client_id = 1;
+  bool   ok        = 2;
+  int64  ts        = 3;
+  string error     = 4;
 }
 
 message OplogBackupFinishStatus {
-  string ClientID = 1;
-  bool   OK       = 2;
-  int64  Ts       = 3;
-  string Error    = 4;
+  string client_id = 1;
+  bool   ok        = 2;
+  int64  ts        = 3;
+  string error     = 4;
 }
 
 message Register {
-  NodeType NodeType     = 1;
-  string NodeName       = 2;
-  string ClusterID      = 3; // This field will hold a bson.ObjectIdHex
-  string ReplicasetID   = 4;
-  string ReplicasetName = 5;
-  string BackupDir      = 6;
+  NodeType node_type       = 1;
+  string   node_name       = 2;
+  string   cluster_id      = 3; // This field will hold a bson.ObjectIdHex
+  string   replicaset_id   = 4;
+  string   replicaset_name = 5;
+  string   backup_dir      = 6;
 }
 
 message Pong {
-  int64 Timestamp = 1;
+  int64 timestamp = 1;
 }
 
 message Replicasets {
-  repeated string Replicasets = 1;
+  repeated string replicasets = 1;
 }
 
 message Status {
-  bool            RunningDBBackUp    = 1;
-  bool            RunningOplogBackup = 2;
-  RestoreStatus   RestoreStatus      = 3;
-  BackupType      BackupType         = 4;
-  uint64          BytesSent          = 5;
-  int64           LastOplogTs        = 6;
-  int64           BackupCompleted    = 7; // TS when the backup has finish
-  string          LastError          = 8;
-  uint64          ReplicasetVersion  = 9;
-  DestinationType DestinationType    = 10;
-  string          DestinationName    = 11;
-  string          DestinationDir     = 12; // This is also used as S3 bucket name
-  CompressionType CompressionType    = 13;
-  Cypher          Cypher             = 14;
-  int64           StartOplogTs       = 15;
+  bool            running_db_backup    = 1;
+  bool            running_oplog_backup = 2;
+  RestoreStatus   restore_status       = 3;
+  BackupType      backup_type          = 4;
+  uint64          bytes_sent           = 5;
+  int64           last_oplog_ts        = 6;
+  int64           backup_completed     = 7; // TS when the backup has finish
+  string          last_error           = 8;
+  uint64          replicaset_version   = 9;
+  DestinationType destination_type     = 10;
+  string          destination_name     = 11;
+  string          destination_dir      = 12; // This is also used as S3 bucket name
+  CompressionType compression_type     = 13;
+  Cypher          cypher               = 14;
+  int64           start_oplog_ts       = 15;
 }
