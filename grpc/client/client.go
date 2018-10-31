@@ -33,8 +33,10 @@ type flusher interface {
 }
 
 type Client struct {
-	id             string
-	ctx            context.Context
+	id         string
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+
 	replicasetName string
 	replicasetID   string
 	nodeType       pb.NodeType
@@ -95,7 +97,7 @@ var (
 	dbPingInterval      = 60 * time.Second
 )
 
-func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
+func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
 	conn *grpc.ClientConn, logger *logrus.Logger) (*Client, error) {
 	// If the provided logger is nil, create a new logger and copy Logrus standard logger level and writer
 	if logger == nil {
@@ -105,9 +107,11 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 	}
 
 	grpcClient := pb.NewMessagesClient(conn)
+	ctx, cancel := context.WithCancel(inctx)
 
 	stream, err := grpcClient.MessagesChat(ctx)
 	if err != nil {
+		cancel()
 		return nil, errors.Wrap(err, "cannot connect to the gRPC server")
 	}
 
@@ -124,6 +128,7 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 	}
 	c := &Client{
 		ctx:        ctx,
+		cancelFunc: cancel,
 		backupDir:  backupDir,
 		grpcClient: grpcClient,
 		stream:     stream,
@@ -285,6 +290,7 @@ func (c *Client) Stop() error {
 	defer c.lock.Unlock()
 	c.running = false
 
+	c.cancelFunc()
 	return c.stream.CloseSend()
 }
 

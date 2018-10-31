@@ -13,7 +13,7 @@
 // limitations under the License.
 
 syntax = "proto3";
-option go_package = "messages";
+option go_package = "github.com/percona/mongodb-backup/proto/messages";
 
 option java_multiple_files = true;
 option java_package = "com.messages";

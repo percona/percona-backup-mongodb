@@ -62,10 +62,10 @@ func TestApiWithDaemon(t *testing.T) {
 	}
 
 	msg := &pbapi.RunBackupParams{
-		BackupType:      pbapi.BackupType_LOGICAL,
-		DestinationType: pbapi.DestinationType_FILE,
-		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
-		Cypher:          pbapi.Cypher_NO_CYPHER,
+		BackupType:      pbapi.BackupType_BACKUP_TYPE_LOGICAL,
+		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
+		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     "test backup",
 	}
 
@@ -127,14 +127,14 @@ func TestApiWithDaemon(t *testing.T) {
 	if !ok {
 		t.Errorf("Missing rs1 in backup metadata")
 	} else {
-		if mrs1.GetClusterID() == "" {
+		if mrs1.GetClusterId() == "" {
 			t.Errorf("Missing cluster ID for replicaset 1")
 		}
 	}
 
 	stream := newMockBackupsMetadataStream()
 
-	err = d.ApiServer.BackupsMetadata(&pbapi.Empty{}, stream)
+	err = d.ApiServer.BackupsMetadata(&pbapi.BackupsMetadataParams{}, stream)
 	if err != nil {
 		t.Errorf("Cannot get backups metadata: %s", err)
 	}

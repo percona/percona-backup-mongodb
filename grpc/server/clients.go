@@ -53,7 +53,11 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 		NodeName:       nodeName,
 		stream:         stream,
 		LastSeen:       time.Now(),
-		status:         pb.Status{},
+		status: pb.Status{
+			RunningDbBackup:    false,
+			RunningOplogBackup: false,
+			RestoreStatus:      pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING,
+		},
 		streamLock:     &sync.Mutex{},
 		statusLock:     &sync.Mutex{},
 		logger:         logger,
@@ -141,7 +145,7 @@ func (c *Client) isRestoreRunning() (status bool) {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 
-	return c.status.RestoreStatus != 0
+	return c.status.RestoreStatus > pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 }
 
 // listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
@@ -205,6 +209,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 	case *pb.ClientMessage_ErrorMsg:
 		return fmt.Errorf("Cannot start restore on client %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_AckMsg:
+		c.setRestoreRunning(true)
 		return nil
 	}
 	return fmt.Errorf("Unkown response type for Restore message: %T, %+v", response.Payload, response.Payload)
@@ -323,7 +328,6 @@ func (c *Client) stopBalancer() error {
 
 func (c *Client) stopOplogTail(ts int64) error {
 	c.logger.Debugf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
-	fmt.Printf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_StopOplogTailMsg{StopOplogTailMsg: &pb.StopOplogTail{Ts: ts}},
 	})

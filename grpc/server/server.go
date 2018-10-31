@@ -119,7 +119,6 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			if err != nil {
 				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
 			}
-			fmt.Printf("Received backup source from client %s: %s\n", client.NodeName, backupSource)
 			if err != nil {
 				return nil, fmt.Errorf("Cannot get best client for replicaset %q: %s", client.ReplicasetName, err)
 			}
@@ -226,6 +225,9 @@ func (s *MessagesServer) ReplicasetsRunningOplogBackup() map[string]*Client {
 }
 
 func (s *MessagesServer) ReplicasetsRunningRestore() map[string]*Client {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	replicasets := make(map[string]*Client)
 
 	// use sync.Map?
@@ -266,14 +268,13 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 	}
 
 	s.reset()
-	s.setRestoreRunning(true)
+	//s.setRestoreRunning(true)
 
 	for replName, client := range clients {
-		s.logger.Printf("Starting restore for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
+		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
-				client.setRestoreRunning(true)
 				client.restoreBackup(&pb.RestoreBackup{
 					BackupType:        bm.BackupType,
 					SourceType:        bm.DestinationType,
@@ -339,7 +340,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.setOplogBackupRunning(true)
 
 	for replName, client := range clients {
-		s.logger.Printf("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
+		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
 
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
@@ -393,7 +394,7 @@ func (s *MessagesServer) StopBalancer() error {
 	return nil
 }
 
-// StopOplogTail calls ever agent StopOplogTail(ts) method using the last oplog timestamp reported by the clients
+// StopOplogTail calls every agent StopOplogTail(ts) method using the last oplog timestamp reported by the clients
 // when they call DBBackupFinished after mongodump finish on each client. That way s.lastOplogTs has the last
 // timestamp of the slowest backup
 func (s *MessagesServer) StopOplogTail() error {
@@ -402,13 +403,14 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	// This should never happen. We get the last oplog timestamp when agents call DBBackupFinished
 	if s.lastOplogTs == 0 {
-		s.logger.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
 		s.lastOplogTs = time.Now().Unix()
+		s.logger.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
 	}
+	s.logger.Infof("StopOplogTs: %d (%v)", s.lastOplogTs, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
 
 	var gErr error
 	for _, client := range s.clients {
-		s.logger.Debugf("Checking if client %s is running the backup: %v", client.NodeName, client.isOplogTailerRunning())
+		s.logger.Debugf("Checking if client %s is running the oplog backup: %v", client.NodeName, client.isOplogTailerRunning())
 		if client.isOplogTailerRunning() {
 			s.logger.Debugf("Stopping oplog tail in client %s at %s", client.NodeName, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
 			err := client.stopOplogTail(s.lastOplogTs)
@@ -464,9 +466,9 @@ func (s *MessagesServer) WorkDir() string {
 
 // DBBackupFinished process backup finished message from clients.
 // After the mongodump call finishes, clients should call this method to inform the event to the server
-func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.Ack, error) {
+func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.DBBackupFinishedAck, error) {
 	if !msg.GetOk() {
-
+		return nil, fmt.Errorf("DBBackupFinished was expecting Ok. Got %T", msg.GetOk())
 	}
 
 	s.lock.Lock()
@@ -491,7 +493,7 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	if len(replicasets) == 0 {
 		notify.Post(EVENT_BACKUP_FINISH, time.Now())
 	}
-	return &pb.Ack{}, nil
+	return &pb.DBBackupFinishedAck{}, nil
 }
 
 func (s *MessagesServer) Logging(stream pb.Messages_LoggingServer) error {
@@ -566,7 +568,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 
 // OplogBackupFinished process oplog tailer finished message from clients.
 // After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
-func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.Ack, error) {
+func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.OplogBackupFinishedAck, error) {
 	client := s.getClientByNodeName(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
@@ -577,13 +579,13 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 	if len(replicasets) == 0 {
 		notify.Post(EVENT_OPLOG_FINISH, time.Now())
 	}
-	return &pb.Ack{}, nil
+	return &pb.OplogBackupFinishedAck{}, nil
 }
 
 // RestoreCompleted handles a replicaset restore completed messages from clients.
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
-func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.Ack, error) {
+func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.RestoreCompletedAck, error) {
 	client := s.getClientByNodeName(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
@@ -591,12 +593,12 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
 	client.setRestoreRunning(false)
 
-	replicasets := s.ReplicasetsRunningOplogBackup()
+	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
 		notify.Post(EVENT_RESTORE_FINISH, time.Now())
 	}
-	return &pb.Ack{}, nil
+	return &pb.RestoreCompletedAck{}, nil
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

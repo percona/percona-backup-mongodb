@@ -67,7 +67,7 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 	return nil
 }
 
-func (a *ApiServer) BackupsMetadata(m *pbapi.Empty, stream pbapi.Api_BackupsMetadataServer) error {
+func (a *ApiServer) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi.Api_BackupsMetadataServer) error {
 	bmd, err := a.messagesServer.ListBackups()
 	if err != nil {
 		return errors.Wrap(err, "cannot get backups metadata listing")
@@ -76,7 +76,7 @@ func (a *ApiServer) BackupsMetadata(m *pbapi.Empty, stream pbapi.Api_BackupsMeta
 	for name, md := range bmd {
 		msg := &pbapi.MetadataFile{
 			Filename: name,
-			Metadata: &pbapi.BackupMetadata(md),
+			Metadata: &md,
 		}
 		stream.Send(msg)
 	}
@@ -85,7 +85,7 @@ func (a *ApiServer) BackupsMetadata(m *pbapi.Empty, stream pbapi.Api_BackupsMeta
 }
 
 // LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
-func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.Empty) (*pb.BackupMetadata, error) {
+func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (*pb.BackupMetadata, error) {
 	return a.messagesServer.LastBackupMetadata().Metadata(), nil
 }
 
@@ -143,11 +143,11 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	return &pbapi.Error{}, nil
 }
 
-func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.Error, error) {
+func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
 	if err != nil {
-		return &pbapi.Error{Message: err.Error()}, err
+		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
 	}
 
-	return &pbapi.Error{}, nil
+	return &pbapi.RunRestoreResponse{}, nil
 }
