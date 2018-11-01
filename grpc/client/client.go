@@ -16,11 +16,13 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/snappy"
+	"github.com/google/uuid"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
+	"github.com/percona/mongodb-backup/mdbstructs"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
@@ -33,8 +35,10 @@ type flusher interface {
 }
 
 type Client struct {
-	id             string
-	ctx            context.Context
+	id         string
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+
 	replicasetName string
 	replicasetID   string
 	nodeType       pb.NodeType
@@ -42,10 +46,11 @@ type Client struct {
 	clusterID      string
 	backupDir      string
 
-	mdbSession *mgo.Session
-	mgoDI      *mgo.DialInfo
-	connOpts   ConnectionOptions
-	sslOpts    SSLOptions
+	mdbSession  *mgo.Session
+	mgoDI       *mgo.DialInfo
+	connOpts    ConnectionOptions
+	sslOpts     SSLOptions
+	isMasterDoc *mdbstructs.IsMaster
 
 	mongoDumper     *dumper.Mongodump
 	oplogTailer     *oplog.OplogTail
@@ -95,7 +100,7 @@ var (
 	dbPingInterval      = 60 * time.Second
 )
 
-func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
+func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
 	conn *grpc.ClientConn, logger *logrus.Logger) (*Client, error) {
 	// If the provided logger is nil, create a new logger and copy Logrus standard logger level and writer
 	if logger == nil {
@@ -105,9 +110,11 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 	}
 
 	grpcClient := pb.NewMessagesClient(conn)
+	ctx, cancel := context.WithCancel(inctx)
 
 	stream, err := grpcClient.MessagesChat(ctx)
 	if err != nil {
+		cancel()
 		return nil, errors.Wrap(err, "cannot connect to the gRPC server")
 	}
 
@@ -122,13 +129,22 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 		FailFast: true,
 		Direct:   true,
 	}
+
+	id, err := uuid.NewRandom()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("cannot genenerate a random UUID: %s", err)
+	}
+
 	c := &Client{
+		id:         id.String(),
 		ctx:        ctx,
+		cancelFunc: cancel,
 		backupDir:  backupDir,
 		grpcClient: grpcClient,
 		stream:     stream,
 		status: pb.Status{
-			BackupType: pb.BackupType_LOGICAL,
+			BackupType: pb.BackupType_BACKUP_TYPE_LOGICAL,
 		},
 		connOpts:        mdbConnOpts,
 		sslOpts:         mdbSSLOpts,
@@ -151,6 +167,10 @@ func NewClient(ctx context.Context, backupDir string, mdbConnOpts ConnectionOpti
 		return nil, errors.Wrap(err, "cannot connect to the database")
 	}
 
+	if err := c.updateClientInfo(); err != nil {
+		return nil, errors.Wrap(err, "cannot get MongoDB status information")
+	}
+
 	if err := c.register(); err != nil {
 		return nil, err
 	}
@@ -169,13 +189,6 @@ func (c *Client) dbConnect() (err error) {
 	}
 	c.mdbSession.SetMode(mgo.Eventual, true)
 
-	c.nodeType, c.nodeName, err = getNodeTypeAndName(c.mdbSession)
-	if err != nil {
-		return errors.Wrap(err, "Cannot get node type")
-	}
-	// Review this ID. We need to decide if we want a random ID or not
-	c.id = c.nodeName
-
 	bi, err := c.mdbSession.BuildInfo()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot get build info")
@@ -184,7 +197,19 @@ func (c *Client) dbConnect() (err error) {
 		return fmt.Errorf("You need at least MongoDB version 3.4 to run this tool")
 	}
 
-	if c.nodeType != pb.NodeType_MONGOS {
+	return nil
+}
+
+func (c *Client) updateClientInfo() (err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.nodeType, c.nodeName, err = getNodeTypeAndName(c.mdbSession)
+	if err != nil {
+		return errors.Wrap(err, "Cannot get node type")
+	}
+
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
 		replset, err := cluster.NewReplset(c.mdbSession)
 		if err != nil {
 			return fmt.Errorf("Cannot create a new replicaset instance: %s", err)
@@ -247,14 +272,14 @@ func (c *Client) register() error {
 	}
 
 	m := &pb.ClientMessage{
-		ClientID: c.nodeName,
+		ClientId: c.id,
 		Payload: &pb.ClientMessage_RegisterMsg{
 			RegisterMsg: &pb.Register{
 				NodeType:       c.nodeType,
 				NodeName:       c.nodeName,
-				ClusterID:      c.clusterID,
+				ClusterId:      c.clusterID,
 				ReplicasetName: c.replicasetName,
-				ReplicasetID:   c.replicasetID,
+				ReplicasetId:   c.replicasetID,
 				BackupDir:      c.backupDir,
 			},
 		},
@@ -285,13 +310,14 @@ func (c *Client) Stop() error {
 	defer c.lock.Unlock()
 	c.running = false
 
+	c.cancelFunc()
 	return c.stream.CloseSend()
 }
 
 func (c *Client) IsDBBackupRunning() bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	return c.status.RunningDBBackUp
+	return c.status.RunningDbBackup
 }
 
 func (c *Client) IsOplogBackupRunning() bool {
@@ -381,7 +407,7 @@ func (c *Client) processGetBackupSource() {
 	r, err := cluster.NewReplset(c.mdbSession)
 	if err != nil {
 		msg := &pb.ClientMessage{
-			ClientID: c.id,
+			ClientId: c.id,
 			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: c.nodeName}},
 		}
 		c.logger.Debugf("Sending GetBackupSource response to the RPC server: %+v", *msg)
@@ -393,7 +419,7 @@ func (c *Client) processGetBackupSource() {
 	if err != nil {
 		c.logger.Errorf("Cannot get a backup source winner: %s", err)
 		msg := &pb.ClientMessage{
-			ClientID: c.id,
+			ClientId: c.id,
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
 		}
 		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
@@ -407,7 +433,7 @@ func (c *Client) processGetBackupSource() {
 	}
 
 	msg := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: winner}},
 	}
 	c.logger.Debugf("%s -> Sending GetBackupSource response to the RPC server: %+v (winner: %q)", c.nodeName, *msg, winner)
@@ -420,7 +446,7 @@ func (c *Client) processListReplicasets() error {
 	if err != nil {
 		c.logger.Errorf("Cannot getShardMap: %s", err)
 		msg := &pb.ClientMessage{
-			ClientID: c.id,
+			ClientId: c.id,
 			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot getShardMap: %s", err)}},
 		}
 
@@ -453,7 +479,7 @@ func (c *Client) processListReplicasets() error {
 	}
 
 	msg := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_ReplicasetsMsg{ReplicasetsMsg: &pb.Replicasets{Replicasets: replicasets}},
 	}
 	c.streamSend(msg)
@@ -462,10 +488,23 @@ func (c *Client) processListReplicasets() error {
 
 func (c *Client) processPing() {
 	c.logger.Debug("Received Ping command")
-	msg := &pb.ClientMessage{
-		ClientID: c.id,
-		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
+	c.updateClientInfo()
+	pongMsg := &pb.Pong{
+		Timestamp:           time.Now().Unix(),
+		NodeType:            c.nodeType,
+		ReplicaSetUuid:      c.replicasetID,
+		ReplicaSetVersion:   0,
+		IsPrimary:           c.isMasterDoc.IsMaster,
+		IsSecondary:         !c.isMasterDoc.IsMaster,
+		IsTailing:           c.IsOplogBackupRunning(),
+		LastTailedTimestamp: c.oplogTailer.LastOplogTimestamp().Time().Unix(),
 	}
+
+	msg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload:  &pb.ClientMessage_PongMsg{PongMsg: pongMsg},
+	}
+
 	if err := c.streamSend(msg); err != nil {
 		c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
 	}
@@ -473,12 +512,12 @@ func (c *Client) processPing() {
 
 func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.lock.Lock()
-	c.status.RestoreStatus = pb.RestoreStatus_RestoringDB
+	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGDB
 	c.lock.Unlock()
 
 	defer func() {
 		c.lock.Lock()
-		c.status.RestoreStatus = pb.RestoreStatus_Not_Running
+		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 		c.lock.Unlock()
 	}()
 
@@ -489,7 +528,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	}
 
 	c.lock.Lock()
-	c.status.RestoreStatus = pb.RestoreStatus_RestoringOplog
+	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
 	c.lock.Unlock()
 
 	if err := c.restoreOplog(msg); err != nil {
@@ -508,7 +547,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 
 func (c *Client) sendRestoreComplete(err error) error {
 	msg := &pb.RestoreComplete{
-		ClientID: c.id,
+		ClientId: c.id,
 		Err:      &pb.Error{},
 	}
 	if err != nil {
@@ -531,12 +570,12 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.status.RunningDBBackUp {
+	if c.status.RunningDbBackup {
 		c.sendError(fmt.Errorf("Backup already running"))
 		return
 	}
 	// Validate backup type by asking MongoDB capabilities?
-	if msg.BackupType != pb.BackupType_LOGICAL {
+	if msg.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
 		c.sendError(fmt.Errorf("Hot Backup is not implemented yet"))
 		return
 	}
@@ -555,7 +594,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	go c.runOplogBackup(msg)
 
 	response := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	if err = c.streamSend(response); err != nil {
@@ -574,7 +613,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 	c.logger.Debugf("Balancer has been started by me")
 
 	out := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
@@ -588,10 +627,10 @@ func (c *Client) processStatus() {
 	c.lock.Lock()
 
 	msg := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload: &pb.ClientMessage_StatusMsg{
 			StatusMsg: &pb.Status{
-				RunningDBBackUp:    c.status.RunningDBBackUp,
+				RunningDbBackup:    c.status.RunningDbBackup,
 				RunningOplogBackup: c.status.RunningOplogBackup,
 				BackupType:         c.status.BackupType,
 				BytesSent:          c.status.BytesSent,
@@ -627,7 +666,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 
 	c.logger.Debugf("Balancer has been stopped by %s", c.nodeName)
 	out := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
@@ -639,7 +678,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	c.logger.Debugf("Received StopOplogTail command for client: %s", c.id)
 	out := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("Sending ACK message to the gRPC server")
@@ -650,8 +689,8 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	if err := c.oplogTailer.CloseAt(bson.MongoTimestamp(msg.GetTs())); err != nil {
 		c.logger.Errorf("Cannot stop the oplog tailer: %s", err)
 		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientID: c.id,
-			OK:       false,
+			ClientId: c.id,
+			Ok:       false,
 			Ts:       time.Now().Unix(),
 			Error:    fmt.Sprintf("Cannot close the oplog tailer: %s", err),
 		}
@@ -665,8 +704,8 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 
 	finishMsg := &pb.OplogBackupFinishStatus{
-		ClientID: c.id,
-		OK:       true,
+		ClientId: c.id,
+		Ok:       true,
 		Ts:       time.Now().Unix(),
 		Error:    "",
 	}
@@ -684,8 +723,8 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	writers := []io.WriteCloser{}
 
 	switch msg.GetDestinationType() {
-	case pb.DestinationType_FILE:
-		fw, err := os.Create(path.Join(c.backupDir, msg.GetDBBackupName()))
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
+		fw, err := os.Create(path.Join(c.backupDir, msg.GetDbBackupName()))
 		if err != nil {
 			log.Errorf("Cannot create backup file: %s", err)
 			// TODO Stream error msg to the server
@@ -694,19 +733,19 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	}
 
 	switch msg.GetCypher() {
-	case pb.Cypher_NO_CYPHER:
+	case pb.Cypher_CYPHER_NO_CYPHER:
 		//TODO: Add cyphers
 	}
 
 	// chain compression writer to the previous writer
 	switch msg.GetCompressionType() {
-	case pb.CompressionType_GZIP:
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
 		gzw := gzip.NewWriter(writers[len(writers)-1])
 		writers = append(writers, gzw)
-	case pb.CompressionType_LZ4:
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
 		lz4w := lz4.NewWriter(writers[len(writers)-1])
 		writers = append(writers, lz4w)
-	case pb.CompressionType_SNAPPY:
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		snappyw := snappy.NewWriter(writers[len(writers)-1])
 		writers = append(writers, snappyw)
 	}
@@ -768,12 +807,12 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	writers := []io.WriteCloser{}
 
 	switch msg.GetDestinationType() {
-	case pb.DestinationType_FILE:
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
 		fw, err := os.Create(path.Join(c.backupDir, msg.GetOplogBackupName()))
 		if err != nil {
 			finishMsg := &pb.OplogBackupFinishStatus{
-				ClientID: c.id,
-				OK:       false,
+				ClientId: c.id,
+				Ok:       false,
 				Ts:       time.Now().Unix(),
 				Error:    fmt.Sprintf("Cannot create destination file: %s", err),
 			}
@@ -784,19 +823,19 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	}
 
 	switch msg.GetCypher() {
-	case pb.Cypher_NO_CYPHER:
+	case pb.Cypher_CYPHER_NO_CYPHER:
 		//TODO: Add cyphers
 	}
 
 	switch msg.GetCompressionType() {
-	case pb.CompressionType_GZIP:
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
 		// chain gzip writer to the previous writer
 		gzw := gzip.NewWriter(writers[len(writers)-1])
 		writers = append(writers, gzw)
-	case pb.CompressionType_LZ4:
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
 		lz4w := lz4.NewWriter(writers[len(writers)-1])
 		writers = append(writers, lz4w)
-	case pb.CompressionType_SNAPPY:
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		snappyw := snappy.NewWriter(writers[len(writers)-1])
 		writers = append(writers, snappyw)
 	}
@@ -806,8 +845,8 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	if err != nil {
 		c.logger.Errorf("Cannot open the oplog tailer: %s", err)
 		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientID: c.id,
-			OK:       false,
+			ClientId: c.id,
+			Ok:       false,
 			Ts:       time.Now().Unix(),
 			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
 		}
@@ -822,8 +861,8 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 		c.setOplogBackupRunning(false)
 		c.logger.Errorf("Error while copying data from the oplog tailer: %s", err)
 		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientID: c.id,
-			OK:       false,
+			ClientId: c.id,
+			Ok:       false,
 			Ts:       time.Now().Unix(),
 			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
 		}
@@ -851,8 +890,8 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 		err := fmt.Errorf("Cannot flush/close oplog chained writer: %s", err)
 		c.logger.Error(err)
 		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientID: c.id,
-			OK:       false,
+			ClientId: c.id,
+			Ok:       false,
 			Ts:       time.Now().Unix(),
 			Error:    err.Error(),
 		}
@@ -863,8 +902,8 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 
 	c.logger.Info("Oplog backup completed")
 	finishMsg := &pb.OplogBackupFinishStatus{
-		ClientID: c.id,
-		OK:       true,
+		ClientId: c.id,
+		Ok:       true,
 		Ts:       time.Now().Unix(),
 		Error:    "",
 	}
@@ -878,7 +917,7 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 
 func (c *Client) sendACK() {
 	response := &pb.ClientMessage{
-		ClientID: c.id,
+		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	if err := c.streamSend(response); err != nil {
@@ -892,8 +931,8 @@ func (c *Client) sendBackupFinishOK() {
 	if err != nil {
 		c.logger.Errorf("cannot get LastWrite.OpTime.Ts from MongoDB: %s", err)
 		finishMsg := &pb.DBBackupFinishStatus{
-			ClientID: c.id,
-			OK:       false,
+			ClientId: c.id,
+			Ok:       false,
 			Ts:       0,
 			Error:    err.Error(),
 		}
@@ -902,8 +941,8 @@ func (c *Client) sendBackupFinishOK() {
 	}
 
 	finishMsg := &pb.DBBackupFinishStatus{
-		ClientID: c.id,
-		OK:       true,
+		ClientId: c.id,
+		Ok:       true,
 		Ts:       int64(ismaster.IsMasterDoc().LastWrite.OpTime.Ts),
 		Error:    "",
 	}
@@ -917,8 +956,8 @@ func (c *Client) sendBackupFinishOK() {
 
 func (c *Client) sendError(err error) {
 	finishMsg := &pb.DBBackupFinishStatus{
-		ClientID: c.id,
-		OK:       false,
+		ClientId: c.id,
+		Ok:       false,
 		Ts:       0,
 		Error:    err.Error(),
 	}
@@ -932,7 +971,7 @@ func (c *Client) sendError(err error) {
 func (c *Client) setDBBackupRunning(status bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.status.RunningDBBackUp = status
+	c.status.RunningDbBackup = status
 }
 
 func (c *Client) setOplogBackupRunning(status bool) {
@@ -950,31 +989,31 @@ func (c *Client) streamSend(msg *pb.ClientMessage) error {
 func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
 	isMaster, err := cluster.NewIsMaster(session)
 	if err != nil {
-		return pb.NodeType_UNDEFINED, "", err
+		return pb.NodeType_NODE_TYPE_INVALID, "", err
 	}
 	if isMaster.IsShardServer() {
-		return pb.NodeType_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
 	}
 	// Don't change the order. A config server can also be a replica set so we need to call this BEFORE
 	// calling .IsReplset()
 	if isMaster.IsConfigServer() {
-		return pb.NodeType_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsReplset() {
-		return pb.NodeType_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
 	}
 	if isMaster.IsMongos() {
-		return pb.NodeType_MONGOS, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOS, isMaster.IsMasterDoc().Me, nil
 	}
-	return pb.NodeType_MONGOD, isMaster.IsMasterDoc().Me, nil
+	return pb.NodeType_NODE_TYPE_MONGOD, isMaster.IsMasterDoc().Me, nil
 }
 
 func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
 	readers := []io.ReadCloser{}
 
 	switch opts.SourceType {
-	case pb.DestinationType_FILE:
-		reader, err := os.Open(path.Join(c.backupDir, opts.DBSourceName))
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
+		reader, err := os.Open(path.Join(c.backupDir, opts.DbSourceName))
 		if err != nil {
 			return errors.Wrap(err, "cannot open restore source file")
 		}
@@ -984,16 +1023,16 @@ func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
 	}
 
 	switch opts.GetCompressionType() {
-	case pb.CompressionType_GZIP:
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
 		gzr, err := gzip.NewReader(readers[len(readers)-1])
 		if err != nil {
 			return errors.Wrap(err, "cannot create a gzip reader")
 		}
 		readers = append(readers, gzr)
-	case pb.CompressionType_LZ4:
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
 		lz4r := lz4.NewReader(readers[len(readers)-1])
 		readers = append(readers, ioutil.NopCloser(lz4r))
-	case pb.CompressionType_SNAPPY:
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		snappyr := snappy.NewReader(readers[len(readers)-1])
 		readers = append(readers, ioutil.NopCloser(snappyr))
 	}
@@ -1043,7 +1082,7 @@ func (c *Client) restoreOplog(opts *pb.RestoreBackup) (err error) {
 	readers := []io.ReadCloser{}
 
 	switch opts.SourceType {
-	case pb.DestinationType_FILE:
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
 		filer, err := os.Open(path.Join(c.backupDir, opts.OplogSourceName))
 		if err != nil {
 			return errors.Wrap(err, "cannot open oplog restore source file")
@@ -1054,16 +1093,16 @@ func (c *Client) restoreOplog(opts *pb.RestoreBackup) (err error) {
 	}
 
 	switch opts.GetCompressionType() {
-	case pb.CompressionType_GZIP:
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
 		gzr, err := gzip.NewReader(readers[len(readers)-1])
 		if err != nil {
 			return errors.Wrap(err, "cannot create a gzip reader")
 		}
 		readers = append(readers, gzr)
-	case pb.CompressionType_LZ4:
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
 		lz4r := lz4.NewReader(readers[len(readers)-1])
 		readers = append(readers, ioutil.NopCloser(lz4r))
-	case pb.CompressionType_SNAPPY:
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		snappyr := snappy.NewReader(readers[len(readers)-1])
 		readers = append(readers, ioutil.NopCloser(snappyr))
 	}

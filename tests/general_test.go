@@ -14,10 +14,7 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/grpc/server"
-	"github.com/percona/mongodb-backup/internal/oplog"
-	"github.com/percona/mongodb-backup/internal/restore"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
@@ -105,7 +102,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot get first client status: %s", err)
 	}
-	if status.BackupType != pb.BackupType_LOGICAL {
+	if status.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
 		t.Errorf("The default backup type should be 0 (Logical). Got backup type: %v", status.BackupType)
 	}
 
@@ -179,10 +176,10 @@ func TestGlobalWithDaemon(t *testing.T) {
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
-		BackupType:      pb.BackupType_LOGICAL,
-		DestinationType: pb.DestinationType_FILE,
-		CompressionType: pb.CompressionType_NO_COMPRESSION,
-		Cypher:          pb.Cypher_NO_CYPHER,
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
+		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
@@ -206,12 +203,12 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&beforeMaxS1)
 	if err != nil {
-		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+		log.Fatalf("Cannot get the max 'number' (before restore session 1) field in %s.%s: %s", dbName, colName, err)
 	}
 
 	err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&beforeMaxS2)
 	if err != nil {
-		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+		log.Fatalf("Cannot get the max 'number' (besore restore session 2) field in %s.%s: %s", dbName, colName, err)
 	}
 
 	log.Info("Stopping the oplog tailer")
@@ -247,10 +244,11 @@ func TestGlobalWithDaemon(t *testing.T) {
 	cleanupDBForRestore(t, s2Session)
 
 	log.Info("Starting restore test")
-	md, err := d.ApiServer.LastBackupMetadata(context.Background(), &pbapi.Empty{})
+	md, err := d.ApiServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
 	if err != nil {
 		t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
 	}
+
 	testRestoreWithMetadata(t, d, md)
 
 	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
@@ -362,13 +360,18 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	for _, client := range d.Clients() {
 		if client.NodeName() == bs["rs1"].NodeName {
-			client.Stop()
+			if err := client.Stop(); err != nil {
+				t.Errorf("Cannot stop client %s: %s", client.NodeName(), err)
+			}
 		}
 	}
 
 	time.Sleep(2 * time.Second)
 
 	bs2, err := d.MessagesServer.BackupSourceByReplicaset()
+	for id, client := range bs2 {
+		fmt.Printf("-> id: %v, Node name: %s\n", id, client.NodeName)
+	}
 	if err == nil {
 		t.Errorf("BackupSourceByReplicaset should fail since we manually killed the 'winner' agent")
 	}
@@ -382,8 +385,8 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 
 func TestBackup1(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
-	//defer os.RemoveAll(tmpDir) // Clean up after testing.
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -415,10 +418,10 @@ func TestBackup1(t *testing.T) {
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
 	msg := &pb.StartBackup{
-		BackupType:      pb.BackupType_LOGICAL,
-		DestinationType: pb.DestinationType_FILE,
-		CompressionType: pb.CompressionType_GZIP,
-		Cypher:          pb.Cypher_NO_CYPHER,
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
+		CompressionType: pb.CompressionType_COMPRESSION_TYPE_GZIP,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
@@ -441,103 +444,12 @@ func TestBackup1(t *testing.T) {
 	d.Stop()
 }
 
-func testRestore(t *testing.T, session *mgo.Session, dir string) {
-	log.Println("Starting mongo restore")
-	if err := session.DB(dbName).C(colName).DropCollection(); err != nil {
-		t.Fatalf("Cannot clean up %s.%s collection: %s", dbName, colName, err)
-	}
-	session.Refresh()
-
-	count, err := session.DB(dbName).C(colName).Find(nil).Count()
-	if err != nil {
-		t.Fatalf("Cannot count number of rows in the test collection %s: %s", colName, err)
-	}
-
-	if count > 0 {
-		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want 0", colName, count)
-	}
-
-	input := &restore.MongoRestoreInput{
-		// this file was generated with the dump pkg
-		Archive:  path.Join(dir, "test.dump"),
-		DryRun:   false,
-		Host:     testutils.MongoDBHost,
-		Port:     testutils.MongoDBShard1PrimaryPort,
-		Username: testutils.MongoDBUser,
-		Password: testutils.MongoDBPassword,
-		Gzip:     false,
-		Oplog:    false,
-		Threads:  1,
-		Reader:   nil,
-		// A real restore would be applied to a just created and empty instance and it should be
-		// configured to run without user authentication.
-		// Since we are running a sandbox and we already have user and roles and authentication
-		// is enableb, we need to skip restoring users and roles, otherwise the test will fail
-		// since there are already users/roles in the admin db. Also we cannot delete admin db
-		// because we are using it.
-		SkipUsersAndRoles: true,
-	}
-
-	r, err := restore.NewMongoRestore(input)
-	if err != nil {
-		t.Errorf("Cannot instantiate mongo restore instance: %s", err)
-		t.FailNow()
-	}
-
-	if err := r.Start(); err != nil {
-		t.Errorf("Cannot start restore: %s", err)
-	}
-
-	if err := r.Wait(); err != nil {
-		t.Errorf("Error while trying to restore: %s", err)
-	}
-
-	count, err = session.DB(dbName).C(colName).Find(nil).Count()
-	if err != nil {
-		t.Fatalf("Cannot count number of rows in the test collection %q after restore: %s", colName, err)
-	}
-
-	if count < 100 {
-		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want > 100", colName, count)
-	}
-
-}
-
 func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}
-
 	log.Infof("Wating restore to finish")
 	d.MessagesServer.WaitRestoreFinish()
-}
-
-func testOplogApply(t *testing.T, session *mgo.Session, dir string, minOplogDocs int64) {
-	log.Print("Starting oplog apply test")
-	oplogFile := path.Join(dir, "test.oplog")
-	reader, err := bsonfile.OpenFile(oplogFile)
-	if err != nil {
-		t.Errorf("Cannot open oplog dump file %q: %s", oplogFile, err)
-		return
-	}
-
-	// Replay the oplog
-	oa, err := oplog.NewOplogApply(session, reader)
-	if err != nil {
-		t.Errorf("Cannot instantiate the oplog applier: %s", err)
-	}
-
-	if err := oa.Run(); err != nil {
-		t.Errorf("Error while running the oplog applier: %s", err)
-	}
-	type maxnumber struct {
-		Number int64 `bson:"number"`
-	}
-	var max maxnumber
-	session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&max)
-	if max.Number < minOplogDocs {
-		t.Errorf("Invalid number of documents in the oplog. Got %d, want > %d", max.Number, minOplogDocs)
-	}
 }
 
 func sortedReplicaNames(replicas map[string]*server.Client) []string {

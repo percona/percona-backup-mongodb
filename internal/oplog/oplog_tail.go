@@ -93,6 +93,10 @@ func open(session *mgo.Session) (*OplogTail, error) {
 	return ot, nil
 }
 
+func (ot *OplogTail) LastOplogTimestamp() *bson.MongoTimestamp {
+	return ot.lastOplogTimestamp
+}
+
 // Implement the Reader interface to be able to pipe it into an S3 stream or through an
 // encrypter
 func (ot *OplogTail) Read(buf []byte) (int, error) {

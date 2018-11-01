@@ -14,7 +14,7 @@ import (
 
 type BackupMetadata struct {
 	metadata *pb.BackupMetadata
-	lock     *sync.Mutex `json:"-"`
+	lock     *sync.Mutex
 }
 
 func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
@@ -45,10 +45,10 @@ func (b *BackupMetadata) AddReplicaset(clusterID, replName, replUUID, dbBackupNa
 	// new and shiny environment created to restore a backup, the UUID will be different.
 	// On restore, we will try to restore each replicaset by name to the matching cluster.
 	b.metadata.Replicasets[replName] = &pb.ReplicasetMetadata{
-		ClusterID:       clusterID,
-		ReplicasetUUID:  replUUID,
+		ClusterId:       clusterID,
+		ReplicasetUuid:  replUUID,
 		ReplicasetName:  replName,
-		DBBackupName:    dbBackupName,
+		DbBackupName:    dbBackupName,
 		OplogBackupName: oplogBackupName,
 	}
 

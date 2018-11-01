@@ -26,18 +26,21 @@ const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 type BackupType int32
 
 const (
-	BackupType_LOGICAL   BackupType = 0
-	BackupType_HOTBACKUP BackupType = 1
+	BackupType_BACKUP_TYPE_INVALID   BackupType = 0
+	BackupType_BACKUP_TYPE_LOGICAL   BackupType = 1
+	BackupType_BACKUP_TYPE_HOTBACKUP BackupType = 2
 )
 
 var BackupType_name = map[int32]string{
-	0: "LOGICAL",
-	1: "HOTBACKUP",
+	0: "BACKUP_TYPE_INVALID",
+	1: "BACKUP_TYPE_LOGICAL",
+	2: "BACKUP_TYPE_HOTBACKUP",
 }
 
 var BackupType_value = map[string]int32{
-	"LOGICAL":   0,
-	"HOTBACKUP": 1,
+	"BACKUP_TYPE_INVALID":   0,
+	"BACKUP_TYPE_LOGICAL":   1,
+	"BACKUP_TYPE_HOTBACKUP": 2,
 }
 
 func (x BackupType) String() string {
@@ -51,18 +54,21 @@ func (BackupType) EnumDescriptor() ([]byte, []int) {
 type DestinationType int32
 
 const (
-	DestinationType_FILE DestinationType = 0
-	DestinationType_AWS  DestinationType = 1
+	DestinationType_DESTINATION_TYPE_INVALID DestinationType = 0
+	DestinationType_DESTINATION_TYPE_FILE    DestinationType = 1
+	DestinationType_DESTINATION_TYPE_AWS     DestinationType = 2
 )
 
 var DestinationType_name = map[int32]string{
-	0: "FILE",
-	1: "AWS",
+	0: "DESTINATION_TYPE_INVALID",
+	1: "DESTINATION_TYPE_FILE",
+	2: "DESTINATION_TYPE_AWS",
 }
 
 var DestinationType_value = map[string]int32{
-	"FILE": 0,
-	"AWS":  1,
+	"DESTINATION_TYPE_INVALID": 0,
+	"DESTINATION_TYPE_FILE":    1,
+	"DESTINATION_TYPE_AWS":     2,
 }
 
 func (x DestinationType) String() string {
@@ -76,24 +82,27 @@ func (DestinationType) EnumDescriptor() ([]byte, []int) {
 type CompressionType int32
 
 const (
-	CompressionType_NO_COMPRESSION CompressionType = 0
-	CompressionType_GZIP           CompressionType = 1
-	CompressionType_SNAPPY         CompressionType = 2
-	CompressionType_LZ4            CompressionType = 3
+	CompressionType_COMPRESSION_TYPE_INVALID        CompressionType = 0
+	CompressionType_COMPRESSION_TYPE_NO_COMPRESSION CompressionType = 1
+	CompressionType_COMPRESSION_TYPE_GZIP           CompressionType = 2
+	CompressionType_COMPRESSION_TYPE_SNAPPY         CompressionType = 3
+	CompressionType_COMPRESSION_TYPE_LZ4            CompressionType = 4
 )
 
 var CompressionType_name = map[int32]string{
-	0: "NO_COMPRESSION",
-	1: "GZIP",
-	2: "SNAPPY",
-	3: "LZ4",
+	0: "COMPRESSION_TYPE_INVALID",
+	1: "COMPRESSION_TYPE_NO_COMPRESSION",
+	2: "COMPRESSION_TYPE_GZIP",
+	3: "COMPRESSION_TYPE_SNAPPY",
+	4: "COMPRESSION_TYPE_LZ4",
 }
 
 var CompressionType_value = map[string]int32{
-	"NO_COMPRESSION": 0,
-	"GZIP":           1,
-	"SNAPPY":         2,
-	"LZ4":            3,
+	"COMPRESSION_TYPE_INVALID":        0,
+	"COMPRESSION_TYPE_NO_COMPRESSION": 1,
+	"COMPRESSION_TYPE_GZIP":           2,
+	"COMPRESSION_TYPE_SNAPPY":         3,
+	"COMPRESSION_TYPE_LZ4":            4,
 }
 
 func (x CompressionType) String() string {
@@ -107,27 +116,30 @@ func (CompressionType) EnumDescriptor() ([]byte, []int) {
 type Cypher int32
 
 const (
-	Cypher_NO_CYPHER Cypher = 0
-	Cypher_AES       Cypher = 1
-	Cypher_DES       Cypher = 2
-	Cypher_RC4       Cypher = 3
-	Cypher_RSA       Cypher = 4
+	Cypher_CYPHER_INVALID   Cypher = 0
+	Cypher_CYPHER_NO_CYPHER Cypher = 1
+	Cypher_CYPHER_AES       Cypher = 2
+	Cypher_CYPHER_DES       Cypher = 3
+	Cypher_CYPHER_RC4       Cypher = 4
+	Cypher_CYPHER_RSA       Cypher = 5
 )
 
 var Cypher_name = map[int32]string{
-	0: "NO_CYPHER",
-	1: "AES",
-	2: "DES",
-	3: "RC4",
-	4: "RSA",
+	0: "CYPHER_INVALID",
+	1: "CYPHER_NO_CYPHER",
+	2: "CYPHER_AES",
+	3: "CYPHER_DES",
+	4: "CYPHER_RC4",
+	5: "CYPHER_RSA",
 }
 
 var Cypher_value = map[string]int32{
-	"NO_CYPHER": 0,
-	"AES":       1,
-	"DES":       2,
-	"RC4":       3,
-	"RSA":       4,
+	"CYPHER_INVALID":   0,
+	"CYPHER_NO_CYPHER": 1,
+	"CYPHER_AES":       2,
+	"CYPHER_DES":       3,
+	"CYPHER_RC4":       4,
+	"CYPHER_RSA":       5,
 }
 
 func (x Cypher) String() string {
@@ -169,9 +181,71 @@ func (m *Empty) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Empty proto.InternalMessageInfo
 
+type BackupsMetadataParams struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *BackupsMetadataParams) Reset()         { *m = BackupsMetadataParams{} }
+func (m *BackupsMetadataParams) String() string { return proto.CompactTextString(m) }
+func (*BackupsMetadataParams) ProtoMessage()    {}
+func (*BackupsMetadataParams) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1b40cafcd4234784, []int{1}
+}
+
+func (m *BackupsMetadataParams) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_BackupsMetadataParams.Unmarshal(m, b)
+}
+func (m *BackupsMetadataParams) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_BackupsMetadataParams.Marshal(b, m, deterministic)
+}
+func (m *BackupsMetadataParams) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_BackupsMetadataParams.Merge(m, src)
+}
+func (m *BackupsMetadataParams) XXX_Size() int {
+	return xxx_messageInfo_BackupsMetadataParams.Size(m)
+}
+func (m *BackupsMetadataParams) XXX_DiscardUnknown() {
+	xxx_messageInfo_BackupsMetadataParams.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_BackupsMetadataParams proto.InternalMessageInfo
+
+type LastBackupMetadataParams struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *LastBackupMetadataParams) Reset()         { *m = LastBackupMetadataParams{} }
+func (m *LastBackupMetadataParams) String() string { return proto.CompactTextString(m) }
+func (*LastBackupMetadataParams) ProtoMessage()    {}
+func (*LastBackupMetadataParams) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1b40cafcd4234784, []int{2}
+}
+
+func (m *LastBackupMetadataParams) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_LastBackupMetadataParams.Unmarshal(m, b)
+}
+func (m *LastBackupMetadataParams) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_LastBackupMetadataParams.Marshal(b, m, deterministic)
+}
+func (m *LastBackupMetadataParams) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_LastBackupMetadataParams.Merge(m, src)
+}
+func (m *LastBackupMetadataParams) XXX_Size() int {
+	return xxx_messageInfo_LastBackupMetadataParams.Size(m)
+}
+func (m *LastBackupMetadataParams) XXX_DiscardUnknown() {
+	xxx_messageInfo_LastBackupMetadataParams.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_LastBackupMetadataParams proto.InternalMessageInfo
+
 type Error struct {
-	Message              string   `protobuf:"bytes,1,opt,name=Message,proto3" json:"Message,omitempty"`
-	Code                 int64    `protobuf:"varint,2,opt,name=Code,proto3" json:"Code,omitempty"`
+	Message              string   `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Code                 int64    `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -181,7 +255,7 @@ func (m *Error) Reset()         { *m = Error{} }
 func (m *Error) String() string { return proto.CompactTextString(m) }
 func (*Error) ProtoMessage()    {}
 func (*Error) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{1}
+	return fileDescriptor_1b40cafcd4234784, []int{3}
 }
 
 func (m *Error) XXX_Unmarshal(b []byte) error {
@@ -217,22 +291,22 @@ func (m *Error) GetCode() int64 {
 }
 
 type ClientStatus struct {
-	ReplicaSetUUID       string   `protobuf:"bytes,1,opt,name=ReplicaSetUUID,proto3" json:"ReplicaSetUUID,omitempty"`
-	ReplicaSetName       string   `protobuf:"bytes,2,opt,name=ReplicaSetName,proto3" json:"ReplicaSetName,omitempty"`
-	ReplicaSetVersion    uint64   `protobuf:"varint,3,opt,name=ReplicaSetVersion,proto3" json:"ReplicaSetVersion,omitempty"`
-	RunningDBBackup      bool     `protobuf:"varint,4,opt,name=RunningDBBackup,proto3" json:"RunningDBBackup,omitempty"`
-	RunningOplogBackup   bool     `protobuf:"varint,5,opt,name=RunningOplogBackup,proto3" json:"RunningOplogBackup,omitempty"`
-	BackupType           string   `protobuf:"bytes,6,opt,name=BackupType,proto3" json:"BackupType,omitempty"`
-	Compression          string   `protobuf:"bytes,7,opt,name=Compression,proto3" json:"Compression,omitempty"`
-	Encrypted            string   `protobuf:"bytes,8,opt,name=Encrypted,proto3" json:"Encrypted,omitempty"`
-	Destination          string   `protobuf:"bytes,9,opt,name=Destination,proto3" json:"Destination,omitempty"`
-	Dirname              string   `protobuf:"bytes,10,opt,name=Dirname,proto3" json:"Dirname,omitempty"`
-	Filename             string   `protobuf:"bytes,11,opt,name=Filename,proto3" json:"Filename,omitempty"`
-	Started              int64    `protobuf:"varint,12,opt,name=Started,proto3" json:"Started,omitempty"`
-	Finished             int64    `protobuf:"varint,13,opt,name=Finished,proto3" json:"Finished,omitempty"`
-	StartOplogTs         int64    `protobuf:"varint,14,opt,name=StartOplogTs,proto3" json:"StartOplogTs,omitempty"`
-	LastOplogTs          int64    `protobuf:"varint,15,opt,name=LastOplogTs,proto3" json:"LastOplogTs,omitempty"`
-	LastError            string   `protobuf:"bytes,16,opt,name=LastError,proto3" json:"LastError,omitempty"`
+	ReplicasetUuid       string   `protobuf:"bytes,1,opt,name=replicaset_uuid,json=replicasetUuid,proto3" json:"replicaset_uuid,omitempty"`
+	ReplicasetName       string   `protobuf:"bytes,2,opt,name=replicaset_name,json=replicasetName,proto3" json:"replicaset_name,omitempty"`
+	ReplicasetVersion    uint64   `protobuf:"varint,3,opt,name=replicaset_version,json=replicasetVersion,proto3" json:"replicaset_version,omitempty"`
+	RunningDbBackup      bool     `protobuf:"varint,4,opt,name=running_db_backup,json=runningDbBackup,proto3" json:"running_db_backup,omitempty"`
+	RunningOplogBackup   bool     `protobuf:"varint,5,opt,name=running_oplog_backup,json=runningOplogBackup,proto3" json:"running_oplog_backup,omitempty"`
+	BackupType           string   `protobuf:"bytes,6,opt,name=backup_type,json=backupType,proto3" json:"backup_type,omitempty"`
+	Compression          string   `protobuf:"bytes,7,opt,name=compression,proto3" json:"compression,omitempty"`
+	Encrypted            string   `protobuf:"bytes,8,opt,name=encrypted,proto3" json:"encrypted,omitempty"`
+	Destination          string   `protobuf:"bytes,9,opt,name=destination,proto3" json:"destination,omitempty"`
+	Dirname              string   `protobuf:"bytes,10,opt,name=dirname,proto3" json:"dirname,omitempty"`
+	Filename             string   `protobuf:"bytes,11,opt,name=filename,proto3" json:"filename,omitempty"`
+	Started              int64    `protobuf:"varint,12,opt,name=started,proto3" json:"started,omitempty"`
+	Finished             int64    `protobuf:"varint,13,opt,name=finished,proto3" json:"finished,omitempty"`
+	StartOplogTs         int64    `protobuf:"varint,14,opt,name=start_oplog_ts,json=startOplogTs,proto3" json:"start_oplog_ts,omitempty"`
+	LastOplogTs          int64    `protobuf:"varint,15,opt,name=last_oplog_ts,json=lastOplogTs,proto3" json:"last_oplog_ts,omitempty"`
+	LastError            string   `protobuf:"bytes,16,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -242,7 +316,7 @@ func (m *ClientStatus) Reset()         { *m = ClientStatus{} }
 func (m *ClientStatus) String() string { return proto.CompactTextString(m) }
 func (*ClientStatus) ProtoMessage()    {}
 func (*ClientStatus) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{2}
+	return fileDescriptor_1b40cafcd4234784, []int{4}
 }
 
 func (m *ClientStatus) XXX_Unmarshal(b []byte) error {
@@ -263,30 +337,30 @@ func (m *ClientStatus) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ClientStatus proto.InternalMessageInfo
 
-func (m *ClientStatus) GetReplicaSetUUID() string {
+func (m *ClientStatus) GetReplicasetUuid() string {
 	if m != nil {
-		return m.ReplicaSetUUID
+		return m.ReplicasetUuid
 	}
 	return ""
 }
 
-func (m *ClientStatus) GetReplicaSetName() string {
+func (m *ClientStatus) GetReplicasetName() string {
 	if m != nil {
-		return m.ReplicaSetName
+		return m.ReplicasetName
 	}
 	return ""
 }
 
-func (m *ClientStatus) GetReplicaSetVersion() uint64 {
+func (m *ClientStatus) GetReplicasetVersion() uint64 {
 	if m != nil {
-		return m.ReplicaSetVersion
+		return m.ReplicasetVersion
 	}
 	return 0
 }
 
-func (m *ClientStatus) GetRunningDBBackup() bool {
+func (m *ClientStatus) GetRunningDbBackup() bool {
 	if m != nil {
-		return m.RunningDBBackup
+		return m.RunningDbBackup
 	}
 	return false
 }
@@ -377,15 +451,15 @@ func (m *ClientStatus) GetLastError() string {
 
 type Client struct {
 	Version              int32         `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	ID                   string        `protobuf:"bytes,2,opt,name=ID,proto3" json:"ID,omitempty"`
-	NodeType             string        `protobuf:"bytes,3,opt,name=NodeType,proto3" json:"NodeType,omitempty"`
-	NodeName             string        `protobuf:"bytes,4,opt,name=NodeName,proto3" json:"NodeName,omitempty"`
-	ClusterID            string        `protobuf:"bytes,5,opt,name=ClusterID,proto3" json:"ClusterID,omitempty"`
-	ReplicasetName       string        `protobuf:"bytes,6,opt,name=ReplicasetName,proto3" json:"ReplicasetName,omitempty"`
-	ReplicasetID         string        `protobuf:"bytes,7,opt,name=ReplicasetID,proto3" json:"ReplicasetID,omitempty"`
-	LastCommandSent      string        `protobuf:"bytes,8,opt,name=LastCommandSent,proto3" json:"LastCommandSent,omitempty"`
-	LastSeen             int64         `protobuf:"varint,9,opt,name=LastSeen,proto3" json:"LastSeen,omitempty"`
-	Status               *ClientStatus `protobuf:"bytes,10,opt,name=Status,proto3" json:"Status,omitempty"`
+	Id                   string        `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	NodeType             string        `protobuf:"bytes,3,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
+	NodeName             string        `protobuf:"bytes,4,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	ClusterId            string        `protobuf:"bytes,5,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ReplicasetName       string        `protobuf:"bytes,6,opt,name=replicaset_name,json=replicasetName,proto3" json:"replicaset_name,omitempty"`
+	ReplicasetId         string        `protobuf:"bytes,7,opt,name=replicaset_id,json=replicasetId,proto3" json:"replicaset_id,omitempty"`
+	LastCommandSent      string        `protobuf:"bytes,8,opt,name=last_command_sent,json=lastCommandSent,proto3" json:"last_command_sent,omitempty"`
+	LastSeen             int64         `protobuf:"varint,9,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	Status               *ClientStatus `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}      `json:"-"`
 	XXX_unrecognized     []byte        `json:"-"`
 	XXX_sizecache        int32         `json:"-"`
@@ -395,7 +469,7 @@ func (m *Client) Reset()         { *m = Client{} }
 func (m *Client) String() string { return proto.CompactTextString(m) }
 func (*Client) ProtoMessage()    {}
 func (*Client) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{3}
+	return fileDescriptor_1b40cafcd4234784, []int{5}
 }
 
 func (m *Client) XXX_Unmarshal(b []byte) error {
@@ -423,9 +497,9 @@ func (m *Client) GetVersion() int32 {
 	return 0
 }
 
-func (m *Client) GetID() string {
+func (m *Client) GetId() string {
 	if m != nil {
-		return m.ID
+		return m.Id
 	}
 	return ""
 }
@@ -444,9 +518,9 @@ func (m *Client) GetNodeName() string {
 	return ""
 }
 
-func (m *Client) GetClusterID() string {
+func (m *Client) GetClusterId() string {
 	if m != nil {
-		return m.ClusterID
+		return m.ClusterId
 	}
 	return ""
 }
@@ -458,9 +532,9 @@ func (m *Client) GetReplicasetName() string {
 	return ""
 }
 
-func (m *Client) GetReplicasetID() string {
+func (m *Client) GetReplicasetId() string {
 	if m != nil {
-		return m.ReplicasetID
+		return m.ReplicasetId
 	}
 	return ""
 }
@@ -487,8 +561,8 @@ func (m *Client) GetStatus() *ClientStatus {
 }
 
 type MetadataFile struct {
-	Filename             string                   `protobuf:"bytes,1,opt,name=Filename,proto3" json:"Filename,omitempty"`
-	Metadata             *messages.BackupMetadata `protobuf:"bytes,2,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
+	Filename             string                   `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	Metadata             *messages.BackupMetadata `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
 	XXX_sizecache        int32                    `json:"-"`
@@ -498,7 +572,7 @@ func (m *MetadataFile) Reset()         { *m = MetadataFile{} }
 func (m *MetadataFile) String() string { return proto.CompactTextString(m) }
 func (*MetadataFile) ProtoMessage()    {}
 func (*MetadataFile) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{4}
+	return fileDescriptor_1b40cafcd4234784, []int{6}
 }
 
 func (m *MetadataFile) XXX_Unmarshal(b []byte) error {
@@ -534,14 +608,14 @@ func (m *MetadataFile) GetMetadata() *messages.BackupMetadata {
 }
 
 type RunBackupParams struct {
-	BackupType           BackupType      `protobuf:"varint,1,opt,name=BackupType,proto3,enum=api.BackupType" json:"BackupType,omitempty"`
-	CompressionType      CompressionType `protobuf:"varint,2,opt,name=CompressionType,proto3,enum=api.CompressionType" json:"CompressionType,omitempty"`
-	Cypher               Cypher          `protobuf:"varint,3,opt,name=Cypher,proto3,enum=api.Cypher" json:"Cypher,omitempty"`
-	DestinationType      DestinationType `protobuf:"varint,4,opt,name=DestinationType,proto3,enum=api.DestinationType" json:"DestinationType,omitempty"`
-	Dirname              string          `protobuf:"bytes,5,opt,name=Dirname,proto3" json:"Dirname,omitempty"`
-	Filename             string          `protobuf:"bytes,6,opt,name=Filename,proto3" json:"Filename,omitempty"`
-	StartOplogTs         int64           `protobuf:"varint,7,opt,name=StartOplogTs,proto3" json:"StartOplogTs,omitempty"`
-	Description          string          `protobuf:"bytes,8,opt,name=Description,proto3" json:"Description,omitempty"`
+	BackupType           BackupType      `protobuf:"varint,1,opt,name=backup_type,json=backupType,proto3,enum=api.BackupType" json:"backup_type,omitempty"`
+	CompressionType      CompressionType `protobuf:"varint,2,opt,name=compression_type,json=compressionType,proto3,enum=api.CompressionType" json:"compression_type,omitempty"`
+	Cypher               Cypher          `protobuf:"varint,3,opt,name=cypher,proto3,enum=api.Cypher" json:"cypher,omitempty"`
+	DestinationType      DestinationType `protobuf:"varint,4,opt,name=destination_type,json=destinationType,proto3,enum=api.DestinationType" json:"destination_type,omitempty"`
+	Dirname              string          `protobuf:"bytes,5,opt,name=dirname,proto3" json:"dirname,omitempty"`
+	Filename             string          `protobuf:"bytes,6,opt,name=filename,proto3" json:"filename,omitempty"`
+	StartOplogTs         int64           `protobuf:"varint,7,opt,name=start_oplog_ts,json=startOplogTs,proto3" json:"start_oplog_ts,omitempty"`
+	Description          string          `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
 	XXX_unrecognized     []byte          `json:"-"`
 	XXX_sizecache        int32           `json:"-"`
@@ -551,7 +625,7 @@ func (m *RunBackupParams) Reset()         { *m = RunBackupParams{} }
 func (m *RunBackupParams) String() string { return proto.CompactTextString(m) }
 func (*RunBackupParams) ProtoMessage()    {}
 func (*RunBackupParams) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{5}
+	return fileDescriptor_1b40cafcd4234784, []int{7}
 }
 
 func (m *RunBackupParams) XXX_Unmarshal(b []byte) error {
@@ -576,28 +650,28 @@ func (m *RunBackupParams) GetBackupType() BackupType {
 	if m != nil {
 		return m.BackupType
 	}
-	return BackupType_LOGICAL
+	return BackupType_BACKUP_TYPE_INVALID
 }
 
 func (m *RunBackupParams) GetCompressionType() CompressionType {
 	if m != nil {
 		return m.CompressionType
 	}
-	return CompressionType_NO_COMPRESSION
+	return CompressionType_COMPRESSION_TYPE_INVALID
 }
 
 func (m *RunBackupParams) GetCypher() Cypher {
 	if m != nil {
 		return m.Cypher
 	}
-	return Cypher_NO_CYPHER
+	return Cypher_CYPHER_INVALID
 }
 
 func (m *RunBackupParams) GetDestinationType() DestinationType {
 	if m != nil {
 		return m.DestinationType
 	}
-	return DestinationType_FILE
+	return DestinationType_DESTINATION_TYPE_INVALID
 }
 
 func (m *RunBackupParams) GetDirname() string {
@@ -629,8 +703,8 @@ func (m *RunBackupParams) GetDescription() string {
 }
 
 type RunRestoreParams struct {
-	MetadataFile         string   `protobuf:"bytes,1,opt,name=MetadataFile,proto3" json:"MetadataFile,omitempty"`
-	SkipUsersAndRoles    bool     `protobuf:"varint,2,opt,name=SkipUsersAndRoles,proto3" json:"SkipUsersAndRoles,omitempty"`
+	MetadataFile         string   `protobuf:"bytes,1,opt,name=metadata_file,json=metadataFile,proto3" json:"metadata_file,omitempty"`
+	SkipUsersAndRoles    bool     `protobuf:"varint,2,opt,name=skip_users_and_roles,json=skipUsersAndRoles,proto3" json:"skip_users_and_roles,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -640,7 +714,7 @@ func (m *RunRestoreParams) Reset()         { *m = RunRestoreParams{} }
 func (m *RunRestoreParams) String() string { return proto.CompactTextString(m) }
 func (*RunRestoreParams) ProtoMessage()    {}
 func (*RunRestoreParams) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{6}
+	return fileDescriptor_1b40cafcd4234784, []int{8}
 }
 
 func (m *RunRestoreParams) XXX_Unmarshal(b []byte) error {
@@ -675,14 +749,53 @@ func (m *RunRestoreParams) GetSkipUsersAndRoles() bool {
 	return false
 }
 
+type RunRestoreResponse struct {
+	Error                string   `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *RunRestoreResponse) Reset()         { *m = RunRestoreResponse{} }
+func (m *RunRestoreResponse) String() string { return proto.CompactTextString(m) }
+func (*RunRestoreResponse) ProtoMessage()    {}
+func (*RunRestoreResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1b40cafcd4234784, []int{9}
+}
+
+func (m *RunRestoreResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RunRestoreResponse.Unmarshal(m, b)
+}
+func (m *RunRestoreResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RunRestoreResponse.Marshal(b, m, deterministic)
+}
+func (m *RunRestoreResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RunRestoreResponse.Merge(m, src)
+}
+func (m *RunRestoreResponse) XXX_Size() int {
+	return xxx_messageInfo_RunRestoreResponse.Size(m)
+}
+func (m *RunRestoreResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_RunRestoreResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RunRestoreResponse proto.InternalMessageInfo
+
+func (m *RunRestoreResponse) GetError() string {
+	if m != nil {
+		return m.Error
+	}
+	return ""
+}
+
 type BackupReplica struct {
-	AgentID              string   `protobuf:"bytes,1,opt,name=AgentID,proto3" json:"AgentID,omitempty"`
-	NodeType             string   `protobuf:"bytes,2,opt,name=NodeType,proto3" json:"NodeType,omitempty"`
-	NodeName             string   `protobuf:"bytes,3,opt,name=NodeName,proto3" json:"NodeName,omitempty"`
-	ClusterID            string   `protobuf:"bytes,4,opt,name=ClusterID,proto3" json:"ClusterID,omitempty"`
-	ReplicasetName       string   `protobuf:"bytes,5,opt,name=ReplicasetName,proto3" json:"ReplicasetName,omitempty"`
-	ReplicasetID         string   `protobuf:"bytes,6,opt,name=ReplicasetID,proto3" json:"ReplicasetID,omitempty"`
-	StartedAt            int64    `protobuf:"varint,7,opt,name=StartedAt,proto3" json:"StartedAt,omitempty"`
+	AgentId              string   `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	NodeType             string   `protobuf:"bytes,2,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
+	NodeName             string   `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	ClusterId            string   `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ReplicasetName       string   `protobuf:"bytes,5,opt,name=replicaset_name,json=replicasetName,proto3" json:"replicaset_name,omitempty"`
+	ReplicasetId         string   `protobuf:"bytes,6,opt,name=replicaset_id,json=replicasetId,proto3" json:"replicaset_id,omitempty"`
+	StartedAt            int64    `protobuf:"varint,7,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -692,7 +805,7 @@ func (m *BackupReplica) Reset()         { *m = BackupReplica{} }
 func (m *BackupReplica) String() string { return proto.CompactTextString(m) }
 func (*BackupReplica) ProtoMessage()    {}
 func (*BackupReplica) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1b40cafcd4234784, []int{7}
+	return fileDescriptor_1b40cafcd4234784, []int{10}
 }
 
 func (m *BackupReplica) XXX_Unmarshal(b []byte) error {
@@ -713,9 +826,9 @@ func (m *BackupReplica) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_BackupReplica proto.InternalMessageInfo
 
-func (m *BackupReplica) GetAgentID() string {
+func (m *BackupReplica) GetAgentId() string {
 	if m != nil {
-		return m.AgentID
+		return m.AgentId
 	}
 	return ""
 }
@@ -734,9 +847,9 @@ func (m *BackupReplica) GetNodeName() string {
 	return ""
 }
 
-func (m *BackupReplica) GetClusterID() string {
+func (m *BackupReplica) GetClusterId() string {
 	if m != nil {
-		return m.ClusterID
+		return m.ClusterId
 	}
 	return ""
 }
@@ -748,9 +861,9 @@ func (m *BackupReplica) GetReplicasetName() string {
 	return ""
 }
 
-func (m *BackupReplica) GetReplicasetID() string {
+func (m *BackupReplica) GetReplicasetId() string {
 	if m != nil {
-		return m.ReplicasetID
+		return m.ReplicasetId
 	}
 	return ""
 }
@@ -768,83 +881,97 @@ func init() {
 	proto.RegisterEnum("api.CompressionType", CompressionType_name, CompressionType_value)
 	proto.RegisterEnum("api.Cypher", Cypher_name, Cypher_value)
 	proto.RegisterType((*Empty)(nil), "api.Empty")
+	proto.RegisterType((*BackupsMetadataParams)(nil), "api.BackupsMetadataParams")
+	proto.RegisterType((*LastBackupMetadataParams)(nil), "api.LastBackupMetadataParams")
 	proto.RegisterType((*Error)(nil), "api.Error")
 	proto.RegisterType((*ClientStatus)(nil), "api.ClientStatus")
 	proto.RegisterType((*Client)(nil), "api.Client")
 	proto.RegisterType((*MetadataFile)(nil), "api.MetadataFile")
 	proto.RegisterType((*RunBackupParams)(nil), "api.RunBackupParams")
 	proto.RegisterType((*RunRestoreParams)(nil), "api.RunRestoreParams")
+	proto.RegisterType((*RunRestoreResponse)(nil), "api.RunRestoreResponse")
 	proto.RegisterType((*BackupReplica)(nil), "api.BackupReplica")
 }
 
 func init() { proto.RegisterFile("api/api.proto", fileDescriptor_1b40cafcd4234784) }
 
 var fileDescriptor_1b40cafcd4234784 = []byte{
-	// 1011 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x56, 0xdd, 0x6e, 0xeb, 0x44,
-	0x10, 0x8e, 0xe3, 0xfc, 0x4e, 0xda, 0xd4, 0x67, 0x05, 0xc2, 0x54, 0x15, 0x8a, 0x0c, 0x42, 0x39,
-	0xe5, 0x90, 0x40, 0x28, 0x57, 0x20, 0xa4, 0xc4, 0xce, 0xe9, 0x89, 0x48, 0x93, 0x68, 0xdd, 0x82,
-	0xda, 0x1b, 0x70, 0x93, 0x55, 0x6a, 0x9d, 0xf8, 0x47, 0xde, 0x0d, 0xa2, 0x6f, 0xc0, 0x23, 0xf1,
-	0x02, 0x3c, 0x09, 0x57, 0xbc, 0x05, 0xda, 0x1f, 0x3b, 0xb6, 0xdb, 0x73, 0xe0, 0x6e, 0xe7, 0x9b,
-	0x99, 0xec, 0xec, 0xcc, 0xf7, 0x4d, 0x0c, 0xc7, 0x5e, 0xec, 0x0f, 0xbd, 0xd8, 0x1f, 0xc4, 0x49,
-	0xc4, 0x22, 0xa4, 0x7b, 0xb1, 0x7f, 0xfa, 0x51, 0x40, 0x28, 0xf5, 0xb6, 0x84, 0x0e, 0xd3, 0x83,
-	0xf4, 0x5a, 0x4d, 0xa8, 0x4f, 0x83, 0x98, 0x3d, 0x5a, 0xdf, 0x42, 0x7d, 0x9a, 0x24, 0x51, 0x82,
-	0x4c, 0x68, 0x5e, 0xc9, 0x18, 0x53, 0xeb, 0x69, 0xfd, 0x36, 0x4e, 0x4d, 0x84, 0xa0, 0x66, 0x47,
-	0x1b, 0x62, 0x56, 0x7b, 0x5a, 0x5f, 0xc7, 0xe2, 0x6c, 0xfd, 0x59, 0x83, 0x23, 0x7b, 0xe7, 0x93,
-	0x90, 0xb9, 0xcc, 0x63, 0x7b, 0x8a, 0x3e, 0x87, 0x2e, 0x26, 0xf1, 0xce, 0x5f, 0x7b, 0x2e, 0x61,
-	0x37, 0x37, 0x33, 0x47, 0xfd, 0x4a, 0x09, 0x2d, 0xc6, 0x2d, 0xbc, 0x40, 0xfe, 0x6c, 0x21, 0x8e,
-	0xa3, 0xe8, 0x15, 0xbc, 0x38, 0x20, 0x3f, 0x91, 0x84, 0xfa, 0x51, 0x68, 0xea, 0x3d, 0xad, 0x5f,
-	0xc3, 0x4f, 0x1d, 0xa8, 0x0f, 0x27, 0x78, 0x1f, 0x86, 0x7e, 0xb8, 0x75, 0x26, 0x13, 0x6f, 0xfd,
-	0x76, 0x1f, 0x9b, 0xb5, 0x9e, 0xd6, 0x6f, 0xe1, 0x32, 0x8c, 0x06, 0x80, 0x14, 0xb4, 0x8c, 0x77,
-	0xd1, 0x56, 0x05, 0xd7, 0x45, 0xf0, 0x33, 0x1e, 0xf4, 0x09, 0x80, 0x3c, 0x5d, 0x3f, 0xc6, 0xc4,
-	0x6c, 0x88, 0x5a, 0x73, 0x08, 0xea, 0x41, 0xc7, 0x8e, 0x82, 0x38, 0x21, 0x54, 0x54, 0xd8, 0x14,
-	0x01, 0x79, 0x08, 0x9d, 0x41, 0x7b, 0x1a, 0xae, 0x93, 0xc7, 0x98, 0x91, 0x8d, 0xd9, 0x12, 0xfe,
-	0x03, 0xc0, 0xf3, 0x1d, 0x42, 0x99, 0x1f, 0x7a, 0x8c, 0xe7, 0xb7, 0x65, 0x7e, 0x0e, 0xe2, 0x83,
-	0x71, 0xfc, 0x24, 0xe4, 0xad, 0x02, 0x39, 0x18, 0x65, 0xa2, 0x53, 0x68, 0xbd, 0xf6, 0x77, 0x44,
-	0xb8, 0x3a, 0xc2, 0x95, 0xd9, 0x3c, 0xcb, 0x65, 0x5e, 0xc2, 0xef, 0x3c, 0x12, 0x73, 0x4b, 0x4d,
-	0x99, 0x15, 0xfa, 0xf4, 0x81, 0x6c, 0xcc, 0x63, 0xe1, 0xca, 0x6c, 0x64, 0xc1, 0x91, 0x08, 0x13,
-	0x1d, 0xb8, 0xa6, 0x66, 0x57, 0xf8, 0x0b, 0x18, 0xaf, 0x78, 0xee, 0xd1, 0x2c, 0xe4, 0x44, 0x84,
-	0xe4, 0x21, 0xfe, 0x62, 0x6e, 0x0a, 0x5e, 0x99, 0x86, 0x7c, 0x71, 0x06, 0x58, 0x7f, 0x55, 0xa1,
-	0x21, 0xa9, 0xc3, 0x8b, 0xfc, 0x4d, 0x8d, 0x96, 0xb3, 0xa5, 0x8e, 0x53, 0x13, 0x75, 0xa1, 0x3a,
-	0x73, 0x14, 0x35, 0xaa, 0x33, 0x87, 0x17, 0xbd, 0x88, 0x36, 0x44, 0x0c, 0x41, 0x97, 0x4f, 0x4d,
-	0xed, 0xd4, 0x27, 0xc8, 0x54, 0x3b, 0xf8, 0x04, 0x8d, 0xce, 0xa0, 0x6d, 0xef, 0xf6, 0x94, 0x91,
-	0x64, 0xe6, 0x88, 0x29, 0xb7, 0xf1, 0x01, 0xc8, 0x91, 0x91, 0x2a, 0x32, 0x36, 0x0a, 0x64, 0x54,
-	0x28, 0x6f, 0xcb, 0x01, 0x99, 0x39, 0x6a, 0xca, 0x05, 0x8c, 0x53, 0x90, 0xbf, 0xd1, 0x8e, 0x82,
-	0xc0, 0x0b, 0x37, 0x2e, 0x09, 0x99, 0x1a, 0x76, 0x19, 0xe6, 0xf5, 0x72, 0xc8, 0x25, 0x44, 0xce,
-	0x5b, 0xc7, 0x99, 0x8d, 0x5e, 0x42, 0x43, 0x0a, 0x4a, 0xcc, 0xba, 0x33, 0x7a, 0x31, 0xe0, 0x8a,
-	0xce, 0x2b, 0x0d, 0xab, 0x00, 0xeb, 0x57, 0x38, 0xba, 0x22, 0xcc, 0xdb, 0x78, 0xcc, 0xe3, 0x53,
-	0x2f, 0xb0, 0x41, 0x2b, 0xb1, 0xe1, 0x02, 0x5a, 0x69, 0xac, 0x68, 0x6a, 0x67, 0x64, 0x0e, 0xb2,
-	0x8d, 0x20, 0xd9, 0x9c, 0xfa, 0x71, 0x16, 0x69, 0xfd, 0x5d, 0x15, 0xb2, 0x92, 0xfe, 0x95, 0x97,
-	0x78, 0x01, 0x45, 0xc3, 0x82, 0x1e, 0xf8, 0x3d, 0xdd, 0xd1, 0x89, 0x28, 0xf2, 0x00, 0x17, 0x04,
-	0xf2, 0x03, 0x9c, 0xe4, 0xd4, 0x20, 0xb2, 0xaa, 0x22, 0xeb, 0x03, 0xf9, 0xb4, 0xa2, 0x0f, 0x97,
-	0x83, 0xd1, 0xa7, 0xd0, 0xb0, 0x1f, 0xe3, 0x07, 0x92, 0x88, 0xb9, 0x77, 0x47, 0x1d, 0x99, 0x26,
-	0x20, 0xac, 0x5c, 0xfc, 0x92, 0x9c, 0x64, 0xc4, 0x25, 0xb5, 0xdc, 0x25, 0x25, 0x1f, 0x2e, 0x07,
-	0xe7, 0x35, 0x56, 0x7f, 0xb7, 0xc6, 0x1a, 0xa5, 0xae, 0x96, 0xd5, 0xd2, 0x7c, 0x5e, 0x2d, 0x0e,
-	0xa1, 0xeb, 0xc4, 0x8f, 0x85, 0xbe, 0x5b, 0x99, 0xbe, 0x53, 0xc8, 0xda, 0x80, 0x81, 0xf7, 0x21,
-	0x26, 0x94, 0x45, 0x09, 0x51, 0x5d, 0xb6, 0x8a, 0xb3, 0x55, 0xf3, 0x2c, 0xce, 0xfb, 0x15, 0xbc,
-	0x70, 0xdf, 0xfa, 0xf1, 0x0d, 0x25, 0x09, 0x1d, 0x87, 0x1b, 0x1c, 0xed, 0x08, 0x15, 0xad, 0x6d,
-	0xe1, 0xa7, 0x0e, 0xeb, 0x1f, 0x0d, 0x8e, 0xe5, 0x54, 0x14, 0x6b, 0xf9, 0x9b, 0xc7, 0x5b, 0x12,
-	0xb2, 0x6c, 0x55, 0xa7, 0x66, 0x41, 0x6c, 0xd5, 0xf7, 0x88, 0x4d, 0x7f, 0x9f, 0xd8, 0x6a, 0xff,
-	0x2d, 0xb6, 0xfa, 0xff, 0x12, 0x5b, 0xe3, 0x19, 0xb1, 0x9d, 0x41, 0x5b, 0xad, 0xb3, 0x31, 0x53,
-	0x6d, 0x3f, 0x00, 0xe7, 0xfd, 0x3c, 0x47, 0x51, 0x07, 0x9a, 0xf3, 0xe5, 0xe5, 0xcc, 0x1e, 0xcf,
-	0x8d, 0x0a, 0x3a, 0x86, 0xf6, 0x9b, 0xe5, 0xf5, 0x64, 0x6c, 0xff, 0x78, 0xb3, 0x32, 0xb4, 0xf3,
-	0xcf, 0x9e, 0xf0, 0x06, 0xb5, 0xa0, 0xf6, 0x7a, 0x36, 0x9f, 0x1a, 0x15, 0xd4, 0x04, 0x7d, 0xfc,
-	0xb3, 0x6b, 0x68, 0xe7, 0xce, 0x13, 0x0a, 0x23, 0x04, 0xdd, 0xc5, 0xf2, 0x17, 0x7b, 0x79, 0xb5,
-	0xc2, 0x53, 0xd7, 0x9d, 0x2d, 0x17, 0x46, 0x85, 0x67, 0x5e, 0xde, 0xcd, 0x56, 0x86, 0x86, 0x00,
-	0x1a, 0xee, 0x62, 0xbc, 0x5a, 0xdd, 0x1a, 0x55, 0xfe, 0x2b, 0xf3, 0xbb, 0x0b, 0x43, 0x3f, 0xff,
-	0x2e, 0x25, 0x32, 0x2f, 0x82, 0x27, 0xdf, 0xae, 0xde, 0x4c, 0xb1, 0xba, 0x67, 0xea, 0x1a, 0x1a,
-	0x3f, 0x38, 0x53, 0x57, 0xe6, 0x60, 0xfb, 0xc2, 0xd0, 0xc5, 0xc1, 0x1d, 0x1b, 0xb5, 0xd1, 0x1f,
-	0x55, 0xd0, 0xc7, 0xb1, 0x8f, 0x5e, 0x02, 0x5c, 0x12, 0x26, 0xf7, 0x01, 0x45, 0x20, 0xd8, 0x2d,
-	0xfe, 0xc8, 0x4f, 0x3b, 0xb9, 0x4d, 0x61, 0x55, 0xbe, 0xd2, 0xd0, 0x10, 0xda, 0x99, 0x78, 0x91,
-	0xd4, 0x41, 0x49, 0xcc, 0xa7, 0x2a, 0x5f, 0xac, 0xe5, 0x0a, 0xfa, 0x1a, 0xe0, 0x40, 0x44, 0xf4,
-	0x61, 0x9a, 0x51, 0x60, 0x66, 0x29, 0xe5, 0x7b, 0x40, 0x7c, 0x75, 0x15, 0x37, 0x48, 0xa1, 0xac,
-	0x77, 0xee, 0x19, 0xab, 0x82, 0x2e, 0xe0, 0x44, 0x62, 0xf4, 0xd9, 0x54, 0xb9, 0xfb, 0xf2, 0x9c,
-	0xe7, 0xef, 0x9a, 0xdc, 0xc2, 0xc7, 0x7e, 0x34, 0xd8, 0x26, 0xf1, 0x7a, 0x40, 0x7e, 0xf7, 0x82,
-	0x78, 0x47, 0x68, 0x76, 0xc7, 0xe4, 0x58, 0x7d, 0xb4, 0xd0, 0x15, 0xff, 0xcc, 0x59, 0x69, 0x77,
-	0x5f, 0x6c, 0x7d, 0xf6, 0xb0, 0xbf, 0x1f, 0xac, 0xa3, 0x60, 0x18, 0x93, 0x64, 0x1d, 0x85, 0xde,
-	0x30, 0x88, 0xc2, 0x6d, 0xb4, 0xb9, 0xff, 0xf2, 0x5e, 0x5c, 0x3e, 0x14, 0x5f, 0x44, 0xfc, 0xcb,
-	0xe9, 0xbe, 0x21, 0x8e, 0xdf, 0xfc, 0x1b, 0x00, 0x00, 0xff, 0xff, 0x92, 0xf5, 0x99, 0x74, 0x4b,
-	0x09, 0x00, 0x00,
+	// 1200 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x56, 0xdb, 0x6e, 0xdb, 0x46,
+	0x10, 0x35, 0xa9, 0x8b, 0xa5, 0xd1, 0x8d, 0xde, 0xca, 0x30, 0xa3, 0xc4, 0x88, 0x41, 0x17, 0xa8,
+	0xa3, 0x22, 0x56, 0xe0, 0xba, 0xaf, 0x2d, 0xa8, 0x4b, 0x1c, 0xa1, 0x8a, 0x24, 0x50, 0x72, 0x0a,
+	0xfb, 0x85, 0xa5, 0xc8, 0xad, 0x4c, 0x44, 0xbc, 0x80, 0x4b, 0x15, 0xf0, 0x0f, 0xf5, 0x1b, 0xfa,
+	0x03, 0x7d, 0xec, 0x7f, 0xf4, 0xb1, 0x9f, 0x50, 0xec, 0x85, 0x12, 0x45, 0xd9, 0x41, 0xde, 0x34,
+	0xe7, 0xcc, 0x68, 0x76, 0x67, 0xe6, 0x0c, 0x17, 0x6a, 0x56, 0xe8, 0x76, 0xac, 0xd0, 0xbd, 0x0c,
+	0xa3, 0x20, 0x0e, 0x50, 0xce, 0x0a, 0xdd, 0xd6, 0x89, 0x87, 0x09, 0xb1, 0x96, 0x98, 0x74, 0x92,
+	0x1f, 0x9c, 0xd5, 0x0e, 0xa1, 0x30, 0xf0, 0xc2, 0xf8, 0x51, 0x3b, 0x81, 0xe3, 0xae, 0x65, 0x7f,
+	0x5e, 0x87, 0xe4, 0x23, 0x8e, 0x2d, 0xc7, 0x8a, 0xad, 0xa9, 0x15, 0x59, 0x1e, 0xd1, 0x5a, 0xa0,
+	0x8e, 0x2c, 0x12, 0x73, 0x32, 0xc3, 0xfd, 0x08, 0x85, 0x41, 0x14, 0x05, 0x11, 0x52, 0xe1, 0x50,
+	0xfc, 0xb1, 0x2a, 0x9d, 0x49, 0x17, 0x65, 0x23, 0x31, 0x11, 0x82, 0xbc, 0x1d, 0x38, 0x58, 0x95,
+	0xcf, 0xa4, 0x8b, 0x9c, 0xc1, 0x7e, 0x6b, 0x7f, 0xe7, 0xa1, 0xda, 0x5b, 0xb9, 0xd8, 0x8f, 0x67,
+	0xb1, 0x15, 0xaf, 0x09, 0xfa, 0x0e, 0x1a, 0x11, 0x0e, 0x57, 0xae, 0x6d, 0x11, 0x1c, 0x9b, 0xeb,
+	0xb5, 0xeb, 0x88, 0xbf, 0xa9, 0x6f, 0xe1, 0xdb, 0xb5, 0xeb, 0x64, 0x1c, 0x7d, 0xcb, 0xe3, 0x7f,
+	0xbc, 0xe3, 0x38, 0xb6, 0x3c, 0x8c, 0xde, 0x02, 0x4a, 0x39, 0xfe, 0x81, 0x23, 0xe2, 0x06, 0xbe,
+	0x9a, 0x3b, 0x93, 0x2e, 0xf2, 0xc6, 0xd1, 0x96, 0xf9, 0xc4, 0x09, 0xd4, 0x86, 0xa3, 0x68, 0xed,
+	0xfb, 0xae, 0xbf, 0x34, 0x9d, 0x85, 0xb9, 0x60, 0x77, 0x55, 0xf3, 0x67, 0xd2, 0x45, 0xc9, 0x68,
+	0x08, 0xa2, 0xbf, 0xe0, 0x25, 0x40, 0xef, 0xa0, 0x99, 0xf8, 0x06, 0xe1, 0x2a, 0x58, 0x26, 0xee,
+	0x05, 0xe6, 0x8e, 0x04, 0x37, 0xa1, 0x94, 0x88, 0x78, 0x0d, 0x15, 0xee, 0x63, 0xc6, 0x8f, 0x21,
+	0x56, 0x8b, 0xec, 0xc4, 0xc0, 0xa1, 0xf9, 0x63, 0x88, 0xd1, 0x19, 0x54, 0xec, 0xc0, 0x0b, 0x23,
+	0x4c, 0xd8, 0x31, 0x0f, 0x99, 0x43, 0x1a, 0x42, 0xaf, 0xa0, 0x8c, 0x7d, 0x3b, 0x7a, 0x0c, 0x63,
+	0xec, 0xa8, 0x25, 0xc6, 0x6f, 0x01, 0x1a, 0xef, 0x60, 0x12, 0xbb, 0xbe, 0x15, 0xd3, 0xf8, 0x32,
+	0x8f, 0x4f, 0x41, 0xb4, 0x41, 0x8e, 0x1b, 0xb1, 0x82, 0x01, 0x6f, 0x90, 0x30, 0x51, 0x0b, 0x4a,
+	0xbf, 0xbb, 0x2b, 0xcc, 0xa8, 0x0a, 0xa3, 0x36, 0x36, 0x8d, 0x22, 0xb1, 0x15, 0xd1, 0x9c, 0x55,
+	0xd6, 0xbf, 0xc4, 0xe4, 0x51, 0xbe, 0x4b, 0x1e, 0xb0, 0xa3, 0xd6, 0x18, 0xb5, 0xb1, 0xd1, 0xb7,
+	0x50, 0x67, 0x6e, 0xa2, 0x3c, 0x31, 0x51, 0xeb, 0xcc, 0xa3, 0xca, 0x50, 0x56, 0x98, 0x39, 0x41,
+	0x1a, 0xd4, 0x56, 0x16, 0x49, 0x39, 0x35, 0x98, 0x53, 0x85, 0x82, 0x89, 0xcf, 0x29, 0x00, 0xf3,
+	0xc1, 0x74, 0xc8, 0x54, 0x85, 0x5f, 0x9b, 0x22, 0x6c, 0xea, 0xb4, 0x7f, 0x64, 0x28, 0xf2, 0x39,
+	0xa2, 0x27, 0x4d, 0x9a, 0x4c, 0x27, 0xa7, 0x60, 0x24, 0x26, 0xaa, 0x83, 0xec, 0x3a, 0x62, 0x4a,
+	0x64, 0xd7, 0x41, 0x2f, 0xa1, 0xec, 0x07, 0x0e, 0xe6, 0xad, 0xc8, 0xf1, 0x0b, 0x53, 0x80, 0x35,
+	0x22, 0x21, 0x59, 0x35, 0xf2, 0x5b, 0x92, 0xcd, 0xd4, 0x29, 0x80, 0xbd, 0x5a, 0x93, 0x18, 0x47,
+	0xa6, 0xeb, 0xb0, 0x76, 0x97, 0x8d, 0xb2, 0x40, 0x86, 0x4f, 0xce, 0x66, 0xf1, 0xc9, 0xd9, 0x3c,
+	0x87, 0x5a, 0xca, 0xd1, 0x75, 0x44, 0xbf, 0xab, 0x5b, 0x70, 0xe8, 0xd0, 0x89, 0x64, 0x57, 0xb7,
+	0x03, 0xcf, 0xb3, 0x7c, 0xc7, 0x24, 0xd8, 0x8f, 0x45, 0xe3, 0x1b, 0x94, 0xe8, 0x71, 0x7c, 0x46,
+	0x2f, 0xff, 0x12, 0x58, 0x51, 0x4c, 0x82, 0x31, 0x6f, 0x7e, 0xce, 0x28, 0x51, 0x60, 0x86, 0xb1,
+	0x8f, 0xde, 0x40, 0x91, 0x30, 0x95, 0xb1, 0xc6, 0x57, 0xae, 0x8e, 0x2e, 0xe9, 0x6e, 0x48, 0xcb,
+	0xcf, 0x10, 0x0e, 0xda, 0x6f, 0x50, 0x4d, 0x04, 0xfe, 0xde, 0x5d, 0xed, 0x8e, 0x86, 0x94, 0x19,
+	0x8d, 0x6b, 0x28, 0x79, 0xc2, 0x97, 0x15, 0xb7, 0x72, 0xa5, 0x5e, 0x6e, 0x76, 0xcb, 0xee, 0xb2,
+	0x30, 0x36, 0x9e, 0xda, 0xbf, 0x32, 0x34, 0x8c, 0xb5, 0xcf, 0x79, 0xbe, 0x44, 0xd0, 0xbb, 0x5d,
+	0x75, 0xd0, 0x44, 0xf5, 0xab, 0x06, 0x3b, 0x65, 0x77, 0x23, 0x91, 0x1d, 0xb9, 0xfc, 0x0c, 0x4a,
+	0x4a, 0x1b, 0x3c, 0x4c, 0x66, 0x61, 0x4d, 0x7e, 0xb9, 0x2d, 0xc9, 0x62, 0x1b, 0xf6, 0x2e, 0x80,
+	0xce, 0xa1, 0x68, 0x3f, 0x86, 0x0f, 0x38, 0x62, 0x03, 0x50, 0xbf, 0xaa, 0xf0, 0x30, 0x06, 0x19,
+	0x82, 0xa2, 0x59, 0x52, 0x0a, 0xe2, 0x59, 0xf2, 0xa9, 0x2c, 0xfd, 0x2d, 0xc9, 0xb3, 0x38, 0xbb,
+	0x40, 0x5a, 0x73, 0x85, 0xe7, 0x35, 0x57, 0xcc, 0x14, 0x76, 0x5f, 0x3d, 0x87, 0x4f, 0xa8, 0x87,
+	0x2b, 0xde, 0x8e, 0xdc, 0x90, 0x29, 0xbe, 0xb4, 0x51, 0x7c, 0x02, 0x69, 0x0f, 0xa0, 0x18, 0x6b,
+	0xdf, 0xc0, 0x24, 0x0e, 0x22, 0x2c, 0x4a, 0x7d, 0x0e, 0xb5, 0xa4, 0x15, 0x26, 0x4d, 0x28, 0xba,
+	0x5a, 0xf5, 0xd2, 0x5d, 0xef, 0x40, 0x93, 0x7c, 0x76, 0x43, 0x73, 0x4d, 0x70, 0x44, 0x4c, 0x3a,
+	0x7b, 0x51, 0xb0, 0xc2, 0x84, 0x55, 0xb8, 0x64, 0x1c, 0x51, 0xee, 0x96, 0x52, 0xba, 0xef, 0x18,
+	0x94, 0xd0, 0xda, 0x80, 0xb6, 0x99, 0x0c, 0x4c, 0xc2, 0xc0, 0x27, 0x18, 0x35, 0xa1, 0xc0, 0x65,
+	0xcb, 0x73, 0x70, 0x43, 0xfb, 0x4f, 0x82, 0x1a, 0xef, 0xaa, 0xc1, 0xa7, 0x1d, 0xbd, 0x80, 0x92,
+	0xb5, 0xc4, 0x3e, 0x13, 0x82, 0xf8, 0x76, 0x30, 0x7b, 0x98, 0x91, 0xaa, 0xfc, 0x25, 0xa9, 0xe6,
+	0xbe, 0x28, 0xd5, 0xfc, 0x57, 0x48, 0xb5, 0xf0, 0x75, 0x52, 0x2d, 0x3e, 0x21, 0xd5, 0x53, 0x00,
+	0xb1, 0x16, 0x4d, 0x2b, 0x16, 0xdd, 0x2a, 0x0b, 0x44, 0x8f, 0xdb, 0x77, 0x00, 0xdb, 0x39, 0x46,
+	0x27, 0xf0, 0x4d, 0x57, 0xef, 0xfd, 0x72, 0x3b, 0x35, 0xe7, 0x77, 0xd3, 0x81, 0x39, 0x1c, 0x7f,
+	0xd2, 0x47, 0xc3, 0xbe, 0x72, 0x90, 0x25, 0x46, 0x93, 0x9b, 0x61, 0x4f, 0x1f, 0x29, 0x12, 0x7a,
+	0x01, 0xc7, 0x69, 0xe2, 0xc3, 0x64, 0xce, 0x4d, 0x45, 0x6e, 0x3b, 0xd0, 0xc8, 0x4c, 0x21, 0x7a,
+	0x05, 0x6a, 0x7f, 0x30, 0x9b, 0x0f, 0xc7, 0xfa, 0x7c, 0x38, 0x19, 0x67, 0x93, 0xbc, 0x80, 0xe3,
+	0x3d, 0xf6, 0xfd, 0x70, 0x34, 0x50, 0x24, 0xa4, 0x42, 0x73, 0x8f, 0xd2, 0x7f, 0x9d, 0x29, 0x72,
+	0xfb, 0x4f, 0x09, 0x1a, 0x19, 0x49, 0xd1, 0x34, 0xbd, 0xc9, 0xc7, 0xa9, 0x31, 0x98, 0xcd, 0x9e,
+	0x48, 0x73, 0x0e, 0xaf, 0xf7, 0xd8, 0xf1, 0xc4, 0x4c, 0x61, 0xfc, 0x5e, 0x7b, 0x4e, 0x37, 0xf7,
+	0xc3, 0xa9, 0x22, 0xa3, 0x97, 0x70, 0xb2, 0x47, 0xcd, 0xc6, 0xfa, 0x74, 0x7a, 0xa7, 0xe4, 0xe8,
+	0x41, 0xf7, 0xc8, 0xd1, 0xfd, 0xb5, 0x92, 0x6f, 0x47, 0x50, 0xe4, 0x1a, 0x46, 0x08, 0xea, 0xbd,
+	0xbb, 0xe9, 0x87, 0x81, 0x91, 0x3a, 0x54, 0x13, 0x14, 0x81, 0xd1, 0xa3, 0xb0, 0x5f, 0x8a, 0x84,
+	0xea, 0x00, 0x02, 0xd5, 0x07, 0x33, 0x45, 0x4e, 0xd9, 0xfd, 0xc1, 0x4c, 0xc9, 0xa5, 0x6c, 0xa3,
+	0x77, 0xad, 0xe4, 0xd3, 0xf6, 0x4c, 0x57, 0x0a, 0x57, 0x7f, 0xc9, 0x90, 0xd3, 0x43, 0x17, 0xbd,
+	0x01, 0xb8, 0xc1, 0x31, 0x5f, 0xab, 0x04, 0x01, 0xdb, 0x10, 0xec, 0x65, 0xd5, 0xaa, 0xa4, 0x16,
+	0xae, 0x76, 0xf0, 0x4e, 0x42, 0x1d, 0x28, 0x6f, 0x76, 0x20, 0xe2, 0xbb, 0x24, 0xb3, 0x13, 0x5b,
+	0x22, 0x9e, 0x49, 0xe6, 0x00, 0xfd, 0x04, 0xb0, 0x15, 0x18, 0x3a, 0x4e, 0x22, 0x76, 0xb4, 0xdd,
+	0x3a, 0xc9, 0xc0, 0x89, 0x10, 0xb5, 0x03, 0x34, 0x01, 0xb4, 0xff, 0x84, 0x43, 0xa7, 0x2c, 0xe0,
+	0xb9, 0xb7, 0x5d, 0xeb, 0xd9, 0x75, 0xae, 0x1d, 0xa0, 0x3e, 0x34, 0x32, 0x8f, 0x45, 0xd4, 0x4a,
+	0x2d, 0xec, 0xcc, 0x13, 0xb2, 0xc5, 0x3f, 0x39, 0xe9, 0x4f, 0x0b, 0xad, 0x43, 0xb7, 0x0b, 0x87,
+	0x76, 0xe0, 0x51, 0xae, 0x5b, 0xd2, 0x43, 0x77, 0x4a, 0x1f, 0xa4, 0x53, 0xe9, 0xfe, 0xfb, 0xa5,
+	0x1b, 0x3f, 0xac, 0x17, 0x97, 0x76, 0xe0, 0x75, 0x42, 0x1c, 0xd9, 0x81, 0x6f, 0x75, 0xbc, 0xc0,
+	0x5f, 0x06, 0xce, 0xe2, 0x2d, 0xff, 0x08, 0x74, 0xd8, 0xdb, 0x95, 0xbe, 0x71, 0x17, 0x45, 0xf6,
+	0xf3, 0x87, 0xff, 0x03, 0x00, 0x00, 0xff, 0xff, 0xb8, 0xef, 0xac, 0x25, 0xf5, 0x0a, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -861,9 +988,9 @@ const _ = grpc.SupportPackageIsVersion4
 type ApiClient interface {
 	GetClients(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Api_GetClientsClient, error)
 	RunBackup(ctx context.Context, in *RunBackupParams, opts ...grpc.CallOption) (*Error, error)
-	RunRestore(ctx context.Context, in *RunRestoreParams, opts ...grpc.CallOption) (*Error, error)
-	LastBackupMetadata(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*messages.BackupMetadata, error)
-	BackupsMetadata(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Api_BackupsMetadataClient, error)
+	RunRestore(ctx context.Context, in *RunRestoreParams, opts ...grpc.CallOption) (*RunRestoreResponse, error)
+	LastBackupMetadata(ctx context.Context, in *LastBackupMetadataParams, opts ...grpc.CallOption) (*messages.BackupMetadata, error)
+	BackupsMetadata(ctx context.Context, in *BackupsMetadataParams, opts ...grpc.CallOption) (Api_BackupsMetadataClient, error)
 }
 
 type apiClient struct {
@@ -915,8 +1042,8 @@ func (c *apiClient) RunBackup(ctx context.Context, in *RunBackupParams, opts ...
 	return out, nil
 }
 
-func (c *apiClient) RunRestore(ctx context.Context, in *RunRestoreParams, opts ...grpc.CallOption) (*Error, error) {
-	out := new(Error)
+func (c *apiClient) RunRestore(ctx context.Context, in *RunRestoreParams, opts ...grpc.CallOption) (*RunRestoreResponse, error) {
+	out := new(RunRestoreResponse)
 	err := c.cc.Invoke(ctx, "/api.Api/RunRestore", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -924,7 +1051,7 @@ func (c *apiClient) RunRestore(ctx context.Context, in *RunRestoreParams, opts .
 	return out, nil
 }
 
-func (c *apiClient) LastBackupMetadata(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*messages.BackupMetadata, error) {
+func (c *apiClient) LastBackupMetadata(ctx context.Context, in *LastBackupMetadataParams, opts ...grpc.CallOption) (*messages.BackupMetadata, error) {
 	out := new(messages.BackupMetadata)
 	err := c.cc.Invoke(ctx, "/api.Api/LastBackupMetadata", in, out, opts...)
 	if err != nil {
@@ -933,7 +1060,7 @@ func (c *apiClient) LastBackupMetadata(ctx context.Context, in *Empty, opts ...g
 	return out, nil
 }
 
-func (c *apiClient) BackupsMetadata(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Api_BackupsMetadataClient, error) {
+func (c *apiClient) BackupsMetadata(ctx context.Context, in *BackupsMetadataParams, opts ...grpc.CallOption) (Api_BackupsMetadataClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_Api_serviceDesc.Streams[1], "/api.Api/BackupsMetadata", opts...)
 	if err != nil {
 		return nil, err
@@ -969,9 +1096,9 @@ func (x *apiBackupsMetadataClient) Recv() (*MetadataFile, error) {
 type ApiServer interface {
 	GetClients(*Empty, Api_GetClientsServer) error
 	RunBackup(context.Context, *RunBackupParams) (*Error, error)
-	RunRestore(context.Context, *RunRestoreParams) (*Error, error)
-	LastBackupMetadata(context.Context, *Empty) (*messages.BackupMetadata, error)
-	BackupsMetadata(*Empty, Api_BackupsMetadataServer) error
+	RunRestore(context.Context, *RunRestoreParams) (*RunRestoreResponse, error)
+	LastBackupMetadata(context.Context, *LastBackupMetadataParams) (*messages.BackupMetadata, error)
+	BackupsMetadata(*BackupsMetadataParams, Api_BackupsMetadataServer) error
 }
 
 func RegisterApiServer(s *grpc.Server, srv ApiServer) {
@@ -1036,7 +1163,7 @@ func _Api_RunRestore_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _Api_LastBackupMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(LastBackupMetadataParams)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1048,13 +1175,13 @@ func _Api_LastBackupMetadata_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: "/api.Api/LastBackupMetadata",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApiServer).LastBackupMetadata(ctx, req.(*Empty))
+		return srv.(ApiServer).LastBackupMetadata(ctx, req.(*LastBackupMetadataParams))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Api_BackupsMetadata_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Empty)
+	m := new(BackupsMetadataParams)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,14 +17,21 @@ var (
 )
 
 type Client struct {
-	ID              string      `json:"id"`
-	NodeType        pb.NodeType `json:"node_type"`
-	NodeName        string      `json:"node_name"`
-	ClusterID       string      `json:"cluster_id"`
-	ReplicasetName  string      `json:"replicaset_name"`
-	ReplicasetUUID  string      `json:"replicaset_uuid"`
-	LastCommandSent string      `json:"last_command_sent"`
-	LastSeen        time.Time   `json:"last_seen"`
+	ID        string      `json:"id"`
+	NodeType  pb.NodeType `json:"node_type"`
+	NodeName  string      `json:"node_name"`
+	ClusterID string      `json:"cluster_id"`
+
+	ReplicasetName      string `json:"replicaset_name"`
+	ReplicasetUUID      string `json:"replicaset_uuid"`
+	ReplicasetVersion   int32  `json:"replicaset_version"`
+	isPrimary           bool
+	isSecondary         bool
+	isTailing           bool
+	lastTailedTimestamp int64
+
+	LastCommandSent string    `json:"last_command_sent"`
+	LastSeen        time.Time `json:"last_seen"`
 	logger          *logrus.Logger
 
 	streamRecvChan chan *pb.ClientMessage
@@ -53,7 +61,11 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 		NodeName:       nodeName,
 		stream:         stream,
 		LastSeen:       time.Now(),
-		status:         pb.Status{},
+		status: pb.Status{
+			RunningDbBackup:    false,
+			RunningOplogBackup: false,
+			RestoreStatus:      pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING,
+		},
 		streamLock:     &sync.Mutex{},
 		statusLock:     &sync.Mutex{},
 		logger:         logger,
@@ -121,7 +133,7 @@ func (c *Client) handleStreamRecv() {
 func (c *Client) isDBBackupRunning() bool {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
-	return c.status.RunningDBBackUp
+	return c.status.RunningDbBackup
 }
 
 func (c *Client) isOplogBackupRunning() bool {
@@ -141,7 +153,7 @@ func (c *Client) isRestoreRunning() (status bool) {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 
-	return c.status.RestoreStatus != 0
+	return c.status.RestoreStatus > pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 }
 
 // listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
@@ -151,7 +163,6 @@ func (c *Client) isRestoreRunning() (status bool) {
 // and we will use that list to validate we have agents connected to all replicasets, otherwise,
 // a backup would be incomplete.
 func (c *Client) listReplicasets() ([]string, error) {
-	c.logger.Debug("sending ping")
 	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_ListReplicasets{ListReplicasets: &pb.ListReplicasets{}}})
 	if err != nil {
 		return nil, err
@@ -174,7 +185,28 @@ func (c *Client) listReplicasets() ([]string, error) {
 
 func (c *Client) ping() error {
 	c.logger.Debug("sending ping")
-	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
+	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
+	if err != nil {
+		return errors.Wrap(err, "clients.go -> ping()")
+	}
+
+	msg, err := c.streamRecv()
+	if err != nil {
+		return errors.Wrapf(err, "ping client %s (%s)", c.ID, c.NodeName)
+	}
+
+	pongMsg := msg.GetPongMsg()
+	c.statusLock.Lock()
+	c.NodeType = pongMsg.GetNodeType()
+	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
+	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
+	c.isPrimary = pongMsg.GetIsPrimary()
+	c.isSecondary = pongMsg.GetIsSecondary()
+	c.isTailing = pongMsg.GetIsTailing()
+	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
+	c.statusLock.Unlock()
+
+	return nil
 }
 
 func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
@@ -184,7 +216,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 				BackupType:        msg.BackupType,
 				SourceType:        msg.SourceType,
 				SourceBucket:      msg.SourceBucket,
-				DBSourceName:      msg.DBSourceName,
+				DbSourceName:      msg.DbSourceName,
 				OplogSourceName:   msg.OplogSourceName,
 				CompressionType:   msg.CompressionType,
 				Cypher:            msg.Cypher,
@@ -205,6 +237,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 	case *pb.ClientMessage_ErrorMsg:
 		return fmt.Errorf("Cannot start restore on client %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_AckMsg:
+		c.setRestoreRunning(true)
 		return nil
 	}
 	return fmt.Errorf("Unkown response type for Restore message: %T, %+v", response.Payload, response.Payload)
@@ -212,7 +245,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 
 func (c *Client) setDBBackupRunning(status bool) {
 	c.statusLock.Lock()
-	c.status.RunningDBBackUp = status
+	c.status.RunningDbBackup = status
 	c.statusLock.Unlock()
 }
 
@@ -226,10 +259,10 @@ func (c *Client) setRestoreRunning(status bool) {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 	if status {
-		c.status.RestoreStatus = pb.RestoreStatus_RestoringDB
+		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGDB
 		return
 	}
-	c.status.RestoreStatus = pb.RestoreStatus_Not_Running
+	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 }
 
 func (c *Client) startBackup(opts *pb.StartBackup) error {
@@ -238,7 +271,7 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 			StartBackupMsg: &pb.StartBackup{
 				BackupType:      opts.BackupType,
 				DestinationType: opts.DestinationType,
-				DBBackupName:    opts.DBBackupName,
+				DbBackupName:    opts.DbBackupName,
 				OplogBackupName: opts.OplogBackupName,
 				DestinationDir:  opts.DestinationDir,
 				CompressionType: opts.CompressionType,
@@ -323,7 +356,6 @@ func (c *Client) stopBalancer() error {
 
 func (c *Client) stopOplogTail(ts int64) error {
 	c.logger.Debugf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
-	fmt.Printf("Stopping oplog tail for client: %s, at %d", c.NodeName, ts)
 	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_StopOplogTailMsg{StopOplogTailMsg: &pb.StopOplogTail{Ts: ts}},
 	})
