@@ -190,7 +190,7 @@ message ClientMessage {
     Error                   error_msg           = 4;
     BackupSource            backup_source_msg   = 5;
     Register                register_msg        = 6;
-    Pong                    ping_msg            = 7;
+    Pong                    pong_msg            = 7;
     DBBackupFinishStatus    backup_finished_msg = 8;
     OplogBackupFinishStatus oplog_finished_msg  = 9; 
     Status                  status_msg          = 10;
@@ -226,7 +226,14 @@ message Register {
 }
 
 message Pong {
-  int64 timestamp = 1;
+  int64    timestamp             = 1;
+  NodeType node_type             = 2;
+  string   replica_set_uuid      = 3;
+  int32    replica_set_version   = 4;
+  bool     is_primary            = 5;
+  bool     is_secondary          = 6;
+  bool     is_tailing            = 7;
+  int64    last_tailed_timestamp = 8;
 }
 
 message Replicasets {

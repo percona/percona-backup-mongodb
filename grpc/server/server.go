@@ -155,6 +155,17 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 	return replicas
 }
 
+func (s *MessagesServer) RefreshClients() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, client := range s.clients {
+		if err := client.ping(); err != nil {
+			return errors.Wrapf(err, "cannot refresh clients list while pinging client %s (%s)", client.ID, client.NodeName)
+		}
+	}
+	return nil
+}
+
 // IsShardedSystem returns if a system is sharded.
 // It check if the Node Type is:
 // - Mongos
@@ -474,7 +485,7 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	client := s.getClientByNodeName(msg.GetClientId())
+	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
@@ -569,7 +580,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 // OplogBackupFinished process oplog tailer finished message from clients.
 // After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
 func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.OplogBackupFinishedAck, error) {
-	client := s.getClientByNodeName(msg.GetClientId())
+	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
@@ -586,7 +597,7 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.RestoreCompletedAck, error) {
-	client := s.getClientByNodeName(msg.GetClientId())
+	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
@@ -618,6 +629,15 @@ func (s *MessagesServer) cancelBackup() error {
 		}
 	}
 	return gerr
+}
+
+func (s *MessagesServer) getClientByID(id string) *Client {
+	for _, client := range s.clients {
+		if client.ID == id {
+			return client
+		}
+	}
+	return nil
 }
 
 func (s *MessagesServer) getClientByNodeName(name string) *Client {

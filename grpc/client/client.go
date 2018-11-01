@@ -16,11 +16,13 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/snappy"
+	"github.com/google/uuid"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
 	"github.com/percona/mongodb-backup/internal/oplog"
 	"github.com/percona/mongodb-backup/internal/restore"
+	"github.com/percona/mongodb-backup/mdbstructs"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
@@ -44,10 +46,11 @@ type Client struct {
 	clusterID      string
 	backupDir      string
 
-	mdbSession *mgo.Session
-	mgoDI      *mgo.DialInfo
-	connOpts   ConnectionOptions
-	sslOpts    SSLOptions
+	mdbSession  *mgo.Session
+	mgoDI       *mgo.DialInfo
+	connOpts    ConnectionOptions
+	sslOpts     SSLOptions
+	isMasterDoc *mdbstructs.IsMaster
 
 	mongoDumper     *dumper.Mongodump
 	oplogTailer     *oplog.OplogTail
@@ -126,7 +129,15 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		FailFast: true,
 		Direct:   true,
 	}
+
+	id, err := uuid.NewRandom()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("cannot genenerate a random UUID: %s", err)
+	}
+
 	c := &Client{
+		id:         id.String(),
 		ctx:        ctx,
 		cancelFunc: cancel,
 		backupDir:  backupDir,
@@ -156,6 +167,10 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		return nil, errors.Wrap(err, "cannot connect to the database")
 	}
 
+	if err := c.updateClientInfo(); err != nil {
+		return nil, errors.Wrap(err, "cannot get MongoDB status information")
+	}
+
 	if err := c.register(); err != nil {
 		return nil, err
 	}
@@ -174,19 +189,24 @@ func (c *Client) dbConnect() (err error) {
 	}
 	c.mdbSession.SetMode(mgo.Eventual, true)
 
-	c.nodeType, c.nodeName, err = getNodeTypeAndName(c.mdbSession)
-	if err != nil {
-		return errors.Wrap(err, "Cannot get node type")
-	}
-	// Review this ID. We need to decide if we want a random ID or not
-	c.id = c.nodeName
-
 	bi, err := c.mdbSession.BuildInfo()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot get build info")
 	}
 	if !bi.VersionAtLeast(3, 4) {
 		return fmt.Errorf("You need at least MongoDB version 3.4 to run this tool")
+	}
+
+	return nil
+}
+
+func (c *Client) updateClientInfo() (err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.nodeType, c.nodeName, err = getNodeTypeAndName(c.mdbSession)
+	if err != nil {
+		return errors.Wrap(err, "Cannot get node type")
 	}
 
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
@@ -252,7 +272,7 @@ func (c *Client) register() error {
 	}
 
 	m := &pb.ClientMessage{
-		ClientId: c.nodeName,
+		ClientId: c.id,
 		Payload: &pb.ClientMessage_RegisterMsg{
 			RegisterMsg: &pb.Register{
 				NodeType:       c.nodeType,
@@ -468,10 +488,23 @@ func (c *Client) processListReplicasets() error {
 
 func (c *Client) processPing() {
 	c.logger.Debug("Received Ping command")
+	c.updateClientInfo()
+	pongMsg := &pb.Pong{
+		Timestamp:           time.Now().Unix(),
+		NodeType:            c.nodeType,
+		ReplicaSetUuid:      c.replicasetID,
+		ReplicaSetVersion:   0,
+		IsPrimary:           c.isMasterDoc.IsMaster,
+		IsSecondary:         !c.isMasterDoc.IsMaster,
+		IsTailing:           c.IsOplogBackupRunning(),
+		LastTailedTimestamp: c.oplogTailer.LastOplogTimestamp().Time().Unix(),
+	}
+
 	msg := &pb.ClientMessage{
 		ClientId: c.id,
-		Payload:  &pb.ClientMessage_PingMsg{PingMsg: &pb.Pong{Timestamp: time.Now().Unix()}},
+		Payload:  &pb.ClientMessage_PongMsg{PongMsg: pongMsg},
 	}
+
 	if err := c.streamSend(msg); err != nil {
 		c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
 	}

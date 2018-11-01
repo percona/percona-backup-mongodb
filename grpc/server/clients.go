@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,14 +17,21 @@ var (
 )
 
 type Client struct {
-	ID              string      `json:"id"`
-	NodeType        pb.NodeType `json:"node_type"`
-	NodeName        string      `json:"node_name"`
-	ClusterID       string      `json:"cluster_id"`
-	ReplicasetName  string      `json:"replicaset_name"`
-	ReplicasetUUID  string      `json:"replicaset_uuid"`
-	LastCommandSent string      `json:"last_command_sent"`
-	LastSeen        time.Time   `json:"last_seen"`
+	ID        string      `json:"id"`
+	NodeType  pb.NodeType `json:"node_type"`
+	NodeName  string      `json:"node_name"`
+	ClusterID string      `json:"cluster_id"`
+
+	ReplicasetName      string `json:"replicaset_name"`
+	ReplicasetUUID      string `json:"replicaset_uuid"`
+	ReplicasetVersion   int32  `json:"replicaset_version"`
+	isPrimary           bool
+	isSecondary         bool
+	isTailing           bool
+	lastTailedTimestamp int64
+
+	LastCommandSent string    `json:"last_command_sent"`
+	LastSeen        time.Time `json:"last_seen"`
 	logger          *logrus.Logger
 
 	streamRecvChan chan *pb.ClientMessage
@@ -155,7 +163,6 @@ func (c *Client) isRestoreRunning() (status bool) {
 // and we will use that list to validate we have agents connected to all replicasets, otherwise,
 // a backup would be incomplete.
 func (c *Client) listReplicasets() ([]string, error) {
-	c.logger.Debug("sending ping")
 	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_ListReplicasets{ListReplicasets: &pb.ListReplicasets{}}})
 	if err != nil {
 		return nil, err
@@ -178,7 +185,28 @@ func (c *Client) listReplicasets() ([]string, error) {
 
 func (c *Client) ping() error {
 	c.logger.Debug("sending ping")
-	return c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
+	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
+	if err != nil {
+		return errors.Wrap(err, "clients.go -> ping()")
+	}
+
+	msg, err := c.streamRecv()
+	if err != nil {
+		return errors.Wrapf(err, "ping client %s (%s)", c.ID, c.NodeName)
+	}
+
+	pongMsg := msg.GetPongMsg()
+	c.statusLock.Lock()
+	c.NodeType = pongMsg.GetNodeType()
+	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
+	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
+	c.isPrimary = pongMsg.GetIsPrimary()
+	c.isSecondary = pongMsg.GetIsSecondary()
+	c.isTailing = pongMsg.GetIsTailing()
+	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
+	c.statusLock.Unlock()
+
+	return nil
 }
 
 func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
