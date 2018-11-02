@@ -5,6 +5,7 @@ GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
+UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
@@ -103,12 +104,15 @@ test-clean: test-cluster-clean
 
 pmb-agent: vendor cli/pmb-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-agent; fi
 
 pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
 	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
 
 pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
 
 clean:
 	rm -rf pmb-agent pmb-admin pmb-coordinator vendor 2>/dev/null || true

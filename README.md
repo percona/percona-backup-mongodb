@@ -16,6 +16,7 @@ Progress:
 Building the project requires:
 1. Go 1.11 or above
 1. make
+1. upx *(optional)*
 
 To build the project *(from the project dir)*:
 ```
