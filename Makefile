@@ -112,7 +112,8 @@ pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
 
 pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
+	#CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
 
 install: pmb-coordinator

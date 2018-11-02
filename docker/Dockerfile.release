@@ -1,8 +1,6 @@
-#FROM golang:1.11-alpine
-FROM golang:1.11-stretch
+FROM golang:1.11-alpine
 
-RUN apt-get update && apt-get install -y upx-ucl
-#RUN apk add git make upx
+RUN apk add git make upx
 
 WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
