@@ -53,10 +53,23 @@ make docker-build
 
 ### Coordinator
 *Note: '/data/percona-mongodb-backup' must be owned by UID 100*
+
+#### Create 
 ```
-docker run -d --rm --name mongodb-backup-coordinator \
+docker run -d --restart=always \
+    --name=mongodb-backup-coordinator \
     -p 10000:10000 \
     -p 10001:10001 \
     -v /data/percona-mongodb-backup:/data/percona-mongodb-backup \
 mongodb-backup-coordinator
+```
+
+### Read Logs
+```
+docker logs mongodb-backup-coordinator
+```
+
+### Stop
+```
+docker stop mongodb-backup-coordinator
 ```
