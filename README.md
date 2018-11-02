@@ -47,16 +47,16 @@ make test-full-clean
 ### Build Docker images
 
 To build the Docker images:
-    ```
-    make docker-build
-    ```
+```
+make docker-build
+```
 
 ### Coordinator
 *Note: '/data/percona-mongodb-backup' must be owned by UID 100*
-    ```
-    docker run -d --rm --name mongodb-backup-coordinator \
-        -p 10000:10000 \
-        -p 10001:10001 \
-        -v /data/percona-mongodb-backup:/data/percona-mongodb-backup \
-    mongodb-backup-coordinator
-    ```
+```
+docker run -d --rm --name mongodb-backup-coordinator \
+    -p 10000:10000 \
+    -p 10001:10001 \
+    -v /data/percona-mongodb-backup:/data/percona-mongodb-backup \
+mongodb-backup-coordinator
+```
