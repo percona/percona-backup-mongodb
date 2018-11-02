@@ -104,19 +104,21 @@ test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
 pmb-agent: vendor cli/pmb-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-agent; fi
 
 pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
 
 pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	#CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
 
+#install: pmb-admin pmb-agent pmb-coordinator
 install: pmb-coordinator
+	#install pmb-admin $(DEST_DIR)/pmb-admin
+	#install pmb-agent $(DEST_DIR)/pmb-agent
 	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
 
 release: 
@@ -125,7 +127,9 @@ release:
 	docker rmi -f mongodb-backup-release
 
 docker-build: release
+	#docker build -t mongodb-backup-admin -f docker/Dockerfile.admin .
+	#docker build -t mongodb-backup-agent -f docker/Dockerfile.agent .
 	docker build -t mongodb-backup-coordinator -f docker/Dockerfile.coordinator .
 
 clean:
-	rm -rf pmb-agent pmb-admin pmb-coordinator release vendor 2>/dev/null || true
+	rm -rf pmb-agent pmb-admin pmb-coordinator release test-out vendor 2>/dev/null || true
