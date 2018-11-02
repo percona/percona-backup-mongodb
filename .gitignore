@@ -1,7 +1,8 @@
 .env
 .vscode
-test-out
-vendor
 pmb-agent
 pmb-coordinator
 pmb-admin
+release
+test-out
+vendor

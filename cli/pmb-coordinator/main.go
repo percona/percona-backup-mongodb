@@ -162,7 +162,7 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 
 func processCliParams() (*cliOptions, error) {
 	var err error
-	app := kingpin.New("percona-mongodb-backupd", "Percona MongoDB backup server")
+	app := kingpin.New("pmb-coordinator", "Percona MongoDB backup coordinator")
 	opts := &cliOptions{
 		app: app,
 	}
@@ -270,8 +270,11 @@ func expandDirs(opts *cliOptions) {
 }
 
 func expandHomeDir(path string) string {
-	usr, _ := user.Current()
-	dir := usr.HomeDir
+	dir := os.Getenv("HOME")
+	usr, err := user.Current()
+	if err == nil {
+		dir = usr.HomeDir
+	}
 	if path == "~" {
 		return dir
 	}

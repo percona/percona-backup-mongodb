@@ -277,8 +277,11 @@ func expandDirs(opts *cliOptions) {
 }
 
 func expandHomeDir(path string) string {
-	usr, _ := user.Current()
-	dir := usr.HomeDir
+	dir := os.Getenv("HOME")
+	usr, err := user.Current()
+	if err == nil {
+		dir = usr.HomeDir
+	}
 	if path == "~" {
 		return dir
 	}
