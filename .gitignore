@@ -2,6 +2,7 @@
 .vscode
 test-out
 vendor
+release
 pmb-agent
 pmb-coordinator
 pmb-admin

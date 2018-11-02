@@ -162,7 +162,7 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 
 func processCliParams() (*cliOptions, error) {
 	var err error
-	app := kingpin.New("percona-mongodb-backupd", "Percona MongoDB backup server")
+	app := kingpin.New("pmb-coordinator", "Percona MongoDB backup coordinator")
 	opts := &cliOptions{
 		app: app,
 	}

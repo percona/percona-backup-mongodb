@@ -6,6 +6,7 @@ GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
 UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
+DEST_DIR?=/usr/local/bin
 
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
@@ -114,5 +115,16 @@ pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go 
 	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
 
+install: pmb-coordinator
+	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
+
+release: 
+	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
+	docker run --rm -v $(CURDIR)/release:/release -it mongodb-backup-release
+	docker rmi -f mongodb-backup-release
+
+docker-build: release
+	docker build -t mongodb-backup-coordinator -f docker/Dockerfile.coordinator .
+
 clean:
-	rm -rf pmb-agent pmb-admin pmb-coordinator vendor 2>/dev/null || true
+	rm -rf pmb-agent pmb-admin pmb-coordinator release vendor 2>/dev/null || true

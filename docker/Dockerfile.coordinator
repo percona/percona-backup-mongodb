@@ -1,0 +1,8 @@
+FROM debian:stretch
+
+ADD release/pmb-coordinator /usr/local/bin/pmb-coordinator
+
+RUN useradd -d /data pmb-coordinator
+
+USER pmb-coordinator
+ENTRYPOINT ["/usr/local/bin/pmb-coordinator"]
