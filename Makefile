@@ -28,7 +28,7 @@ TEST_MONGODB_MONGOS_PORT?=17000
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: mongodb-backup-admin mongodb-backup-agent mongodb-backupd
+all: pmb-admin pmb-agent pmb-coordinator
 
 $(GOPATH)/bin/dep:
 	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
@@ -101,14 +101,14 @@ test-full: env test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-mongodb-backup-agent: vendor cli/mongodb-backup-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-agent cli/mongodb-backup-agent/main.go
+pmb-agent: vendor cli/pmb-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
 
-mongodb-backup-admin: vendor cli/mongodb-backup-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backup-admin cli/mongodb-backup-admin/main.go
+pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
 
-mongodb-backupd: vendor cli/mongodb-backupd/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o mongodb-backupd cli/mongodb-backupd/main.go
+pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 
 clean:
-	rm -rf mongodb-backup-agent mongodb-backup-admin mongodb-backupd vendor 2>/dev/null || true
+	rm -rf pmb-agent pmb-admin pmb-coordinator vendor 2>/dev/null || true
