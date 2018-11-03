@@ -52,7 +52,7 @@ make docker-build
 ```
 
 ### Coordinator
-*Note: '/data/percona-mongodb-backup' must be owned by UID 100*
+*Note: volume mapped to '/data/percona-mongodb-backup' must be owned by UID 100!*
 
 #### Create Coordinator
 ```

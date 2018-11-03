@@ -127,9 +127,8 @@ release:
 	docker rmi -f mongodb-backup-release
 
 docker-build: release
-	#docker build -t mongodb-backup-admin -f docker/Dockerfile.admin .
 	#docker build -t mongodb-backup-agent -f docker/Dockerfile.agent .
-	docker build -t mongodb-backup-coordinator -f docker/Dockerfile.coordinator .
+	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
 	rm -rf pmb-agent pmb-admin pmb-coordinator release test-out vendor 2>/dev/null || true
