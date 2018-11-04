@@ -176,7 +176,7 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
 
-	_, err := app.Parse(os.Args[1:])
+	_, err := app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		return nil, err
 	}

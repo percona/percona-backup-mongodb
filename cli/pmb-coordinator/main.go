@@ -180,7 +180,7 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
 	app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 
-	opts.cmd, err = app.Parse(os.Args[1:])
+	opts.cmd, err = app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		return nil, err
 	}
