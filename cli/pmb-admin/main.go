@@ -315,7 +315,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		loadOptionsFromFile(defaultConfigFile, yamlOpts)
 	}
 
-	cmd, err := app.Parse(args)
+	cmd, err := app.DefaultEnvars().Parse(args)
 	if err != nil {
 		return "", nil, err
 	}
