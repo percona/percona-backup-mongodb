@@ -58,8 +58,8 @@ make docker-build
 ```
 docker run -d --restart=always \
     --name=mongodb-backup-coordinator \
-    -p 10000:10000 \
-    -p 10001:10001 \
+    -e PMB_COORDINATOR_WORK_DIR=/data \
+    -p 10000-10001:10000-10001 \
     -v /data/percona-mongodb-backup:/data/percona-mongodb-backup \
 mongodb-backup-coordinator
 ```
