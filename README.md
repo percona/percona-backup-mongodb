@@ -20,7 +20,7 @@ Building the project requires:
 
 To build the project *(from the project dir)*:
 ```
-$ go get -d https://github.com/percona/mongodb-backup
+$ go get -d github.com/percona/mongodb-backup
 $ cd $GOPATH/src/github.com/percona/mongodb-backup
 $ make
 ```
