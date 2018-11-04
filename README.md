@@ -60,6 +60,8 @@ $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
 $ chown 100 /data/mongodb-backup-coordinator
 $ docker run -d --restart=always \
     --name=mongodb-backup-coordinator \
+    -e PMB_COORDINATOR_GRPC_PORT=10000 \
+    -e PMB_COORDINATOR_API_PORT=10001 \
     -e PMB_COORDINATOR_WORK_DIR=/data \
     -p 10000-10001:10000-10001 \
     -v /data/mongodb-backup-coordinator:/data \
