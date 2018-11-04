@@ -20,6 +20,8 @@ Building the project requires:
 
 To build the project *(from the project dir)*:
 ```
+$ go get -d https://github.com/percona/mongodb-backup
+$ cd $GOPATH/src/github.com/percona/mongodb-backup
 $ make
 ```
 
@@ -52,9 +54,9 @@ $ make docker-build
 ```
 
 ### Coordinator
-*Note: volume mapped to '/data/percona-mongodb-backup' must be owned by UID 100!*
 
 #### Create Coordinator
+*Note: data volume must be owned as unix UID 100*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
 $ chown 100 /data/mongodb-backup-coordinator
