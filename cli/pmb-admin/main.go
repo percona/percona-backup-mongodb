@@ -278,7 +278,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
-	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
+	app := kingpin.New("pmb-admin", "MongoDB backup admin")
 	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
 	listBackupsCmd := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
 	backupCmd := app.Command("backup", "Start a backup")

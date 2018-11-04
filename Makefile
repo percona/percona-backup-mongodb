@@ -5,8 +5,9 @@ GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
-UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
+
 DEST_DIR?=/usr/local/bin
+UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
@@ -103,11 +104,11 @@ test-full: env test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-pmb-agent: vendor cli/pmb-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+pmb-agent: vendor cli/pmb-agent/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-agent; fi
 
-pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
+pmb-admin: vendor cli/pmb-admin/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
 
@@ -127,9 +128,8 @@ release:
 	docker rmi -f mongodb-backup-release
 
 docker-build: release
-	#docker build -t mongodb-backup-admin -f docker/Dockerfile.admin .
 	#docker build -t mongodb-backup-agent -f docker/Dockerfile.agent .
-	docker build -t mongodb-backup-coordinator -f docker/Dockerfile.coordinator .
+	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
 	rm -rf pmb-agent pmb-admin pmb-coordinator release test-out vendor 2>/dev/null || true

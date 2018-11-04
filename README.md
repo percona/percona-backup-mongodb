@@ -20,7 +20,7 @@ Building the project requires:
 
 To build the project *(from the project dir)*:
 ```
-make
+$ make
 ```
 
 A successful build outputs binaries: 
@@ -34,12 +34,12 @@ The integration testing launches a MongoDB cluster in Docker containers. *'docke
 
 To run the tests *(may require 'sudo')*:
 ```
-make test-full
+$ make test-full
 ```
 
 To tear-down the test *(and containers, data, etc)*:
 ```
-make test-full-clean
+$ make test-full-clean
 ```
 
 ## Run in Docker
@@ -48,28 +48,31 @@ make test-full-clean
 
 To build the Docker images:
 ```
-make docker-build
+$ make docker-build
 ```
 
 ### Coordinator
-*Note: '/data/percona-mongodb-backup' must be owned by UID 100*
+*Note: volume mapped to '/data/percona-mongodb-backup' must be owned by UID 100!*
 
 #### Create Coordinator
 ```
-docker run -d --restart=always \
+$ mkdir -m 0700 -p /data/mongodb-backup-coordinator
+$ chown 100 /data/mongodb-backup-coordinator
+$ docker run -d --restart=always \
     --name=mongodb-backup-coordinator \
-    -p 10000:10000 \
-    -p 10001:10001 \
-    -v /data/percona-mongodb-backup:/data/percona-mongodb-backup \
+    -e PMB_COORDINATOR_WORK_DIR=/data \
+    -p 10000-10001:10000-10001 \
+    -v /data/mongodb-backup-coordinator:/data \
 mongodb-backup-coordinator
 ```
 
 #### Read Coordinator Logs
 ```
-docker logs mongodb-backup-coordinator
+$ docker logs mongodb-backup-coordinator
 ```
 
 #### Stop Coordinator
 ```
-docker stop mongodb-backup-coordinator
+$ docker stop mongodb-backup-coordinator
 ```
+
