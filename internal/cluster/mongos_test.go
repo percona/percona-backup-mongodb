@@ -31,4 +31,15 @@ func TestGetMongosRouters(t *testing.T) {
 	if !strings.HasSuffix(router.Addr(), ":"+testutils.MongoDBMongosPort) {
 		t.Fatalf("Expected router address to have suffix ':%s', got '%s'", testutils.MongoDBMongosPort, router.Addrs())
 	}
+
+	shardSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Could not connect to shard/replset: %v", err.Error())
+	}
+	defer shardSession.Close()
+
+	_, err = GetMongosRouters(shardSession)
+	if err == nil {
+		t.Fatal("Expected error for .GetMongosRouters() call on shard server")
+	}
 }
