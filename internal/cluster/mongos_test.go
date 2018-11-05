@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
+	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
