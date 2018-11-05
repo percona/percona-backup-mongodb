@@ -11,10 +11,11 @@ import (
 // configMongosColl is the mongodb collection storing mongos state
 const configMongosColl = "mongos"
 
-// pingStaleLimit is staleness-limit of a mongos instance's state in
-// the "config" db. mongos sends pings every 30 seconds so the "ping"
-// field should be recent on healthy mongos instances
-var pingStaleLimit = time.Duration(-3) * time.Minute
+// pingStaleLimit is staleness-limit of a mongos instance state in
+// the "config" db. mongos sends pings every 30 seconds therefore
+// a mongos with a 3-minute-old ping has failed 6 mongos->configsvr
+// pings
+var pingStaleLimit = time.Duration(3) * time.Minute
 
 // Mongos reflects the cluster state of a mongos instance using the
 // "config.mongos" collection stored on config server
@@ -42,7 +43,7 @@ func GetMongosRouters(session *mgo.Session) ([]*Mongos, error) {
 	routers := []*Mongos{}
 	err := session.DB(configDB).C(configMongosColl).Find(bson.M{
 		"ping": bson.M{
-			"$gte": time.Now().Add(pingStaleLimit),
+			"$gte": time.Now().Add(-pingStaleLimit),
 		},
 	}).Sort("-ping").All(&routers)
 	return routers, err
