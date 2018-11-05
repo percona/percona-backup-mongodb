@@ -23,10 +23,9 @@ func TestGetMongosRouters(t *testing.T) {
 	if len(routers) != 1 {
 		t.Fatalf("Expected %d mongos, got %d", 1, len(routers))
 	}
-
 	router := routers[0]
 	if router.Up < 1 {
-		t.Fatalf("Expected 'up' greater than 1, got %d", router.Up)
+		t.Fatalf("Expected 'up' greater than %d, got %d", 1, router.Up)
 	}
 	if !strings.HasSuffix(router.Addr(), ":"+testutils.MongoDBMongosPort) {
 		t.Fatalf("Expected router address to have suffix ':%s', got '%s'", testutils.MongoDBMongosPort, router.Addrs())
@@ -40,6 +39,6 @@ func TestGetMongosRouters(t *testing.T) {
 
 	_, err = GetMongosRouters(shardSession)
 	if err == nil {
-		t.Fatal("Expected error for .GetMongosRouters() call on shard server")
+		t.Fatal("Expected error for .GetMongosRouters() call on shard server, got nil")
 	}
 }
