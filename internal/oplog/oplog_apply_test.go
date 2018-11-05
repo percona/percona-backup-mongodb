@@ -13,7 +13,6 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestBasicApplyLog(t *testing.T) {
@@ -27,7 +26,7 @@ func TestBasicApplyLog(t *testing.T) {
 		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
 	}
 
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)

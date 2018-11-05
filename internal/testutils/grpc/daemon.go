@@ -13,6 +13,7 @@ import (
 	"github.com/percona/mongodb-backup/grpc/api"
 	"github.com/percona/mongodb-backup/grpc/client"
 	"github.com/percona/mongodb-backup/grpc/server"
+	"github.com/percona/mongodb-backup/internal/testutils"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/prometheus/common/log"
@@ -101,17 +102,17 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", TEST_GRPC_MESSAGES_PORT)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
 
-	ports := []string{MongoDBShard1PrimaryPort, MongoDBShard1Secondary1Port, MongoDBShard1Secondary2Port,
-		MongoDBShard2PrimaryPort, MongoDBShard2Secondary1Port, MongoDBShard2Secondary2Port,
-		MongoDBConfigsvr1Port, // MongoDBConfigsvr2Port, MongoDBConfigsvr3Port,
-		MongoDBMongosPort}
-	repls := []string{MongoDBShard1ReplsetName, MongoDBShard1ReplsetName, MongoDBShard1ReplsetName,
-		MongoDBShard2ReplsetName, MongoDBShard2ReplsetName, MongoDBShard2ReplsetName,
-		MongoDBConfigsvrReplsetName, // MongoDBConfigsvrReplsetName, MongoDBConfigsvrReplsetName,
+	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port,
+		testutils.MongoDBShard2PrimaryPort, testutils.MongoDBShard2Secondary1Port, testutils.MongoDBShard2Secondary2Port,
+		testutils.MongoDBConfigsvr1Port, // testutils.MongoDBConfigsvr2Port, testutils.MongoDBConfigsvr3Port,
+		testutils.MongoDBMongosPort}
+	repls := []string{testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName, testutils.MongoDBShard1ReplsetName,
+		testutils.MongoDBShard2ReplsetName, testutils.MongoDBShard2ReplsetName, testutils.MongoDBShard2ReplsetName,
+		testutils.MongoDBConfigsvrReplsetName, // testutils.MongoDBConfigsvrReplsetName, testutils.MongoDBConfigsvrReplsetName,
 		""}
 
 	for i, port := range ports {
-		di := DialInfoForPort(t, repls[i], port)
+		di := testutils.DialInfoForPort(t, repls[i], port)
 		session, err := mgo.DialWithInfo(di)
 		logger.Infof("Connecting agent #%d to: %s\n", i, di.Addrs[0])
 		if err != nil {
@@ -122,7 +123,7 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 		agentID := fmt.Sprintf("PMB-%03d", i)
 
 		dbConnOpts := client.ConnectionOptions{
-			Host:           MongoDBHost,
+			Host:           testutils.MongoDBHost,
 			Port:           port,
 			User:           di.Username,
 			Password:       di.Password,
