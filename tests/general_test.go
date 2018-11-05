@@ -16,6 +16,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/server"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
@@ -71,7 +72,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -280,7 +281,7 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -307,7 +308,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -345,7 +346,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -393,7 +394,7 @@ func TestBackup1(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -444,7 +445,7 @@ func TestBackup1(t *testing.T) {
 	d.Stop()
 }
 
-func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon, md *pb.BackupMetadata) {
+func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}

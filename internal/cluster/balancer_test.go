@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
+	"github.com/percona/mongodb-backup/internal/testutils"
 )
 
 func TestNewBalancer(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -24,7 +24,7 @@ func TestNewBalancer(t *testing.T) {
 }
 
 func TestBalancerGetStatus(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -45,7 +45,7 @@ func TestBalancerGetStatus(t *testing.T) {
 }
 
 func TestBalancerIsEnabled(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -65,7 +65,7 @@ func TestBalancerIsEnabled(t *testing.T) {
 }
 
 func TestBalancerStop(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -108,7 +108,7 @@ func TestBalancerStop(t *testing.T) {
 }
 
 func TestBalancerStopAndWait(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -145,7 +145,7 @@ func TestBalancerStopAndWait(t *testing.T) {
 }
 
 func TestBalancerStart(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -170,7 +170,7 @@ func TestBalancerStart(t *testing.T) {
 }
 
 func TestBalancerRestoreState(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}

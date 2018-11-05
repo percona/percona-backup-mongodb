@@ -6,11 +6,10 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestGetMongosRouters(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to config server replset: %v", err.Error())
 	}
@@ -28,18 +27,21 @@ func TestGetMongosRouters(t *testing.T) {
 	if router.Up < 1 {
 		t.Fatalf("Expected 'up' greater than %d, got %d", 1, router.Up)
 	}
-	if !strings.HasSuffix(router.Addr(), ":"+testutils.MongoDBMongosPort) {
-		t.Fatalf("Expected router address to have suffix ':%s', got '%s'", testutils.MongoDBMongosPort, router.Addrs())
+	if !strings.HasSuffix(router.Id, ":"+testutils.MongoDBMongosPort) {
+		t.Fatalf("Expected router address to have suffix ':%s', got '%s'", testutils.MongoDBMongosPort, router.Id)
 	}
 
-	shardSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	shardSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to shard/replset: %v", err.Error())
 	}
 	defer shardSession.Close()
 
-	_, err = GetMongosRouters(shardSession)
-	if err == nil {
-		t.Fatal("Expected error for .GetMongosRouters() call on shard server, got nil")
+	routers, err = GetMongosRouters(shardSession)
+	if err != nil {
+		t.Fatalf("Could not run .GetMongosRouters(): %v", err.Error())
+	}
+	if len(routers) != 0 {
+		t.Fatalf("Expected %d mongos, got %d", 0, len(routers))
 	}
 }

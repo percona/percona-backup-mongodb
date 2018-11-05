@@ -12,10 +12,8 @@ import (
 const configMongosColl = "mongos"
 
 // pingStaleLimit is staleness-limit of a mongos instance state in
-// the "config" db. mongos sends pings every 30 seconds therefore
-// a mongos with a 3-minute-old ping has failed 6 mongos->configsvr
-// pings
-var pingStaleLimit = time.Duration(3) * time.Minute
+// the "config" db.
+var pingStaleLimit = time.Duration(120) * time.Minute
 
 // GetMongoRouters returns a slice of Mongos instances with a recent "ping"
 // time, sorted by the "ping" time to prefer healthy instances. This will

@@ -5,11 +5,10 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestNewShardingState(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
@@ -24,7 +23,7 @@ func TestNewShardingState(t *testing.T) {
 }
 
 func TestShardingStateClusterID(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Failed to get primary session: %v", err.Error())
 	}
@@ -38,7 +37,7 @@ func TestShardingStateClusterID(t *testing.T) {
 	}
 
 	// check clusterId fetched from the shard/primary is same as mongos
-	mongosSession, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	mongosSession, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}
@@ -55,7 +54,7 @@ func TestShardingStateClusterID(t *testing.T) {
 }
 
 func TestGetClusterID(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to get mongos session: %v", err.Error())
 	}

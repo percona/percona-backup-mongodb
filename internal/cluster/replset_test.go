@@ -5,7 +5,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
@@ -40,7 +39,7 @@ func TestHasReplsetMemberTags(t *testing.T) {
 	}
 
 	// test for the { role: "backup" } tag on the 2nd secondary
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -61,7 +60,7 @@ func TestHasReplsetMemberTags(t *testing.T) {
 }
 
 func TestGetReplsetConfig(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -78,7 +77,7 @@ func TestGetReplsetConfig(t *testing.T) {
 }
 
 func TestGetReplsetStatus(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -95,7 +94,7 @@ func TestGetReplsetStatus(t *testing.T) {
 }
 
 func TestReplsetName(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -110,7 +109,7 @@ func TestReplsetName(t *testing.T) {
 }
 
 func TestReplsetID(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
@@ -125,7 +124,7 @@ func TestReplsetID(t *testing.T) {
 }
 
 func TestReplsetBackupSource(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to replset: %v", err.Error())
 	}
