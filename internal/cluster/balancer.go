@@ -9,8 +9,9 @@ import (
 	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
-// The amount of time in milliseconds to wait for a balancer
-// command to run. 60sec is the same default as mongo shell
+// BalancerCmdTimeoutMs is the amount of time in milliseconds
+// to wait for a balancer command to run. 60sec is the same
+// default used in the 'mongo' shell
 var BalancerCmdTimeoutMs = 60000
 
 type Balancer struct {

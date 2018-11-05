@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/percona/mongodb-backup/internal/testutils"
+	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
 	"github.com/percona/mongodb-backup/proto/api"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -38,12 +38,12 @@ func TestMain(m *testing.M) {
 
 func TestListAgents(t *testing.T) {
 	l := log.New()
-	d, err := testutils.NewGrpcDaemon(context.Background(), t, l)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), t, l)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
-	serverAddr := "127.0.0.1:" + testutils.TEST_GRPC_API_PORT
+	serverAddr := "127.0.0.1:" + testGrpc.TEST_GRPC_API_PORT
 	conn, err := getApiConn(&cliOptions{serverAddr: &serverAddr})
 	if err != nil {
 		t.Fatalf("Cannot connect to the API: %s", err)

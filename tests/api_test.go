@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/percona/mongodb-backup/grpc/server"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
@@ -56,7 +56,7 @@ func TestApiWithDaemon(t *testing.T) {
 	log.Printf("Using %s as the temporary directory", tmpDir)
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}

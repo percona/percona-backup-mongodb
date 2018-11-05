@@ -1,6 +1,10 @@
 package mdbstructs
 
-import "github.com/globalsign/mgo/bson"
+import (
+	"time"
+
+	"github.com/globalsign/mgo/bson"
+)
 
 // Shard reflects a document in the config server 'config.shards'
 // collection (or the 'shards' array of the 'listShards' server
@@ -12,6 +16,20 @@ type Shard struct {
 	Id    string `bson:"_id"`
 	Host  string `bson:"host"`
 	State int    `bson:"state"`
+}
+
+// Mongos reflects a document in the config server 'config.mongos'
+// collection.
+//
+// https://docs.mongodb.com/manual/reference/config-database/#config.mongos
+//
+type Mongos struct {
+	Id                string    `bson:"_id"`
+	Ping              time.Time `bson:"ping"`
+	Up                int64     `bson:"up"`
+	MongoVersion      string    `bson:"mongoVersion"`
+	AdvisoryHostFQDNs []string  `bson:"advisoryHostFQDNs,omitempty"`
+	Waiting           bool      `bson:"waiting,omitempty"`
 }
 
 // ListShards reflects the output of the MongoDB 'listShards' command.
