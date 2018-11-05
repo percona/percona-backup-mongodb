@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/globalsign/mgo"
@@ -20,10 +21,14 @@ func TestGetMongosRouters(t *testing.T) {
 	}
 
 	if len(routers) != 1 {
-		t.Fatalf("Expected 1 mongos, got %d", len(routers))
+		t.Fatalf("Expected %d mongos, got %d", 1, len(routers))
 	}
 
-	if routers[0].Addr() != "test" {
-		t.Fatalf("Expected router address %s, got %s", "test", routers[0].Addrs())
+	router := routers[0]
+	if router.Up < 1 {
+		t.Fatalf("Expected 'up' greater than 1, got %d", router.Up)
+	}
+	if !strings.HasSuffix(router.Addr(), ":"+testutils.MongoDBMongosPort) {
+		t.Fatalf("Expected router address to have suffix ':%s', got '%s'", testutils.MongoDBMongosPort, router.Addrs())
 	}
 }
