@@ -274,7 +274,7 @@ func (ot *OplogTail) tailQuery() bson.M {
 		return query
 	}
 
-	query["ts"] = bson.M{"$gt": isMaster.IsMasterDoc().LastWrite.OpTime.Ts}
+	query["ts"] = bson.M{"$gt": isMaster.LastWrite()}
 	return query
 }
 

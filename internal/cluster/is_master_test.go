@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func TestNewIsMaster(t *testing.T) {
@@ -149,5 +151,21 @@ func TestIsMasterIsShardServer(t *testing.T) {
 	i.isMaster.ConfigServerState = nil
 	if i.IsShardServer() {
 		t.Fatalf("Expected false from .IsShardServer()")
+	}
+}
+
+func TestIsMasterLastWrite(t *testing.T) {
+	ts, _ := bson.NewMongoTimestamp(bson.Now(), 0)
+	isMaster := &IsMaster{
+		isMaster: &mdbstructs.IsMaster{
+			LastWrite: mdbstructs.IsMasterLastWrite{
+				OpTime: &mdbstructs.OpTime{
+					Ts: ts,
+				},
+			},
+		},
+	}
+	if isMaster.LastWrite() != ts {
+		t.Fatalf("Got invalid timestamp from .LastWrite()! Expected %v, got %v", ts, isMaster.LastWrite())
 	}
 }

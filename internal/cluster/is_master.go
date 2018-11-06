@@ -21,6 +21,7 @@ func NewIsMaster(session *mgo.Session) (*IsMaster, error) {
 	return &i, err
 }
 
+// IsMasterDoc returns the raw response from the MongoDB 'isMaster' server command.
 func (i *IsMaster) IsMasterDoc() *mdbstructs.IsMaster {
 	return i.isMaster
 }
@@ -73,4 +74,10 @@ func (i *IsMaster) IsShardedCluster() bool {
 		return true
 	}
 	return false
+}
+
+// LastWrite returns the last write to the MongoDB database as a
+// bson.MongoTimestamp
+func (i *IsMaster) LastWrite() bson.MongoTimestamp {
+	return i.isMaster.LastWrite.OpTime.Ts
 }
