@@ -11,6 +11,7 @@ import (
 	"github.com/percona/mongodb-backup/internal/templates"
 	"github.com/percona/mongodb-backup/internal/testutils"
 	"github.com/percona/mongodb-backup/proto/api"
+	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -135,6 +136,15 @@ func TestListAgents(t *testing.T) {
 func TestListAgentsVerbose(t *testing.T) {
 	t.Skip("Templates test is used only for development")
 	printTemplate(templates.ConnectedNodesVerbose, getTestClients())
+}
+
+func TestListAvailableBackups(t *testing.T) {
+	t.Skip("Templates test is used only for development")
+	b := map[string]*pb.BackupMetadata{
+		"testfile1": &pb.BackupMetadata{Description: "description 1"},
+		"testfile2": &pb.BackupMetadata{Description: "a long description 2 blah blah blah blah and blah"},
+	}
+	printTemplate(templates.AvailableBackups, b)
 }
 
 func getApiConn(opts *cliOptions) (*grpc.ClientConn, error) {

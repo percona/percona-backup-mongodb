@@ -44,7 +44,7 @@ func (hook *GrpcLogging) connect() (err error) {
 
 func (hook *GrpcLogging) Fire(entry *logrus.Entry) error {
 	msg := &pb.LogEntry{
-		ClientID: hook.clientID,
+		ClientId: hook.clientID,
 		Level:    uint32(entry.Level),
 		Ts:       time.Now().UTC().Unix(),
 		Message:  entry.Message,

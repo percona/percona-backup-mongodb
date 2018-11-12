@@ -32,6 +32,8 @@ type cliOptions struct {
 	ServerAddr string `yaml:"server_addr"`
 	configFile *string
 
+	run *kingpin.CmdClause
+
 	backup               *kingpin.CmdClause
 	backupType           *string
 	destinationType      *string
@@ -43,10 +45,10 @@ type cliOptions struct {
 	restoreMetadataFile      *string
 	restoreSkipUsersAndRoles *bool
 
-	get             *kingpin.CmdClause
-	getNodes        *kingpin.CmdClause
-	getNodesVerbose *bool
-	getBackups      *kingpin.CmdClause
+	list             *kingpin.CmdClause
+	listNodes        *kingpin.CmdClause
+	listNodesVerbose *bool
+	listBackups      *kingpin.CmdClause
 }
 
 var (
@@ -100,35 +102,35 @@ func main() {
 	}()
 
 	switch cmd {
-	case "get nodes":
+	case "list nodes":
 		clients, err := connectedAgents(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of connected agents: %s", err)
 			break
 		}
-		if *opts.getNodesVerbose {
+		if *opts.listNodesVerbose {
 			printTemplate(templates.ConnectedNodesVerbose, clients)
 		} else {
 			printTemplate(templates.ConnectedNodes, clients)
 		}
-	case "get backups":
+	case "list backups":
 		md, err := getAvailableBackups(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of available backups: %s", err)
 			break
 		}
 		if len(md) > 0 {
-			printAvailableBackups(md)
+			printTemplate(templates.AvailableBackups, md)
 			return
 		}
 		fmt.Println("No backups found")
-	case "backup":
+	case "run backup":
 		err := startBackup(ctx, apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
-	case "restore":
+	case "run restore":
 		fmt.Println("restoring")
 		err := restoreBackup(ctx, apiClient, opts)
 		if err != nil {
@@ -211,14 +213,6 @@ func listAvailableBackups() (backups []string) {
 	return
 }
 
-func printAvailableBackups(md map[string]*pb.BackupMetadata) {
-	fmt.Println("      Metadata file name       -  Description")
-	for name, metadata := range md {
-		fmt.Printf("%30s - %s\n", name, metadata.Description)
-	}
-	fmt.Println("")
-}
-
 func printTemplate(tpl string, data interface{}) {
 	var b bytes.Buffer
 	tmpl := template.Must(template.New("").Parse(tpl))
@@ -282,20 +276,24 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
 
-	getCmd := app.Command("get", "List objects (connected nodes, backups, etc)")
+	runCmd := app.Command("run", "Start a new backup or restore process")
+
+	getCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
 	getBackupsCmd := getCmd.Command("backups", "List backups")
 	getNodesCmd := getCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
 
-	backupCmd := app.Command("backup", "Start a backup")
-	restoreCmd := app.Command("restore", "Restore a backup given a metadata file name")
+	backupCmd := runCmd.Command("backup", "Start a backup")
+	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
 		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).String(),
 
-		get:             getCmd,
-		getBackups:      getBackupsCmd,
-		getNodes:        getNodesCmd,
-		getNodesVerbose: getNodesCmd.Flag("verbose", "Include extra node info").Bool(),
+		run: runCmd,
+
+		list:             getCmd,
+		listBackups:      getBackupsCmd,
+		listNodes:        getNodesCmd,
+		listNodesVerbose: getNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
 		backupType:           backupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
