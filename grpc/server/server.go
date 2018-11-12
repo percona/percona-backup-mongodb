@@ -419,6 +419,7 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	s.logger.Infof("StopOplogTs: %d (%v)", s.lastOplogTs, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
 
+	s.lastOplogTs += int64(5 * time.Second)
 	var gErr error
 	for _, client := range s.clients {
 		s.logger.Debugf("Checking if client %s is running the oplog backup: %v", client.NodeName, client.isOplogTailerRunning())

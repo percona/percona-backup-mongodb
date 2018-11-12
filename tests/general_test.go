@@ -163,6 +163,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
+	s1Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s1Session)
 	go generateOplogTraffic(t, s1Session, oplogGeneratorStopChan)
 
@@ -171,6 +172,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
+	s2Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s2Session)
 	go generateOplogTraffic(t, s2Session, oplogGeneratorStopChan)
 
@@ -386,8 +388,8 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 
 func TestBackup1(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	//defer os.RemoveAll(tmpDir) // Clean up after testing.
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)

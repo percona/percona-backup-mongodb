@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,9 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"time"
+
+	"text/template"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/percona/mongodb-backup/internal/templates"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	"github.com/pkg/errors"
@@ -29,8 +32,6 @@ type cliOptions struct {
 	ServerAddr string `yaml:"server_addr"`
 	configFile *string
 
-	listClients *kingpin.CmdClause
-
 	backup               *kingpin.CmdClause
 	backupType           *string
 	destinationType      *string
@@ -42,7 +43,10 @@ type cliOptions struct {
 	restoreMetadataFile      *string
 	restoreSkipUsersAndRoles *bool
 
-	listBackups *kingpin.CmdClause
+	list             *kingpin.CmdClause
+	listNodes        *kingpin.CmdClause
+	listNodesVerbose *bool
+	listBackups      *kingpin.CmdClause
 }
 
 var (
@@ -96,31 +100,35 @@ func main() {
 	}()
 
 	switch cmd {
-	case "list-agents":
+	case "list nodes":
 		clients, err := connectedAgents(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of connected agents: %s", err)
 			break
 		}
-		printConnectedAgents(clients)
-	case "list-backups":
+		if *opts.listNodesVerbose {
+			printTemplate(templates.ConnectedNodesVerbose, clients)
+		} else {
+			printTemplate(templates.ConnectedNodes, clients)
+		}
+	case "list backups":
 		md, err := getAvailableBackups(ctx, conn)
 		if err != nil {
 			log.Errorf("Cannot get the list of available backups: %s", err)
 			break
 		}
 		if len(md) > 0 {
-			printAvailableBackups(md)
+			printTemplate(templates.AvailableBackups, md)
 			return
 		}
 		fmt.Println("No backups found")
-	case "backup":
+	case "run backup":
 		err := startBackup(ctx, apiClient, opts)
 		if err != nil {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
-	case "restore":
+	case "run restore":
 		fmt.Println("restoring")
 		err := restoreBackup(ctx, apiClient, opts)
 		if err != nil {
@@ -157,7 +165,7 @@ func connectedAgents(ctx context.Context, conn *grpc.ClientConn) ([]*pbapi.Clien
 
 func getAvailableBackups(ctx context.Context, conn *grpc.ClientConn) (map[string]*pb.BackupMetadata, error) {
 	apiClient := pbapi.NewApiClient(conn)
-	stream, err := apiClient.BackupsMetadata(ctx, &pbapi.Empty{})
+	stream, err := apiClient.BackupsMetadata(ctx, &pbapi.BackupsMetadataParams{})
 	if err != nil {
 		return nil, err
 	}
@@ -203,53 +211,39 @@ func listAvailableBackups() (backups []string) {
 	return
 }
 
-func printAvailableBackups(md map[string]*pb.BackupMetadata) {
-	fmt.Println("      Metadata file name       -  Description")
-	for name, metadata := range md {
-		fmt.Printf("%30s - %s\n", name, metadata.Description)
+func printTemplate(tpl string, data interface{}) {
+	var b bytes.Buffer
+	tmpl := template.Must(template.New("").Parse(tpl))
+	if err := tmpl.Execute(&b, data); err != nil {
+		log.Fatal(err)
 	}
-	fmt.Println("")
-}
-
-func printConnectedAgents(clients []*pbapi.Client) {
-	if len(clients) == 0 {
-		fmt.Println("There are no agents connected to the backup master")
-		return
-	}
-	fmt.Println("      Node Name       -    Node Type         -     Replicaset     -  Backup Running  -            Last Seen")
-	for _, client := range clients {
-		runningBackup := "false"
-		if client.Status.GetRunningDBBackup() {
-			runningBackup = "true"
-		}
-		fmt.Printf("%20s  - %20s - %18s -       %5s      -  %v\n", client.ID, client.NodeType, client.ReplicasetName, runningBackup, time.Unix(client.LastSeen, 0))
-	}
+	print(b.String())
 }
 
 func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunBackupParams{
-		CompressionType: pbapi.CompressionType_NO_COMPRESSION,
-		Cypher:          pbapi.Cypher_NO_CYPHER,
+		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     *opts.description,
 	}
 
 	switch *opts.backupType {
 	case "logical":
-		msg.BackupType = pbapi.BackupType_LOGICAL
+		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_LOGICAL
 	case "hot":
-		msg.BackupType = pbapi.BackupType_LOGICAL
+		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_HOTBACKUP
 	}
 
 	switch *opts.destinationType {
 	case "logical":
-		msg.DestinationType = pbapi.DestinationType_FILE
+		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_FILE
 	case "aws":
-		msg.DestinationType = pbapi.DestinationType_AWS
+		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_AWS
 	}
 
 	switch *opts.compressionAlgorithm {
 	case "gzip":
-		msg.CompressionType = pbapi.CompressionType_GZIP
+		msg.CompressionType = pbapi.CompressionType_COMPRESSION_TYPE_GZIP
 	}
 
 	switch opts.encryptionAlgorithm {
@@ -279,15 +273,21 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("pmb-admin", "MongoDB backup admin")
-	listClientsCmd := app.Command("list-agents", "List all agents connected to the server")
-	listBackupsCmd := app.Command("list-backups", "List all backups (metadata files) stored in the server working directory")
-	backupCmd := app.Command("backup", "Start a backup")
-	restoreCmd := app.Command("restore", "Restore a backup given a metadata file name")
+
+	runCmd := app.Command("run", "Start a new backup or restore process")
+	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
+	listBackupsCmd := listCmd.Command("backups", "List backups")
+	listNodesCmd := listCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
+	backupCmd := runCmd.Command("backup", "Start a backup")
+	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
 		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).String(),
 
-		listClients: listClientsCmd,
+		list:             listCmd,
+		listBackups:      listBackupsCmd,
+		listNodes:        listNodesCmd,
+		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
 		backupType:           backupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
@@ -295,8 +295,6 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 		description:          backupCmd.Flag("description", "Backup description").Required().String(),
-
-		listBackups: listBackupsCmd,
 
 		restore: restoreCmd,
 		restoreMetadataFile: restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").
