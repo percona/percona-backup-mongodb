@@ -32,8 +32,6 @@ type cliOptions struct {
 	ServerAddr string `yaml:"server_addr"`
 	configFile *string
 
-	run *kingpin.CmdClause
-
 	backup               *kingpin.CmdClause
 	backupType           *string
 	destinationType      *string
@@ -274,26 +272,22 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
-	app := kingpin.New("mongodb-backup-admin", "MongoDB backup admin")
+	app := kingpin.New("pmb-admin", "MongoDB backup admin")
 
 	runCmd := app.Command("run", "Start a new backup or restore process")
-
-	getCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
-	getBackupsCmd := getCmd.Command("backups", "List backups")
-	getNodesCmd := getCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
-
+	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
+	listBackupsCmd := listCmd.Command("backups", "List backups")
+	listNodesCmd := listCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
 	backupCmd := runCmd.Command("backup", "Start a backup")
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
 		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).String(),
 
-		run: runCmd,
-
-		list:             getCmd,
-		listBackups:      getBackupsCmd,
-		listNodes:        getNodesCmd,
-		listNodesVerbose: getNodesCmd.Flag("verbose", "Include extra node info").Bool(),
+		list:             listCmd,
+		listBackups:      listBackupsCmd,
+		listNodes:        listNodesCmd,
+		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
 		backupType:           backupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
@@ -319,7 +313,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		loadOptionsFromFile(defaultConfigFile, yamlOpts)
 	}
 
-	cmd, err := app.Parse(args)
+	cmd, err := app.DefaultEnvars().Parse(args)
 	if err != nil {
 		return "", nil, err
 	}

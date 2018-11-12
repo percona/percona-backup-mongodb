@@ -6,7 +6,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
 )
 
 func TestParseShardURI(t *testing.T) {
@@ -35,7 +34,7 @@ func TestParseShardURI(t *testing.T) {
 }
 
 func TestNewShard(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Got error getting test db session: %v", err.Error())
 	}
@@ -55,7 +54,7 @@ func TestNewShard(t *testing.T) {
 }
 
 func TestGetListShards(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to connect to mongos: %v", err.Error())
 	}
@@ -72,7 +71,7 @@ func TestGetListShards(t *testing.T) {
 }
 
 func TestGetConfigsvrShards(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Failed to connect to the configsvr replset: %v", err.Error())
 	}

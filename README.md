@@ -16,10 +16,13 @@ Progress:
 Building the project requires:
 1. Go 1.11 or above
 1. make
+1. upx *(optional)*
 
 To build the project *(from the project dir)*:
 ```
-make
+$ go get -d github.com/percona/mongodb-backup
+$ cd $GOPATH/src/github.com/percona/mongodb-backup
+$ make
 ```
 
 A successful build outputs binaries: 
@@ -33,10 +36,47 @@ The integration testing launches a MongoDB cluster in Docker containers. *'docke
 
 To run the tests *(may require 'sudo')*:
 ```
-make test-full
+$ make test-full
 ```
 
 To tear-down the test *(and containers, data, etc)*:
 ```
-make test-full-clean
+$ make test-full-clean
 ```
+
+## Run in Docker
+
+### Build Docker images
+
+To build the Docker images:
+```
+$ make docker-build
+```
+
+### Coordinator
+
+#### Create Coordinator
+*Note: data volume must be owned as unix UID 100*
+```
+$ mkdir -m 0700 -p /data/mongodb-backup-coordinator
+$ chown 100 /data/mongodb-backup-coordinator
+$ docker run -d --restart=always \
+    --name=mongodb-backup-coordinator \
+    -e PMB_COORDINATOR_GRPC_PORT=10000 \
+    -e PMB_COORDINATOR_API_PORT=10001 \
+    -e PMB_COORDINATOR_WORK_DIR=/data \
+    -p 10000-10001:10000-10001 \
+    -v /data/mongodb-backup-coordinator:/data \
+mongodb-backup-coordinator
+```
+
+#### Read Coordinator Logs
+```
+$ docker logs mongodb-backup-coordinator
+```
+
+#### Stop Coordinator
+```
+$ docker stop mongodb-backup-coordinator
+```
+

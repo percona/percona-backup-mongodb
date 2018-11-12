@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/internal/testutils/db"
+	"github.com/percona/mongodb-backup/mdbstructs"
 )
 
 func TestNewIsMaster(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -24,7 +25,7 @@ func TestNewIsMaster(t *testing.T) {
 }
 
 func TestIsMasterIsReplset(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -41,7 +42,7 @@ func TestIsMasterIsReplset(t *testing.T) {
 
 func TestIsMasterIsMongos(t *testing.T) {
 	// primary (should fail)
-	pSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary: %v", err.Error())
 	}
@@ -56,7 +57,7 @@ func TestIsMasterIsMongos(t *testing.T) {
 	pSession.Close()
 
 	// mongos (should succeed)
-	session, err := mgo.DialWithInfo(db.MongosDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to mongos: %v", err.Error())
 	}
@@ -72,7 +73,7 @@ func TestIsMasterIsMongos(t *testing.T) {
 
 func TestIsMasterIsConfigServer(t *testing.T) {
 	// primary (should fail)
-	pSession, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	pSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -87,7 +88,7 @@ func TestIsMasterIsConfigServer(t *testing.T) {
 	pSession.Close()
 
 	// configsvr (should succeed)
-	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -102,7 +103,7 @@ func TestIsMasterIsConfigServer(t *testing.T) {
 }
 
 func TestIsMasterIsShardedCluster(t *testing.T) {
-	session, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
+	session, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -118,7 +119,7 @@ func TestIsMasterIsShardedCluster(t *testing.T) {
 
 func TestIsMasterIsShardServer(t *testing.T) {
 	// configsvr (should fail)
-	cSession, err := mgo.DialWithInfo(db.ConfigsvrReplsetDialInfo(t))
+	cSession, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
 	if err != nil {
 		t.Fatalf("Could not connect to configsvr replset: %v", err.Error())
 	}
@@ -133,7 +134,7 @@ func TestIsMasterIsShardServer(t *testing.T) {
 	cSession.Close()
 
 	// shardsvr (should succeed)
-	session, err := mgo.DialWithInfo(db.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Could not connect to primary replset: %v", err.Error())
 	}
@@ -150,5 +151,21 @@ func TestIsMasterIsShardServer(t *testing.T) {
 	i.isMaster.ConfigServerState = nil
 	if i.IsShardServer() {
 		t.Fatalf("Expected false from .IsShardServer()")
+	}
+}
+
+func TestIsMasterLastWrite(t *testing.T) {
+	ts, _ := bson.NewMongoTimestamp(bson.Now(), 0)
+	isMaster := &IsMaster{
+		isMaster: &mdbstructs.IsMaster{
+			LastWrite: mdbstructs.IsMasterLastWrite{
+				OpTime: &mdbstructs.OpTime{
+					Ts: ts,
+				},
+			},
+		},
+	}
+	if isMaster.LastWrite() != ts {
+		t.Fatalf("Got invalid timestamp from .LastWrite()! Expected %v, got %v", ts, isMaster.LastWrite())
 	}
 }

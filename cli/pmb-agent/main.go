@@ -150,7 +150,7 @@ func main() {
 }
 
 func processCliArgs() (*cliOptions, error) {
-	app := kingpin.New("mongodb-backup-client", "MongoDB backup client")
+	app := kingpin.New("pmb-admin", "MongoDB backup admin client")
 	opts := &cliOptions{
 		app: app,
 	}
@@ -176,7 +176,7 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
 
-	_, err := app.Parse(os.Args[1:])
+	_, err := app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -277,8 +277,11 @@ func expandDirs(opts *cliOptions) {
 }
 
 func expandHomeDir(path string) string {
-	usr, _ := user.Current()
-	dir := usr.HomeDir
+	dir := os.Getenv("HOME")
+	usr, err := user.Current()
+	if err == nil {
+		dir = usr.HomeDir
+	}
 	if path == "~" {
 		return dir
 	}

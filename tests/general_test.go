@@ -16,6 +16,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/percona/mongodb-backup/grpc/server"
 	"github.com/percona/mongodb-backup/internal/testutils"
+	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
 	pbapi "github.com/percona/mongodb-backup/proto/api"
 	pb "github.com/percona/mongodb-backup/proto/messages"
 	log "github.com/sirupsen/logrus"
@@ -71,7 +72,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -282,7 +283,7 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -309,7 +310,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -347,7 +348,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -395,7 +396,7 @@ func TestBackup1(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -446,69 +447,7 @@ func TestBackup1(t *testing.T) {
 	d.Stop()
 }
 
-//func testRestore(t *testing.T, session *mgo.Session, dir string) {
-//	log.Println("Starting mongo restore")
-//	if err := session.DB(dbName).C(colName).DropCollection(); err != nil {
-//		t.Fatalf("Cannot clean up %s.%s collection: %s", dbName, colName, err)
-//	}
-//	session.Refresh()
-//
-//	count, err := session.DB(dbName).C(colName).Find(nil).Count()
-//	if err != nil {
-//		t.Fatalf("Cannot count number of rows in the test collection %s: %s", colName, err)
-//	}
-//
-//	if count > 0 {
-//		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want 0", colName, count)
-//	}
-//
-//	input := &restore.MongoRestoreInput{
-//		// this file was generated with the dump pkg
-//		Archive:  path.Join(dir, "test.dump"),
-//		DryRun:   false,
-//		Host:     testutils.MongoDBHost,
-//		Port:     testutils.MongoDBShard1PrimaryPort,
-//		Username: testutils.MongoDBUser,
-//		Password: testutils.MongoDBPassword,
-//		Gzip:     false,
-//		Oplog:    false,
-//		Threads:  1,
-//		Reader:   nil,
-//		// A real restore would be applied to a just created and empty instance and it should be
-//		// configured to run without user authentication.
-//		// Since we are running a sandbox and we already have user and roles and authentication
-//		// is enableb, we need to skip restoring users and roles, otherwise the test will fail
-//		// since there are already users/roles in the admin db. Also we cannot delete admin db
-//		// because we are using it.
-//		SkipUsersAndRoles: true,
-//	}
-//
-//	r, err := restore.NewMongoRestore(input)
-//	if err != nil {
-//		t.Errorf("Cannot instantiate mongo restore instance: %s", err)
-//		t.FailNow()
-//	}
-//
-//	if err := r.Start(); err != nil {
-//		t.Errorf("Cannot start restore: %s", err)
-//	}
-//
-//	if err := r.Wait(); err != nil {
-//		t.Errorf("Error while trying to restore: %s", err)
-//	}
-//
-//	count, err = session.DB(dbName).C(colName).Find(nil).Count()
-//	if err != nil {
-//		t.Fatalf("Cannot count number of rows in the test collection %q after restore: %s", colName, err)
-//	}
-//
-//	if count < 100 {
-//		t.Fatalf("Invalid rows count in the test collection %s. Got %d, want > 100", colName, count)
-//	}
-//
-//}
-
-func testRestoreWithMetadata(t *testing.T, d *testutils.GrpcDaemon, md *pb.BackupMetadata) {
+func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}

@@ -6,6 +6,9 @@ GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
 
+DEST_DIR?=/usr/local/bin
+UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
+
 TEST_PSMDB_VERSION?=latest
 TEST_MONGODB_ADMIN_USERNAME?=admin
 TEST_MONGODB_ADMIN_PASSWORD?=admin123456
@@ -101,14 +104,32 @@ test-full: env test-cluster-clean test-cluster
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
 
-pmb-agent: vendor cli/pmb-agent/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
+pmb-agent: vendor cli/pmb-agent/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-agent; fi
 
-pmb-admin: vendor cli/pmb-admin/main.go grpc/*/*.go internal/*/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
+pmb-admin: vendor cli/pmb-admin/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go proto/*/*.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
 
 pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
-	go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
+
+#install: pmb-admin pmb-agent pmb-coordinator
+install: pmb-coordinator
+	#install pmb-admin $(DEST_DIR)/pmb-admin
+	#install pmb-agent $(DEST_DIR)/pmb-agent
+	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
+
+release: 
+	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
+	docker run --rm -v $(CURDIR)/release:/release -it mongodb-backup-release
+	docker rmi -f mongodb-backup-release
+
+docker-build: release
+	#docker build -t mongodb-backup-agent -f docker/Dockerfile.agent .
+	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
-	rm -rf pmb-agent pmb-admin pmb-coordinator vendor 2>/dev/null || true
+	rm -rf pmb-agent pmb-admin pmb-coordinator release test-out vendor 2>/dev/null || true

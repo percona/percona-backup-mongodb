@@ -1,0 +1,9 @@
+FROM golang:1.11-alpine
+
+RUN apk add git make upx
+
+WORKDIR /go/src/github.com/percona/mongodb-backup
+COPY . .
+
+RUN make vendor
+CMD make DEST_DIR=/release install
