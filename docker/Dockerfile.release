@@ -1,9 +1,13 @@
 FROM golang:1.11-alpine
 
+ARG UID
+
 RUN apk add git make upx
 
 WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
+RUN mkdir /.cache && chown -R $UID /.cache /go
 
+USER $UID
 RUN make vendor
-CMD make DEST_DIR=/release install
+CMD make && make DEST_DIR=/release install
