@@ -55,3 +55,15 @@ func newDefaultLogger(w io.Writer) *logrus.Logger {
 
 	return logger
 }
+
+// MgoLogger matches the mgo.logLogger interface
+// https://github.com/globalsign/mgo/blob/master/log.go#L40
+type MgoLogger struct{}
+
+// Output logs an Mgo debug message using logrus
+func (ml *MgoLogger) Output(calldepth int, s string) error {
+	logrus.WithFields(logrus.Fields{
+		"calldepth": calldepth,
+	}).Debugf("mgo: %s", s)
+	return nil
+}
