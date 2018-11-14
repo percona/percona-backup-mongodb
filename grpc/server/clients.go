@@ -42,10 +42,7 @@ type Client struct {
 	status     pb.Status
 }
 
-// newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
-// real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
-func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
-	stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
+func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -54,11 +51,13 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 
 	client := &Client{
 		ID:             id,
-		ClusterID:      clusterID,
-		ReplicasetUUID: replicasetUUID,
-		ReplicasetName: replicasetName,
-		NodeType:       nodeType,
-		NodeName:       nodeName,
+		ClusterID:      registerMsg.ClusterId,
+		ReplicasetUUID: registerMsg.ReplicasetId,
+		ReplicasetName: registerMsg.ReplicasetName,
+		NodeType:       registerMsg.NodeType,
+		NodeName:       registerMsg.NodeName,
+		isPrimary:      registerMsg.IsPrimary,
+		isSecondary:    registerMsg.IsSecondary,
 		stream:         stream,
 		LastSeen:       time.Now(),
 		status: pb.Status{
@@ -74,6 +73,40 @@ func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, n
 	go client.handleStreamRecv()
 	return client
 }
+
+// newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
+// real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
+// func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
+// 	stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
+// 	if logger == nil {
+// 		logger = logrus.New()
+// 		logger.SetLevel(logrus.StandardLogger().Level)
+// 		logger.Out = logrus.StandardLogger().Out
+// 	}
+//
+// 	client := &Client{
+// 		ID:             id,
+// 		ClusterID:      clusterID,
+// 		ReplicasetUUID: replicasetUUID,
+// 		ReplicasetName: replicasetName,
+// 		NodeType:       nodeType,
+// 		NodeName:       nodeName,
+// 		IsPrimary:
+// 		stream:         stream,
+// 		LastSeen:       time.Now(),
+// 		status: pb.Status{
+// 			RunningDbBackup:    false,
+// 			RunningOplogBackup: false,
+// 			RestoreStatus:      pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING,
+// 		},
+// 		streamLock:     &sync.Mutex{},
+// 		statusLock:     &sync.Mutex{},
+// 		logger:         logger,
+// 		streamRecvChan: make(chan *pb.ClientMessage),
+// 	}
+// 	go client.handleStreamRecv()
+// 	return client
+// }
 
 func (c *Client) GetBackupSource() (string, error) {
 	if err := c.streamSend(&pb.ServerMessage{
@@ -156,6 +189,31 @@ func (c *Client) isRestoreRunning() (status bool) {
 	return c.status.RestoreStatus > pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 }
 
+/*
+  This function should be called only on primaries after receiving the backup completed message.
+  We need to know the last oplog timestamp from the primary in order to tell the oplog tailer when
+  to stop to have a consistent backup across all the shards.
+*/
+func (c *Client) getPrimaryLastOplogTs() (int64, error) {
+	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_LastOplogTs{LastOplogTs: &pb.GetLastOplogTs{}}})
+	if err != nil {
+		return 0, errors.Wrapf(err, "cannot send LastOplogTs request to the primary node %s", c.NodeName)
+	}
+	response, err := c.streamRecv()
+	if err != nil {
+		return 0, errors.Wrapf(err, "cannot get LastOplogTs from the primary node %s", c.NodeName)
+	}
+
+	fmt.Printf("getPrimaryLastOplogTs %T %+v\n", response.Payload, response.Payload)
+	switch response.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return 0, fmt.Errorf("Cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
+	case *pb.ClientMessage_LastOplogTs:
+		return response.GetLastOplogTs().LastOplogTs, nil
+	}
+	return 0, fmt.Errorf("Unkown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+}
+
 // listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
 // It makes sense to call it only on config servers since it runs "getShardMap" on MongoDB and that
 // only return valid values on config servers.
@@ -200,8 +258,6 @@ func (c *Client) ping() error {
 	c.NodeType = pongMsg.GetNodeType()
 	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
 	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
-	c.isPrimary = pongMsg.GetIsPrimary()
-	c.isSecondary = pongMsg.GetIsSecondary()
 	c.isTailing = pongMsg.GetIsTailing()
 	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
 	c.statusLock.Unlock()

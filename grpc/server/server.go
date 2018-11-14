@@ -419,7 +419,7 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	s.logger.Infof("StopOplogTs: %d (%v)", s.lastOplogTs, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
 
-	s.lastOplogTs += int64(5 * time.Second)
+	s.lastOplogTs += int64(1 * time.Second)
 	var gErr error
 	for _, client := range s.clients {
 		s.logger.Debugf("Checking if client %s is running the oplog backup: %v", client.NodeName, client.isOplogTailerRunning())
@@ -494,16 +494,25 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 
 	replicasets := s.ReplicasetsRunningDBBackup()
 
+	if len(replicasets) == 0 {
+		notify.Post(EVENT_BACKUP_FINISH, time.Now())
+	}
+
+	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
+	// from the primary in order to have a consistent backup.
+	primaryClient, err := s.getPrimaryClient(client.ReplicasetName)
+	if err != nil {
+		return &pb.DBBackupFinishedAck{}, errors.Wrap(err, "DBBackupFinished")
+	}
+	lastOplogTs, err := primaryClient.getPrimaryLastOplogTs()
+	if err != nil {
+		return &pb.DBBackupFinishedAck{}, errors.Wrap(err, "cannot get primary's last oplog timestamp")
+	}
 	// Keep the last (bigger) oplog timestamp from all clients running the backup.
 	// When all clients finish the backup, we will call CloseAt(s.lastOplogTs) on all clients to have a consistent
 	// stop time for all oplogs.
-	lastOplogTs := msg.GetTs()
 	if lastOplogTs > s.lastOplogTs {
 		s.lastOplogTs = lastOplogTs
-	}
-
-	if len(replicasets) == 0 {
-		notify.Post(EVENT_BACKUP_FINISH, time.Now())
 	}
 	return &pb.DBBackupFinishedAck{}, nil
 }
@@ -641,6 +650,15 @@ func (s *MessagesServer) getClientByID(id string) *Client {
 	return nil
 }
 
+func (s *MessagesServer) getPrimaryClient(replName string) (*Client, error) {
+	for _, client := range s.clients {
+		if client.ReplicasetName == replName && client.isPrimary {
+			return client, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find a primary in the clients list for replicaset %s", replName)
+}
+
 func (s *MessagesServer) getClientByNodeName(name string) *Client {
 	for _, client := range s.clients {
 		if client.NodeName == name {
@@ -726,9 +744,7 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 		return fmt.Errorf("Node type in register payload cannot be empty")
 	}
 	s.logger.Debugf("Register msg: %+v", regMsg)
-	client := newClient(msg.ClientId, regMsg.ClusterId, regMsg.NodeName, regMsg.ReplicasetId, regMsg.ReplicasetName,
-		regMsg.NodeType, stream, s.logger)
-
+	client := newClient(msg.ClientId, regMsg, stream, s.logger)
 	s.clients[msg.ClientId] = client
 
 	return nil

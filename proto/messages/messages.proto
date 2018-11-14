@@ -1,18 +1,5 @@
-// Copyright 2015 gRPC authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 syntax = "proto3";
+// This is needed to be able to use "import" in the API
 option go_package = "github.com/percona/mongodb-backup/proto/messages";
 
 option java_multiple_files = true;
@@ -84,25 +71,18 @@ enum RestoreStatus {
 }
 
 message Ack {}
+message CancelBackup {}
 message DBBackupFinishedAck {}
-message OplogBackupFinishedAck {}
-message RestoreCompletedAck {}
 message Empty {}
 message GetBackupSource {}
-message CancelBackup {}
 message GetStatus {}
 message ListReplicasets {}
+message GetLastOplogTs {}
+message OplogBackupFinishedAck {}
 message Ping {}
+message RestoreCompletedAck {}
 message StartBalancer {}
 message StopBalancer {}
-
-message ReplicasetMetadata {
-  string cluster_id        = 1;
-  string replicaset_uuid   = 2;
-  string replicaset_name   = 3;
-  string db_backup_name    = 4;
-  string oplog_backup_name = 5;
-}
 
 message BackupMetadata {
   int64                           start_ts         = 1;
@@ -118,11 +98,28 @@ message BackupMetadata {
   map<string, ReplicasetMetadata> replicasets      = 11;
 }
 
+message Error {
+  string    message = 1;
+  ErrorType code    = 2;
+}
+
+message LastOplogTs {
+  int64 last_oplog_ts = 1;
+}
+
 message LogEntry {
   string client_id = 1;
   uint32 level     = 2;
   int64  ts        = 3;
   string message   = 4;
+}
+
+message ReplicasetMetadata {
+  string cluster_id        = 1;
+  string replicaset_uuid   = 2;
+  string replicaset_name   = 3;
+  string db_backup_name    = 4;
+  string oplog_backup_name = 5;
 }
 
 message RestoreBackup {
@@ -140,11 +137,6 @@ message RestoreBackup {
 message RestoreComplete {
   string client_id = 1;
   Error  err       = 2;
-}
-
-message Error {
-  string    message = 1;
-  ErrorType code    = 2;
 }
 
 message StartBackup {
@@ -168,17 +160,18 @@ message ServerMessage {
   int32                 version             = 1;
   oneof payload {
     Ack                 ack_msg             = 2;
-    GetBackupSource     backup_source_msg   = 3;
-    GetStatus           get_status_msg      = 4;
-    Ping                ping_msg            = 5;
-    Error               error_msg           = 6;
-    StartBalancer       start_balancer_msg  = 7;
-    StopBalancer        stop_balancer_msg   = 8;
-    StartBackup         start_backup_msg    = 9;
-    CancelBackup        cancel_backup_msg   = 10;
-    StopOplogTail       stop_oplog_tail_msg = 11;
-    RestoreBackup       restore_backup_msg  = 12;
-    ListReplicasets     list_replicasets    = 13;
+    CancelBackup        cancel_backup_msg   = 3;
+    Error               error_msg           = 4;
+    GetBackupSource     backup_source_msg   = 5;
+    GetStatus           get_status_msg      = 6;
+    ListReplicasets     list_replicasets    = 7;
+    GetLastOplogTs      last_oplog_ts       = 8;
+    Ping                ping_msg            = 9;
+    RestoreBackup       restore_backup_msg  = 10;
+    StartBackup         start_backup_msg    = 11;
+    StartBalancer       start_balancer_msg  = 12;
+    StopBalancer        stop_balancer_msg   = 13;
+    StopOplogTail       stop_oplog_tail_msg = 14;
   }
 }
 
@@ -187,14 +180,15 @@ message ClientMessage {
   string                    client_id           = 2;
   oneof payload {
     Ack                     ack_msg             = 3;
-    Error                   error_msg           = 4;
-    BackupSource            backup_source_msg   = 5;
-    Register                register_msg        = 6;
-    Pong                    pong_msg            = 7;
-    DBBackupFinishStatus    backup_finished_msg = 8;
-    OplogBackupFinishStatus oplog_finished_msg  = 9; 
-    Status                  status_msg          = 10;
+    BackupSource            backup_source_msg   = 4;
+    DBBackupFinishStatus    backup_finished_msg = 5;
+    Error                   error_msg           = 6;
+    OplogBackupFinishStatus oplog_finished_msg  = 7; 
+    LastOplogTs             last_oplog_ts       = 8;
+    Pong                    pong_msg            = 9;
+    Register                register_msg        = 10;
     Replicasets             replicasets_msg     = 11;
+    Status                  status_msg          = 12;
   }
 }
 
@@ -223,6 +217,8 @@ message Register {
   string   replicaset_id   = 4;
   string   replicaset_name = 5;
   string   backup_dir      = 6;
+  bool     is_primary      = 7;
+  bool     is_secondary    = 8;
 }
 
 message Pong {

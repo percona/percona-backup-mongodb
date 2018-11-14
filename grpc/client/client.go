@@ -204,10 +204,14 @@ func (c *Client) updateClientInfo() (err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.nodeType, c.nodeName, err = getNodeTypeAndName(c.mdbSession)
+	isMaster, err := cluster.NewIsMaster(c.mdbSession)
 	if err != nil {
-		return errors.Wrap(err, "Cannot get node type")
+		return errors.Wrap(err, "cannot update client info")
 	}
+
+	c.isMasterDoc = isMaster.IsMasterDoc()
+	c.nodeType = getNodeType(isMaster)
+	c.nodeName = isMaster.IsMasterDoc().Me
 
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
 		replset, err := cluster.NewReplset(c.mdbSession)
@@ -271,6 +275,11 @@ func (c *Client) register() error {
 		return fmt.Errorf("gRPC stream is closed. Cannot register the client (%s)", c.id)
 	}
 
+	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	if err != nil {
+		return errors.Wrap(err, "cannot get IsMasterDoc for register method")
+	}
+
 	m := &pb.ClientMessage{
 		ClientId: c.id,
 		Payload: &pb.ClientMessage_RegisterMsg{
@@ -281,6 +290,8 @@ func (c *Client) register() error {
 				ReplicasetName: c.replicasetName,
 				ReplicasetId:   c.replicasetID,
 				BackupDir:      c.backupDir,
+				IsPrimary:      isMaster.IsMasterDoc().IsMaster && isMaster.IsMasterDoc().SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
+				IsSecondary:    isMaster.IsMasterDoc().Secondary,
 			},
 		},
 	}
@@ -362,8 +373,19 @@ func (c *Client) processIncommingServerMessages() {
 			c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
 			c.processStartBalancer()
+		case *pb.ServerMessage_LastOplogTs:
+			c.processLastOplogTs()
 		default:
-			err = fmt.Errorf("Message type %v is not implemented yet", msg.Payload)
+			err = fmt.Errorf("Client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
+			log.Error(err.Error())
+			msg := &pb.ClientMessage{
+				ClientId: c.id,
+				Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+			}
+			c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
+			if err = c.streamSend(msg); err != nil {
+				c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+			}
 		}
 	}
 }
@@ -440,6 +462,31 @@ func (c *Client) processGetBackupSource() {
 	c.streamSend(msg)
 }
 
+func (c *Client) processLastOplogTs() error {
+	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	if err != nil {
+		msg := &pb.ClientMessage{
+			ClientId: c.id,
+			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
+		}
+		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
+		if err = c.streamSend(msg); err != nil {
+			c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+		}
+		return errors.Wrap(err, "cannot update client info")
+	}
+
+	msg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload:  &pb.ClientMessage_LastOplogTs{LastOplogTs: &pb.LastOplogTs{LastOplogTs: int64(isMaster.LastWrite())}},
+	}
+	c.logger.Debugf("%s: Sending LastOplogTs(%d) to the RPC server", c.NodeName(), isMaster.LastWrite())
+	if err = c.streamSend(msg); err != nil {
+		c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+	}
+	return nil
+}
+
 func (c *Client) processListReplicasets() error {
 	var sm shardsMap
 	err := c.mdbSession.Run("getShardMap", &sm)
@@ -494,7 +541,7 @@ func (c *Client) processPing() {
 		NodeType:            c.nodeType,
 		ReplicaSetUuid:      c.replicasetID,
 		ReplicaSetVersion:   0,
-		IsPrimary:           c.isMasterDoc.IsMaster,
+		IsPrimary:           c.isMasterDoc.IsMaster && c.isMasterDoc.SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
 		IsSecondary:         !c.isMasterDoc.IsMaster,
 		IsTailing:           c.IsOplogBackupRunning(),
 		LastTailedTimestamp: c.oplogTailer.LastOplogTimestamp().Time().Unix(),
@@ -986,26 +1033,22 @@ func (c *Client) streamSend(msg *pb.ClientMessage) error {
 	return c.stream.Send(msg)
 }
 
-func getNodeTypeAndName(session *mgo.Session) (pb.NodeType, string, error) {
-	isMaster, err := cluster.NewIsMaster(session)
-	if err != nil {
-		return pb.NodeType_NODE_TYPE_INVALID, "", err
-	}
+func getNodeType(isMaster *cluster.IsMaster) pb.NodeType {
 	if isMaster.IsShardServer() {
-		return pb.NodeType_NODE_TYPE_MONGOD_SHARDSVR, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_SHARDSVR
 	}
 	// Don't change the order. A config server can also be a replica set so we need to call this BEFORE
 	// calling .IsReplset()
 	if isMaster.IsConfigServer() {
-		return pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR
 	}
 	if isMaster.IsReplset() {
-		return pb.NodeType_NODE_TYPE_MONGOD_REPLSET, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOD_REPLSET
 	}
 	if isMaster.IsMongos() {
-		return pb.NodeType_NODE_TYPE_MONGOS, isMaster.IsMasterDoc().Me, nil
+		return pb.NodeType_NODE_TYPE_MONGOS
 	}
-	return pb.NodeType_NODE_TYPE_MONGOD, isMaster.IsMasterDoc().Me, nil
+	return pb.NodeType_NODE_TYPE_MONGOD
 }
 
 func (c *Client) restoreDBDump(opts *pb.RestoreBackup) (err error) {
