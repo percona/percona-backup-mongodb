@@ -194,7 +194,7 @@ func (ot *OplogTail) tail() {
 				ot.lock.Lock()
 				if ot.stopAtTimestampt != nil {
 					if ot.lastOplogTimestamp != nil {
-						if ot.lastOplogTimestamp.Time().After(ot.stopAtTimestampt.Time()) {
+						if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
 							iter.Close()
 							ot.lock.Unlock()
 							close(ot.readerStopChan)
@@ -351,8 +351,6 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 			}
 			copy(buf, doc)
 			return retSize, nil
-			//case <-time.After(5 * time.Second):
-			//	return 0, io.EOF
 		}
 	}
 }
