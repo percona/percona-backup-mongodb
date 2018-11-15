@@ -155,6 +155,12 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 	return replicas
 }
 
+func (s *MessagesServer) LastOplogTs() int64 {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.lastOplogTs
+}
+
 func (s *MessagesServer) RefreshClients() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -419,7 +425,6 @@ func (s *MessagesServer) StopOplogTail() error {
 	}
 	s.logger.Infof("StopOplogTs: %d (%v)", s.lastOplogTs, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
 
-	s.lastOplogTs += int64(1 * time.Second)
 	var gErr error
 	for _, client := range s.clients {
 		s.logger.Debugf("Checking if client %s is running the oplog backup: %v", client.NodeName, client.isOplogTailerRunning())

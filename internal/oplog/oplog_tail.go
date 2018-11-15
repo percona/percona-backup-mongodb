@@ -3,6 +3,7 @@ package oplog
 import (
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -185,7 +186,9 @@ func (ot *OplogTail) tail() {
 
 		if iter.Next(&result) {
 			oplog := mdbstructs.OplogTimestampOnly{}
-			err := result.Unmarshal(&oplog)
+			data := bson.M{}
+			err := result.Unmarshal(&data)
+			err = result.Unmarshal(&oplog)
 			if err == nil {
 				ot.lastOplogTimestamp = &oplog.Timestamp
 				if ot.startOplogTimestamp == nil {
@@ -206,6 +209,7 @@ func (ot *OplogTail) tail() {
 				ot.dataChan <- result.Data
 				continue
 			}
+			log.Fatalf("cannot unmarshal oplog doc: %s", err)
 		}
 		ot.lock.Lock()
 		if iter.Timeout() {

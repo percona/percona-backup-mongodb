@@ -225,6 +225,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     *opts.description,
+		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
 	}
 
 	switch *opts.backupType {
@@ -232,21 +233,31 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_LOGICAL
 	case "hot":
 		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_HOTBACKUP
+	default:
+		return fmt.Errorf("backup type %q is invalid", opts.backupType)
 	}
 
 	switch *opts.destinationType {
-	case "logical":
+	case "file":
 		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_FILE
 	case "aws":
 		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_AWS
+	default:
+		return fmt.Errorf("destination type %v is invalid", *opts.destinationType)
 	}
 
 	switch *opts.compressionAlgorithm {
+	case "":
 	case "gzip":
 		msg.CompressionType = pbapi.CompressionType_COMPRESSION_TYPE_GZIP
+	default:
+		return fmt.Errorf("compression algorithm %q ins invalid", *opts.compressionAlgorithm)
 	}
 
-	switch opts.encryptionAlgorithm {
+	switch *opts.encryptionAlgorithm {
+	case "":
+	default:
+		return fmt.Errorf("encryption is not implemente yet")
 	}
 
 	_, err := apiClient.RunBackup(ctx, msg)
@@ -290,8 +301,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
-		backupType:           backupCmd.Flag("backup-type", "Backup type").Enum("logical", "hot"),
-		destinationType:      backupCmd.Flag("destination-type", "Backup destination type").Enum("file", "aws"),
+		backupType:           backupCmd.Flag("backup-type", "Backup type").Default("logical").Enum("logical", "hot"),
+		destinationType:      backupCmd.Flag("destination-type", "Backup destination type").Default("file").Enum("file", "aws"),
 		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 		description:          backupCmd.Flag("description", "Backup description").Required().String(),

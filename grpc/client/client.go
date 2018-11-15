@@ -622,6 +622,10 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 	// Validate backup type by asking MongoDB capabilities?
+	if msg.BackupType == pb.BackupType_BACKUP_TYPE_INVALID {
+		c.sendError(fmt.Errorf("Backup type should be hot or logical"))
+		return
+	}
 	if msg.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
 		c.sendError(fmt.Errorf("Hot Backup is not implemented yet"))
 		return
@@ -1009,9 +1013,9 @@ func (c *Client) sendError(err error) {
 		Error:    err.Error(),
 	}
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
-		c.logger.Errorf("Cannot call DBBackupFinished (cancel) RPC method: %s", err)
+		c.logger.Errorf("Cannot call DBBackupFinished with error (%s) RPC method: %s", finishMsg.Error, err)
 	} else {
-		c.logger.Debugf("Recieved ACK from DBBackupFinished (cancel) RPC method: %+v", *ack)
+		c.logger.Debugf("Recieved ACK from DBBackupFinished with error RPC method: %+v", *ack)
 	}
 }
 
