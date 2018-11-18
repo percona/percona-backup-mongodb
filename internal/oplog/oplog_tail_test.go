@@ -66,7 +66,7 @@ func TestMain(m *testing.M) {
 	if testing.Verbose() {
 		fmt.Printf("Samples & helper binaries at %q\n", samplesDir)
 	}
-	//os.Exit(m.Run())
+	os.Exit(m.Run())
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {

@@ -3,7 +3,6 @@ package oplog
 import (
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +22,7 @@ type OplogTail struct {
 	startOplogTimestamp *bson.MongoTimestamp
 	lastOplogTimestamp  *bson.MongoTimestamp
 	stopAtTimestampt    *bson.MongoTimestamp
+	lastError           error
 
 	totalSize         uint64
 	docsCount         uint64
@@ -94,6 +94,10 @@ func open(session *mgo.Session) (*OplogTail, error) {
 	return ot, nil
 }
 
+func (ot *OplogTail) Error() error {
+	return ot.lastError
+}
+
 func (ot *OplogTail) LastOplogTimestamp() *bson.MongoTimestamp {
 	return ot.lastOplogTimestamp
 }
@@ -131,7 +135,6 @@ func (ot *OplogTail) Close() error {
 
 	ismaster, err := cluster.NewIsMaster(ot.session)
 	if err != nil {
-		close(ot.stopChan)
 		return fmt.Errorf("Cannot get master doc LastWrite.Optime: %s", err)
 	}
 
@@ -173,12 +176,15 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
+	defer close(ot.readerStopChan)
 
 	iter := ot.makeIterator()
 	for {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
+			fmt.Println("closing")
+			//close(ot.readerStopChan)
 			return
 		default:
 		}
@@ -186,30 +192,29 @@ func (ot *OplogTail) tail() {
 
 		if iter.Next(&result) {
 			oplog := mdbstructs.OplogTimestampOnly{}
-			data := bson.M{}
-			err := result.Unmarshal(&data)
-			err = result.Unmarshal(&oplog)
-			if err == nil {
-				ot.lastOplogTimestamp = &oplog.Timestamp
-				if ot.startOplogTimestamp == nil {
-					ot.startOplogTimestamp = &oplog.Timestamp
-				}
-				ot.lock.Lock()
-				if ot.stopAtTimestampt != nil {
-					if ot.lastOplogTimestamp != nil {
-						if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
-							iter.Close()
-							ot.lock.Unlock()
-							close(ot.readerStopChan)
-							return
-						}
+			err := result.Unmarshal(&oplog)
+			if err != nil {
+				ot.lastError = errors.Wrapf(err, "oplog tailer.tail: cannot unmarshal oplog doc.")
+				return
+			}
+
+			ot.lastOplogTimestamp = &oplog.Timestamp
+			//if ot.startOplogTimestamp == nil {
+			//ot.startOplogTimestamp = &oplog.Timestamp
+			//}
+			ot.lock.Lock()
+			if ot.stopAtTimestampt != nil {
+				if ot.lastOplogTimestamp != nil {
+					if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
+						iter.Close()
+						ot.lock.Unlock()
+						//close(ot.readerStopChan)
+						return
 					}
 				}
-				ot.lock.Unlock()
-				ot.dataChan <- result.Data
-				continue
 			}
-			log.Fatalf("cannot unmarshal oplog doc: %s", err)
+			ot.lock.Unlock()
+			ot.dataChan <- result.Data
 		}
 		ot.lock.Lock()
 		if iter.Timeout() {
