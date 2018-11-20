@@ -33,10 +33,19 @@ type OplogTail struct {
 	dataChan       chan chanDataTye
 	stopChan       chan bool
 	readerStopChan chan bool
-	readFunc       func([]byte) (int, error)
-	lock           sync.Mutex
-	isEOF          bool
-	running        bool
+
+	// Under certain conditions, like network latency, there could be a delay since we
+	// start the oplog tailer and we are able to really start reading from the oplog.
+	// Since we need to start the database dump (using MongoDump) ONLY after we started
+	// tailing the oplog, we need to wait until we have the first document form the oplog,
+	// before returning from the Open or OpenAt method.
+	// This channel is used to signal that event: we read at least one document from the
+	// oplog.
+	startedChan chan struct{}
+	readFunc    func([]byte) (int, error)
+	lock        sync.Mutex
+	isEOF       bool
+	running     bool
 }
 
 const (
@@ -54,6 +63,8 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 		return nil, err
 	}
 	go ot.tail()
+	// Wait until we have read at least one doc from the oplog
+	<-ot.startedChan
 	return ot, nil
 }
 
@@ -68,6 +79,8 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	}
 	ot.startOplogTimestamp = &mongoTimestamp
 	go ot.tail()
+	// Wait until we have read at least one doc from the oplog
+	<-ot.startedChan
 	return ot, nil
 }
 
@@ -88,6 +101,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		stopChan:        make(chan bool),
 		readerStopChan:  make(chan bool),
 		running:         true,
+		startedChan:     make(chan struct{}),
 		wg:              &sync.WaitGroup{},
 	}
 	ot.readFunc = makeReader(ot)
@@ -107,8 +121,6 @@ func (ot *OplogTail) LastOplogTimestamp() *bson.MongoTimestamp {
 func (ot *OplogTail) Read(buf []byte) (int, error) {
 	n, err := ot.readFunc(buf)
 	if err == nil {
-		atomic.AddUint64(&ot.docsCount, 1)
-		atomic.AddUint64(&ot.totalSize, uint64(n))
 	}
 	return n, err
 }
@@ -178,13 +190,13 @@ func (ot *OplogTail) tail() {
 	defer ot.wg.Done()
 	defer close(ot.readerStopChan)
 
+	once := sync.Once{}
+
 	iter := ot.makeIterator()
 	for {
 		select {
 		case <-ot.stopChan:
 			iter.Close()
-			fmt.Println("closing")
-			//close(ot.readerStopChan)
 			return
 		default:
 		}
@@ -198,19 +210,15 @@ func (ot *OplogTail) tail() {
 				return
 			}
 
+			once.Do(func() { close(ot.startedChan) })
+
 			ot.lastOplogTimestamp = &oplog.Timestamp
-			//if ot.startOplogTimestamp == nil {
-			//ot.startOplogTimestamp = &oplog.Timestamp
-			//}
 			ot.lock.Lock()
 			if ot.stopAtTimestampt != nil {
-				if ot.lastOplogTimestamp != nil {
-					if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
-						iter.Close()
-						ot.lock.Unlock()
-						//close(ot.readerStopChan)
-						return
-					}
+				if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
+					iter.Close()
+					ot.lock.Unlock()
+					return
 				}
 			}
 			ot.lock.Unlock()
@@ -331,6 +339,8 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 			copy(buf, ot.remainingBytes[ot.nextChunkPosition:])
 			ot.remainingBytes = nil
 			ot.nextChunkPosition = 0
+			atomic.AddUint64(&ot.docsCount, 1)
+			atomic.AddUint64(&ot.totalSize, uint64(responseSize))
 			return responseSize, nil
 		}
 
@@ -359,6 +369,7 @@ func makeReader(ot *OplogTail) func([]byte) (int, error) {
 				ot.nextChunkPosition = 0
 			}
 			copy(buf, doc)
+			atomic.AddUint64(&ot.totalSize, uint64(retSize))
 			return retSize, nil
 		}
 	}
