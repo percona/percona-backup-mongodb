@@ -150,7 +150,7 @@ func main() {
 }
 
 func processCliArgs() (*cliOptions, error) {
-	app := kingpin.New("pmb-admin", "MongoDB backup admin client")
+	app := kingpin.New("pmb-agent", "MongoDB backup agent")
 	opts := &cliOptions{
 		app: app,
 	}

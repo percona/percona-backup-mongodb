@@ -52,7 +52,7 @@ type cliOptions struct {
 var (
 	conn              *grpc.ClientConn
 	defaultServerAddr = "127.0.0.1:10001"
-	defaultConfigFile = "~/.pmb-admin.yml"
+	defaultConfigFile = "~/.pmbctl.yml"
 )
 
 func main() {
@@ -283,7 +283,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
-	app := kingpin.New("pmb-admin", "MongoDB backup admin")
+	app := kingpin.New("pmbctl", "MongoDB backup admin")
 
 	runCmd := app.Command("run", "Start a new backup or restore process")
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
