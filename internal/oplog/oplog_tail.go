@@ -29,14 +29,15 @@ type OplogTail struct {
 	remainingBytes    []byte
 	nextChunkPosition int
 
-	wg             *sync.WaitGroup
-	dataChan       chan chanDataTye
-	stopChan       chan bool
-	readerStopChan chan bool
-	readFunc       func([]byte) (int, error)
-	lock           sync.Mutex
-	isEOF          bool
-	running        bool
+	wg              *sync.WaitGroup
+	dataChan        chan chanDataTye
+	stopChan        chan bool
+	readerStopChan  chan bool
+	startedReadChan chan bool
+	readFunc        func([]byte) (int, error)
+	lock            sync.Mutex
+	isEOF           bool
+	running         bool
 }
 
 const (
@@ -54,6 +55,7 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 		return nil, err
 	}
 	go ot.tail()
+	<-ot.startedReadChan
 	return ot, nil
 }
 
@@ -68,6 +70,7 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	}
 	ot.startOplogTimestamp = &mongoTimestamp
 	go ot.tail()
+	<-ot.startedReadChan
 	return ot, nil
 }
 
@@ -87,6 +90,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
 		readerStopChan:  make(chan bool),
+		startedReadChan: make(chan bool, 1),
 		running:         true,
 		wg:              &sync.WaitGroup{},
 	}
@@ -173,6 +177,7 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
+	once := &sync.Once{}
 
 	iter := ot.makeIterator()
 	for {
@@ -206,6 +211,8 @@ func (ot *OplogTail) tail() {
 					}
 				}
 				ot.lock.Unlock()
+
+				once.Do(func() { ot.startedReadChan <- true })
 				ot.dataChan <- result.Data
 				continue
 			}
