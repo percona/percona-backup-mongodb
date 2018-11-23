@@ -737,7 +737,14 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 
 	c.setOplogBackupRunning(false)
 
-	if err := c.oplogTailer.CloseAt(bson.MongoTimestamp(msg.GetTs())); err != nil {
+	stopAtTimestampt := bson.MongoTimestamp(time.Now().Unix())
+	if msg.GetTs() != 0 {
+		stopAtTimestampt = bson.MongoTimestamp(msg.GetTs())
+	}
+	if c.oplogTailer == nil {
+		log.Fatalf("client %v oplogtailer is nil", c.id)
+	}
+	if err := c.oplogTailer.CloseAt(&stopAtTimestampt); err != nil {
 		c.logger.Errorf("Cannot stop the oplog tailer: %s", err)
 		finishMsg := &pb.OplogBackupFinishStatus{
 			ClientId: c.id,

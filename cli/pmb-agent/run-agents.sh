@@ -50,7 +50,7 @@ run_agents() {
         echo "    --mongodb-port=${port} \\"
         echo "    --replicaset=${replicaset} \\"
         echo "    --backup-dir=${backupdir} \\"
-        echo "    --pid-file=${pidfile} &> ${logfile} &"
+        echo "    --pid-file=${pidfile} &>> ${logfile} &"
 
         ./pmb-agent --mongodb-user=${TEST_MONGODB_USERNAME} \
             --mongodb-password=${TEST_MONGODB_PASSWORD} \
@@ -58,7 +58,7 @@ run_agents() {
             --mongodb-port=${port} \
             --replicaset=${replicaset} \
             --backup-dir=${backupdir} \
-            --pid-file=${pidfile} &> ${logfile} &
+            --pid-file=${pidfile} &>> ${logfile} &
         pid=$!
         pids="$pids $pid"
         if [ "$?" != "0" ]; then

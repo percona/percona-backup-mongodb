@@ -159,13 +159,13 @@ func (ot *OplogTail) Close() error {
 	return nil
 }
 
-func (ot *OplogTail) CloseAt(ts bson.MongoTimestamp) error {
+func (ot *OplogTail) CloseAt(ts *bson.MongoTimestamp) error {
 	if !ot.isRunning() {
 		return fmt.Errorf("Tailer is already closed")
 	}
 
 	ot.lock.Lock()
-	ot.stopAtTimestampt = &ts
+	ot.stopAtTimestampt = ts
 	ot.lock.Unlock()
 
 	ot.wg.Wait()
