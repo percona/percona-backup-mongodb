@@ -55,7 +55,6 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 		return nil, err
 	}
 	go ot.tail()
-	<-ot.startedReadChan
 	return ot, nil
 }
 
@@ -70,8 +69,19 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	}
 	ot.startOplogTimestamp = &mongoTimestamp
 	go ot.tail()
-	<-ot.startedReadChan
 	return ot, nil
+}
+
+func (ot *OplogTail) WaitUntilFirstDoc() {
+	if ot.startedReadChan == nil {
+		log.Fatal("ot.startedReadChan is nil")
+	}
+	select {
+	case <-ot.startedReadChan:
+		return
+	case <-ot.stopChan:
+		return
+	}
 }
 
 func open(session *mgo.Session) (*OplogTail, error) {
@@ -90,7 +100,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
 		readerStopChan:  make(chan bool),
-		startedReadChan: make(chan bool, 1),
+		startedReadChan: make(chan bool),
 		running:         true,
 		wg:              &sync.WaitGroup{},
 	}
@@ -177,6 +187,7 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
+
 	once := &sync.Once{}
 
 	iter := ot.makeIterator()
@@ -212,7 +223,7 @@ func (ot *OplogTail) tail() {
 				}
 				ot.lock.Unlock()
 
-				once.Do(func() { ot.startedReadChan <- true })
+				once.Do(func() { close(ot.startedReadChan) })
 				ot.dataChan <- result.Data
 				continue
 			}
