@@ -29,15 +29,14 @@ type OplogTail struct {
 	remainingBytes    []byte
 	nextChunkPosition int
 
-	wg              *sync.WaitGroup
-	dataChan        chan chanDataTye
-	stopChan        chan bool
-	readerStopChan  chan bool
-	startedReadChan chan bool
-	readFunc        func([]byte) (int, error)
-	lock            sync.Mutex
-	isEOF           bool
-	running         bool
+	wg             *sync.WaitGroup
+	dataChan       chan chanDataTye
+	stopChan       chan bool
+	readerStopChan chan bool
+	readFunc       func([]byte) (int, error)
+	lock           sync.Mutex
+	isEOF          bool
+	running        bool
 }
 
 const (
@@ -72,18 +71,6 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	return ot, nil
 }
 
-func (ot *OplogTail) WaitUntilFirstDoc() {
-	if ot.startedReadChan == nil {
-		log.Fatal("ot.startedReadChan is nil")
-	}
-	select {
-	case <-ot.startedReadChan:
-		return
-	case <-ot.stopChan:
-		return
-	}
-}
-
 func open(session *mgo.Session) (*OplogTail, error) {
 	if session == nil {
 		return nil, fmt.Errorf("Invalid session (nil)")
@@ -100,7 +87,6 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
 		readerStopChan:  make(chan bool),
-		startedReadChan: make(chan bool),
 		running:         true,
 		wg:              &sync.WaitGroup{},
 	}
@@ -188,8 +174,6 @@ func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
 
-	once := &sync.Once{}
-
 	iter := ot.makeIterator()
 	for {
 		select {
@@ -222,8 +206,6 @@ func (ot *OplogTail) tail() {
 					}
 				}
 				ot.lock.Unlock()
-
-				once.Do(func() { close(ot.startedReadChan) })
 				ot.dataChan <- result.Data
 				continue
 			}

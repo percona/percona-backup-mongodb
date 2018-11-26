@@ -641,28 +641,8 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
-	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
-	// if we run go c.runOplogBackup(msg) and then WaitUntilFirstDoc(), the oplogTailer can be nill because
-	// of the delay
-	c.oplogTailer, err = oplog.Open(c.mdbSession)
-	if err != nil {
-		c.logger.Errorf("Cannot open the oplog tailer: %s", err)
-		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientId: c.id,
-			Ok:       false,
-			Ts:       time.Now().Unix(),
-			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
-		}
-		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
-		return
-	}
-
-	go c.runOplogBackup(msg)
-	// Wait until we have at least one document from the tailer to start the backup only after we have
-	// documents in the oplog tailer.
-	c.oplogTailer.WaitUntilFirstDoc()
 	go c.runDBBackup(msg)
+	go c.runOplogBackup(msg)
 
 	response := &pb.ClientMessage{
 		ClientId: c.id,
@@ -909,6 +889,21 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
 		snappyw := snappy.NewWriter(writers[len(writers)-1])
 		writers = append(writers, snappyw)
+	}
+
+	var err error
+	c.oplogTailer, err = oplog.Open(c.mdbSession)
+	if err != nil {
+		c.logger.Errorf("Cannot open the oplog tailer: %s", err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientId: c.id,
+			Ok:       false,
+			Ts:       time.Now().Unix(),
+			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
+		}
+		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
 	}
 
 	c.setOplogBackupRunning(true)
