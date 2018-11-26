@@ -32,7 +32,7 @@ TEST_MONGODB_MONGOS_PORT?=17000
 AWS_ACCESS_KEY_ID?=
 AWS_SECRET_ACCESS_KEY?=
 
-all: pmb-admin pmb-agent pmb-coordinator
+all: pmbctl pmb-agent pmb-coordinator
 
 $(GOPATH)/bin/dep:
 	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
@@ -109,16 +109,16 @@ pmb-agent: vendor cli/pmb-agent/main.go grpc/api/*.go grpc/client/*.go internal/
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-agent cli/pmb-agent/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-agent; fi
 
-pmb-admin: vendor cli/pmb-admin/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go proto/*/*.go
-	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-admin cli/pmb-admin/main.go
-	if [ -x $(UPX_BIN) ]; then upx -q pmb-admin; fi
+pmbctl: vendor cli/pmbctl/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go proto/*/*.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmbctl cli/pmbctl/main.go
+	if [ -x $(UPX_BIN) ]; then upx -q pmbctl; fi
 
 pmb-coordinator: vendor cli/pmb-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pmb-coordinator cli/pmb-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pmb-coordinator; fi
 
-install: pmb-admin pmb-agent pmb-coordinator
-	install pmb-admin $(DEST_DIR)/pmb-admin
+install: pmbctl pmb-agent pmb-coordinator
+	install pmbctl $(DEST_DIR)/pmbctl
 	install pmb-agent $(DEST_DIR)/pmb-agent
 	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
 
@@ -133,4 +133,4 @@ docker-build: release
 	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
-	rm -rf pmb-agent pmb-admin pmb-coordinator release test-out vendor 2>/dev/null || true
+	rm -rf pmb-agent pmbctl pmb-coordinator release test-out vendor 2>/dev/null || true
