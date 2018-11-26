@@ -285,7 +285,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 	}
 
 	s.reset()
-	//s.setRestoreRunning(true)
+	s.setRestoreRunning(true)
 
 	for replName, client := range clients {
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)

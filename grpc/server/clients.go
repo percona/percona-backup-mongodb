@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
-	timeout                  = 10 * time.Second
+	// This variable is exported because in tests we might want to change it
+	Timeout = 10000 * time.Millisecond
 )
 
 type Client struct {
@@ -204,7 +206,6 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 		return 0, errors.Wrapf(err, "cannot get LastOplogTs from the primary node %s", c.NodeName)
 	}
 
-	fmt.Printf("getPrimaryLastOplogTs %T %+v\n", response.Payload, response.Payload)
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
 		return 0, fmt.Errorf("Cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
@@ -431,8 +432,8 @@ func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 	select {
 	case msg := <-c.streamRecvChan:
 		return msg, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("Timeout reading from the stream")
+	case <-time.After(Timeout):
+		return nil, fmt.Errorf("Timeout reading from the stream: \n" + string(debug.Stack()))
 	}
 }
 

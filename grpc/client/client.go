@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apex/log"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/snappy"
@@ -27,6 +26,7 @@ import (
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -432,8 +432,9 @@ func (c *Client) processGetBackupSource() {
 			ClientId: c.id,
 			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: c.nodeName}},
 		}
-		c.logger.Debugf("Sending GetBackupSource response to the RPC server: %+v", *msg)
-		c.streamSend(msg)
+		if err := c.streamSend(msg); err != nil {
+			log.Errorf("cannot send processGetBackupSource error message: %s", err)
+		}
 		return
 	}
 
@@ -459,7 +460,9 @@ func (c *Client) processGetBackupSource() {
 		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: winner}},
 	}
 	c.logger.Debugf("%s -> Sending GetBackupSource response to the RPC server: %+v (winner: %q)", c.nodeName, *msg, winner)
-	c.streamSend(msg)
+	if err := c.streamSend(msg); err != nil {
+		log.Errorf("cannot send processGetBackupSource message to the server: %s", err)
+	}
 }
 
 func (c *Client) processLastOplogTs() error {
@@ -529,7 +532,9 @@ func (c *Client) processListReplicasets() error {
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_ReplicasetsMsg{ReplicasetsMsg: &pb.Replicasets{Replicasets: replicasets}},
 	}
-	c.streamSend(msg)
+	if err := c.streamSend(msg); err != nil {
+		log.Errorf("cannot send processListReplicasets message to the server: %v", err)
+	}
 	return nil
 }
 
@@ -567,6 +572,8 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING
 		c.lock.Unlock()
 	}()
+
+	c.sendACK()
 
 	if err := c.restoreDBDump(msg); err != nil {
 		err := errors.Wrap(err, "cannot restore DB backup")
@@ -640,7 +647,9 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		c.sendError(fmt.Errorf("%s is not a directory", c.backupDir))
 		return
 	}
-
+	// Send the ACK message and work on the background. When the process finishes, it will send the
+	// gRPC messages to signal that the backup has been completed
+	c.sendACK()
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
 	// if we run go c.runOplogBackup(msg) and then WaitUntilFirstDoc(), the oplogTailer can be nill because
 	// of the delay
@@ -663,14 +672,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	// documents in the oplog tailer.
 	c.oplogTailer.WaitUntilFirstDoc()
 	go c.runDBBackup(msg)
-
-	response := &pb.ClientMessage{
-		ClientId: c.id,
-		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-	}
-	if err = c.streamSend(response); err != nil {
-		c.logger.Errorf("processStartBackup error: cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *response, response.Payload)
-	}
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -688,7 +689,9 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
-	c.streamSend(out)
+	if err := c.streamSend(out); err != nil {
+		log.Errorf("cannot send processStartBalancer response to the server: %s", err)
+	}
 
 	return nil, nil
 }
@@ -741,7 +744,9 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
-	c.streamSend(out)
+	if err := c.streamSend(out); err != nil {
+		log.Errorf("cannot send processStopBalancer response to the server: %s", err)
+	}
 
 	return nil, nil
 }
@@ -753,7 +758,9 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	c.logger.Debugf("Sending ACK message to the gRPC server")
-	c.streamSend(out)
+	if err := c.streamSend(out); err != nil {
+		log.Errorf("cannot send processStopOplogTail ACK to the server: %s", err)
+	}
 
 	c.setOplogBackupRunning(false)
 
