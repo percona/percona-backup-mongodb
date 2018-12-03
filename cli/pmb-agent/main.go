@@ -345,7 +345,7 @@ func getDefaultLogger() *logrus.Logger {
 			DisableLevelTruncation: true,
 		},
 		Hooks: make(logrus.LevelHooks),
-		Level: logrus.InfoLevel,
+		Level: logrus.DebugLevel,
 	}
 	logger.SetLevel(logrus.StandardLogger().Level)
 	logger.Out = logrus.StandardLogger().Out

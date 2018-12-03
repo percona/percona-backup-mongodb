@@ -128,6 +128,7 @@ func main() {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
+		log.Println("Backup completed")
 	case "run restore":
 		fmt.Println("restoring")
 		err := restoreBackup(ctx, apiClient, opts)
@@ -135,6 +136,7 @@ func main() {
 			log.Fatal(err)
 			log.Fatalf("Cannot send the RestoreBackup command to the gRPC server: %s", err)
 		}
+		log.Println("Restore completed")
 	default:
 		log.Fatalf("Unknown command %q", cmd)
 	}

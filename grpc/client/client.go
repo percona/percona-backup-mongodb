@@ -667,10 +667,26 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
+	log.Debug("Starting oplog backup")
 	go c.runOplogBackup(msg)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
-	c.oplogTailer.WaitUntilFirstDoc()
+	log.Debug("Waiting oplog first doc")
+	timeout, err := c.oplogTailer.WaitUntilFirstDocWithTimeout(time.Duration(10 * time.Second))
+	if err != nil {
+		err := errors.Wrapf(err, "Cannot read from the oplog tailer: (timeout after %v)", timeout)
+		c.oplogTailer.Cancel()
+		c.logger.Error(err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientId: c.id,
+			Ok:       false,
+			Ts:       time.Now().Unix(),
+			Error:    err.Error(),
+		}
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
+	}
+	log.Debugf("Starting DB backup")
 	go c.runDBBackup(msg)
 }
 

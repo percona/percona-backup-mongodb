@@ -72,15 +72,33 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	return ot, nil
 }
 
-func (ot *OplogTail) WaitUntilFirstDoc() {
+func (ot *OplogTail) WaitUntilFirstDoc() error {
 	if ot.startedReadChan == nil {
 		log.Fatal("ot.startedReadChan is nil")
 	}
 	select {
 	case <-ot.startedReadChan:
-		return
+		return nil
 	case <-ot.stopChan:
-		return
+		return nil
+	}
+}
+
+func (ot *OplogTail) WaitUntilFirstDocWithTimeout(timeout time.Duration) (bool, error) {
+	if ot.startedReadChan == nil {
+		log.Fatal("ot.startedReadChan is nil")
+	}
+	select {
+	case <-ot.startedReadChan:
+		return false, nil
+	case <-ot.stopChan:
+		return false, nil
+	case <-time.After(timeout):
+		if err := ot.session.Ping(); err != nil {
+			return true, err
+		} else {
+			return true, nil
+		}
 	}
 }
 
