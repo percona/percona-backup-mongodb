@@ -241,12 +241,16 @@ func (ot *OplogTail) tail() {
 				}
 				ot.lock.Unlock()
 
-				once.Do(func() { close(ot.startedReadChan) })
 				ot.dataChan <- result.Data
 				continue
 			}
 			log.Fatalf("cannot unmarshal oplog doc: %s", err)
 		}
+
+		if iter.Err() == nil {
+			once.Do(func() { close(ot.startedReadChan) })
+		}
+
 		ot.lock.Lock()
 		if iter.Timeout() {
 			if ot.stopAtTimestampt != nil {

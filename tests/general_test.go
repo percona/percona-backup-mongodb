@@ -480,6 +480,68 @@ func TestBackup1(t *testing.T) {
 	d.Stop()
 }
 
+func TestBackupWithNoOplogActivity(t *testing.T) {
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	s1Session.SetMode(mgo.Strong, true)
+	generateDataToBackup(t, s1Session)
+
+	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
+
+	err = d.MessagesServer.StartBackup(&pb.StartBackup{
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
+		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      backupNamePrefix,
+		Description:     "general_test_backup",
+	})
+	if err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+	d.MessagesServer.WaitBackupFinish()
+
+	// Test list backups
+	log.Debug("Testing backup metadata")
+	mdFilename := backupNamePrefix + ".json"
+	d.MessagesServer.WriteBackupMetadata(mdFilename)
+	bms, err := d.MessagesServer.ListBackups()
+	if err != nil {
+		t.Errorf("Cannot get backups metadata listing: %s", err)
+	} else {
+		if bms == nil {
+			t.Errorf("Backups metadata listing is nil")
+		} else {
+			if len(bms) != 1 {
+				t.Errorf("Backups metadata listing is empty")
+			}
+			if _, ok := bms[mdFilename]; !ok {
+				t.Errorf("Backup metadata for %q doesn't exists", mdFilename)
+			}
+		}
+	}
+
+	cleanupDBForRestore(t, s1Session)
+
+	d.Stop()
+}
 func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
