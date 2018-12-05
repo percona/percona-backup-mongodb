@@ -218,7 +218,13 @@ func (ot *OplogTail) tail() {
 		}
 		result := bson.Raw{}
 
-		if iter.Next(&result) {
+		hasNext := iter.Next(&result)
+
+		if iter.Err() == nil {
+			once.Do(func() { close(ot.startedReadChan) })
+		}
+
+		if hasNext {
 			oplog := mdbstructs.OplogTimestampOnly{}
 			data := bson.M{}
 			err := result.Unmarshal(&data)
@@ -247,19 +253,16 @@ func (ot *OplogTail) tail() {
 			log.Fatalf("cannot unmarshal oplog doc: %s", err)
 		}
 
-		if iter.Err() == nil {
-			once.Do(func() { close(ot.startedReadChan) })
-		}
-
-		ot.lock.Lock()
 		if iter.Timeout() {
-			if ot.stopAtTimestampt != nil {
+			ot.lock.Lock()
+			stopAtTs := ot.stopAtTimestampt
+			ot.lock.Unlock()
+			if stopAtTs != nil {
 				iter.Close()
-				ot.lock.Unlock()
 				return
 			}
 		}
-		ot.lock.Unlock()
+
 		if iter.Err() != nil {
 			iter.Close()
 			iter = ot.makeIterator()
