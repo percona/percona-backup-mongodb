@@ -129,7 +129,7 @@ release:
 	docker rmi -f mongodb-backup-release
 
 docker-build: release
-	docker build -t mongodb-backup-node -f docker/node/Dockerfile .
+	docker build -t mongodb-backup-agent -f docker/agent/Dockerfile .
 	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
