@@ -173,8 +173,8 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("log-file", "Log file").StringVar(&opts.LogFile)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 
-	app.Flag("mongodb-host", "MongoDB host").Default("127.0.0.1").StringVar(&opts.MongodbConnOptions.Host)
-	app.Flag("mongodb-port", "MongoDB port").Default("27017").StringVar(&opts.MongodbConnOptions.Port)
+	app.Flag("mongodb-host", "MongoDB host").StringVar(&opts.MongodbConnOptions.Host)
+	app.Flag("mongodb-port", "MongoDB port").StringVar(&opts.MongodbConnOptions.Port)
 	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
