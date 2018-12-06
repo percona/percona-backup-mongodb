@@ -108,6 +108,9 @@ func main() {
 	defer cancel()
 
 	logHook, err := loghook.NewGrpcLogging(ctx, clientID, conn)
+	if err != nil {
+		log.Fatalf("Failed to create gRPC log hook: %v", err)
+	}
 	logHook.SetLevel(log.Level)
 	log.AddHook(logHook)
 

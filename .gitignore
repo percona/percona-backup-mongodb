@@ -1,7 +1,7 @@
 *.upx
 .env
 .vscode
-pmb-agent
+pmbctl
 pmb-coordinator
 pmb-admin
 release

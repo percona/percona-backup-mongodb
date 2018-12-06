@@ -26,7 +26,7 @@ $ make
 ```
 
 A successful build outputs binaries: 
-1. **pmb-admin**: A command-line interface for controlling the backup system
+1. **pmbctl**: A command-line interface for controlling the backup system
 1. **pmb-agent**: An agent that executes backup/restore actions on a database host
 1. **pmb-coordinator**: A server that coordinates backup system actions
 
@@ -59,8 +59,9 @@ $ make docker-build
 *Note: data volume must be owned as unix UID 100*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
-$ chown 100 /data/mongodb-backup-coordinator
-$ docker run -d --restart=always \
+$ docker run -d \
+    --restart=always \
+    --user=$(id -u) \
     --name=mongodb-backup-coordinator \
     -e PMB_COORDINATOR_GRPC_PORT=10000 \
     -e PMB_COORDINATOR_API_PORT=10001 \
@@ -80,3 +81,31 @@ $ docker logs mongodb-backup-coordinator
 $ docker stop mongodb-backup-coordinator
 ```
 
+### Agent
+
+#### Create Agent
+*Note: the [Coordinator](#create-coordinator) must be started before the agent!*
+```
+$ mkdir -m 0700 -p /data/mongodb-backup-agent
+$ docker run -d \
+    --restart=always \
+    --user=$(id -u) \
+    --name=mongodb-backup-agent \
+    -e PMB_AGENT_BACKUP_DIR=/data \
+    -e PMB_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
+    -e PMB_AGENT_MONGODB_USER=usern@m3 \
+    -e PMB_AGENT_MONGODB_PASSWORD=password123456 \
+    -e PMB_AGENT_MONGODB_REPLICASET=rs \
+    -v /data/mongodb-backup-agent:/data \
+mongodb-backup-agent
+```
+
+#### Read Agent Logs
+```
+$ docker logs mongodb-backup-agent
+```
+
+#### Stop Agent
+```
+$ docker stop mongodb-backup-agent
+```
