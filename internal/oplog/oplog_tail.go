@@ -261,7 +261,6 @@ func (ot *OplogTail) tail() {
 			}
 
 			ot.dataChan <- result.Data
-			continue
 		} else {
 			log.Fatalf("cannot unmarshal oplog doc: %s", err)
 		}
