@@ -20,9 +20,11 @@ type chanDataTye []byte
 type OplogTail struct {
 	session             *mgo.Session
 	oplogCollection     string
-	startOplogTimestamp *bson.MongoTimestamp
-	lastOplogTimestamp  *bson.MongoTimestamp
-	stopAtTimestampt    *bson.MongoTimestamp
+	startOplogTimestamp bson.MongoTimestamp
+	lastOplogTimestamp  bson.MongoTimestamp
+	// This is an int64 and not a bson.MongoTimestamp because we need to use atomic.LoadInt64 (or StoreInt64)
+	// for performance.
+	stopAtTimestampt int64
 
 	totalSize         uint64
 	docsCount         uint64
@@ -32,6 +34,7 @@ type OplogTail struct {
 	wg              *sync.WaitGroup
 	dataChan        chan chanDataTye
 	stopChan        chan bool
+	stopAtChan      chan bson.MongoTimestamp
 	readerStopChan  chan bool
 	startedReadChan chan bool
 	readFunc        func([]byte) (int, error)
@@ -67,7 +70,7 @@ func OpenAt(session *mgo.Session, t time.Time, c uint32) (*OplogTail, error) {
 	if err != nil {
 		return nil, err
 	}
-	ot.startOplogTimestamp = &mongoTimestamp
+	ot.startOplogTimestamp = mongoTimestamp
 	go ot.tail()
 	return ot, nil
 }
@@ -117,6 +120,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		oplogCollection: oplogCol,
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
+		stopAtChan:      make(chan bson.MongoTimestamp),
 		readerStopChan:  make(chan bool),
 		startedReadChan: make(chan bool),
 		running:         true,
@@ -126,7 +130,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 	return ot, nil
 }
 
-func (ot *OplogTail) LastOplogTimestamp() *bson.MongoTimestamp {
+func (ot *OplogTail) LastOplogTimestamp() bson.MongoTimestamp {
 	return ot.lastOplogTimestamp
 }
 
@@ -168,7 +172,7 @@ func (ot *OplogTail) Close() error {
 	}
 
 	ot.lock.Lock()
-	ot.stopAtTimestampt = &ismaster.IsMasterDoc().LastWrite.OpTime.Ts
+	atomic.StoreInt64(&ot.stopAtTimestampt, int64(ismaster.IsMasterDoc().LastWrite.OpTime.Ts))
 	ot.lock.Unlock()
 
 	ot.wg.Wait()
@@ -182,7 +186,7 @@ func (ot *OplogTail) CloseAt(ts bson.MongoTimestamp) error {
 	}
 
 	ot.lock.Lock()
-	ot.stopAtTimestampt = &ts
+	atomic.StoreInt64(&ot.stopAtTimestampt, int64(ts))
 	ot.lock.Unlock()
 
 	ot.wg.Wait()
@@ -205,7 +209,6 @@ func (ot *OplogTail) setRunning(state bool) {
 func (ot *OplogTail) tail() {
 	ot.wg.Add(1)
 	defer ot.wg.Done()
-
 	once := &sync.Once{}
 
 	iter := ot.makeIterator()
@@ -218,68 +221,63 @@ func (ot *OplogTail) tail() {
 		}
 		result := bson.Raw{}
 
-		hasNext := iter.Next(&result)
-
-		if iter.Err() == nil {
-			once.Do(func() { close(ot.startedReadChan) })
-		}
-
-		if hasNext {
-			oplog := mdbstructs.OplogTimestampOnly{}
-			data := bson.M{}
-			err := result.Unmarshal(&data)
-			err = result.Unmarshal(&oplog)
-			if err == nil {
-				ot.lastOplogTimestamp = &oplog.Timestamp
-				if ot.startOplogTimestamp == nil {
-					ot.startOplogTimestamp = &oplog.Timestamp
-				}
-				ot.lock.Lock()
-				if ot.stopAtTimestampt != nil {
-					if ot.lastOplogTimestamp != nil {
-						if *ot.lastOplogTimestamp > *ot.stopAtTimestampt {
-							iter.Close()
-							ot.lock.Unlock()
-							close(ot.readerStopChan)
-							return
-						}
-					}
-				}
-				ot.lock.Unlock()
-
-				ot.dataChan <- result.Data
-				continue
-			}
-			log.Fatalf("cannot unmarshal oplog doc: %s", err)
-		}
-
-		if iter.Timeout() {
-			ot.lock.Lock()
-			stopAtTs := ot.stopAtTimestampt
-			ot.lock.Unlock()
-			if stopAtTs != nil {
-				iter.Close()
-				return
-			}
-		}
+		iter.Next(&result)
 
 		if iter.Err() != nil {
 			iter.Close()
 			iter = ot.makeIterator()
+			continue
+		}
+
+		once.Do(func() { close(ot.startedReadChan) })
+
+		if iter.Timeout() {
+			ot.lock.Lock()
+			if ot.stopAtTimestampt != 0 {
+				iter.Close()
+				ot.lock.Unlock()
+				return
+			}
+			ot.lock.Unlock()
+			continue
+		}
+
+		once.Do(func() { close(ot.startedReadChan) })
+
+		data := bson.M{}
+		if err := result.Unmarshal(&data); err == nil {
+			ot.lastOplogTimestamp = data["ts"].(bson.MongoTimestamp)
+			if ot.startOplogTimestamp == 0 {
+				ot.startOplogTimestamp = ot.lastOplogTimestamp
+			}
+			if atomic.LoadInt64(&ot.stopAtTimestampt) != 0 {
+				if ot.lastOplogTimestamp != 0 {
+					if ot.lastOplogTimestamp > bson.MongoTimestamp(ot.stopAtTimestampt) {
+						iter.Close()
+						close(ot.readerStopChan)
+						return
+					}
+				}
+			}
+
+			ot.dataChan <- result.Data
+			continue
+		} else {
+			log.Fatalf("cannot unmarshal oplog doc: %s", err)
 		}
 	}
 }
 
-func (ot *OplogTail) getStopAtTimestamp() *bson.MongoTimestamp {
+func (ot *OplogTail) getStopAtTimestamp() bson.MongoTimestamp {
 	ot.lock.Lock()
 	defer ot.lock.Unlock()
-	return ot.stopAtTimestampt
+	return bson.MongoTimestamp(ot.stopAtTimestampt)
 }
 
 func (ot *OplogTail) setStopAtTimestamp(ts bson.MongoTimestamp) {
 	ot.lock.Lock()
 	defer ot.lock.Unlock()
-	ot.stopAtTimestampt = &ts
+	ot.stopAtTimestampt = int64(ts)
 }
 
 // TODO
@@ -303,12 +301,12 @@ func (ot *OplogTail) tailQuery() bson.M {
 	query := bson.M{"op": bson.M{"$ne": mdbstructs.OperationNoop}}
 
 	ot.lock.Lock()
-	if ot.lastOplogTimestamp != nil {
-		query["ts"] = bson.M{"$gt": *ot.lastOplogTimestamp}
+	if ot.lastOplogTimestamp != 0 {
+		query["ts"] = bson.M{"$gt": ot.lastOplogTimestamp}
 		ot.lock.Unlock()
 		return query
-	} else if ot.startOplogTimestamp != nil {
-		query["ts"] = bson.M{"$gte": *ot.startOplogTimestamp}
+	} else if ot.startOplogTimestamp != 0 {
+		query["ts"] = bson.M{"$gte": ot.startOplogTimestamp}
 		ot.lock.Unlock()
 		return query
 	}
