@@ -34,7 +34,6 @@ type OplogTail struct {
 	wg              *sync.WaitGroup
 	dataChan        chan chanDataTye
 	stopChan        chan bool
-	stopAtChan      chan bson.MongoTimestamp
 	readerStopChan  chan bool
 	startedReadChan chan bool
 	readFunc        func([]byte) (int, error)
@@ -120,7 +119,6 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		oplogCollection: oplogCol,
 		dataChan:        make(chan chanDataTye, 1),
 		stopChan:        make(chan bool),
-		stopAtChan:      make(chan bson.MongoTimestamp),
 		readerStopChan:  make(chan bool),
 		startedReadChan: make(chan bool),
 		running:         true,
