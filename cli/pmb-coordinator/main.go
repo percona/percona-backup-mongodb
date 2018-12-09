@@ -26,6 +26,13 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// vars are set by goreleaser
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 type cliOptions struct {
 	app        *kingpin.Application
 	cmd        string
@@ -163,6 +170,8 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 func processCliParams() (*cliOptions, error) {
 	var err error
 	app := kingpin.New("pmb-coordinator", "Percona MongoDB backup coordinator")
+	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
+
 	opts := &cliOptions{
 		app: app,
 	}

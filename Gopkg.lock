@@ -32,12 +32,6 @@
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
-  name = "github.com/apex/log"
-  packages = ["."]
-  revision = "941dea75d3ebfbdd905a5d8b7b232965c5e5c684"
-  version = "v1.1.0"
-
-[[projects]]
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -346,6 +340,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7cffc49ed1be6351c584d36a7af9dc7f09481cf2db2295c75680e0406cc4380a"
+  inputs-digest = "bd0c8f85a86236377c372c2fd09b52335436a6f73eba0a82e0269b33844d9844"
   solver-name = "gps-cdcl"
   solver-version = 1

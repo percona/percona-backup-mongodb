@@ -26,6 +26,13 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// vars are set by goreleaser
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 type cliOptions struct {
 	app                  *kingpin.Application
 	configFile           string
@@ -154,6 +161,8 @@ func main() {
 
 func processCliArgs() (*cliOptions, error) {
 	app := kingpin.New("pmb-agent", "MongoDB backup agent")
+	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
+
 	opts := &cliOptions{
 		app: app,
 	}

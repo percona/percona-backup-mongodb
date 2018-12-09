@@ -1,0 +1,66 @@
+builds:
+  - binary: pmb-agent
+    main: cli/pmb-agent/main.go
+    ldflags:
+      - -w -s
+    env:
+      - CGO_ENABLED=0
+    hooks:
+      post: "./post-build.sh pmb-agent"
+  - binary: pmb-coordinator
+    main: ./cli/pmb-coordinator/main.go
+    ldflags:
+      - -w -s
+    env:
+      - CGO_ENABLED=0
+    hooks:
+      post: "./post-build.sh pmb-coordinator"
+  - binary: pmbctl
+    main: ./cli/pmbctl/main.go
+    ldflags:
+      - -w -s
+    env:
+      - CGO_ENABLED=0
+    hooks:
+      post: "./post-build.sh pmbctl"
+dockers:
+  - binary: pmb-agent
+    dockerfile: docker/agent/Dockerfile
+    image_templates:
+      - "percona/mongodb-backup:agent"
+      - "percona/mongodb-backup:{{ .Tag }}-agent"
+      - "percona/mongodb-backup:v{{ .Major }}.{{ .Minor }}-agent"
+    skip_push: true
+  - binary: pmb-coordinator
+    dockerfile: docker/coordinator/Dockerfile
+    image_templates:
+      - "percona/mongodb-backup:coordinator"
+      - "percona/mongodb-backup:{{ .Tag }}-coordinator"
+      - "percona/mongodb-backup:v{{ .Major }}.{{ .Minor }}-coordinator"
+    skip_push: true
+archive:
+  replacements:
+    darwin: Darwin
+    linux: Linux
+    386: i386
+    amd64: x86_64
+nfpm:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  vendor: Percona LLC.
+  homepage: https://www.percona.com/software
+  maintainer: Percona <mongodb-backup@percona.com>
+  description: MongoDB Backup tool
+  license: Apache 2.0
+  formats:
+    - deb
+    - rpm
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .ShortCommit }}"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '_test.go'
+      - 'README.md'
