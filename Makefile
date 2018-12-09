@@ -122,14 +122,14 @@ install: pmbctl pmb-agent pmb-coordinator
 	install pmb-agent $(DEST_DIR)/pmb-agent
 	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
 
-release: 
+release: vendor
 	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
 	docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -it mongodb-backup-release
 	docker rmi -f mongodb-backup-release
 
-docker-build: release
+docker-build: pmb-agent pmb-coordinator
 	docker build -t mongodb-backup-agent -f docker/agent/Dockerfile .
 	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
 
 clean:
-	rm -rf pmb-agent pmbctl pmb-coordinator release test-out vendor 2>/dev/null || true
+	rm -rf pmb-agent pmbctl pmb-coordinator test-out vendor 2>/dev/null || true

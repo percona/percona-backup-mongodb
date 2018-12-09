@@ -1,7 +1,3 @@
-before:
-  hooks:
-    - go get github.com/golang/dep/cmd/dep
-    - dep ensure
 builds:
   - binary: pmb-agent
     main: cli/pmb-agent/main.go
@@ -39,19 +35,19 @@ dockers:
     dockerfile: docker/coordinator/Dockerfile
     image_templates:
     - "percona/mongodb-backup:coordinator"
+    - "percona/mongodb-backup:{{ .Tag }}-coordinator"
     - "percona/mongodb-backup:v{{ .Major }}.{{ .Minor }}-coordinator"
     skip_push: true
 archive:
   replacements:
     darwin: Darwin
     linux: Linux
-    windows: Windows
     386: i386
     amd64: x86_64
 nfpm:
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   vendor: Percona LLC.
-  homepage: https://www.percona.com/
+  homepage: https://www.percona.com/software
   maintainer: Percona <mongodb-backup@percona.com>
   description: MongoDB Backup tool
   license: Apache 2.0
@@ -61,7 +57,7 @@ nfpm:
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  name_template: "SNAPSHOT"
 changelog:
   sort: asc
   filters:
