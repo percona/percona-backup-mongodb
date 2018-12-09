@@ -6,6 +6,9 @@ GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
 
+NAME?=mongodb-backup
+REPO?=github.com/percona/$(NAME)
+
 UID?=$(shell id -u)
 DEST_DIR?=/usr/local/bin
 UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
@@ -124,7 +127,14 @@ install: pmbctl pmb-agent pmb-coordinator
 
 release: vendor
 	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
-	docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -it mongodb-backup-release
+	docker run --rm --privileged \
+	-e GITHUB_TOKEN=$(GITHUB_TOKEN) \
+	-e DOCKER_USERNAME=$(DOCKER_USERNAME) \
+	-e DOCKER_PASSWORD=$(DOCKER_PASSWORD) \
+	-w /go/src/$(REPO) \
+	-v $(CURDIR):/go/src/$(REPO):ro \
+	-v /var/run/docker.sock:/var/run/docker.sock \
+	-it mongodb-backup-release
 	docker rmi -f mongodb-backup-release
 
 docker-build: pmb-agent pmb-coordinator

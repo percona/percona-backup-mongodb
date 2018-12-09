@@ -2,8 +2,5 @@ FROM goreleaser/goreleaser
 
 RUN apk add upx
 
-WORKDIR /go/src/github.com/percona/mongodb-backup
-COPY . .
-
 ENTRYPOINT ["goreleaser"]
 CMD ["release"]
