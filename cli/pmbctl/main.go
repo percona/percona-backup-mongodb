@@ -24,6 +24,13 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// vars are set by goreleaser
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 type cliOptions struct {
 	app *kingpin.Application
 
@@ -286,6 +293,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("pmbctl", "MongoDB backup admin")
+	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	runCmd := app.Command("run", "Start a new backup or restore process")
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")

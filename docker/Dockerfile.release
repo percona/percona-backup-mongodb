@@ -1,13 +1,9 @@
-FROM golang:1.11-alpine
+FROM goreleaser/goreleaser
 
-ARG UID
-
-RUN apk add git make upx
+RUN apk add upx
 
 WORKDIR /go/src/github.com/percona/mongodb-backup
 COPY . .
-RUN mkdir /.cache && chown -R $UID /.cache /go
 
-USER $UID
-RUN make vendor
-CMD make && make DEST_DIR=/release install
+ENTRYPOINT ["goreleaser"]
+CMD ["release"]

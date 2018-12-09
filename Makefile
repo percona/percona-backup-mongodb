@@ -123,9 +123,8 @@ install: pmbctl pmb-agent pmb-coordinator
 	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
 
 release: 
-	if [ ! -d $(CURDIR)/release ]; then mkdir $(CURDIR)/release; fi
-	docker build -t mongodb-backup-release --build-arg UID=$(UID) -f docker/Dockerfile.release .
-	docker run --rm -v $(CURDIR)/release:/release -it mongodb-backup-release
+	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
+	docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -it mongodb-backup-release
 	docker rmi -f mongodb-backup-release
 
 docker-build: release
