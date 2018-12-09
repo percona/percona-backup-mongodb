@@ -8,6 +8,7 @@ GO_BUILD_LDFLAGS?=-w -s
 
 NAME?=mongodb-backup
 REPO?=github.com/percona/$(NAME)
+GORELEASER_FLAGS?=
 
 UID?=$(shell id -u)
 DEST_DIR?=/usr/local/bin
@@ -131,10 +132,8 @@ release: vendor
 	-e GITHUB_TOKEN=$(GITHUB_TOKEN) \
 	-e DOCKER_USERNAME=$(DOCKER_USERNAME) \
 	-e DOCKER_PASSWORD=$(DOCKER_PASSWORD) \
-	-w /go/src/$(REPO) \
-	-v $(CURDIR):/go/src/$(REPO):ro \
 	-v /var/run/docker.sock:/var/run/docker.sock \
-	-it mongodb-backup-release
+	-it mongodb-backup-release $(GORELEASER_FLAGS)
 	docker rmi -f mongodb-backup-release
 
 docker-build: pmb-agent pmb-coordinator
