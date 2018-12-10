@@ -2,4 +2,4 @@ Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: mongodb-backup
 
 Files: *
-License: GPLv2
+License: ASL 2.0

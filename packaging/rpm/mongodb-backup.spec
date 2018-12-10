@@ -4,7 +4,7 @@ Release: @@RELEASE@@%{?dist}
 Summary: MongoDB backup tool
 
 Group:  Applications/Databases
-License: GPLv2
+License: ASL 2.0
 URL:  https://github.com/percona/mongodb-backup
 Source0: mongodb-backup-%{version}.tar.gz
 
