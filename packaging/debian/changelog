@@ -1,0 +1,5 @@
+mongodb-backup (1.0-1) unstable; urgency=medium
+
+  * Initial release.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Sun, 09 Dec 2018 18:00:13 +0000
