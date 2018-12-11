@@ -127,14 +127,14 @@ install: pmbctl pmb-agent pmb-coordinator
 	install pmb-coordinator $(DEST_DIR)/pmb-coordinator
 
 release: vendor
-	docker build -t mongodb-backup-release -f docker/Dockerfile.release .
+	docker build -t $(NAME)-release -f docker/Dockerfile.release .
 	docker run --rm --privileged \
 	-e GITHUB_TOKEN=$(GITHUB_TOKEN) \
 	-e DOCKER_USERNAME=$(DOCKER_USERNAME) \
 	-e DOCKER_PASSWORD=$(DOCKER_PASSWORD) \
 	-v /var/run/docker.sock:/var/run/docker.sock \
-	-it mongodb-backup-release $(GORELEASER_FLAGS)
-	docker rmi -f mongodb-backup-release
+	-it $(NAME)-release $(GORELEASER_FLAGS)
+	docker rmi -f $(NAME)-release
 
 docker-build: pmb-agent pmb-coordinator
 	docker build -t $(REPO):agent -f docker/agent/Dockerfile .
