@@ -3,7 +3,7 @@
 .vscode
 pmbctl
 pmb-coordinator
-pmb-admin
+pmb-agent
 release
 test-out
 vendor
