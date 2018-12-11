@@ -4,24 +4,23 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/db"
 )
 
-func dialInfo(addrs []string, rs string) (*mgo.DialInfo, error) {
-	di, err := db.NewDialInfo(&db.Config{
-		Addrs:    addrs,
-		Replset:  rs,
-		Username: MongoDBUser,
-		Password: MongoDBPassword,
-		CertFile: MongoDBSSLPEMKeyFile,
-		CAFile:   MongoDBSSLCACertFile,
-		Timeout:  MongoDBTimeout,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return di, nil
-}
+//func dialInfo(addrs []string, rs string) (*mgo.DialInfo, error) {
+//	di, err := newDialInfo(&db.Config{
+//		Addrs:    addrs,
+//		Replset:  rs,
+//		Username: MongoDBUser,
+//		Password: MongoDBPassword,
+//		CertFile: MongoDBSSLPEMKeyFile,
+//		CAFile:   MongoDBSSLCACertFile,
+//		Timeout:  MongoDBTimeout,
+//	})
+//	if err != nil {
+//		return nil, err
+//	}
+//	return di, nil
+//}
 
 func DialInfoForPort(t *testing.T, rs, port string) *mgo.DialInfo {
 	di, err := dialInfo([]string{
