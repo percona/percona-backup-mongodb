@@ -1,9 +1,9 @@
 *.upx
 .env
 .vscode
+dist
 pmbctl
 pmb-coordinator
 pmb-agent
-release
 test-out
 vendor
