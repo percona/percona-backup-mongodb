@@ -54,7 +54,6 @@ type cliOptions struct {
 }
 
 const (
-	defaultBindIP          = "0.0.0.0"
 	defaultGrpcPort        = 10000
 	defaultAPIPort         = 10001
 	defaultShutdownTimeout = 5 // Seconds
