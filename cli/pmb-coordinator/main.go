@@ -42,7 +42,9 @@ type cliOptions struct {
 	WorkDir              string `yaml:"work_dir"`
 	CertFile             string `yaml:"cert_file"`
 	KeyFile              string `yaml:"key_file"`
+	GrpcBindIP           string `yaml:"grpc_bindip"`
 	GrpcPort             int    `yaml:"grpc_port"`
+	APIBindIP            string `yaml:"api_bindip"`
 	APIPort              int    `yaml:"api_port"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
 	LogFile              string `yaml:"log_file"`
@@ -80,10 +82,11 @@ func main() {
 		log.SetLevel(logrus.DebugLevel)
 	}
 
-	log.Infof("Starting clients gRPC net listener on port: %d", opts.GrpcPort)
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", opts.GrpcPort))
+	log.Infof("Starting clients gRPC net listener at address: %s:%d", opts.GrpcBindIP, opts.GrpcPort)
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.GrpcBindIP, opts.GrpcPort))
 
-	apilis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", opts.APIPort))
+	log.Infof("Starting clients API net listener at address: %s:%d", opts.APIBindIP, opts.APIPort)
+	apilis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.APIBindIP, opts.APIPort))
 
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -181,8 +184,10 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("work-dir", "Working directory for backup metadata").StringVar(&opts.WorkDir)
 	app.Flag("cert-file", "Cert file for gRPC client connections").StringVar(&opts.CertFile)
 	app.Flag("key-file", "Key file for gRPC client connections").StringVar(&opts.KeyFile)
-	app.Flag("grpc-port", "Listening port for client connections").IntVar(&opts.GrpcPort)
-	app.Flag("api-port", "Listening por for API client connecions").IntVar(&opts.APIPort)
+	app.Flag("grpc-bindip", "Bind IP for gRPC client connections").StringVar(&opts.GrpcBindIP)
+	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
+	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
+	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
 	app.Flag("log-file", "Write logs to file").StringVar(&opts.LogFile)
 	app.Flag("use-syslog", "Also send the logs to the local syslog server").BoolVar(&opts.UseSysLog)
