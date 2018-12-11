@@ -7,7 +7,7 @@ GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
 
 NAME?=mongodb-backup
-REPO?=github.com/percona/$(NAME)
+REPO?=percona/$(NAME)
 GORELEASER_FLAGS?=
 
 UID?=$(shell id -u)
@@ -137,8 +137,8 @@ release: vendor
 	docker rmi -f mongodb-backup-release
 
 docker-build: pmb-agent pmb-coordinator
-	docker build -t mongodb-backup-agent -f docker/agent/Dockerfile .
-	docker build -t mongodb-backup-coordinator -f docker/coordinator/Dockerfile .
+	docker build -t $(REPO):agent -f docker/agent/Dockerfile .
+	docker build -t $(REPO):coordinator -f docker/coordinator/Dockerfile .
 
 clean:
 	rm -rf pmb-agent pmbctl pmb-coordinator test-out vendor 2>/dev/null || true
