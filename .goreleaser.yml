@@ -40,8 +40,6 @@ dockers:
     skip_push: true
 archive:
   replacements:
-    darwin: Darwin
-    linux: Linux
     386: i386
     amd64: x86_64
 nfpm:
