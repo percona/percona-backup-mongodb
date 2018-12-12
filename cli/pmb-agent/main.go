@@ -38,18 +38,20 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	BackupDir     string `yaml:"backup_dir"`
-	CAFile        string `yaml:"ca_file"`
-	CertFile      string `yaml:"cert_file"`
-	DSN           string `yaml:"dsn"`
-	Debug         bool   `yaml:"debug"`
-	KeyFile       string `yaml:"key_file"`
-	LogFile       string `yaml:"log_file"`
-	PIDFile       string `yaml:"pid_file"`
-	Quiet         bool   `yaml:"quiet"`
-	ServerAddress string `yaml:"server_address"`
-	TLS           bool   `yaml:"tls"`
-	UseSysLog     bool   `yaml:"use_syslog"`
+	BackupDir             string `yaml:"backup_dir"`
+	CAFile                string `yaml:"ca_file"`
+	CertFile              string `yaml:"cert_file"`
+	DSN                   string `yaml:"dsn"`
+	Debug                 bool   `yaml:"debug"`
+	KeyFile               string `yaml:"key_file"`
+	LogFile               string `yaml:"log_file"`
+	PIDFile               string `yaml:"pid_file"`
+	Quiet                 bool   `yaml:"quiet"`
+	ServerAddress         string `yaml:"server_address"`
+	TLS                   bool   `yaml:"tls"`
+	UseSysLog             bool   `yaml:"use_syslog"`
+	MongoDBReconnectDelay int    `yaml:"mongodb_reconnect_delay"`
+	MongoDBReconnectCount int    `yaml:"mongodb_reconnect_count"` // 0: forever
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options"`
@@ -139,13 +141,24 @@ func main() {
 			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.DSN, err)
 		}
 	}
-
-	mdbSession, err := mgo.DialWithInfo(di)
-	if err != nil {
-		log.Fatalf("Cannot connect to MongoDB at %s: %s", di.Addrs[0], err)
+	mdbSession := &mgo.Session{}
+	connectionAttempts := 0
+	for {
+		connectionAttempts++
+		mdbSession, err = mgo.DialWithInfo(di)
+		if err != nil {
+			log.Errorf("Cannot connect to MongoDB at %s: %s", di.Addrs[0], err)
+			if opts.MongoDBReconnectCount == 0 || connectionAttempts < opts.MongoDBReconnectCount {
+				time.Sleep(time.Duration(opts.MongoDBReconnectDelay) * time.Second)
+				continue
+			}
+			log.Fatalf("Could not connect to MongoDB. Retried every %d seconds, %d times", opts.MongoDBReconnectDelay, connectionAttempts)
+		}
+		break
 	}
-	defer mdbSession.Close()
+
 	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
+	defer mdbSession.Close()
 
 	client, err := client.NewClient(context.Background(), opts.BackupDir, opts.MongodbConnOptions, opts.MongodbSslOptions, conn, log)
 	if err != nil {
@@ -187,6 +200,8 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("mongodb-user", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("replicaset", "Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
+	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("60").IntVar(&opts.MongoDBReconnectDelay)
+	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongoDBReconnectCount)
 
 	_, err := app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
@@ -277,6 +292,12 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	}
 	if opts.DSN != "" {
 		yamlOpts.DSN = opts.DSN
+	}
+	if opts.MongoDBReconnectDelay != 0 {
+		yamlOpts.MongoDBReconnectDelay = opts.MongoDBReconnectDelay
+	}
+	if opts.MongoDBReconnectCount != 0 {
+		yamlOpts.MongoDBReconnectCount = opts.MongoDBReconnectCount
 	}
 }
 
