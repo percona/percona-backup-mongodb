@@ -1,0 +1,3 @@
+pmbctl /usr/bin/
+pmb-agent /usr/bin/
+pmb-coordinator /usr/bin/
