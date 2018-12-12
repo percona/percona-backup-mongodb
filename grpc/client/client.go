@@ -15,7 +15,6 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/snappy"
-	"github.com/google/uuid"
 	"github.com/percona/mongodb-backup/bsonfile"
 	"github.com/percona/mongodb-backup/internal/backup/dumper"
 	"github.com/percona/mongodb-backup/internal/cluster"
@@ -130,14 +129,7 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		Direct:   true,
 	}
 
-	id, err := uuid.NewRandom()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("cannot genenerate a random UUID: %s", err)
-	}
-
 	c := &Client{
-		id:         id.String(),
 		ctx:        ctx,
 		cancelFunc: cancel,
 		backupDir:  backupDir,
@@ -211,8 +203,21 @@ func (c *Client) updateClientInfo() (err error) {
 
 	c.isMasterDoc = isMaster.IsMasterDoc()
 	c.nodeType = getNodeType(isMaster)
-	c.nodeName = isMaster.IsMasterDoc().Me
 
+	if isMaster.IsMasterDoc().Me != "" {
+		c.nodeName = isMaster.IsMasterDoc().Me
+	} else {
+		status := struct {
+			Host string `bson:"host"`
+		}{}
+		err = c.mdbSession.Run(bson.D{{Name: "serverStatus", Value: 1}}, &status)
+		if err != nil {
+			return fmt.Errorf("Cannot get an agent's ID from serverStatus: %s", err)
+		}
+		c.nodeName = status.Host
+	}
+
+	c.id = c.nodeName
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
 		replset, err := cluster.NewReplset(c.mdbSession)
 		if err != nil {

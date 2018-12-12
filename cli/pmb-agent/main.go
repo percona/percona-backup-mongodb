@@ -102,8 +102,6 @@ func main() {
 
 	grpcOpts := getgRPCOptions(opts)
 	rand.Seed(time.Now().UnixNano())
-	clientID := fmt.Sprintf("ABC%s", opts.MongodbConnOptions.Port)
-	log.Infof("Using Client ID: %s", clientID)
 
 	// Connect to the mongodb-backup gRPC server
 	conn, err := grpc.Dial(opts.ServerAddress, grpcOpts...)
@@ -115,13 +113,6 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	logHook, err := loghook.NewGrpcLogging(ctx, clientID, conn)
-	if err != nil {
-		log.Fatalf("Failed to create gRPC log hook: %v", err)
-	}
-	logHook.SetLevel(log.Level)
-	log.AddHook(logHook)
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo
@@ -164,6 +155,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	logHook, err := loghook.NewGrpcLogging(ctx, client.ID(), conn)
+	if err != nil {
+		log.Fatalf("Failed to create gRPC log hook: %v", err)
+	}
+	logHook.SetLevel(log.Level)
+	log.AddHook(logHook)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
