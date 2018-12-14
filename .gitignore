@@ -1,9 +1,9 @@
 *.upx
 .env
 .vscode
-dist
+test-out
+/dist
 /pbmctl
 /pbm-agent
 /pbm-coordinator
-test-out
-vendor
+/vendor
