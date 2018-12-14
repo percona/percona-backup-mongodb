@@ -3,7 +3,7 @@ package cluster
 import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 )
 
 type ShardingState struct {

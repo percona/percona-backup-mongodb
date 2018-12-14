@@ -430,9 +430,9 @@ build_tarball(){
     export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
     export GOBINPATH="/usr/local/go/bin"
     cd build/src/github.com/percona/mongodb-backup && pwd && make
-    cp pmbctl ${WORKDIR}/${PSMDIR}/
-    cp pmb-agent ${WORKDIR}/${PSMDIR}/
-    cp pmb-coordinator ${WORKDIR}/${PSMDIR}/
+    cp pbmctl ${WORKDIR}/${PSMDIR}/
+    cp pbm-agent ${WORKDIR}/${PSMDIR}/
+    cp pbm-coordinator ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
     
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}

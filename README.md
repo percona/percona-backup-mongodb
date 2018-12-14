@@ -1,4 +1,4 @@
-# MongoDB backup tool
+# Percona Backup for MongoDB
 [![codecov](https://codecov.io/gh/percona/mongodb-backup/branch/master/graph/badge.svg?token=TiuOmTfp2p)](https://codecov.io/gh/percona/mongodb-backup)
 
 Progress:
@@ -26,9 +26,9 @@ $ make
 ```
 
 A successful build outputs binaries: 
-1. **pmbctl**: A command-line interface for controlling the backup system
-1. **pmb-agent**: An agent that executes backup/restore actions on a database host
-1. **pmb-coordinator**: A server that coordinates backup system actions
+1. **pbmctl**: A command-line interface for controlling the backup system
+1. **pbm-agent**: An agent that executes backup/restore actions on a database host
+1. **pbm-coordinator**: A server that coordinates backup system actions
 
 ## Testing
 
@@ -63,9 +63,9 @@ $ docker run -d \
     --restart=always \
     --user=$(id -u) \
     --name=mongodb-backup-coordinator \
-    -e PMB_COORDINATOR_GRPC_PORT=10000 \
-    -e PMB_COORDINATOR_API_PORT=10001 \
-    -e PMB_COORDINATOR_WORK_DIR=/data \
+    -e PBM_COORDINATOR_GRPC_PORT=10000 \
+    -e PBM_COORDINATOR_API_PORT=10001 \
+    -e PBM_COORDINATOR_WORK_DIR=/data \
     -p 10000-10001:10000-10001 \
     -v /data/mongodb-backup-coordinator:/data \
 mongodb-backup-coordinator
@@ -91,11 +91,11 @@ $ docker run -d \
     --restart=always \
     --user=$(id -u) \
     --name=mongodb-backup-agent \
-    -e PMB_AGENT_BACKUP_DIR=/data \
-    -e PMB_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
-    -e PMB_AGENT_MONGODB_USER=usern@m3 \
-    -e PMB_AGENT_MONGODB_PASSWORD=password123456 \
-    -e PMB_AGENT_MONGODB_REPLICASET=rs \
+    -e PBM_AGENT_BACKUP_DIR=/data \
+    -e PBM_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
+    -e PBM_AGENT_MONGODB_USER=usern@m3 \
+    -e PBM_AGENT_MONGODB_PASSWORD=password123456 \
+    -e PBM_AGENT_MONGODB_REPLICASET=rs \
     -v /data/mongodb-backup-agent:/data \
 mongodb-backup-agent
 ```

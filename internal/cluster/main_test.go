@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
 
 var (

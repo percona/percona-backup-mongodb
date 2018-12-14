@@ -44,7 +44,7 @@ run_agents() {
         rm -rf ${backupdir}
         mkdir -p ${backupdir}
 
-        echo "./pmb-agent --mongodb-user=${TEST_MONGODB_USERNAME} \\"
+        echo "./pbm-agent --mongodb-user=${TEST_MONGODB_USERNAME} \\"
         echo "    --mongodb-password=${TEST_MONGODB_PASSWORD} \\"
         echo "    --mongodb-host=${TEST_MONGODB_HOST} \\"
         echo "    --mongodb-port=${port} \\"
@@ -52,7 +52,7 @@ run_agents() {
         echo "    --backup-dir=${backupdir} \\"
         echo "    --pid-file=${pidfile} &> ${logfile} &"
 
-        ./pmb-agent --mongodb-user=${TEST_MONGODB_USERNAME} \
+        ./pbm-agent --mongodb-user=${TEST_MONGODB_USERNAME} \
             --mongodb-password=${TEST_MONGODB_PASSWORD} \
             --mongodb-host=${TEST_MONGODB_HOST} \
             --mongodb-port=${port} \

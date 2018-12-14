@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/percona/mongodb-backup/grpc/server"
-	pbapi "github.com/percona/mongodb-backup/proto/api"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/percona/percona-backup-mongodb/grpc/server"
+	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )

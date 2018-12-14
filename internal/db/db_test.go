@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
 
 const testSSLDir = "../../docker/test/ssl"

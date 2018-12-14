@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
 
 func TestNewShardingState(t *testing.T) {

@@ -15,12 +15,12 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/bsonfile"
-	"github.com/percona/mongodb-backup/grpc/server"
-	"github.com/percona/mongodb-backup/internal/testutils"
-	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
-	pbapi "github.com/percona/mongodb-backup/proto/api"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/percona/percona-backup-mongodb/bsonfile"
+	"github.com/percona/percona-backup-mongodb/grpc/server"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
+	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -309,7 +309,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 }
 
 func TestClientDisconnect(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
@@ -336,7 +336,7 @@ func TestClientDisconnect(t *testing.T) {
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
@@ -374,7 +374,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 }
 
 func TestBackupSourceByReplicaset(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}

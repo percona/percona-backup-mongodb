@@ -1,9 +1,9 @@
 FROM alpine
 
-ADD pmb-agent /usr/local/bin/pmb-agent
+ADD pbm-agent /usr/local/bin/pbm-agent
 
-RUN adduser -h /data -S pmb-agent
-USER pmb-agent
+RUN adduser -h /data -S pbm-agent
+USER pbm-agent
 
-ENTRYPOINT ["pmb-agent"]
+ENTRYPOINT ["pbm-agent"]
 CMD []

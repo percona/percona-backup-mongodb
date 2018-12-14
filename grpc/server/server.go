@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/percona/mongodb-backup/internal/notify"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/percona/percona-backup-mongodb/internal/notify"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )

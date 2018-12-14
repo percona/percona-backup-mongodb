@@ -4,6 +4,6 @@ BUILD_ROOT=$2
 cd $SOURCE_DIR
 
 install -m 0755 -d $BUILD_ROOT/usr/bin
-install -m 0755 bin/pmbctl $BUILD_ROOT/usr/bin/
-install -m 0755 bin/pmb-agent $BUILD_ROOT/usr/bin/
-install -m 0755 bin/pmb-coordinator $BUILD_ROOT/usr/bin/
+install -m 0755 bin/pbmctl $BUILD_ROOT/usr/bin/
+install -m 0755 bin/pbm-agent $BUILD_ROOT/usr/bin/
+install -m 0755 bin/pbm-coordinator $BUILD_ROOT/usr/bin/

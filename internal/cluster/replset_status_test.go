@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 )
 
 func TestReplsetGetLagDuration(t *testing.T) {

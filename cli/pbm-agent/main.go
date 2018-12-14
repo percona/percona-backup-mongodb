@@ -16,9 +16,9 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/grpc/client"
-	"github.com/percona/mongodb-backup/internal/logger"
-	"github.com/percona/mongodb-backup/internal/loghook"
+	"github.com/percona/percona-backup-mongodb/grpc/client"
+	"github.com/percona/percona-backup-mongodb/internal/logger"
+	"github.com/percona/percona-backup-mongodb/internal/loghook"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -171,7 +171,7 @@ func main() {
 }
 
 func processCliArgs() (*cliOptions, error) {
-	app := kingpin.New("pmb-agent", "MongoDB backup agent")
+	app := kingpin.New("pbm-agent", "Percona Backup for MongoDB agent")
 	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	opts := &cliOptions{

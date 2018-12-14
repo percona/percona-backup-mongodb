@@ -1,9 +1,9 @@
 FROM alpine
 
-ADD pmb-coordinator /usr/local/bin/pmb-coordinator
+ADD pbm-coordinator /usr/local/bin/pbm-coordinator
 
-RUN adduser -h /data -S pmb-coordinator
-USER pmb-coordinator
+RUN adduser -h /data -S pbm-coordinator
+USER pbm-coordinator
 
-ENTRYPOINT ["pmb-coordinator"]
+ENTRYPOINT ["pbm-coordinator"]
 CMD []

@@ -50,7 +50,7 @@ override_dh_auto_build:
 override_dh_auto_install:
 	@echo "RULES.$@"
 	mkdir -p $(TMP)
-	cp -f build/src/github.com/percona/mongodb-backup/pmbctl $(TMP)/pmbctl
-	cp -f build/src/github.com/percona/mongodb-backup/pmb-agent $(TMP)/pmb-agent
-	cp -f build/src/github.com/percona/mongodb-backup/pmb-coordinator $(TMP)/pmb-coordinator
+	cp -f build/src/github.com/percona/mongodb-backup/pbmctl $(TMP)/pbmctl
+	cp -f build/src/github.com/percona/mongodb-backup/pbm-agent $(TMP)/pbm-agent
+	cp -f build/src/github.com/percona/mongodb-backup/pbm-coordinator $(TMP)/pbm-coordinator
 

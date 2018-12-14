@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 )
 
 // positiveDuration converts a negative duration to a positive duration,

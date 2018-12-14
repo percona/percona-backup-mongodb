@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 )
 
 func TestHasReplsetMemberTags(t *testing.T) {
