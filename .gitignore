@@ -2,8 +2,8 @@
 .env
 .vscode
 dist
-pmbctl
-pmb-coordinator
-pmb-agent
+pbmctl
+pbm-coordinator
+pbm-agent
 test-out
 vendor

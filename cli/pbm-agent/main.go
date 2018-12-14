@@ -171,7 +171,7 @@ func main() {
 }
 
 func processCliArgs() (*cliOptions, error) {
-	app := kingpin.New("pmb-agent", "MongoDB backup agent")
+	app := kingpin.New("pbm-agent", "Percona Backup for MongoDB agent")
 	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	opts := &cliOptions{

@@ -46,9 +46,9 @@ make install DEST_DIR=$RPM_BUILD_ROOT/%{_bindir}
 
 
 %files
-%{_bindir}/pmbctl
-%{_bindir}/pmb-agent
-%{_bindir}/pmb-coordinator
+%{_bindir}/pbmctl
+%{_bindir}/pbm-agent
+%{_bindir}/pbm-coordinator
 
 
 %changelog

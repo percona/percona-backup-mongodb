@@ -59,7 +59,7 @@ type cliOptions struct {
 var (
 	conn              *grpc.ClientConn
 	defaultServerAddr = "127.0.0.1:10001"
-	defaultConfigFile = "~/.pmbctl.yml"
+	defaultConfigFile = "~/.pbmctl.yml"
 )
 
 func main() {
@@ -292,7 +292,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
-	app := kingpin.New("pmbctl", "MongoDB backup admin")
+	app := kingpin.New("pbmctl", "Percona Backup for MongoDB CLI")
 	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	runCmd := app.Command("run", "Start a new backup or restore process")

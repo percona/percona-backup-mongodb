@@ -309,7 +309,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 }
 
 func TestClientDisconnect(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
@@ -336,7 +336,7 @@ func TestClientDisconnect(t *testing.T) {
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
@@ -374,7 +374,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 }
 
 func TestBackupSourceByReplicaset(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pmb_")
+	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
 		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
 	}
