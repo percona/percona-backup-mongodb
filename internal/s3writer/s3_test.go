@@ -40,7 +40,7 @@ var (
 		testChunk{size: s3MinChunkSize, value: '2'},
 		testChunk{size: s3MinChunkSize / 2, value: '3'},
 	}
-	bucket   = "percona-mongodb-backup-test-s3-streamer"
+	bucket   = "percona-backup-mongodb-test-s3-streamer"
 	filename = "percona-s3-streamer-test-file"
 	// Command line parameters for debugging
 	keepS3Data     bool

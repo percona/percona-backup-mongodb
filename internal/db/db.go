@@ -13,7 +13,7 @@ import (
 	"github.com/globalsign/mgo"
 )
 
-const appName = "percona/mongodb-backup"
+const appName = "percona/percona-backup-mongodb"
 
 func loadCaCertificate(caFile string) (*x509.CertPool, error) {
 	caCert, err := ioutil.ReadFile(caFile)

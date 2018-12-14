@@ -121,7 +121,7 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		Addrs:          []string{mdbConnOpts.Host + ":" + mdbConnOpts.Port},
 		Username:       mdbConnOpts.User,
 		Password:       mdbConnOpts.Password,
-		AppName:        "percona-mongodb-backup",
+		AppName:        "percona-backup-mongodb",
 		ReplicaSetName: mdbConnOpts.ReplicasetName,
 		// ReadPreference *ReadPreference
 		// Safe Safe

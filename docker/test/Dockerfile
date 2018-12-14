@@ -5,7 +5,7 @@ RUN wget https://repo.percona.com/apt/percona-release_0.1-7.stretch_all.deb && d
 RUN apt-get update && apt-get install -y percona-server-mongodb-36-server
 
 
-WORKDIR /go/src/github.com/percona/mongodb-backup
+WORKDIR /go/src/github.com/percona/percona-backup-mongodb
 COPY . .
 RUN chown -R mongod.mongod /go
 

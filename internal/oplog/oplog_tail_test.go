@@ -253,8 +253,8 @@ func TestUploadOplogToS3(t *testing.T) {
 	//if os.Getenv("DISABLE_AWS_TESTS") == "1" {
 	t.Skip("Env var DISABLE_AWS_TESTS=1. Skipping this test")
 	//}
-	bucket := fmt.Sprintf("percona-mongodb-backup-test-%05d", rand.Int63n(100000))
-	filename := "percona-mongodb-backup-oplog"
+	bucket := fmt.Sprintf("percona-backup-mongodb-test-%05d", rand.Int63n(100000))
+	filename := "percona-backup-mongodb-oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {

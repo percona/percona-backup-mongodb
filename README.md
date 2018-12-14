@@ -1,5 +1,5 @@
 # Percona Backup for MongoDB
-[![codecov](https://codecov.io/gh/percona/mongodb-backup/branch/master/graph/badge.svg?token=TiuOmTfp2p)](https://codecov.io/gh/percona/mongodb-backup)
+[![codecov](https://codecov.io/gh/percona/percona-backup-mongodb/branch/master/graph/badge.svg?token=TiuOmTfp2p)](https://codecov.io/gh/percona/percona-backup-mongodb)
 
 Progress:
 - [x] Oplog tailer
@@ -20,8 +20,8 @@ Building the project requires:
 
 To build the project *(from the project dir)*:
 ```
-$ go get -d github.com/percona/mongodb-backup
-$ cd $GOPATH/src/github.com/percona/mongodb-backup
+$ go get -d github.com/percona/percona-backup-mongodb
+$ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
 $ make
 ```
 

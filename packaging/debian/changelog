@@ -1,4 +1,4 @@
-mongodb-backup (1.0-1) unstable; urgency=medium
+percona-backup-mongodb (1.0-1) unstable; urgency=medium
 
   * Initial release.
 

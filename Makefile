@@ -6,7 +6,7 @@ GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
 
-NAME?=mongodb-backup
+NAME?=percona-backup-mongodb
 REPO?=percona/$(NAME)
 GORELEASER_FLAGS?=
 
