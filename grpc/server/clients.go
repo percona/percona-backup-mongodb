@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )

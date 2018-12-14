@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 )
 
 const (

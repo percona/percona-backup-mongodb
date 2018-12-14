@@ -7,7 +7,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/bsonfile"
+	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/prometheus/common/log"
 )
 

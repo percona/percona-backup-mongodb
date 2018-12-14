@@ -16,9 +16,9 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/grpc/client"
-	"github.com/percona/mongodb-backup/internal/logger"
-	"github.com/percona/mongodb-backup/internal/loghook"
+	"github.com/percona/percona-backup-mongodb/grpc/client"
+	"github.com/percona/percona-backup-mongodb/internal/logger"
+	"github.com/percona/percona-backup-mongodb/internal/loghook"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"

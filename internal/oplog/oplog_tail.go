@@ -10,8 +10,8 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/percona/mongodb-backup/internal/cluster"
-	"github.com/percona/mongodb-backup/mdbstructs"
+	"github.com/percona/percona-backup-mongodb/internal/cluster"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	"github.com/pkg/errors"
 )
 
@@ -284,7 +284,7 @@ func (ot *OplogTail) setStopAtTimestamp(ts bson.MongoTimestamp) {
 // Rule 2 (for experts only). Don't do it yet
 func (ot *OplogTail) makeIterator() *mgo.Iter {
 	col := ot.session.DB(oplogDB).C(ot.oplogCollection)
-	comment := "github.com/percona/mongodb-backup/internal/oplog.(*OplogTail).tail()"
+	comment := "github.com/percona/percona-backup-mongodb/internal/oplog.(*OplogTail).tail()"
 	return col.Find(ot.tailQuery()).LogReplay().Comment(comment).Batch(mgoIterBatch).Prefetch(mgoIterPrefetch).Tail(1 * time.Second)
 }
 

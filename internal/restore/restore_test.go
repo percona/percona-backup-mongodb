@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
 
 func TestRestore(t *testing.T) {

@@ -13,9 +13,9 @@ import (
 	"text/template"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/percona/mongodb-backup/internal/templates"
-	pbapi "github.com/percona/mongodb-backup/proto/api"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/percona/percona-backup-mongodb/internal/templates"
+	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"

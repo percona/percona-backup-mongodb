@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/percona/mongodb-backup/grpc/server"
-	testGrpc "github.com/percona/mongodb-backup/internal/testutils/grpc"
-	pbapi "github.com/percona/mongodb-backup/proto/api"
-	pb "github.com/percona/mongodb-backup/proto/messages"
+	"github.com/percona/percona-backup-mongodb/grpc/server"
+	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
+	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 )

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/globalsign/mgo"
-	"github.com/percona/mongodb-backup/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
 
 func TestNewBalancer(t *testing.T) {

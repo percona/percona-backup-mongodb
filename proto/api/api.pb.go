@@ -6,7 +6,7 @@ package api
 import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
-	messages "github.com/percona/mongodb-backup/proto/messages"
+	messages "github.com/percona/percona-backup-mongodb/proto/messages"
 	context "golang.org/x/net/context"
 	grpc "google.golang.org/grpc"
 	math "math"
