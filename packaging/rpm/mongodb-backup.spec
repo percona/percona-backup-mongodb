@@ -1,12 +1,12 @@
-Name:  mongodb-backup
+Name:  percona-backup-mongodb
 Version: @@VERSION@@
 Release: @@RELEASE@@%{?dist}
 Summary: MongoDB backup tool
 
 Group:  Applications/Databases
 License: ASL 2.0
-URL:  https://github.com/percona/mongodb-backup
-Source0: mongodb-backup-%{version}.tar.gz
+URL:  https://github.com/percona/percona-backup-mongodb
+Source0: percona-backup-mongodb-%{version}.tar.gz
 
 BuildRequires: upx golang make 
 
@@ -14,7 +14,7 @@ BuildRequires: upx golang make
 MongoDB backup tool
 
 %prep
-%setup -q -n mongodb-backup-%{version}
+%setup -q -n percona-backup-mongodb-%{version}
 
 
 %build
@@ -25,9 +25,9 @@ export GOPATH=$(pwd)/
 export PATH="/usr/local/go/bin:$PATH:$GOPATH"
 export GOBINPATH="/usr/local/go/bin"
 mkdir -p src/github.com/percona/
-mv mongodb-backup-%{version} src/github.com/percona/mongodb-backup
-ln -s src/github.com/percona/mongodb-backup mongodb-backup-%{version}
-cd src/github.com/percona/mongodb-backup
+mv percona-backup-mongodb-%{version} src/github.com/percona/percona-backup-mongodb
+ln -s src/github.com/percona/percona-backup-mongodb percona-backup-mongodb-%{version}
+cd src/github.com/percona/percona-backup-mongodb
 make %{?_smp_mflags}
 cd %{_builddir}
 
@@ -41,7 +41,7 @@ export GOROOT="/usr/local/go/"
 export GOPATH=$(pwd)/
 export PATH="/usr/local/go/bin:$PATH:$GOPATH"
 export GOBINPATH="/usr/local/go/bin"
-cd src/github.com/percona/mongodb-backup
+cd src/github.com/percona/percona-backup-mongodb
 make install DEST_DIR=$RPM_BUILD_ROOT/%{_bindir}
 
 

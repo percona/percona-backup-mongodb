@@ -1,10 +1,10 @@
-Source: mongodb-backup
+Source: percona-backup-mongodb
 Section: utils
 Priority: optional
 Maintainer: Percona LLC
 Version: %{version}
 Homepage: https://percona.com
 
-Package: mongodb-backup
+Package: percona-backup-mongodb
 Architecture: amd64
 Description: MongoDB backup tool

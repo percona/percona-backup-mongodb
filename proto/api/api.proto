@@ -1,7 +1,7 @@
 syntax = "proto3";
 import "messages/messages.proto";
 
-option go_package = "github.com/percona/mongodb-backup/proto/api";
+option go_package = "github.com/percona/percona-backup-mongodb/proto/api";
 option java_multiple_files = true;
 option java_package = "com.api";
 option java_outer_classname = "ApiProto";

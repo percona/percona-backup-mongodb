@@ -103,7 +103,7 @@ func main() {
 	grpcOpts := getgRPCOptions(opts)
 	rand.Seed(time.Now().UnixNano())
 
-	// Connect to the mongodb-backup gRPC server
+	// Connect to the percona-backup-mongodb gRPC server
 	conn, err := grpc.Dial(opts.ServerAddress, grpcOpts...)
 	if err != nil {
 		log.Fatalf("Fail to connect to the gRPC server at %q: %v", opts.ServerAddress, err)

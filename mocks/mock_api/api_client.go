@@ -8,6 +8,7 @@ import (
 	context "context"
 	gomock "github.com/golang/mock/gomock"
 	api "github.com/percona/percona-backup-mongodb/proto/api"
+	messages "github.com/percona/percona-backup-mongodb/proto/messages"
 	grpc "google.golang.org/grpc"
 	reflect "reflect"
 )
@@ -35,6 +36,24 @@ func (m *MockApiClient) EXPECT() *MockApiClientMockRecorder {
 	return m.recorder
 }
 
+// BackupsMetadata mocks base method
+func (m *MockApiClient) BackupsMetadata(arg0 context.Context, arg1 *api.BackupsMetadataParams, arg2 ...grpc.CallOption) (api.Api_BackupsMetadataClient, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "BackupsMetadata", varargs...)
+	ret0, _ := ret[0].(api.Api_BackupsMetadataClient)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BackupsMetadata indicates an expected call of BackupsMetadata
+func (mr *MockApiClientMockRecorder) BackupsMetadata(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackupsMetadata", reflect.TypeOf((*MockApiClient)(nil).BackupsMetadata), varargs...)
+}
+
 // GetClients mocks base method
 func (m *MockApiClient) GetClients(arg0 context.Context, arg1 *api.Empty, arg2 ...grpc.CallOption) (api.Api_GetClientsClient, error) {
 	varargs := []interface{}{arg0, arg1}
@@ -51,4 +70,58 @@ func (m *MockApiClient) GetClients(arg0 context.Context, arg1 *api.Empty, arg2 .
 func (mr *MockApiClientMockRecorder) GetClients(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
 	varargs := append([]interface{}{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClients", reflect.TypeOf((*MockApiClient)(nil).GetClients), varargs...)
+}
+
+// LastBackupMetadata mocks base method
+func (m *MockApiClient) LastBackupMetadata(arg0 context.Context, arg1 *api.LastBackupMetadataParams, arg2 ...grpc.CallOption) (*messages.BackupMetadata, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "LastBackupMetadata", varargs...)
+	ret0, _ := ret[0].(*messages.BackupMetadata)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LastBackupMetadata indicates an expected call of LastBackupMetadata
+func (mr *MockApiClientMockRecorder) LastBackupMetadata(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastBackupMetadata", reflect.TypeOf((*MockApiClient)(nil).LastBackupMetadata), varargs...)
+}
+
+// RunBackup mocks base method
+func (m *MockApiClient) RunBackup(arg0 context.Context, arg1 *api.RunBackupParams, arg2 ...grpc.CallOption) (*api.Error, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RunBackup", varargs...)
+	ret0, _ := ret[0].(*api.Error)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RunBackup indicates an expected call of RunBackup
+func (mr *MockApiClientMockRecorder) RunBackup(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunBackup", reflect.TypeOf((*MockApiClient)(nil).RunBackup), varargs...)
+}
+
+// RunRestore mocks base method
+func (m *MockApiClient) RunRestore(arg0 context.Context, arg1 *api.RunRestoreParams, arg2 ...grpc.CallOption) (*api.RunRestoreResponse, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RunRestore", varargs...)
+	ret0, _ := ret[0].(*api.RunRestoreResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RunRestore indicates an expected call of RunRestore
+func (mr *MockApiClientMockRecorder) RunRestore(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunRestore", reflect.TypeOf((*MockApiClient)(nil).RunRestore), varargs...)
 }

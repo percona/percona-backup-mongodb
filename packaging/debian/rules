@@ -41,16 +41,16 @@ override_dh_auto_build:
 	export GOPATH=${PWD}/build
 	export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
 	export GOBINPATH="/usr/local/go/bin"
-	mkdir -p build/src/github.com/percona/mongodb-backup
-	cp -r `ls | grep -v build` build/src/github.com/percona/mongodb-backup/
-	cd build/src/github.com/percona/mongodb-backup/ && $(MAKE) -j$(NCPU)
+	mkdir -p build/src/github.com/percona/percona-backup-mongodb
+	cp -r `ls | grep -v build` build/src/github.com/percona/percona-backup-mongodb/
+	cd build/src/github.com/percona/percona-backup-mongodb/ && $(MAKE) -j$(NCPU)
 
 	touch $@
 
 override_dh_auto_install:
 	@echo "RULES.$@"
 	mkdir -p $(TMP)
-	cp -f build/src/github.com/percona/mongodb-backup/pbmctl $(TMP)/pbmctl
-	cp -f build/src/github.com/percona/mongodb-backup/pbm-agent $(TMP)/pbm-agent
-	cp -f build/src/github.com/percona/mongodb-backup/pbm-coordinator $(TMP)/pbm-coordinator
+	cp -f build/src/github.com/percona/percona-backup-mongodb/pbmctl $(TMP)/pbmctl
+	cp -f build/src/github.com/percona/percona-backup-mongodb/pbm-agent $(TMP)/pbm-agent
+	cp -f build/src/github.com/percona/percona-backup-mongodb/pbm-coordinator $(TMP)/pbm-coordinator
 

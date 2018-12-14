@@ -35,6 +35,42 @@ func (m *MockMessagesClient) EXPECT() *MockMessagesClientMockRecorder {
 	return m.recorder
 }
 
+// DBBackupFinished mocks base method
+func (m *MockMessagesClient) DBBackupFinished(arg0 context.Context, arg1 *messages.DBBackupFinishStatus, arg2 ...grpc.CallOption) (*messages.DBBackupFinishedAck, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DBBackupFinished", varargs...)
+	ret0, _ := ret[0].(*messages.DBBackupFinishedAck)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DBBackupFinished indicates an expected call of DBBackupFinished
+func (mr *MockMessagesClientMockRecorder) DBBackupFinished(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DBBackupFinished", reflect.TypeOf((*MockMessagesClient)(nil).DBBackupFinished), varargs...)
+}
+
+// Logging mocks base method
+func (m *MockMessagesClient) Logging(arg0 context.Context, arg1 ...grpc.CallOption) (messages.Messages_LoggingClient, error) {
+	varargs := []interface{}{arg0}
+	for _, a := range arg1 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Logging", varargs...)
+	ret0, _ := ret[0].(messages.Messages_LoggingClient)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Logging indicates an expected call of Logging
+func (mr *MockMessagesClientMockRecorder) Logging(arg0 interface{}, arg1 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0}, arg1...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Logging", reflect.TypeOf((*MockMessagesClient)(nil).Logging), varargs...)
+}
+
 // MessagesChat mocks base method
 func (m *MockMessagesClient) MessagesChat(arg0 context.Context, arg1 ...grpc.CallOption) (messages.Messages_MessagesChatClient, error) {
 	varargs := []interface{}{arg0}
@@ -51,4 +87,40 @@ func (m *MockMessagesClient) MessagesChat(arg0 context.Context, arg1 ...grpc.Cal
 func (mr *MockMessagesClientMockRecorder) MessagesChat(arg0 interface{}, arg1 ...interface{}) *gomock.Call {
 	varargs := append([]interface{}{arg0}, arg1...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MessagesChat", reflect.TypeOf((*MockMessagesClient)(nil).MessagesChat), varargs...)
+}
+
+// OplogBackupFinished mocks base method
+func (m *MockMessagesClient) OplogBackupFinished(arg0 context.Context, arg1 *messages.OplogBackupFinishStatus, arg2 ...grpc.CallOption) (*messages.OplogBackupFinishedAck, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "OplogBackupFinished", varargs...)
+	ret0, _ := ret[0].(*messages.OplogBackupFinishedAck)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OplogBackupFinished indicates an expected call of OplogBackupFinished
+func (mr *MockMessagesClientMockRecorder) OplogBackupFinished(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OplogBackupFinished", reflect.TypeOf((*MockMessagesClient)(nil).OplogBackupFinished), varargs...)
+}
+
+// RestoreCompleted mocks base method
+func (m *MockMessagesClient) RestoreCompleted(arg0 context.Context, arg1 *messages.RestoreComplete, arg2 ...grpc.CallOption) (*messages.RestoreCompletedAck, error) {
+	varargs := []interface{}{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RestoreCompleted", varargs...)
+	ret0, _ := ret[0].(*messages.RestoreCompletedAck)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RestoreCompleted indicates an expected call of RestoreCompleted
+func (mr *MockMessagesClientMockRecorder) RestoreCompleted(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+	varargs := append([]interface{}{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreCompleted", reflect.TypeOf((*MockMessagesClient)(nil).RestoreCompleted), varargs...)
 }

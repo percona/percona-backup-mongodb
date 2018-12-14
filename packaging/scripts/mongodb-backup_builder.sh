@@ -20,7 +20,7 @@ Usage: $0 [OPTIONS]
         --repo              Repo for build
         
         --help) usage ;;
-Example $0 --builddir=/tmp/mongodb-backup --get_sources=1 --build_src_rpm=1 --build_rpm=1
+Example $0 --builddir=/tmp/percona-backup-mongodb --get_sources=1 --build_src_rpm=1 --build_rpm=1
 EOF
         exit 1
 }
@@ -83,10 +83,10 @@ get_sources(){
         echo "Sources will not be downloaded"
         return 0
     fi
-    PRODUCT=mongodb-backup
-    echo "PRODUCT=${PRODUCT}" > mongodb-backup.properties
-    echo "BUILD_NUMBER=${BUILD_NUMBER}" >> mongodb-backup.properties
-    echo "BUILD_ID=${BUILD_ID}" >> mongodb-backup.properties
+    PRODUCT=percona-backup-mongodb
+    echo "PRODUCT=${PRODUCT}" > percona-backup-mongodb.properties
+    echo "BUILD_NUMBER=${BUILD_NUMBER}" >> percona-backup-mongodb.properties
+    echo "BUILD_ID=${BUILD_ID}" >> percona-backup-mongodb.properties
     git clone "$REPO"
     retval=$?
     if [ $retval != 0 ]
@@ -94,7 +94,7 @@ get_sources(){
         echo "There were some issues during repo cloning from github. Please retry one more time"
         exit 1
     fi
-    cd mongodb-backup
+    cd percona-backup-mongodb
     if [ ! -z "$BRANCH" ]
     then
         git reset --hard
@@ -102,19 +102,19 @@ get_sources(){
         git checkout "$BRANCH"
     fi
     REVISION=$(git rev-parse --short HEAD)
-    echo "REVISION=${REVISION}" >> ${WORKDIR}/mongodb-backup.properties
+    echo "REVISION=${REVISION}" >> ${WORKDIR}/percona-backup-mongodb.properties
     rm -fr debian rpm
     cd ${WORKDIR}
 
-    mv mongodb-backup ${PRODUCT}-${VERSION}
+    mv percona-backup-mongodb ${PRODUCT}-${VERSION}
     tar --owner=0 --group=0 --exclude=.* -czf ${PRODUCT}-${VERSION}.tar.gz ${PRODUCT}-${VERSION}
-    echo "UPLOAD=UPLOAD/experimental/BUILDS/${PRODUCT}/${PRODUCT}-${VERSION}/${BRANCH}/${REVISION}/${BUILD_ID}" >> mongodb-backup.properties
+    echo "UPLOAD=UPLOAD/experimental/BUILDS/${PRODUCT}/${PRODUCT}-${VERSION}/${BRANCH}/${REVISION}/${BUILD_ID}" >> percona-backup-mongodb.properties
     mkdir $WORKDIR/source_tarball
     mkdir $CURDIR/source_tarball
     cp ${PRODUCT}-${VERSION}.tar.gz $WORKDIR/source_tarball
     cp ${PRODUCT}-${VERSION}.tar.gz $CURDIR/source_tarball
     cd $CURDIR
-    rm -rf mongodb-backup
+    rm -rf percona-backup-mongodb
     return
 }
 
@@ -182,10 +182,10 @@ install_deps() {
 
 get_tar(){
     TARBALL=$1
-    TARFILE=$(basename $(find $WORKDIR/$TARBALL -name 'mongodb-backup*.tar.gz' | sort | tail -n1))
+    TARFILE=$(basename $(find $WORKDIR/$TARBALL -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
     if [ -z $TARFILE ]
     then
-        TARFILE=$(basename $(find $CURDIR/$TARBALL -name 'mongodb-backup*.tar.gz' | sort | tail -n1))
+        TARFILE=$(basename $(find $CURDIR/$TARBALL -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
         if [ -z $TARFILE ]
         then
             echo "There is no $TARBALL for build"
@@ -202,10 +202,10 @@ get_tar(){
 get_deb_sources(){
     param=$1
     echo $param
-    FILE=$(basename $(find $WORKDIR/source_deb -name "mongodb-backup*.$param" | sort | tail -n1))
+    FILE=$(basename $(find $WORKDIR/source_deb -name "percona-backup-mongodb*.$param" | sort | tail -n1))
     if [ -z $FILE ]
     then
-        FILE=$(basename $(find $CURDIR/source_deb -name "mongodb-backup*.$param" | sort | tail -n1))
+        FILE=$(basename $(find $CURDIR/source_deb -name "percona-backup-mongodb*.$param" | sort | tail -n1))
         if [ -z $FILE ]
         then
             echo "There is no sources for build"
@@ -234,7 +234,7 @@ build_srpm(){
     get_tar "source_tarball"
     rm -fr rpmbuild
     ls | grep -v tar.gz | xargs rm -rf
-    TARFILE=$(find . -name 'mongodb-backup*.tar.gz' | sort | tail -n1)
+    TARFILE=$(find . -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1)
     SRC_DIR=${TARFILE%.tar.gz}
     #
     mkdir -vp rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
@@ -242,9 +242,9 @@ build_srpm(){
     #
     sed -e "s:@@VERSION@@:${VERSION}:g" \
         -e "s:@@RELEASE@@:${RELEASE}:g" \
-    packaging/rpm/mongodb-backup.spec > rpmbuild/SPECS/mongodb-backup.spec
+    packaging/rpm/percona-backup-mongodb.spec > rpmbuild/SPECS/percona-backup-mongodb.spec
     mv -fv ${TARFILE} ${WORKDIR}/rpmbuild/SOURCES
-    rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" rpmbuild/SPECS/mongodb-backup.spec
+    rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" rpmbuild/SPECS/percona-backup-mongodb.spec
     mkdir -p ${WORKDIR}/srpm
     mkdir -p ${CURDIR}/srpm
     cp rpmbuild/SRPMS/*.src.rpm ${CURDIR}/srpm
@@ -263,10 +263,10 @@ build_rpm(){
         echo "It is not possible to build rpm here"
         exit 1
     fi
-    SRC_RPM=$(basename $(find $WORKDIR/srpm -name 'mongodb-backup*.src.rpm' | sort | tail -n1))
+    SRC_RPM=$(basename $(find $WORKDIR/srpm -name 'percona-backup-mongodb*.src.rpm' | sort | tail -n1))
     if [ -z $SRC_RPM ]
     then
-        SRC_RPM=$(basename $(find $CURDIR/srpm -name 'mongodb-backup*.src.rpm' | sort | tail -n1))
+        SRC_RPM=$(basename $(find $CURDIR/srpm -name 'percona-backup-mongodb*.src.rpm' | sort | tail -n1))
         if [ -z $SRC_RPM ]
         then
             echo "There is no src rpm for build"
@@ -286,8 +286,8 @@ build_rpm(){
     RHEL=$(rpm --eval %rhel)
     ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
 
-    echo "RHEL=${RHEL}" >> mongodb-backup.properties
-    echo "ARCH=${ARCH}" >> mongodb-backup.properties
+    echo "RHEL=${RHEL}" >> percona-backup-mongodb.properties
+    echo "ARCH=${ARCH}" >> percona-backup-mongodb.properties
     [[ ${PATH} == *"/usr/local/go/bin"* && -x /usr/local/go/bin/go ]] || export PATH=/usr/local/go/bin:${PATH}
         export GOROOT="/usr/local/go/"
         export GOPATH=$(pwd)/
@@ -317,11 +317,11 @@ build_source_deb(){
         echo "It is not possible to build source deb here"
         exit 1
     fi
-    rm -rf mongodb-backup*
+    rm -rf percona-backup-mongodb*
     get_tar "source_tarball"
     rm -f *.dsc *.orig.tar.gz *.debian.tar.gz *.changes
     #
-    TARFILE=$(basename $(find . -name 'mongodb-backup*.tar.gz' | sort | tail -n1))
+    TARFILE=$(basename $(find . -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
     DEBIAN=$(lsb_release -sc)
     ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
     tar zxf ${TARFILE} 
@@ -369,8 +369,8 @@ build_deb(){
     export DEBIAN=$(lsb_release -sc)
     export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
     #
-    echo "DEBIAN=${DEBIAN}" >> mongodb-backup.properties
-    echo "ARCH=${ARCH}" >> mongodb-backup.properties
+    echo "DEBIAN=${DEBIAN}" >> percona-backup-mongodb.properties
+    echo "ARCH=${ARCH}" >> percona-backup-mongodb.properties
 
     #
     DSC=$(basename $(find . -name '*.dsc' | sort | tail -n1))
@@ -402,7 +402,7 @@ build_tarball(){
     fi
     get_tar "source_tarball"
     cd $WORKDIR
-    TARFILE=$(basename $(find . -name 'mongodb-backup*.tar.gz' | sort | tail -n1))
+    TARFILE=$(basename $(find . -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
 
     if [ -f /etc/debian_version ]; then
         export OS_RELEASE="$(lsb_release -sc)"
@@ -416,20 +416,20 @@ build_tarball(){
     fi
     #
     ARCH=$(uname -m 2>/dev/null||true)
-    TARFILE=$(basename $(find . -name 'mongodb-backup*.tar.gz' | sort | grep -v "tools" | tail -n1))
+    TARFILE=$(basename $(find . -name 'percona-backup-mongodb*.tar.gz' | sort | grep -v "tools" | tail -n1))
     PSMDIR=${TARFILE%.tar.gz}
     PSMDIR_ABS=${WORKDIR}/${PSMDIR}
 
     tar xzf $TARFILE
     rm -f $TARFILE
-    mkdir -p build/src/github.com/percona/mongodb-backup
-    mv ${PSMDIR}/* build/src/github.com/percona/mongodb-backup/
+    mkdir -p build/src/github.com/percona/percona-backup-mongodb
+    mv ${PSMDIR}/* build/src/github.com/percona/percona-backup-mongodb/
     export PATH=/usr/local/go/bin:${PATH}
     export GOROOT="/usr/local/go/"
     export GOPATH=${PWD}/build
     export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
     export GOBINPATH="/usr/local/go/bin"
-    cd build/src/github.com/percona/mongodb-backup && pwd && make
+    cd build/src/github.com/percona/percona-backup-mongodb && pwd && make
     cp pbmctl ${WORKDIR}/${PSMDIR}/
     cp pbm-agent ${WORKDIR}/${PSMDIR}/
     cp pbm-coordinator ${WORKDIR}/${PSMDIR}/
@@ -446,7 +446,7 @@ build_tarball(){
 #main
 
 CURDIR=$(pwd)
-VERSION_FILE=$CURDIR/mongodb-backup.properties
+VERSION_FILE=$CURDIR/percona-backup-mongodb.properties
 args=
 WORKDIR=
 SRPM=0
@@ -465,8 +465,8 @@ VERSION="1.0"
 RELEASE="1"
 REVISION=0
 BRANCH="master"
-REPO="https://github.com/percona/mongodb-backup.git"
-PRODUCT=mongodb-backup
+REPO="https://github.com/percona/percona-backup-mongodb.git"
+PRODUCT=percona-backup-mongodb
 parse_arguments PICK-ARGS-FROM-ARGV "$@"
 PSM_BRANCH=${BRANCH}
 
