@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -34,10 +35,12 @@ var (
 type cliOptions struct {
 	app *kingpin.Application
 
-	TLS        bool   `yaml:"tls"`
-	CAFile     string `yaml:"ca_file"`
-	ServerAddr string `yaml:"server_addr"`
-	configFile *string
+	TLS            bool   `yaml:"tls"`
+	CAFile         string `yaml:"ca_file"`
+	ServerAddr     string `yaml:"server_addr"`
+	ServerUsername string `yaml:"server_username"`
+	ServerPassword string `yaml:"server_password"`
+	configFile     *string
 
 	backup               *kingpin.CmdClause
 	backupType           *string
@@ -62,6 +65,24 @@ var (
 	defaultConfigFile = "~/.pbmctl.yml"
 )
 
+type basicGrpcAuth struct {
+	username string
+	password string
+}
+
+func (a basicGrpcAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
+	auth := a.username + ":" + a.password
+	enc := base64.StdEncoding.EncodeToString([]byte(auth))
+	return map[string]string{
+		"authorization": "Basic " + enc,
+	}, nil
+}
+
+func (a basicGrpcAuth) RequireTransportSecurity() bool {
+	return false
+	//	return true
+}
+
 func main() {
 	cmd, opts, err := processCliArgs(os.Args[1:])
 	if err != nil {
@@ -83,6 +104,13 @@ func main() {
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {
 		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+	}
+
+	if opts.ServerUsername != "" && opts.ServerPassword != "" {
+		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(basicGrpcAuth{
+			username: opts.ServerUsername,
+			password: opts.ServerPassword,
+		}))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -326,6 +354,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
 	app.Flag("ca-file", "The file containning the CA root cert file").StringVar(&opts.CAFile)
 	app.Flag("server-addr", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("server-username", "The username to use for server authentication").StringVar(&opts.ServerUsername)
+	app.Flag("server-password", "The password to use for server authentication").StringVar(&opts.ServerPassword)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,
@@ -363,5 +393,11 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	}
 	if opts.ServerAddr == "" {
 		opts.ServerAddr = yamlOpts.ServerAddr
+	}
+	if opts.ServerUsername == "" {
+		opts.ServerUsername = yamlOpts.ServerUsername
+	}
+	if opts.ServerPassword == "" {
+		opts.ServerPassword = yamlOpts.ServerPassword
 	}
 }

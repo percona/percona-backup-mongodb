@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/grpc/server"
@@ -10,25 +12,88 @@ import (
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/metadata"
 )
 
 type ApiServer struct {
 	messagesServer *server.MessagesServer
+	username       string
+	password       string
 	workDir        string
 }
 
-func NewApiServer(server *server.MessagesServer) *ApiServer {
+func NewApiServer(server *server.MessagesServer, username, password string) *ApiServer {
 	return &ApiServer{
 		messagesServer: server,
+		username:       username,
+		password:       password,
 	}
 }
 
 var (
-	logger = logrus.New()
+	logger          = logrus.New()
+	errUnauthorized = errors.New("unauthorized")
+	errInvalidAuth  = errors.New("invalid basic auth format")
 )
 
 func init() {
 	logger.SetLevel(logrus.DebugLevel)
+}
+
+// parse auth header
+func parseBasicAuthHeader(auth string) (string, string, error) {
+	const prefix = "Basic "
+	if !strings.HasPrefix(auth, prefix) {
+		return "", "", errInvalidAuth
+	}
+	c, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return "", "", errInvalidAuth
+	}
+	cs := string(c)
+	s := strings.IndexByte(cs, ':')
+	if s < 0 {
+		return "", "", errInvalidAuth
+	}
+	return cs[:s], cs[s+1:], nil
+}
+
+// authenticate checks if a context passes authentication
+func (a *ApiServer) checkAuthenticated(ctx context.Context) error {
+	// return nil if auth is disabled
+	if a.username == "" || a.password == "" {
+		return nil
+	}
+
+	// get metadata from context
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return errUnauthorized
+	}
+
+	// check if "authorization" header is set, return unauthorized if it is missing
+	if _, ok := md["authorization"]; !ok {
+		logger.Debugf("'authorization' header is not set")
+		return errUnauthorized
+	}
+
+	// parse basic auth header
+	auth := md["authorization"][0]
+	username, password, err := parseBasicAuthHeader(auth)
+	if err != nil {
+		logger.Debugf("Cannot parse basic auth header: %v", err)
+		return errUnauthorized
+	}
+
+	// check username+password matches expected API credentials
+	if a.username != username || a.password != password {
+		logger.Debugf("Invalid credentials for user %s", username)
+		return errUnauthorized
+	}
+
+	logger.Debugf("Authenticated user %s", username)
+
+	return nil
 }
 
 func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
@@ -86,12 +151,23 @@ func (a *ApiServer) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi
 
 // LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
 func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (*pb.BackupMetadata, error) {
+	// TODO: return a proper protobuf error here?
+	err := a.checkAuthenticated(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return a.messagesServer.LastBackupMetadata().Metadata(), nil
 }
 
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
 func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
+	err := a.checkAuthenticated(ctx)
+	if err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
+
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
@@ -121,7 +197,7 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 
 	a.messagesServer.WaitBackupFinish()
 	logger.Debug("Stopping oplog")
-	err := a.messagesServer.StopOplogTail()
+	err = a.messagesServer.StopOplogTail()
 	if err != nil {
 		logger.Fatalf("Cannot stop oplog tailer %s", err)
 		return &pbapi.Error{Message: err.Error()}, err
@@ -144,7 +220,13 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 }
 
 func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
-	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
+	// TODO: return a proper protobuf error here?
+	err := a.checkAuthenticated(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	err = a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
 	if err != nil {
 		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
 	}

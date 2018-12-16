@@ -46,6 +46,8 @@ type cliOptions struct {
 	GrpcPort             int    `yaml:"grpc_port"`
 	APIBindIP            string `yaml:"api_bindip"`
 	APIPort              int    `yaml:"api_port"`
+	APIUsername          string `yaml:"api_username"`
+	APIPassword          string `yaml:"api_password"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
 	LogFile              string `yaml:"log_file"`
 	UseSysLog            bool   `yaml:"sys_log_url"`
@@ -123,7 +125,7 @@ func main() {
 	runAgentsGRPCServer(grpcServer, lis, opts.ShutdownTimeout, stopChan, wg)
 
 	apiGrpcServer := grpc.NewServer(grpcOpts...)
-	apiServer := api.NewApiServer(messagesServer)
+	apiServer := api.NewApiServer(messagesServer, opts.APIUsername, opts.APIPassword)
 	apipb.RegisterApiServer(apiGrpcServer, apiServer)
 
 	wg.Add(1)
@@ -188,6 +190,8 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
+	app.Flag("api-username", "Required username for API client connections").StringVar(&opts.APIUsername)
+	app.Flag("api-password", "Required password for API client connections").StringVar(&opts.APIPassword)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
 	app.Flag("log-file", "Write logs to file").StringVar(&opts.LogFile)
 	app.Flag("use-syslog", "Also send the logs to the local syslog server").BoolVar(&opts.UseSysLog)
@@ -257,11 +261,23 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	if opts.KeyFile != "" {
 		yamlOpts.KeyFile = opts.KeyFile
 	}
+	if opts.GrpcBindIP != "" {
+		yamlOpts.GrpcBindIP = opts.GrpcBindIP
+	}
 	if opts.GrpcPort != 0 {
 		yamlOpts.GrpcPort = opts.GrpcPort
 	}
+	if opts.APIBindIP != "" {
+		yamlOpts.APIBindIP = opts.APIBindIP
+	}
 	if opts.APIPort != 0 {
 		yamlOpts.APIPort = opts.APIPort
+	}
+	if opts.APIUsername != "" {
+		yamlOpts.APIUsername = opts.APIUsername
+	}
+	if opts.APIPassword != "" {
+		yamlOpts.APIPassword = opts.APIPassword
 	}
 	if opts.ShutdownTimeout != 0 {
 		yamlOpts.ShutdownTimeout = opts.ShutdownTimeout
