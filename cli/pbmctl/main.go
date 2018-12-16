@@ -70,6 +70,8 @@ type basicGrpcAuth struct {
 	password string
 }
 
+// GetRequestMetadata is called by gRPC to construct request
+// metadata containing a basic auth token
 func (a basicGrpcAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
 	auth := a.username + ":" + a.password
 	enc := base64.StdEncoding.EncodeToString([]byte(auth))
@@ -78,9 +80,10 @@ func (a basicGrpcAuth) GetRequestMetadata(ctx context.Context, in ...string) (ma
 	}, nil
 }
 
+// RequireTransportSecurity sets the requirement for transport
+// security (SSL/TLS) when providing auth credentials
 func (a basicGrpcAuth) RequireTransportSecurity() bool {
-	return false
-	//	return true
+	return true
 }
 
 func main() {
