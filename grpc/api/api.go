@@ -80,8 +80,7 @@ func (a *ApiServer) checkAuthenticated(ctx context.Context) error {
 	}
 
 	// parse basic auth header
-	auth := md["authorization"][0]
-	username, password, err := parseBasicAuthHeader(auth)
+	username, password, err := parseBasicAuthHeader(md["authorization"][0])
 	if err != nil {
 		logger.Debugf("Cannot parse basic auth header: %v", err)
 		return errUnauthorized
