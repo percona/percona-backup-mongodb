@@ -33,7 +33,6 @@ func NewApiServer(server *server.MessagesServer, username, password string) *Api
 var (
 	logger          = logrus.New()
 	errUnauthorized = errors.New("unauthorized")
-	errInvalidAuth  = errors.New("invalid basic auth format")
 )
 
 func init() {
@@ -42,21 +41,21 @@ func init() {
 
 // parseBasicAuthHeader parses a basic authorization header into
 // a username and password string
-func parseBasicAuthHeader(auth string) (string, string, error) {
+func parseBasicAuthHeader(auth string) (string, string) {
 	const prefix = "Basic "
 	if !strings.HasPrefix(auth, prefix) {
-		return "", "", errInvalidAuth
+		return "", ""
 	}
 	c, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
 	if err != nil {
-		return "", "", errInvalidAuth
+		return "", ""
 	}
 	cs := string(c)
 	s := strings.IndexByte(cs, ':')
 	if s < 0 {
-		return "", "", errInvalidAuth
+		return "", ""
 	}
-	return cs[:s], cs[s+1:], nil
+	return cs[:s], cs[s+1:]
 }
 
 // checkAuthenticated confirms if a request context passes authentication
@@ -67,26 +66,15 @@ func (a *ApiServer) checkAuthenticated(ctx context.Context) error {
 		return nil
 	}
 
-	// get metadata from context
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return errUnauthorized
-	}
-
 	// check if "authorization" header is set, return unauthorized if it is missing
+	md, _ := metadata.FromIncomingContext(ctx)
 	if _, ok := md["authorization"]; !ok {
 		logger.Debugf("'authorization' header is not set")
 		return errUnauthorized
 	}
 
-	// parse basic auth header
-	username, password, err := parseBasicAuthHeader(md["authorization"][0])
-	if err != nil {
-		logger.Debugf("Cannot parse basic auth header: %v", err)
-		return errUnauthorized
-	}
-
 	// check username+password matches expected API credentials
+	username, password := parseBasicAuthHeader(md["authorization"][0])
 	if a.username != username || a.password != password {
 		logger.Debugf("Invalid credentials for user %s", username)
 		return errUnauthorized
