@@ -220,10 +220,9 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 }
 
 func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
-	// TODO: return a proper protobuf error here?
 	err := a.checkAuthenticated(ctx)
 	if err != nil {
-		return nil, err
+		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
 	}
 
 	err = a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
