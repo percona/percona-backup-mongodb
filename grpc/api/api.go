@@ -40,7 +40,8 @@ func init() {
 	logger.SetLevel(logrus.DebugLevel)
 }
 
-// parse auth header
+// parseBasicAuthHeader parses a basic authorization header into
+// a username and password string
 func parseBasicAuthHeader(auth string) (string, string, error) {
 	const prefix = "Basic "
 	if !strings.HasPrefix(auth, prefix) {
@@ -58,7 +59,8 @@ func parseBasicAuthHeader(auth string) (string, string, error) {
 	return cs[:s], cs[s+1:], nil
 }
 
-// authenticate checks if a context passes authentication
+// checkAuthenticated confirms if a request context passes authentication
+// requirements
 func (a *ApiServer) checkAuthenticated(ctx context.Context) error {
 	// return nil if auth is disabled
 	if a.username == "" || a.password == "" {
