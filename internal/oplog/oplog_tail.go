@@ -129,7 +129,10 @@ func open(session *mgo.Session) (*OplogTail, error) {
 }
 
 func (ot *OplogTail) LastOplogTimestamp() bson.MongoTimestamp {
-	return ot.lastOplogTimestamp
+	if ot != nil {
+		return ot.lastOplogTimestamp
+	}
+	return bson.MongoTimestamp(0)
 }
 
 // Implement the Reader interface to be able to pipe it into an S3 stream or through an
