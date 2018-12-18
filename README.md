@@ -6,7 +6,6 @@ Percona Backup for MongoDB is a distributed, low-impact solution for achieving c
 The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_consistent_backup](https://github.com/Percona-Lab/mongodb_consistent_backup) tool.
 
 1. [Feature Progress](#feature-progress)
-1. [Requirements](#requirements)
 1. [Architecture](#architecture)
     1. [Coordinator](#coordinator)
     1. [Agent](#agent)
@@ -15,6 +14,7 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
         1. [Running the Coordinator](#running-the-coordinator)
         1. [Running the Agent](#running-the-agent)
         1. [Running pbmctl commands](#running-pbmctl-commands)
+1. [Requirements](#requirements)
 1. [Contributing](#contributing)
 1. [Building](#building)
     1. [Unit Tests](#unit-tests)
@@ -56,11 +56,6 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 - [ ] Restore from any Point-in-time
     - [ ] Support for incremental backups using oplogs
 - [ ] Prometheus metrics
-
-# Requirements
-
-1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
-    1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
 
 # Architecture
 
@@ -192,6 +187,11 @@ Sample output:
 ```
 $ pbmctl run restore 2018-12-18T19:04:14Z.json
 ```
+
+# Requirements
+
+1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
+    1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
 
 # Contributing
 
