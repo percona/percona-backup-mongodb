@@ -5,7 +5,27 @@ Percona Backup for MongoDB is a distributed, low-impact solution for achieving c
 
 The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_consistent_backup](https://github.com/Percona-Lab/mongodb_consistent_backup) tool.
 
-## Feature Progress:
+1. [Feature Progress](#feature-progress)
+1. [Requirements](#requirements)
+1. [Architecture](#architecture)
+    1. [Coordinator](#coordinator)
+    1. [Agent](#agent)
+    1. [PBM Control (pbmctl)](#pbm-control-pbmctl)
+    1. [Running](#running)
+        1. [Running the Coordinator](#running-the-coordinator)
+        1. [Running the Agent](#running-the-agent)
+        1. [Running pbmctl commands](#running-pbmctl-commands)
+1. [Contributing](#contributing)
+1. [Building](#building)
+    1. [Unit Tests](#unit-tests)
+1. [Docker](#docker)
+    1. [Build Docker images](#build-docker-images)
+    1. [Run Docker containers](#run-docker-containers)
+        1. [Coordinator](#coordinator1)
+        1. [Agent](#agent1)
+1. [Contact](#contact)
+
+## Feature Progress
 - [x] Oplog tailer
 - [x] Oplog applier
 - [x] AWS S3 streamer
@@ -83,7 +103,7 @@ The backup coordinator can be executed in any server since it doesn't need a con
 To start the coordinator just run:
 
 ```
-./pbm-coordinator --work-dir=<directory to store metadata>
+$ ./pbm-coordinator --work-dir=<directory to store metadata>
 ```
 If `--work-dir` is not specified, it will use the default `${HOME}/percona-backup-mongodb`.
 By default, the coordinator will listen for agents on port 10000.
@@ -96,7 +116,7 @@ In most situations the agent must connect to MongoDB using the host 'localhost' 
 
 Example:
 ```
-./pbm-agent --mongodb-user=pbmAgent \
+$ ./pbm-agent --mongodb-user=pbmAgent \
             --mongodb-password=securePassw0rd \
             --mongodb-host=127.0.0.1 \
             --mongodb-port=27017 \
@@ -128,15 +148,15 @@ Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY m
 })
 ```
 
-### Running commands
+### Running pbmctl commands
 
-`pmbctl` is the command line utility to control the backup system. 
-Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10000` so, if you are running `pmbctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
+`pbmctl` is the command line utility to control the backup system. 
+Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10000` so, if you are running `pbmctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
   
 #### Examples
 ##### List all connected agents
 ```
-pmbctl --server-address=127.0.0.1:10000 list nodes
+$ pbmctl --server-address=127.0.0.1:10000 list nodes
 ```
 Sample output:
 ```
@@ -154,12 +174,12 @@ localhost:17000                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONG
 
 ##### Start a backup
 ```
-pbmctl run backup --description "Test backup 01"
+$ pbmctl run backup --description "Test backup 01"
 ```
 
 ##### List all the completed backups
 ```
-pmbctl --server-address=127.0.0.1:10000 list backups
+$ pbmctl --server-address=127.0.0.1:10000 list backups
 ```
 Sample output:
 ```
@@ -170,12 +190,12 @@ Sample output:
 
 ##### Restore a backup
 ```
-pbmctl run restore 2018-12-18T19:04:14Z.json
+$ pbmctl run restore 2018-12-18T19:04:14Z.json
 ```
 
 # Contributing
 
-
+TBD
 
 # Building
 
