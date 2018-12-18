@@ -25,11 +25,13 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
     - [ ] Backup data
     - [ ] Agent and CLI RPCs
 - [ ] Encryption of backup data
+- [ ] Support for MongoDB SSL/TLS connections
 - [ ] Recovery from agent failures
 - [ ] Support for [Percona Server for MongoDB Hot Backup](https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html) for binary-level backup
     - [ ] Backup
     - [ ] Restore
     - [ ] Support for [WiredTiger Encryption](https://www.percona.com/blog/2018/11/01/wiredtiger-encryption-at-rest-percona-server-for-mongodb/)
+- [ ] Support for more upload/transfer methods
 - [ ] Multiple sources of credentials *(eg: file, Vault, Amazon KMS, etc)*
 - [ ] Restore from any Point-in-time
     - [ ] Support for incremental backups using oplogs
