@@ -84,15 +84,12 @@ func main() {
 		log.SetLevel(logrus.DebugLevel)
 	}
 
-	log.Infof("Starting clients gRPC net listener at address: %s:%d", opts.GrpcBindIP, opts.GrpcPort)
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.GrpcBindIP, opts.GrpcPort))
-
-	log.Infof("Starting clients API net listener at address: %s:%d", opts.APIBindIP, opts.APIPort)
 	apilis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.APIBindIP, opts.APIPort))
-
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+
 	var grpcOpts []grpc.ServerOption
 	if opts.TLS {
 		if opts.CertFile == "" {
@@ -143,7 +140,6 @@ func main() {
 
 func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
 	go func() {
-		fmt.Printf("Starting grpc server on port %v\n", lis.Addr().String())
 		err := grpcServer.Serve(lis)
 		if err != nil {
 			log.Printf("Cannot start agents gRPC server: %s", err)
