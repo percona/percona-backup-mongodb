@@ -60,9 +60,9 @@ Backup Agents are in charge of receiving commands from the coordinator and run t
 
 The agent must run locally *(connected to 'localhost')* on every MongoDB instance *(mongos and config servers included)* in order to collect information about the instance and forward it to the coordinator. With that information, the coordinator can determine the best agent to start a backup or restore, to start/stop the balancer, etc.
 
-The agent requires outbound network access to the Coordinator RPC port.
+The agent requires outbound network access to the [Coordinator](#Coordinator) RPC port.
 
-## PBM Control (pmbctl)
+## PBM Control (pbmctl)
 
 This program is a command line utility to send commands to the coordinator.
 Currently, the available commands are:  
@@ -70,6 +70,8 @@ Currently, the available commands are:
 - **list backups**: List all finished backups.
 - **run backup**: Start a new backup
 - **run restore**: Restore a backup
+
+The pbmctl utility requires outbound network access to the [Coordinator](#Coordinator) API port.
 
 ## Running
 
