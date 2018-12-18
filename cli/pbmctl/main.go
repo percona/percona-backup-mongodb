@@ -68,6 +68,7 @@ var (
 type basicGrpcAuth struct {
 	username string
 	password string
+	tls      bool
 }
 
 // GetRequestMetadata is called by gRPC to construct request
@@ -83,7 +84,7 @@ func (a basicGrpcAuth) GetRequestMetadata(ctx context.Context, in ...string) (ma
 // RequireTransportSecurity sets the requirement for transport
 // security (SSL/TLS) when providing auth credentials
 func (a basicGrpcAuth) RequireTransportSecurity() bool {
-	return true
+	return a.tls
 }
 
 func main() {
@@ -113,6 +114,7 @@ func main() {
 		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(basicGrpcAuth{
 			username: opts.ServerUsername,
 			password: opts.ServerPassword,
+			tls:      opts.TLS,
 		}))
 	}
 
