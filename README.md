@@ -98,7 +98,7 @@ The backup coordinator can be executed in any server since it doesn't need a con
 To start the coordinator just run:
 
 ```
-$ ./pbm-coordinator --work-dir=<directory to store metadata>
+$ pbm-coordinator --work-dir=<directory to store metadata>
 ```
 If `--work-dir` is not specified, it will use the default `${HOME}/percona-backup-mongodb`.
 By default, the coordinator will listen for agents on port 10000.
@@ -111,7 +111,7 @@ In most situations the agent must connect to MongoDB using the host 'localhost' 
 
 Example:
 ```
-$ ./pbm-agent --mongodb-user=pbmAgent \
+$ pbm-agent --mongodb-user=pbmAgent \
             --mongodb-password=securePassw0rd \
             --mongodb-host=127.0.0.1 \
             --mongodb-port=27017 \
