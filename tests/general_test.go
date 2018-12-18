@@ -356,7 +356,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	time.Sleep(10 * time.Second)
 	for _, client := range d.Clients() {
 		if client.ReplicasetName() == "rs1" {
-			fmt.Printf("Stopping client: %s, rs: %s\n", client.NodeName(), client.ReplicasetName())
+			log.Infof("Stopping client: %s, rs: %s\n", client.NodeName(), client.ReplicasetName())
 			client.Stop()
 			time.Sleep(1 * time.Second)
 		}
@@ -466,7 +466,7 @@ func TestBackup1(t *testing.T) {
 		t.Fatalf("Cannot start backup: %s", err)
 	}
 
-	fmt.Printf("starting backup: %s\n", backupNamePrefix)
+	log.Infof("starting backup: %s\n", backupNamePrefix)
 
 	d.MessagesServer.WaitBackupFinish()
 	err = d.MessagesServer.StopOplogTail()

@@ -17,7 +17,6 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/golang/snappy"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
@@ -364,11 +363,10 @@ func (c *Client) processIncommingServerMessages() {
 		case *pb.ServerMessage_ListReplicasets:
 			c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
-			c.processPing()
-			// msg := c.processPing()
-			//if err := c.streamSend(msg); err != nil {
-			//	c.logger.Errorf("Cannot stream ping response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
-			//}
+			msg := c.processPing()
+			if err := c.streamSend(msg); err != nil {
+				c.logger.Errorf("Cannot stream ping response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
+			}
 			continue
 		case *pb.ServerMessage_CanRestoreBackupMsg:
 			msg, err := c.processCanRestoreBackup(msg.GetCanRestoreBackupMsg())
@@ -626,7 +624,7 @@ func (c *Client) processListReplicasets() error {
 
 func (c *Client) processPing() *pb.ClientMessage {
 	c.logger.Debug("Received Ping command")
-	//c.updateClientInfo()
+	c.updateClientInfo()
 
 	pongMsg := &pb.Pong{
 		Timestamp:           time.Now().Unix(),
@@ -658,7 +656,6 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	}()
 
 	c.sendACK()
-	pretty.Print(msg)
 
 	if err := c.restoreDBDump(msg); err != nil {
 		err := errors.Wrap(err, "cannot restore DB backup")
@@ -911,7 +908,6 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 		fw, err := os.Create(path.Join(c.backupDir, msg.GetDbBackupName()))
 		if err != nil {
 			log.Errorf("Cannot create backup file: %s", err)
-			// TODO Stream error msg to the server
 		}
 		writers = append(writers, fw)
 	}

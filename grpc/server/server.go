@@ -137,12 +137,6 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 			sources[resp.Replicaset] = s
 		}
 	}
-	for rs, source := range sources {
-		fmt.Printf("RS: %v\n", rs)
-		fmt.Printf("Client: %v\n", source.Client.NodeName)
-		fmt.Printf("Host: %v\n", source.Host)
-		fmt.Printf("Port: %v\n", source.Port)
-	}
 	return sources, nil
 }
 
@@ -330,9 +324,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 	// Ping will also update the status and if it is primary or secondary
 	for _, source := range clients {
 		source.Client.ping()
-		fmt.Printf("Client ID  : %v\n", source.Client.ID)
-		fmt.Printf("Node Name  : %v\n", source.Client.NodeName)
-		fmt.Printf("Is primary : %v\n", source.Client.isPrimary)
 	}
 
 	for replName, source := range clients {

@@ -58,7 +58,7 @@ const (
 	defaultAPIPort         = 10001
 	defaultShutdownTimeout = 5 // Seconds
 	defaultClientsLogging  = true
-	defaultDebugMode       = true
+	defaultDebugMode       = false
 	defaultWorkDir         = "~/percona-backup-mongodb"
 )
 

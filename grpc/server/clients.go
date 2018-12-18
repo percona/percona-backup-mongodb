@@ -267,25 +267,24 @@ func (c *Client) listReplicasets() ([]string, error) {
 }
 
 func (c *Client) ping() error {
-	//c.logger.Debug("sending ping")
+	c.logger.Debug("sending ping")
 	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_PingMsg{PingMsg: &pb.Ping{}}})
 	if err != nil {
 		return errors.Wrap(err, "clients.go -> ping()")
 	}
 
-	//msg, err := c.streamRecv()
-	//if err != nil {
-	//	return errors.Wrapf(err, "ping client %s (%s)", c.ID, c.NodeName)
-	//}
-	//pretty.Println(msg)
-	//pongMsg := msg.GetPongMsg()
-	//c.statusLock.Lock()
-	//c.NodeType = pongMsg.GetNodeType()
-	//c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
-	//c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
-	//c.isTailing = pongMsg.GetIsTailing()
-	//c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
-	//c.statusLock.Unlock()
+	msg, err := c.streamRecv()
+	if err != nil {
+		return errors.Wrapf(err, "ping client %s (%s)", c.ID, c.NodeName)
+	}
+	pongMsg := msg.GetPongMsg()
+	c.statusLock.Lock()
+	c.NodeType = pongMsg.GetNodeType()
+	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
+	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
+	c.isTailing = pongMsg.GetIsTailing()
+	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
+	c.statusLock.Unlock()
 
 	return nil
 }
