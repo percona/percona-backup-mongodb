@@ -8,6 +8,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type MongodumpInput struct {
@@ -32,6 +33,21 @@ type Mongodump struct {
 	//
 	lock    *sync.Mutex
 	running bool
+
+	mdumpLogger []byte
+}
+
+type log2LogrusWriter struct {
+	entry *logrus.Entry
+}
+
+func (w *log2LogrusWriter) Write(b []byte) (int, error) {
+	n := len(b)
+	if n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+	}
+	w.entry.Info(string(b))
+	return n, nil
 }
 
 func NewMongodump(i *MongodumpInput) (*Mongodump, error) {
@@ -82,12 +98,15 @@ func NewMongodump(i *MongodumpInput) (*Mongodump, error) {
 
 	dump.OutputWriter = i.Writer
 
-	return &Mongodump{
+	mongoDump := &Mongodump{
 		MongodumpInput: i,
 		mongodump:      dump,
 		lock:           &sync.Mutex{},
 		running:        false,
-	}, nil
+	}
+	//mdumpLogger.SetWriter(logrus.StandardLogger().Writer())
+
+	return mongoDump, nil
 }
 
 func (md *Mongodump) LastError() error {

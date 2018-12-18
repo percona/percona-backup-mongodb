@@ -76,6 +76,30 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 	return client
 }
 
+func (c *Client) CanRestoreBackup(backupType pb.BackupType, destinationType pb.DestinationType, bucket, name string) (pb.CanRestoreBackupResponse, error) {
+	if err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_CanRestoreBackupMsg{
+			CanRestoreBackupMsg: &pb.CanRestoreBackup{
+				BackupType:      backupType,
+				DestinationType: destinationType,
+				DestinationDir:  bucket,
+				BackupName:      name,
+			},
+		},
+	}); err != nil {
+		return pb.CanRestoreBackupResponse{}, err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return pb.CanRestoreBackupResponse{}, err
+	}
+	if canRestoreBackupMsg := msg.GetCanRestoreBackupMsg(); canRestoreBackupMsg != nil {
+		return *canRestoreBackupMsg, nil
+	}
+
+	return pb.CanRestoreBackupResponse{}, fmt.Errorf("Cannot get CanRestoreBackup Response (response is nil)")
+}
+
 // newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
 // real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
 // func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
@@ -253,7 +277,6 @@ func (c *Client) ping() error {
 	if err != nil {
 		return errors.Wrapf(err, "ping client %s (%s)", c.ID, c.NodeName)
 	}
-
 	pongMsg := msg.GetPongMsg()
 	c.statusLock.Lock()
 	c.NodeType = pongMsg.GetNodeType()
@@ -279,6 +302,8 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 				Cypher:            msg.Cypher,
 				OplogStartTime:    msg.OplogStartTime,
 				SkipUsersAndRoles: msg.SkipUsersAndRoles,
+				Host:              msg.Host,
+				Port:              msg.Port,
 			},
 		},
 	}

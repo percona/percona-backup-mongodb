@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -28,7 +29,9 @@ var (
 )
 
 func init() {
-	logger.SetLevel(logrus.DebugLevel)
+	if os.Getenv("DEBUG") == "1" {
+		logger.SetLevel(logrus.DebugLevel)
+	}
 }
 
 func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {

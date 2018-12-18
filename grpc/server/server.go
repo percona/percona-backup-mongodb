@@ -45,6 +45,12 @@ type MessagesServer struct {
 	logger                *logrus.Logger
 }
 
+type restoreSource struct {
+	Client *Client
+	Host   string
+	Port   string
+}
+
 func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	messagesServer := newMessagesServer(workDir, logger)
 	return messagesServer
@@ -101,6 +107,34 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
 			}
 			sources[client.ReplicasetName] = backupSource
+		}
+	}
+	return sources, nil
+}
+
+func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[string]restoreSource, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	sources := make(map[string]restoreSource)
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+			continue
+		}
+		resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, bm.DestinationName)
+		if err != nil {
+			continue
+		}
+		_, ok := sources[resp.Replicaset]
+		if !ok {
+			sources[resp.Replicaset] = restoreSource{
+				Client: s.getClientByID(resp.ClientId),
+			}
+		}
+		if resp.IsPrimary {
+			s, _ := sources[resp.Replicaset]
+			s.Host = resp.Host
+			s.Port = resp.Port
+			sources[resp.Replicaset] = s
 		}
 	}
 	return sources, nil
@@ -272,7 +306,7 @@ func (s *MessagesServer) RestoreBackupFromMetadataFile(filename string, skipUser
 // RestoreBackUp will run a restore on each client, using the provided backup metadata to choose the source for each
 // replicaset.
 func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles bool) error {
-	clients, err := s.BackupSourceByReplicaset()
+	clients, err := s.RestoreSourcesByReplicaset(bm)
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup restore. Cannot find backup source for replicas")
 	}
@@ -287,12 +321,17 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 	s.reset()
 	s.setRestoreRunning(true)
 
-	for replName, client := range clients {
-		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
+	// Ping will also update the status and if it is primary or secondary
+	for _, source := range clients {
+		source.Client.ping()
+	}
+
+	for replName, source := range clients {
+		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, source.Client.ID, source.Client.NodeName, source.Client.NodeType)
 		s.replicasRunningBackup[replName] = true
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
-				client.restoreBackup(&pb.RestoreBackup{
+				source.Client.restoreBackup(&pb.RestoreBackup{
 					BackupType:        bm.BackupType,
 					SourceType:        bm.DestinationType,
 					SourceBucket:      bm.DestinationDir,
@@ -301,6 +340,8 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					CompressionType:   bm.CompressionType,
 					Cypher:            bm.Cypher,
 					SkipUsersAndRoles: skipUsersAndRoles,
+					Host:              source.Host,
+					Port:              source.Port,
 				})
 			}
 		}
