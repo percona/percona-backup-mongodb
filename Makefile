@@ -14,7 +14,7 @@ UID?=$(shell id -u)
 DEST_DIR?=/usr/local/bin
 UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
-TEST_PSMDB_VERSION?=latest
+TEST_PSMDB_VERSION?=3.6
 TEST_MONGODB_ADMIN_USERNAME?=admin
 TEST_MONGODB_ADMIN_PASSWORD?=admin123456
 TEST_MONGODB_USERNAME?=test
@@ -136,9 +136,10 @@ release: vendor
 	-it $(NAME)-release $(GORELEASER_FLAGS)
 	docker rmi -f $(NAME)-release
 
-docker-build: pbm-agent pbm-coordinator
+docker-build: pbmctl pbm-agent pbm-coordinator
 	docker build -t $(REPO):agent -f docker/agent/Dockerfile .
 	docker build -t $(REPO):coordinator -f docker/coordinator/Dockerfile .
+	docker build -t $(REPO):pbmctl -f docker/pbmctl/Dockerfile .
 
 clean:
 	rm -rf pbm-agent pbmctl pbm-coordinator test-out vendor 2>/dev/null || true
