@@ -94,8 +94,9 @@ The pbmctl utility requires outbound network access to the [Coordinator](#Coordi
 
 ### Running the Coordinator
 
-The backup coordinator can be executed in any server since it doesn't need a connection to a MongoDB instance.
-To start the coordinator just run:
+The backup coordinator can be executed in any server since it doesn't need a connection to a MongoDB instance. One Coordinator is needed per deployment.
+
+To start the coordinator run:
 
 ```
 $ pbm-coordinator --work-dir=<directory to store metadata>
@@ -130,7 +131,7 @@ Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY m
 ```
 > use admin;
 > db.createUser({
-    _id: "pbmAgent",
+    user: "pbmAgent",
     pwd: "securePassw0rd",
     roles: [
         { db: "admin", role: "backup"},
