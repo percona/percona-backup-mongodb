@@ -3,7 +3,7 @@
 .vscode
 test-out
 /dist
-/pbmctl
-/pbm-agent
-/pbm-coordinator
 /vendor
+cli/pbm-agent/pbm-agent
+cli/pbm-coordinator/pbm-coordinator
+cli/pbmctl/pbmctl

@@ -325,7 +325,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
 	app.Flag("ca-file", "The file containning the CA root cert file").StringVar(&opts.CAFile)
-	app.Flag("server-addr", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("server-address", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,

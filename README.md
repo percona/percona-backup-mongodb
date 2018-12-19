@@ -148,12 +148,12 @@ Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY m
 ### Running pbmctl commands
 
 `pbmctl` is the command line utility to control the backup system. 
-Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10000` so, if you are running `pbmctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
+Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10001` so, if you are running `pbmctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
   
 #### Examples
 ##### List all connected agents
 ```
-$ pbmctl --server-address=127.0.0.1:10000 list nodes
+$ pbmctl --server-address=127.0.0.1:10001 list nodes
 ```
 Sample output:
 ```
@@ -176,7 +176,7 @@ $ pbmctl run backup --description "Test backup 01"
 
 ##### List all the completed backups
 ```
-$ pbmctl --server-address=127.0.0.1:10000 list backups
+$ pbmctl --server-address=127.0.0.1:10001 list backups
 ```
 Sample output:
 ```
