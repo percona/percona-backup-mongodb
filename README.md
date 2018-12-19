@@ -38,6 +38,7 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 - [x] SSL/TLS support
 - [x] Replica Set Backup
 - [x] Sharded Cluster Backup
+    - [x] Pausing of balancer at backup-time
 - [x] Command-line management utility
 - [ ] Dockerhub images
 - [ ] Authorization of Agents and CLI
