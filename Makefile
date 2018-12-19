@@ -133,6 +133,7 @@ release: vendor
 	-e DOCKER_USERNAME=$(DOCKER_USERNAME) \
 	-e DOCKER_PASSWORD=$(DOCKER_PASSWORD) \
 	-v /var/run/docker.sock:/var/run/docker.sock \
+	-v $(CURDIR)/dist:/go/src/github.com/percona/percona-backup-mongodb/dist/ \
 	-it $(NAME)-release $(GORELEASER_FLAGS)
 	docker rmi -f $(NAME)-release
 
