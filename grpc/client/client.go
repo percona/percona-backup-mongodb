@@ -723,18 +723,20 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
-	fi, err := os.Stat(c.backupDir)
-	if err != nil {
-		c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
-		return
-	}
-	if !fi.IsDir() {
-		c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", c.backupDir))
-		return
-	}
-
 	var sess *session.Session
-	if msg.DestinationType == pb.DestinationType_DESTINATION_TYPE_AWS {
+	var err error
+	switch msg.GetDestinationType() {
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
+		fi, err := os.Stat(c.backupDir)
+		if err != nil {
+			c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+			return
+		}
+		if !fi.IsDir() {
+			c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", c.backupDir))
+			return
+		}
+	case pb.DestinationType_DESTINATION_TYPE_AWS:
 		sess, err = session.NewSession(&aws.Config{})
 		if err != nil {
 			msg := "Cannot create an AWS session for S3 backup"
