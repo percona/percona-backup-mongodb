@@ -30,7 +30,6 @@ import (
 var (
 	version = "dev"
 	commit  = "none"
-	date    = "unknown"
 )
 
 type cliOptions struct {

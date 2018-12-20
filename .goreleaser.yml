@@ -1,24 +1,30 @@
 builds:
   - binary: pbm-agent
     main: cli/pbm-agent/main.go
+    goarch:
+      - amd64
     ldflags:
-      - -w -s
+      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
     env:
       - CGO_ENABLED=0
     hooks:
       post: "./post-build.sh pbm-agent"
   - binary: pbm-coordinator
     main: ./cli/pbm-coordinator/main.go
+    goarch:
+      - amd64
     ldflags:
-      - -w -s
+      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
     env:
       - CGO_ENABLED=0
     hooks:
       post: "./post-build.sh pbm-coordinator"
   - binary: pbmctl
     main: ./cli/pbmctl/main.go
+    goarch:
+      - amd64
     ldflags:
-      - -w -s
+      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
     env:
       - CGO_ENABLED=0
     hooks:
@@ -27,27 +33,26 @@ dockers:
   - binary: pbm-agent
     dockerfile: docker/agent/Dockerfile
     image_templates:
-      - "percona/mongodb-backup:agent"
-      - "percona/mongodb-backup:{{ .Tag }}-agent"
-      - "percona/mongodb-backup:v{{ .Major }}.{{ .Minor }}-agent"
+      - "percona/percona-backup-mongodb:agent"
+      - "percona/percona-backup-mongodb:{{.Tag}}-agent"
+      - "percona/percona-backup-mongodb:v{{.Major}}.{{.Minor}}-agent"
     skip_push: true
   - binary: pbm-coordinator
     dockerfile: docker/coordinator/Dockerfile
     image_templates:
-      - "percona/mongodb-backup:coordinator"
-      - "percona/mongodb-backup:{{ .Tag }}-coordinator"
-      - "percona/mongodb-backup:v{{ .Major }}.{{ .Minor }}-coordinator"
+      - "percona/percona-backup-mongodb:coordinator"
+      - "percona/percona-backup-mongodb:{{.Tag}}-coordinator"
+      - "percona/percona-backup-mongodb:v{{.Major}}.{{.Minor}}-coordinator"
     skip_push: true
 archive:
   replacements:
-    386: i386
     amd64: x86_64
 nfpm:
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   vendor: Percona LLC.
-  homepage: https://www.percona.com/software
-  maintainer: Percona <mongodb-backup@percona.com>
-  description: MongoDB Backup tool
+  homepage: https://github.com/percona/percona-backup-mongodb
+  maintainer: Percona <percona-backup-mongodb@percona.com>
+  description: Percona Backup for MongoDB Backup
   license: Apache 2.0
   formats:
     - deb
