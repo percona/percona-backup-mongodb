@@ -71,7 +71,10 @@ const (
 
 var (
 	log             = logrus.New()
-	grpcCompressors = []string{snappy.Name, gzip.Name}
+	grpcCompressors = []string{
+		snappy.Name,
+		gzip.Name,
+	}
 )
 
 func main() {
