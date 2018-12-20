@@ -65,6 +65,7 @@ var (
 	grpcCompressors   = []string{
 		snappy.Name,
 		gzip.Name,
+		"none",
 	}
 )
 
@@ -78,7 +79,7 @@ func main() {
 	}
 
 	var grpcOpts []grpc.DialOption
-	if opts.ServerCompressor != "" {
+	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
 		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
 			grpc.UseCompressor(opts.ServerCompressor),
 		))
