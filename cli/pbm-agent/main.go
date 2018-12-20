@@ -204,7 +204,7 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
 	//
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).StringVar(&opts.ServerAddress)
-	app.Flag("server-compressor", "Backup coordintor gRPC compression algorithm").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-compressor", "Backup coordintor gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Use TLS for server connection").BoolVar(&opts.TLS)
 	app.Flag("tls-cert-file", "TLS certificate file").ExistingFileVar(&opts.TLSCertFile)
 	app.Flag("tls-key-file", "TLS key file").ExistingFileVar(&opts.TLSKeyFile)
