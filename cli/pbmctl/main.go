@@ -336,8 +336,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
 	}
 
-	app.Flag("server-address", "Backup server address (host:port)").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
-	app.Flag("server-compressor", "Backup server gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("server-compressor", "Backup coordinator gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
 	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 
