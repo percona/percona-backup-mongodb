@@ -181,7 +181,7 @@ func processCliArgs() (*cliOptions, error) {
 	//
 	app.Flag("dsn", "MongoDB connection string").StringVar(&opts.DSN)
 	app.Flag("server-address", "Backup server address").Default("127.0.0.1:10000").StringVar(&opts.ServerAddress)
-	app.Flag("backup-dir", "Directory where to store the backups").Default("/tmp").StringVar(&opts.BackupDir)
+	app.Flag("backup-dir", "Directory (or S3 bucket) where to store the backups").Default("/tmp").StringVar(&opts.BackupDir)
 	app.Flag("tls", "Use TLS").BoolVar(&opts.TLS)
 	app.Flag("pid-file", "pid file").StringVar(&opts.PIDFile)
 	app.Flag("ca-file", "CA file").StringVar(&opts.CAFile)

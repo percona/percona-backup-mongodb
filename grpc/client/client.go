@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -23,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/cluster"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
+	"github.com/percona/percona-backup-mongodb/internal/s3writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pierrec/lz4"
@@ -707,27 +710,38 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	defer c.lock.Unlock()
 
 	if c.status.RunningDbBackup {
-		c.sendError(fmt.Errorf("Backup already running"))
+		c.sendDBBackupFinishError(fmt.Errorf("Backup already running"))
 		return
 	}
 	// Validate backup type by asking MongoDB capabilities?
 	if msg.BackupType == pb.BackupType_BACKUP_TYPE_INVALID {
-		c.sendError(fmt.Errorf("Backup type should be hot or logical"))
+		c.sendDBBackupFinishError(fmt.Errorf("Backup type should be hot or logical"))
 		return
 	}
 	if msg.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
-		c.sendError(fmt.Errorf("Hot Backup is not implemented yet"))
+		c.sendDBBackupFinishError(fmt.Errorf("Hot Backup is not implemented yet"))
 		return
 	}
 
 	fi, err := os.Stat(c.backupDir)
 	if err != nil {
-		c.sendError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+		c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
 		return
 	}
 	if !fi.IsDir() {
-		c.sendError(fmt.Errorf("%s is not a directory", c.backupDir))
+		c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", c.backupDir))
 		return
+	}
+
+	var sess *session.Session
+	if msg.DestinationType == pb.DestinationType_DESTINATION_TYPE_AWS {
+		sess, err = session.NewSession(&aws.Config{})
+		if err != nil {
+			msg := "Cannot create an AWS session for S3 backup"
+			c.sendDBBackupFinishError(fmt.Errorf(msg))
+			c.logger.Error(msg)
+			return
+		}
 	}
 	// Send the ACK message and work on the background. When the process finishes, it will send the
 	// gRPC messages to signal that the backup has been completed
@@ -768,7 +782,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 	log.Debugf("Starting DB backup")
-	go c.runDBBackup(msg)
+	go c.runDBBackup(msg, sess)
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -898,7 +912,7 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 }
 
-func (c *Client) runDBBackup(msg *pb.StartBackup) {
+func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 	var err error
 	c.logger.Info("Starting DB backup")
 	writers := []io.WriteCloser{}
@@ -910,6 +924,25 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 			log.Errorf("Cannot create backup file: %s", err)
 		}
 		writers = append(writers, fw)
+	case pb.DestinationType_DESTINATION_TYPE_AWS:
+		svc := s3.New(sess)
+		exists, err := awsutils.BucketExists(svc, msg.GetDestinationDir())
+		if err != nil {
+			c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", msg.GetDestinationDir(), err))
+			return
+		}
+		if !exists {
+			if err := awsutils.CreateBucket(svc, msg.GetDestinationDir()); err != nil {
+				c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 bucket %q: %s", msg.GetDestinationDir(), err))
+				return
+			}
+		}
+		s3w, err := s3writer.Open(sess, msg.GetDestinationDir(), msg.GetDbBackupName())
+		if err != nil {
+			c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 write for file %q: %s", msg.GetDbBackupName(), err))
+			return
+		}
+		writers = append(writers, s3w)
 	}
 
 	switch msg.GetCypher() {
@@ -966,14 +999,14 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	}
 	if wErr != nil {
 		c.logger.Errorf("Cannot flush/close the MongoDump writer: %s", err)
-		c.sendError(err)
+		c.sendDBBackupFinishError(err)
 		return
 	}
 
 	c.setDBBackupRunning(false)
 
 	if dumpErr != nil {
-		c.sendError(fmt.Errorf("backup was cancelled"))
+		c.sendDBBackupFinishError(fmt.Errorf("backup was cancelled"))
 		c.logger.Info("DB dump cancelled")
 		return
 	}
@@ -1119,7 +1152,7 @@ func (c *Client) sendBackupFinishOK() {
 	}
 }
 
-func (c *Client) sendError(err error) {
+func (c *Client) sendDBBackupFinishError(err error) {
 	finishMsg := &pb.DBBackupFinishStatus{
 		ClientId: c.id,
 		Ok:       false,
