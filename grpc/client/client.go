@@ -725,6 +725,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 
 	var sess *session.Session
 	var err error
+
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_DESTINATION_TYPE_FILE:
 		fi, err := os.Stat(c.backupDir)
@@ -766,7 +767,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}
 
 	log.Debug("Starting oplog backup")
-	go c.runOplogBackup(msg)
+	go c.runOplogBackup(msg, sess)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
 	log.Debug("Waiting oplog first doc")
@@ -928,20 +929,20 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 		writers = append(writers, fw)
 	case pb.DestinationType_DESTINATION_TYPE_AWS:
 		svc := s3.New(sess)
-		exists, err := awsutils.BucketExists(svc, msg.GetDestinationDir())
+		exists, err := awsutils.BucketExists(svc, c.backupDir)
 		if err != nil {
-			c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", msg.GetDestinationDir(), err))
+			c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
 			return
 		}
 		if !exists {
 			if err := awsutils.CreateBucket(svc, msg.GetDestinationDir()); err != nil {
-				c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 bucket %q: %s", msg.GetDestinationDir(), err))
+				c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 bucket %q for dbBackup: %s", c.backupDir, err))
 				return
 			}
 		}
-		s3w, err := s3writer.Open(sess, msg.GetDestinationDir(), msg.GetDbBackupName())
+		s3w, err := s3writer.Open(sess, c.backupDir, msg.GetDbBackupName())
 		if err != nil {
-			c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 write for file %q: %s", msg.GetDbBackupName(), err))
+			c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 write for file %q for dbBackup: %s", msg.GetDbBackupName(), err))
 			return
 		}
 		writers = append(writers, s3w)
@@ -1005,7 +1006,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 		return
 	}
 
-	c.setDBBackupRunning(false)
+	c.setOplogBackupRunning(false)
 
 	if dumpErr != nil {
 		c.sendDBBackupFinishError(fmt.Errorf("backup was cancelled"))
@@ -1017,10 +1018,12 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 	c.sendBackupFinishOK()
 }
 
-func (c *Client) runOplogBackup(msg *pb.StartBackup) {
+func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session) {
 	c.logger.Info("Starting oplog backup")
 	writers := []io.WriteCloser{}
 
+	log.Debugf("destination type: %v\n", msg.GetDestinationType())
+	log.Printf("destination type: %v\n", msg.GetDestinationType())
 	switch msg.GetDestinationType() {
 	case pb.DestinationType_DESTINATION_TYPE_FILE:
 		fw, err := os.Create(path.Join(c.backupDir, msg.GetOplogBackupName()))
@@ -1035,6 +1038,26 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 			c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
 		}
 		writers = append(writers, fw)
+	case pb.DestinationType_DESTINATION_TYPE_AWS:
+		svc := s3.New(sess)
+		exists, err := awsutils.BucketExists(svc, c.backupDir)
+		if err != nil {
+			c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
+			return
+		}
+		if !exists {
+			if err := awsutils.CreateBucket(svc, c.backupDir); err != nil {
+				c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 bucket %q for oplogBackup: %s", c.backupDir, err))
+				return
+			}
+		}
+		log.Infof("oplog %v %v \n", c.backupDir, msg.GetOplogBackupName())
+		s3w, err := s3writer.Open(sess, c.backupDir, msg.GetOplogBackupName())
+		if err != nil {
+			c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 write for file %q for oplogBackup: %s", msg.GetOplogBackupName(), err))
+			return
+		}
+		writers = append(writers, s3w)
 	}
 
 	switch msg.GetCypher() {
