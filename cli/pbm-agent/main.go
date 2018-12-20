@@ -196,12 +196,12 @@ func processCliArgs() (*cliOptions, error) {
 	}
 	app.Flag("config-file", "Backup Agent config file").Default("config.yml").ExistingFileVar(&opts.configFile)
 	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
-	app.Flag("log-file", "Backup Agent log file").StringVar(&opts.LogFile)
-	app.Flag("pid-file", "Backup Agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("backup-dir", "Directory to store backups").Default("/tmp").StringVar(&opts.BackupDir)
+	app.Flag("pid-file", "Backup Agent pid file").StringVar(&opts.PIDFile)
+	app.Flag("log-file", "Backup Agent log file").StringVar(&opts.LogFile)
+	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
 	app.Flag("quiet", "Quiet mode. Log only errors").BoolVar(&opts.Quiet)
-	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	//
 	app.Flag("server-address", "Backup server address (host:port)").Default(defaultServerAddress).StringVar(&opts.ServerAddress)
 	app.Flag("server-compressor", "Backup server gRPC compression algorithm").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)

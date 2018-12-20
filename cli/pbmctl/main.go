@@ -324,8 +324,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
-		backupType:           backupCmd.Flag("backup-type", "Backup type").Default("logical").Enum("logical", "hot"),
-		destinationType:      backupCmd.Flag("destination-type", "Backup destination type").Default("file").Enum("file", "aws"),
+		backupType:           backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default("logical").Enum("logical", "hot"),
+		destinationType:      backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default("file").Enum("file", "aws"),
 		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 		description:          backupCmd.Flag("description", "Backup description").Required().String(),
@@ -337,7 +337,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	app.Flag("server-address", "Backup server address (host:port)").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
-	app.Flag("server-compressor", "Backup server gRPC compression algorithm").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-compressor", "Backup server gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
 	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 
