@@ -4,7 +4,7 @@ builds:
     goarch:
       - amd64
     ldflags:
-      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
+      - "-w -s -X main.version={{ .Version }} -X main.commit={{ .Commit }}"
     env:
       - CGO_ENABLED=0
     hooks:
@@ -14,7 +14,7 @@ builds:
     goarch:
       - amd64
     ldflags:
-      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
+      - "-w -s -X main.version={{ .Version }} -X main.commit={{ .Commit }}"
     env:
       - CGO_ENABLED=0
     hooks:
@@ -24,7 +24,7 @@ builds:
     goarch:
       - amd64
     ldflags:
-      - -w -s -X main.version={{.Version}} -X main.commit={{.Commit}}
+      - "-w -s -X main.version={{ .Version }} -X main.commit={{ .Commit }}"
     env:
       - CGO_ENABLED=0
     hooks:
@@ -34,15 +34,19 @@ dockers:
     dockerfile: docker/agent/Dockerfile
     image_templates:
       - "percona/percona-backup-mongodb:agent"
-      - "percona/percona-backup-mongodb:{{.Tag}}-agent"
-      - "percona/percona-backup-mongodb:v{{.Major}}.{{.Minor}}-agent"
+      - "percona/percona-backup-mongodb:{{ .Tag }}-agent"
     skip_push: true
   - binary: pbm-coordinator
     dockerfile: docker/coordinator/Dockerfile
     image_templates:
       - "percona/percona-backup-mongodb:coordinator"
-      - "percona/percona-backup-mongodb:{{.Tag}}-coordinator"
-      - "percona/percona-backup-mongodb:v{{.Major}}.{{.Minor}}-coordinator"
+      - "percona/percona-backup-mongodb:{{ .Tag }}-coordinator"
+    skip_push: true
+  - binary: pbmctl
+    dockerfile: docker/pbmctl/Dockerfile
+    image_templates:
+      - "percona/percona-backup-mongodb:pbmctl"
+      - "percona/percona-backup-mongodb:{{ .Tag }}-pbmctl"
     skip_push: true
 archive:
   replacements:
@@ -52,7 +56,7 @@ nfpm:
   vendor: Percona LLC.
   homepage: https://github.com/percona/percona-backup-mongodb
   maintainer: Percona <percona-backup-mongodb@percona.com>
-  description: Percona Backup for MongoDB Backup
+  description: Percona Backup for MongoDB
   license: Apache 2.0
   formats:
     - deb
