@@ -73,6 +73,7 @@ type ConnectionOptions struct {
 	Port                string `yaml:"port"`
 	User                string `yaml:"user"`
 	Password            string `yaml:"password"`
+	AuthDB              string `yaml:"authdb"`
 	ReplicasetName      string `yaml:"replicaset_name"`
 	Timeout             int    `yaml:"timeout"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds"`
@@ -124,7 +125,8 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		Addrs:          []string{mdbConnOpts.Host + ":" + mdbConnOpts.Port},
 		Username:       mdbConnOpts.User,
 		Password:       mdbConnOpts.Password,
-		AppName:        "percona-backup-mongodb",
+		Source:         mdbConnOpts.AuthDB,
+		AppName:        "percona/percona-backup-mongodb",
 		ReplicaSetName: mdbConnOpts.ReplicasetName,
 		// ReadPreference *ReadPreference
 		// Safe Safe

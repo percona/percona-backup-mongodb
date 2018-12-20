@@ -194,7 +194,7 @@ func processCliArgs() (*cliOptions, error) {
 	opts := &cliOptions{
 		app: app,
 	}
-	app.Flag("config-file", "Backup agent config file").Default("config.yml").ExistingFileVar(&opts.configFile)
+	app.Flag("config-file", "Backup agent config file").Default("config.yml").StringVar(&opts.configFile)
 	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
 	app.Flag("backup-dir", "Directory to store backups").Default("/tmp").StringVar(&opts.BackupDir)
 	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
@@ -215,6 +215,7 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("mongodb-port", "MongoDB port").Default(defaultMongoDBPort).StringVar(&opts.MongodbConnOptions.Port)
 	app.Flag("mongodb-username", "MongoDB username").StringVar(&opts.MongodbConnOptions.User)
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
+	app.Flag("mongodb-authdb", "MongoDB authentication database").Default("admin").StringVar(&opts.MongodbConnOptions.AuthDB)
 	app.Flag("mongodb-replicaset", "MongoDB Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
 	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("30").IntVar(&opts.MongoDBReconnectDelay)
 	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongoDBReconnectCount)
