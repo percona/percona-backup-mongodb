@@ -210,6 +210,12 @@
   version = "v0.5.0"
 
 [[projects]]
+  name = "github.com/un000/grpc-snappy"
+  packages = ["."]
+  revision = "8529e1b325a4f5a7b0cb0ad5549ba6abab4d360a"
+  version = "v1.0.1"
+
+[[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
@@ -334,6 +340,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b0096d5250f3924d6b8c295b59e83ca3981ae09889e3099d98826e8a0f9e350c"
+  inputs-digest = "3534c07af46aca67b87f499a4b7e81a427517f1bde992e9de5f0c3d7b4f29b85"
   solver-name = "gps-cdcl"
   solver-version = 1

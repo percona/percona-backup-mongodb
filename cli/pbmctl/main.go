@@ -18,6 +18,7 @@ import (
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
@@ -71,6 +72,10 @@ func main() {
 	}
 
 	var grpcOpts []grpc.DialOption
+	grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+		grpc.UseCompressor(snappy.Name),
+	))
+
 	if opts.TLS {
 		if opts.CAFile == "" {
 			opts.CAFile = testdata.Path("ca.pem")

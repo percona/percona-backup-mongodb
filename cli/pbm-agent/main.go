@@ -21,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/loghook"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	yaml "gopkg.in/yaml.v2"
@@ -100,6 +101,10 @@ func main() {
 	log.SetLevel(logrus.DebugLevel)
 
 	grpcOpts := getgRPCOptions(opts)
+	grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+		grpc.UseCompressor(snappy.Name),
+	))
+
 	rand.Seed(time.Now().UnixNano())
 
 	// Connect to the percona-backup-mongodb gRPC server
