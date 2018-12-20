@@ -935,7 +935,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 			return
 		}
 		if !exists {
-			if err := awsutils.CreateBucket(svc, msg.GetDestinationDir()); err != nil {
+			if err := awsutils.CreateBucket(svc, c.backupDir); err != nil {
 				c.sendDBBackupFinishError(fmt.Errorf("cannot create s3 bucket %q for dbBackup: %s", c.backupDir, err))
 				return
 			}
