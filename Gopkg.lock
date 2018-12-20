@@ -284,6 +284,7 @@
     "connectivity",
     "credentials",
     "encoding",
+    "encoding/gzip",
     "encoding/proto",
     "grpclog",
     "internal",
@@ -340,6 +341,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3534c07af46aca67b87f499a4b7e81a427517f1bde992e9de5f0c3d7b4f29b85"
+  inputs-digest = "1a4d6489f2c0ab3e648958d8a8a98f37b6771d9333b17866d44c8560173365e4"
   solver-name = "gps-cdcl"
   solver-version = 1

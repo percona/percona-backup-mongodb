@@ -21,6 +21,7 @@ import (
 	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/testdata"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -34,10 +35,11 @@ var (
 type cliOptions struct {
 	app *kingpin.Application
 
-	TLS        bool   `yaml:"tls"`
-	CAFile     string `yaml:"ca_file"`
-	ServerAddr string `yaml:"server_addr"`
-	configFile *string
+	TLS              bool   `yaml:"tls"`
+	TLSCAFile        string `yaml:"tls_ca_file"`
+	ServerAddr       string `yaml:"server_addr"`
+	ServerCompressor string `yaml:"server_compressor"`
+	configFile       *string
 
 	backup               *kingpin.CmdClause
 	backupType           *string
@@ -60,6 +62,10 @@ var (
 	conn              *grpc.ClientConn
 	defaultServerAddr = "127.0.0.1:10001"
 	defaultConfigFile = "~/.pbmctl.yml"
+	grpcCompressors   = []string{
+		snappy.Name,
+		gzip.Name,
+	}
 )
 
 func main() {
@@ -72,15 +78,17 @@ func main() {
 	}
 
 	var grpcOpts []grpc.DialOption
-	grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
-		grpc.UseCompressor(snappy.Name),
-	))
+	if opts.ServerCompressor != "" {
+		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+			grpc.UseCompressor(opts.ServerCompressor),
+		))
+	}
 
 	if opts.TLS {
-		if opts.CAFile == "" {
-			opts.CAFile = testdata.Path("ca.pem")
+		if opts.TLSCAFile == "" {
+			opts.TLSCAFile = testdata.Path("ca.pem")
 		}
-		creds, err := credentials.NewClientTLSFromFile(opts.CAFile, "")
+		creds, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
 			log.Fatalf("Failed to create TLS credentials %v", err)
 		}
@@ -328,8 +336,9 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
-	app.Flag("ca-file", "The file containning the CA root cert file").StringVar(&opts.CAFile)
+	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 	app.Flag("server-address", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("server-compressor", "server gRPC compression algorithm").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,
@@ -362,10 +371,14 @@ func loadOptionsFromFile(filename string, opts *cliOptions) error {
 }
 
 func mergeOptions(opts, yamlOpts *cliOptions) {
-	if opts.CAFile == "" {
-		opts.CAFile = yamlOpts.CAFile
+	if opts.TLSCAFile == "" {
+		opts.TLSCAFile = yamlOpts.TLSCAFile
 	}
 	if opts.ServerAddr == "" {
 		opts.ServerAddr = yamlOpts.ServerAddr
+	}
+	if opts.ServerCompressor == "" {
+		opts.ServerCompressor = yamlOpts.ServerCompressor
+
 	}
 }

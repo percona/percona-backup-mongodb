@@ -26,6 +26,7 @@ import (
 	yaml "gopkg.in/yaml.v2"
 
 	_ "github.com/un000/grpc-snappy"
+	_ "google.golang.org/grpc/encoding/gzip"
 )
 
 // vars are set by goreleaser
