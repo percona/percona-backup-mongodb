@@ -39,21 +39,19 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	BackupDir             string `yaml:"backup_dir"`
-	DSN                   string `yaml:"dsn,omitempty"`
-	Debug                 bool   `yaml:"debug,omitempty"`
-	LogFile               string `yaml:"log_file,omitempty"`
-	PIDFile               string `yaml:"pid_file,omitempty"`
-	Quiet                 bool   `yaml:"quiet,omitempty"`
-	ServerAddress         string `yaml:"server_address"`
-	ServerCompressor      string `yaml:"server_compressor"`
-	TLS                   bool   `yaml:"tls,omitempty"`
-	TLSCAFile             string `yaml:"tls_ca_file,omitempty"`
-	TLSCertFile           string `yaml:"tls_cert_file,omitempty"`
-	TLSKeyFile            string `yaml:"tls_key_file,omitempty"`
-	UseSysLog             bool   `yaml:"use_syslog,omitempty"`
-	MongoDBReconnectDelay int    `yaml:"mongodb_reconnect_delay,omitempty"`
-	MongoDBReconnectCount int    `yaml:"mongodb_reconnect_count,omitempty"` // 0: forever
+	BackupDir        string `yaml:"backup_dir"`
+	DSN              string `yaml:"dsn,omitempty"`
+	Debug            bool   `yaml:"debug,omitempty"`
+	LogFile          string `yaml:"log_file,omitempty"`
+	PIDFile          string `yaml:"pid_file,omitempty"`
+	Quiet            bool   `yaml:"quiet,omitempty"`
+	ServerAddress    string `yaml:"server_address"`
+	ServerCompressor string `yaml:"server_compressor"`
+	TLS              bool   `yaml:"tls,omitempty"`
+	TLSCAFile        string `yaml:"tls_ca_file,omitempty"`
+	TLSCertFile      string `yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile       string `yaml:"tls_key_file,omitempty"`
+	UseSysLog        bool   `yaml:"use_syslog,omitempty"`
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options,omitempty"`
@@ -156,11 +154,11 @@ func main() {
 		mdbSession, err = mgo.DialWithInfo(di)
 		if err != nil {
 			log.Errorf("Cannot connect to MongoDB at %s: %s", di.Addrs[0], err)
-			if opts.MongoDBReconnectCount == 0 || connectionAttempts < opts.MongoDBReconnectCount {
-				time.Sleep(time.Duration(opts.MongoDBReconnectDelay) * time.Second)
+			if opts.MongodbConnOptions.ReconnectCount == 0 || connectionAttempts < opts.MongodbConnOptions.ReconnectCount {
+				time.Sleep(time.Duration(opts.MongodbConnOptions.ReconnectDelay) * time.Second)
 				continue
 			}
-			log.Fatalf("Could not connect to MongoDB. Retried every %d seconds, %d times", opts.MongoDBReconnectDelay, connectionAttempts)
+			log.Fatalf("Could not connect to MongoDB. Retried every %d seconds, %d times", opts.MongodbConnOptions.ReconnectDelay, connectionAttempts)
 		}
 		break
 	}
@@ -217,8 +215,8 @@ func processCliArgs() (*cliOptions, error) {
 	app.Flag("mongodb-password", "MongoDB password").StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("mongodb-authdb", "MongoDB authentication database").Default("admin").StringVar(&opts.MongodbConnOptions.AuthDB)
 	app.Flag("mongodb-replicaset", "MongoDB Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
-	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("30").IntVar(&opts.MongoDBReconnectDelay)
-	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongoDBReconnectCount)
+	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("30").IntVar(&opts.MongodbConnOptions.ReconnectDelay)
+	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongodbConnOptions.ReconnectCount)
 
 	_, err := app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
@@ -313,11 +311,11 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	if opts.DSN != "" {
 		yamlOpts.DSN = opts.DSN
 	}
-	if opts.MongoDBReconnectDelay != 0 {
-		yamlOpts.MongoDBReconnectDelay = opts.MongoDBReconnectDelay
+	if opts.MongodbConnOptions.ReconnectDelay != 0 {
+		yamlOpts.MongodbConnOptions.ReconnectDelay = opts.MongodbConnOptions.ReconnectDelay
 	}
-	if opts.MongoDBReconnectCount != 0 {
-		yamlOpts.MongoDBReconnectCount = opts.MongoDBReconnectCount
+	if opts.MongodbConnOptions.ReconnectCount != 0 {
+		yamlOpts.MongodbConnOptions.ReconnectCount = opts.MongodbConnOptions.ReconnectCount
 	}
 	if opts.MongodbConnOptions.Host != "" {
 		yamlOpts.MongodbConnOptions.Host = opts.MongodbConnOptions.Host

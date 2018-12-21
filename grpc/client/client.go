@@ -77,6 +77,8 @@ type ConnectionOptions struct {
 	ReplicasetName      string `yaml:"replicaset_name,omitempty"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
+	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty"`
+	ReconnectCount      int    `yaml:"reconnect_count,omitempty"` // 0: forever
 }
 
 // Struct holding ssl-related options
