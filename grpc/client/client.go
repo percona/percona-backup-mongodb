@@ -69,8 +69,8 @@ type Client struct {
 }
 
 type ConnectionOptions struct {
-	Host                string `yaml:"host"`
-	Port                string `yaml:"port"`
+	Host                string `yaml:"host,omitempty"`
+	Port                string `yaml:"port,omitempty"`
 	User                string `yaml:"user,omitempty"`
 	Password            string `yaml:"password,omitempty"`
 	AuthDB              string `yaml:"authdb,omitempty"`
@@ -81,14 +81,14 @@ type ConnectionOptions struct {
 
 // Struct holding ssl-related options
 type SSLOptions struct {
-	UseSSL              bool   `yaml:"use_ssl"`
+	UseSSL              bool   `yaml:"use_ssl,omitempty"`
 	SSLCAFile           string `yaml:"sslca_file,omitempty"`
 	SSLPEMKeyFile       string `yaml:"sslpem_key_file,omitempty"`
 	SSLPEMKeyPassword   string `yaml:"sslpem_key_password,omitempty"`
 	SSLCRLFile          string `yaml:"sslcrl_file,omitempty"`
-	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert"`
-	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host"`
-	SSLFipsMode         bool   `yaml:"ssl_fips_mode"`
+	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert,omitempty"`
+	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host,omitempty"`
+	SSLFipsMode         bool   `yaml:"ssl_fips_mode,omitempty"`
 }
 
 type shardsMap struct {

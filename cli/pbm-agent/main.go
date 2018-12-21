@@ -41,25 +41,25 @@ type cliOptions struct {
 
 	BackupDir             string `yaml:"backup_dir"`
 	DSN                   string `yaml:"dsn,omitempty"`
-	Debug                 bool   `yaml:"debug"`
+	Debug                 bool   `yaml:"debug,omitempty"`
 	LogFile               string `yaml:"log_file,omitempty"`
 	PIDFile               string `yaml:"pid_file,omitempty"`
-	Quiet                 bool   `yaml:"quiet"`
+	Quiet                 bool   `yaml:"quiet,omitempty"`
 	ServerAddress         string `yaml:"server_address"`
 	ServerCompressor      string `yaml:"server_compressor"`
 	TLS                   bool   `yaml:"tls,omitempty"`
 	TLSCAFile             string `yaml:"tls_ca_file,omitempty"`
 	TLSCertFile           string `yaml:"tls_cert_file,omitempty"`
 	TLSKeyFile            string `yaml:"tls_key_file,omitempty"`
-	UseSysLog             bool   `yaml:"use_syslog"`
-	MongoDBReconnectDelay int    `yaml:"mongodb_reconnect_delay"`
-	MongoDBReconnectCount int    `yaml:"mongodb_reconnect_count"` // 0: forever
+	UseSysLog             bool   `yaml:"use_syslog,omitempty"`
+	MongoDBReconnectDelay int    `yaml:"mongodb_reconnect_delay,omitempty"`
+	MongoDBReconnectCount int    `yaml:"mongodb_reconnect_count,omitempty"` // 0: forever
 
 	// MongoDB connection options
-	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options"`
+	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options,omitempty"`
 
 	// MongoDB connection SSL options
-	MongodbSslOptions client.SSLOptions `yaml:"mongodb_ssl_options"`
+	MongodbSslOptions client.SSLOptions `yaml:"mongodb_ssl_options,omitempty"`
 }
 
 const (
