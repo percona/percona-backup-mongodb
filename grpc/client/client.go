@@ -71,21 +71,21 @@ type Client struct {
 type ConnectionOptions struct {
 	Host                string `yaml:"host"`
 	Port                string `yaml:"port"`
-	User                string `yaml:"user"`
-	Password            string `yaml:"password"`
-	AuthDB              string `yaml:"authdb"`
-	ReplicasetName      string `yaml:"replicaset_name"`
-	Timeout             int    `yaml:"timeout"`
-	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds"`
+	User                string `yaml:"user,omitempty"`
+	Password            string `yaml:"password,omitempty"`
+	AuthDB              string `yaml:"authdb,omitempty"`
+	ReplicasetName      string `yaml:"replicaset_name,omitempty"`
+	Timeout             int    `yaml:"timeout,omitempty"`
+	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
 }
 
 // Struct holding ssl-related options
 type SSLOptions struct {
 	UseSSL              bool   `yaml:"use_ssl"`
-	SSLCAFile           string `yaml:"sslca_file"`
-	SSLPEMKeyFile       string `yaml:"sslpem_key_file"`
-	SSLPEMKeyPassword   string `yaml:"sslpem_key_password"`
-	SSLCRLFile          string `yaml:"sslcrl_file"`
+	SSLCAFile           string `yaml:"sslca_file,omitempty"`
+	SSLPEMKeyFile       string `yaml:"sslpem_key_file,omitempty"`
+	SSLPEMKeyPassword   string `yaml:"sslpem_key_password,omitempty"`
+	SSLCRLFile          string `yaml:"sslcrl_file,omitempty"`
 	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert"`
 	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host"`
 	SSLFipsMode         bool   `yaml:"ssl_fips_mode"`

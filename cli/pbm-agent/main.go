@@ -40,17 +40,17 @@ type cliOptions struct {
 	generateSampleConfig bool
 
 	BackupDir             string `yaml:"backup_dir"`
-	DSN                   string `yaml:"dsn"`
+	DSN                   string `yaml:"dsn,omitempty"`
 	Debug                 bool   `yaml:"debug"`
-	LogFile               string `yaml:"log_file"`
-	PIDFile               string `yaml:"pid_file"`
+	LogFile               string `yaml:"log_file,omitempty"`
+	PIDFile               string `yaml:"pid_file,omitempty"`
 	Quiet                 bool   `yaml:"quiet"`
 	ServerAddress         string `yaml:"server_address"`
 	ServerCompressor      string `yaml:"server_compressor"`
-	TLS                   bool   `yaml:"tls"`
-	TLSCAFile             string `yaml:"tls_ca_file"`
-	TLSCertFile           string `yaml:"tls_cert_file"`
-	TLSKeyFile            string `yaml:"tls_key_file"`
+	TLS                   bool   `yaml:"tls,omitempty"`
+	TLSCAFile             string `yaml:"tls_ca_file,omitempty"`
+	TLSCertFile           string `yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile            string `yaml:"tls_key_file,omitempty"`
 	UseSysLog             bool   `yaml:"use_syslog"`
 	MongoDBReconnectDelay int    `yaml:"mongodb_reconnect_delay"`
 	MongoDBReconnectCount int    `yaml:"mongodb_reconnect_count"` // 0: forever
