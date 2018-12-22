@@ -143,4 +143,4 @@ docker-build: pbmctl pbm-agent pbm-coordinator
 	docker build -t $(REPO):pbmctl -f docker/pbmctl/Dockerfile .
 
 clean:
-	rm -rf pbm-agent pbmctl pbm-coordinator test-out vendor 2>/dev/null || true
+	rm -rf pbm-agent pbmctl pbm-coordinator test-out vendor *.upx *.000 2>/dev/null || true
