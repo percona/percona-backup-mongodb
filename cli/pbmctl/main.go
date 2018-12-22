@@ -339,7 +339,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).Short('s').StringVar(&opts.ServerAddr)
 	app.Flag("server-compressor", "Backup coordinator gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
-	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
+	app.Flag("tls-ca-file", "The file containing the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,
