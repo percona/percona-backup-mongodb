@@ -194,7 +194,7 @@ func processCliArgs() (*cliOptions, error) {
 	}
 	app.Flag("config-file", "Backup agent config file").Default("config.yml").StringVar(&opts.configFile)
 	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
-	app.Flag("backup-dir", "Directory to store backups").Default("/tmp").StringVar(&opts.BackupDir)
+	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Default("/tmp").StringVar(&opts.BackupDir)
 	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("log-file", "Backup agent log file").StringVar(&opts.LogFile)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
