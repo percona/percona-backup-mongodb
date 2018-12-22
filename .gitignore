@@ -1,9 +1,13 @@
+*.000
 *.upx
 .env
 .vscode
 test-out
+/cli/pbm-agent/pbm-agent
+/cli/pbm-coordinator/pbm-coordinator
+/cli/pbmctl/pbmctl
 /dist
+/pbm-agent
+/pbm-coordinator
+/pbmctl
 /vendor
-cli/pbm-agent/pbm-agent
-cli/pbm-coordinator/pbm-coordinator
-cli/pbmctl/pbmctl
