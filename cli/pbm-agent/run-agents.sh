@@ -40,9 +40,9 @@ run_agents() {
     do
         pidfile=/tmp/agent.${port}.pid
         logfile=/tmp/agent.${port}.log
-        backupdir=/tmp/backup.${port}
-        rm -rf ${backupdir}
-        mkdir -p ${backupdir}
+        backupdir=percona-backup-mongodb-test-s3-streamer
+        #rm -rf ${backupdir}
+        #mkdir -p ${backupdir}
 
         echo "./pbm-agent --mongodb-user=${TEST_MONGODB_USERNAME} \\"
         echo "    --mongodb-password=${TEST_MONGODB_PASSWORD} \\"

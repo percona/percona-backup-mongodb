@@ -132,7 +132,8 @@ func (ot *OplogTail) LastOplogTimestamp() bson.MongoTimestamp {
 	if ot != nil {
 		return ot.lastOplogTimestamp
 	}
-	return bson.MongoTimestamp(0)
+	var ts bson.MongoTimestamp
+	return ts
 }
 
 // Implement the Reader interface to be able to pipe it into an S3 stream or through an
