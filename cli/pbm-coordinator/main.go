@@ -40,19 +40,19 @@ type cliOptions struct {
 	cmd        string
 	configFile string
 	//
-	TLS                  bool   `yaml:"tls"`
 	WorkDir              string `yaml:"work_dir"`
-	CertFile             string `yaml:"cert_file"`
-	KeyFile              string `yaml:"key_file"`
-	GrpcBindIP           string `yaml:"grpc_bindip"`
-	GrpcPort             int    `yaml:"grpc_port"`
+	LogFile              string `yaml:"log_file"`
+	Debug                bool   `yaml:"debug"`
+	UseSysLog            bool   `yaml:"sys_log_url"`
 	APIBindIP            string `yaml:"api_bindip"`
 	APIPort              int    `yaml:"api_port"`
-	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
-	LogFile              string `yaml:"log_file"`
-	UseSysLog            bool   `yaml:"sys_log_url"`
-	Debug                bool   `yaml:"debug"`
+	GrpcBindIP           string `yaml:"grpc_bindip"`
+	GrpcPort             int    `yaml:"grpc_port"`
+	TLS                  bool   `yaml:"tls"`
+	TLSCertFile          string `yaml:"tls_cert_file"`
+	TLSKeyFile           string `yaml:"tls_key_file"`
 	EnableClientsLogging bool   `yaml:"enable_clients_logging"`
+	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
 }
 
 const (
@@ -93,13 +93,13 @@ func main() {
 	var grpcOpts []grpc.ServerOption
 
 	if opts.TLS {
-		if opts.CertFile == "" {
-			opts.CertFile = testdata.Path("server1.pem")
+		if opts.TLSCertFile == "" {
+			opts.TLSCertFile = testdata.Path("server1.pem")
 		}
-		if opts.KeyFile == "" {
-			opts.KeyFile = testdata.Path("server1.key")
+		if opts.TLSKeyFile == "" {
+			opts.TLSKeyFile = testdata.Path("server1.key")
 		}
-		creds, err := credentials.NewServerTLSFromFile(opts.CertFile, opts.KeyFile)
+		creds, err := credentials.NewServerTLSFromFile(opts.TLSCertFile, opts.TLSKeyFile)
 		if err != nil {
 			log.Fatalf("Failed to generate credentials %v", err)
 		}
@@ -178,20 +178,22 @@ func processCliParams() (*cliOptions, error) {
 		app: app,
 	}
 
-	app.Flag("config-file", "Config file").Default("config.yml").StringVar(&opts.configFile)
-	app.Flag("tls", "Enable TLS").BoolVar(&opts.TLS)
-	app.Flag("work-dir", "Working directory for backup metadata").StringVar(&opts.WorkDir)
-	app.Flag("cert-file", "Cert file for gRPC client connections").StringVar(&opts.CertFile)
-	app.Flag("key-file", "Key file for gRPC client connections").StringVar(&opts.KeyFile)
+	app.Flag("config-file", "Config file").Default("config.yml").Short('c').StringVar(&opts.configFile)
+	app.Flag("work-dir", "Working directory for backup metadata").Short('d').StringVar(&opts.WorkDir)
+	app.Flag("log-file", "Write logs to file").Short('l').StringVar(&opts.LogFile)
+	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
+	app.Flag("use-syslog", "Also send the logs to the local syslog server").BoolVar(&opts.UseSysLog)
+	//
 	app.Flag("grpc-bindip", "Bind IP for gRPC client connections").StringVar(&opts.GrpcBindIP)
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
-	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
-	app.Flag("log-file", "Write logs to file").StringVar(&opts.LogFile)
-	app.Flag("use-syslog", "Also send the logs to the local syslog server").BoolVar(&opts.UseSysLog)
-	app.Flag("debug", "Enable debug log level").BoolVar(&opts.Debug)
 	app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
+	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
+	//
+	app.Flag("tls", "Enable TLS").BoolVar(&opts.TLS)
+	app.Flag("tls-cert-file", "Cert file for gRPC client connections").StringVar(&opts.TLSCertFile)
+	app.Flag("tls-key-file", "Key file for gRPC client connections").StringVar(&opts.TLSKeyFile)
 
 	opts.cmd, err = app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
@@ -250,11 +252,11 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	if opts.WorkDir != "" {
 		yamlOpts.WorkDir = opts.WorkDir
 	}
-	if opts.CertFile != "" {
-		yamlOpts.CertFile = opts.CertFile
+	if opts.TLSCertFile != "" {
+		yamlOpts.TLSCertFile = opts.TLSCertFile
 	}
-	if opts.KeyFile != "" {
-		yamlOpts.KeyFile = opts.KeyFile
+	if opts.TLSKeyFile != "" {
+		yamlOpts.TLSKeyFile = opts.TLSKeyFile
 	}
 	if opts.GrpcPort != 0 {
 		yamlOpts.GrpcPort = opts.GrpcPort
@@ -278,8 +280,8 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 
 func expandDirs(opts *cliOptions) {
 	opts.WorkDir = expandHomeDir(opts.WorkDir)
-	opts.CertFile = expandHomeDir(opts.CertFile)
-	opts.KeyFile = expandHomeDir(opts.KeyFile)
+	opts.TLSCertFile = expandHomeDir(opts.TLSCertFile)
+	opts.TLSKeyFile = expandHomeDir(opts.TLSKeyFile)
 }
 
 func expandHomeDir(path string) string {
