@@ -2,6 +2,7 @@ package test_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -13,6 +14,9 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
@@ -30,6 +34,10 @@ import (
 var (
 	port, apiPort             string
 	grpcServerShutdownTimeout = 30
+	keepS3Data                bool
+	keepLocalFiles            bool
+	bucket                    = "percona-backup-mongodb-test-s3-streamer"
+	filename                  = "percona-s3-streamer-test-file"
 )
 
 const (
@@ -48,6 +56,10 @@ type cliOptions struct {
 func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
 	log.SetFormatter(&log.TextFormatter{})
+
+	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
+	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.Parse()
 
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
@@ -308,6 +320,213 @@ func TestGlobalWithDaemon(t *testing.T) {
 	d.Stop()
 }
 
+func TestBackupToS3(t *testing.T) {
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	// Initialize a session in us-west-2 that the SDK will use to load
+	// credentials from the shared credentials file ~/.aws/credentials.
+	diag("Staring AWS session")
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("us-east-2")},
+	)
+	if err != nil {
+		t.Skipf("Cannot start AWS session. Skipping S3 test: %s", err)
+	}
+
+	diag("Creating S3 service client")
+	// Create S3 service client
+	svc := s3.New(sess)
+	diag("Checking if bucket %s exists", bucket)
+	if _, err := testutils.BucketExists(svc, bucket); err != nil {
+		t.Error(err)
+	}
+
+	exists, err := testutils.BucketExists(svc, bucket)
+	if err != nil {
+		t.Fatalf("Cannot check if bucket %q exists: %s", bucket, err)
+	}
+	if !exists {
+		if err := testutils.CreateBucket(svc, bucket); err != nil {
+			t.Fatalf("Unable to create bucket %q, %v", bucket, err)
+		}
+	}
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), bucket, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+
+	// Genrate random data so we have something in the oplog
+	oplogGeneratorStopChan := make(chan bool)
+	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	s1Session.SetMode(mgo.Strong, true)
+	generateDataToBackup(t, s1Session)
+	go generateOplogTraffic(t, s1Session, oplogGeneratorStopChan)
+
+	// Also generate random data on shard 2
+	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	s2Session.SetMode(mgo.Strong, true)
+	generateDataToBackup(t, s2Session)
+	go generateOplogTraffic(t, s2Session, oplogGeneratorStopChan)
+
+	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
+
+	err = d.MessagesServer.StartBackup(&pb.StartBackup{
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		DestinationType: pb.DestinationType_DESTINATION_TYPE_AWS,
+		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      backupNamePrefix,
+		Description:     "general_test_backup",
+	})
+	if err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+	d.MessagesServer.WaitBackupFinish()
+
+	//  /*
+	//  	lastOplogDocRs1 has this structure:
+	//  	bson.M{
+	//  	  "ns":   "test.test_col",
+	//  	  "wall": time.Time{
+	//  	      wall: 0x1f2c58c0,
+	//  	      ext:  63677876029,
+	//  	      loc:  (*time.Location)(nil),
+	//  	  },
+	//  	  "o": bson.M{
+	//  	      "_id":    "[\xedP=\xe3\xdc3\x91z~\x84\x8e",
+	//  	      "number": int64(1122),
+	//  	  },
+	//  	  "ts": bson.MongoTimestamp(6624038849855094837),
+	//  	  "t":  int64(1),
+	//  	  "h":  int64(-8176934266205295323),
+	//  	  "v":  int(2),
+	//  	  "op": "i",
+	//  	}
+
+	//  	The oplog data generator only creates documents in the test_col collection and we are only counting
+	//  	in the 'number' field so, that's the field we want to know was was the last document the oplog tailer
+	//  	backed up
+	//  */
+	//  rs1OplogFile := path.Join(tmpDir, fmt.Sprintf("%s_rs1.oplog", backupNamePrefix))
+	//  rs1LastOplogDoc, err := getLastOplogDoc(rs1OplogFile)
+	//  if err != nil {
+	//  	t.Fatalf("Cannot continue. Cannot open oplog dump for rs1: %s", err)
+	//  }
+	//  rs2OplogFile := path.Join(tmpDir, fmt.Sprintf("%s_rs2.oplog", backupNamePrefix))
+	//  rs2LastOplogDoc, err := getLastOplogDoc(rs2OplogFile)
+	//  if err != nil {
+	//  	t.Fatalf("Cannot continue. Cannot open oplog dump for rs1: %s", err)
+	//  }
+
+	log.Info("Stopping the oplog tailer")
+	err = d.MessagesServer.StopOplogTail()
+	if err != nil {
+		t.Fatalf("Cannot stop the oplog tailer: %s", err)
+	}
+
+	close(oplogGeneratorStopChan)
+	d.MessagesServer.WaitOplogBackupFinish()
+
+	//  // Test list backups
+	//  log.Debug("Testing backup metadata")
+	//  mdFilename := backupNamePrefix + ".json"
+	//  d.MessagesServer.WriteBackupMetadata(mdFilename)
+	//  bms, err := d.MessagesServer.ListBackups()
+	//  if err != nil {
+	//  	t.Errorf("Cannot get backups metadata listing: %s", err)
+	//  } else {
+	//  	if bms == nil {
+	//  		t.Errorf("Backups metadata listing is nil")
+	//  	} else {
+	//  		if len(bms) != 1 {
+	//  			t.Errorf("Backups metadata listing is empty")
+	//  		}
+	//  		if _, ok := bms[mdFilename]; !ok {
+	//  			t.Errorf("Backup metadata for %q doesn't exists", mdFilename)
+	//  		}
+	//  	}
+	//  }
+
+	//  cleanupDBForRestore(t, s1Session)
+	//  cleanupDBForRestore(t, s2Session)
+
+	//  log.Info("Starting restore test")
+	//  md, err := d.ApiServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
+	//  if err != nil {
+	//  	t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
+	//  }
+
+	//  testRestoreWithMetadata(t, d, md)
+
+	//  type maxNumber struct {
+	//  	Number int64 `bson:"number"`
+	//  }
+	//  var afterMaxS1, afterMaxS2 maxNumber
+	//  err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
+	//  if err != nil {
+	//  	log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	//  }
+
+	//  err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS2)
+	//  if err != nil {
+	//  	log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+	//  }
+
+	//  if afterMaxS1.Number < rs1LastOplogDoc["o"].(bson.M)["number"].(int64) {
+	//  	t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d", rs1LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS1.Number)
+	//  }
+
+	//  if afterMaxS2.Number < rs2LastOplogDoc["o"].(bson.M)["number"].(int64) {
+	//  	t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS2.Number)
+	//  }
+
+	//  // we can compare lastOplogDocRsx o.number document because initially we have 100 rows in the table
+	//  // and the oplog generator is starting to count from 101 sequentially, so last inserted document = count
+	//  rs1BeforeCount := rs1LastOplogDoc["o"].(bson.M)["number"].(int64)
+	//  rs2BeforeCount := rs2LastOplogDoc["o"].(bson.M)["number"].(int64)
+	//  rs1AfterCount, err := s1Session.DB(dbName).C(colName).Find(nil).Count()
+	//  rs2AfterCount, err := s2Session.DB(dbName).C(colName).Find(nil).Count()
+
+	//  if int64(rs1AfterCount) < rs1BeforeCount {
+	//  	t.Errorf("Invalid documents count in rs1. Want %d, got %d", rs1BeforeCount, rs1AfterCount)
+	//  }
+	//  if int64(rs2AfterCount) < rs2BeforeCount {
+	//  	t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
+	//  }
+
+	// Clean up after testing
+	if !keepS3Data {
+		diag("Deleting file %q in %q bucket", filename, bucket)
+		if err = testutils.DeleteFile(svc, bucket, filename); err != nil {
+			t.Errorf("Cannot delete file %q from bucket %q: %s", filename, bucket, err)
+		}
+
+		diag("Deleting bucket %q", bucket)
+		if err = testutils.DeleteBucket(svc, bucket); err != nil {
+			t.Errorf("Cannot delete bucket %q", bucket)
+		}
+	} else {
+		diag("Skipping deletion of %q bucket", bucket)
+		diag("Skipping deletion of %q file in %q bucket", filename, bucket)
+	}
+
+	d.Stop()
+}
+
 func TestClientDisconnect(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "pbm_")
 	if err != nil {
@@ -419,10 +638,12 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	d.Stop()
 }
 
-func TestBackup1(t *testing.T) {
+// This test checks if statuses are being set correctly
+func TestRunBackupTwice(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
-	//defer os.RemoveAll(tmpDir) // Clean up after testing.
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
+
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -434,6 +655,12 @@ func TestBackup1(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
+	runBackup(t, d)
+	runBackup(t, d)
+	d.Stop()
+}
+
+func runBackup(t *testing.T, d *testGrpc.GrpcDaemon) {
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -476,8 +703,6 @@ func TestBackup1(t *testing.T) {
 
 	close(oplogGeneratorStopChan)
 	d.MessagesServer.WaitOplogBackupFinish()
-
-	d.Stop()
 }
 
 func TestBackupWithNoOplogActivity(t *testing.T) {
@@ -517,6 +742,8 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 		t.Fatalf("Cannot start backup: %s", err)
 	}
 	d.MessagesServer.WaitBackupFinish()
+	d.MessagesServer.StopOplogTail()
+	d.MessagesServer.WaitOplogBackupFinish()
 
 	// Test list backups
 	log.Debug("Testing backup metadata")
@@ -539,9 +766,9 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 
 	cleanupDBForRestore(t, s1Session)
-
 	d.Stop()
 }
+
 func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
@@ -666,4 +893,10 @@ func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	return conn, err
+}
+
+func diag(params ...interface{}) {
+	if testing.Verbose() {
+		log.Printf(params[0].(string), params[1:]...)
+	}
 }

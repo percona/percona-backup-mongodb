@@ -18,12 +18,15 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
+	"github.com/percona/percona-backup-mongodb/internal/awsutils"
+	"github.com/percona/percona-backup-mongodb/internal/common"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 )
 
 const (
@@ -66,7 +69,7 @@ func TestMain(m *testing.M) {
 	if testing.Verbose() {
 		fmt.Printf("Samples & helper binaries at %q\n", samplesDir)
 	}
-	//os.Exit(m.Run())
+	os.Exit(m.Run())
 }
 
 func TestDetermineOplogCollectionName(t *testing.T) {
@@ -243,6 +246,101 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 		if !reflect.DeepEqual(readBson, originalBson) {
 			t.Errorf("Documents are different")
 		}
+	}
+}
+
+func TestUploadToS3Writer(t *testing.T) {
+	bucket := "percona-backup-mongodb-test-s3-streamer"
+	filename := "percona-s3-streamer-test-file"
+
+	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Errorf("Cannot connect to MongoDB: %s", err)
+		t.Fail()
+	}
+	defer mdbSession.Close()
+
+	stopWriter := make(chan bool)
+	go generateOplogTraffic(t, mdbSession, stopWriter)
+
+	// Initialize a session in us-west-2 that the SDK will use to load
+	// credentials from the shared credentials file ~/.aws/credentials.
+	sess, err := session.NewSession(&aws.Config{})
+	if err != nil {
+		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
+	}
+
+	// Create S3 service client
+	svc := s3.New(sess)
+
+	exists, err := awsutils.BucketExists(svc, bucket)
+	if err != nil {
+		t.Fatalf("Cannot check if bucket exists %s: %s", bucket, err)
+	}
+	fmt.Println("1")
+	if !exists {
+		_, err = svc.CreateBucket(&s3.CreateBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to create bucket %q, %v", bucket, err)
+			t.Fail()
+		}
+
+		// Wait until bucket is created
+		fmt.Printf("Waiting for bucket %q to be created...\n", bucket)
+
+		err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Error while waiting the S3 bucket to be created: %s", err)
+			t.Fail()
+		}
+	}
+
+	// Start tailing the oplog
+	oplog, err := Open(mdbSession)
+	if err != nil {
+		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
+	}
+
+	// Run the oplog tailer for a second to collect some documents
+	go func() {
+		time.Sleep(4 * time.Second)
+		oplog.Close()
+		stopWriter <- true
+	}()
+
+	bw, err := common.NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	if err != nil {
+		t.Fatalf("cannot create a new backup writer: %s", err)
+	}
+
+	_, err = io.Copy(bw, oplog)
+	if err != nil {
+		t.Errorf("cannot copy to the s3: %s", err)
+	}
+	bw.Close()
+
+	// Check the file was really uploaded
+	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	if err != nil {
+		t.Errorf("Cannot list items in the S3 bucket %s: %s", bucket, err)
+		t.Fail()
+	}
+
+	fileExistsOnS3 := false
+	for _, item := range resp.Contents {
+		if *item.Key == filename {
+			fileExistsOnS3 = true
+			fmt.Printf("bucket %s, file %s\n", bucket, filename)
+			break
+		}
+	}
+	if !fileExistsOnS3 {
+		t.Errorf("File %s doesn't exists on the %s S3 bucket", filename, bucket)
+		t.Fail()
 	}
 }
 
