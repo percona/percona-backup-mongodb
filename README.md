@@ -17,9 +17,6 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
         1. [Running pbmctl commands](#running-pbmctl-commands)
             1. [Command Examples](#command-examples)
 1. [Requirements](#requirements)
-1. [Contributing](#contributing)
-1. [Building](#building)
-    1. [Unit Tests](#unit-tests)
 1. [Docker](#docker)
     1. [Build Docker images](#build-docker-images)
     1. [Run Docker containers](#run-docker-containers)
@@ -31,6 +28,10 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
             1. [Start Agent](#start-agent)
             1. [View Agent logs](#view-agent-logs)
             1. [Stop Agent](#stop-agent)
+1. [Contributing](#contributing)
+1. [Building](#building)
+    1. [Unit Tests](#unit-tests)
+1. [Submit Bug Report / Feature Request](#submit-bug-report--feature-request)
 1. [Contact](#contact)
 
 ## Feature Progress
@@ -204,43 +205,6 @@ $ pbmctl run restore 2018-12-18T19:04:14Z.json
 1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
     1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
 
-# Contributing
-
-TBD
-
-# Building
-
-Building the project requires:
-1. Go 1.11 or above
-1. make
-1. upx *(optional)*
-
-To build the project *(from the project dir)*:
-```
-$ go get -d github.com/percona/percona-backup-mongodb
-$ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
-$ make
-```
-
-A successful build outputs binaries: 
-1. **pbmctl**: A command-line interface for controlling the backup system
-1. **pbm-agent**: An agent that executes backup/restore actions on a database host
-1. **pbm-coordinator**: A server that coordinates backup system actions
-
-## Unit Tests
-
-The testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
-
-To run the tests *(may require 'sudo')*:
-```
-$ make test-full
-```
-
-To tear-down the test *(and containers, data, etc)*:
-```
-$ make test-full-clean
-```
-
 # Docker
 
 *Note: Official Dockerhub images coming soon!*
@@ -310,6 +274,44 @@ $ docker logs mongodb-backup-agent
 ```
 $ docker stop mongodb-backup-agent
 ```
+
+# Contributing
+
+TBD
+
+# Building
+
+Building the project requires:
+1. Go 1.11 or above
+1. make
+1. upx *(optional)*
+
+To build the project *(from the project dir)*:
+```
+$ go get -d github.com/percona/percona-backup-mongodb
+$ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
+$ make
+```
+
+A successful build outputs binaries: 
+1. **pbmctl**: A command-line interface for controlling the backup system
+1. **pbm-agent**: An agent that executes backup/restore actions on a database host
+1. **pbm-coordinator**: A server that coordinates backup system actions
+
+## Unit Tests
+
+The testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
+
+To run the tests *(may require 'sudo')*:
+```
+$ make test-full
+```
+
+To tear-down the test *(and containers, data, etc)*:
+```
+$ make test-full-clean
+```
+
 # Submit Bug Report / Feature Request
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).
 
