@@ -111,7 +111,7 @@ test-full: env test-cluster-clean test-cluster
 	test
 
 test-gosec: $(GOPATH)/bin/gosec
-	$(GOPATH)/bin/gosec $(shell go list ./... | egrep -v "(mocks|proto|test(util)?s|vendor)")
+	$(GOPATH)/bin/gosec --exclude=G104 $(shell go list ./... | egrep -v "(mocks|proto|test(util)?s|vendor)")
 
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
