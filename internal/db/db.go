@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,8 +16,10 @@ import (
 
 const appName = "percona/percona-backup-mongodb"
 
+// TODO: move this to a common place because we also load CA
+// certs in other parts of the code
 func loadCaCertificate(caFile string) (*x509.CertPool, error) {
-	caCert, err := ioutil.ReadFile(caFile)
+	caCert, err := ioutil.ReadFile(filepath.Clean(caFile))
 	if err != nil {
 		return nil, err
 	}

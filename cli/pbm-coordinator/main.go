@@ -235,7 +235,7 @@ func checkWorkDir(dir string) error {
 }
 
 func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filename)
+	buf, err := ioutil.ReadFile(filepath.Clean(filename))
 	if err != nil {
 		return errors.Wrap(err, "cannot load configuration from file")
 	}
