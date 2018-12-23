@@ -86,9 +86,11 @@ func NewDialInfo(config *Config) (*mgo.DialInfo, error) {
 		return dialInfo, nil
 	}
 
+	// #nosec G402
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: config.Insecure,
 	}
+
 	if config.CertFile != "" {
 		certificates, err := tls.LoadX509KeyPair(config.CertFile, config.CertFile)
 		if err != nil {
