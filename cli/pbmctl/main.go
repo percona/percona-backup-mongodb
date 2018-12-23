@@ -257,7 +257,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 	case "hot":
 		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_HOTBACKUP
 	default:
-		return fmt.Errorf("backup type %q is invalid", opts.backupType)
+		return fmt.Errorf("backup type %q is invalid", *opts.backupType)
 	}
 
 	switch *opts.destinationType {

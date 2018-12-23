@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/internal/templates"
-	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	"github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	log "github.com/sirupsen/logrus"
@@ -43,12 +43,12 @@ func TestListAgents(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 	l := log.New()
-	d, err := testutils.NewGrpcDaemon(context.Background(), tmpDir, t, l)
+	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, l)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
-	serverAddr := "127.0.0.1:" + testutils.TEST_GRPC_API_PORT
+	serverAddr := "127.0.0.1:" + testGrpc.TEST_GRPC_API_PORT
 	conn, err := getApiConn(&cliOptions{ServerAddr: serverAddr})
 	if err != nil {
 		t.Fatalf("Cannot connect to the API: %s", err)
@@ -155,10 +155,10 @@ func getApiConn(opts *cliOptions) (*grpc.ClientConn, error) {
 	}
 
 	if opts.TLS {
-		if opts.CAFile == "" {
-			opts.CAFile = testdata.Path("ca.pem")
+		if opts.TLSCAFile == "" {
+			opts.TLSCAFile = testdata.Path("ca.pem")
 		}
-		creds, err := credentials.NewClientTLSFromFile(opts.CAFile, "")
+		creds, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
 			log.Fatalf("Failed to create TLS credentials %v", err)
 		}
