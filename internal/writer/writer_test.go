@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"flag"
 	"io"
 	"io/ioutil"
 	"log"
@@ -19,6 +20,19 @@ import (
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"gopkg.in/mgo.v2/bson"
 )
+
+var (
+	keepS3Data     bool
+	keepLocalFiles bool
+)
+
+func TestMain(m *testing.M) {
+	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
+	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.Parse()
+
+	os.Exit(m.Run())
+}
 
 func TestWriteToLocalFs(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "example")
@@ -168,21 +182,23 @@ func TestUploadToS3(t *testing.T) {
 		t.Fail()
 	}
 
-	if err := awsutils.EmptyBucket(svc, bucket); err != nil {
-		t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
-	}
-	_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
-		Bucket: aws.String(bucket),
-	})
-	if err != nil {
-		t.Errorf("Unable to delete bucket %q, %v", bucket, err)
-	}
+	if !keepS3Data {
+		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
+			t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
+		}
+		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to delete bucket %q, %v", bucket, err)
+		}
 
-	err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
-		Bucket: aws.String(bucket),
-	})
-	if err != nil {
-		t.Errorf("Error occurred while waiting for bucket to be deleted, %s", bucket)
+		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Error occurred while waiting for bucket to be deleted, %s", bucket)
+		}
 	}
 }
 
