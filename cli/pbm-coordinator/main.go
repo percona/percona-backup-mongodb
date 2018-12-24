@@ -24,6 +24,9 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
 	yaml "gopkg.in/yaml.v2"
+
+	_ "github.com/un000/grpc-snappy"
+	_ "google.golang.org/grpc/encoding/gzip"
 )
 
 // vars are set by goreleaser
@@ -88,6 +91,7 @@ func main() {
 	}
 
 	var grpcOpts []grpc.ServerOption
+
 	if opts.TLS {
 		if opts.CertFile == "" {
 			opts.CertFile = testdata.Path("server1.pem")

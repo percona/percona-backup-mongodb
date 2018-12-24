@@ -18,8 +18,10 @@ import (
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/testdata"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -33,10 +35,11 @@ var (
 type cliOptions struct {
 	app *kingpin.Application
 
-	TLS        bool   `yaml:"tls"`
-	CAFile     string `yaml:"ca_file"`
-	ServerAddr string `yaml:"server_addr"`
-	configFile *string
+	TLS              bool   `yaml:"tls"`
+	TLSCAFile        string `yaml:"tls_ca_file"`
+	ServerAddr       string `yaml:"server_addr"`
+	ServerCompressor string `yaml:"server_compressor"`
+	configFile       *string
 
 	backup               *kingpin.CmdClause
 	backupType           *string
@@ -59,6 +62,11 @@ var (
 	conn              *grpc.ClientConn
 	defaultServerAddr = "127.0.0.1:10001"
 	defaultConfigFile = "~/.pbmctl.yml"
+	grpcCompressors   = []string{
+		snappy.Name,
+		gzip.Name,
+		"none",
+	}
 )
 
 func main() {
@@ -71,11 +79,17 @@ func main() {
 	}
 
 	var grpcOpts []grpc.DialOption
+	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
+		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+			grpc.UseCompressor(opts.ServerCompressor),
+		))
+	}
+
 	if opts.TLS {
-		if opts.CAFile == "" {
-			opts.CAFile = testdata.Path("ca.pem")
+		if opts.TLSCAFile == "" {
+			opts.TLSCAFile = testdata.Path("ca.pem")
 		}
-		creds, err := credentials.NewClientTLSFromFile(opts.CAFile, "")
+		creds, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
 			log.Fatalf("Failed to create TLS credentials %v", err)
 		}
@@ -310,8 +324,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
 
 		backup:               backupCmd,
-		backupType:           backupCmd.Flag("backup-type", "Backup type").Default("logical").Enum("logical", "hot"),
-		destinationType:      backupCmd.Flag("destination-type", "Backup destination type").Default("file").Enum("file", "aws"),
+		backupType:           backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default("logical").Enum("logical", "hot"),
+		destinationType:      backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default("file").Enum("file", "aws"),
 		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").String(),
 		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
 		description:          backupCmd.Flag("description", "Backup description").Required().String(),
@@ -322,9 +336,10 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
 	}
 
+	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("server-compressor", "Backup coordinator gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
-	app.Flag("ca-file", "The file containning the CA root cert file").StringVar(&opts.CAFile)
-	app.Flag("server-address", "The server address in the format of host:port").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
+	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,
@@ -357,10 +372,14 @@ func loadOptionsFromFile(filename string, opts *cliOptions) error {
 }
 
 func mergeOptions(opts, yamlOpts *cliOptions) {
-	if opts.CAFile == "" {
-		opts.CAFile = yamlOpts.CAFile
+	if opts.TLSCAFile == "" {
+		opts.TLSCAFile = yamlOpts.TLSCAFile
 	}
 	if opts.ServerAddr == "" {
 		opts.ServerAddr = yamlOpts.ServerAddr
+	}
+	if opts.ServerCompressor == "" {
+		opts.ServerCompressor = yamlOpts.ServerCompressor
+
 	}
 }

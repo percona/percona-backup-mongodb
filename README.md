@@ -41,10 +41,10 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
     - [x] Pausing of balancer at backup-time
 - [x] Command-line management utility
 - [ ] Dockerhub images
-- [ ] Authorization of Agents and CLI
 - [ ] Compression
+    - [x] Agent and CLI RPC communications
     - [ ] Backup data
-    - [ ] Agent and CLI RPCs
+- [ ] Authorization of Agents and CLI
 - [ ] Encryption of backup data
 - [ ] Support for MongoDB SSL/TLS connections
 - [ ] Recovery from agent failures

@@ -72,25 +72,28 @@ type Client struct {
 }
 
 type ConnectionOptions struct {
-	Host                string `yaml:"host"`
-	Port                string `yaml:"port"`
-	User                string `yaml:"user"`
-	Password            string `yaml:"password"`
-	ReplicasetName      string `yaml:"replicaset_name"`
-	Timeout             int    `yaml:"timeout"`
-	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds"`
+	Host                string `yaml:"host,omitempty"`
+	Port                string `yaml:"port,omitempty"`
+	User                string `yaml:"user,omitempty"`
+	Password            string `yaml:"password,omitempty"`
+	AuthDB              string `yaml:"authdb,omitempty"`
+	ReplicasetName      string `yaml:"replicaset_name,omitempty"`
+	Timeout             int    `yaml:"timeout,omitempty"`
+	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
+	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty"`
+	ReconnectCount      int    `yaml:"reconnect_count,omitempty"` // 0: forever
 }
 
 // Struct holding ssl-related options
 type SSLOptions struct {
-	UseSSL              bool   `yaml:"use_ssl"`
-	SSLCAFile           string `yaml:"sslca_file"`
-	SSLPEMKeyFile       string `yaml:"sslpem_key_file"`
-	SSLPEMKeyPassword   string `yaml:"sslpem_key_password"`
-	SSLCRLFile          string `yaml:"sslcrl_file"`
-	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert"`
-	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host"`
-	SSLFipsMode         bool   `yaml:"ssl_fips_mode"`
+	UseSSL              bool   `yaml:"use_ssl,omitempty"`
+	SSLCAFile           string `yaml:"sslca_file,omitempty"`
+	SSLPEMKeyFile       string `yaml:"sslpem_key_file,omitempty"`
+	SSLPEMKeyPassword   string `yaml:"sslpem_key_password,omitempty"`
+	SSLCRLFile          string `yaml:"sslcrl_file,omitempty"`
+	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert,omitempty"`
+	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host,omitempty"`
+	SSLFipsMode         bool   `yaml:"ssl_fips_mode,omitempty"`
 }
 
 type shardsMap struct {
@@ -127,7 +130,8 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		Addrs:          []string{mdbConnOpts.Host + ":" + mdbConnOpts.Port},
 		Username:       mdbConnOpts.User,
 		Password:       mdbConnOpts.Password,
-		AppName:        "percona-backup-mongodb",
+		Source:         mdbConnOpts.AuthDB,
+		AppName:        "percona/percona-backup-mongodb",
 		ReplicaSetName: mdbConnOpts.ReplicasetName,
 		// ReadPreference *ReadPreference
 		// Safe Safe
