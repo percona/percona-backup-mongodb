@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -16,16 +17,17 @@ import (
 var (
 	FileNotFoundError = fmt.Errorf("File not found")
 	awsSession        *session.Session
+	lock              = &sync.Mutex{}
 )
 
 func GetAWSSession() (*session.Session, error) {
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
 	var err error
+	lock.Lock()
+	defer lock.Unlock()
 	if awsSession == nil {
-		awsSession, err = session.NewSession(&aws.Config{
-			Region: aws.String("us-east-2")},
-		)
+		awsSession, err = session.NewSession(&aws.Config{})
 	}
 	if err != nil {
 		return nil, err
@@ -121,6 +123,44 @@ func DownloadFile(svc *s3.S3, bucket, file string, writer io.WriterAt) (int64, e
 	}
 
 	return downloader.Download(writer, input)
+}
+
+func EmptyBucket(svc *s3.S3, bucket string) error {
+	params := &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+	}
+	for {
+		objects, err := svc.ListObjects(params)
+		if err != nil {
+			return err
+		}
+		if len((*objects).Contents) == 0 {
+			return nil
+		}
+
+		objectsToDelete := make([]*s3.ObjectIdentifier, 0, 1000)
+		for _, object := range (*objects).Contents {
+			obj := s3.ObjectIdentifier{
+				Key: object.Key,
+			}
+			objectsToDelete = append(objectsToDelete, &obj)
+		}
+		deleteArray := s3.Delete{Objects: objectsToDelete}
+		deleteParams := &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &deleteArray,
+		}
+		_, err = svc.DeleteObjects(deleteParams)
+		if err != nil {
+			return err
+		}
+		if *(*objects).IsTruncated {
+			params.Marker = (*deleteParams).Delete.Objects[len((*deleteParams).Delete.Objects)-1].Key
+		} else {
+			break
+		}
+	}
+	return nil
 }
 
 func Diag(params ...interface{}) {

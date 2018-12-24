@@ -7,6 +7,7 @@ export AWS_ACCESS_KEY_ID=
 export AWS_SECRET_ACCESS_KEY=
 export GOCACHE=off
 export GOLANG_DOCKERHUB_TAG=1.10-stretch
+export AWS_REGION=us-west-2
 
 export TEST_PSMDB_VERSION=latest
 export TEST_MONGODB_ADMIN_USERNAME=admin

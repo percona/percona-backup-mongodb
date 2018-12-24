@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
@@ -23,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/cluster"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
+	"github.com/percona/percona-backup-mongodb/internal/writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pierrec/lz4"
@@ -707,31 +710,47 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	defer c.lock.Unlock()
 
 	if c.status.RunningDbBackup {
-		c.sendError(fmt.Errorf("Backup already running"))
-		return
-	}
-	// Validate backup type by asking MongoDB capabilities?
-	if msg.BackupType == pb.BackupType_BACKUP_TYPE_INVALID {
-		c.sendError(fmt.Errorf("Backup type should be hot or logical"))
-		return
-	}
-	if msg.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
-		c.sendError(fmt.Errorf("Hot Backup is not implemented yet"))
+		c.sendDBBackupFinishError(fmt.Errorf("Backup already running"))
 		return
 	}
 
-	fi, err := os.Stat(c.backupDir)
-	if err != nil {
-		c.sendError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+	// Validate backup type by asking MongoDB capabilities?
+	if msg.BackupType == pb.BackupType_BACKUP_TYPE_INVALID {
+		c.sendDBBackupFinishError(fmt.Errorf("Backup type should be hot or logical"))
 		return
 	}
-	if !fi.IsDir() {
-		c.sendError(fmt.Errorf("%s is not a directory", c.backupDir))
+	if msg.BackupType != pb.BackupType_BACKUP_TYPE_LOGICAL {
+		c.sendDBBackupFinishError(fmt.Errorf("Hot Backup is not implemented yet"))
 		return
+	}
+
+	var sess *session.Session
+	var err error
+
+	switch msg.GetDestinationType() {
+	case pb.DestinationType_DESTINATION_TYPE_FILE:
+		fi, err := os.Stat(c.backupDir)
+		if err != nil {
+			c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+			return
+		}
+		if !fi.IsDir() {
+			c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", c.backupDir))
+			return
+		}
+	case pb.DestinationType_DESTINATION_TYPE_AWS:
+		sess, err = session.NewSession(&aws.Config{})
+		if err != nil {
+			msg := "Cannot create an AWS session for S3 backup"
+			c.sendDBBackupFinishError(fmt.Errorf(msg))
+			c.logger.Error(msg)
+			return
+		}
 	}
 	// Send the ACK message and work on the background. When the process finishes, it will send the
 	// gRPC messages to signal that the backup has been completed
 	c.sendACK()
+
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
 	// if we run go c.runOplogBackup(msg) and then WaitUntilFirstDoc(), the oplogTailer can be nill because
 	// of the delay
@@ -750,7 +769,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}
 
 	log.Debug("Starting oplog backup")
-	go c.runOplogBackup(msg)
+	go c.runOplogBackup(msg, sess, c.oplogTailer)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
 	log.Debug("Waiting oplog first doc")
@@ -768,7 +787,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 	log.Debugf("Starting DB backup")
-	go c.runDBBackup(msg)
+	go c.runDBBackup(msg, sess)
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -898,36 +917,14 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 }
 
-func (c *Client) runDBBackup(msg *pb.StartBackup) {
+func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 	var err error
 	c.logger.Info("Starting DB backup")
-	writers := []io.WriteCloser{}
 
-	switch msg.GetDestinationType() {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		fw, err := os.Create(path.Join(c.backupDir, msg.GetDbBackupName()))
-		if err != nil {
-			log.Errorf("Cannot create backup file: %s", err)
-		}
-		writers = append(writers, fw)
-	}
-
-	switch msg.GetCypher() {
-	case pb.Cypher_CYPHER_NO_CYPHER:
-		//TODO: Add cyphers
-	}
-
-	// chain compression writer to the previous writer
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		gzw := gzip.NewWriter(writers[len(writers)-1])
-		writers = append(writers, gzw)
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		lz4w := lz4.NewWriter(writers[len(writers)-1])
-		writers = append(writers, lz4w)
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		snappyw := snappy.NewWriter(writers[len(writers)-1])
-		writers = append(writers, snappyw)
+	bw, err := writer.NewBackupWriter(c.backupDir, msg.GetDbBackupName(), msg.GetDestinationType(), msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
+		return
 	}
 
 	mi := &dumper.MongodumpInput{
@@ -938,7 +935,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 		Gzip:     false,
 		Oplog:    false,
 		Threads:  1,
-		Writer:   writers[len(writers)-1],
+		Writer:   bw,
 	}
 	c.logger.Debugf("Calling Mongodump using: %+v", *mi)
 
@@ -949,31 +946,14 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	}
 
 	c.setDBBackupRunning(true)
-
 	c.mongoDumper.Start()
 	dumpErr := c.mongoDumper.Wait()
-
-	var wErr error
-	for i := len(writers) - 1; i >= 0; i-- {
-		if _, ok := writers[i].(flusher); ok {
-			if err = writers[i].(flusher).Flush(); err != nil {
-				wErr = errors.Wrap(err, "Cannot flush writer")
-			}
-		}
-		if err := writers[i].Close(); err != nil {
-			wErr = errors.Wrap(err, "Cannot close writer")
-		}
-	}
-	if wErr != nil {
-		c.logger.Errorf("Cannot flush/close the MongoDump writer: %s", err)
-		c.sendError(err)
-		return
-	}
+	bw.Close()
 
 	c.setDBBackupRunning(false)
 
 	if dumpErr != nil {
-		c.sendError(fmt.Errorf("backup was cancelled"))
+		c.sendDBBackupFinishError(fmt.Errorf("backup was cancelled: %s", dumpErr))
 		c.logger.Info("DB dump cancelled")
 		return
 	}
@@ -982,46 +962,29 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) {
 	c.sendBackupFinishOK()
 }
 
-func (c *Client) runOplogBackup(msg *pb.StartBackup) {
+func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplogTailer io.Reader) {
 	c.logger.Info("Starting oplog backup")
-	writers := []io.WriteCloser{}
-
-	switch msg.GetDestinationType() {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		fw, err := os.Create(path.Join(c.backupDir, msg.GetOplogBackupName()))
-		if err != nil {
-			finishMsg := &pb.OplogBackupFinishStatus{
-				ClientId: c.id,
-				Ok:       false,
-				Ts:       time.Now().Unix(),
-				Error:    fmt.Sprintf("Cannot create destination file: %s", err),
-			}
-			c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-			c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
-		}
-		writers = append(writers, fw)
-	}
-
-	switch msg.GetCypher() {
-	case pb.Cypher_CYPHER_NO_CYPHER:
-		//TODO: Add cyphers
-	}
-
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		// chain gzip writer to the previous writer
-		gzw := gzip.NewWriter(writers[len(writers)-1])
-		writers = append(writers, gzw)
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		lz4w := lz4.NewWriter(writers[len(writers)-1])
-		writers = append(writers, lz4w)
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		snappyw := snappy.NewWriter(writers[len(writers)-1])
-		writers = append(writers, snappyw)
-	}
 
 	c.setOplogBackupRunning(true)
-	n, err := io.Copy(writers[len(writers)-1], c.oplogTailer)
+	defer c.setOplogBackupRunning(false)
+
+	bw, err := writer.NewBackupWriter(c.backupDir, msg.GetOplogBackupName(), msg.GetDestinationType(), msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		c.setOplogBackupRunning(false)
+		c.logger.Errorf("Error while copying data from the oplog tailer: %s", err)
+		finishMsg := &pb.OplogBackupFinishStatus{
+			ClientId: c.id,
+			Ok:       false,
+			Ts:       time.Now().Unix(),
+			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
+		}
+		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
+		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		return
+	}
+
+	n, err := io.Copy(bw, oplogTailer)
+	bw.Close()
 	if err != nil {
 		c.setOplogBackupRunning(false)
 		c.logger.Errorf("Error while copying data from the oplog tailer: %s", err)
@@ -1039,31 +1002,6 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup) {
 	c.lock.Lock()
 	c.status.BytesSent += uint64(n)
 	c.lock.Unlock()
-
-	for i := len(writers) - 1; i >= 0; i-- {
-		if _, ok := writers[i].(flusher); ok {
-			if err = writers[i].(flusher).Flush(); err != nil {
-				break
-			}
-		}
-		if err = writers[i].Close(); err != nil {
-			break
-		}
-	}
-	c.setOplogBackupRunning(false)
-	if err != nil {
-		err := fmt.Errorf("Cannot flush/close oplog chained writer: %s", err)
-		c.logger.Error(err)
-		finishMsg := &pb.OplogBackupFinishStatus{
-			ClientId: c.id,
-			Ok:       false,
-			Ts:       time.Now().Unix(),
-			Error:    err.Error(),
-		}
-		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
-		return
-	}
 
 	c.logger.Info("Oplog backup completed")
 	finishMsg := &pb.OplogBackupFinishStatus{
@@ -1119,7 +1057,7 @@ func (c *Client) sendBackupFinishOK() {
 	}
 }
 
-func (c *Client) sendError(err error) {
+func (c *Client) sendDBBackupFinishError(err error) {
 	finishMsg := &pb.DBBackupFinishStatus{
 		ClientId: c.id,
 		Ok:       false,

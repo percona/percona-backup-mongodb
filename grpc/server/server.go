@@ -636,6 +636,8 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 // OplogBackupFinished process oplog tailer finished message from clients.
 // After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
 func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.OplogBackupFinishedAck, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
@@ -653,6 +655,8 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.RestoreCompletedAck, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
