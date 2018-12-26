@@ -5,6 +5,7 @@ GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
 GO_BUILD_LDFLAGS?=-w -s
+GOSEC_VERSION?=1.2.0
 
 NAME?=percona-backup-mongodb
 REPO?=percona/$(NAME)
@@ -40,6 +41,9 @@ all: pbmctl pbm-agent pbm-coordinator
 
 $(GOPATH)/bin/dep:
 	go get -ldflags="-w -s" github.com/golang/dep/cmd/dep
+
+$(GOPATH)/bin/gosec:
+	curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(GOPATH)/bin $(GOSEC_VERSION)
 
 vendor: $(GOPATH)/bin/dep Gopkg.lock Gopkg.toml
 	$(GOPATH)/bin/dep ensure
@@ -105,6 +109,9 @@ test-full: env test-cluster-clean test-cluster
 	--renew-anon-volumes \
 	--abort-on-container-exit \
 	test
+
+test-gosec: $(GOPATH)/bin/gosec
+	$(GOPATH)/bin/gosec --exclude=G104 $(shell go list ./... | egrep -v "(mocks|proto|test(util)?s|vendor)")
 
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
