@@ -181,6 +181,7 @@ func (r *Restore) restoreDBPath() error {
 }
 
 func (r *Restore) startServer() error {
+	// #nosec G204
 	mongod := exec.Command(r.serverArgv[0], r.serverArgv[1:]...)
 	err := mongod.Start()
 	if err != nil {

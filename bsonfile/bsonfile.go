@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -31,7 +32,7 @@ func NewBSONReader(r io.Reader) (BSONReader, error) {
 
 // Open opens a bson file for reading
 func OpenFile(filename string) (*BSONFile, error) {
-	fh, err := os.Open(filename)
+	fh, err := os.Open(filepath.Clean(filename))
 	if err != nil {
 		return nil, err
 	}

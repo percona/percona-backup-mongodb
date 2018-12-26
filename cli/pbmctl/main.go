@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 
 	"text/template"
@@ -361,7 +362,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 }
 
 func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filename)
+	buf, err := ioutil.ReadFile(filepath.Clean(filename))
 	if err != nil {
 		return errors.Wrap(err, "cannot load configuration from file")
 	}

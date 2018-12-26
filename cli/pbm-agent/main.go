@@ -237,7 +237,7 @@ func processCliArgs() (*cliOptions, error) {
 }
 
 func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filename)
+	buf, err := ioutil.ReadFile(filepath.Clean(filename))
 	if err != nil {
 		return errors.Wrap(err, "cannot load configuration from file")
 	}
@@ -376,7 +376,7 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 // Write a pid file, but first make sure it doesn't exist with a running pid.
 func writePidFile(pidFile string) error {
 	// Read in the pid file as a slice of bytes.
-	if piddata, err := ioutil.ReadFile(pidFile); err == nil {
+	if piddata, err := ioutil.ReadFile(filepath.Clean(pidFile)); err == nil {
 		// Convert the file contents to an integer.
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
 			// Look for the pid in the process list.

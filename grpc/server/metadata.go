@@ -57,7 +57,7 @@ func (b *BackupMetadata) AddReplicaset(clusterID, replName, replUUID, dbBackupNa
 }
 
 func LoadMetadataFromFile(name string) (*BackupMetadata, error) {
-	buf, err := ioutil.ReadFile(name)
+	buf, err := ioutil.ReadFile(filepath.Clean(name))
 	if err != nil {
 		return nil, err
 	}

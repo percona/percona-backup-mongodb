@@ -101,6 +101,9 @@ test-cluster: env
 test-cluster-clean: env
 	docker-compose down -v
 
+test-gosec: $(GOPATH)/bin/gosec
+	$(GOPATH)/bin/gosec --exclude=G104 $(shell go list ./... | egrep -v "(mocks|proto|test(util)?s|vendor)")
+
 test-full: env test-cluster-clean test-cluster
 	docker-compose up \
 	--build \
@@ -109,9 +112,6 @@ test-full: env test-cluster-clean test-cluster
 	--renew-anon-volumes \
 	--abort-on-container-exit \
 	test
-
-test-gosec: $(GOPATH)/bin/gosec
-	$(GOPATH)/bin/gosec --exclude=G104 $(shell go list ./... | egrep -v "(mocks|proto|test(util)?s|vendor)")
 
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
