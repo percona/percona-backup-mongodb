@@ -136,7 +136,7 @@ $ pbm-agent --mongodb-user=pbmAgent \
 
 If [MongoDB Authentication](https://docs.mongodb.com/manual/core/authentication/) is enabled the backup agent must be provided credentials for a MongoDB user with the ['backup'](https://docs.mongodb.com/manual/reference/built-in-roles/#backup), ['restore'](https://docs.mongodb.com/manual/reference/built-in-roles/#restore) and ['clusterMonitor'](https://docs.mongodb.com/manual/reference/built-in-roles/#clusterMonitor) built-in auth roles. This user must exist on every database node and it should not be used by other applications.
 
-Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY member)*:
+Example *'createUser'* command *(must be ran via the 'mongo' shell on a PRIMARY member)*:
 
 ```
 > use admin;
@@ -144,9 +144,9 @@ Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY m
     user: "pbmAgent",
     pwd: "securePassw0rd",
     roles: [
-        { db: "admin", role: "backup"},
-        { db: "admin", role: "clusterMonitor},
-        { db: "admin", role: "restore"}
+        { db: "admin", role: "backup" },
+        { db: "admin", role: "clusterMonitor" },
+        { db: "admin", role: "restore" }
     ],
     authenticationRestrictions: [
         { clientSource: "127.0.0.1" }
