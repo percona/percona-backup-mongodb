@@ -13,16 +13,25 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
     1. [Running](#running)
         1. [Running the Coordinator](#running-the-coordinator)
         1. [Running the Agent](#running-the-agent)
+            1. [MongoDB Authentication](#mongodb-authentication)
         1. [Running pbmctl commands](#running-pbmctl-commands)
+            1. [Command Examples](#command-examples)
 1. [Requirements](#requirements)
-1. [Contributing](#contributing)
 1. [Building](#building)
     1. [Unit Tests](#unit-tests)
 1. [Docker](#docker)
     1. [Build Docker images](#build-docker-images)
     1. [Run Docker containers](#run-docker-containers)
         1. [Coordinator](#coordinator1)
+            1. [Start Coordinator](#start-coordinator)
+            1. [View Coordinator logs](#view-coordinator-logs)
+            1. [Stop Coordinator](#stop-coordinator)
         1. [Agent](#agent1)
+            1. [Start Agent](#start-agent)
+            1. [View Agent logs](#view-agent-logs)
+            1. [Stop Agent](#stop-agent)
+1. [Contributing](#contributing)
+1. [Submit Bug Report / Feature Request](#submit-bug-report--feature-request)
 1. [Contact](#contact)
 
 ## Feature Progress
@@ -150,7 +159,8 @@ Example *'createUser'* command *(must be ran via a 'mongo' shell via a PRIMARY m
 `pbmctl` is the command line utility to control the backup system. 
 Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10001` so, if you are running `pbmctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
   
-#### Examples
+#### Command Examples
+
 ##### List all connected agents
 ```
 $ pbmctl --server-address=127.0.0.1:10001 list nodes
@@ -194,10 +204,6 @@ $ pbmctl run restore 2018-12-18T19:04:14Z.json
 
 1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
     1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
-
-# Contributing
-
-TBD
 
 # Building
 
@@ -247,7 +253,7 @@ $ make docker-build
 
 ### Coordinator
 
-#### Create Coordinator
+#### Start Coordinator
 *Note: work dir must be owned by the passed to 'docker run --user=X'*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
@@ -275,7 +281,7 @@ $ docker stop mongodb-backup-coordinator
 
 ### Agent
 
-#### Create Agent
+#### Start Agent
 *Note: the [Coordinator](#create-coordinator) must be started before the agent!*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-agent
@@ -301,6 +307,11 @@ $ docker logs mongodb-backup-agent
 ```
 $ docker stop mongodb-backup-agent
 ```
+
+# Contributing
+
+TBD
+
 # Submit Bug Report / Feature Request
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).
 
