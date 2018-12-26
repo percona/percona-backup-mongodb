@@ -316,7 +316,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
-		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).String(),
+		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).Short('c').String(),
 
 		list:             listCmd,
 		listBackups:      listBackupsCmd,
@@ -336,10 +336,10 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
 	}
 
-	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).StringVar(&opts.ServerAddr)
-	app.Flag("server-compressor", "Backup coordinator gRPC compression algorithm (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).Short('s').StringVar(&opts.ServerAddr)
+	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
-	app.Flag("tls-ca-file", "The file containning the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
+	app.Flag("tls-ca-file", "The file containing the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
 
 	yamlOpts := &cliOptions{
 		ServerAddr: defaultServerAddr,
