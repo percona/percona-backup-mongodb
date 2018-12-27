@@ -508,9 +508,8 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 	if err != nil {
 		if err == awsutils.FileNotFoundError {
 			return false, nil
-		} else {
-			return false, fmt.Errorf("Cannot check if backup exists in S3: %s", err)
 		}
+		return false, fmt.Errorf("Cannot check if backup exists in S3: %s", err)
 	}
 	return true, nil
 }
