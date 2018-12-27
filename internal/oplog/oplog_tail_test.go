@@ -19,8 +19,8 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
-	"github.com/percona/percona-backup-mongodb/internal/common"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/writer"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -316,7 +316,7 @@ func TestUploadToS3Writer(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := common.NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	bw, err := writer.NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}

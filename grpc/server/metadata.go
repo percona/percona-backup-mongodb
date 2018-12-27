@@ -96,8 +96,5 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot encode backup metadata")
 	}
-	if err = ioutil.WriteFile(name, buf, os.ModePerm); err != nil {
-		return err
-	}
-	return nil
+	return ioutil.WriteFile(name, buf, os.ModePerm)
 }

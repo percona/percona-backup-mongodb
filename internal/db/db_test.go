@@ -58,7 +58,7 @@ func TestNewDialInfo(t *testing.T) {
 	}
 
 	// test insecure mode
-	_, err := NewDialInfo(&Config{
+	_, err = NewDialInfo(&Config{
 		CertFile: TestSSLPEMKey,
 		CAFile:   TestSSLCACert,
 		Insecure: true,
@@ -68,7 +68,7 @@ func TestNewDialInfo(t *testing.T) {
 	}
 
 	// test secure mode
-	di, err = NewDialInfo(&Config{
+	di, err := NewDialInfo(&Config{
 		Addrs: []string{
 			testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "primary"),
 		},
