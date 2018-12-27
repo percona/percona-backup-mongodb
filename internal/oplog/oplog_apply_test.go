@@ -138,6 +138,6 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	if i != docCount {
-		t.Errorf("Invalid document count after repalying the oplog. Want %d, got %d", docCount, i)
+		t.Errorf("Invalid document count after replaying the oplog. Want %d, got %d", docCount, i)
 	}
 }

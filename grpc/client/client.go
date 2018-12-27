@@ -1057,7 +1057,7 @@ func (c *Client) sendBackupFinishOK() {
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
 		c.logger.Errorf("Cannot call DBBackupFinished RPC method: %s", err)
 	} else {
-		c.logger.Debugf("Recieved ACK from DBBackupFinished RPC method: %+v", *ack)
+		c.logger.Debugf("Received ACK from DBBackupFinished RPC method: %+v", *ack)
 	}
 }
 
@@ -1071,7 +1071,7 @@ func (c *Client) sendDBBackupFinishError(err error) {
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
 		c.logger.Errorf("Cannot call DBBackupFinished with error (%s) RPC method: %s", finishMsg.Error, err)
 	} else {
-		c.logger.Debugf("Recieved ACK from DBBackupFinished with error RPC method: %+v", *ack)
+		c.logger.Debugf("Received ACK from DBBackupFinished with error RPC method: %+v", *ack)
 	}
 }
 

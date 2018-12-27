@@ -70,7 +70,7 @@ var (
 		},
 	}
 
-	// The values here are just placeholders. They will be overriden by init()
+	// The values here are just placeholders. They will be overridden by init()
 	basedir              string
 	MongoDBSSLDir        = "../docker/test/ssl"
 	MongoDBSSLPEMKeyFile = filepath.Join(MongoDBSSLDir, "client.pem")

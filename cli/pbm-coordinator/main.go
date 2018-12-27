@@ -150,8 +150,8 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 
 	go func() {
 		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
+		log.Printf("Gracefully stopping server at %s", lis.Addr().String())
+		// Try to Gracefully stop the gRPC server.
 		c := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()
@@ -188,7 +188,7 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
-	app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
+	app.Flag("enable-clients-logging", "Enable showing logs coming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
 	//
 	app.Flag("tls", "Enable TLS").BoolVar(&opts.TLS)
