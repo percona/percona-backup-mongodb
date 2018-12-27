@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/internal/templates"
@@ -63,53 +64,53 @@ func TestListAgents(t *testing.T) {
 	want := []*api.Client{
 		&api.Client{
 			Version:        0,
-			Id:             "127.0.0.1:17000",
-			NodeType:       "MONGOS",
-			NodeName:       "127.0.0.1:17000",
-			ReplicasetName: "",
-		},
-		&api.Client{
-			Version:        0,
 			Id:             "127.0.0.1:17001",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17002",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17003",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17004",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17005",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17006",
-			NodeType:       "MONGOD_SHARDSVR",
+			NodeType:       "NODE_TYPE_MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
 		&api.Client{
 			Version:        0,
 			Id:             "127.0.0.1:17007",
-			NodeType:       "MONGOD_CONFIGSVR",
+			NodeType:       "NODE_TYPE_MONGOD_CONFIGSVR",
 			NodeName:       "127.0.0.1:17007",
 			ReplicasetName: "csReplSet",
+		},
+		&api.Client{
+			Version:        0,
+			Id:             "127.0.0.1:17000",
+			NodeType:       "NODE_TYPE_MONGOS",
+			NodeName:       "127.0.0.1:17000",
+			ReplicasetName: "",
 		},
 	}
 
@@ -117,8 +118,16 @@ func TestListAgents(t *testing.T) {
 		if client.Version != want[i].Version {
 			t.Errorf("Invalid client version. Got %v, want %v", client.Version, want[i].Version)
 		}
-		if client.Id != want[i].Id {
+		if client.NodeType != "NODE_TYPE_MONGOS" && client.Id != want[i].Id {
 			t.Errorf("Invalid client id. Got %v, want %v", client.Id, want[i].Id)
+		} else if client.NodeType == "NODE_TYPE_MONGOS" {
+			// fix for mongos having hostname:port instead of ip:port
+			hostname, _ := os.Hostname()
+			wantHostPort := strings.SplitN(want[i].Id, ":", 2)
+			wantHostPortId := hostname + ":" + wantHostPort[1]
+			if client.Id != wantHostPortId && client.Id != want[i].Id {
+				t.Errorf("Invalid mongos client id. Got %v, want %v or %v", client.Id, wantHostPortId, want[i].Id)
+			}
 		}
 		if client.NodeType != want[i].NodeType {
 			t.Errorf("Invalid node type. Got %v, want %v", client.NodeType, want[i].NodeType)
@@ -126,7 +135,7 @@ func TestListAgents(t *testing.T) {
 		if client.ReplicasetName != want[i].ReplicasetName {
 			t.Errorf("Invalid replicaset name. Got %v, want %v", client.ReplicasetName, want[i].ReplicasetName)
 		}
-		if client.NodeType != "MONGOD_CONFIGSVR" && client.ClusterId == "" {
+		if client.NodeType != "NODE_TYPE_MONGOD_CONFIGSVR" && client.ClusterId == "" {
 			t.Errorf("Invalid cluster ID (empty)")
 		}
 	}
