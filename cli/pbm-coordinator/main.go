@@ -85,6 +85,9 @@ func main() {
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.GrpcBindIP, opts.GrpcPort))
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
 	apilis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.APIBindIP, opts.APIPort))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)

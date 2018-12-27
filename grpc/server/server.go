@@ -612,6 +612,9 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 			},
 		}
 		err = stream.Send(r)
+		if err != nil {
+			s.logger.Errorf("Cannot send to client stream %s: %v", clientID, err)
+		}
 
 		return ClientAlreadyExistsError
 	}
