@@ -61,50 +61,50 @@ func TestListAgents(t *testing.T) {
 
 	sort.Slice(clients, func(i, j int) bool { return clients[i].Id < clients[j].Id })
 	want := []*api.Client{
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17000",
 			NodeType:       "MONGOS",
 			NodeName:       "127.0.0.1:17000",
 			ReplicasetName: "",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17001",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17002",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17003",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17004",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17005",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17006",
 			NodeType:       "MONGOD_SHARDSVR",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17007",
 			NodeType:       "MONGOD_CONFIGSVR",
@@ -141,8 +141,8 @@ func TestListAgentsVerbose(t *testing.T) {
 func TestListAvailableBackups(t *testing.T) {
 	t.Skip("Templates test is used only for development")
 	b := map[string]*pb.BackupMetadata{
-		"testfile1": &pb.BackupMetadata{Description: "description 1"},
-		"testfile2": &pb.BackupMetadata{Description: "a long description 2 blah blah blah blah and blah"},
+		"testfile1": {Description: "description 1"},
+		"testfile2": {Description: "a long description 2 blah blah blah blah and blah"},
 	}
 	printTemplate(templates.AvailableBackups, b)
 }
@@ -176,7 +176,7 @@ func getApiConn(opts *cliOptions) (*grpc.ClientConn, error) {
 
 func getTestClients() []*api.Client {
 	clients := []*api.Client{
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "6c8ba7b4-680f-42da-9798-97d8fd75e9ba",
 			ClusterId:      "cid1",
@@ -184,7 +184,7 @@ func getTestClients() []*api.Client {
 			NodeName:       "127.0.0.1:17000",
 			ReplicasetName: "",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "701e4a24-3b9d-47d5-b3f2-0643a12f9462",
 			ClusterId:      "cid1",
@@ -193,7 +193,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid1",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "8292319d-dd85-45a5-a671-59cb9ff72eca",
 			ClusterId:      "cid1",
@@ -202,7 +202,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid1",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "8292319d-dd85-45a5-a671-59cb9ff72eca",
 			ClusterId:      "cid1",
@@ -211,7 +211,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid1",
 			ReplicasetName: "rs1",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "8292319d-dd85-45a5-a671-59cb9ff72eca",
 			ClusterId:      "cid1",
@@ -220,7 +220,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid1",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "8292319d-dd85-45a5-a671-59cb9ff72eca",
 			ClusterId:      "cid1",
@@ -229,7 +229,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid2",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "8292319d-dd85-45a5-a671-59cb9ff72eca",
 			ClusterId:      "cid1",
@@ -238,7 +238,7 @@ func getTestClients() []*api.Client {
 			ReplicasetId:   "rsid2",
 			ReplicasetName: "rs2",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "7eb32bab-8f0a-4616-ab39-917d45591b7d",
 			ClusterId:      "cid1",

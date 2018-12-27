@@ -131,7 +131,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	wantbs := map[string]*server.Client{
-		"5b9e5545c003eb6bd5e94803": &server.Client{
+		"5b9e5545c003eb6bd5e94803": {
 			ID:             "127.0.0.1:17003",
 			NodeType:       pb.NodeType(3),
 			NodeName:       "127.0.0.1:17003",
@@ -139,7 +139,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 			ReplicasetName: "rs1",
 			ReplicasetUUID: "5b9e5545c003eb6bd5e94803",
 		},
-		"5b9e55461f4c8f50f48c6002": &server.Client{
+		"5b9e55461f4c8f50f48c6002": {
 			ID:             "127.0.0.1:17006",
 			NodeType:       pb.NodeType(3),
 			NodeName:       "127.0.0.1:17006",
@@ -147,7 +147,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 			ReplicasetName: "rs2",
 			ReplicasetUUID: "5b9e55461f4c8f50f48c6002",
 		},
-		"5b9e5546fcaf061d1ed382ed": &server.Client{
+		"5b9e5546fcaf061d1ed382ed": {
 			ID:             "127.0.0.1:17007",
 			NodeType:       pb.NodeType(4),
 			NodeName:       "127.0.0.1:17007",
@@ -793,7 +793,7 @@ func getLastOplogDoc(filename string) (bson.M, error) {
 
 func sortedReplicaNames(replicas map[string]*server.Client) []string {
 	a := []string{}
-	for key, _ := range replicas {
+	for key := range replicas {
 		a = append(a, key)
 	}
 	sort.Strings(a)

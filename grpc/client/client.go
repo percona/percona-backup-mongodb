@@ -611,7 +611,7 @@ func (c *Client) processListReplicasets() error {
 	        "ok" : 1
 	}
 	*/
-	for key, _ := range sm.Map {
+	for key := range sm.Map {
 		m := strings.Split(key, "/")
 		if len(m) < 2 {
 			continue

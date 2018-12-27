@@ -55,17 +55,17 @@ var (
 
 	// test mongodb hosts map
 	hosts = map[string]map[string]string{
-		MongoDBShard1ReplsetName: map[string]string{
+		MongoDBShard1ReplsetName: {
 			"primary":    MongoDBHost + ":" + MongoDBShard1PrimaryPort,
 			"secondary1": MongoDBHost + ":" + MongoDBShard1Secondary1Port,
 			"secondary2": MongoDBHost + ":" + MongoDBShard1Secondary2Port,
 		},
-		MongoDBShard2ReplsetName: map[string]string{
+		MongoDBShard2ReplsetName: {
 			"primary":    MongoDBHost + ":" + MongoDBShard2PrimaryPort,
 			"secondary1": MongoDBHost + ":" + MongoDBShard2Secondary1Port,
 			"secondary2": MongoDBHost + ":" + MongoDBShard2Secondary2Port,
 		},
-		MongoDBConfigsvrReplsetName: map[string]string{
+		MongoDBConfigsvrReplsetName: {
 			"primary": MongoDBHost + ":" + MongoDBConfigsvr1Port,
 		},
 	}
