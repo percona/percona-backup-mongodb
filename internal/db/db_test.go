@@ -58,7 +58,7 @@ func TestNewDialInfo(t *testing.T) {
 	}
 
 	// test insecure mode
-	di, err := NewDialInfo(&Config{
+	_, err := NewDialInfo(&Config{
 		CertFile: TestSSLPEMKey,
 		CAFile:   TestSSLCACert,
 		Insecure: true,

@@ -101,6 +101,9 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", TEST_GRPC_MESSAGES_PORT)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot dail gRPC address %s: %v", clientServerAddr, err)
+	}
 
 	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port,
 		testutils.MongoDBShard2PrimaryPort, testutils.MongoDBShard2Secondary1Port, testutils.MongoDBShard2Secondary2Port,

@@ -307,8 +307,8 @@ func TestGlobalWithDaemon(t *testing.T) {
 	// and the oplog generator is starting to count from 101 sequentially, so last inserted document = count
 	rs1BeforeCount := rs1LastOplogDoc["o"].(bson.M)["number"].(int64)
 	rs2BeforeCount := rs2LastOplogDoc["o"].(bson.M)["number"].(int64)
-	rs1AfterCount, err := s1Session.DB(dbName).C(colName).Find(nil).Count()
-	rs2AfterCount, err := s2Session.DB(dbName).C(colName).Find(nil).Count()
+	rs1AfterCount, _ := s1Session.DB(dbName).C(colName).Find(nil).Count()
+	rs2AfterCount, _ := s2Session.DB(dbName).C(colName).Find(nil).Count()
 
 	if int64(rs1AfterCount) < rs1BeforeCount {
 		t.Errorf("Invalid documents count in rs1. Want %d, got %d", rs1BeforeCount, rs1AfterCount)

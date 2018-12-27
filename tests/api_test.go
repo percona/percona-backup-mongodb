@@ -114,7 +114,12 @@ func TestApiWithDaemon(t *testing.T) {
 		t.Errorf("Metadata file %s was not found", jsonFile)
 	}
 
-	md, err := server.LoadMetadataFromFile(filepath.Join(tmpDir, jsonFile))
+	metadataFile := filepath.Join(tmpDir, jsonFile)
+	md, err := server.LoadMetadataFromFile(metadataFile)
+	if err != nil {
+		t.Fatalf("Cannot load metadata from file %s: %v", metadataFile, err)
+	}
+
 	if md.Metadata().Description == "" {
 		t.Errorf("Empty description in backup metadata")
 	}

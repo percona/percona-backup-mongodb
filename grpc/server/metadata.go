@@ -69,7 +69,7 @@ func LoadMetadataFromFile(name string) (*BackupMetadata, error) {
 		lock: &sync.Mutex{},
 	}
 	err = json.Unmarshal(buf, &metadata.metadata)
-	return metadata, nil
+	return metadata, err
 }
 
 func (b *BackupMetadata) Metadata() *pb.BackupMetadata {
