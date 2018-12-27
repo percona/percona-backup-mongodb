@@ -236,7 +236,7 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 	case *pb.ClientMessage_LastOplogTs:
 		return response.GetLastOplogTs().LastOplogTs, nil
 	}
-	return 0, fmt.Errorf("Unkown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+	return 0, fmt.Errorf("Unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
 }
 
 // listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
@@ -263,7 +263,7 @@ func (c *Client) listReplicasets() ([]string, error) {
 		shards := response.GetReplicasetsMsg()
 		return shards.Replicasets, nil
 	}
-	return nil, fmt.Errorf("Unkown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+	return nil, fmt.Errorf("Unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
 }
 
 func (c *Client) ping() error {
@@ -322,7 +322,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 		c.setRestoreRunning(true)
 		return nil
 	}
-	return fmt.Errorf("Unkown response type for Restore message: %T, %+v", response.Payload, response.Payload)
+	return fmt.Errorf("Unknown response type for Restore message: %T, %+v", response.Payload, response.Payload)
 }
 
 func (c *Client) setDBBackupRunning(status bool) {

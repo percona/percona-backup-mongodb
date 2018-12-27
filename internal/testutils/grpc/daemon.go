@@ -186,8 +186,8 @@ func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.S
 
 	go func() {
 		<-ctx.Done()
-		d.logger.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
+		d.logger.Printf("Gracefully stopping server at %s", lis.Addr().String())
+		// Try to Gracefully stop the gRPC server.
 		c := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()

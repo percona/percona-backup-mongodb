@@ -30,7 +30,7 @@ func (s *ShardingState) ClusterID() *bson.ObjectId {
 }
 
 // GetClusterID returns the cluster ID using the 'config.version'
-// collection. This will only succeeed on a mongos or config server,
+// collection. This will only succeed on a mongos or config server,
 // use .GetClusterIDShard instead on shard servers
 func GetClusterID(session *mgo.Session) (*bson.ObjectId, error) {
 	nodeType, err := getNodeType(session)

@@ -541,7 +541,7 @@ func TestClientDisconnect(t *testing.T) {
 	}
 
 	clientsCount1 := len(d.MessagesServer.Clients())
-	// Disconnect a client to check if the server detects the disconnection immediatelly
+	// Disconnect a client to check if the server detects the disconnection immediately
 	d.Clients()[0].Stop()
 
 	time.Sleep(2 * time.Second)
@@ -850,8 +850,8 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 
 	go func() {
 		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
+		log.Printf("Gracefully stopping server at %s", lis.Addr().String())
+		// Try to Gracefully stop the gRPC server.
 		c := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()

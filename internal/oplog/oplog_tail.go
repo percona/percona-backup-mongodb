@@ -155,7 +155,7 @@ func (ot *OplogTail) Count() uint64 {
 	return atomic.LoadUint64(&ot.docsCount)
 }
 
-// Cancel stopts the tailer immediatelly without waiting the tailer to reach the
+// Cancel stopts the tailer immediately without waiting the tailer to reach the
 // document having timestamp = IsMasterDoc().LastWrite.OpTime.Ts
 func (ot *OplogTail) Cancel() {
 	close(ot.stopChan)
