@@ -149,7 +149,7 @@ Example *'createUser'* command *(must be ran via the 'mongo' shell on a PRIMARY 
         { db: "admin", role: "restore" }
     ],
     authenticationRestrictions: [
-        { clientSource: "127.0.0.1" }
+        { clientSource: ["127.0.0.1"] }
     ]
 })
 ```
