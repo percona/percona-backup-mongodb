@@ -118,17 +118,15 @@ By default, the coordinator will listen for agents on port 10000.
 
 On every MongoDB instance, you need to start an agent that will receive commands from the coordinator.
 
-In most situations the agent must connect to MongoDB using the host 'localhost' *(127.0.0.1)* and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the host.
+By default the agent will connect to MongoDB using the host '127.0.0.1' and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the MongoDB host.
 
 Example:
 ```
-$ pbm-agent --mongodb-user=pbmAgent \
-            --mongodb-password=securePassw0rd \
-            --mongodb-host=127.0.0.1 \
-            --mongodb-port=27017 \
-            --replicaset=rs0 \
-            --server-address=10.10.10.10:10000 \
+$ pbm-agent --server-address=172.16.0.2:10000 \
             --backup-dir=/data/backup \
+            --mongodb-port=27017 \
+            --mongodb-user=pbmAgent \
+            --mongodb-password=securePassw0rd \
             --pid-file=/tmp/pbm-agent.pid
 ```
 
@@ -282,18 +280,18 @@ $ docker stop mongodb-backup-coordinator
 ### Agent
 
 #### Start Agent
-*Note: the [Coordinator](#create-coordinator) must be started before the agent!*
+*Note: the [Coordinator](#start-coordinator) must be started before the agent!*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-agent
 $ docker run -d \
     --restart=always \
     --user=$(id -u) \
     --name=mongodb-backup-agent \
-    -e PBM_AGENT_BACKUP_DIR=/data \
     -e PBM_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
+    -e PBM_AGENT_BACKUP_DIR=/data \
+    -e PBM_AGENT_MONGODB_PORT=27017 \
     -e PBM_AGENT_MONGODB_USER=pbmAgent \
     -e PBM_AGENT_MONGODB_PASSWORD=securePassw0rd \
-    -e PBM_AGENT_MONGODB_REPLICASET=rs \
     -v /data/mongodb-backup-agent:/data \
 mongodb-backup-agent
 ```

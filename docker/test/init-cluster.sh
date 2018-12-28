@@ -12,6 +12,8 @@ MONGODB_IP=127.0.0.1
 
 sleep $sleep_secs
 
+/usr/bin/mongo --version
+
 
 ## Shard 1
 tries=1
@@ -123,6 +125,11 @@ for MONGODB_PORT in ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PO
 				pwd: "'${TEST_MONGODB_ADMIN_PASSWORD}'",
 				roles: [
 					{ db: "admin", role: "root" }
+				],
+				authenticationRestrictions: [
+					{ 
+						clientSource: ["127.0.0.1"]
+					}
 				]
 			})' \
 			admin
@@ -140,6 +147,11 @@ for MONGODB_PORT in ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PO
 						{ db: "admin", role: "restore" },
 						{ db: "config", role: "read" },
 						{ db: "test", role: "readWrite" }
+					],
+					authenticationRestrictions: [
+						{
+							clientSource: ["127.0.0.1"]
+						}
 					]
 				})' \
 				admin
