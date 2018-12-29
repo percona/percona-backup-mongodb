@@ -7,8 +7,8 @@ cp /rootCA.crt /tmp/rootCA.crt
 cp /client.pem /tmp/client.pem
 chmod 400 /tmp/rootCA.crt /tmp/client.pem
 
-MONGO_FLAGS="--quiet --ssl --sslCAFile=/tmp/rootCA.crt --sslPEMKeyFile=/tmp/client.pem"
 MONGODB_IP=127.0.0.1
+MONGO_FLAGS="--quiet --host=${MONGODB_IP} --ssl --sslCAFile=/tmp/rootCA.crt --sslPEMKeyFile=/tmp/client.pem"
 
 sleep $sleep_secs
 
@@ -127,6 +127,7 @@ for MONGODB_PORT in ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PO
 			})' \
 			admin
 		if [ $? == 0 ]; then
+			echo "# INFO: added admin user to 127.0.0.1:${MONGODB_PORT}"
 			/usr/bin/mongo ${MONGO_FLAGS} \
 				--username=${TEST_MONGODB_ADMIN_USERNAME} \
 				--password=${TEST_MONGODB_ADMIN_PASSWORD} \
@@ -143,7 +144,7 @@ for MONGODB_PORT in ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PO
 					]
 				})' \
 				admin
-			[ $? == 0 ] && break
+			[ $? == 0 ] && echo "# INFO: added test user to 127.0.0.1:${MONGODB_PORT}" && break
 		fi
 		echo "# INFO: retrying db.createUser() on 127.0.0.1:${MONGODB_PORT} in $sleep_secs secs (try $tries/$max_tries)"
 		sleep $sleep_secs
