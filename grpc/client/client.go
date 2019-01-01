@@ -72,16 +72,16 @@ type Client struct {
 }
 
 type ConnectionOptions struct {
-	Host                string `yaml:"host,omitempty"`
-	Port                string `yaml:"port,omitempty"`
-	User                string `yaml:"user,omitempty"`
-	Password            string `yaml:"password,omitempty"`
-	AuthDB              string `yaml:"authdb,omitempty"`
-	ReplicasetName      string `yaml:"replicaset_name,omitempty"`
+	Host                string `yaml:"host,omitempty" kingpin:"mongodb-host"`
+	Port                string `yaml:"port,omitempty" kingpin:"mongodb-port"`
+	User                string `yaml:"user,omitempty" kingpin:"mongodb-user"`
+	Password            string `yaml:"password,omitempty" kingpin:"mongodb-password"`
+	AuthDB              string `yaml:"authdb,omitempty" kingpin:"mongodb-authdb"`
+	ReplicasetName      string `yaml:"replicaset_name,omitempty" kingpin:"mongodb-replicaset"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
-	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty"`
-	ReconnectCount      int    `yaml:"reconnect_count,omitempty"` // 0: forever
+	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty" kingpin:"mongodb-reconnect-delay"`
+	ReconnectCount      int    `yaml:"reconnect_count,omitempty" kingpin:"mongodb-reconnect-count"` // 0: forever
 }
 
 // Struct holding ssl-related options

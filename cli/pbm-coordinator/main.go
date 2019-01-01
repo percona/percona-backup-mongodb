@@ -2,13 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
-	"os/user"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,16 +12,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
+	"github.com/percona/percona-backup-mongodb/internal/utils"
 	apipb "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
-	yaml "gopkg.in/yaml.v2"
 
-	_ "github.com/un000/grpc-snappy"
 	_ "google.golang.org/grpc/encoding/gzip"
 )
 
@@ -40,19 +34,19 @@ type cliOptions struct {
 	cmd        string
 	configFile string
 	//
-	WorkDir              string `yaml:"work_dir"`
-	LogFile              string `yaml:"log_file"`
-	Debug                bool   `yaml:"debug"`
-	UseSysLog            bool   `yaml:"sys_log_url"`
-	APIBindIP            string `yaml:"api_bindip"`
-	APIPort              int    `yaml:"api_port"`
-	GrpcBindIP           string `yaml:"grpc_bindip"`
-	GrpcPort             int    `yaml:"grpc_port"`
-	TLS                  bool   `yaml:"tls"`
-	TLSCertFile          string `yaml:"tls_cert_file"`
-	TLSKeyFile           string `yaml:"tls_key_file"`
-	EnableClientsLogging bool   `yaml:"enable_clients_logging"`
-	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
+	WorkDir              string `yaml:"work_dir" kingpin:"work-dir"`
+	LogFile              string `yaml:"log_file" kingpin:"log-file"`
+	Debug                bool   `yaml:"debug" kingpin:"debug"`
+	UseSysLog            bool   `yaml:"sys_log_url" kingpin:"syslog-url"`
+	APIBindIP            string `yaml:"api_bindip" kingpin:"api-bindip"`
+	APIPort              int    `yaml:"api_port" kingpin:"api-port"`
+	GrpcBindIP           string `yaml:"grpc_bindip" kingpin:"grpc-bindip"`
+	GrpcPort             int    `yaml:"grpc_port" kingpin:"grpc-port"`
+	TLS                  bool   `yaml:"tls" kingpin:"tls"`
+	TLSCertFile          string `yaml:"tls_cert_file" kingpin:"tls-cert-file"`
+	TLSKeyFile           string `yaml:"tls_key_file" kingpin:"tls-key-file"`
+	EnableClientsLogging bool   `yaml:"enable_clients_logging" kingpin:"enable-clients-logging"`
+	ShutdownTimeout      int    `yaml:"shutdown_timeout" kingpin:"shutdown-timeout"`
 }
 
 const (
@@ -69,7 +63,7 @@ var (
 )
 
 func main() {
-	opts, err := processCliParams()
+	opts, err := processCliParams(os.Args[1:])
 	if err != nil {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
@@ -169,16 +163,22 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 	}()
 }
 
-func processCliParams() (*cliOptions, error) {
+func processCliParams(args []string) (*cliOptions, error) {
 	var err error
 	app := kingpin.New("pbm-coordinator", "Percona Backup for MongoDB coordinator")
 	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	opts := &cliOptions{
-		app: app,
+		app:                  app,
+		GrpcPort:             defaultGrpcPort,
+		APIPort:              defaultAPIPort,
+		EnableClientsLogging: defaultClientsLogging,
+		ShutdownTimeout:      defaultShutdownTimeout,
+		Debug:                defaultDebugMode,
+		WorkDir:              defaultWorkDir,
 	}
 
-	app.Flag("config-file", "Config file").Default("config.yml").Short('c').StringVar(&opts.configFile)
+	app.Flag("config-file", "Config file").Default().Short('c').StringVar(&opts.configFile)
 	app.Flag("work-dir", "Working directory for backup metadata").Short('d').StringVar(&opts.WorkDir)
 	app.Flag("log-file", "Write logs to file").Short('l').StringVar(&opts.LogFile)
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
@@ -195,31 +195,31 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("tls-cert-file", "Cert file for gRPC client connections").StringVar(&opts.TLSCertFile)
 	app.Flag("tls-key-file", "Key file for gRPC client connections").StringVar(&opts.TLSKeyFile)
 
-	opts.cmd, err = app.DefaultEnvars().Parse(os.Args[1:])
+	app.PreAction(func(c *kingpin.ParseContext) error {
+		if opts.configFile == "" {
+			fn := utils.Expand("~/.percona-backup-mongodb.yaml")
+			if _, err := os.Stat(fn); err != nil {
+				return nil
+			} else {
+				opts.configFile = fn
+			}
+		}
+		return utils.LoadOptionsFromFile(opts.configFile, c, opts)
+	})
+
+	opts.cmd, err = app.DefaultEnvars().Parse(args)
 	if err != nil {
 		return nil, err
 	}
 
-	yamlOpts := &cliOptions{
-		GrpcPort:             defaultGrpcPort,
-		APIPort:              defaultAPIPort,
-		ShutdownTimeout:      defaultShutdownTimeout,
-		Debug:                defaultDebugMode,
-		WorkDir:              defaultWorkDir,
-		EnableClientsLogging: defaultClientsLogging,
-	}
-	if opts.configFile != "" {
-		loadOptionsFromFile(expandHomeDir(opts.configFile), yamlOpts)
-	}
+	opts.WorkDir = utils.Expand(opts.WorkDir)
+	opts.TLSCertFile = utils.Expand(opts.TLSCertFile)
+	opts.TLSKeyFile = utils.Expand(opts.TLSKeyFile)
 
-	mergeOptions(opts, yamlOpts)
-	expandDirs(yamlOpts)
-	// Return yamlOpts instead of opts because it has the defaults + the command line parameters
-	// we want to overwrite
-	if err = checkWorkDir(yamlOpts.WorkDir); err != nil {
+	if err = checkWorkDir(opts.WorkDir); err != nil {
 		return nil, err
 	}
-	return yamlOpts, err
+	return opts, err
 }
 
 func checkWorkDir(dir string) error {
@@ -232,69 +232,4 @@ func checkWorkDir(dir string) error {
 		return fmt.Errorf("Cannot use %s for backups metadata. It is not a directory", dir)
 	}
 	return err
-}
-
-func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filepath.Clean(filename))
-	if err != nil {
-		return errors.Wrap(err, "cannot load configuration from file")
-	}
-	if err = yaml.Unmarshal(buf, opts); err != nil {
-		return errors.Wrapf(err, "cannot unmarshal yaml file %s", filename)
-	}
-	return nil
-}
-
-func mergeOptions(opts, yamlOpts *cliOptions) {
-	if opts.TLS != false {
-		yamlOpts.TLS = opts.TLS
-	}
-	if opts.WorkDir != "" {
-		yamlOpts.WorkDir = opts.WorkDir
-	}
-	if opts.TLSCertFile != "" {
-		yamlOpts.TLSCertFile = opts.TLSCertFile
-	}
-	if opts.TLSKeyFile != "" {
-		yamlOpts.TLSKeyFile = opts.TLSKeyFile
-	}
-	if opts.GrpcPort != 0 {
-		yamlOpts.GrpcPort = opts.GrpcPort
-	}
-	if opts.APIPort != 0 {
-		yamlOpts.APIPort = opts.APIPort
-	}
-	if opts.ShutdownTimeout != 0 {
-		yamlOpts.ShutdownTimeout = opts.ShutdownTimeout
-	}
-	if opts.EnableClientsLogging != false {
-		yamlOpts.EnableClientsLogging = opts.EnableClientsLogging
-	}
-	if opts.UseSysLog == true {
-		yamlOpts.UseSysLog = true
-	}
-	if opts.Debug != false {
-		yamlOpts.Debug = opts.Debug
-	}
-}
-
-func expandDirs(opts *cliOptions) {
-	opts.WorkDir = expandHomeDir(opts.WorkDir)
-	opts.TLSCertFile = expandHomeDir(opts.TLSCertFile)
-	opts.TLSKeyFile = expandHomeDir(opts.TLSKeyFile)
-}
-
-func expandHomeDir(path string) string {
-	dir := os.Getenv("HOME")
-	usr, err := user.Current()
-	if err == nil {
-		dir = usr.HomeDir
-	}
-	if path == "~" {
-		return dir
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(dir, path[2:])
-	}
-	return path
 }
