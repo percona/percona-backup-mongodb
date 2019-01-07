@@ -116,25 +116,30 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	sources := make(map[string]restoreSource)
-	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
-			continue
-		}
-		resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, bm.DestinationName)
-		if err != nil {
-			continue
-		}
-		_, ok := sources[resp.Replicaset]
-		if !ok {
-			sources[resp.Replicaset] = restoreSource{
-				Client: s.getClientByID(resp.ClientId),
+	for replicasetName, replicasetMetaData := range bm.Replicasets {
+		for _, client := range s.clients {
+			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+				continue
 			}
-		}
-		if resp.IsPrimary {
-			s, _ := sources[resp.Replicaset]
-			s.Host = resp.Host
-			s.Port = resp.Port
-			sources[resp.Replicaset] = s
+			if client.ReplicasetName != replicasetName {
+				continue
+			}
+			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName)
+			if err != nil {
+				continue
+			}
+			_, ok := sources[resp.Replicaset]
+			if !ok {
+				sources[resp.Replicaset] = restoreSource{
+					Client: s.getClientByID(resp.ClientId),
+				}
+			}
+			if resp.IsPrimary {
+				s, _ := sources[resp.Replicaset]
+				s.Host = resp.Host
+				s.Port = resp.Port
+				sources[resp.Replicaset] = s
+			}
 		}
 	}
 	return sources, nil
@@ -331,7 +336,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 		s.replicasRunningBackup[replName] = true
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
-				source.Client.restoreBackup(&pb.RestoreBackup{
+				msg := &pb.RestoreBackup{
 					BackupType:        bm.BackupType,
 					SourceType:        bm.DestinationType,
 					SourceBucket:      bm.DestinationDir,
@@ -342,7 +347,8 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					SkipUsersAndRoles: skipUsersAndRoles,
 					Host:              source.Host,
 					Port:              source.Port,
-				})
+				}
+				source.Client.restoreBackup(msg)
 			}
 		}
 	}
@@ -655,8 +661,8 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.RestoreCompletedAck, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	//s.lock.Lock()
+	//defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())

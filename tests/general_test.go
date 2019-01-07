@@ -5,22 +5,21 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net"
+	"math/rand"
 	"os"
 	"path"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
+	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
@@ -36,8 +35,6 @@ var (
 	grpcServerShutdownTimeout = 30
 	keepS3Data                bool
 	keepLocalFiles            bool
-	bucket                    = "percona-backup-mongodb-test-s3-streamer"
-	filename                  = "percona-s3-streamer-test-file"
 )
 
 const (
@@ -89,6 +86,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	log.Debug("Getting list of connected clients")
 	clientsList := d.MessagesServer.Clients()
@@ -316,8 +314,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if int64(rs2AfterCount) < rs2BeforeCount {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
 	}
-
-	d.Stop()
 }
 
 func TestBackupToS3(t *testing.T) {
@@ -333,20 +329,16 @@ func TestBackupToS3(t *testing.T) {
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
 	diag("Staring AWS session")
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-east-2")},
-	)
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Skipf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
 
+	bucket := randomBucket()
 	diag("Creating S3 service client")
 	// Create S3 service client
 	svc := s3.New(sess)
 	diag("Checking if bucket %s exists", bucket)
-	if _, err := testutils.BucketExists(svc, bucket); err != nil {
-		t.Error(err)
-	}
 
 	exists, err := testutils.BucketExists(svc, bucket)
 	if err != nil {
@@ -361,6 +353,7 @@ func TestBackupToS3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
@@ -510,21 +503,18 @@ func TestBackupToS3(t *testing.T) {
 
 	// Clean up after testing
 	if !keepS3Data {
-		diag("Deleting file %q in %q bucket", filename, bucket)
-		if err = testutils.DeleteFile(svc, bucket, filename); err != nil {
-			t.Errorf("Cannot delete file %q from bucket %q: %s", filename, bucket, err)
+		diag("Deleting bucket %q", bucket)
+		if err = awsutils.EmptyBucket(svc, bucket); err != nil {
+			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
 		}
 
 		diag("Deleting bucket %q", bucket)
 		if err = testutils.DeleteBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q", bucket)
+			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
 		}
 	} else {
 		diag("Skipping deletion of %q bucket", bucket)
-		diag("Skipping deletion of %q file in %q bucket", filename, bucket)
 	}
-
-	d.Stop()
 }
 
 func TestClientDisconnect(t *testing.T) {
@@ -539,6 +529,7 @@ func TestClientDisconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
 	// Disconnect a client to check if the server detects the disconnection immediatelly
@@ -551,7 +542,6 @@ func TestClientDisconnect(t *testing.T) {
 	if clientsCount2 >= clientsCount1 {
 		t.Errorf("Invalid clients count. Want < %d, got %d", clientsCount1, clientsCount2)
 	}
-	d.Stop()
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {
@@ -566,6 +556,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
 		t.Errorf("Invalid number of connected agents: %s", err)
@@ -588,8 +579,6 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	if err := d.MessagesServer.StartBackup(&pb.StartBackup{}); err == nil {
 		t.Errorf("We manually disconnected agents from rs1. StartBackup/ValidateReplicasetAgents should return an error")
 	}
-
-	d.Stop()
 }
 
 func TestBackupSourceByReplicaset(t *testing.T) {
@@ -604,6 +593,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	bs, err := d.MessagesServer.BackupSourceByReplicaset()
 	if err != nil {
@@ -635,7 +625,6 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
-	d.Stop()
 }
 
 // This test checks if statuses are being set correctly
@@ -654,10 +643,10 @@ func TestRunBackupTwice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	runBackup(t, d)
 	runBackup(t, d)
-	d.Stop()
 }
 
 func runBackup(t *testing.T, d *testGrpc.GrpcDaemon) {
@@ -719,6 +708,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
@@ -766,7 +756,6 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 
 	cleanupDBForRestore(t, s1Session)
-	d.Stop()
 }
 
 func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
@@ -838,35 +827,36 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 		}
 	}
 }
-func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
-	go func() {
-		err := grpcServer.Serve(lis)
-		if err != nil {
-			log.Printf("Cannot start agents gRPC server: %s", err)
-		}
-		log.Println("Stopping server " + lis.Addr().String())
-		wg.Done()
-	}()
 
-	go func() {
-		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
-		c := make(chan struct{})
-		go func() {
-			grpcServer.GracefulStop()
-			c <- struct{}{}
-		}()
-
-		// If after shutdownTimeout the server hasn't stop, just kill it.
-		select {
-		case <-c:
-			return
-		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
-			grpcServer.Stop()
-		}
-	}()
-}
+// func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
+// 	go func() {
+// 		err := grpcServer.Serve(lis)
+// 		if err != nil {
+// 			log.Printf("Cannot start agents gRPC server: %s", err)
+// 		}
+// 		log.Println("Stopping server " + lis.Addr().String())
+// 		wg.Done()
+// 	}()
+//
+// 	go func() {
+// 		<-stopChan
+// 		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
+// 		// Try to Gracefuly stop the gRPC server.
+// 		c := make(chan struct{})
+// 		go func() {
+// 			grpcServer.GracefulStop()
+// 			c <- struct{}{}
+// 		}()
+//
+// 		// If after shutdownTimeout the server hasn't stop, just kill it.
+// 		select {
+// 		case <-c:
+// 			return
+// 		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
+// 			grpcServer.Stop()
+// 		}
+// 	}()
+// }
 
 func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 	var grpcOpts []grpc.DialOption
@@ -899,4 +889,9 @@ func diag(params ...interface{}) {
 	if testing.Verbose() {
 		log.Printf(params[0].(string), params[1:]...)
 	}
+}
+
+func randomBucket() string {
+	rand.Seed(time.Now().UnixNano())
+	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
 }

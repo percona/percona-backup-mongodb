@@ -401,7 +401,9 @@ func (c *Client) processIncommingServerMessages() {
 			err = c.processCancelBackup()
 			//
 		case *pb.ServerMessage_RestoreBackupMsg:
-			c.processRestore(msg.GetRestoreBackupMsg())
+			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
+				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
+			}
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
 			c.processStopBalancer()
@@ -489,11 +491,15 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 
 func (c *Client) checkCanRestoreLocal(msg *pb.CanRestoreBackup) (bool, error) {
 	path := filepath.Join(c.backupDir, msg.GetDestinationDir(), msg.GetBackupName())
-	if _, err := os.Stat(path); err != nil {
+	fi, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
+	}
+	if fi.IsDir() || fi.Size() == 0 {
+		return false, fmt.Errorf("%v is a directory or the file size is 0", path)
 	}
 	return true, nil
 }
@@ -685,6 +691,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	if err := c.sendRestoreComplete(nil); err != nil {
 		return errors.Wrap(err, "cannot send backup completed message")
 	}
+
 	return nil
 }
 

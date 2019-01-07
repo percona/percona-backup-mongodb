@@ -238,6 +238,7 @@ func (ot *OplogTail) tail() {
 			if ot.stopAtTimestampt != 0 {
 				iter.Close()
 				ot.lock.Unlock()
+				close(ot.readerStopChan)
 				return
 			}
 			ot.lock.Unlock()

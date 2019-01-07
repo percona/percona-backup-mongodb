@@ -69,7 +69,7 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	// Start the grpc server
 	d.msgListener, err = net.Listen("tcp", fmt.Sprintf("localhost:%s", TEST_GRPC_MESSAGES_PORT))
 	if err != nil {
-		return nil, fmt.Errorf("cannot listen on port %s for the gRPC messages server", TEST_GRPC_MESSAGES_PORT)
+		return nil, fmt.Errorf("cannot listen on port %s for the gRPC messages server, %s", TEST_GRPC_MESSAGES_PORT, err)
 	}
 
 	d.ctx, d.cancelFunc = context.WithCancel(ctx)
@@ -85,7 +85,7 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	//
 	d.apiListener, err = net.Listen("tcp", fmt.Sprintf("localhost:%s", TEST_GRPC_API_PORT))
 	if err != nil {
-		return nil, fmt.Errorf("cannot listen on port %s for the gRPC API server", TEST_GRPC_API_PORT)
+		return nil, fmt.Errorf("cannot listen on port %s for the gRPC API server, %s", TEST_GRPC_API_PORT, err)
 	}
 
 	// This is the server gRPC API
@@ -182,6 +182,7 @@ func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.S
 		}
 		d.logger.Println("Stopping server " + lis.Addr().String())
 		wg.Done()
+		fmt.Printf("Stopped server at %s\n", lis.Addr().String())
 	}()
 
 	go func() {

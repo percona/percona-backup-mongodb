@@ -2,9 +2,11 @@ package writer
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,7 +92,8 @@ func TestWriteToLocalFs(t *testing.T) {
 }
 
 func TestUploadToS3(t *testing.T) {
-	bucket := "percona-backup-mongodb-test-s3-streamer"
+	rand.Seed(time.Now().UnixNano())
+	bucket := fmt.Sprintf("percona-backup-mongodb-test-s3-%05d", rand.Int63n(99999))
 	filename := "percona-s3-test.oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
