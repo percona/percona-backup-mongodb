@@ -71,6 +71,8 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 
 Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions. This architecture model was chosen to provide maximum scalability/flexibility.
 
+![MongoDB Replica Set](mongodb-replica-set.png)
+
 ## Coordinator
 
 The backup coordinator is a daemon that handles communication with backup agents and the backup control program.
