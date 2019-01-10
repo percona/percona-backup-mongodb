@@ -49,10 +49,11 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 - [x] Sharded Cluster Backup
     - [x] Pausing of balancer at backup-time
 - [x] Command-line management utility
-- [ ] Dockerhub images
-- [ ] Compression
+- [x] Compression
     - [x] Agent and CLI RPC communications
-    - [ ] Backup data
+    - [x] Backup data - Gzip
+    - [ ] Backup data - LZ4 and Snappy
+- [ ] Dockerhub images
 - [ ] Authorization of Agents and CLI
 - [ ] Encryption of backup data
 - [ ] Support for MongoDB SSL/TLS connections
