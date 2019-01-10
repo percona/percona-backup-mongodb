@@ -17,8 +17,12 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
         1. [Running pbmctl commands](#running-pbmctl-commands)
             1. [Command Examples](#command-examples)
 1. [Requirements](#requirements)
-1. [Building](#building)
-    1. [Unit Tests](#unit-tests)
+1. [Installing](#installing)
+    1. [CentOS/RedHat](#centosredhat)
+    1. [Debian/Ubuntu](#debianubuntu)
+    1. [Mac OSX](#mac-osx)
+    1. [From Source](#from-source)
+        1. [Unit Tests](#unit-tests)
 1. [Docker](#docker)
     1. [Build Docker images](#build-docker-images)
     1. [Run Docker containers](#run-docker-containers)
@@ -206,7 +210,36 @@ $ pbmctl run restore 2018-12-18T19:04:14Z.json
 1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
     1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
 
-# Building
+# Installing
+
+Releases include RPM/Debian-based packages *(recommended)* and binary tarballs. The packages contain all 3 x Percona Backup for MongoDB binaries.
+
+## CentOS/RedHat
+*Note: replace 'v0.2.0' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+```
+$ rpm -Uvh https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.rpm
+Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.rpm
+Preparing...                          ################################# [100%]
+Updating / installing...
+   1:percona-backup-mongodb-0.2.0-1   ################################# [100%]
+```
+
+## Debian/Ubuntu
+*Note: replace 'v0.2.0' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+```
+$ wget -q https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.deb
+$ dpkg -i percona-backup-mongodb_0.2.0_linux_amd64.deb                   
+Selecting previously unselected package percona-backup-mongodb.
+(Reading database ... 6977 files and directories currently installed.)
+Preparing to unpack percona-backup-mongodb_0.2.0_linux_amd64.deb ...
+Unpacking percona-backup-mongodb (0.2.0) ...
+Setting up percona-backup-mongodb (0.2.0) ...
+```
+
+## Mac OSX
+Use *'darwin'* binary tarballs from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)
+
+## From Source
 
 Building the project requires:
 1. Go 1.11 or above
@@ -225,7 +258,7 @@ A successful build outputs binaries:
 1. **pbm-agent**: An agent that executes backup/restore actions on a database host
 1. **pbm-coordinator**: A server that coordinates backup system actions
 
-## Unit Tests
+### Unit Tests
 
 The testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
 
