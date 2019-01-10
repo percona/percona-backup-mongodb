@@ -34,7 +34,6 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
             1. [Start Agent](#start-agent)
             1. [View Agent logs](#view-agent-logs)
             1. [Stop Agent](#stop-agent)
-1. [Contributing](#contributing)
 1. [Submit Bug Report / Feature Request](#submit-bug-report--feature-request)
 1. [Contact](#contact)
 
@@ -341,10 +340,6 @@ $ docker logs mongodb-backup-agent
 ```
 $ docker stop mongodb-backup-agent
 ```
-
-# Contributing
-
-TBD
 
 # Submit Bug Report / Feature Request
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).
