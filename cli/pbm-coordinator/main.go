@@ -65,7 +65,8 @@ const (
 )
 
 var (
-	log = logrus.New()
+	log     = logrus.New()
+	program = filepath.Base(os.Args[0])
 )
 
 func main() {
@@ -108,6 +109,8 @@ func main() {
 		}
 		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
 	}
+
+	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
 
 	stopChan := make(chan interface{})
 	wg := &sync.WaitGroup{}
