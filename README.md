@@ -23,7 +23,6 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
     1. [Mac OSX](#mac-osx)
     1. [From Source](#from-source)
         1. [Unit Tests](#unit-tests)
-1. [Installing](#installing)
 1. [Docker](#docker)
     1. [Build Docker images](#build-docker-images)
     1. [Run Docker containers](#run-docker-containers)
