@@ -222,12 +222,6 @@ Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v
 Preparing...                          ################################# [100%]
 Updating / installing...
    1:percona-backup-mongodb-0.2.0-1   ################################# [100%]
-$ pbmctl --version
-pbmctl version 0.2.0, git commit 1278dbc3e2afd0d0a7524aa52cda53230000accb
-$ pbm-agent --version
-pbm-agent version 0.2.0, git commit 1278dbc3e2afd0d0a7524aa52cda53230000accb
-$ pbm-coordinator --version
-pbm-coordinator version 0.2.0, git commit 1278dbc3e2afd0d0a7524aa52cda53230000accb
 ```
 
 ## Debian/Ubuntu
@@ -243,7 +237,7 @@ Setting up percona-backup-mongodb (0.2.0) ...
 ```
 
 ## Mac OSX
-Use binary tarballs from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)
+Use *'darwin'* binary tarballs from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)
 
 ## From Source
 
