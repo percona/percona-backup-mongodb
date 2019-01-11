@@ -283,6 +283,8 @@ func (c *Client) ping() error {
 	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
 	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
 	c.isTailing = pongMsg.GetIsTailing()
+	c.isPrimary = pongMsg.GetIsPrimary()
+	c.isSecondary = pongMsg.GetIsSecondary()
 	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
 	c.statusLock.Unlock()
 
