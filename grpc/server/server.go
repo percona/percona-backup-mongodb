@@ -27,12 +27,13 @@ type MessagesServer struct {
 	lock     *sync.Mutex
 	clients  map[string]*Client
 	// Current backup status
-	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
-	lastOplogTs           int64           // Timestamp in Unix format
-	backupRunning         bool
-	oplogBackupRunning    bool
-	restoreRunning        bool
-	err                   error
+	clientsRefreshInterval time.Duration
+	replicasRunningBackup  map[string]bool // Key is ReplicasetUUID
+	lastOplogTs            int64           // Timestamp in Unix format
+	backupRunning          bool
+	oplogBackupRunning     bool
+	restoreRunning         bool
+	err                    error
 	//
 	workDir               string
 	clientLoggingEnabled  bool
@@ -51,18 +52,18 @@ type restoreSource struct {
 	Port   string
 }
 
-func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, logger)
+func NewMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
 	return messagesServer
 }
 
-func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, logger)
+func NewMessagesServerWithClientLogging(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
 	messagesServer.clientLoggingEnabled = true
 	return messagesServer
 }
 
-func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
+func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -77,20 +78,41 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	}
 
 	messagesServer := &MessagesServer{
-		lock:                  &sync.Mutex{},
-		clients:               make(map[string]*Client),
-		clientDisconnetedChan: make(chan string),
-		stopChan:              make(chan struct{}),
-		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:    bfc,
-		oplogBackupFinishChan: ofc,
-		restoreFinishChan:     rbf,
-		replicasRunningBackup: make(map[string]bool),
-		workDir:               workDir,
-		logger:                logger,
+		lock:                   &sync.Mutex{},
+		clients:                make(map[string]*Client),
+		clientDisconnetedChan:  make(chan string),
+		clientsRefreshInterval: time.Duration(clientsRefreshSecs) * time.Second,
+		stopChan:               make(chan struct{}),
+		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
+		dbBackupFinishChan:     bfc,
+		oplogBackupFinishChan:  ofc,
+		restoreFinishChan:      rbf,
+		replicasRunningBackup:  make(map[string]bool),
+		workDir:                workDir,
+		logger:                 logger,
 	}
 
+	go messagesServer.refreshClientsScheduler()
+
 	return messagesServer
+}
+
+func (s *MessagesServer) refreshClientsScheduler() {
+	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
+	ticker := time.NewTicker(s.clientsRefreshInterval)
+	for {
+		select {
+		case <-s.stopChan:
+			s.logger.Debug("Stopping clients background refresher")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			err := s.RefreshClients()
+			if err != nil {
+				s.logger.Errorf(err.Error())
+			}
+		}
+	}
 }
 
 func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
@@ -387,6 +409,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	ext := getFileExtension(pb.CompressionType(opts.CompressionType), pb.Cypher(opts.Cypher))
 
 	s.lastBackupMetadata = NewBackupMetadata(opts)
+
+	if err := s.RefreshClients(); err != nil {
+		return errors.Wrapf(err, "cannot refresh clients state for backup")
+	}
 
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {

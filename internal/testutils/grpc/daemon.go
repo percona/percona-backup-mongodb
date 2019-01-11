@@ -75,7 +75,7 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	d.ctx, d.cancelFunc = context.WithCancel(ctx)
 	// This is the sever/agents gRPC server
 	d.grpcServer4Clients = grpc.NewServer(opts...)
-	d.MessagesServer = server.NewMessagesServer(workDir, logger)
+	d.MessagesServer = server.NewMessagesServer(workDir, 60, logger)
 	pb.RegisterMessagesServer(d.grpcServer4Clients, d.MessagesServer)
 
 	d.wg.Add(1)

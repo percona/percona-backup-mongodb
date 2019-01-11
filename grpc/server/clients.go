@@ -279,10 +279,13 @@ func (c *Client) ping() error {
 	}
 	pongMsg := msg.GetPongMsg()
 	c.statusLock.Lock()
+	c.LastSeen = time.Now()
 	c.NodeType = pongMsg.GetNodeType()
 	c.ReplicasetUUID = pongMsg.GetReplicaSetUuid()
 	c.ReplicasetVersion = pongMsg.GetReplicaSetVersion()
 	c.isTailing = pongMsg.GetIsTailing()
+	c.isPrimary = pongMsg.GetIsPrimary()
+	c.isSecondary = pongMsg.GetIsSecondary()
 	c.lastTailedTimestamp = pongMsg.GetLastTailedTimestamp()
 	c.statusLock.Unlock()
 

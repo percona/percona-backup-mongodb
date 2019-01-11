@@ -52,16 +52,18 @@ type cliOptions struct {
 	TLSCertFile          string `yaml:"tls_cert_file"`
 	TLSKeyFile           string `yaml:"tls_key_file"`
 	EnableClientsLogging bool   `yaml:"enable_clients_logging"`
+	ClientsRefreshSecs   int    `yaml:"clients_refresh_secs"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout"`
 }
 
 const (
-	defaultGrpcPort        = 10000
-	defaultAPIPort         = 10001
-	defaultShutdownTimeout = 5 // Seconds
-	defaultClientsLogging  = true
-	defaultDebugMode       = false
-	defaultWorkDir         = "~/percona-backup-mongodb"
+	defaultGrpcPort           = 10000
+	defaultAPIPort            = 10001
+	defaultClientsRefreshSecs = 60 // Seconds
+	defaultShutdownTimeout    = 5  // Seconds
+	defaultClientsLogging     = true
+	defaultDebugMode          = false
+	defaultWorkDir            = "~/percona-backup-mongodb"
 )
 
 var (
@@ -118,9 +120,9 @@ func main() {
 	var messagesServer *server.MessagesServer
 	grpcServer := grpc.NewServer(grpcOpts...)
 	if opts.EnableClientsLogging {
-		messagesServer = server.NewMessagesServerWithClientLogging(opts.WorkDir, log)
+		messagesServer = server.NewMessagesServerWithClientLogging(opts.WorkDir, opts.ClientsRefreshSecs, log)
 	} else {
-		messagesServer = server.NewMessagesServer(opts.WorkDir, log)
+		messagesServer = server.NewMessagesServer(opts.WorkDir, opts.ClientsRefreshSecs, log)
 	}
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
@@ -194,6 +196,7 @@ func processCliParams() (*cliOptions, error) {
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
+	app.Flag("clients-refresh-secs", "Frequency in seconds to refresh state of clients").IntVar(&opts.ClientsRefreshSecs)
 	app.Flag("enable-clients-logging", "Enable showing logs coming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
 	//
@@ -212,6 +215,7 @@ func processCliParams() (*cliOptions, error) {
 		ShutdownTimeout:      defaultShutdownTimeout,
 		Debug:                defaultDebugMode,
 		WorkDir:              defaultWorkDir,
+		ClientsRefreshSecs:   defaultClientsRefreshSecs,
 		EnableClientsLogging: defaultClientsLogging,
 	}
 	if opts.configFile != "" {
@@ -272,6 +276,9 @@ func mergeOptions(opts, yamlOpts *cliOptions) {
 	}
 	if opts.ShutdownTimeout != 0 {
 		yamlOpts.ShutdownTimeout = opts.ShutdownTimeout
+	}
+	if opts.ClientsRefreshSecs != 0 {
+		yamlOpts.ClientsRefreshSecs = opts.ClientsRefreshSecs
 	}
 	if opts.EnableClientsLogging != false {
 		yamlOpts.EnableClientsLogging = opts.EnableClientsLogging
