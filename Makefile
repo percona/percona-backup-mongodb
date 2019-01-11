@@ -90,6 +90,7 @@ test: env vendor
 	go test -covermode=atomic -count 1 -race -timeout 2m $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
 test-cluster: env
+	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION) \
 	docker-compose up \
 	--detach \
 	--force-recreate \
