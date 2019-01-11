@@ -91,9 +91,9 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		workDir:                workDir,
 		logger:                 logger,
 	}
-
-	go messagesServer.refreshClientsScheduler()
-
+	if clientsRefreshSecs > 0 {
+		go messagesServer.refreshClientsScheduler()
+	}
 	return messagesServer
 }
 
