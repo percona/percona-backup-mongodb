@@ -27,12 +27,13 @@ type MessagesServer struct {
 	lock     *sync.Mutex
 	clients  map[string]*Client
 	// Current backup status
-	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
-	lastOplogTs           int64           // Timestamp in Unix format
-	backupRunning         bool
-	oplogBackupRunning    bool
-	restoreRunning        bool
-	err                   error
+	clientsRefreshInterval time.Duration
+	replicasRunningBackup  map[string]bool // Key is ReplicasetUUID
+	lastOplogTs            int64           // Timestamp in Unix format
+	backupRunning          bool
+	oplogBackupRunning     bool
+	restoreRunning         bool
+	err                    error
 	//
 	workDir               string
 	clientLoggingEnabled  bool
@@ -77,18 +78,21 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	}
 
 	messagesServer := &MessagesServer{
-		lock:                  &sync.Mutex{},
-		clients:               make(map[string]*Client),
-		clientDisconnetedChan: make(chan string),
-		stopChan:              make(chan struct{}),
-		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:    bfc,
-		oplogBackupFinishChan: ofc,
-		restoreFinishChan:     rbf,
-		replicasRunningBackup: make(map[string]bool),
-		workDir:               workDir,
-		logger:                logger,
+		lock:                   &sync.Mutex{},
+		clients:                make(map[string]*Client),
+		clientDisconnetedChan:  make(chan string),
+		clientsRefreshInterval: time.Minute,
+		stopChan:               make(chan struct{}),
+		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
+		dbBackupFinishChan:     bfc,
+		oplogBackupFinishChan:  ofc,
+		restoreFinishChan:      rbf,
+		replicasRunningBackup:  make(map[string]bool),
+		workDir:                workDir,
+		logger:                 logger,
 	}
+
+	go messagesServer.refreshClientsScheduler()
 
 	return messagesServer
 }
@@ -204,6 +208,24 @@ func (s *MessagesServer) RefreshClients() error {
 		}
 	}
 	return nil
+}
+
+func (s *MessagesServer) refreshClientsScheduler() {
+	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
+	ticker := time.NewTicker(s.clientsRefreshInterval)
+	for {
+		select {
+		case <-s.stopChan:
+			s.logger.Debug("Stopping clients background refresher")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			err := s.RefreshClients()
+			if err != nil {
+				s.logger.Errorf(err.Error())
+			}
+		}
+	}
 }
 
 // IsShardedSystem returns if a system is sharded.
