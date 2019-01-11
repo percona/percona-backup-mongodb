@@ -52,18 +52,18 @@ type restoreSource struct {
 	Port   string
 }
 
-func NewMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, logger)
+func NewMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
 	return messagesServer
 }
 
-func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, logger)
+func NewMessagesServerWithClientLogging(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
 	messagesServer.clientLoggingEnabled = true
 	return messagesServer
 }
 
-func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
+func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -81,7 +81,7 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		lock:                   &sync.Mutex{},
 		clients:                make(map[string]*Client),
 		clientDisconnetedChan:  make(chan string),
-		clientsRefreshInterval: time.Minute,
+		clientsRefreshInterval: time.Duration(clientsRefreshSecs) * time.Second,
 		stopChan:               make(chan struct{}),
 		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
 		dbBackupFinishChan:     bfc,
