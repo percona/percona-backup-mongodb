@@ -97,6 +97,24 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 	return messagesServer
 }
 
+func (s *MessagesServer) refreshClientsScheduler() {
+	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
+	ticker := time.NewTicker(s.clientsRefreshInterval)
+	for {
+		select {
+		case <-s.stopChan:
+			s.logger.Debug("Stopping clients background refresher")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			err := s.RefreshClients()
+			if err != nil {
+				s.logger.Errorf(err.Error())
+			}
+		}
+	}
+}
+
 func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -208,24 +226,6 @@ func (s *MessagesServer) RefreshClients() error {
 		}
 	}
 	return nil
-}
-
-func (s *MessagesServer) refreshClientsScheduler() {
-	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
-	ticker := time.NewTicker(s.clientsRefreshInterval)
-	for {
-		select {
-		case <-s.stopChan:
-			s.logger.Debug("Stopping clients background refresher")
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			err := s.RefreshClients()
-			if err != nil {
-				s.logger.Errorf(err.Error())
-			}
-		}
-	}
 }
 
 // IsShardedSystem returns if a system is sharded.
