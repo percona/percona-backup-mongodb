@@ -410,6 +410,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	s.lastBackupMetadata = NewBackupMetadata(opts)
 
+	if err := s.RefreshClients(); err != nil {
+		return errors.Wrapf(err, "cannot refresh clients state for backup")
+	}
+
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup. Cannot find backup source for replicas")
