@@ -214,25 +214,25 @@ $ pbmctl run restore 2018-12-18T19:04:14Z.json
 Releases include RPM/Debian-based packages *(recommended)* and binary tarballs. The packages contain all 3 x Percona Backup for MongoDB binaries.
 
 ## CentOS/RedHat
-*Note: replace 'v0.2.0' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+*Note: replace 'v0.2.1' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
 ```
-$ rpm -Uvh https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.rpm
-Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.rpm
+$ rpm -Uvh https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
+Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
 Preparing...                          ################################# [100%]
 Updating / installing...
-   1:percona-backup-mongodb-0.2.0-1   ################################# [100%]
+   1:percona-backup-mongodb-0.2.1-1   ################################# [100%]
 ```
 
 ## Debian/Ubuntu
-*Note: replace 'v0.2.0' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+*Note: replace 'v0.2.1' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
 ```
-$ wget -q https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.0/percona-backup-mongodb_0.2.0_linux_amd64.deb
-$ dpkg -i percona-backup-mongodb_0.2.0_linux_amd64.deb                   
+$ wget -q https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.deb
+$ dpkg -i percona-backup-mongodb_0.2.1_linux_amd64.deb                   
 Selecting previously unselected package percona-backup-mongodb.
 (Reading database ... 6977 files and directories currently installed.)
-Preparing to unpack percona-backup-mongodb_0.2.0_linux_amd64.deb ...
-Unpacking percona-backup-mongodb (0.2.0) ...
-Setting up percona-backup-mongodb (0.2.0) ...
+Preparing to unpack percona-backup-mongodb_0.2.1_linux_amd64.deb ...
+Unpacking percona-backup-mongodb (0.2.1) ...
+Setting up percona-backup-mongodb (0.2.1) ...
 ```
 
 ## Mac OSX
