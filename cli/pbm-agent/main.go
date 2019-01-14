@@ -239,7 +239,9 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		return nil, err
 	}
 
-	validateOptions(opts)
+	if err := validateOptions(opts); err != nil {
+		return nil, err
+	}
 	return opts, nil
 }
 
@@ -327,20 +329,4 @@ func writePidFile(pidFile string) error {
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
 	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
-}
-
-func getDefaultLogger() *logrus.Logger {
-	logger := &logrus.Logger{
-		Out: os.Stderr,
-		Formatter: &logrus.TextFormatter{
-			FullTimestamp:          true,
-			DisableLevelTruncation: true,
-		},
-		Hooks: make(logrus.LevelHooks),
-		Level: logrus.DebugLevel,
-	}
-	logger.SetLevel(logrus.StandardLogger().Level)
-	logger.Out = logrus.StandardLogger().Out
-
-	return logger
 }

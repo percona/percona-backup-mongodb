@@ -49,7 +49,7 @@ var (
 
 const (
 	defaultBackupType       = "logical"
-	defaultConfigFile       = "~/.pbmctl.yml"
+	defaultConfigFile       = "~/.percona-backup-mongodb.yaml"
 	defaultDestinationType  = "file"
 	defaultServerAddress    = "127.0.0.1:10001"
 	defaultServerCompressor = "gzip"
@@ -58,8 +58,6 @@ const (
 )
 
 type cliOptions struct {
-	app *kingpin.Application
-
 	TLS              bool   `yaml:"tls" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file" kingpin:"tls-ca-file"`
 	ServerAddress    string `yaml:"server_addr" kingpin:"server_addr"`
@@ -358,7 +356,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 
 	app.PreAction(func(c *kingpin.ParseContext) error {
 		if opts.configFile == "" {
-			fn := utils.Expand("~/.percona-backup-mongodb.yaml")
+			fn := utils.Expand(defaultConfigFile)
 			if _, err := os.Stat(fn); err != nil {
 				return nil
 			} else {
