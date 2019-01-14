@@ -51,6 +51,26 @@ func TestShardingStateClusterID(t *testing.T) {
 	if mongosClusterId.Hex() != s.ClusterID().Hex() {
 		t.Fatal("Shard and mongos cluster IDs did not match")
 	}
+
+	// check clusterId is not nil on configsvr
+	// https://jira.percona.com/projects/PBM/issues/PBM-132
+	cSSession, err := mgo.DialWithInfo(testutils.ConfigsvrReplsetDialInfo(t))
+	if err != nil {
+		t.Fatalf("Failed to get configsvr session: %v", err.Error())
+	}
+	defer cSSession.Close()
+
+	configSvrClusterId, err := GetClusterID(cSSession)
+	if err != nil {
+		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
+	}
+	if configSvrClusterId == nil || configSvrClusterId.Hex() == "" {
+		t.Fatal("Configsvr cluster ID should not be empty/nil")
+	}
+	if configSvrClusterId.Hex() != mongosClusterId.Hex() {
+		t.Fatalf("Mongos and configsvr cluster IDs did not match, got %q, expected %q", configSvrClusterId.Hex(), mongosClusterId.Hex())
+	}
+
 }
 
 func TestGetClusterID(t *testing.T) {
