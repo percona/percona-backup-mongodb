@@ -45,7 +45,7 @@ func TestShardingStateClusterID(t *testing.T) {
 
 	mongosClusterId, err := GetClusterID(mongosSession)
 	if err != nil {
-		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
+		t.Fatalf("Failed to run .GetClusterID() on mongos: %v", err.Error())
 	}
 
 	if mongosClusterId.Hex() != s.ClusterID().Hex() {
@@ -62,7 +62,7 @@ func TestShardingStateClusterID(t *testing.T) {
 
 	configSvrClusterId, err := GetClusterID(cSSession)
 	if err != nil {
-		t.Fatalf("Failed to run .GetClusterID(): %v", err.Error())
+		t.Fatalf("Failed to run .GetClusterID() on configsvr: %v", err.Error())
 	}
 	if configSvrClusterId == nil || configSvrClusterId.Hex() == "" {
 		t.Fatal("Configsvr cluster ID should not be empty/nil")
@@ -70,7 +70,6 @@ func TestShardingStateClusterID(t *testing.T) {
 	if configSvrClusterId.Hex() != mongosClusterId.Hex() {
 		t.Fatalf("Mongos and configsvr cluster IDs did not match, got %q, expected %q", configSvrClusterId.Hex(), mongosClusterId.Hex())
 	}
-
 }
 
 func TestGetClusterID(t *testing.T) {
