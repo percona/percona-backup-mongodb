@@ -35,6 +35,7 @@ const (
 
 var (
 	keepSamples bool
+	keepS3Data  bool
 	samplesDir  string
 )
 
@@ -56,6 +57,7 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepSamples, "keep-samples", false, "Keep generated bson files")
+	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Keep generated S3 data (buckets and files)")
 	flag.Parse()
 
 	// Get root repository path using Git
@@ -254,7 +256,8 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 }
 
 func TestUploadToS3Writer(t *testing.T) {
-	bucket := "percona-backup-mongodb-test-s3-streamer"
+	rand.Seed(time.Now().UTC().UnixNano())
+	bucket := fmt.Sprintf("percona-backup-mongodb-test-s3-%05d", rand.Int63n(99999))
 	filename := "percona-s3-streamer-test-file"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -269,7 +272,7 @@ func TestUploadToS3Writer(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(&aws.Config{})
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
@@ -281,7 +284,6 @@ func TestUploadToS3Writer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot check if bucket exists %s: %s", bucket, err)
 	}
-	fmt.Println("1")
 	if !exists {
 		_, err = svc.CreateBucket(&s3.CreateBucketInput{
 			Bucket: aws.String(bucket),
@@ -327,24 +329,52 @@ func TestUploadToS3Writer(t *testing.T) {
 	}
 	bw.Close()
 
-	// Check the file was really uploaded
-	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
-	if err != nil {
-		t.Errorf("Cannot list items in the S3 bucket %s: %s", bucket, err)
-		t.Fail()
-	}
-
 	fileExistsOnS3 := false
-	for _, item := range resp.Contents {
-		if *item.Key == filename {
-			fileExistsOnS3 = true
-			fmt.Printf("bucket %s, file %s\n", bucket, filename)
+	// retry 3 times because ListObjects can be slow to detect new files
+	for i := 0; i < 3 && !fileExistsOnS3; i++ {
+		resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
+		if err != nil {
+			t.Errorf("Cannot list items in the S3 bucket %s: %s", bucket, err)
+			t.Fail()
+		}
+
+		for _, item := range resp.Contents {
+			if *item.Key == filename {
+				fileExistsOnS3 = true
+				break
+			}
+		}
+		if fileExistsOnS3 {
 			break
 		}
+		time.Sleep(30 * time.Second)
 	}
 	if !fileExistsOnS3 {
 		t.Errorf("File %s doesn't exists on the %s S3 bucket", filename, bucket)
 		t.Fail()
+	}
+
+	if !keepS3Data {
+		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
+			t.Errorf("Cannot empty bucket %q: %s", bucket, err)
+		}
+		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to delete bucket %q, %v", bucket, err)
+		}
+
+		// Wait until bucket is deleted before finishing
+		fmt.Printf("Waiting for bucket %q to be deleted...\n", bucket)
+
+		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+
+		if err != nil {
+			t.Errorf("Error occurred while waiting for bucket to be deleted, %s", bucket)
+		}
 	}
 }
 
@@ -352,9 +382,9 @@ func TestUploadToS3Writer(t *testing.T) {
 // That's why we are only running the tailer for just 1 second.
 // The correct way to send a complete oplog tail is using an S3 streamer.
 func TestUploadOplogToS3(t *testing.T) {
-	//if os.Getenv("DISABLE_AWS_TESTS") == "1" {
-	t.Skip("Env var DISABLE_AWS_TESTS=1. Skipping this test")
-	//}
+	if os.Getenv("DISABLE_AWS_TESTS") == "1" {
+		t.Skip("Env var DISABLE_AWS_TESTS=1. Skipping this test")
+	}
 	bucket := fmt.Sprintf("percona-backup-mongodb-test-%05d", rand.Int63n(100000))
 	filename := "percona-backup-mongodb-oplog"
 
@@ -367,9 +397,7 @@ func TestUploadOplogToS3(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-east-2")},
-	)
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Skipf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
@@ -377,23 +405,26 @@ func TestUploadOplogToS3(t *testing.T) {
 	// Create S3 service client
 	svc := s3.New(sess)
 
-	_, err = svc.CreateBucket(&s3.CreateBucketInput{
-		Bucket: aws.String(bucket),
-	})
+	exists, err := awsutils.BucketExists(svc, bucket)
 	if err != nil {
-		t.Errorf("Unable to create bucket %q, %v", bucket, err)
-		t.Fail()
+		t.Fatalf("Cannot check if bucket exists %s: %s", bucket, err)
 	}
+	if !exists {
+		_, err = svc.CreateBucket(&s3.CreateBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to create bucket %q, %v", bucket, err)
+			t.Fail()
+		}
 
-	// Wait until bucket is created
-	fmt.Printf("Waiting for bucket %q to be created...\n", bucket)
-
-	err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
-		Bucket: aws.String(bucket),
-	})
-	if err != nil {
-		t.Errorf("Error while waiting the S3 bucket to be created: %s", err)
-		t.Fail()
+		err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Error while waiting the S3 bucket to be created: %s", err)
+			t.Fail()
+		}
 	}
 
 	// Start tailing the oplog
@@ -472,9 +503,10 @@ func TestUploadOplogToS3(t *testing.T) {
 
 func TestReadIntoSmallBuffer(t *testing.T) {
 	ot := &OplogTail{
-		dataChan: make(chan chanDataTye, 1),
-		stopChan: make(chan bool),
-		running:  true,
+		dataChan:       make(chan chanDataTye, 1),
+		stopChan:       make(chan bool),
+		readerStopChan: make(chan bool),
+		running:        true,
 	}
 	ot.readFunc = makeReader(ot)
 
@@ -488,7 +520,7 @@ func TestReadIntoSmallBuffer(t *testing.T) {
 	// the idea is to also test the reader sends the EOF error correctly.
 	go func() {
 		time.Sleep(100 * time.Millisecond) // dataChan is buffered so <- is not immediate
-		close(ot.stopChan)
+		close(ot.readerStopChan)
 	}()
 
 	result := []byte{}

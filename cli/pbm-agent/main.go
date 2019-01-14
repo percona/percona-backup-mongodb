@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,19 +18,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
 	"github.com/percona/percona-backup-mongodb/internal/loghook"
+	"github.com/percona/percona-backup-mongodb/internal/utils"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding/gzip"
 	yaml "gopkg.in/yaml.v2"
-)
-
-// vars are set by goreleaser
-var (
-	version = "dev"
-	commit  = "none"
 )
 
 type cliOptions struct {
@@ -39,19 +32,19 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	BackupDir        string `yaml:"backup_dir"`
-	DSN              string `yaml:"dsn,omitempty"`
-	Debug            bool   `yaml:"debug,omitempty"`
-	LogFile          string `yaml:"log_file,omitempty"`
-	PIDFile          string `yaml:"pid_file,omitempty"`
-	Quiet            bool   `yaml:"quiet,omitempty"`
-	ServerAddress    string `yaml:"server_address"`
-	ServerCompressor string `yaml:"server_compressor"`
-	TLS              bool   `yaml:"tls,omitempty"`
-	TLSCAFile        string `yaml:"tls_ca_file,omitempty"`
-	TLSCertFile      string `yaml:"tls_cert_file,omitempty"`
-	TLSKeyFile       string `yaml:"tls_key_file,omitempty"`
-	UseSysLog        bool   `yaml:"use_syslog,omitempty"`
+	BackupDir        string `yaml:"backup_dir" kingpin:"backup-dir"`
+	DSN              string `yaml:"dsn,omitempty" kingpin:"dsn"`
+	Debug            bool   `yaml:"debug,omitempty" kingpin:"debug"`
+	LogFile          string `yaml:"log_file,omitempty" kingpin:"log-file"`
+	PIDFile          string `yaml:"pid_file,omitempty" kingpin:"pid-file"`
+	Quiet            bool   `yaml:"quiet,omitempty" kingpin:"quiet"`
+	ServerAddress    string `yaml:"server_address" kingping:"server-address"`
+	ServerCompressor string `yaml:"server_compressor" kingpin:"server-compressor"`
+	TLS              bool   `yaml:"tls,omitempty" kingpin:"tls"`
+	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
+	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
+	TLSKeyFile       string `yaml:"tls_key_file,omitempty" kingpin:"tls-key-file"`
+	UseSysLog        bool   `yaml:"use_syslog,omitempty" kingpin:"use-syslog"`
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options,omitempty"`
@@ -68,17 +61,19 @@ const (
 )
 
 var (
+	version         = "dev"
+	commit          = "none"
 	log             = logrus.New()
 	program         = filepath.Base(os.Args[0])
 	grpcCompressors = []string{
-		snappy.Name,
+		"snappy",
 		gzip.Name,
 		"none",
 	}
 )
 
 func main() {
-	opts, err := processCliArgs()
+	opts, err := processCliArgs(os.Args[1:])
 	if err != nil {
 		log.Fatalf("Cannot parse command line arguments: %s", err)
 	}
@@ -188,69 +183,75 @@ func main() {
 	client.Stop()
 }
 
-func processCliArgs() (*cliOptions, error) {
+func processCliArgs(args []string) (*cliOptions, error) {
 	app := kingpin.New("pbm-agent", "Percona Backup for MongoDB agent")
 	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
 
 	opts := &cliOptions{
-		app: app,
+		app:           app,
+		ServerAddress: defaultServerAddress,
+		MongodbConnOptions: client.ConnectionOptions{
+			Host: defaultMongoDBHost,
+			Port: defaultMongoDBPort,
+		},
 	}
-	app.Flag("config-file", "Backup agent config file").Default("config.yml").Short('c').StringVar(&opts.configFile)
+
+	app.Flag("config-file", "Backup agent config file").Short('c').StringVar(&opts.configFile)
 	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
-	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Default("/tmp").Short('d').StringVar(&opts.BackupDir)
+	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Short('d').StringVar(&opts.BackupDir)
 	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("log-file", "Backup agent log file").Short('l').StringVar(&opts.LogFile)
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	app.Flag("quiet", "Quiet mode. Log only errors").Short('q').BoolVar(&opts.Quiet)
 	//
-	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
-	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-address", "Backup coordinator address (host:port)").Short('s').StringVar(&opts.ServerAddress)
+	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Use TLS for server connection").BoolVar(&opts.TLS)
 	app.Flag("tls-cert-file", "TLS certificate file").ExistingFileVar(&opts.TLSCertFile)
 	app.Flag("tls-key-file", "TLS key file").ExistingFileVar(&opts.TLSKeyFile)
 	app.Flag("tls-ca-file", "TLS CA file").ExistingFileVar(&opts.TLSCAFile)
 	//
 	app.Flag("mongodb-dsn", "MongoDB connection string").StringVar(&opts.DSN)
-	app.Flag("mongodb-host", "MongoDB hostname").Default(defaultMongoDBHost).Short('H').StringVar(&opts.MongodbConnOptions.Host)
-	app.Flag("mongodb-port", "MongoDB port").Default(defaultMongoDBPort).Short('P').StringVar(&opts.MongodbConnOptions.Port)
+	app.Flag("mongodb-host", "MongoDB hostname").Short('H').StringVar(&opts.MongodbConnOptions.Host)
+	app.Flag("mongodb-port", "MongoDB port").Short('P').StringVar(&opts.MongodbConnOptions.Port)
 	app.Flag("mongodb-username", "MongoDB username").Short('u').StringVar(&opts.MongodbConnOptions.User)
 	app.Flag("mongodb-password", "MongoDB password").Short('p').StringVar(&opts.MongodbConnOptions.Password)
-	app.Flag("mongodb-authdb", "MongoDB authentication database").Default("admin").StringVar(&opts.MongodbConnOptions.AuthDB)
+	app.Flag("mongodb-authdb", "MongoDB authentication database").StringVar(&opts.MongodbConnOptions.AuthDB)
 	app.Flag("mongodb-replicaset", "MongoDB Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
-	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("30").IntVar(&opts.MongodbConnOptions.ReconnectDelay)
+	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").IntVar(&opts.MongodbConnOptions.ReconnectDelay)
 	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongodbConnOptions.ReconnectCount)
 
-	_, err := app.DefaultEnvars().Parse(os.Args[1:])
+	app.PreAction(func(c *kingpin.ParseContext) error {
+		if opts.configFile == "" {
+			fn := utils.Expand("~/.percona-backup-mongodb.yaml")
+			if _, err := os.Stat(fn); err != nil {
+				return nil
+			} else {
+				opts.configFile = fn
+			}
+		}
+		return utils.LoadOptionsFromFile(opts.configFile, c, opts)
+	})
+
+	_, err := app.DefaultEnvars().Parse(args)
 	if err != nil {
 		return nil, err
 	}
 
-	//TODO: Remove defaults. These values are only here to test during development
-	// These params should be Required()
-	yamlOpts := &cliOptions{}
-
-	if opts.configFile != "" {
-		loadOptionsFromFile(opts.configFile, yamlOpts)
+	if err := validateOptions(opts); err != nil {
+		return nil, err
 	}
-
-	mergeOptions(opts, yamlOpts)
-	validateOptions(yamlOpts)
 	return opts, nil
 }
 
-func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filepath.Clean(filename))
-	if err != nil {
-		return errors.Wrap(err, "cannot load configuration from file")
-	}
-	if err = yaml.Unmarshal(buf, opts); err != nil {
-		return errors.Wrapf(err, "cannot unmarshal yaml file %s", filename)
-	}
-	return nil
-}
-
 func validateOptions(opts *cliOptions) error {
+	opts.BackupDir = utils.Expand(opts.BackupDir)
+	opts.TLSCAFile = utils.Expand(opts.TLSCAFile)
+	opts.TLSCertFile = utils.Expand(opts.TLSCertFile)
+	opts.TLSKeyFile = utils.Expand(opts.TLSKeyFile)
+	opts.PIDFile = utils.Expand(opts.PIDFile)
+
 	if opts.PIDFile != "" {
 		if err := writePidFile(opts.PIDFile); err != nil {
 			return errors.Wrapf(err, "cannot write pid file %q", opts.PIDFile)
@@ -282,73 +283,6 @@ func validateOptions(opts *cliOptions) error {
 	}
 
 	return nil
-}
-
-// This function takes yamlOpts as the default values and then, if the user has specified different
-// values for some options, they will be overwitten.
-func mergeOptions(opts, yamlOpts *cliOptions) {
-	if opts.TLS != false {
-		yamlOpts.TLS = opts.TLS
-	}
-	if opts.BackupDir != "" {
-		yamlOpts.BackupDir = opts.BackupDir
-	}
-	if opts.TLSCAFile != "" {
-		yamlOpts.TLSCAFile = opts.TLSCAFile
-	}
-	if opts.TLSCertFile != "" {
-		yamlOpts.TLSCertFile = opts.TLSCertFile
-	}
-	if opts.TLSKeyFile != "" {
-		yamlOpts.TLSKeyFile = opts.TLSKeyFile
-	}
-	if opts.Debug != false {
-		yamlOpts.Debug = opts.Debug
-	}
-	if opts.ServerCompressor != "" {
-		yamlOpts.ServerCompressor = opts.ServerCompressor
-	}
-	if opts.generateSampleConfig != false {
-		yamlOpts.generateSampleConfig = opts.generateSampleConfig
-	}
-	if opts.DSN != "" {
-		yamlOpts.DSN = opts.DSN
-	}
-	if opts.MongodbConnOptions.ReconnectDelay != 0 {
-		yamlOpts.MongodbConnOptions.ReconnectDelay = opts.MongodbConnOptions.ReconnectDelay
-	}
-	if opts.MongodbConnOptions.ReconnectCount != 0 {
-		yamlOpts.MongodbConnOptions.ReconnectCount = opts.MongodbConnOptions.ReconnectCount
-	}
-	if opts.MongodbConnOptions.Host != "" {
-		yamlOpts.MongodbConnOptions.Host = opts.MongodbConnOptions.Host
-	}
-	if opts.MongodbConnOptions.Port != "" {
-		yamlOpts.MongodbConnOptions.Port = opts.MongodbConnOptions.Port
-	}
-}
-
-func expandDirs(opts *cliOptions) {
-	opts.BackupDir = expandHomeDir(opts.BackupDir)
-	opts.TLSCAFile = expandHomeDir(opts.TLSCAFile)
-	opts.TLSCertFile = expandHomeDir(opts.TLSCertFile)
-	opts.TLSKeyFile = expandHomeDir(opts.TLSKeyFile)
-	opts.PIDFile = expandHomeDir(opts.PIDFile)
-}
-
-func expandHomeDir(path string) string {
-	dir := os.Getenv("HOME")
-	usr, err := user.Current()
-	if err == nil {
-		dir = usr.HomeDir
-	}
-	if path == "~" {
-		return dir
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(dir, path[2:])
-	}
-	return path
 }
 
 func writeSampleConfig(filename string, opts *cliOptions) error {
@@ -395,20 +329,4 @@ func writePidFile(pidFile string) error {
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
 	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
-}
-
-func getDefaultLogger() *logrus.Logger {
-	logger := &logrus.Logger{
-		Out: os.Stderr,
-		Formatter: &logrus.TextFormatter{
-			FullTimestamp:          true,
-			DisableLevelTruncation: true,
-		},
-		Hooks: make(logrus.LevelHooks),
-		Level: logrus.DebugLevel,
-	}
-	logger.SetLevel(logrus.StandardLogger().Level)
-	logger.Out = logrus.StandardLogger().Out
-
-	return logger
 }

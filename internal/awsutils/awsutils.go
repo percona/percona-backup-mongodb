@@ -126,40 +126,14 @@ func DownloadFile(svc *s3.S3, bucket, file string, writer io.WriterAt) (int64, e
 }
 
 func EmptyBucket(svc *s3.S3, bucket string) error {
-	params := &s3.ListObjectsInput{
+	iter := s3manager.NewDeleteListIterator(svc, &s3.ListObjectsInput{
 		Bucket: aws.String(bucket),
-	}
-	for {
-		objects, err := svc.ListObjects(params)
-		if err != nil {
-			return err
-		}
-		if len((*objects).Contents) == 0 {
-			return nil
-		}
+	})
 
-		objectsToDelete := make([]*s3.ObjectIdentifier, 0, 1000)
-		for _, object := range (*objects).Contents {
-			obj := s3.ObjectIdentifier{
-				Key: object.Key,
-			}
-			objectsToDelete = append(objectsToDelete, &obj)
-		}
-		deleteArray := s3.Delete{Objects: objectsToDelete}
-		deleteParams := &s3.DeleteObjectsInput{
-			Bucket: aws.String(bucket),
-			Delete: &deleteArray,
-		}
-		_, err = svc.DeleteObjects(deleteParams)
-		if err != nil {
-			return err
-		}
-		if *(*objects).IsTruncated {
-			params.Marker = (*deleteParams).Delete.Objects[len((*deleteParams).Delete.Objects)-1].Key
-		} else {
-			break
-		}
+	if err := s3manager.NewBatchDeleteWithClient(svc).Delete(aws.BackgroundContext(), iter); err != nil {
+		return errors.Wrapf(err, "Unable to delete objects from bucket %q", bucket)
 	}
+
 	return nil
 }
 

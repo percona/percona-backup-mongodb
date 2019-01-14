@@ -23,9 +23,7 @@ func GetAWSSession() (*session.Session, error) {
 	// credentials from the shared credentials file ~/.aws/credentials.
 	var err error
 	if awsSession == nil {
-		awsSession, err = session.NewSession(&aws.Config{
-			Region: aws.String("us-east-2")},
-		)
+		awsSession, err = session.NewSession(nil)
 	}
 	if err != nil {
 		return nil, err

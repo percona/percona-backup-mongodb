@@ -72,16 +72,16 @@ type Client struct {
 }
 
 type ConnectionOptions struct {
-	Host                string `yaml:"host,omitempty"`
-	Port                string `yaml:"port,omitempty"`
-	User                string `yaml:"user,omitempty"`
-	Password            string `yaml:"password,omitempty"`
-	AuthDB              string `yaml:"authdb,omitempty"`
-	ReplicasetName      string `yaml:"replicaset_name,omitempty"`
+	Host                string `yaml:"host,omitempty" kingpin:"mongodb-host"`
+	Port                string `yaml:"port,omitempty" kingpin:"mongodb-port"`
+	User                string `yaml:"user,omitempty" kingpin:"mongodb-user"`
+	Password            string `yaml:"password,omitempty" kingpin:"mongodb-password"`
+	AuthDB              string `yaml:"authdb,omitempty" kingpin:"mongodb-authdb"`
+	ReplicasetName      string `yaml:"replicaset_name,omitempty" kingpin:"mongodb-replicaset"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
-	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty"`
-	ReconnectCount      int    `yaml:"reconnect_count,omitempty"` // 0: forever
+	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty" kingpin:"mongodb-reconnect-delay"`
+	ReconnectCount      int    `yaml:"reconnect_count,omitempty" kingpin:"mongodb-reconnect-count"` // 0: forever
 }
 
 // Struct holding ssl-related options
@@ -401,7 +401,9 @@ func (c *Client) processIncommingServerMessages() {
 			err = c.processCancelBackup()
 			//
 		case *pb.ServerMessage_RestoreBackupMsg:
-			c.processRestore(msg.GetRestoreBackupMsg())
+			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
+				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
+			}
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
 			c.processStopBalancer()
@@ -489,11 +491,15 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 
 func (c *Client) checkCanRestoreLocal(msg *pb.CanRestoreBackup) (bool, error) {
 	path := filepath.Join(c.backupDir, msg.GetDestinationDir(), msg.GetBackupName())
-	if _, err := os.Stat(path); err != nil {
+	fi, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
+	}
+	if fi.IsDir() || fi.Size() == 0 {
+		return false, fmt.Errorf("%v is a directory or the file size is 0", path)
 	}
 	return true, nil
 }
@@ -684,6 +690,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	if err := c.sendRestoreComplete(nil); err != nil {
 		return errors.Wrap(err, "cannot send backup completed message")
 	}
+
 	return nil
 }
 

@@ -92,11 +92,10 @@ message BackupMetadata {
   int64                           last_oplog_ts    = 5;
   DestinationType                 destination_type = 6;
   string                          destination_dir  = 7;
-  string                          destination_name = 8;
-  Cypher                          cypher           = 9;
-  CompressionType                 compression_type = 10;
-  string                          description      = 11;
-  map<string, ReplicasetMetadata> replicasets      = 12;
+  Cypher                          cypher           = 8;
+  CompressionType                 compression_type = 9;
+  string                          description      = 10;
+  map<string, ReplicasetMetadata> replicasets      = 11;
 }
 
 message CanRestoreBackup {

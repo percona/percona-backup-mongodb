@@ -60,6 +60,7 @@ func TestApiWithDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	defer d.Stop()
 
 	msg := &pbapi.RunBackupParams{
 		BackupType:      pbapi.BackupType_BACKUP_TYPE_LOGICAL,
@@ -155,6 +156,4 @@ func TestApiWithDaemon(t *testing.T) {
 			t.Errorf("Invalid backup description. Want %q, got %q", msg.Description, jf.Description)
 		}
 	}
-
-	d.Stop()
 }

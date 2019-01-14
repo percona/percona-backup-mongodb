@@ -5,70 +5,81 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 
 	"text/template"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/percona/percona-backup-mongodb/internal/templates"
+	"github.com/percona/percona-backup-mongodb/internal/utils"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	snappy "github.com/un000/grpc-snappy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/testdata"
-	yaml "gopkg.in/yaml.v2"
 )
 
-// vars are set by goreleaser
+// some vars are set by goreleaser
 var (
-	version = "dev"
-	commit  = "none"
+	version               = "dev"
+	commit                = "none"
+	usageWriter io.Writer = os.Stdout // for testing purposes. In tests, we redirect this to a bytes buffer
+	conn        *grpc.ClientConn
+
+	grpcCompressors = []string{
+		"", // None
+		"snappy",
+		"gzip",
+	}
+
+	backuptypes = []string{
+		"hot",
+		"logical",
+	}
+
+	destinationTypes = []string{
+		"file",
+		"aws",
+	}
+)
+
+const (
+	defaultBackupType       = "logical"
+	defaultConfigFile       = "~/.percona-backup-mongodb.yaml"
+	defaultDestinationType  = "file"
+	defaultServerAddress    = "127.0.0.1:10001"
+	defaultServerCompressor = "gzip"
+	defaultSkipUserAndRoles = true
+	defaultTlsEnabled       = false
 )
 
 type cliOptions struct {
-	app *kingpin.Application
-
-	TLS              bool   `yaml:"tls"`
-	TLSCAFile        string `yaml:"tls_ca_file"`
-	ServerAddr       string `yaml:"server_addr"`
+	TLS              bool   `yaml:"tls" kingpin:"tls"`
+	TLSCAFile        string `yaml:"tls_ca_file" kingpin:"tls-ca-file"`
+	ServerAddress    string `yaml:"server_addr" kingpin:"server_addr"`
 	ServerCompressor string `yaml:"server_compressor"`
-	configFile       *string
+	configFile       string `yaml:"-"`
 
 	backup               *kingpin.CmdClause
-	backupType           *string
-	destinationType      *string
-	compressionAlgorithm *string
-	encryptionAlgorithm  *string
-	description          *string
+	backupType           string
+	destinationType      string
+	compressionAlgorithm string
+	encryptionAlgorithm  string
+	description          string
 
 	restore                  *kingpin.CmdClause
-	restoreMetadataFile      *string
-	restoreSkipUsersAndRoles *bool
+	restoreMetadataFile      string
+	restoreSkipUsersAndRoles bool
 
 	list             *kingpin.CmdClause
 	listNodes        *kingpin.CmdClause
-	listNodesVerbose *bool
+	listNodesVerbose bool
 	listBackups      *kingpin.CmdClause
 }
-
-var (
-	conn              *grpc.ClientConn
-	defaultServerAddr = "127.0.0.1:10001"
-	defaultConfigFile = "~/.pbmctl.yml"
-	grpcCompressors   = []string{
-		snappy.Name,
-		gzip.Name,
-		"none",
-	}
-)
 
 func main() {
 	cmd, opts, err := processCliArgs(os.Args[1:])
@@ -101,7 +112,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	conn, err = grpc.Dial(opts.ServerAddr, grpcOpts...)
+	conn, err = grpc.Dial(opts.ServerAddress, grpcOpts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -127,7 +138,7 @@ func main() {
 			log.Errorf("Cannot get the list of connected agents: %s", err)
 			break
 		}
-		if *opts.listNodesVerbose {
+		if opts.listNodesVerbose {
 			printTemplate(templates.ConnectedNodesVerbose, clients)
 		} else {
 			printTemplate(templates.ConnectedNodes, clients)
@@ -182,6 +193,9 @@ func connectedAgents(ctx context.Context, conn *grpc.ClientConn) ([]*pbapi.Clien
 		}
 		clients = append(clients, msg)
 	}
+	//if err := stream.CloseSend(); err != nil {
+	//	return nil, errors.Wrap(err, "cannot close stream for connectedAgents function")
+	//}
 	sort.Slice(clients, func(i, j int) bool { return clients[i].NodeName < clients[j].NodeName })
 	return clients, nil
 }
@@ -215,7 +229,7 @@ func getAvailableBackups(ctx context.Context, conn *grpc.ClientConn) (map[string
 func listAvailableBackups() (backups []string) {
 	var err error
 	if conn == nil {
-		conn, err = grpc.Dial(defaultServerAddr, []grpc.DialOption{grpc.WithInsecure()}...)
+		conn, err = grpc.Dial(defaultServerAddress, []grpc.DialOption{grpc.WithInsecure()}...)
 		if err != nil {
 			return
 		}
@@ -247,37 +261,37 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 	msg := &pbapi.RunBackupParams{
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
-		Description:     *opts.description,
+		Description:     opts.description,
 		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
 	}
 
-	switch *opts.backupType {
+	switch opts.backupType {
 	case "logical":
 		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_LOGICAL
 	case "hot":
 		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_HOTBACKUP
 	default:
-		return fmt.Errorf("backup type %q is invalid", *opts.backupType)
+		return fmt.Errorf("backup type %q is invalid", opts.backupType)
 	}
 
-	switch *opts.destinationType {
+	switch opts.destinationType {
 	case "file":
 		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_FILE
 	case "aws":
 		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_AWS
 	default:
-		return fmt.Errorf("destination type %v is invalid", *opts.destinationType)
+		return fmt.Errorf("destination type %v is invalid", opts.destinationType)
 	}
 
-	switch *opts.compressionAlgorithm {
+	switch opts.compressionAlgorithm {
 	case "none":
 	case "gzip":
 		msg.CompressionType = pbapi.CompressionType_COMPRESSION_TYPE_GZIP
 	default:
-		return fmt.Errorf("compression algorithm %q is invalid", *opts.compressionAlgorithm)
+		return fmt.Errorf("compression algorithm %q is invalid", opts.compressionAlgorithm)
 	}
 
-	switch *opts.encryptionAlgorithm {
+	switch opts.encryptionAlgorithm {
 	case "":
 	default:
 		return fmt.Errorf("encryption is not implemented yet")
@@ -293,8 +307,8 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 
 func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunRestoreParams{
-		MetadataFile:      *opts.restoreMetadataFile,
-		SkipUsersAndRoles: *opts.restoreSkipUsersAndRoles,
+		MetadataFile:      opts.restoreMetadataFile,
+		SkipUsersAndRoles: opts.restoreSkipUsersAndRoles,
 	}
 
 	_, err := apiClient.RunRestore(ctx, msg)
@@ -317,37 +331,40 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
-		configFile: app.Flag("config", "Config file name").Default(defaultConfigFile).Short('c').String(),
-
-		list:             listCmd,
-		listBackups:      listBackupsCmd,
-		listNodes:        listNodesCmd,
-		listNodesVerbose: listNodesCmd.Flag("verbose", "Include extra node info").Bool(),
-
-		backup:               backupCmd,
-		backupType:           backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default("logical").Enum("logical", "hot"),
-		destinationType:      backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default("file").Enum("file", "aws"),
-		compressionAlgorithm: backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup (gzip or none)").Default("gzip").Enum("none", "gzip"),
-		encryptionAlgorithm:  backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").String(),
-		description:          backupCmd.Flag("description", "Backup description").Required().String(),
-
-		restore: restoreCmd,
-		restoreMetadataFile: restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").
-			HintAction(listAvailableBackups).Required().String(),
-		restoreSkipUsersAndRoles: restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default("true").Bool(),
+		list:        listCmd,
+		listBackups: listBackupsCmd,
+		listNodes:   listNodesCmd,
+		backup:      backupCmd,
+		restore:     restoreCmd,
 	}
+	app.Flag("config-file", "Config file name").Short('c').StringVar(&opts.configFile)
+	listNodesCmd.Flag("verbose", "Include extra node info").BoolVar(&opts.listNodesVerbose)
+	backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default(defaultBackupType).EnumVar(&opts.backupType, backuptypes...)
+	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default(defaultDestinationType).EnumVar(&opts.destinationType, destinationTypes...)
+	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").EnumVar(&opts.compressionAlgorithm, grpcCompressors...)
+	backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").StringVar(&opts.encryptionAlgorithm)
+	backupCmd.Flag("description", "Backup description").Required().StringVar(&opts.description)
+	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").HintAction(listAvailableBackups).Required().StringVar(&opts.restoreMetadataFile)
+	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).BoolVar(&opts.restoreSkipUsersAndRoles)
 
-	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddr).Short('s').StringVar(&opts.ServerAddr)
-	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(snappy.Name).EnumVar(&opts.ServerCompressor, grpcCompressors...)
-	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default("false").BoolVar(&opts.TLS)
-	app.Flag("tls-ca-file", "The file containing the CA root cert file").ExistingFileVar(&opts.TLSCAFile)
+	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
+	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default(fmt.Sprintf("%v", defaultTlsEnabled)).BoolVar(&opts.TLS)
+	app.Flag("tls-ca-file", "The file containing the CA root cert file").StringVar(&opts.TLSCAFile)
+	app.Terminate(nil) // Don't call os.Exit() on errors
+	app.UsageWriter(usageWriter)
 
-	yamlOpts := &cliOptions{
-		ServerAddr: defaultServerAddr,
-	}
-	if *opts.configFile != "" {
-		loadOptionsFromFile(defaultConfigFile, yamlOpts)
-	}
+	app.PreAction(func(c *kingpin.ParseContext) error {
+		if opts.configFile == "" {
+			fn := utils.Expand(defaultConfigFile)
+			if _, err := os.Stat(fn); err != nil {
+				return nil
+			} else {
+				opts.configFile = fn
+			}
+		}
+		return utils.LoadOptionsFromFile(opts.configFile, c, opts)
+	})
 
 	cmd, err := app.DefaultEnvars().Parse(args)
 	if err != nil {
@@ -359,28 +376,4 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	return cmd, opts, nil
-}
-
-func loadOptionsFromFile(filename string, opts *cliOptions) error {
-	buf, err := ioutil.ReadFile(filepath.Clean(filename))
-	if err != nil {
-		return errors.Wrap(err, "cannot load configuration from file")
-	}
-	if err = yaml.Unmarshal(buf, opts); err != nil {
-		return errors.Wrapf(err, "cannot unmarshal yaml file %s", filename)
-	}
-	return nil
-}
-
-func mergeOptions(opts, yamlOpts *cliOptions) {
-	if opts.TLSCAFile == "" {
-		opts.TLSCAFile = yamlOpts.TLSCAFile
-	}
-	if opts.ServerAddr == "" {
-		opts.ServerAddr = yamlOpts.ServerAddr
-	}
-	if opts.ServerCompressor == "" {
-		opts.ServerCompressor = yamlOpts.ServerCompressor
-
-	}
 }
