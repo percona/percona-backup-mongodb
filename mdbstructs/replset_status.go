@@ -83,8 +83,8 @@ type ReplsetStatus struct {
 	Optimes                 *StatusOpTimes         `bson:"optimes,omitempty" json:"optimes,omitempty"`
 	Errmsg                  string                 `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
 	Ok                      int                    `bson:"ok" json:"ok"`
-	ClusterTime             *ClusterTime           `bson:"$clusterTime,omitempty", json:"$clusterTime,omitempty"`
-	ConfigServerState       *ConfigServerState     `bson:"$configServerState,omitempty", json:"$configServerState,omitempty"`
-	GleStats                *GleStats              `bson:"$gleStats,omitempty", json:"$gleStats,omitempty"`
-	OperationTime           *bson.MongoTimestamp   `bson:"operationTime,omitempty", json:"operationTime,omitempty"`
+	ClusterTime             *ClusterTime           `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
+	ConfigServerState       *ConfigServerState     `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
+	GleStats                *GleStats              `bson:"$gleStats,omitempty" json:"$gleStats,omitempty"`
+	OperationTime           *bson.MongoTimestamp   `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
 }

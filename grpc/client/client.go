@@ -514,9 +514,8 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 	if err != nil {
 		if err == awsutils.FileNotFoundError {
 			return false, nil
-		} else {
-			return false, fmt.Errorf("Cannot check if backup exists in S3: %s", err)
 		}
+		return false, fmt.Errorf("Cannot check if backup exists in S3: %s", err)
 	}
 	return true, nil
 }
@@ -617,7 +616,7 @@ func (c *Client) processListReplicasets() error {
 	        "ok" : 1
 	}
 	*/
-	for key, _ := range sm.Map {
+	for key := range sm.Map {
 		m := strings.Split(key, "/")
 		if len(m) < 2 {
 			continue
@@ -1064,7 +1063,7 @@ func (c *Client) sendBackupFinishOK() {
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
 		c.logger.Errorf("Cannot call DBBackupFinished RPC method: %s", err)
 	} else {
-		c.logger.Debugf("Recieved ACK from DBBackupFinished RPC method: %+v", *ack)
+		c.logger.Debugf("Received ACK from DBBackupFinished RPC method: %+v", *ack)
 	}
 }
 
@@ -1078,7 +1077,7 @@ func (c *Client) sendDBBackupFinishError(err error) {
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
 		c.logger.Errorf("Cannot call DBBackupFinished with error (%s) RPC method: %s", finishMsg.Error, err)
 	} else {
-		c.logger.Debugf("Recieved ACK from DBBackupFinished with error RPC method: %+v", *ack)
+		c.logger.Debugf("Received ACK from DBBackupFinished with error RPC method: %+v", *ack)
 	}
 }
 

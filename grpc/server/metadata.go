@@ -69,7 +69,7 @@ func LoadMetadataFromFile(name string) (*BackupMetadata, error) {
 		lock: &sync.Mutex{},
 	}
 	err = json.Unmarshal(buf, &metadata.metadata)
-	return metadata, nil
+	return metadata, err
 }
 
 func (b *BackupMetadata) Metadata() *pb.BackupMetadata {
@@ -96,8 +96,5 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot encode backup metadata")
 	}
-	if err = ioutil.WriteFile(name, buf, os.ModePerm); err != nil {
-		return err
-	}
-	return nil
+	return ioutil.WriteFile(name, buf, os.ModePerm)
 }

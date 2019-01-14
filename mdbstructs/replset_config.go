@@ -50,8 +50,8 @@ type ReplSetGetConfig struct {
 	Config            *ReplsetConfig       `bson:"config" json:"config"`
 	Errmsg            string               `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
 	Ok                int                  `bson:"ok" json:"ok" json:"ok"`
-	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty", json:"$clusterTime,omitempty"`
-	ConfigServerState *ConfigServerState   `bson:"$configServerState,omitempty", json:"$configServerState,omitempty"`
-	GleStats          *GleStats            `bson:"$gleStats,omitempty", json:"$gleStats,omitempty"`
-	OperationTime     *bson.MongoTimestamp `bson:"operationTime,omitempty", json:"operationTime,omitempty"`
+	ClusterTime       *ClusterTime         `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
+	ConfigServerState *ConfigServerState   `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
+	GleStats          *GleStats            `bson:"$gleStats,omitempty" json:"$gleStats,omitempty"`
+	OperationTime     *bson.MongoTimestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
 }

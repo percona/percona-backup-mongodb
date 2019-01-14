@@ -129,7 +129,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	wantbs := map[string]*server.Client{
-		"5b9e5545c003eb6bd5e94803": &server.Client{
+		"5b9e5545c003eb6bd5e94803": {
 			ID:             "127.0.0.1:17003",
 			NodeType:       pb.NodeType(3),
 			NodeName:       "127.0.0.1:17003",
@@ -137,7 +137,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 			ReplicasetName: "rs1",
 			ReplicasetUUID: "5b9e5545c003eb6bd5e94803",
 		},
-		"5b9e55461f4c8f50f48c6002": &server.Client{
+		"5b9e55461f4c8f50f48c6002": {
 			ID:             "127.0.0.1:17006",
 			NodeType:       pb.NodeType(3),
 			NodeName:       "127.0.0.1:17006",
@@ -145,7 +145,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 			ReplicasetName: "rs2",
 			ReplicasetUUID: "5b9e55461f4c8f50f48c6002",
 		},
-		"5b9e5546fcaf061d1ed382ed": &server.Client{
+		"5b9e5546fcaf061d1ed382ed": {
 			ID:             "127.0.0.1:17007",
 			NodeType:       pb.NodeType(4),
 			NodeName:       "127.0.0.1:17007",
@@ -305,8 +305,8 @@ func TestGlobalWithDaemon(t *testing.T) {
 	// and the oplog generator is starting to count from 101 sequentially, so last inserted document = count
 	rs1BeforeCount := rs1LastOplogDoc["o"].(bson.M)["number"].(int64)
 	rs2BeforeCount := rs2LastOplogDoc["o"].(bson.M)["number"].(int64)
-	rs1AfterCount, err := s1Session.DB(dbName).C(colName).Find(nil).Count()
-	rs2AfterCount, err := s2Session.DB(dbName).C(colName).Find(nil).Count()
+	rs1AfterCount, _ := s1Session.DB(dbName).C(colName).Find(nil).Count()
+	rs2AfterCount, _ := s2Session.DB(dbName).C(colName).Find(nil).Count()
 
 	if int64(rs1AfterCount) < rs1BeforeCount {
 		t.Errorf("Invalid documents count in rs1. Want %d, got %d", rs1BeforeCount, rs1AfterCount)
@@ -532,7 +532,7 @@ func TestClientDisconnect(t *testing.T) {
 	defer d.Stop()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
-	// Disconnect a client to check if the server detects the disconnection immediatelly
+	// Disconnect a client to check if the server detects the disconnection immediately
 	d.Clients()[0].Stop()
 
 	time.Sleep(2 * time.Second)
@@ -782,7 +782,7 @@ func getLastOplogDoc(filename string) (bson.M, error) {
 
 func sortedReplicaNames(replicas map[string]*server.Client) []string {
 	a := []string{}
-	for key, _ := range replicas {
+	for key := range replicas {
 		a = append(a, key)
 	}
 	sort.Strings(a)
@@ -827,36 +827,6 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 		}
 	}
 }
-
-// func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTimeout int, stopChan chan interface{}, wg *sync.WaitGroup) {
-// 	go func() {
-// 		err := grpcServer.Serve(lis)
-// 		if err != nil {
-// 			log.Printf("Cannot start agents gRPC server: %s", err)
-// 		}
-// 		log.Println("Stopping server " + lis.Addr().String())
-// 		wg.Done()
-// 	}()
-//
-// 	go func() {
-// 		<-stopChan
-// 		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-// 		// Try to Gracefuly stop the gRPC server.
-// 		c := make(chan struct{})
-// 		go func() {
-// 			grpcServer.GracefulStop()
-// 			c <- struct{}{}
-// 		}()
-//
-// 		// If after shutdownTimeout the server hasn't stop, just kill it.
-// 		select {
-// 		case <-c:
-// 			return
-// 		case <-time.After(time.Duration(shutdownTimeout) * time.Second):
-// 			grpcServer.Stop()
-// 		}
-// 	}()
-// }
 
 func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 	var grpcOpts []grpc.DialOption

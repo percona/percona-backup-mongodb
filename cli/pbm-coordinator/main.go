@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -38,28 +39,31 @@ type cliOptions struct {
 	LogFile              string `yaml:"log_file" kingpin:"log-file"`
 	Debug                bool   `yaml:"debug" kingpin:"debug"`
 	UseSysLog            bool   `yaml:"sys_log_url" kingpin:"syslog-url"`
-	APIBindIP            string `yaml:"api_bindip" kingpin:"api-bindip"`
+	APIBindIP            string `yaml:"api_bindip" kingpin:"api-bind-ip"`
 	APIPort              int    `yaml:"api_port" kingpin:"api-port"`
-	GrpcBindIP           string `yaml:"grpc_bindip" kingpin:"grpc-bindip"`
+	GrpcBindIP           string `yaml:"grpc_bindip" kingpin:"grpc-bind-ip"`
 	GrpcPort             int    `yaml:"grpc_port" kingpin:"grpc-port"`
 	TLS                  bool   `yaml:"tls" kingpin:"tls"`
 	TLSCertFile          string `yaml:"tls_cert_file" kingpin:"tls-cert-file"`
 	TLSKeyFile           string `yaml:"tls_key_file" kingpin:"tls-key-file"`
 	EnableClientsLogging bool   `yaml:"enable_clients_logging" kingpin:"enable-clients-logging"`
+	ClientsRefreshSecs   int    `yaml:"clients_refresh_secs" kingpin:"clients-refresh-secs"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout" kingpin:"shutdown-timeout"`
 }
 
 const (
-	defaultGrpcPort        = 10000
-	defaultAPIPort         = 10001
-	defaultShutdownTimeout = 5 // Seconds
-	defaultClientsLogging  = true
-	defaultDebugMode       = false
-	defaultWorkDir         = "~/percona-backup-mongodb"
+	defaultGrpcPort           = 10000
+	defaultAPIPort            = 10001
+	defaultClientsRefreshSecs = 60 // Seconds
+	defaultShutdownTimeout    = 5  // Seconds
+	defaultClientsLogging     = true
+	defaultDebugMode          = false
+	defaultWorkDir            = "~/percona-backup-mongodb"
 )
 
 var (
-	log = logrus.New()
+	log     = logrus.New()
+	program = filepath.Base(os.Args[0])
 )
 
 func main() {
@@ -79,6 +83,9 @@ func main() {
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.GrpcBindIP, opts.GrpcPort))
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
 	apilis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.APIBindIP, opts.APIPort))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -100,15 +107,17 @@ func main() {
 		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
 	}
 
+	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
+
 	stopChan := make(chan interface{})
 	wg := &sync.WaitGroup{}
 
 	var messagesServer *server.MessagesServer
 	grpcServer := grpc.NewServer(grpcOpts...)
 	if opts.EnableClientsLogging {
-		messagesServer = server.NewMessagesServerWithClientLogging(opts.WorkDir, log)
+		messagesServer = server.NewMessagesServerWithClientLogging(opts.WorkDir, opts.ClientsRefreshSecs, log)
 	} else {
-		messagesServer = server.NewMessagesServer(opts.WorkDir, log)
+		messagesServer = server.NewMessagesServer(opts.WorkDir, opts.ClientsRefreshSecs, log)
 	}
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
@@ -144,8 +153,8 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 
 	go func() {
 		<-stopChan
-		log.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
+		log.Printf("Gracefully stopping server at %s", lis.Addr().String())
+		// Try to Gracefully stop the gRPC server.
 		c := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()
@@ -188,7 +197,8 @@ func processCliParams(args []string) (*cliOptions, error) {
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
-	app.Flag("enable-clients-logging", "Enable showing logs comming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
+	app.Flag("clients-refresh-secs", "Frequency in seconds to refresh state of clients").IntVar(&opts.ClientsRefreshSecs)
+	app.Flag("enable-clients-logging", "Enable showing logs coming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
 	//
 	app.Flag("tls", "Enable TLS").BoolVar(&opts.TLS)

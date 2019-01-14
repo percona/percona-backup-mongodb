@@ -286,17 +286,17 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 	}
 
 	switch opts.compressionAlgorithm {
-	case "":
+	case "none":
 	case "gzip":
 		msg.CompressionType = pbapi.CompressionType_COMPRESSION_TYPE_GZIP
 	default:
-		return fmt.Errorf("compression algorithm %q ins invalid", opts.compressionAlgorithm)
+		return fmt.Errorf("compression algorithm %q is invalid", opts.compressionAlgorithm)
 	}
 
 	switch opts.encryptionAlgorithm {
 	case "":
 	default:
-		return fmt.Errorf("encryption is not implemente yet")
+		return fmt.Errorf("encryption is not implemented yet")
 	}
 
 	_, err := apiClient.RunBackup(ctx, msg)

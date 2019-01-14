@@ -176,6 +176,10 @@ func TestTailerCopy(t *testing.T) {
 
 func TestSeveralOplogDocTypes(t *testing.T) {
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Failed to connect to primary: %v", err)
+	}
+
 	// Start tailing the oplog
 	defer session.Close()
 

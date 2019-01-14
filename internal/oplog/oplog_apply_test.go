@@ -27,6 +27,9 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
@@ -138,6 +141,6 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	if i != docCount {
-		t.Errorf("Invalid document count after repalying the oplog. Want %d, got %d", docCount, i)
+		t.Errorf("Invalid document count after replaying the oplog. Want %d, got %d", docCount, i)
 	}
 }

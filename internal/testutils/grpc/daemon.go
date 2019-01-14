@@ -75,7 +75,7 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 	d.ctx, d.cancelFunc = context.WithCancel(ctx)
 	// This is the sever/agents gRPC server
 	d.grpcServer4Clients = grpc.NewServer(opts...)
-	d.MessagesServer = server.NewMessagesServer(workDir, logger)
+	d.MessagesServer = server.NewMessagesServer(workDir, 60, logger)
 	pb.RegisterMessagesServer(d.grpcServer4Clients, d.MessagesServer)
 
 	d.wg.Add(1)
@@ -101,6 +101,9 @@ func NewGrpcDaemon(ctx context.Context, workDir string, t *testing.T, logger *lo
 
 	clientServerAddr := fmt.Sprintf("127.0.0.1:%s", TEST_GRPC_MESSAGES_PORT)
 	clientConn, err := grpc.Dial(clientServerAddr, clientOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot dail gRPC address %s: %v", clientServerAddr, err)
+	}
 
 	ports := []string{testutils.MongoDBShard1PrimaryPort, testutils.MongoDBShard1Secondary1Port, testutils.MongoDBShard1Secondary2Port,
 		testutils.MongoDBShard2PrimaryPort, testutils.MongoDBShard2Secondary1Port, testutils.MongoDBShard2Secondary2Port,
@@ -187,8 +190,8 @@ func (d *GrpcDaemon) runAgentsGRPCServer(ctx context.Context, grpcServer *grpc.S
 
 	go func() {
 		<-ctx.Done()
-		d.logger.Printf("Gracefuly stopping server at %s", lis.Addr().String())
-		// Try to Gracefuly stop the gRPC server.
+		d.logger.Printf("Gracefully stopping server at %s", lis.Addr().String())
+		// Try to Gracefully stop the gRPC server.
 		c := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()

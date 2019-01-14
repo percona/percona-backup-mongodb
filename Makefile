@@ -15,7 +15,7 @@ UID?=$(shell id -u)
 DEST_DIR?=/usr/local/bin
 UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
-TEST_PSMDB_VERSION?=4.0
+TEST_PSMDB_VERSION?=3.6
 TEST_MONGODB_ADMIN_USERNAME?=admin
 TEST_MONGODB_ADMIN_PASSWORD?=admin123456
 TEST_MONGODB_USERNAME?=test
@@ -90,6 +90,7 @@ test: env vendor
 	go test -covermode=atomic -count 1 -race -timeout 2m $(GO_TEST_EXTRA) $(GO_TEST_PATH)
 
 test-cluster: env
+	TEST_PSMDB_VERSION=$(TEST_PSMDB_VERSION) \
 	docker-compose up \
 	--detach \
 	--force-recreate \

@@ -52,11 +52,11 @@ run_agents() {
         echo "    --backup-dir=${backupdir} \\"
         echo "    --pid-file=${pidfile} &> ${logfile} &"
 
-        ./pbm-agent --mongodb-user=${TEST_MONGODB_USERNAME} \
+        ./pbm-agent --mongodb-username=${TEST_MONGODB_USERNAME} \
             --mongodb-password=${TEST_MONGODB_PASSWORD} \
             --mongodb-host=${TEST_MONGODB_HOST} \
             --mongodb-port=${port} \
-            --replicaset=${replicaset} \
+            --mongodb-replicaset=${replicaset} \
             --backup-dir=${backupdir} \
             --pid-file=${pidfile} &> ${logfile} &
         pid=$!

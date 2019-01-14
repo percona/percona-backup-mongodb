@@ -17,8 +17,12 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
         1. [Running pbmctl commands](#running-pbmctl-commands)
             1. [Command Examples](#command-examples)
 1. [Requirements](#requirements)
-1. [Building](#building)
-    1. [Unit Tests](#unit-tests)
+1. [Installing](#installing)
+    1. [CentOS/RedHat](#centosredhat)
+    1. [Debian/Ubuntu](#debianubuntu)
+    1. [Mac OSX](#mac-osx)
+    1. [From Source](#from-source)
+        1. [Unit Tests](#unit-tests)
 1. [Docker](#docker)
     1. [Build Docker images](#build-docker-images)
     1. [Run Docker containers](#run-docker-containers)
@@ -30,7 +34,6 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
             1. [Start Agent](#start-agent)
             1. [View Agent logs](#view-agent-logs)
             1. [Stop Agent](#stop-agent)
-1. [Contributing](#contributing)
 1. [Submit Bug Report / Feature Request](#submit-bug-report--feature-request)
 1. [Contact](#contact)
 
@@ -49,10 +52,11 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 - [x] Sharded Cluster Backup
     - [x] Pausing of balancer at backup-time
 - [x] Command-line management utility
-- [ ] Dockerhub images
-- [ ] Compression
+- [x] Compression
     - [x] Agent and CLI RPC communications
-    - [ ] Backup data
+    - [x] Backup data - Gzip
+    - [ ] Backup data - LZ4 and Snappy
+- [ ] Dockerhub images
 - [ ] Authorization of Agents and CLI
 - [ ] Encryption of backup data
 - [ ] Support for MongoDB SSL/TLS connections
@@ -70,6 +74,8 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 # Architecture
 
 Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions. This architecture model was chosen to provide maximum scalability/flexibility.
+
+![MongoDB Replica Set](mongodb-replica-set.png)
 
 ## Coordinator
 
@@ -118,17 +124,15 @@ By default, the coordinator will listen for agents on port 10000.
 
 On every MongoDB instance, you need to start an agent that will receive commands from the coordinator.
 
-In most situations the agent must connect to MongoDB using the host 'localhost' *(127.0.0.1)* and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the host.
+By default the agent will connect to MongoDB using the host '127.0.0.1' and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the MongoDB host.
 
 Example:
 ```
-$ pbm-agent --mongodb-user=pbmAgent \
-            --mongodb-password=securePassw0rd \
-            --mongodb-host=127.0.0.1 \
-            --mongodb-port=27017 \
-            --replicaset=rs0 \
-            --server-address=10.10.10.10:10000 \
+$ pbm-agent --server-address=172.16.0.2:10000 \
             --backup-dir=/data/backup \
+            --mongodb-port=27017 \
+            --mongodb-user=pbmAgent \
+            --mongodb-password=securePassw0rd \
             --pid-file=/tmp/pbm-agent.pid
 ```
 
@@ -149,7 +153,7 @@ Example *'createUser'* command *(must be ran via the 'mongo' shell on a PRIMARY 
         { db: "admin", role: "restore" }
     ],
     authenticationRestrictions: [
-        { clientSource: "127.0.0.1" }
+        { clientSource: ["127.0.0.1"] }
     ]
 })
 ```
@@ -205,7 +209,36 @@ $ pbmctl run restore 2018-12-18T19:04:14Z.json
 1. [Percona Server for MongoDB](https://www.percona.com/software/mongo-database/percona-server-for-mongodb) or MongoDB Community 3.6 and above
     1. [MongoDB Replication](https://docs.mongodb.com/manual/replication/) enabled
 
-# Building
+# Installing
+
+Releases include RPM/Debian-based packages *(recommended)* and binary tarballs. The packages contain all 3 x Percona Backup for MongoDB binaries.
+
+## CentOS/RedHat
+*Note: replace 'v0.2.1' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+```
+$ rpm -Uvh https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
+Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
+Preparing...                          ################################# [100%]
+Updating / installing...
+   1:percona-backup-mongodb-0.2.1-1   ################################# [100%]
+```
+
+## Debian/Ubuntu
+*Note: replace 'v0.2.1' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+```
+$ wget -q https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.deb
+$ dpkg -i percona-backup-mongodb_0.2.1_linux_amd64.deb                   
+Selecting previously unselected package percona-backup-mongodb.
+(Reading database ... 6977 files and directories currently installed.)
+Preparing to unpack percona-backup-mongodb_0.2.1_linux_amd64.deb ...
+Unpacking percona-backup-mongodb (0.2.1) ...
+Setting up percona-backup-mongodb (0.2.1) ...
+```
+
+## Mac OSX
+Use *'darwin'* binary tarballs from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)
+
+## From Source
 
 Building the project requires:
 1. Go 1.11 or above
@@ -224,7 +257,7 @@ A successful build outputs binaries:
 1. **pbm-agent**: An agent that executes backup/restore actions on a database host
 1. **pbm-coordinator**: A server that coordinates backup system actions
 
-## Unit Tests
+### Unit Tests
 
 The testing launches a MongoDB cluster in Docker containers. *'docker'* and *'docker-compose'* is required.
 
@@ -282,18 +315,18 @@ $ docker stop mongodb-backup-coordinator
 ### Agent
 
 #### Start Agent
-*Note: the [Coordinator](#create-coordinator) must be started before the agent!*
+*Note: the [Coordinator](#start-coordinator) must be started before the agent!*
 ```
 $ mkdir -m 0700 -p /data/mongodb-backup-agent
 $ docker run -d \
     --restart=always \
     --user=$(id -u) \
     --name=mongodb-backup-agent \
-    -e PBM_AGENT_BACKUP_DIR=/data \
     -e PBM_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
+    -e PBM_AGENT_BACKUP_DIR=/data \
+    -e PBM_AGENT_MONGODB_PORT=27017 \
     -e PBM_AGENT_MONGODB_USER=pbmAgent \
     -e PBM_AGENT_MONGODB_PASSWORD=securePassw0rd \
-    -e PBM_AGENT_MONGODB_REPLICASET=rs \
     -v /data/mongodb-backup-agent:/data \
 mongodb-backup-agent
 ```
@@ -307,10 +340,6 @@ $ docker logs mongodb-backup-agent
 ```
 $ docker stop mongodb-backup-agent
 ```
-
-# Contributing
-
-TBD
 
 # Submit Bug Report / Feature Request
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).

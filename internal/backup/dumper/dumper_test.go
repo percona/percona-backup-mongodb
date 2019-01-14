@@ -50,6 +50,9 @@ func TestWriteToFile(t *testing.T) {
 	mdump.Start()
 	err = mdump.Wait()
 	tmpFile.Close()
+	if err != nil {
+		t.Errorf("Error waiting for mongodump: %v", err)
+	}
 
 	fi, err := os.Stat(tmpFile.Name())
 	if err != nil {

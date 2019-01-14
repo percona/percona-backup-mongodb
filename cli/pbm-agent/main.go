@@ -64,6 +64,7 @@ var (
 	version         = "dev"
 	commit          = "none"
 	log             = logrus.New()
+	program         = filepath.Base(os.Args[0])
 	grpcCompressors = []string{
 		"snappy",
 		gzip.Name,
@@ -102,6 +103,8 @@ func main() {
 		log.SetLevel(logrus.DebugLevel)
 	}
 	log.SetLevel(logrus.DebugLevel)
+
+	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
 
 	grpcOpts := getgRPCOptions(opts)
 
