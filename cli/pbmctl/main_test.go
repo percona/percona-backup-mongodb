@@ -52,12 +52,12 @@ func TestListAgents(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 	l := log.New()
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, l)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, l)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 
-	serverAddr := "127.0.0.1:" + testGrpc.TEST_GRPC_API_PORT
+	serverAddr := "127.0.0.1:" + testGrpc.TestGrpcAPIPort
 	conn, err := getApiConn(&cliOptions{ServerAddress: serverAddr})
 	if err != nil {
 		t.Fatalf("Cannot connect to the API: %s", err)
@@ -476,7 +476,6 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 }
 
 func nilOpts(opts *cliOptions) {
-	opts.app = nil
 	opts.backup = nil
 	opts.restore = nil
 	opts.list = nil

@@ -147,15 +147,15 @@ func newDialInfo(di *mgo.DialInfo) (*mgo.DialInfo, error) {
 	return dialInfo, nil
 }
 
-func DialInfoForPort(t *testing.T, rs, port string) *mgo.DialInfo {
+func DialInfoForPort(rs, port string) (*mgo.DialInfo, error) {
 	di, err := dialInfo([]string{
 		MongoDBHost + ":" + port},
 		rs,
 	)
 	if err != nil {
-		t.Fatalf(".DialInfoForPort() failed: %v", err.Error())
+		return nil, errors.Wrap(err, ".DialInfoForPort() failed")
 	}
-	return di
+	return di, nil
 }
 
 func PrimaryDialInfo(t *testing.T, rs string) *mgo.DialInfo {

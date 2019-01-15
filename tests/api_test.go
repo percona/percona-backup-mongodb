@@ -56,10 +56,11 @@ func TestApiWithDaemon(t *testing.T) {
 	log.Printf("Using %s as the temporary directory", tmpDir)
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
+	d.StartAllAgents()
 	defer d.Stop()
 
 	msg := &pbapi.RunBackupParams{
@@ -70,7 +71,7 @@ func TestApiWithDaemon(t *testing.T) {
 		Description:     "test backup",
 	}
 
-	_, err = d.ApiServer.RunBackup(context.Background(), msg)
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Cannot start backup from API: %s", err)
 	}
@@ -140,7 +141,7 @@ func TestApiWithDaemon(t *testing.T) {
 
 	stream := newMockBackupsMetadataStream()
 
-	err = d.ApiServer.BackupsMetadata(&pbapi.BackupsMetadataParams{}, stream)
+	err = d.APIServer.BackupsMetadata(&pbapi.BackupsMetadataParams{}, stream)
 	if err != nil {
 		t.Errorf("Cannot get backups metadata: %s", err)
 	}
