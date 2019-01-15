@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alecthomas/kingpin"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
@@ -43,7 +42,6 @@ const (
 )
 
 type cliOptions struct {
-	app        *kingpin.Application
 	clientID   *string
 	tls        *bool
 	caFile     *string
@@ -82,11 +80,12 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	log.Debug("Getting list of connected clients")
 	clientsList := d.MessagesServer.Clients()
@@ -272,7 +271,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	cleanupDBForRestore(t, s2Session)
 
 	log.Info("Starting restore test")
-	md, err := d.ApiServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
+	md, err := d.APIServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
 	if err != nil {
 		t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
 	}
@@ -349,11 +348,12 @@ func TestBackupToS3(t *testing.T) {
 			t.Fatalf("Unable to create bucket %q, %v", bucket, err)
 		}
 	}
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), bucket, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), bucket, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
@@ -525,11 +525,12 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
 	// Disconnect a client to check if the server detects the disconnection immediately
@@ -552,11 +553,12 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
 		t.Errorf("Invalid number of connected agents: %s", err)
@@ -589,11 +591,12 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	bs, err := d.MessagesServer.BackupSourceByReplicaset()
 	if err != nil {
@@ -639,17 +642,18 @@ func TestRunBackupTwice(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	runBackup(t, d)
 	runBackup(t, d)
 }
 
-func runBackup(t *testing.T, d *testGrpc.GrpcDaemon) {
+func runBackup(t *testing.T, d *testGrpc.Daemon) {
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -704,11 +708,12 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewGrpcDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	d.StartAllAgents()
 
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
@@ -758,7 +763,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	cleanupDBForRestore(t, s1Session)
 }
 
-func testRestoreWithMetadata(t *testing.T, d *testGrpc.GrpcDaemon, md *pb.BackupMetadata) {
+func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMetadata) {
 	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}
@@ -853,6 +858,38 @@ func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	return conn, err
+}
+
+func TestConfigServerClusterID(t *testing.T) {
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+
+	portRsList := []testGrpc.PortRs{
+		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
+	}
+
+	if err := d.StartAgents(portRsList); err != nil {
+		t.Fatalf("Cannot start config server: %s", err)
+	}
+
+	clientsList := d.MessagesServer.Clients()
+	for i, client := range clientsList {
+		if client.ClusterID == "" {
+			t.Errorf("Cluster ID is empty for node %v", i)
+		}
+	}
 }
 
 func diag(params ...interface{}) {
