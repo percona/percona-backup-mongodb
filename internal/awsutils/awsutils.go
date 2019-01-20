@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/pkg/errors"
 )
 
@@ -33,6 +35,17 @@ func GetAWSSession() (*session.Session, error) {
 		return nil, err
 	}
 	return awsSession, nil
+}
+
+func GetAWSSessionFromStorage(opts storage.S3) (*session.Session, error) {
+	token := ""
+	sess, err := session.NewSession(&aws.Config{
+		Region:           aws.String(opts.Region),
+		Endpoint:         aws.String(opts.EndpointURL),
+		Credentials:      credentials.NewStaticCredentials(opts.Credentials.AccessKeyID, opts.Credentials.SecretAccessKey, token),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	return sess, err
 }
 
 func BucketExists(svc *s3.S3, bucketname string) (bool, error) {
@@ -134,6 +147,21 @@ func EmptyBucket(svc *s3.S3, bucket string) error {
 		return errors.Wrapf(err, "Unable to delete objects from bucket %q", bucket)
 	}
 
+	return nil
+}
+
+func UploadFileToS3(sess *session.Session, fr io.Reader, bucket, filename string) error {
+	svc := s3.New(sess)
+	input := &s3.PutObjectInput{
+		Body:   aws.ReadSeekCloser(fr),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(filename),
+	}
+
+	_, err := svc.PutObject(input)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

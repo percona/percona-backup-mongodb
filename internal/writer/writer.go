@@ -2,14 +2,17 @@ package writer
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/golang/snappy"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
@@ -42,37 +45,41 @@ func (bw *BackupWriter) Write(p []byte) (int, error) {
 	return bw.writers[len(bw.writers)-1].Write(p)
 }
 
-func NewBackupWriter(dir, name string, destinationType pb.DestinationType, compressionType pb.CompressionType,
+func NewBackupWriter(name string, stg storage.Storage, compressionType pb.CompressionType,
 	cypher pb.Cypher) (*BackupWriter, error) {
 	bw := &BackupWriter{
 		writers: []io.WriteCloser{},
 	}
 
-	awsSession, err := awsutils.GetAWSSession()
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot get an AWS session")
-	}
-	switch destinationType {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		filepath := path.Join(dir, name)
+	switch strings.ToLower(stg.Type) {
+	case "filesystem":
+		filepath := path.Join(stg.Filesystem.Path, name)
 		fw, err := os.Create(filepath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "Cannot create destination file: %s", filepath)
 		}
 		bw.writers = append(bw.writers, fw)
-	case pb.DestinationType_DESTINATION_TYPE_AWS:
+	case "s3":
+		awsSession, err := awsutils.GetAWSSessionFromStorage(stg.S3)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot get an AWS session")
+		}
 		// s3.Uploader runs synchronously and receives an io.Reader but here, we are implementing
 		// writers so, we need to create an io.Pipe and run uploader.Upload in a go-routine
 		pr, pw := io.Pipe()
 		go func() {
 			uploader := s3manager.NewUploader(awsSession)
 			uploader.Upload(&s3manager.UploadInput{
-				Bucket: aws.String(dir),
+				Bucket: aws.String(stg.S3.Bucket),
 				Key:    aws.String(name),
 				Body:   pr,
 			})
+			pw.Close()
 		}()
 		bw.writers = append(bw.writers, pw)
+		fmt.Printf(">>> using bucket %s\n", stg.S3.Bucket)
+	default:
+		return nil, fmt.Errorf("Don't know how to handle %q storage type", stg.Type)
 	}
 
 	switch compressionType {
@@ -92,5 +99,8 @@ func NewBackupWriter(dir, name string, destinationType pb.DestinationType, compr
 		//TODO: Add cyphers
 	}
 
+	if len(bw.writers) == 0 {
+		return nil, fmt.Errorf("there are no backup writers")
+	}
 	return bw, nil
 }

@@ -76,14 +76,13 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 	return client
 }
 
-func (c *Client) CanRestoreBackup(backupType pb.BackupType, destinationType pb.DestinationType, bucket, name string) (pb.CanRestoreBackupResponse, error) {
+func (c *Client) CanRestoreBackup(backupType pb.BackupType, storageName, name string) (pb.CanRestoreBackupResponse, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_CanRestoreBackupMsg{
 			CanRestoreBackupMsg: &pb.CanRestoreBackup{
-				BackupType:      backupType,
-				DestinationType: destinationType,
-				DestinationDir:  bucket,
-				BackupName:      name,
+				BackupType:  backupType,
+				BackupName:  name,
+				StorageName: storageName,
 			},
 		},
 	}); err != nil {
@@ -297,8 +296,6 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 		Payload: &pb.ServerMessage_RestoreBackupMsg{
 			RestoreBackupMsg: &pb.RestoreBackup{
 				BackupType:        msg.BackupType,
-				SourceType:        msg.SourceType,
-				SourceBucket:      msg.SourceBucket,
 				DbSourceName:      msg.DbSourceName,
 				OplogSourceName:   msg.OplogSourceName,
 				CompressionType:   msg.CompressionType,
@@ -307,6 +304,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 				SkipUsersAndRoles: msg.SkipUsersAndRoles,
 				Host:              msg.Host,
 				Port:              msg.Port,
+				StorageName:       msg.GetStorageName(),
 			},
 		},
 	}
@@ -355,13 +353,12 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 		Payload: &pb.ServerMessage_StartBackupMsg{
 			StartBackupMsg: &pb.StartBackup{
 				BackupType:      opts.BackupType,
-				DestinationType: opts.DestinationType,
 				DbBackupName:    opts.DbBackupName,
 				OplogBackupName: opts.OplogBackupName,
-				DestinationDir:  opts.DestinationDir,
 				CompressionType: opts.CompressionType,
 				Cypher:          opts.Cypher,
 				OplogStartTime:  opts.OplogStartTime,
+				StorageName:     opts.StorageName,
 			},
 		},
 	}

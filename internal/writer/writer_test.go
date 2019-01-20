@@ -13,24 +13,25 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"gopkg.in/mgo.v2/bson"
 )
 
 var (
-	keepS3Data     bool
-	keepLocalFiles bool
+	keepS3Data    bool
+	keepLocalData bool
+	testStorages  *storage.Storages
 )
 
 func TestMain(m *testing.M) {
 	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
-	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.BoolVar(&keepLocalData, "keep-local-data", false, "Do not files downloaded from the S3 bucket")
 	flag.Parse()
 
 	os.Exit(m.Run())
@@ -41,10 +42,8 @@ func TestWriteToLocalFs(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer os.RemoveAll(tmpDir)
 
-	bucket := tmpDir
 	filename := "percona-s3-test.oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -70,7 +69,9 @@ func TestWriteToLocalFs(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_FILE, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	st := testingStorages()
+
+	bw, err := NewBackupWriter(filename, st.Storages["local-filesystem"], pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -81,7 +82,7 @@ func TestWriteToLocalFs(t *testing.T) {
 	}
 	bw.Close()
 
-	oplogFile := filepath.Join(tmpDir, filename)
+	oplogFile := filepath.Join(st.Storages["local-filesystem"].Filesystem.Path, filename)
 	fi, err := os.Stat(oplogFile)
 	if err != nil {
 		t.Errorf("Error checking if backup exists: %s", err)
@@ -93,8 +94,10 @@ func TestWriteToLocalFs(t *testing.T) {
 
 func TestUploadToS3(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	bucket := fmt.Sprintf("percona-backup-mongodb-test-s3-%05d", rand.Int63n(99999))
 	filename := "percona-s3-test.oplog"
+	st := testingStorages()
+	bucket := st.Storages["s3-us-west"].S3.Bucket
+	fmt.Printf("Using bucket %q\n", bucket)
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
@@ -108,7 +111,7 @@ func TestUploadToS3(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(&aws.Config{})
+	sess, err := awsutils.GetAWSSessionFromStorage(st.Storages["s3-us-west"].S3)
 	if err != nil {
 		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
@@ -154,7 +157,7 @@ func TestUploadToS3(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	bw, err := NewBackupWriter(filename, st.Storages["s3-us-west"], pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -219,4 +222,40 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
 			}
 		}
 	}
+}
+
+func testingStorages() *storage.Storages {
+	if testStorages != nil {
+		return testStorages
+	}
+	tmpDir := os.TempDir()
+	st := &storage.Storages{
+		Storages: map[string]storage.Storage{
+			"s3-us-west": {
+				Type: "s3",
+				S3: storage.S3{
+					Region: "us-west-2",
+					//EndpointURL: "https://minio",
+					Bucket: randomBucket(),
+					Credentials: storage.Credentials{
+						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+						SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+					},
+				},
+				Filesystem: storage.Filesystem{},
+			},
+			"local-filesystem": {
+				Type: "filesystem",
+				Filesystem: storage.Filesystem{
+					Path: filepath.Join(tmpDir, "dump_test"),
+				},
+			},
+		},
+	}
+	return st
+}
+
+func randomBucket() string {
+	rand.Seed(time.Now().UnixNano())
+	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
 }

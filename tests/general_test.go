@@ -8,17 +8,18 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
@@ -33,7 +34,8 @@ var (
 	port, apiPort             string
 	grpcServerShutdownTimeout = 30
 	keepS3Data                bool
-	keepLocalFiles            bool
+	keepLocalData             bool
+	storages                  *storage.Storages
 )
 
 const (
@@ -53,7 +55,7 @@ func TestMain(m *testing.M) {
 	log.SetFormatter(&log.TextFormatter{})
 
 	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
-	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.BoolVar(&keepLocalData, "keep-local-data", false, "Do not files downloaded from the S3 bucket")
 	flag.Parse()
 
 	if os.Getenv("DEBUG") == "1" {
@@ -72,15 +74,14 @@ func TestMain(m *testing.M) {
 
 func TestGlobalWithDaemon(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -190,12 +191,12 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
+		StorageName:     "local-filesystem",
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
@@ -267,6 +268,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 		}
 	}
 
+	// Cleanup the db so, after restore, we can count the restored documents
 	cleanupDBForRestore(t, s1Session)
 	cleanupDBForRestore(t, s2Session)
 
@@ -313,33 +315,23 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if int64(rs2AfterCount) < rs2BeforeCount {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
 	}
+	if !keepLocalData {
+		os.RemoveAll(tmpDir) // Clean up after testing.
+	}
 }
 
 func TestBackupToS3(t *testing.T) {
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+	bucket := testingStorages().Storages["s3-us-west"].S3.Bucket
+	fmt.Printf("Using bucket %q\n", bucket)
+	sess, err := awsutils.GetAWSSessionFromStorage(testingStorages().Storages["s3-us-west"].S3)
 	if err != nil {
-		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+		t.Fatalf("Cannot get an AWS session: %s", err)
 	}
-	log.Printf("Using %s as the temporary directory", tmpDir)
-
-	// Initialize a session in us-west-2 that the SDK will use to load
-	// credentials from the shared credentials file ~/.aws/credentials.
-	diag("Staring AWS session")
-	sess, err := session.NewSession(nil)
-	if err != nil {
-		t.Skipf("Cannot start AWS session. Skipping S3 test: %s", err)
-	}
-
-	bucket := randomBucket()
-	diag("Creating S3 service client")
-	// Create S3 service client
 	svc := s3.New(sess)
+
 	diag("Checking if bucket %s exists", bucket)
 
-	exists, err := testutils.BucketExists(svc, bucket)
+	exists, err := awsutils.BucketExists(svc, bucket)
 	if err != nil {
 		t.Fatalf("Cannot check if bucket %q exists: %s", bucket, err)
 	}
@@ -348,7 +340,7 @@ func TestBackupToS3(t *testing.T) {
 			t.Fatalf("Unable to create bucket %q, %v", bucket, err)
 		}
 	}
-	d, err := testGrpc.NewDaemon(context.Background(), bucket, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), os.TempDir(), testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -378,12 +370,12 @@ func TestBackupToS3(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_AWS,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
+		StorageName:     "s3-us-west",
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
@@ -502,19 +494,19 @@ func TestBackupToS3(t *testing.T) {
 	//  }
 
 	// Clean up after testing
-	if !keepS3Data {
-		diag("Deleting bucket %q", bucket)
-		if err = awsutils.EmptyBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
+	//if !keepS3Data {
+	//	diag("Deleting bucket %q", bucket)
+	//	if err = awsutils.EmptyBucket(svc, bucket); err != nil {
+	//		t.Errorf("Cannot delete bucket %q: %s", bucket, err)
+	//	}
 
-		diag("Deleting bucket %q", bucket)
-		if err = testutils.DeleteBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
-	} else {
-		diag("Skipping deletion of %q bucket", bucket)
-	}
+	//	diag("Deleting bucket %q", bucket)
+	//	if err = testutils.DeleteBucket(svc, bucket); err != nil {
+	//		t.Errorf("Cannot delete bucket %q: %s", bucket, err)
+	//	}
+	//} else {
+	//	diag("Skipping deletion of %q bucket", bucket)
+	//}
 }
 
 func TestClientDisconnect(t *testing.T) {
@@ -525,7 +517,7 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -553,7 +545,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -591,7 +583,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -642,7 +634,7 @@ func TestRunBackupTwice(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -675,7 +667,6 @@ func runBackup(t *testing.T, d *testGrpc.Daemon) {
 
 	msg := &pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_GZIP,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
@@ -708,7 +699,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -726,7 +717,6 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
@@ -870,7 +860,7 @@ func TestConfigServerClusterID(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -901,4 +891,36 @@ func diag(params ...interface{}) {
 func randomBucket() string {
 	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
+}
+
+func testingStorages() *storage.Storages {
+	if storages != nil {
+		return storages
+	}
+	tmpDir := os.TempDir()
+	st := &storage.Storages{
+		Storages: map[string]storage.Storage{
+			"s3-us-west": {
+				Type: "s3",
+				S3: storage.S3{
+					Region: "us-west-2",
+					//EndpointURL: "https://minio",
+					Bucket: randomBucket(),
+					Credentials: storage.Credentials{
+						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+						SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+					},
+				},
+				Filesystem: storage.Filesystem{},
+			},
+			"local-filesystem": {
+				Type: "filesystem",
+				Filesystem: storage.Filesystem{
+					Path: filepath.Join(tmpDir, "dump_test"),
+				},
+			},
+		},
+	}
+	storages = st
+	return st
 }

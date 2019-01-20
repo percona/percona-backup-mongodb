@@ -13,6 +13,8 @@ import (
 type BSONReader interface {
 	ReadNext() ([]byte, error)
 	UnmarshalNext(interface{}) error
+	Read([]byte) (int, error)
+	Close() error
 }
 
 type BSONFile struct {

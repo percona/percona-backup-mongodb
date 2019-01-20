@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/grpc/server"
@@ -55,8 +54,6 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 					RunningDbBackup:   status.RunningDbBackup,
 					Compression:       status.CompressionType.String(),
 					Encrypted:         status.Cypher.String(),
-					Destination:       status.DestinationType.String(),
-					Filename:          filepath.Join(status.DestinationDir, status.DestinationName),
 					BackupType:        status.BackupType.String(),
 					StartOplogTs:      status.StartOplogTs,
 					LastOplogTs:       status.LastOplogTs,
@@ -98,11 +95,11 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
-		DestinationType: pb.DestinationType(opts.DestinationType),
 		CompressionType: pb.CompressionType(opts.CompressionType),
 		Cypher:          pb.Cypher(opts.Cypher),
 		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
 		Description:     opts.Description,
+		StorageName:     opts.StorageName,
 		// DBBackupName & OplogBackupName are going to be set in server.go
 		// We cannot set them here because the backup name will include the replicaset name so, it will
 		// be different for each client/MongoDB instance

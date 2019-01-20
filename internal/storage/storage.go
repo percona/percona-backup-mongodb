@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/internal/utils"
 	"github.com/pkg/errors"
@@ -33,9 +34,9 @@ type Filesystem struct {
 }
 
 type Storage struct {
-	Type       string `yaml:"type"`
-	S3         S3     `yaml:"s3,omitempty"`
-	Filesystem Filesystem
+	Type       string     `yaml:"type"`
+	S3         S3         `yaml:"s3,omitempty"`
+	Filesystem Filesystem `yaml:"filesystem"`
 }
 
 type StorageInfo struct {
@@ -44,7 +45,11 @@ type StorageInfo struct {
 	Filesystem Filesystem
 }
 
-type Storages map[string]Storage
+type Storages struct {
+	Storages   map[string]Storage
+	lastUpdate time.Time
+	filename   string
+}
 
 func (s Storage) Info() StorageInfo {
 	return StorageInfo{
@@ -60,38 +65,95 @@ func (s Storage) Info() StorageInfo {
 	}
 }
 
-func NewStorageBackends() Storages {
-	return make(map[string]Storage)
+func NewStorageBackends(buf []byte) (*Storages, error) {
+	s := &Storages{
+		Storages: make(map[string]Storage),
+	}
+
+	if err := s.parse(buf); err != nil {
+		return nil, errors.Wrapf(err, "cannot unmarshal input: %s", err)
+	}
+
+	return s, nil
 }
 
-func NewStorageBackendsFromYaml(filename string) (Storages, error) {
+func NewStorageBackendsFromYaml(filename string) (*Storages, error) {
 	filename = utils.Expand(filename)
 
-	if _, err := os.Stat(filename); err != nil {
-		return nil, errors.Wrapf(err, "cannot open file %s", filename)
+	s := &Storages{
+		filename: filename,
+		Storages: make(map[string]Storage),
 	}
 
-	buf, err := ioutil.ReadFile(filepath.Clean(filename))
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot load configuration from file")
-	}
-
-	s := make(map[string]Storage)
-
-	if err = yaml.Unmarshal(buf, s); err != nil {
+	if err := s.load(); err != nil {
 		return nil, errors.Wrapf(err, "cannot unmarshal yaml file %s: %s", filename, err)
 	}
 
 	return s, nil
 }
 
+func (s *Storages) Reload() error {
+	// if it was created from a bytes array ...
+	if s.filename == "" {
+		return nil
+	}
+	si, err := os.Stat(s.filename)
+	if err != nil {
+		return errors.Wrapf(err, "cannot open file %s", s.filename)
+	}
+
+	if !si.ModTime().After(s.lastUpdate) {
+		return nil
+	}
+
+	s.lastUpdate = si.ModTime()
+	return s.load()
+}
+
+func (s *Storages) load() error {
+	// if it was created from a bytes array ...
+	if s.filename == "" {
+		return nil
+	}
+	si, err := os.Stat(s.filename)
+	if err != nil {
+		return errors.Wrapf(err, "cannot open file %s", s.filename)
+	}
+
+	s.lastUpdate = si.ModTime()
+
+	buf, err := ioutil.ReadFile(filepath.Clean(s.filename))
+	if err != nil {
+		return errors.Wrap(err, "cannot load configuration from file")
+	}
+
+	return s.parse(buf)
+}
+
+func (s *Storages) parse(buf []byte) error {
+	s.Storages = make(map[string]Storage)
+
+	if err := yaml.Unmarshal(buf, s.Storages); err != nil {
+		return errors.Wrapf(err, "cannot unmarshal yaml file %s: %s", s.filename, err)
+	}
+	return nil
+}
+
 func (s Storages) Exists(name string) bool {
-	_, ok := s[name]
+	_, ok := s.Storages[name]
 	return ok
 }
 
+func (s Storages) Get(name string) (Storage, error) {
+	storage, ok := s.Storages[name]
+	if !ok {
+		return Storage{}, fmt.Errorf("Storage %q doesn't exists", name)
+	}
+	return storage, nil
+}
+
 func (s Storages) StorageInfo(name string) (StorageInfo, error) {
-	si, ok := s[name]
+	si, ok := s.Storages[name]
 	if !ok {
 		return StorageInfo{}, fmt.Errorf("Storage name %s doesn't exists", name)
 	}
@@ -100,7 +162,7 @@ func (s Storages) StorageInfo(name string) (StorageInfo, error) {
 
 func (s Storages) StoragesInfo() map[string]StorageInfo {
 	si := make(map[string]StorageInfo)
-	for name, storage := range s {
+	for name, storage := range s.Storages {
 		si[name] = storage.Info()
 	}
 	return si

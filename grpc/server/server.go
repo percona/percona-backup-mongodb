@@ -146,7 +146,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 			if client.ReplicasetName != replicasetName {
 				continue
 			}
-			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName)
+			resp, err := client.CanRestoreBackup(bm.BackupType, bm.GetStorageName(), replicasetMetaData.DbBackupName)
 			if err != nil {
 				continue
 			}
@@ -360,8 +360,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
 					BackupType:        bm.BackupType,
-					SourceType:        bm.DestinationType,
-					SourceBucket:      bm.DestinationDir,
 					DbSourceName:      metadata.DbBackupName,
 					OplogSourceName:   metadata.OplogBackupName,
 					CompressionType:   bm.CompressionType,
@@ -369,6 +367,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					SkipUsersAndRoles: skipUsersAndRoles,
 					Host:              source.Host,
 					Port:              source.Port,
+					StorageName:       bm.GetStorageName(),
 				}
 				source.Client.restoreBackup(msg)
 			}
@@ -440,14 +439,13 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
-			DestinationType: opts.GetDestinationType(),
 			DbBackupName:    dbBackupName,
 			OplogBackupName: oplogBackupName,
-			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
 			OplogStartTime:  opts.GetOplogStartTime(),
 			Description:     opts.Description,
+			StorageName:     opts.StorageName,
 		})
 	}
 
