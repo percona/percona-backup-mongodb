@@ -22,12 +22,6 @@ enum BackupType {
    BACKUP_TYPE_HOTBACKUP = 2;
 }
 
-enum DestinationType {
-   DESTINATION_TYPE_INVALID = 0;
-   DESTINATION_TYPE_FILE    = 1; 
-   DESTINATION_TYPE_AWS     = 2;
-}
-
 enum CompressionType {
    COMPRESSION_TYPE_INVALID        = 0;
    COMPRESSION_TYPE_NO_COMPRESSION = 1;
@@ -63,14 +57,13 @@ message ClientStatus {
   string backup_type          = 6;
   string compression          = 7;       
   string encrypted            = 8;         
-  string destination          = 9;       
-  string dirname              = 10;
-  string filename             = 11;          
-  int64  started              = 12;           
-  int64  finished             = 13;
-  int64  start_oplog_ts       = 14;
-  int64  last_oplog_ts        = 15;
-  string last_error           = 16;         
+  string dirname              = 9;
+  string filename             = 10;          
+  int64  started              = 11;           
+  int64  finished             = 12;
+  int64  start_oplog_ts       = 13;
+  int64  last_oplog_ts        = 14;
+  string last_error           = 15;         
 }
 
 message Client {
@@ -95,16 +88,17 @@ message RunBackupParams {
   BackupType      backup_type      = 1;
   CompressionType compression_type = 2;       
   Cypher          cypher           = 3;         
-  DestinationType destination_type = 4;       
-  string          dirname          = 5;
-  string          filename         = 6;          
-  int64           start_oplog_ts   = 7;
-  string          description      = 8;
+  string          dirname          = 4;
+  string          filename         = 5;          
+  int64           start_oplog_ts   = 6;
+  string          description      = 7;
+  string          storage_name     = 8;
 }
 
 message RunRestoreParams {
   string metadata_file        = 1;
   bool   skip_users_and_roles = 2;
+  string storage_name         = 3;
 }
 
 message RunRestoreResponse {

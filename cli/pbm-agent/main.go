@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
 	"github.com/percona/percona-backup-mongodb/internal/loghook"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/utils"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,6 +41,7 @@ type cliOptions struct {
 	Quiet            bool   `yaml:"quiet,omitempty" kingpin:"quiet"`
 	ServerAddress    string `yaml:"server_address" kingping:"server-address"`
 	ServerCompressor string `yaml:"server_compressor" kingpin:"server-compressor"`
+	StoragesConfig   string `yaml:"storages_config" kingpin:"storages-config"`
 	TLS              bool   `yaml:"tls,omitempty" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
@@ -164,7 +166,20 @@ func main() {
 	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
 	defer mdbSession.Close()
 
-	client, err := client.NewClient(context.Background(), opts.BackupDir, opts.MongodbConnOptions, opts.MongodbSslOptions, conn, log)
+	storages, err := storage.NewStorageBackendsFromYaml(opts.StoragesConfig)
+	if err != nil {
+		log.Fatalf("Cannot load stoages from config file %q: %s", opts.StoragesConfig, err)
+	}
+	input := client.InputOptions{
+		BackupDir:     opts.BackupDir,
+		DbConnOptions: opts.MongodbConnOptions,
+		DbSSLOptions:  client.SSLOptions{},
+		GrpcConn:      conn,
+		Logger:        log,
+		Storages:      storages,
+	}
+
+	client, err := client.NewClient(context.Background(), input)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -201,6 +216,8 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Short('d').StringVar(&opts.BackupDir)
 	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("log-file", "Backup agent log file").Short('l').StringVar(&opts.LogFile)
+	app.Flag("storages-config", "Storages config yaml file").Required().StringVar(&opts.StoragesConfig)
+
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	app.Flag("quiet", "Quiet mode. Log only errors").Short('q').BoolVar(&opts.Quiet)
@@ -251,6 +268,7 @@ func validateOptions(opts *cliOptions) error {
 	opts.TLSCertFile = utils.Expand(opts.TLSCertFile)
 	opts.TLSKeyFile = utils.Expand(opts.TLSKeyFile)
 	opts.PIDFile = utils.Expand(opts.PIDFile)
+	opts.StoragesConfig = utils.Expand(opts.StoragesConfig)
 
 	if opts.PIDFile != "" {
 		if err := writePidFile(opts.PIDFile); err != nil {

@@ -70,6 +70,7 @@ type cliOptions struct {
 	compressionAlgorithm string
 	encryptionAlgorithm  string
 	description          string
+	storageName          string
 
 	restore                  *kingpin.CmdClause
 	restoreMetadataFile      string
@@ -193,9 +194,9 @@ func connectedAgents(ctx context.Context, conn *grpc.ClientConn) ([]*pbapi.Clien
 		}
 		clients = append(clients, msg)
 	}
-	//if err := stream.CloseSend(); err != nil {
-	//	return nil, errors.Wrap(err, "cannot close stream for connectedAgents function")
-	//}
+	if err := stream.CloseSend(); err != nil {
+		return nil, errors.Wrap(err, "cannot close stream for connectedAgents function")
+	}
 	sort.Slice(clients, func(i, j int) bool { return clients[i].NodeName < clients[j].NodeName })
 	return clients, nil
 }
@@ -262,25 +263,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     opts.description,
-		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
-	}
-
-	switch opts.backupType {
-	case "logical":
-		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_LOGICAL
-	case "hot":
-		msg.BackupType = pbapi.BackupType_BACKUP_TYPE_HOTBACKUP
-	default:
-		return fmt.Errorf("backup type %q is invalid", opts.backupType)
-	}
-
-	switch opts.destinationType {
-	case "file":
-		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_FILE
-	case "aws":
-		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_AWS
-	default:
-		return fmt.Errorf("destination type %v is invalid", opts.destinationType)
+		StorageName:     opts.storageName,
 	}
 
 	switch opts.compressionAlgorithm {
@@ -309,6 +292,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 	msg := &pbapi.RunRestoreParams{
 		MetadataFile:      opts.restoreMetadataFile,
 		SkipUsersAndRoles: opts.restoreSkipUsersAndRoles,
+		StorageName:       opts.storageName,
 	}
 
 	_, err := apiClient.RunRestore(ctx, msg)
@@ -344,8 +328,11 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").EnumVar(&opts.compressionAlgorithm, grpcCompressors...)
 	backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").StringVar(&opts.encryptionAlgorithm)
 	backupCmd.Flag("description", "Backup description").Required().StringVar(&opts.description)
+	backupCmd.Flag("storage-name", "Storage name").Required().StringVar(&opts.storageName)
+
 	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").HintAction(listAvailableBackups).Required().StringVar(&opts.restoreMetadataFile)
 	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).BoolVar(&opts.restoreSkipUsersAndRoles)
+	restoreCmd.Flag("storage-name", "Storage name").Required().StringVar(&opts.storageName)
 
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
 	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)

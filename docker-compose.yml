@@ -64,6 +64,14 @@ services:
     - ./docker/test/mongod.key:/mongod.key:ro
     - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
     - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
+  minio:
+    network_mode: host
+    image: minio/minio
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY_ID}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_ACCESS_KEY}
+    command: server /data
+
 #  configsvr2:
 #    network_mode: host
 #    image: percona/percona-server-mongodb:${TEST_PSMDB_VERSION}
@@ -113,6 +121,7 @@ services:
     - s2-mongo1
     - s2-mongo2
     - s2-mongo3
+    - minio
   test:
     build:
       dockerfile: docker/test/Dockerfile
