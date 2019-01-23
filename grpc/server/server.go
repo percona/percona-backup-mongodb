@@ -98,22 +98,21 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 }
 
 func (s *MessagesServer) refreshClientsScheduler() {
-	return
-	// s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
-	// ticker := time.NewTicker(s.clientsRefreshInterval)
-	// for {
-	// 	select {
-	// 	case <-s.stopChan:
-	// 		s.logger.Debug("Stopping clients background refresher")
-	// 		ticker.Stop()
-	// 		return
-	// 	case <-ticker.C:
-	// 		err := s.RefreshClients()
-	// 		if err != nil {
-	// 			s.logger.Errorf(err.Error())
-	// 		}
-	// 	}
-	// }
+	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
+	ticker := time.NewTicker(s.clientsRefreshInterval)
+	for {
+		select {
+		case <-s.stopChan:
+			s.logger.Debug("Stopping clients background refresher")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			err := s.RefreshClients()
+			if err != nil {
+				s.logger.Errorf(err.Error())
+			}
+		}
+	}
 }
 
 func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
@@ -147,7 +146,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 			if client.ReplicasetName != replicasetName {
 				continue
 			}
-			resp, err := client.CanRestoreBackup(bm.BackupType, bm.GetStorageName(), replicasetMetaData.DbBackupName)
+			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName)
 			if err != nil {
 				continue
 			}
@@ -361,6 +360,8 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
 					BackupType:        bm.BackupType,
+					SourceType:        bm.DestinationType,
+					SourceBucket:      bm.DestinationDir,
 					DbSourceName:      metadata.DbBackupName,
 					OplogSourceName:   metadata.OplogBackupName,
 					CompressionType:   bm.CompressionType,
@@ -368,9 +369,8 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					SkipUsersAndRoles: skipUsersAndRoles,
 					Host:              source.Host,
 					Port:              source.Port,
-					StorageName:       bm.GetStorageName(),
 				}
-				source.Client.RestoreBackup(msg)
+				source.Client.restoreBackup(msg)
 			}
 		}
 	}
@@ -440,13 +440,14 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 		client.startBackup(&pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
+			DestinationType: opts.GetDestinationType(),
 			DbBackupName:    dbBackupName,
 			OplogBackupName: oplogBackupName,
+			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
 			OplogStartTime:  opts.GetOplogStartTime(),
 			Description:     opts.Description,
-			StorageName:     opts.StorageName,
 		})
 	}
 

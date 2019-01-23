@@ -56,10 +56,6 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		Auth:       &options.Auth{},
 		Namespace:  &options.Namespace{},
 		URI:        &options.URI{},
-		Verbosity: &options.Verbosity{
-			Quiet:  false,
-			VLevel: 50,
-		},
 	}
 	if i.Username != "" && i.Password != "" {
 		toolOpts.Auth.Username = i.Username
@@ -89,7 +85,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		MaintainInsertionOrder:   true,
 		NumParallelCollections:   4,
 		NumInsertionWorkers:      1,
-		StopOnError:              true,
+		StopOnError:              false,
 		BypassDocumentValidation: false,
 		// TempUsersColl            string `long:"tempUsersColl" default:"tempusers" hidden:"true"`
 		// TempRolesColl            string `long:"tempRolesColl" default:"temproles" hidden:"true"`

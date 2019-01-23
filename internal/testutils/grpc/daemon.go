@@ -13,7 +13,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
-	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -44,7 +43,6 @@ type Daemon struct {
 	clients            []*client.Client
 	workDir            string
 	clientConn         *grpc.ClientConn
-	storages           *storage.Storages
 }
 
 type PortRs struct {
@@ -52,26 +50,27 @@ type PortRs struct {
 	Rs   string
 }
 
-func NewDaemon(ctx context.Context, workDir string, storages *storage.Storages, t *testing.T) (*Daemon, error) {
-	logger := &logrus.Logger{
-		Out: os.Stderr,
-		Formatter: &logrus.TextFormatter{
-			FullTimestamp:          true,
-			DisableLevelTruncation: true,
-		},
-		Hooks: make(logrus.LevelHooks),
-		Level: logrus.DebugLevel,
+func NewDaemon(ctx context.Context, workDir string, t *testing.T, logger *logrus.Logger) (*Daemon, error) {
+	if logger == nil {
+		logger = &logrus.Logger{
+			Out: os.Stderr,
+			Formatter: &logrus.TextFormatter{
+				FullTimestamp:          true,
+				DisableLevelTruncation: true,
+			},
+			Hooks: make(logrus.LevelHooks),
+			Level: logrus.DebugLevel,
+		}
+		logger.SetLevel(logrus.StandardLogger().Level)
+		logger.Out = logrus.StandardLogger().Out
 	}
-	logger.SetLevel(logrus.StandardLogger().Level)
-	logger.Out = logrus.StandardLogger().Out
 	var opts []grpc.ServerOption
 	d := &Daemon{
-		clients:  make([]*client.Client, 0),
-		wg:       &sync.WaitGroup{},
-		logger:   logger,
-		lock:     &sync.Mutex{},
-		workDir:  workDir,
-		storages: storages,
+		clients: make([]*client.Client, 0),
+		wg:      &sync.WaitGroup{},
+		logger:  logger,
+		lock:    &sync.Mutex{},
+		workDir: workDir,
 	}
 	var err error
 
@@ -117,18 +116,6 @@ func NewDaemon(ctx context.Context, workDir string, storages *storage.Storages, 
 	return d, nil
 }
 
-func (d *Daemon) Storages() *storage.Storages {
-	return d.storages
-}
-
-func (d *Daemon) SetLogger(l *logrus.Logger) {
-	d.logger = l
-}
-
-func (d *Daemon) SetStorages(s *storage.Storages) {
-	d.storages = s
-}
-
 func (d *Daemon) StartAgents(portRsList []PortRs) error {
 	for i, portRs := range portRsList {
 		di, err := testutils.DialInfoForPort(portRs.Rs, portRs.Port)
@@ -151,21 +138,10 @@ func (d *Daemon) StartAgents(portRsList []PortRs) error {
 			Password:       di.Password,
 			ReplicasetName: di.ReplicaSetName,
 		}
-		input := client.InputOptions{
-			BackupDir:     d.workDir,
-			DbConnOptions: dbConnOpts,
-			DbSSLOptions:  client.SSLOptions{},
-			GrpcConn:      d.clientConn,
-			Logger:        d.logger,
-			Storages:      d.storages,
-		}
 
-		client, err := client.NewClient(d.ctx, input)
+		client, err := client.NewClient(d.ctx, d.workDir, dbConnOpts, client.SSLOptions{}, d.clientConn, d.logger)
 		if err != nil {
 			return fmt.Errorf("Cannot create an agent instance %s: %s", agentID, err)
-		}
-		if err := client.Start(); err != nil {
-			return fmt.Errorf("Cannot start agent for %v:%v", testutils.MongoDBHost, portRs.Port)
 		}
 		d.clients = append(d.clients, client)
 	}
