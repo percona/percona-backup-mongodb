@@ -292,6 +292,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 	msg := &pbapi.RunRestoreParams{
 		MetadataFile:      opts.restoreMetadataFile,
 		SkipUsersAndRoles: opts.restoreSkipUsersAndRoles,
+		StorageName:       opts.storageName,
 	}
 
 	_, err := apiClient.RunRestore(ctx, msg)
@@ -331,6 +332,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 
 	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").HintAction(listAvailableBackups).Required().StringVar(&opts.restoreMetadataFile)
 	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).BoolVar(&opts.restoreSkipUsersAndRoles)
+	restoreCmd.Flag("storage-name", "Storage name").Required().StringVar(&opts.storageName)
 
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
 	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)

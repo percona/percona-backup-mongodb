@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

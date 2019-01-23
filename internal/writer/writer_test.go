@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +55,8 @@ func TestWriteToLocalFs(t *testing.T) {
 	defer mdbSession.Close()
 
 	stopWriter := make(chan bool)
-	go generateOplogTraffic(t, mdbSession, stopWriter)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	go generateOplogTraffic(t, mdbSession, ticker, stopWriter)
 
 	// Start tailing the oplog
 	oplogTailer, err := oplog.Open(mdbSession)
@@ -107,7 +109,8 @@ func TestUploadToS3(t *testing.T) {
 	defer mdbSession.Close()
 
 	stopWriter := make(chan bool)
-	go generateOplogTraffic(t, mdbSession, stopWriter)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	go generateOplogTraffic(t, mdbSession, ticker, stopWriter)
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
@@ -152,9 +155,10 @@ func TestUploadToS3(t *testing.T) {
 
 	// Run the oplog tailer for a second to collect some documents
 	go func() {
-		time.Sleep(4 * time.Second)
+		time.Sleep(60 * time.Second)
 		oplogTailer.Close()
 		stopWriter <- true
+		fmt.Println("salilendo")
 	}()
 
 	bw, err := NewBackupWriter(filename, st.Storages["s3-us-west"], pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
@@ -208,8 +212,124 @@ func TestUploadToS3(t *testing.T) {
 	}
 }
 
-func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
-	ticker := time.NewTicker(200 * time.Millisecond)
+func TestUploadBigFileToS3(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	filename := "percona-s3-test.oplog"
+	st := testingStorages()
+	bucket := st.Storages["s3-us-west"].S3.Bucket
+	fmt.Printf("Using bucket %q\n", bucket)
+
+	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Errorf("Cannot connect to MongoDB: %s", err)
+		t.Fail()
+	}
+	defer mdbSession.Close()
+
+	// Initialize a session in us-west-2 that the SDK will use to load
+	// credentials from the shared credentials file ~/.aws/credentials.
+	sess, err := awsutils.GetAWSSessionFromStorage(st.Storages["s3-us-west"].S3)
+	if err != nil {
+		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
+	}
+
+	// Create S3 service client
+	svc := s3.New(sess)
+
+	exists, err := awsutils.BucketExists(svc, bucket)
+	if err != nil {
+		t.Fatalf("Cannot check if bucket exists %s: %s", bucket, err)
+	}
+	if !exists {
+		_, err = svc.CreateBucket(&s3.CreateBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to create bucket %q, %v", bucket, err)
+			t.Fail()
+		}
+
+		err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Error while waiting the S3 bucket to be created: %s", err)
+			t.Fail()
+		}
+	}
+
+	if err := awsutils.EmptyBucket(svc, bucket); err != nil {
+		t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
+	}
+
+	bw, err := NewBackupWriter(filename, st.Storages["s3-us-west"], pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	if err != nil {
+		t.Fatalf("cannot create a new backup writer: %s", err)
+	}
+
+	maxSize := int64(6 * 1024 * 1024)
+	chunkSize := int64(64 * 1024)
+	str := strings.Repeat("a", int(chunkSize))
+	size := int64(0)
+	for {
+		bw.Write([]byte(str))
+		size += chunkSize
+		if size > maxSize {
+			break
+		}
+	}
+
+	bw.Close()
+
+	time.Sleep(3 * time.Second)
+	// Check the file was really uploaded
+	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	if err != nil {
+		t.Errorf("Cannot list items in the S3 bucket %s: %s", bucket, err)
+		t.Fail()
+	}
+
+	fileExistsOnS3 := false
+	for _, item := range resp.Contents {
+		if *item.Key == filename {
+			fileExistsOnS3 = true
+			break
+		}
+	}
+	if !fileExistsOnS3 {
+		t.Errorf("File %s doesn't exists on the %s S3 bucket", filename, bucket)
+		t.Fail()
+	}
+
+	fi, err := awsutils.S3Stat(svc, bucket, filename)
+	if err != nil {
+		t.Errorf("Cannot get stats for file %s in bucket %s", filename, bucket)
+	}
+	if *fi.Size != size {
+		t.Errorf("Invalid file size on S3. Want: %d, have %d", size, *fi.Size)
+	}
+
+	if !keepS3Data {
+		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
+			t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
+		}
+		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Unable to delete bucket %q, %v", bucket, err)
+		}
+
+		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
+			Bucket: aws.String(bucket),
+		})
+		if err != nil {
+			t.Errorf("Error occurred while waiting for bucket to be deleted, %s", bucket)
+		}
+	}
+}
+
+func generateOplogTraffic(t *testing.T, session *mgo.Session, ticker *time.Ticker, stop chan bool) {
 	for {
 		select {
 		case <-stop:

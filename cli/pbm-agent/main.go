@@ -178,6 +178,7 @@ func main() {
 		Logger:        log,
 		Storages:      storages,
 	}
+
 	client, err := client.NewClient(context.Background(), input)
 	if err != nil {
 		log.Fatal(err)
@@ -215,6 +216,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Short('d').StringVar(&opts.BackupDir)
 	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("log-file", "Backup agent log file").Short('l').StringVar(&opts.LogFile)
+	app.Flag("storages-config", "Storages config yaml file").Required().StringVar(&opts.StoragesConfig)
 
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)

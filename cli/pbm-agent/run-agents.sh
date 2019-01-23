@@ -31,6 +31,8 @@ export TEST_MONGODB_CONFIGSVR3_PORT=17009
 
 export TEST_MONGODB_MONGOS_PORT=17000
 
+export storages_config=~/.storages.yaml
+
 run_agents() {
     ports=$1
     replicaset=$2
@@ -58,6 +60,7 @@ run_agents() {
             --mongodb-port=${port} \
             --mongodb-replicaset=${replicaset} \
             --backup-dir=${backupdir} \
+            --storages-config=${storages_config} \
             --pid-file=${pidfile} &> ${logfile} &
         pid=$!
         pids="$pids $pid"
@@ -69,6 +72,7 @@ run_agents() {
     echo "kill${pids}"
 }
 
+mkdir -p -f /tmp/dump_test/
 go build
 
 echo "Starting agents on first shard"

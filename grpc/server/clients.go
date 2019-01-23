@@ -291,7 +291,7 @@ func (c *Client) ping() error {
 	return nil
 }
 
-func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
+func (c *Client) RestoreBackup(msg *pb.RestoreBackup) error {
 	outMsg := &pb.ServerMessage{
 		Payload: &pb.ServerMessage_RestoreBackupMsg{
 			RestoreBackupMsg: &pb.RestoreBackup{

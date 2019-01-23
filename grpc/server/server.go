@@ -98,21 +98,22 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 }
 
 func (s *MessagesServer) refreshClientsScheduler() {
-	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
-	ticker := time.NewTicker(s.clientsRefreshInterval)
-	for {
-		select {
-		case <-s.stopChan:
-			s.logger.Debug("Stopping clients background refresher")
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			err := s.RefreshClients()
-			if err != nil {
-				s.logger.Errorf(err.Error())
-			}
-		}
-	}
+	return
+	// s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
+	// ticker := time.NewTicker(s.clientsRefreshInterval)
+	// for {
+	// 	select {
+	// 	case <-s.stopChan:
+	// 		s.logger.Debug("Stopping clients background refresher")
+	// 		ticker.Stop()
+	// 		return
+	// 	case <-ticker.C:
+	// 		err := s.RefreshClients()
+	// 		if err != nil {
+	// 			s.logger.Errorf(err.Error())
+	// 		}
+	// 	}
+	// }
 }
 
 func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
@@ -369,7 +370,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					Port:              source.Port,
 					StorageName:       bm.GetStorageName(),
 				}
-				source.Client.restoreBackup(msg)
+				source.Client.RestoreBackup(msg)
 			}
 		}
 	}

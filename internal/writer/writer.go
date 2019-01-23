@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -19,7 +20,9 @@ import (
 )
 
 type BackupWriter struct {
-	writers []io.WriteCloser
+	writers   []io.WriteCloser
+	wg        *sync.WaitGroup
+	lastError error
 }
 
 type flusher interface {
@@ -31,13 +34,14 @@ func (bw *BackupWriter) Close() error {
 	for i := len(bw.writers) - 1; i >= 0; i-- {
 		if _, ok := bw.writers[i].(flusher); ok {
 			if err = bw.writers[i].(flusher).Flush(); err != nil {
-				break
+				return fmt.Errorf("error fluashing writer %d: %s", i, err)
 			}
 		}
 		if err = bw.writers[i].Close(); err != nil {
-			break
+			return fmt.Errorf("error closing writer %d: %s", i, err)
 		}
 	}
+	bw.wg.Wait()
 	return nil
 }
 
@@ -49,6 +53,7 @@ func NewBackupWriter(name string, stg storage.Storage, compressionType pb.Compre
 	cypher pb.Cypher) (*BackupWriter, error) {
 	bw := &BackupWriter{
 		writers: []io.WriteCloser{},
+		wg:      &sync.WaitGroup{},
 	}
 
 	switch strings.ToLower(stg.Type) {
@@ -69,15 +74,16 @@ func NewBackupWriter(name string, stg storage.Storage, compressionType pb.Compre
 		pr, pw := io.Pipe()
 		go func() {
 			uploader := s3manager.NewUploader(awsSession)
-			uploader.Upload(&s3manager.UploadInput{
+			bw.wg.Add(1)
+			_, bw.lastError = uploader.Upload(&s3manager.UploadInput{
 				Bucket: aws.String(stg.S3.Bucket),
 				Key:    aws.String(name),
 				Body:   pr,
 			})
-			pw.Close()
+			// make Close() to wait until the upload has finished
+			bw.wg.Done()
 		}()
 		bw.writers = append(bw.writers, pw)
-		fmt.Printf(">>> using bucket %s\n", stg.S3.Bucket)
 	default:
 		return nil, fmt.Errorf("Don't know how to handle %q storage type", stg.Type)
 	}

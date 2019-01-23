@@ -2,11 +2,9 @@ package client
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -21,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/golang/snappy"
+	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
 	"github.com/percona/percona-backup-mongodb/internal/cluster"
@@ -33,7 +31,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
-	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
@@ -434,9 +431,12 @@ func (c *Client) processIncommingServerMessages() {
 			err = c.processCancelBackup()
 			//
 		case *pb.ServerMessage_RestoreBackupMsg:
-			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
+			c.sendACK()
+			err := c.processRestore(msg.GetRestoreBackupMsg())
+			if err != nil {
 				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
 			}
+			c.sendRestoreComplete(err)
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
 			c.processStopBalancer()
@@ -861,28 +861,19 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.lock.Unlock()
 	}()
 
-	c.sendACK()
-
+	fmt.Printf(">>>> starting %s\n", c.id)
 	if err := c.restoreDBDump(msg); err != nil {
-		err := errors.Wrap(err, "cannot restore DB backup")
-		c.sendRestoreComplete(err)
-		return err
+		return errors.Wrap(err, "cannot restore DB backup")
 	}
 
+	fmt.Println(">>>>>>>>>> lock")
 	c.lock.Lock()
 	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
 	c.lock.Unlock()
+	fmt.Println(">>>>>>>>>> unlock")
 
 	if err := c.restoreOplog(msg); err != nil {
-		err := errors.Wrap(err, "cannot restore Oplog backup")
-		if err1 := c.sendRestoreComplete(err); err1 != nil {
-			err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
-		}
-		return err
-	}
-
-	if err := c.sendRestoreComplete(nil); err != nil {
-		return errors.Wrap(err, "cannot send backup completed message")
+		return errors.Wrap(err, "cannot restore Oplog backup")
 	}
 
 	return nil
@@ -1318,37 +1309,14 @@ func getNodeType(isMaster *cluster.IsMaster) pb.NodeType {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
-	readers := []io.ReadCloser{}
-
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return fmt.Errorf("Cannot restore mongodump. Cannot get storage %q: %s", msg.GetStorageName(), err)
 	}
 
-	switch strings.ToLower(stg.Type) {
-	case "filesystem":
-		filename := filepath.Join(stg.Filesystem.Path, msg.GetDbSourceName())
-		r, err := os.Open(filename)
-		if err != nil {
-			return errors.Wrapf(err, "Cannot open dump file %s", filename)
-		}
-		readers = append(readers, r)
-	case "aws":
-	}
-
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		gzr, err := gzip.NewReader(readers[len(readers)-1])
-		if err != nil {
-			return errors.Wrap(err, "cannot create a gzip reader")
-		}
-		readers = append(readers, gzr)
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		lz4r := lz4.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(lz4r))
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		snappyr := snappy.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(snappyr))
+	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		return errors.Wrap(err, "Cannot create reader for the DB dump")
 	}
 
 	// We need to set Archive = "-" so MongoRestore can use the provided reader.
@@ -1368,7 +1336,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		Gzip:     false,
 		Oplog:    false,
 		Threads:  1,
-		Reader:   readers[len(readers)-1],
+		Reader:   rdr,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.
@@ -1380,13 +1348,17 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "cannot instantiate mongo restore instance")
 	}
 
+	log.Printf("=====> %s starting\n", c.id)
 	if err := r.Start(); err != nil {
+		fmt.Printf("cannot start restore %s %s", c.id, err)
 		return errors.Wrap(err, "cannot start restore")
 	}
+	fmt.Printf("=====> %s waiting\n", c.id)
 
 	if err := r.Wait(); err != nil {
 		return errors.Wrap(err, "error while trying to restore")
 	}
+	fmt.Printf("=====> %s finishing\n", c.id)
 
 	return nil
 }
@@ -1413,7 +1385,11 @@ func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "cannot connect to MongoDB to apply the oplog")
 	}
 	// Replay the oplog
-	oa, err := oplog.NewOplogApply(session, rr.GetBSONReader())
+	bsonReader, err := bsonfile.NewBSONReader(rr)
+	if err != nil {
+		return errors.Wrap(err, "Cannot create a bson reader")
+	}
+	oa, err := oplog.NewOplogApply(session, bsonReader)
 	if err != nil {
 		return errors.Wrap(err, "cannot instantiate the oplog applier")
 	}
