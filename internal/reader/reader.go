@@ -38,8 +38,10 @@ func (br *BackupReader) Close() error {
 				log.Errorf("Cannot flush %s", err)
 				break
 			}
+			log.Info("Called flush")
 		}
 		if err = br.readers[i].Close(); err != nil {
+			log.Info("Called flush")
 			break
 		}
 	}
