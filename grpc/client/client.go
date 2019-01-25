@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
@@ -25,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/cluster"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -57,9 +57,11 @@ type Client struct {
 	sslOpts     SSLOptions
 	isMasterDoc *mdbstructs.IsMaster
 
+	storages        *storage.Storages
 	mongoDumper     *dumper.Mongodump
 	oplogTailer     *oplog.OplogTail
 	logger          *logrus.Logger
+	grpcClientConn  *grpc.ClientConn
 	grpcClient      pb.MessagesClient
 	dbReconnectChan chan struct{}
 	//
@@ -96,6 +98,15 @@ type SSLOptions struct {
 	SSLFipsMode         bool   `yaml:"ssl_fips_mode,omitempty"`
 }
 
+type InputOptions struct {
+	BackupDir     string
+	DbConnOptions ConnectionOptions
+	DbSSLOptions  SSLOptions
+	GrpcConn      *grpc.ClientConn
+	Logger        *logrus.Logger
+	Storages      *storage.Storages
+}
+
 type shardsMap struct {
 	Map map[string]string `bson:"map"`
 	OK  int               `bson:"ok"`
@@ -108,16 +119,15 @@ var (
 	dbPingInterval      = 60 * time.Second
 )
 
-func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOptions, mdbSSLOpts SSLOptions,
-	conn *grpc.ClientConn, logger *logrus.Logger) (*Client, error) {
+func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 	// If the provided logger is nil, create a new logger and copy Logrus standard logger level and writer
-	if logger == nil {
-		logger = logrus.New()
-		logger.SetLevel(logrus.StandardLogger().Level)
-		logger.Out = logrus.StandardLogger().Out
+	if in.Logger == nil {
+		in.Logger = logrus.New()
+		in.Logger.SetLevel(logrus.StandardLogger().Level)
+		in.Logger.Out = logrus.StandardLogger().Out
 	}
 
-	grpcClient := pb.NewMessagesClient(conn)
+	grpcClient := pb.NewMessagesClient(in.GrpcConn)
 	ctx, cancel := context.WithCancel(inctx)
 
 	stream, err := grpcClient.MessagesChat(ctx)
@@ -125,14 +135,13 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		cancel()
 		return nil, errors.Wrap(err, "cannot connect to the gRPC server")
 	}
-
 	di := &mgo.DialInfo{
-		Addrs:          []string{mdbConnOpts.Host + ":" + mdbConnOpts.Port},
-		Username:       mdbConnOpts.User,
-		Password:       mdbConnOpts.Password,
-		Source:         mdbConnOpts.AuthDB,
+		Addrs:          []string{in.DbConnOptions.Host + ":" + in.DbConnOptions.Port},
+		Username:       in.DbConnOptions.User,
+		Password:       in.DbConnOptions.Password,
+		Source:         in.DbConnOptions.AuthDB,
+		ReplicaSetName: in.DbConnOptions.ReplicasetName,
 		AppName:        "percona/percona-backup-mongodb",
-		ReplicaSetName: mdbConnOpts.ReplicasetName,
 		// ReadPreference *ReadPreference
 		// Safe Safe
 		FailFast: true,
@@ -142,15 +151,15 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 	c := &Client{
 		ctx:        ctx,
 		cancelFunc: cancel,
-		backupDir:  backupDir,
+		backupDir:  in.BackupDir,
 		grpcClient: grpcClient,
 		stream:     stream,
 		status: pb.Status{
 			BackupType: pb.BackupType_BACKUP_TYPE_LOGICAL,
 		},
-		connOpts:        mdbConnOpts,
-		sslOpts:         mdbSSLOpts,
-		logger:          logger,
+		connOpts:        in.DbConnOptions,
+		sslOpts:         in.DbSSLOptions,
+		logger:          in.Logger,
 		lock:            &sync.Mutex{},
 		running:         true,
 		mgoDI:           di,
@@ -163,6 +172,7 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 		// Since the access to the stream is not thread safe, we need to synchronize the
 		// access to it with a mutex
 		streamLock: &sync.Mutex{},
+		storages:   in.Storages,
 	}
 
 	if err := c.dbConnect(); err != nil {
@@ -182,6 +192,26 @@ func NewClient(inctx context.Context, backupDir string, mdbConnOpts ConnectionOp
 	go c.dbWatchdog()
 
 	return c, nil
+}
+
+func (c *Client) Start() error {
+	if err := c.dbConnect(); err != nil {
+		return errors.Wrap(err, "cannot connect to the database")
+	}
+
+	if err := c.updateClientInfo(); err != nil {
+		return errors.Wrap(err, "cannot get MongoDB status information")
+	}
+
+	if err := c.register(); err != nil {
+		return err
+	}
+
+	// start listening server messages
+	go c.processIncommingServerMessages()
+	go c.dbWatchdog()
+
+	return nil
 }
 
 func (c *Client) dbConnect() (err error) {
@@ -471,10 +501,15 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 		Port:       c.connOpts.Port,
 	}
 
-	switch msg.DestinationType {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return nil, err
+	}
+
+	switch stg.Type {
+	case "filesystem":
 		resp.CanRestore, err = c.checkCanRestoreLocal(msg)
-	case pb.DestinationType_DESTINATION_TYPE_AWS:
+	case "s3":
 		resp.CanRestore, err = c.checkCanRestoreS3(msg)
 	}
 	if err != nil {
@@ -490,7 +525,8 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 }
 
 func (c *Client) checkCanRestoreLocal(msg *pb.CanRestoreBackup) (bool, error) {
-	path := filepath.Join(c.backupDir, msg.GetDestinationDir(), msg.GetBackupName())
+	stg, _ := c.storages.Get(msg.GetStorageName())
+	path := filepath.Join(stg.Filesystem.Path, msg.GetBackupName())
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -505,12 +541,13 @@ func (c *Client) checkCanRestoreLocal(msg *pb.CanRestoreBackup) (bool, error) {
 }
 
 func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
-	awsSession, err := awsutils.GetAWSSession()
+	stg, _ := c.storages.Get(msg.GetStorageName())
+	awsSession, err := awsutils.GetAWSSessionFromStorage(stg.S3)
 	if err != nil {
 		return false, fmt.Errorf("Cannot get AWS session: %s", err)
 	}
 	svc := s3.New(awsSession)
-	_, err = awsutils.S3Stat(svc, msg.GetDestinationDir(), msg.GetBackupName())
+	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
 		if err == awsutils.FileNotFoundError {
 			return false, nil
@@ -737,19 +774,27 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	var sess *session.Session
 	var err error
 
-	switch msg.GetDestinationType() {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		fi, err := os.Stat(c.backupDir)
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
 		if err != nil {
-			c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", c.backupDir))
+			c.sendDBBackupFinishError(errors.Wrapf(err, "Invalid storage name %s", msg.GetStorageName()))
+			return
+		}
+	}
+
+	switch stg.Type {
+	case "filesystem":
+		fi, err := os.Stat(stg.Filesystem.Path)
+		if err != nil {
+			c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", stg.Filesystem.Path))
 			return
 		}
 		if !fi.IsDir() {
-			c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", c.backupDir))
+			c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", stg.Filesystem.Path))
 			return
 		}
-	case pb.DestinationType_DESTINATION_TYPE_AWS:
-		sess, err = session.NewSession(&aws.Config{})
+	case "s3":
+		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
 		if err != nil {
 			msg := "Cannot create an AWS session for S3 backup"
 			c.sendDBBackupFinishError(fmt.Errorf(msg))
@@ -930,8 +975,9 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 	var err error
 	c.logger.Info("Starting DB backup")
+	stg, _ := c.storages.Get(msg.GetStorageName())
 
-	bw, err := writer.NewBackupWriter(c.backupDir, msg.GetDbBackupName(), msg.GetDestinationType(), msg.GetCompressionType(), msg.GetCypher())
+	bw, err := writer.NewBackupWriter(stg, msg.GetDbBackupName(), msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
 		c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
 		return
@@ -978,7 +1024,9 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplo
 	c.setOplogBackupRunning(true)
 	defer c.setOplogBackupRunning(false)
 
-	bw, err := writer.NewBackupWriter(c.backupDir, msg.GetOplogBackupName(), msg.GetDestinationType(), msg.GetCompressionType(), msg.GetCypher())
+	stg, _ := c.storages.Get(msg.GetStorageName())
+
+	bw, err := writer.NewBackupWriter(stg, msg.GetOplogBackupName(), msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
 		c.setOplogBackupRunning(false)
 		c.logger.Errorf("Error while copying data from the oplog tailer: %s", err)

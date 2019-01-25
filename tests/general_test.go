@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
@@ -34,6 +36,7 @@ var (
 	grpcServerShutdownTimeout = 30
 	keepS3Data                bool
 	keepLocalFiles            bool
+	storages                  *storage.Storages
 )
 
 const (
@@ -80,7 +83,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -196,6 +199,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
+		StorageName:     "local-filesystem",
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
@@ -276,7 +280,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 		t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
 	}
 
-	testRestoreWithMetadata(t, d, md)
+	testRestoreWithMetadata(t, d, md, "local-filesystem")
 
 	type maxNumber struct {
 		Number int64 `bson:"number"`
@@ -348,7 +352,7 @@ func TestBackupToS3(t *testing.T) {
 			t.Fatalf("Unable to create bucket %q, %v", bucket, err)
 		}
 	}
-	d, err := testGrpc.NewDaemon(context.Background(), bucket, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), bucket, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -525,7 +529,7 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -553,7 +557,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -591,7 +595,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -642,7 +646,7 @@ func TestRunBackupTwice(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -708,7 +712,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -763,8 +767,8 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	cleanupDBForRestore(t, s1Session)
 }
 
-func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMetadata) {
-	if err := d.MessagesServer.RestoreBackUp(md, true); err != nil {
+func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMetadata, storageName string) {
+	if err := d.MessagesServer.RestoreBackUp(md, storageName, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)
 	}
 	log.Infof("Wating restore to finish")
@@ -870,7 +874,7 @@ func TestConfigServerClusterID(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -901,4 +905,36 @@ func diag(params ...interface{}) {
 func randomBucket() string {
 	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
+}
+
+func testingStorages() *storage.Storages {
+	if storages != nil {
+		return storages
+	}
+	tmpDir := os.TempDir()
+	st := &storage.Storages{
+		Storages: map[string]storage.Storage{
+			"s3-us-west": {
+				Type: "s3",
+				S3: storage.S3{
+					Region: "us-west-2",
+					//EndpointURL: "https://minio",
+					Bucket: randomBucket(),
+					Credentials: storage.Credentials{
+						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+						SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+					},
+				},
+				Filesystem: storage.Filesystem{},
+			},
+			"local-filesystem": {
+				Type: "filesystem",
+				Filesystem: storage.Filesystem{
+					Path: filepath.Join(tmpDir, "dump_test"),
+				},
+			},
+		},
+	}
+	storages = st
+	return st
 }

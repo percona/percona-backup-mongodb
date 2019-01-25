@@ -56,7 +56,7 @@ func TestApiWithDaemon(t *testing.T) {
 	log.Printf("Using %s as the temporary directory", tmpDir)
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}

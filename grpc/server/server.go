@@ -134,7 +134,7 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 	return sources, nil
 }
 
-func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[string]restoreSource, error) {
+func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, storageName string) (map[string]restoreSource, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	sources := make(map[string]restoreSource)
@@ -146,7 +146,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 			if client.ReplicasetName != replicasetName {
 				continue
 			}
-			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName)
+			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName, storageName)
 			if err != nil {
 				continue
 			}
@@ -320,20 +320,20 @@ func (s *MessagesServer) ReplicasetsRunningRestore() map[string]*Client {
 
 // RestoreBackupFromMetadataFile is just a wrappwe around RestoreBackUp that receives a metadata filename
 // loads and parse it and then call RestoreBackUp
-func (s *MessagesServer) RestoreBackupFromMetadataFile(filename string, skipUsersAndRoles bool) error {
+func (s *MessagesServer) RestoreBackupFromMetadataFile(filename, storageName string, skipUsersAndRoles bool) error {
 	filename = filepath.Join(s.workDir, filename)
 	bm, err := LoadMetadataFromFile(filename)
 	if err != nil {
 		return fmt.Errorf("Invalid backup metadata file %s: %s", filename, err)
 	}
 
-	return s.RestoreBackUp(bm.Metadata(), skipUsersAndRoles)
+	return s.RestoreBackUp(bm.Metadata(), storageName, skipUsersAndRoles)
 }
 
 // RestoreBackUp will run a restore on each client, using the provided backup metadata to choose the source for each
 // replicaset.
-func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles bool) error {
-	clients, err := s.RestoreSourcesByReplicaset(bm)
+func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string, skipUsersAndRoles bool) error {
+	clients, err := s.RestoreSourcesByReplicaset(bm, storageName)
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup restore. Cannot find backup source for replicas")
 	}
@@ -369,6 +369,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					SkipUsersAndRoles: skipUsersAndRoles,
 					Host:              source.Host,
 					Port:              source.Port,
+					StorageName:       storageName,
 				}
 				source.Client.restoreBackup(msg)
 			}
@@ -438,7 +439,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 
-		client.startBackup(&pb.StartBackup{
+		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
 			DestinationType: opts.GetDestinationType(),
 			DbBackupName:    dbBackupName,
@@ -448,7 +449,9 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			Cypher:          opts.GetCypher(),
 			OplogStartTime:  opts.GetOplogStartTime(),
 			Description:     opts.Description,
-		})
+			StorageName:     opts.GetStorageName(),
+		}
+		client.startBackup(msg)
 	}
 
 	return nil

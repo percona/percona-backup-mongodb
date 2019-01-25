@@ -147,7 +147,7 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 }
 
 func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
-	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
+	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
 		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
 	}
