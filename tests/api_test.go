@@ -2,7 +2,6 @@ package test_test
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -49,11 +47,10 @@ func (m *mockBackupsMetadataStream) SetTrailer(h metadata.MD)       {}
 // imports proto/api so if we try to use the daemon from the api package we would end up having
 // cycling imports.
 func TestApiWithDaemon(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	tmpDir := filepath.Join(os.TempDir(), "dump_test") // same dir we have in testingStorages()
+	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
+		t.Fatalf("Cannot create temp dir %q for backup: %s", tmpDir, err)
 	}
-	log.Printf("Using %s as the temporary directory", tmpDir)
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
@@ -69,6 +66,7 @@ func TestApiWithDaemon(t *testing.T) {
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     "test backup",
+		StorageName:     "local-filesystem",
 	}
 
 	_, err = d.APIServer.RunBackup(context.Background(), msg)

@@ -103,6 +103,7 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 		Cypher:          pb.Cypher(opts.Cypher),
 		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
 		Description:     opts.Description,
+		StorageName:     opts.GetStorageName(),
 		// DBBackupName & OplogBackupName are going to be set in server.go
 		// We cannot set them here because the backup name will include the replicaset name so, it will
 		// be different for each client/MongoDB instance

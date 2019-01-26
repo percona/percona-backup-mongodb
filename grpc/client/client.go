@@ -1,13 +1,10 @@
 package client
 
 import (
-	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,18 +14,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/golang/snappy"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
 	"github.com/percona/percona-backup-mongodb/internal/cluster"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/reader"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
-	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
@@ -1166,33 +1162,42 @@ func getNodeType(isMaster *cluster.IsMaster) pb.NodeType {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
-	readers := []io.ReadCloser{}
-
-	switch msg.SourceType {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		reader, err := os.Open(path.Join(c.backupDir, msg.DbSourceName))
-		if err != nil {
-			return errors.Wrap(err, "cannot open restore source file")
-		}
-		readers = append(readers, reader)
-	default:
-		return fmt.Errorf("Restoring from sources other than file is not implemented yet")
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
+	}
+	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		gzr, err := gzip.NewReader(readers[len(readers)-1])
-		if err != nil {
-			return errors.Wrap(err, "cannot create a gzip reader")
-		}
-		readers = append(readers, gzr)
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		lz4r := lz4.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(lz4r))
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		snappyr := snappy.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(snappyr))
-	}
+	// readers := []io.ReadCloser{}
+
+	// switch msg.SourceType {
+	// case pb.DestinationType_DESTINATION_TYPE_FILE:
+	// 	reader, err := os.Open(path.Join(c.backupDir, msg.DbSourceName))
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "cannot open restore source file")
+	// 	}
+	// 	readers = append(readers, reader)
+	// default:
+	// 	return fmt.Errorf("Restoring from sources other than file is not implemented yet")
+	// }
+
+	// switch msg.GetCompressionType() {
+	// case pb.CompressionType_COMPRESSION_TYPE_GZIP:
+	// 	gzr, err := gzip.NewReader(readers[len(readers)-1])
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "cannot create a gzip reader")
+	// 	}
+	// 	readers = append(readers, gzr)
+	// case pb.CompressionType_COMPRESSION_TYPE_LZ4:
+	// 	lz4r := lz4.NewReader(readers[len(readers)-1])
+	// 	readers = append(readers, ioutil.NopCloser(lz4r))
+	// case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
+	// 	snappyr := snappy.NewReader(readers[len(readers)-1])
+	// 	readers = append(readers, ioutil.NopCloser(snappyr))
+	// }
 
 	// We need to set Archive = "-" so MongoRestore can use the provided reader.
 	// Why we don't want to use archive? Because if we use Archive, we are limited to files in the local
@@ -1211,7 +1216,8 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		Gzip:     false,
 		Oplog:    false,
 		Threads:  1,
-		Reader:   readers[len(readers)-1],
+		//Reader:   readers[len(readers)-1],
+		Reader: rdr,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.
@@ -1235,36 +1241,45 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 }
 
 func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
-	// var reader bsonfile.BSONReader
-	readers := []io.ReadCloser{}
+	// // var reader bsonfile.BSONReader
+	// readers := []io.ReadCloser{}
 
-	switch msg.SourceType {
-	case pb.DestinationType_DESTINATION_TYPE_FILE:
-		filer, err := os.Open(path.Join(c.backupDir, msg.OplogSourceName))
-		if err != nil {
-			return errors.Wrap(err, "cannot open oplog restore source file")
-		}
-		readers = append(readers, filer)
-	default:
-		return fmt.Errorf("Restoring oplogs from sources other than file is not implemented yet")
+	// switch msg.SourceType {
+	// case pb.DestinationType_DESTINATION_TYPE_FILE:
+	// 	filer, err := os.Open(path.Join(c.backupDir, msg.OplogSourceName))
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "cannot open oplog restore source file")
+	// 	}
+	// 	readers = append(readers, filer)
+	// default:
+	// 	return fmt.Errorf("Restoring oplogs from sources other than file is not implemented yet")
+	// }
+
+	// switch msg.GetCompressionType() {
+	// case pb.CompressionType_COMPRESSION_TYPE_GZIP:
+	// 	gzr, err := gzip.NewReader(readers[len(readers)-1])
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "cannot create a gzip reader")
+	// 	}
+	// 	readers = append(readers, gzr)
+	// case pb.CompressionType_COMPRESSION_TYPE_LZ4:
+	// 	lz4r := lz4.NewReader(readers[len(readers)-1])
+	// 	readers = append(readers, ioutil.NopCloser(lz4r))
+	// case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
+	// 	snappyr := snappy.NewReader(readers[len(readers)-1])
+	// 	readers = append(readers, ioutil.NopCloser(snappyr))
+	// }
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
+	}
+	rdr, err := reader.MakeReader(msg.GetOplogSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
-	switch msg.GetCompressionType() {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		gzr, err := gzip.NewReader(readers[len(readers)-1])
-		if err != nil {
-			return errors.Wrap(err, "cannot create a gzip reader")
-		}
-		readers = append(readers, gzr)
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		lz4r := lz4.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(lz4r))
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		snappyr := snappy.NewReader(readers[len(readers)-1])
-		readers = append(readers, ioutil.NopCloser(snappyr))
-	}
-
-	bsonReader, err := bsonfile.NewBSONReader(readers[len(readers)-1])
+	// bsonReader, err := bsonfile.NewBSONReader(readers[len(readers)-1])
+	bsonReader, err := bsonfile.NewBSONReader(rdr)
 
 	di := &mgo.DialInfo{
 		Addrs:    []string{fmt.Sprintf("%s:%s", msg.Host, msg.Port)},
