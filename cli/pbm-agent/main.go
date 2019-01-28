@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
 	"github.com/percona/percona-backup-mongodb/internal/loghook"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/utils"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,6 +41,7 @@ type cliOptions struct {
 	Quiet            bool   `yaml:"quiet,omitempty" kingpin:"quiet"`
 	ServerAddress    string `yaml:"server_address" kingping:"server-address"`
 	ServerCompressor string `yaml:"server_compressor" kingpin:"server-compressor"`
+	StoragesConfig   string `yaml:"storages_config" kingpin:"storages-config"`
 	TLS              bool   `yaml:"tls,omitempty" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
@@ -164,7 +166,21 @@ func main() {
 	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
 	defer mdbSession.Close()
 
-	client, err := client.NewClient(context.Background(), opts.BackupDir, opts.MongodbConnOptions, opts.MongodbSslOptions, conn, log)
+	stg, err := storage.NewStorageBackendsFromYaml(utils.Expand(opts.StoragesConfig))
+	if err != nil {
+		log.Fatalf("Canot load storages config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
+	}
+
+	input := client.InputOptions{
+		BackupDir:     opts.BackupDir,
+		DbConnOptions: opts.MongodbConnOptions,
+		DbSSLOptions:  opts.MongodbSslOptions,
+		GrpcConn:      conn,
+		Logger:        log,
+		Storages:      stg,
+	}
+
+	client, err := client.NewClient(context.Background(), input)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -196,14 +212,15 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		},
 	}
 
-	app.Flag("config-file", "Backup agent config file").Short('c').StringVar(&opts.configFile)
-	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
 	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Short('d').StringVar(&opts.BackupDir)
-	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
-	app.Flag("log-file", "Backup agent log file").Short('l').StringVar(&opts.LogFile)
+	app.Flag("config-file", "Backup agent config file").Short('c').StringVar(&opts.configFile)
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
-	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
+	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
+	app.Flag("log-file", "Backup agent log file").Short('l').StringVar(&opts.LogFile)
+	app.Flag("pid-file", "Backup agent pid file").StringVar(&opts.PIDFile)
 	app.Flag("quiet", "Quiet mode. Log only errors").Short('q').BoolVar(&opts.Quiet)
+	app.Flag("storages-config", "Storages config yaml file").StringVar(&opts.StoragesConfig)
+	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	//
 	app.Flag("server-address", "Backup coordinator address (host:port)").Short('s').StringVar(&opts.ServerAddress)
 	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)

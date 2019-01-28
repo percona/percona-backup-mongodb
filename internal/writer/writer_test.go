@@ -44,7 +44,6 @@ func TestWriteToLocalFs(t *testing.T) {
 
 	defer os.RemoveAll(tmpDir)
 
-	bucket := tmpDir
 	filename := "percona-s3-test.oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -70,7 +69,13 @@ func TestWriteToLocalFs(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_FILE, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	storages := testutils.TestingStorages()
+	storageName := "local-filesystem"
+	localStg, err := storages.Get(storageName)
+	if err != nil {
+		t.Fatalf("Cannot get storage %q: %s", storageName, err)
+	}
+	bw, err := NewBackupWriter(localStg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -154,7 +159,13 @@ func TestUploadToS3(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	storages := testutils.TestingStorages()
+	storageName := "s3-us-west"
+	s3Stg, err := storages.Get(storageName)
+	if err != nil {
+		t.Fatalf("Cannot get storage %q: %s", storageName, err)
+	}
+	bw, err := NewBackupWriter(s3Stg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,26 +80,30 @@ func MakeReader(name string, stg storage.Storage, compressionType pb.Compression
 		if err != nil {
 			return nil, errors.Wrapf(err, "Cannot start an S3 session")
 		}
-		pr, pw := io.Pipe()
-		go func() {
-			defer pw.Close()
-			s3Svc := s3.New(sess)
-			result, err := s3Svc.GetObject(&s3.GetObjectInput{
-				Bucket: aws.String(stg.S3.Bucket),
-				Key:    aws.String(name),
-			})
+		s3Svc := s3.New(sess)
+		result, err := s3Svc.GetObject(&s3.GetObjectInput{
+			Bucket: aws.String(stg.S3.Bucket),
+			Key:    aws.String(name),
+		})
 
-			if err != nil {
-				return
-			}
-			buf := make([]byte, 16*1024*1024)
-			br.bytesRead, err = io.CopyBuffer(pw, result.Body, buf)
-			if err := result.Body.Close(); err != nil {
-				log.Printf("bytes read: %d, err: %s\n", br.bytesRead, err)
-				br.lastError = err
-			}
-		}()
-		br.readers = append(br.readers, pr)
+		if err != nil {
+			return nil, errors.Wrapf(err, "Cannot read backup file %s from bucket %s", name, stg.S3.Bucket)
+		}
+		//pr, pw := io.Pipe()
+		//go func() {
+		//	buf := make([]byte, 16*1024*1024)
+		//	br.bytesRead, err = io.CopyBuffer(pw, result.Body, buf)
+		//	if err := result.Body.Close(); err != nil {
+		//		br.lastError = err
+		//	}
+		//	if err := pw.Close(); err != nil {
+		//		log.Errorf(">>> cannot close pipe: %s", err)
+		//	}
+		//}()
+		//br.readers = append(br.readers, pr)
+		// Since we are chaining readers, we don't want to let s3Svc.GetObject to close the Body, we
+		// have our own Close() method call so, here we need to wrap it with a NopCloser
+		br.readers = append(br.readers, ioutil.NopCloser(result.Body))
 	default:
 		return nil, fmt.Errorf("Don't know how to handle %q storage type", stg.Type)
 	}

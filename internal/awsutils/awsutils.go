@@ -136,6 +136,14 @@ func GetAWSSessionFromStorage(opts storage.S3) (*session.Session, error) {
 	return sess, err
 }
 
+func ListObjects(svc *s3.S3, bucket string) (*s3.ListObjectsOutput, error) {
+	input := &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+	}
+
+	return svc.ListObjects(input)
+}
+
 func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
 	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
 	if err != nil {

@@ -15,28 +15,30 @@ func TestLoadFromYaml(t *testing.T) {
 	}
 
 	want := Storages{
-		"s3-us-west": {
-			Type: "s3",
-			S3: S3{
-				Region:      "us-west",
-				EndpointURL: "https://minio",
-				Bucket:      "bucket name",
-				Credentials: Credentials{
-					AccessKeyID:     "<something>",
-					SecretAccessKey: "<something>",
-					Vault: struct {
-						Server string "yaml:\"server\""
-						Secret string "yaml:\"secret\""
-						Token  string "yaml:\"token\""
-					}{Server: "localhost:port", Secret: "dont tell", Token: "anyone"},
+		Storages: map[string]Storage{
+			"s3-us-west": {
+				Type: "s3",
+				S3: S3{
+					Region:      "us-west",
+					EndpointURL: "https://minio",
+					Bucket:      "bucket name",
+					Credentials: Credentials{
+						AccessKeyID:     "<something>",
+						SecretAccessKey: "<something>",
+						Vault: struct {
+							Server string "yaml:\"server\""
+							Secret string "yaml:\"secret\""
+							Token  string "yaml:\"token\""
+						}{Server: "localhost:port", Secret: "dont tell", Token: "anyone"},
+					},
 				},
+				Filesystem: Filesystem{},
 			},
-			Filesystem: Filesystem{},
-		},
-		"local-filesystem": {
-			Type:       "filesystem",
-			S3:         S3{},
-			Filesystem: Filesystem{Path: "path/to/the/backup/dir"},
+			"local-filesystem": {
+				Type:       "filesystem",
+				S3:         S3{},
+				Filesystem: Filesystem{Path: "path/to/the/backup/dir"},
+			},
 		},
 	}
 	if !reflect.DeepEqual(want, s) {
