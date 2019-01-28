@@ -281,7 +281,7 @@ func TestUploadToS3Writer(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(nil)
+	sess, err := awsutils.GetAWSSessionFromStorage(s3Storage.S3)
 	if err != nil {
 		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}

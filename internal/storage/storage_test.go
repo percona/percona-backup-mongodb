@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/kr/pretty"
 )
@@ -14,7 +15,7 @@ func TestLoadFromYaml(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := Storages{
+	want := &Storages{
 		Storages: map[string]Storage{
 			"s3-us-west": {
 				Type: "s3",
@@ -40,7 +41,10 @@ func TestLoadFromYaml(t *testing.T) {
 				Filesystem: Filesystem{Path: "path/to/the/backup/dir"},
 			},
 		},
+		filename: "testdata/test.yaml",
 	}
+	s.lastUpdate = time.Time{}
+
 	if !reflect.DeepEqual(want, s) {
 		t.Errorf("Want:\n:%s\nGot:\n%s\n", pretty.Sprint(want), pretty.Sprint(s))
 	}
