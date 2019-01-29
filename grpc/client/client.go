@@ -330,7 +330,6 @@ func (c *Client) register() error {
 				ClusterId:      c.clusterID,
 				ReplicasetName: c.replicasetName,
 				ReplicasetId:   c.replicasetID,
-				BackupDir:      c.backupDir,
 				IsPrimary:      isMaster.IsMasterDoc().IsMaster && isMaster.IsMasterDoc().SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
 				IsSecondary:    isMaster.IsMasterDoc().Secondary,
 			},
@@ -884,9 +883,7 @@ func (c *Client) processStatus() {
 				BackupCompleted:    c.status.BackupCompleted,
 				LastError:          c.status.LastError,
 				ReplicasetVersion:  c.status.ReplicasetVersion,
-				DestinationType:    c.status.DestinationType,
 				DestinationName:    c.status.DestinationName,
-				DestinationDir:     c.status.DestinationDir,
 				CompressionType:    c.status.CompressionType,
 				Cypher:             c.status.Cypher,
 				StartOplogTs:       c.status.StartOplogTs,
@@ -1171,34 +1168,6 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
-	// readers := []io.ReadCloser{}
-
-	// switch msg.SourceType {
-	// case pb.DestinationType_DESTINATION_TYPE_FILE:
-	// 	reader, err := os.Open(path.Join(c.backupDir, msg.DbSourceName))
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "cannot open restore source file")
-	// 	}
-	// 	readers = append(readers, reader)
-	// default:
-	// 	return fmt.Errorf("Restoring from sources other than file is not implemented yet")
-	// }
-
-	// switch msg.GetCompressionType() {
-	// case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-	// 	gzr, err := gzip.NewReader(readers[len(readers)-1])
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "cannot create a gzip reader")
-	// 	}
-	// 	readers = append(readers, gzr)
-	// case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-	// 	lz4r := lz4.NewReader(readers[len(readers)-1])
-	// 	readers = append(readers, ioutil.NopCloser(lz4r))
-	// case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-	// 	snappyr := snappy.NewReader(readers[len(readers)-1])
-	// 	readers = append(readers, ioutil.NopCloser(snappyr))
-	// }
-
 	// We need to set Archive = "-" so MongoRestore can use the provided reader.
 	// Why we don't want to use archive? Because if we use Archive, we are limited to files in the local
 	// filesystem and those files could be plain dumps or gzipped dump files but we want to be able to:
@@ -1241,34 +1210,6 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 }
 
 func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
-	// // var reader bsonfile.BSONReader
-	// readers := []io.ReadCloser{}
-
-	// switch msg.SourceType {
-	// case pb.DestinationType_DESTINATION_TYPE_FILE:
-	// 	filer, err := os.Open(path.Join(c.backupDir, msg.OplogSourceName))
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "cannot open oplog restore source file")
-	// 	}
-	// 	readers = append(readers, filer)
-	// default:
-	// 	return fmt.Errorf("Restoring oplogs from sources other than file is not implemented yet")
-	// }
-
-	// switch msg.GetCompressionType() {
-	// case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-	// 	gzr, err := gzip.NewReader(readers[len(readers)-1])
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "cannot create a gzip reader")
-	// 	}
-	// 	readers = append(readers, gzr)
-	// case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-	// 	lz4r := lz4.NewReader(readers[len(readers)-1])
-	// 	readers = append(readers, ioutil.NopCloser(lz4r))
-	// case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-	// 	snappyr := snappy.NewReader(readers[len(readers)-1])
-	// 	readers = append(readers, ioutil.NopCloser(snappyr))
-	// }
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return errors.Wrap(err, "invalid storage name received in restoreDBDump")

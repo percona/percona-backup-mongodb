@@ -191,7 +191,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
@@ -387,7 +386,6 @@ func TestBackupToS3(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_AWS,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
@@ -668,11 +666,13 @@ func TestRunBackupTwice(t *testing.T) {
 	defer d.Stop()
 	d.StartAllAgents()
 
-	runBackup(t, d, ndocs)
-	runBackup(t, d, ndocs)
+	storageName := "local-filesystem"
+
+	runBackup(t, d, storageName, ndocs)
+	runBackup(t, d, storageName, ndocs)
 }
 
-func runBackup(t *testing.T, d *testGrpc.Daemon, ndocs int) {
+func runBackup(t *testing.T, d *testGrpc.Daemon, storageName string, ndocs int) {
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -694,12 +694,12 @@ func runBackup(t *testing.T, d *testGrpc.Daemon, ndocs int) {
 
 	msg := &pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_GZIP,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
+		StorageName:     storageName,
 	}
 	if err := d.MessagesServer.StartBackup(msg); err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
@@ -746,7 +746,6 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 
 	err = d.MessagesServer.StartBackup(&pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pb.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  time.Now().UTC().Unix(),

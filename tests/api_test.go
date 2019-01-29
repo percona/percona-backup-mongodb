@@ -62,7 +62,6 @@ func TestApiWithDaemon(t *testing.T) {
 
 	msg := &pbapi.RunBackupParams{
 		BackupType:      pbapi.BackupType_BACKUP_TYPE_LOGICAL,
-		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     "test backup",

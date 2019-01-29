@@ -3,8 +3,6 @@
 # source $(readlink -f $(dirname $0))/.env
 
 export DEBUG=1
-export AWS_ACCESS_KEY_ID=
-export AWS_SECRET_ACCESS_KEY=
 export GOCACHE=off
 export GOLANG_DOCKERHUB_TAG=1.10-stretch
 export AWS_REGION=us-west-2

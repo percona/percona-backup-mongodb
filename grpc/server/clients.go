@@ -76,15 +76,13 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 	return client
 }
 
-func (c *Client) CanRestoreBackup(backupType pb.BackupType, destinationType pb.DestinationType, bucket, name, storageName string) (pb.CanRestoreBackupResponse, error) {
+func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName string) (pb.CanRestoreBackupResponse, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_CanRestoreBackupMsg{
 			CanRestoreBackupMsg: &pb.CanRestoreBackup{
-				BackupType:      backupType,
-				DestinationType: destinationType,
-				DestinationDir:  bucket,
-				BackupName:      name,
-				StorageName:     storageName,
+				BackupType:  backupType,
+				BackupName:  name,
+				StorageName: storageName,
 			},
 		},
 	}); err != nil {
@@ -100,40 +98,6 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, destinationType pb.D
 
 	return pb.CanRestoreBackupResponse{}, fmt.Errorf("Cannot get CanRestoreBackup Response (response is nil)")
 }
-
-// newClient creates a new client in the gRPC server. This client is the one that will handle communications with the
-// real client (agent). The method is not exported because only the gRPC server should be able to create a new client.
-// func newClient(id, clusterID, nodeName, replicasetUUID, replicasetName string, nodeType pb.NodeType,
-// 	stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
-// 	if logger == nil {
-// 		logger = logrus.New()
-// 		logger.SetLevel(logrus.StandardLogger().Level)
-// 		logger.Out = logrus.StandardLogger().Out
-// 	}
-//
-// 	client := &Client{
-// 		ID:             id,
-// 		ClusterID:      clusterID,
-// 		ReplicasetUUID: replicasetUUID,
-// 		ReplicasetName: replicasetName,
-// 		NodeType:       nodeType,
-// 		NodeName:       nodeName,
-// 		IsPrimary:
-// 		stream:         stream,
-// 		LastSeen:       time.Now(),
-// 		status: pb.Status{
-// 			RunningDbBackup:    false,
-// 			RunningOplogBackup: false,
-// 			RestoreStatus:      pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING,
-// 		},
-// 		streamLock:     &sync.Mutex{},
-// 		statusLock:     &sync.Mutex{},
-// 		logger:         logger,
-// 		streamRecvChan: make(chan *pb.ClientMessage),
-// 	}
-// 	go client.handleStreamRecv()
-// 	return client
-// }
 
 func (c *Client) GetBackupSource() (string, error) {
 	if err := c.streamSend(&pb.ServerMessage{
@@ -298,7 +262,6 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 		Payload: &pb.ServerMessage_RestoreBackupMsg{
 			RestoreBackupMsg: &pb.RestoreBackup{
 				BackupType:        msg.BackupType,
-				SourceType:        msg.SourceType,
 				SourceBucket:      msg.SourceBucket,
 				DbSourceName:      msg.DbSourceName,
 				OplogSourceName:   msg.OplogSourceName,
@@ -357,10 +320,8 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 		Payload: &pb.ServerMessage_StartBackupMsg{
 			StartBackupMsg: &pb.StartBackup{
 				BackupType:      opts.BackupType,
-				DestinationType: opts.DestinationType,
 				DbBackupName:    opts.DbBackupName,
 				OplogBackupName: opts.OplogBackupName,
-				DestinationDir:  opts.DestinationDir,
 				CompressionType: opts.CompressionType,
 				Cypher:          opts.Cypher,
 				OplogStartTime:  opts.OplogStartTime,
