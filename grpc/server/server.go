@@ -38,6 +38,7 @@ type MessagesServer struct {
 	workDir               string
 	clientLoggingEnabled  bool
 	lastBackupMetadata    *BackupMetadata
+	lastBackupErrors      []error
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
@@ -190,6 +191,7 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			sources[client.ReplicasetName] = bestClient
 		}
 	}
+
 	return sources, nil
 }
 
@@ -250,6 +252,10 @@ func (s *MessagesServer) IsShardedSystem() bool {
 		}
 	}
 	return false
+}
+
+func (s *MessagesServer) LastBackupErrors() []error {
+	return s.lastBackupErrors
 }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
@@ -375,25 +381,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 	}
 
 	return nil
-}
-
-func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) string {
-	ext := ""
-
-	switch cypher {
-	case pb.Cypher_CYPHER_NO_CYPHER:
-	}
-
-	switch compressionType {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		ext = ext + ".gz"
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		ext = ext + ".lz4"
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		ext = ext + ".snappy"
-	}
-
-	return ext
 }
 
 // TODO Create an API StartBackup message instead of using pb.StartBackup
@@ -556,10 +543,6 @@ func (s *MessagesServer) WorkDir() string {
 // DBBackupFinished process backup finished message from clients.
 // After the mongodump call finishes, clients should call this method to inform the event to the server
 func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.DBBackupFinishedAck, error) {
-	if !msg.GetOk() {
-		return nil, fmt.Errorf("DBBackupFinished was expecting Ok. Got %T", msg.GetOk())
-	}
-
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -568,6 +551,10 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
 	client.setDBBackupRunning(false)
+
+	if !msg.GetOk() {
+		s.lastBackupErrors = append(s.lastBackupErrors, errors.New(msg.GetError()))
+	}
 
 	replicasets := s.ReplicasetsRunningDBBackup()
 
@@ -790,6 +777,25 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 	return nil
 }
 
+func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) string {
+	ext := ""
+
+	switch cypher {
+	case pb.Cypher_CYPHER_NO_CYPHER:
+	}
+
+	switch compressionType {
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
+		ext = ext + ".gz"
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
+		ext = ext + ".lz4"
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
+		ext = ext + ".snappy"
+	}
+
+	return ext
+}
+
 func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -842,6 +848,7 @@ func (s *MessagesServer) reset() {
 	s.oplogBackupRunning = false
 	s.restoreRunning = false
 	s.err = nil
+	s.lastBackupErrors = []error{}
 }
 
 func (s *MessagesServer) setBackupRunning(status bool) {

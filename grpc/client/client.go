@@ -747,6 +747,9 @@ func (c *Client) sendRestoreComplete(err error) error {
 
 func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	c.logger.Info("Received StartBackup command")
+	// Send the ACK message and work on the background. When the process finishes, it will send the
+	// gRPC messages to signal that the backup has been completed
+	c.sendACK()
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -797,9 +800,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			return
 		}
 	}
-	// Send the ACK message and work on the background. When the process finishes, it will send the
-	// gRPC messages to signal that the backup has been completed
-	c.sendACK()
 
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
 	// if we run go c.runOplogBackup(msg) and then WaitUntilFirstDoc(), the oplogTailer can be nill because
@@ -1116,7 +1116,7 @@ func (c *Client) sendDBBackupFinishError(err error) {
 		Error:    err.Error(),
 	}
 	if ack, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
-		c.logger.Errorf("Cannot call DBBackupFinished with error (%s) RPC method: %s", finishMsg.Error, err)
+		c.logger.Errorf("Cannot call DBBackupFinished with error (%q): \n-\n%s\n-\n", finishMsg.Error, err)
 	} else {
 		c.logger.Debugf("Received ACK from DBBackupFinished with error RPC method: %+v", *ack)
 	}
@@ -1219,7 +1219,6 @@ func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
-	// bsonReader, err := bsonfile.NewBSONReader(readers[len(readers)-1])
 	bsonReader, err := bsonfile.NewBSONReader(rdr)
 
 	di := &mgo.DialInfo{

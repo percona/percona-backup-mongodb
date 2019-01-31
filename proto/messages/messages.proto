@@ -206,6 +206,7 @@ message CanRestoreBackupResponse {
   bool   can_restore = 4;
   string host        = 5;
   string port        = 6;
+  string error       = 7;
 }
 
 message DBBackupFinishStatus {

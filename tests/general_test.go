@@ -751,6 +751,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 		OplogStartTime:  time.Now().UTC().Unix(),
 		NamePrefix:      backupNamePrefix,
 		Description:     "general_test_backup",
+		StorageName:     "local-filesystem",
 	})
 	if err != nil {
 		t.Fatalf("Cannot start backup: %s", err)
