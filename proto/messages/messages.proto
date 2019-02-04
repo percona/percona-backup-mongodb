@@ -287,8 +287,11 @@ message Filesystem {
 message StorageInfo {
   string     name       = 1;
   string     type       = 2;
-  S3         s3         = 3;
-  Filesystem filesystem = 4;
+  bool       valid      = 3;
+  bool       can_read   = 4;
+  bool       can_write  = 5;
+  S3         s3         = 6;
+  Filesystem filesystem = 7;
 }
 
 message StoragesInfo {

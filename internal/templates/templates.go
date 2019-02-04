@@ -25,7 +25,15 @@ var (
 Name         : {{.Name}}
 MatchClients : {{range .MatchClients}}{{.}},{{end}}
 DifferClients: {{range .DifferClients}}{{.}},{{end}}
-{{ if .DifferClients }}Storage configuration is invalid. Not all clients have the same storages{{else}}Storage configuration is valid. All clients have the same storages{{end}}
+{{ if or .DifferClients (not .Info.Valid) }}Storage configuration is invalid. 
+  {{- if .DifferClients }} Not all clients have the same storages{{end}}
+  {{- if not .Info.Valid }}
+    {{- if eq .Info.Type "filesystem" }} Check filesystem path{{end}}
+	{{- if eq .Info.Type "s3"}} Check S3 configuration (region, bucket name and credentials){{end}}
+  {{end}}
+{{- else}}
+Storage configuration is valid.
+{{- end -}}
 Type: {{.Info.Type}}
 {{- if eq .Info.Type "s3" }}
   Region      : {{.Info.S3.Region}}

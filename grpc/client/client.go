@@ -1,15 +1,20 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
@@ -22,6 +27,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/reader"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/internal/utils"
 	"github.com/percona/percona-backup-mongodb/internal/writer"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -632,12 +638,27 @@ func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (pb.ClientMessage
 		return pb.ClientMessage{}, errors.Wrap(err, "Cannot GetStorageInfo")
 	}
 
+	var valid, canRead, canWrite bool
+
+	switch strings.ToLower(stg.Type) {
+	case "s3":
+		valid, canRead, canWrite, err = c.checkS3Access(stg.S3)
+	case "filesystem":
+		valid, canRead, canWrite, err = c.checkFilesystemAccess(stg.Filesystem.Path)
+	}
+	if err != nil {
+		return pb.ClientMessage{}, errors.Wrapf(err, "cannot check is storage %q is valid", msg.GetStorageName())
+	}
+
 	omsg := pb.ClientMessage{
 		ClientId: c.id,
 		Payload: &pb.ClientMessage_StorageInfo{
 			StorageInfo: &pb.StorageInfo{
-				Name: msg.GetStorageName(),
-				Type: stg.Type,
+				Name:     msg.GetStorageName(),
+				Type:     stg.Type,
+				Valid:    valid,
+				CanRead:  canRead,
+				CanWrite: canWrite,
 				S3: &pb.S3{
 					Region:      stg.S3.Region,
 					EndpointUrl: stg.S3.EndpointURL,
@@ -657,9 +678,24 @@ func (c *Client) processListStorages() (pb.ClientMessage, error) {
 	ssi := []*pb.StorageInfo{}
 
 	for name, stg := range c.storages.Storages {
+		var valid, canRead, canWrite bool
+		var err error
+
+		switch strings.ToLower(stg.Type) {
+		case "s3":
+			valid, canRead, canWrite, err = c.checkS3Access(stg.S3)
+		case "filesystem":
+			valid, canRead, canWrite, err = c.checkFilesystemAccess(stg.Filesystem.Path)
+		}
+		if err != nil {
+			return pb.ClientMessage{}, errors.Wrapf(err, "cannot check is storage %q is valid", name)
+		}
 		si := &pb.StorageInfo{
-			Name: name,
-			Type: stg.Type,
+			Name:     name,
+			Type:     stg.Type,
+			Valid:    valid,
+			CanRead:  canRead,
+			CanWrite: canWrite,
 			S3: &pb.S3{
 				Region:      stg.S3.Region,
 				EndpointUrl: stg.S3.EndpointURL,
@@ -1330,4 +1366,107 @@ func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 	}
 
 	return nil
+}
+
+func (c *Client) checkS3Access(opts storage.S3) (bool, bool, bool, error) {
+	token := ""
+	var valid, canRead, canWrite bool
+	sess, err := session.NewSession(&aws.Config{
+		Region:           aws.String(opts.Region),
+		Endpoint:         aws.String(opts.EndpointURL),
+		Credentials:      credentials.NewStaticCredentials(opts.Credentials.AccessKeyID, opts.Credentials.SecretAccessKey, token),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+
+	if err != nil {
+		return false, false, false, errors.Wrap(err, "Cannot create an AWS session")
+	}
+	svc := s3.New(sess)
+	exists, err := awsutils.BucketExists(svc, opts.Bucket)
+	if err != nil {
+		return false, false, false, errors.Wrapf(err, "Cannot check if bucket %q exists", opts.Bucket)
+	}
+
+	if !exists {
+		if err := awsutils.CreateBucket(svc, opts.Bucket); err != nil {
+			return false, false, false, errors.Wrapf(err, "Unable to create bucket %q", opts.Bucket)
+		}
+		valid = true
+		canRead = true
+		canWrite = true
+	} else {
+		valid = true
+		canRead = canListObjects(svc, opts.Bucket)
+		canWrite = canPutObject(svc, opts.Bucket)
+	}
+
+	return valid, canRead, canWrite, nil
+}
+
+func (c *Client) checkFilesystemAccess(path string) (bool, bool, bool, error) {
+	path = utils.Expand(path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false, false, false, err
+	}
+	if !fi.IsDir() {
+		return false, false, false, fmt.Errorf("%s is not a directory", path)
+	}
+	var valid, canRead, canWrite bool
+	valid = true
+
+	_, err = filepath.Glob(filepath.Join(path, "*"))
+	if err == nil {
+		canRead = true
+	}
+	rand.Seed(time.Now().UnixNano())
+	filename := fmt.Sprintf("temp_file_for_test_%6d", rand.Int63n(999999))
+	fh, err := os.Create(filepath.Join(path, filename))
+	if err == nil {
+		canWrite = true
+		fh.Close()
+		os.Remove(filepath.Join(path, filename))
+	}
+
+	return valid, canRead, canWrite, nil
+}
+
+func canListObjects(svc *s3.S3, bucket string) bool {
+	params := &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+	}
+
+	_, err := svc.ListObjects(params)
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+func canPutObject(svc *s3.S3, bucket string) bool {
+	buffer := []byte("test can write to bucket")
+	rand.Seed(time.Now().UnixNano())
+	filename := fmt.Sprintf("temp_file_for_test_%6d", rand.Int63n(999999))
+	_, err := svc.PutObject(&s3.PutObjectInput{
+		Bucket:             aws.String(bucket),
+		Key:                aws.String(filename),
+		Body:               bytes.NewReader(buffer),
+		ContentLength:      aws.Int64(int64(len(buffer))),
+		ContentType:        aws.String(http.DetectContentType(buffer)),
+		ContentDisposition: aws.String("attachment"),
+		//ACL:                  aws.String("private"),
+		//ServerSideEncryption: aws.String("AES256"),
+	})
+	if err != nil {
+		return false
+	}
+	input := &s3.DeleteObjectInput{
+		Bucket: aws.String("examplebucket"),
+		Key:    aws.String("objectkey.jpg"),
+	}
+	if _, err := svc.DeleteObject(input); err != nil {
+		log.Printf("Cannot delete s3 can write test object %s in bucket %s: %s", filename, bucket, err)
+	}
+
+	return true
 }

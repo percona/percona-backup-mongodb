@@ -121,7 +121,10 @@ message BackupReplica {
 
 message StorageInfo {
            string               name           = 1;
-  repeated string               match_clients  = 2;
-  repeated string               differ_clients = 3;
-           messages.StorageInfo Info           = 4;
+           bool                 valid          = 2;
+           bool                 can_read       = 3;
+           bool                 can_write      = 4;
+  repeated string               match_clients  = 5;
+  repeated string               differ_clients = 6;
+           messages.StorageInfo Info           = 7;
 }

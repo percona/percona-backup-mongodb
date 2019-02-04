@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -160,6 +161,9 @@ func (a *ApiServer) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Ap
 			Name:          name,
 			MatchClients:  stg.MatchClients,
 			DifferClients: stg.DifferClients,
+			Valid:         stg.StorageInfo.Valid,
+			CanRead:       stg.StorageInfo.CanRead,
+			CanWrite:      stg.StorageInfo.CanWrite,
 			Info: &pb.StorageInfo{
 				Name: stg.StorageInfo.Name,
 				Type: stg.StorageInfo.Type,
@@ -173,6 +177,7 @@ func (a *ApiServer) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Ap
 				},
 			},
 		}
+		pretty.Println(msg)
 		stream.Send(msg)
 	}
 	return err
