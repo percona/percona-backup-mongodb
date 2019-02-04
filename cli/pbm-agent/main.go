@@ -33,7 +33,6 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	BackupDir        string `yaml:"backup_dir" kingpin:"backup-dir"`
 	DSN              string `yaml:"dsn,omitempty" kingpin:"dsn"`
 	Debug            bool   `yaml:"debug,omitempty" kingpin:"debug"`
 	LogFile          string `yaml:"log_file,omitempty" kingpin:"log-file"`
@@ -68,9 +67,7 @@ var (
 	log             = logrus.New()
 	program         = filepath.Base(os.Args[0])
 	grpcCompressors = []string{
-		"snappy",
 		gzip.Name,
-		"none",
 	}
 )
 
@@ -109,12 +106,6 @@ func main() {
 	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
 
 	grpcOpts := getgRPCOptions(opts)
-
-	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
-		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
-			grpc.UseCompressor(opts.ServerCompressor),
-		))
-	}
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -172,7 +163,6 @@ func main() {
 	}
 
 	input := client.InputOptions{
-		BackupDir:     opts.BackupDir,
 		DbConnOptions: opts.MongodbConnOptions,
 		DbSSLOptions:  opts.MongodbSslOptions,
 		GrpcConn:      conn,
@@ -212,7 +202,6 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		},
 	}
 
-	app.Flag("backup-dir", "Directory (or AWS S3 bucket) to store backups").Short('d').StringVar(&opts.BackupDir)
 	app.Flag("config-file", "Backup agent config file").Short('c').StringVar(&opts.configFile)
 	app.Flag("debug", "Enable debug log level").Short('v').BoolVar(&opts.Debug)
 	app.Flag("generate-sample-config", "Generate sample config.yml file with the defaults").BoolVar(&opts.generateSampleConfig)
@@ -263,7 +252,6 @@ func processCliArgs(args []string) (*cliOptions, error) {
 }
 
 func validateOptions(opts *cliOptions) error {
-	opts.BackupDir = utils.Expand(opts.BackupDir)
 	opts.TLSCAFile = utils.Expand(opts.TLSCAFile)
 	opts.TLSCertFile = utils.Expand(opts.TLSCertFile)
 	opts.TLSKeyFile = utils.Expand(opts.TLSKeyFile)
@@ -291,14 +279,6 @@ func validateOptions(opts *cliOptions) error {
 		opts.MongodbConnOptions.ReplicasetName = di.ReplicaSetName
 	}
 
-	fi, err := os.Stat(opts.BackupDir)
-	if err != nil {
-		return errors.Wrap(err, "invalid backup destination dir")
-	}
-	if !fi.IsDir() {
-		return fmt.Errorf("%q is not a directory", opts.BackupDir)
-	}
-
 	return nil
 }
 
@@ -323,6 +303,11 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {
 		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+	}
+	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
+		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+			grpc.UseCompressor(opts.ServerCompressor),
+		))
 	}
 	return grpcOpts
 }

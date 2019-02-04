@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -559,6 +560,53 @@ func TestClientDisconnect(t *testing.T) {
 	if clientsCount2 >= clientsCount1 {
 		t.Errorf("Invalid clients count. Want < %d, got %d", clientsCount1, clientsCount2)
 	}
+}
+
+func TestListStorages(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "pbm_")
+	if err != nil {
+		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+	d.StartAllAgents()
+
+	storagesList, err := d.MessagesServer.ListStorages()
+	if err != nil {
+		t.Errorf("Cannot list storages: %s", err)
+	}
+	if len(storagesList) != 2 {
+		t.Errorf("Invalid number of storages. Want 2, got %d", len(storagesList))
+	}
+
+	localhost := "127.0.0.1"
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("Cannot get hostname: %s", err)
+	}
+
+	wantMatchingClients := []string{
+		localhost + ":" + testutils.MongoDBShard1PrimaryPort,
+		localhost + ":" + testutils.MongoDBShard1Secondary1Port,
+		localhost + ":" + testutils.MongoDBShard1Secondary2Port,
+		localhost + ":" + testutils.MongoDBShard2PrimaryPort,
+		localhost + ":" + testutils.MongoDBShard2Secondary1Port,
+		localhost + ":" + testutils.MongoDBShard2Secondary2Port,
+		localhost + ":" + testutils.MongoDBConfigsvr1Port,
+		hostname + ":" + testutils.MongoDBMongosPort,
+	}
+	for name, stg := range storagesList {
+		if !reflect.DeepEqual(stg.MatchClients, wantMatchingClients) {
+			t.Errorf("Invalid list of matching clients for storage %s.\nWant: %v\nGot : %v", name, wantMatchingClients, stg.MatchClients)
+		}
+	}
+
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {

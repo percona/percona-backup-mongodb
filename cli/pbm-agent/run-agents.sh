@@ -30,6 +30,7 @@ export TEST_MONGODB_CONFIGSVR2_PORT=17008
 export TEST_MONGODB_CONFIGSVR3_PORT=17009
 
 export TEST_MONGODB_MONGOS_PORT=17000
+export STORAGE_FILE=${HOME}/.storages.yaml
 
 run_agents() {
     ports=$1
@@ -44,12 +45,12 @@ run_agents() {
         #rm -rf ${backupdir}
         #mkdir -p ${backupdir}
 
-        echo "./pbm-agent --mongodb-user=${TEST_MONGODB_USERNAME} \\"
+        echo "./pbm-agent --mongodb-username=${TEST_MONGODB_USERNAME} \\"
         echo "    --mongodb-password=${TEST_MONGODB_PASSWORD} \\"
         echo "    --mongodb-host=${TEST_MONGODB_HOST} \\"
         echo "    --mongodb-port=${port} \\"
-        echo "    --replicaset=${replicaset} \\"
-        echo "    --backup-dir=${backupdir} \\"
+        echo "    --mongodb-replicaset=${replicaset} \\"
+        echo "    --storages-config=${STORAGE_FILE} \\"
         echo "    --pid-file=${pidfile} &> ${logfile} &"
 
         ./pbm-agent --mongodb-username=${TEST_MONGODB_USERNAME} \
@@ -57,7 +58,7 @@ run_agents() {
             --mongodb-host=${TEST_MONGODB_HOST} \
             --mongodb-port=${port} \
             --mongodb-replicaset=${replicaset} \
-            --backup-dir=${backupdir} \
+            --storages-config=${STORAGE_FILE} \
             --pid-file=${pidfile} &> ${logfile} &
         pid=$!
         pids="$pids $pid"
@@ -72,6 +73,7 @@ run_agents() {
 go build
 
 echo "Starting agents on first shard"
+echo "run_agents \"$TEST_MONGODB_S1_PORT1 $TEST_MONGODB_S1_PORT2 $TEST_MONGODB_S1_PORT3\" \"$TEST_MONGODB_S1_RS\""
 run_agents "$TEST_MONGODB_S1_PORT1 $TEST_MONGODB_S1_PORT2 $TEST_MONGODB_S1_PORT3" "$TEST_MONGODB_S1_RS"
 
 echo "Starting agents on second shard"

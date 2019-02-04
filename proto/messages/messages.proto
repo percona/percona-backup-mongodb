@@ -69,9 +69,10 @@ message CancelBackup {}
 message DBBackupFinishedAck {}
 message Empty {}
 message GetBackupSource {}
+message GetLastOplogTs {}
 message GetStatus {}
 message ListReplicasets {}
-message GetLastOplogTs {}
+message ListStorages {}
 message OplogBackupFinishedAck {}
 message Ping {}
 message RestoreCompletedAck {}
@@ -100,6 +101,10 @@ message CanRestoreBackup {
 message Error {
   string    message = 1;
   ErrorType code    = 2;
+}
+
+message GetStorageInfo {
+  string storage_name = 1;
 }
 
 message LastOplogTs {
@@ -174,6 +179,8 @@ message ServerMessage {
     StartBalancer       start_balancer_msg     = 13;
     StopBalancer        stop_balancer_msg      = 14;
     StopOplogTail       stop_oplog_tail_msg    = 15;
+    GetStorageInfo      get_storage_info_msg   = 16;
+    ListStorages        list_storages_msg      = 17;
   }
 }
 
@@ -192,6 +199,8 @@ message ClientMessage {
     Replicasets              replicasets_msg        = 11;
     Status                   status_msg             = 12;
     CanRestoreBackupResponse can_restore_backup_msg = 13;
+    StorageInfo              storage_info           = 14;
+    StoragesInfo             storages_info          = 15;
   }
 }
 
@@ -263,4 +272,25 @@ message Status {
   Cypher          cypher               = 12;
   int64           start_oplog_ts       = 13;
   bool            is_primary           = 14;
+}
+
+message S3 {
+  string region       = 1;
+  string endpoint_url = 2;
+  string bucket       = 3;
+}
+
+message Filesystem {
+  string path = 1;
+}
+
+message StorageInfo {
+  string     name       = 1;
+  string     type       = 2;
+  S3         s3         = 3;
+  Filesystem filesystem = 4;
+}
+
+message StoragesInfo {
+  repeated StorageInfo storages_info = 1;
 }

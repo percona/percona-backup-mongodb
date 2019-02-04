@@ -115,6 +115,22 @@ func (c *Client) GetBackupSource() (string, error) {
 	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
+func (c *Client) GetStoragesInfo() ([]*pb.StorageInfo, error) {
+	if err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_ListStoragesMsg{ListStoragesMsg: &pb.ListStorages{}},
+	}); err != nil {
+		return nil, err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return nil, err
+	}
+	if errMsg := msg.GetErrorMsg(); errMsg != nil {
+		return nil, fmt.Errorf("Cannot get backup source for client %s: %s", c.NodeName, errMsg)
+	}
+	return msg.GetStoragesInfo().GetStoragesInfo(), nil
+}
+
 func (c *Client) Status() pb.Status {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()

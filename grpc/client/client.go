@@ -436,6 +436,39 @@ func (c *Client) processIncommingServerMessages() {
 			c.processStartBalancer()
 		case *pb.ServerMessage_LastOplogTs:
 			c.processLastOplogTs()
+
+		//
+		case *pb.ServerMessage_GetStorageInfoMsg:
+			si, err := c.processGetStorageInfo(msg.GetGetStorageInfoMsg())
+			if err != nil {
+				errMsg := &pb.ClientMessage{
+					ClientId: c.id,
+					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+				}
+				if err = c.streamSend(errMsg); err != nil {
+					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+				}
+				continue
+			}
+			if err = c.streamSend(&si); err != nil {
+				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
+			}
+		case *pb.ServerMessage_ListStoragesMsg:
+			ss, err := c.processListStorages()
+			if err != nil {
+				errMsg := &pb.ClientMessage{
+					ClientId: c.id,
+					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+				}
+				if err = c.streamSend(errMsg); err != nil {
+					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+				}
+				continue
+			}
+			if err = c.streamSend(&ss); err != nil {
+				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
+			}
+		//
 		default:
 			err = fmt.Errorf("Client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
 			log.Error(err.Error())
@@ -591,6 +624,62 @@ func (c *Client) processGetBackupSource() {
 	if err := c.streamSend(msg); err != nil {
 		log.Errorf("cannot send processGetBackupSource message to the server: %s", err)
 	}
+}
+
+func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (pb.ClientMessage, error) {
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return pb.ClientMessage{}, errors.Wrap(err, "Cannot GetStorageInfo")
+	}
+
+	omsg := pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_StorageInfo{
+			StorageInfo: &pb.StorageInfo{
+				Name: msg.GetStorageName(),
+				Type: stg.Type,
+				S3: &pb.S3{
+					Region:      stg.S3.Region,
+					EndpointUrl: stg.S3.EndpointURL,
+					Bucket:      stg.S3.Bucket,
+				},
+				Filesystem: &pb.Filesystem{
+					Path: stg.Filesystem.Path,
+				},
+			},
+		},
+	}
+
+	return omsg, nil
+}
+
+func (c *Client) processListStorages() (pb.ClientMessage, error) {
+	ssi := []*pb.StorageInfo{}
+
+	for name, stg := range c.storages.Storages {
+		si := &pb.StorageInfo{
+			Name: name,
+			Type: stg.Type,
+			S3: &pb.S3{
+				Region:      stg.S3.Region,
+				EndpointUrl: stg.S3.EndpointURL,
+				Bucket:      stg.S3.Bucket,
+			},
+			Filesystem: &pb.Filesystem{
+				Path: stg.Filesystem.Path,
+			},
+		}
+		ssi = append(ssi, si)
+	}
+
+	omsg := pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_StoragesInfo{
+			StoragesInfo: &pb.StoragesInfo{StoragesInfo: ssi},
+		},
+	}
+
+	return omsg, nil
 }
 
 func (c *Client) processLastOplogTs() error {

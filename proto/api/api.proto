@@ -14,6 +14,7 @@ service Api {
   rpc RunRestore(RunRestoreParams) returns (RunRestoreResponse) {}
   rpc LastBackupMetadata(LastBackupMetadataParams) returns (messages.BackupMetadata) {}
   rpc BackupsMetadata(BackupsMetadataParams) returns (stream MetadataFile) {}
+  rpc ListStorages(ListStoragesParams) returns (stream StorageInfo) {}
 }
 
 enum BackupType {
@@ -42,6 +43,7 @@ enum Cypher {
 message Empty {}
 message BackupsMetadataParams {}
 message LastBackupMetadataParams {}
+message ListStoragesParams {}
 
 message Error {
     string message = 1;
@@ -78,6 +80,10 @@ message Client {
   ClientStatus status            = 10;
 }
 
+message GetStorageInfoParams {
+  string storage_name = 1;
+}
+
 message MetadataFile {
   string                  filename = 1;
   messages.BackupMetadata metadata = 2;
@@ -112,4 +118,10 @@ message BackupReplica {
   string replicaset_id    = 6;
   int64  started_at       = 7;
 }
-    
+
+message StorageInfo {
+           string               name           = 1;
+  repeated string               match_clients  = 2;
+  repeated string               differ_clients = 3;
+           messages.StorageInfo Info           = 4;
+}

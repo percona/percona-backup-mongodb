@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +47,12 @@ type MessagesServer struct {
 	restoreFinishChan     chan interface{}
 	clientsLogChan        chan *pb.LogEntry
 	logger                *logrus.Logger
+}
+
+type StorageEntry struct {
+	MatchClients  []string
+	DifferClients []string
+	StorageInfo   *pb.StorageInfo
 }
 
 type restoreSource struct {
@@ -222,6 +230,52 @@ func (s *MessagesServer) LastOplogTs() int64 {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.lastOplogTs
+}
+
+func (s *MessagesServer) ListStorages() (map[string]StorageEntry, error) {
+	stgs := make(map[string][]*pb.StorageInfo)
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Get all storages from all clients.
+	// At the end of this loop, stgs is a map where the key is the client id and the value is an
+	// array of all storages that client has defined.
+	for id, c := range s.clients {
+		ssInfo, err := c.GetStoragesInfo()
+		if err != nil {
+			return nil, errors.Wrapf(err, "Cannot get Storages Info on client %s", id)
+		}
+		stgs[id] = ssInfo
+	}
+
+	// Group storages by name and build two lists:
+	// 1. Clients where the storages definitions matches
+	// 2. Clients where the storages definitions are different
+	// The lists are sorted only to make it easier to test
+	ss := make(map[string]StorageEntry)
+	for clientID, storages := range stgs {
+		for _, info := range storages {
+			stg, ok := ss[info.Name]
+			if !ok {
+				ss[info.Name] = StorageEntry{
+					MatchClients:  []string{clientID},
+					DifferClients: []string{},
+					StorageInfo:   info,
+				}
+				continue
+			}
+			if reflect.DeepEqual(info, stg.StorageInfo) {
+				stg.MatchClients = append(stg.MatchClients, clientID)
+				sort.Strings(stg.MatchClients)
+			} else {
+				stg.DifferClients = append(stg.DifferClients, clientID)
+				sort.Strings(stg.DifferClients)
+			}
+			ss[info.Name] = stg
+		}
+	}
+
+	return ss, nil
 }
 
 func (s *MessagesServer) RefreshClients() error {

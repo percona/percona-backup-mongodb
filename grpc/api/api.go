@@ -152,3 +152,28 @@ func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams
 
 	return &pbapi.RunRestoreResponse{}, nil
 }
+
+func (a *ApiServer) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
+	storages, err := a.messagesServer.ListStorages()
+	for name, stg := range storages {
+		msg := &pbapi.StorageInfo{
+			Name:          name,
+			MatchClients:  stg.MatchClients,
+			DifferClients: stg.DifferClients,
+			Info: &pb.StorageInfo{
+				Name: stg.StorageInfo.Name,
+				Type: stg.StorageInfo.Type,
+				S3: &pb.S3{
+					Region:      stg.StorageInfo.S3.Region,
+					EndpointUrl: stg.StorageInfo.S3.EndpointUrl,
+					Bucket:      stg.StorageInfo.S3.Bucket,
+				},
+				Filesystem: &pb.Filesystem{
+					Path: stg.StorageInfo.Filesystem.Path,
+				},
+			},
+		}
+		stream.Send(msg)
+	}
+	return err
+}

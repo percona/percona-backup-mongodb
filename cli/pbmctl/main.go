@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/testdata"
 )
 
@@ -31,9 +32,7 @@ var (
 	conn        *grpc.ClientConn
 
 	grpcCompressors = []string{
-		"", // None
-		"snappy",
-		"gzip",
+		gzip.Name,
 	}
 
 	backuptypes = []string{
@@ -70,15 +69,17 @@ type cliOptions struct {
 	compressionAlgorithm string
 	encryptionAlgorithm  string
 	description          string
+	storageName          string
 
 	restore                  *kingpin.CmdClause
 	restoreMetadataFile      string
 	restoreSkipUsersAndRoles bool
 
 	list             *kingpin.CmdClause
+	listBackups      *kingpin.CmdClause
 	listNodes        *kingpin.CmdClause
 	listNodesVerbose bool
-	listBackups      *kingpin.CmdClause
+	listStorages     *kingpin.CmdClause
 }
 
 func main() {
@@ -154,10 +155,15 @@ func main() {
 			return
 		}
 		fmt.Println("No backups found")
+	case "list storages":
+		storages, err := listStorages(ctx)
+		if err != nil {
+			log.Fatalf("Cannot get storages list: %s", err)
+		}
+		printTemplate(templates.AvailableStorages, storages)
 	case "run backup":
 		err := startBackup(ctx, apiClient, opts)
 		if err != nil {
-			log.Fatal(err)
 			log.Fatalf("Cannot send the StartBackup command to the gRPC server: %s", err)
 		}
 		log.Println("Backup completed")
@@ -165,7 +171,6 @@ func main() {
 		fmt.Println("restoring")
 		err := restoreBackup(ctx, apiClient, opts)
 		if err != nil {
-			log.Fatal(err)
 			log.Fatalf("Cannot send the RestoreBackup command to the gRPC server: %s", err)
 		}
 		log.Println("Restore completed")
@@ -248,6 +253,28 @@ func listAvailableBackups() (backups []string) {
 	return
 }
 
+func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
+	apiClient := pbapi.NewApiClient(conn)
+	stream, err := apiClient.ListStorages(ctx, &pbapi.ListStoragesParams{})
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot list storages")
+	}
+
+	storages := []pbapi.StorageInfo{}
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, errors.Wrap(err, "A problem was found while receiving storages list from the server")
+		}
+		storages = append(storages, *msg)
+	}
+
+	return storages, nil
+}
+
 func printTemplate(tpl string, data interface{}) {
 	var b bytes.Buffer
 	tmpl := template.Must(template.New("").Parse(tpl))
@@ -262,7 +289,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
 		Description:     opts.description,
-		DestinationType: pbapi.DestinationType_DESTINATION_TYPE_FILE,
+		StorageName:     opts.storageName,
 	}
 
 	switch opts.backupType {
@@ -274,17 +301,8 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		return fmt.Errorf("backup type %q is invalid", opts.backupType)
 	}
 
-	switch opts.destinationType {
-	case "file":
-		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_FILE
-	case "aws":
-		msg.DestinationType = pbapi.DestinationType_DESTINATION_TYPE_AWS
-	default:
-		return fmt.Errorf("destination type %v is invalid", opts.destinationType)
-	}
-
 	switch opts.compressionAlgorithm {
-	case "none":
+	case "none", "":
 	case "gzip":
 		msg.CompressionType = pbapi.CompressionType_COMPRESSION_TYPE_GZIP
 	default:
@@ -309,6 +327,7 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 	msg := &pbapi.RunRestoreParams{
 		MetadataFile:      opts.restoreMetadataFile,
 		SkipUsersAndRoles: opts.restoreSkipUsersAndRoles,
+		StorageName:       opts.storageName,
 	}
 
 	_, err := apiClient.RunRestore(ctx, msg)
@@ -327,25 +346,30 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
 	listBackupsCmd := listCmd.Command("backups", "List backups")
 	listNodesCmd := listCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
+	listStoragesCmd := listCmd.Command("storages", "List available storageds")
 	backupCmd := runCmd.Command("backup", "Start a backup")
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
 	opts := &cliOptions{
-		list:        listCmd,
-		listBackups: listBackupsCmd,
-		listNodes:   listNodesCmd,
-		backup:      backupCmd,
-		restore:     restoreCmd,
+		list:         listCmd,
+		listBackups:  listBackupsCmd,
+		listNodes:    listNodesCmd,
+		listStorages: listStoragesCmd,
+		backup:       backupCmd,
+		restore:      restoreCmd,
 	}
 	app.Flag("config-file", "Config file name").Short('c').StringVar(&opts.configFile)
 	listNodesCmd.Flag("verbose", "Include extra node info").BoolVar(&opts.listNodesVerbose)
 	backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default(defaultBackupType).EnumVar(&opts.backupType, backuptypes...)
 	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default(defaultDestinationType).EnumVar(&opts.destinationType, destinationTypes...)
-	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").EnumVar(&opts.compressionAlgorithm, grpcCompressors...)
+	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").StringVar(&opts.compressionAlgorithm)
 	backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").StringVar(&opts.encryptionAlgorithm)
 	backupCmd.Flag("description", "Backup description").Required().StringVar(&opts.description)
+	backupCmd.Flag("storage", "Storage Name").Required().StringVar(&opts.storageName)
+
 	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").HintAction(listAvailableBackups).Required().StringVar(&opts.restoreMetadataFile)
 	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).BoolVar(&opts.restoreSkipUsersAndRoles)
+	restoreCmd.Flag("storage", "Storage Name").Required().StringVar(&opts.storageName)
 
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
 	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)
