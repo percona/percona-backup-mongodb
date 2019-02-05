@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/globalsign/mgo"
 	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
@@ -120,19 +119,11 @@ func NewDaemon(ctx context.Context, workDir string, storages *storage.Storages, 
 }
 
 func (d *Daemon) StartAgents(portRsList []PortRs) error {
-	for i, portRs := range portRsList {
+	for _, portRs := range portRsList {
 		di, err := testutils.DialInfoForPort(portRs.Rs, portRs.Port)
 		if err != nil {
 			return err
 		}
-		session, err := mgo.DialWithInfo(di)
-		d.logger.Infof("Connecting agent #%d to: %s\n", i, di.Addrs[0])
-		if err != nil {
-			return fmt.Errorf("cannot create a new agent; cannot connect to the MongoDB server %q: %s", di.Addrs[0], err)
-		}
-		session.SetMode(mgo.Eventual, true)
-
-		agentID := fmt.Sprintf("PMB-%03d", i)
 
 		dbConnOpts := client.ConnectionOptions{
 			Host:           testutils.MongoDBHost,
@@ -152,9 +143,14 @@ func (d *Daemon) StartAgents(portRsList []PortRs) error {
 		}
 		c, err := client.NewClient(d.ctx, input)
 		if err != nil {
-			return fmt.Errorf("Cannot create an agent instance %s: %s", agentID, err)
+			return fmt.Errorf("Cannot create an agent instance %s:%s: %s", dbConnOpts.Host, dbConnOpts.Port, err)
 		}
+		if err := c.Start(); err != nil {
+			return fmt.Errorf("Cannot start agent instance %s:%s: %s", dbConnOpts.Host, dbConnOpts.Port, err)
+		}
+
 		d.clients = append(d.clients, c)
+
 	}
 	return nil
 }

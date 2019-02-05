@@ -19,13 +19,14 @@ func TestingStorages() *storage.Storages {
 		return storages
 	}
 	tmpDir := os.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "dump_test"), os.ModePerm)
+
 	st := &storage.Storages{
 		Storages: map[string]storage.Storage{
 			"s3-us-west": {
 				Type: "s3",
 				S3: storage.S3{
 					Region: "us-west-2",
-					//EndpointURL: "https://minio",
 					Bucket: RandomBucket(),
 					Credentials: storage.Credentials{
 						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),

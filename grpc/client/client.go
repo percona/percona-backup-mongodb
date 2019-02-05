@@ -129,14 +129,8 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 		in.Logger.Out = logrus.StandardLogger().Out
 	}
 
-	grpcClient := pb.NewMessagesClient(in.GrpcConn)
 	ctx, cancel := context.WithCancel(inctx)
 
-	stream, err := grpcClient.MessagesChat(ctx)
-	if err != nil {
-		cancel()
-		return nil, errors.Wrap(err, "cannot connect to the gRPC server")
-	}
 	di := &mgo.DialInfo{
 		Addrs:          []string{in.DbConnOptions.Host + ":" + in.DbConnOptions.Port},
 		Username:       in.DbConnOptions.User,
@@ -151,11 +145,10 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 	}
 
 	c := &Client{
-		ctx:        ctx,
-		cancelFunc: cancel,
-		backupDir:  in.BackupDir,
-		grpcClient: grpcClient,
-		stream:     stream,
+		ctx:            ctx,
+		cancelFunc:     cancel,
+		backupDir:      in.BackupDir,
+		grpcClientConn: in.GrpcConn,
 		status: pb.Status{
 			BackupType: pb.BackupType_BACKUP_TYPE_LOGICAL,
 		},
@@ -177,26 +170,18 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 		storages:   in.Storages,
 	}
 
-	if err := c.dbConnect(); err != nil {
-		return nil, errors.Wrap(err, "cannot connect to the database")
-	}
-
-	if err := c.updateClientInfo(); err != nil {
-		return nil, errors.Wrap(err, "cannot get MongoDB status information")
-	}
-
-	if err := c.register(); err != nil {
-		return nil, err
-	}
-
-	// start listening server messages
-	go c.processIncommingServerMessages()
-	go c.dbWatchdog()
-
 	return c, nil
 }
 
 func (c *Client) Start() error {
+	var err error
+
+	c.grpcClient = pb.NewMessagesClient(c.grpcClientConn)
+	c.stream, err = c.grpcClient.MessagesChat(c.ctx)
+	if err != nil {
+		return errors.Wrap(err, "cannot connect to the gRPC server")
+	}
+
 	if err := c.dbConnect(); err != nil {
 		return errors.Wrap(err, "cannot connect to the database")
 	}

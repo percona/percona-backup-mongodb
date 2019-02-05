@@ -174,6 +174,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := client.Start(); err != nil {
+		log.Fatalf("Cannot start client: %s", err)
+	}
 
 	logHook, err := loghook.NewGrpcLogging(ctx, client.ID(), conn)
 	if err != nil {
