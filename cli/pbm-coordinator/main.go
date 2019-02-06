@@ -21,13 +21,16 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
 
-	_ "google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 // vars are set by goreleaser
 var (
-	version = "dev"
-	commit  = "none"
+	version         = "dev"
+	commit          = "none"
+	grpcCompressors = []string{
+		gzip.Name,
+	}
 )
 
 type cliOptions struct {
@@ -46,9 +49,11 @@ type cliOptions struct {
 	TLS                  bool   `yaml:"tls" kingpin:"tls"`
 	TLSCertFile          string `yaml:"tls_cert_file" kingpin:"tls-cert-file"`
 	TLSKeyFile           string `yaml:"tls_key_file" kingpin:"tls-key-file"`
+	TLSCAFile            string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	EnableClientsLogging bool   `yaml:"enable_clients_logging" kingpin:"enable-clients-logging"`
 	ClientsRefreshSecs   int    `yaml:"clients_refresh_secs" kingpin:"clients-refresh-secs"`
 	ShutdownTimeout      int    `yaml:"shutdown_timeout" kingpin:"shutdown-timeout"`
+	ServerCompressor     string `yaml:"server_compressor" kingpin:"server-compressor"`
 }
 
 const (
@@ -195,6 +200,7 @@ func processCliParams(args []string) (*cliOptions, error) {
 	//
 	app.Flag("grpc-bindip", "Bind IP for gRPC client connections").StringVar(&opts.GrpcBindIP)
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
+	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
 	app.Flag("clients-refresh-secs", "Frequency in seconds to refresh state of clients").IntVar(&opts.ClientsRefreshSecs)
@@ -204,6 +210,7 @@ func processCliParams(args []string) (*cliOptions, error) {
 	app.Flag("tls", "Enable TLS").BoolVar(&opts.TLS)
 	app.Flag("tls-cert-file", "Cert file for gRPC client connections").StringVar(&opts.TLSCertFile)
 	app.Flag("tls-key-file", "Key file for gRPC client connections").StringVar(&opts.TLSKeyFile)
+	app.Flag("tls-ca-file", "TLS CA file").ExistingFileVar(&opts.TLSCAFile)
 
 	app.PreAction(func(c *kingpin.ParseContext) error {
 		if opts.configFile == "" {
@@ -242,4 +249,23 @@ func checkWorkDir(dir string) error {
 		return fmt.Errorf("Cannot use %s for backups metadata. It is not a directory", dir)
 	}
 	return err
+}
+
+func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
+	var grpcOpts []grpc.DialOption
+	if opts.TLS {
+		creds, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
+		if err != nil {
+			log.Fatalf("Failed to create TLS credentials %v", err)
+		}
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
+	} else {
+		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+	}
+	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
+		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
+			grpc.UseCompressor(opts.ServerCompressor),
+		))
+	}
+	return grpcOpts
 }

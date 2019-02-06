@@ -14,6 +14,7 @@ import (
 
 	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/internal/templates"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	"github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -52,7 +53,7 @@ func TestListAgents(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "dump_test")
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 	l := log.New()
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, t, l)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, l)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}

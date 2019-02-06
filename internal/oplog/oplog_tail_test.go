@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	"github.com/percona/percona-backup-mongodb/internal/writer"
 
@@ -37,6 +39,7 @@ var (
 	keepSamples bool
 	keepS3Data  bool
 	samplesDir  string
+	storages    *storage.Storages
 )
 
 func generateOplogTraffic(t *testing.T, session *mgo.Session, stop chan bool) {
@@ -256,8 +259,14 @@ func TestSeveralOplogDocTypes(t *testing.T) {
 }
 
 func TestUploadToS3Writer(t *testing.T) {
-	rand.Seed(time.Now().UTC().UnixNano())
-	bucket := fmt.Sprintf("percona-backup-mongodb-test-s3-%05d", rand.Int63n(99999))
+	storages := testingStorages()
+	storageName := "s3-us-west"
+	s3Storage, err := storages.Get(storageName)
+	if err != nil {
+		t.Fatalf("Cannot get s3 storage %s: %s", storageName, err)
+	}
+
+	bucket := storages.Storages[storageName].S3.Bucket
 	filename := "percona-s3-streamer-test-file"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -272,7 +281,7 @@ func TestUploadToS3Writer(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(nil)
+	sess, err := awsutils.GetAWSSessionFromStorage(s3Storage.S3)
 	if err != nil {
 		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
@@ -318,7 +327,8 @@ func TestUploadToS3Writer(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := writer.NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	// func NewBackupWriter(stg storage.Storage, name string, compressionType pb.CompressionType, cypher pb.Cypher) (*BackupWriter, error) {
+	bw, err := writer.NewBackupWriter(s3Storage, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -541,4 +551,41 @@ func TestReadIntoSmallBuffer(t *testing.T) {
 	if string(result) != testString {
 		t.Errorf("Invalid received data. Want: %q, got %q", testString, string(result))
 	}
+}
+
+func testingStorages() *storage.Storages {
+	if storages != nil {
+		return storages
+	}
+	tmpDir := os.TempDir()
+	st := &storage.Storages{
+		Storages: map[string]storage.Storage{
+			"s3-us-west": {
+				Type: "s3",
+				S3: storage.S3{
+					Region: "us-west-2",
+					//EndpointURL: "https://minio",
+					Bucket: randomBucket(),
+					Credentials: storage.Credentials{
+						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+						SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+					},
+				},
+				Filesystem: storage.Filesystem{},
+			},
+			"local-filesystem": {
+				Type: "filesystem",
+				Filesystem: storage.Filesystem{
+					Path: filepath.Join(tmpDir, "dump_test"),
+				},
+			},
+		},
+	}
+	storages = st
+	return st
+}
+
+func randomBucket() string {
+	rand.Seed(time.Now().UnixNano())
+	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
 }

@@ -31,12 +31,6 @@ enum BackupType {
   BACKUP_TYPE_HOTBACKUP = 2;
 }
 
-enum DestinationType {
-  DESTINATION_TYPE_INVALID = 0;
-  DESTINATION_TYPE_FILE    = 1; 
-  DESTINATION_TYPE_AWS     = 2;
-}
-
 enum CompressionType {
   COMPRESSION_TYPE_INVALID        = 0;
   COMPRESSION_TYPE_NO_COMPRESSION = 1;
@@ -75,9 +69,10 @@ message CancelBackup {}
 message DBBackupFinishedAck {}
 message Empty {}
 message GetBackupSource {}
+message GetLastOplogTs {}
 message GetStatus {}
 message ListReplicasets {}
-message GetLastOplogTs {}
+message ListStorages {}
 message OplogBackupFinishedAck {}
 message Ping {}
 message RestoreCompletedAck {}
@@ -90,24 +85,26 @@ message BackupMetadata {
   BackupType                      backup_type      = 3;
   int64                           oplog_start_time = 4;
   int64                           last_oplog_ts    = 5;
-  DestinationType                 destination_type = 6;
-  string                          destination_dir  = 7;
-  Cypher                          cypher           = 8;
-  CompressionType                 compression_type = 9;
-  string                          description      = 10;
-  map<string, ReplicasetMetadata> replicasets      = 11;
+  Cypher                          cypher           = 6;
+  CompressionType                 compression_type = 7;
+  string                          description      = 8;
+  map<string, ReplicasetMetadata> replicasets      = 9;
+  string                          storage_name     = 10;
 }
 
 message CanRestoreBackup {
   BackupType      backup_type      = 1;
-  DestinationType destination_type = 2;
-  string          destination_dir  = 3;
-  string          backup_name      = 4;
+  string          backup_name      = 2;
+  string          storage_name     = 3;
 }
 
 message Error {
   string    message = 1;
   ErrorType code    = 2;
+}
+
+message GetStorageInfo {
+  string storage_name = 1;
 }
 
 message LastOplogTs {
@@ -132,16 +129,16 @@ message ReplicasetMetadata {
 message RestoreBackup {
   string          mongodb_host         = 1;
   BackupType      backup_type          = 2;
-  DestinationType source_type          = 3;
-  string          source_bucket        = 4;  // This is also used as S3 bucket name
-  string          db_source_name       = 5;
-  string          oplog_source_name    = 6;
-  CompressionType compression_type     = 7;
-  Cypher          cypher               = 8;
-  int64           oplog_start_time     = 9;
-  bool            skip_users_and_roles = 10;  // Used only for testing
-  string          host                 = 11;  // MongoDB primary's host & port
-  string          port                 = 12; 
+  string          source_bucket        = 3;  // This is also used as S3 bucket name
+  string          db_source_name       = 4;
+  string          oplog_source_name    = 5;
+  CompressionType compression_type     = 6;
+  Cypher          cypher               = 7;
+  int64           oplog_start_time     = 8;
+  bool            skip_users_and_roles = 9;  // Used only for testing
+  string          host                 = 10;  // MongoDB primary's host & port
+  string          port                 = 11; 
+  string          storage_name         = 12;
 }
 
 message RestoreComplete {
@@ -151,15 +148,14 @@ message RestoreComplete {
 
 message StartBackup {
   BackupType      backup_type       = 1;
-  DestinationType destination_type  = 2;
-  string          name_prefix       = 3; 
-  string          db_backup_name    = 4;
-  string          oplog_backup_name = 5;
-  string          destination_dir   = 6; // This is also used as S3 bucket name
-  CompressionType compression_type  = 7;
-  Cypher          cypher            = 8;
-  int64           oplog_start_time  = 9;
-  string          description       = 10;
+  string          name_prefix       = 2; 
+  string          db_backup_name    = 3;
+  string          oplog_backup_name = 4;
+  CompressionType compression_type  = 5;
+  Cypher          cypher            = 6;
+  int64           oplog_start_time  = 7;
+  string          description       = 8;
+  string          storage_name      = 9;
 }
 
 message StopOplogTail {
@@ -183,6 +179,8 @@ message ServerMessage {
     StartBalancer       start_balancer_msg     = 13;
     StopBalancer        stop_balancer_msg      = 14;
     StopOplogTail       stop_oplog_tail_msg    = 15;
+    GetStorageInfo      get_storage_info_msg   = 16;
+    ListStorages        list_storages_msg      = 17;
   }
 }
 
@@ -201,6 +199,8 @@ message ClientMessage {
     Replicasets              replicasets_msg        = 11;
     Status                   status_msg             = 12;
     CanRestoreBackupResponse can_restore_backup_msg = 13;
+    StorageInfo              storage_info           = 14;
+    StoragesInfo             storages_info          = 15;
   }
 }
 
@@ -215,6 +215,7 @@ message CanRestoreBackupResponse {
   bool   can_restore = 4;
   string host        = 5;
   string port        = 6;
+  string error       = 7;
 }
 
 message DBBackupFinishStatus {
@@ -237,9 +238,8 @@ message Register {
   string   cluster_id      = 3; // This field will hold a bson.ObjectIdHex
   string   replicaset_id   = 4;
   string   replicaset_name = 5;
-  string   backup_dir      = 6;
-  bool     is_primary      = 7;
-  bool     is_secondary    = 8;
+  bool     is_primary      = 6;
+  bool     is_secondary    = 7;
 }
 
 message Pong {
@@ -267,11 +267,33 @@ message Status {
   int64           backup_completed     = 7; // TS when the backup has finish
   string          last_error           = 8;
   uint64          replicaset_version   = 9;
-  DestinationType destination_type     = 10;
-  string          destination_name     = 11;
-  string          destination_dir      = 12; // This is also used as S3 bucket name
-  CompressionType compression_type     = 13;
-  Cypher          cypher               = 14;
-  int64           start_oplog_ts       = 15;
-  bool            is_primary           = 16;
+  string          destination_name     = 10;
+  CompressionType compression_type     = 11;
+  Cypher          cypher               = 12;
+  int64           start_oplog_ts       = 13;
+  bool            is_primary           = 14;
+}
+
+message S3 {
+  string region       = 1;
+  string endpoint_url = 2;
+  string bucket       = 3;
+}
+
+message Filesystem {
+  string path = 1;
+}
+
+message StorageInfo {
+  string     name       = 1;
+  string     type       = 2;
+  bool       valid      = 3;
+  bool       can_read   = 4;
+  bool       can_write  = 5;
+  S3         s3         = 6;
+  Filesystem filesystem = 7;
+}
+
+message StoragesInfo {
+  repeated StorageInfo storages_info = 1;
 }

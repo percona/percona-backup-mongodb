@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/grpc/server"
@@ -55,8 +54,7 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 					RunningDbBackup:   status.RunningDbBackup,
 					Compression:       status.CompressionType.String(),
 					Encrypted:         status.Cypher.String(),
-					Destination:       status.DestinationType.String(),
-					Filename:          filepath.Join(status.DestinationDir, status.DestinationName),
+					Filename:          status.DestinationName,
 					BackupType:        status.BackupType.String(),
 					StartOplogTs:      status.StartOplogTs,
 					LastOplogTs:       status.LastOplogTs,
@@ -98,11 +96,11 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
-		DestinationType: pb.DestinationType(opts.DestinationType),
 		CompressionType: pb.CompressionType(opts.CompressionType),
 		Cypher:          pb.Cypher(opts.Cypher),
 		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
 		Description:     opts.Description,
+		StorageName:     opts.GetStorageName(),
 		// DBBackupName & OplogBackupName are going to be set in server.go
 		// We cannot set them here because the backup name will include the replicaset name so, it will
 		// be different for each client/MongoDB instance
@@ -147,10 +145,38 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 }
 
 func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
-	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.SkipUsersAndRoles)
+	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
 		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
 	}
 
 	return &pbapi.RunRestoreResponse{}, nil
+}
+
+func (a *ApiServer) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
+	storages, err := a.messagesServer.ListStorages()
+	for name, stg := range storages {
+		msg := &pbapi.StorageInfo{
+			Name:          name,
+			MatchClients:  stg.MatchClients,
+			DifferClients: stg.DifferClients,
+			Info: &pb.StorageInfo{
+				Valid:    stg.StorageInfo.Valid,
+				CanRead:  stg.StorageInfo.CanRead,
+				CanWrite: stg.StorageInfo.CanWrite,
+				Name:     stg.StorageInfo.Name,
+				Type:     stg.StorageInfo.Type,
+				S3: &pb.S3{
+					Region:      stg.StorageInfo.S3.Region,
+					EndpointUrl: stg.StorageInfo.S3.EndpointUrl,
+					Bucket:      stg.StorageInfo.S3.Bucket,
+				},
+				Filesystem: &pb.Filesystem{
+					Path: stg.StorageInfo.Filesystem.Path,
+				},
+			},
+		}
+		stream.Send(msg)
+	}
+	return err
 }

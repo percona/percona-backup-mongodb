@@ -95,6 +95,32 @@ The agent must run locally *(connected to 'localhost')* on every MongoDB instanc
 
 The agent requires outbound network access to the [Coordinator](#Coordinator) RPC port.
 
+
+
+### Defining backup storages
+
+Before running the agent, you need to create a yaml file with the available storages configuration for each backup agent. Each storage has a name that will be used to identify the storage, the type (local file system or S3) and the storage definition parameters.
+
+**Example**
+
+```
+s3-us-west:
+  type: s3
+  s3:
+    region: us-west-2
+    endpointUrl: https://minio
+    bucket: bucket name
+    credentials:
+      access-key-id: <something>
+      secret-access-key: <something>
+local-filesystem:
+  type: filesystem
+  filesystem:
+    path: path/to/the/backup/dir
+```
+
+
+
 ## PBM Control (pbmctl)
 
 This program is a command line utility to send commands to the coordinator.
@@ -133,6 +159,7 @@ $ pbm-agent --server-address=172.16.0.2:10000 \
             --mongodb-port=27017 \
             --mongodb-user=pbmAgent \
             --mongodb-password=securePassw0rd \
+            --storages-config=/path/to/storages.yaml \
             --pid-file=/tmp/pbm-agent.pid
 ```
 
@@ -162,7 +189,7 @@ Example *'createUser'* command *(must be ran via the 'mongo' shell on a PRIMARY 
 
 `pbmctl` is the command line utility to control the backup system. 
 Since it needs to connect to the coordinator you need to specify the coordinator `ip:port`. The defaults are `127.0.0.1:10001` so, if you are running `pbmctl` from the same server where the coordinator is running, you can ommit the `--server-address` parameter.  
-  
+
 #### Command Examples
 
 ##### List all connected agents
@@ -185,7 +212,7 @@ localhost:17000                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONG
 
 ##### Start a backup
 ```
-$ pbmctl run backup --description "Test backup 01"
+$ pbmctl run backup --description "Test backup 01" --storage s3-us-west
 ```
 
 ##### List all the completed backups
@@ -201,8 +228,39 @@ Sample output:
 
 ##### Restore a backup
 ```
-$ pbmctl run restore 2018-12-18T19:04:14Z.json
+$ pbmctl run restore 2018-12-18T19:04:14Z.json --storage s3-us-west
 ```
+
+##### List available storages
+
+```
+pbmctl list storages
+```
+
+Sample output:
+
+```
+Available Storages:
+-------------------------------------------------------------------------------------------------
+Name         : local-filesystem
+MatchClients : 127.0.0.1:17001,127.0.0.1:17002,127.0.0.1:17003,127.0.0.1:17004,127.0.0.1:17005,127.0.0.1:17006,127.0.0.1:17007,karl-hp-omen:17000,
+DifferClients:
+Storage configuration is valid.
+Type: filesystem
+  Path       : /tmp/dump_test/
+-------------------------------------------------------------------------------------------------
+Name         : s3-us-west
+MatchClients : 127.0.0.1:17001,127.0.0.1:17002,127.0.0.1:17003,127.0.0.1:17004,127.0.0.1:17005,127.0.0.1:17006,127.0.0.1:17007,karl-hp-omen:17000,
+DifferClients:
+Storage configuration is valid.
+Type: s3
+  Region      : us-west-2
+  Endpoint URI:
+  Bucket      : pbm-test-bucket-69835
+-------------------------------------------------------------------------------------------------
+```
+
+
 
 # Requirements
 
@@ -215,6 +273,7 @@ Releases include RPM/Debian-based packages *(recommended)* and binary tarballs. 
 
 ## CentOS/RedHat
 *Note: replace 'v0.2.1' with desired release name from [Releases Page](https://github.com/percona/percona-backup-mongodb/releases)*
+
 ```
 $ rpm -Uvh https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
 Retrieving https://github.com/percona/percona-backup-mongodb/releases/download/v0.2.1/percona-backup-mongodb_0.2.1_linux_amd64.rpm
@@ -351,7 +410,7 @@ If there is no existing report, submit a report following these steps:
 1. Sign in to Percona JIRA. You will need to create an account if you do not have one.
 2. Go to the Create Issue screen and select the relevant project.
 3. Fill in the fields of Summary, Description, Steps To Reproduce, and Affects Version to the best you can. If the bug corresponds to a crash, attach the stack trace from the logs.
-  
+
 As a general rule of thumb, please try to create bug reports that are:
 
 - Reproducible. Include steps to reproduce the problem.

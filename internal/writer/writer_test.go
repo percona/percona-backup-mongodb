@@ -2,18 +2,13 @@ package writer
 
 import (
 	"flag"
-	"fmt"
 	"io"
-	"io/ioutil"
-	"log"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -37,14 +32,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestWriteToLocalFs(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "example")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer os.RemoveAll(tmpDir)
-
-	bucket := tmpDir
 	filename := "percona-s3-test.oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -65,12 +52,21 @@ func TestWriteToLocalFs(t *testing.T) {
 
 	// Run the oplog tailer for a second to collect some documents
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(12 * time.Second)
 		oplogTailer.Close()
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_FILE, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	storages := testutils.TestingStorages()
+	storageName := "local-filesystem"
+	localStg, err := storages.Get(storageName)
+	if err != nil {
+		t.Fatalf("Cannot get storage %q: %s", storageName, err)
+	}
+	err = os.MkdirAll(localStg.Filesystem.Path, os.ModePerm)
+	defer os.RemoveAll(localStg.Filesystem.Path)
+
+	bw, err := NewBackupWriter(localStg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -81,7 +77,7 @@ func TestWriteToLocalFs(t *testing.T) {
 	}
 	bw.Close()
 
-	oplogFile := filepath.Join(tmpDir, filename)
+	oplogFile := filepath.Join(localStg.Filesystem.Path, filename)
 	fi, err := os.Stat(oplogFile)
 	if err != nil {
 		t.Errorf("Error checking if backup exists: %s", err)
@@ -92,8 +88,14 @@ func TestWriteToLocalFs(t *testing.T) {
 }
 
 func TestUploadToS3(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	bucket := fmt.Sprintf("percona-backup-mongodb-test-s3-%05d", rand.Int63n(99999))
+	storages := testutils.TestingStorages()
+	storageName := "s3-us-west"
+	s3Stg, err := storages.Get(storageName)
+	if err != nil {
+		t.Fatalf("Cannot get storage %q: %s", storageName, err)
+	}
+
+	bucket := s3Stg.S3.Bucket
 	filename := "percona-s3-test.oplog"
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -108,7 +110,7 @@ func TestUploadToS3(t *testing.T) {
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
-	sess, err := session.NewSession(&aws.Config{})
+	sess, err := awsutils.GetAWSSessionFromStorage(s3Stg.S3)
 	if err != nil {
 		t.Fatalf("Cannot start AWS session. Skipping S3 test: %s", err)
 	}
@@ -154,7 +156,7 @@ func TestUploadToS3(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(bucket, filename, pb.DestinationType_DESTINATION_TYPE_AWS, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	bw, err := NewBackupWriter(s3Stg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}

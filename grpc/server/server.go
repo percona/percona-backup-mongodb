@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,12 +40,19 @@ type MessagesServer struct {
 	workDir               string
 	clientLoggingEnabled  bool
 	lastBackupMetadata    *BackupMetadata
+	lastBackupErrors      []error
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
 	clientsLogChan        chan *pb.LogEntry
 	logger                *logrus.Logger
+}
+
+type StorageEntry struct {
+	MatchClients  []string
+	DifferClients []string
+	StorageInfo   *pb.StorageInfo
 }
 
 type restoreSource struct {
@@ -134,7 +143,7 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 	return sources, nil
 }
 
-func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[string]restoreSource, error) {
+func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, storageName string) (map[string]restoreSource, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	sources := make(map[string]restoreSource)
@@ -146,7 +155,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata) (map[
 			if client.ReplicasetName != replicasetName {
 				continue
 			}
-			resp, err := client.CanRestoreBackup(bm.BackupType, bm.DestinationType, bm.DestinationDir, replicasetMetaData.DbBackupName)
+			resp, err := client.CanRestoreBackup(bm.BackupType, replicasetMetaData.DbBackupName, storageName)
 			if err != nil {
 				continue
 			}
@@ -190,6 +199,7 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			sources[client.ReplicasetName] = bestClient
 		}
 	}
+
 	return sources, nil
 }
 
@@ -222,6 +232,52 @@ func (s *MessagesServer) LastOplogTs() int64 {
 	return s.lastOplogTs
 }
 
+func (s *MessagesServer) ListStorages() (map[string]StorageEntry, error) {
+	stgs := make(map[string][]*pb.StorageInfo)
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Get all storages from all clients.
+	// At the end of this loop, stgs is a map where the key is the client id and the value is an
+	// array of all storages that client has defined.
+	for id, c := range s.clients {
+		ssInfo, err := c.GetStoragesInfo()
+		if err != nil {
+			return nil, errors.Wrapf(err, "Cannot get Storages Info on client %s", id)
+		}
+		stgs[id] = ssInfo
+	}
+
+	// Group storages by name and build two lists:
+	// 1. Clients where the storages definitions matches
+	// 2. Clients where the storages definitions are different
+	// The lists are sorted only to make it easier to test
+	ss := make(map[string]StorageEntry)
+	for clientID, storages := range stgs {
+		for _, info := range storages {
+			stg, ok := ss[info.Name]
+			if !ok {
+				ss[info.Name] = StorageEntry{
+					MatchClients:  []string{clientID},
+					DifferClients: []string{},
+					StorageInfo:   info,
+				}
+				continue
+			}
+			if reflect.DeepEqual(info, stg.StorageInfo) {
+				stg.MatchClients = append(stg.MatchClients, clientID)
+				sort.Strings(stg.MatchClients)
+			} else {
+				stg.DifferClients = append(stg.DifferClients, clientID)
+				sort.Strings(stg.DifferClients)
+			}
+			ss[info.Name] = stg
+		}
+	}
+
+	return ss, nil
+}
+
 func (s *MessagesServer) RefreshClients() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -250,6 +306,10 @@ func (s *MessagesServer) IsShardedSystem() bool {
 		}
 	}
 	return false
+}
+
+func (s *MessagesServer) LastBackupErrors() []error {
+	return s.lastBackupErrors
 }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
@@ -320,20 +380,20 @@ func (s *MessagesServer) ReplicasetsRunningRestore() map[string]*Client {
 
 // RestoreBackupFromMetadataFile is just a wrappwe around RestoreBackUp that receives a metadata filename
 // loads and parse it and then call RestoreBackUp
-func (s *MessagesServer) RestoreBackupFromMetadataFile(filename string, skipUsersAndRoles bool) error {
+func (s *MessagesServer) RestoreBackupFromMetadataFile(filename, storageName string, skipUsersAndRoles bool) error {
 	filename = filepath.Join(s.workDir, filename)
 	bm, err := LoadMetadataFromFile(filename)
 	if err != nil {
 		return fmt.Errorf("Invalid backup metadata file %s: %s", filename, err)
 	}
 
-	return s.RestoreBackUp(bm.Metadata(), skipUsersAndRoles)
+	return s.RestoreBackUp(bm.Metadata(), storageName, skipUsersAndRoles)
 }
 
 // RestoreBackUp will run a restore on each client, using the provided backup metadata to choose the source for each
 // replicaset.
-func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles bool) error {
-	clients, err := s.RestoreSourcesByReplicaset(bm)
+func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string, skipUsersAndRoles bool) error {
+	clients, err := s.RestoreSourcesByReplicaset(bm, storageName)
 	if err != nil {
 		return errors.Wrapf(err, "Cannot start backup restore. Cannot find backup source for replicas")
 	}
@@ -360,8 +420,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
 					BackupType:        bm.BackupType,
-					SourceType:        bm.DestinationType,
-					SourceBucket:      bm.DestinationDir,
 					DbSourceName:      metadata.DbBackupName,
 					OplogSourceName:   metadata.OplogBackupName,
 					CompressionType:   bm.CompressionType,
@@ -369,6 +427,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 					SkipUsersAndRoles: skipUsersAndRoles,
 					Host:              source.Host,
 					Port:              source.Port,
+					StorageName:       storageName,
 				}
 				source.Client.restoreBackup(msg)
 			}
@@ -376,25 +435,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, skipUsersAndRoles 
 	}
 
 	return nil
-}
-
-func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) string {
-	ext := ""
-
-	switch cypher {
-	case pb.Cypher_CYPHER_NO_CYPHER:
-	}
-
-	switch compressionType {
-	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		ext = ext + ".gz"
-	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		ext = ext + ".lz4"
-	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		ext = ext + ".snappy"
-	}
-
-	return ext
 }
 
 // TODO Create an API StartBackup message instead of using pb.StartBackup
@@ -438,17 +478,17 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 
-		client.startBackup(&pb.StartBackup{
+		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
-			DestinationType: opts.GetDestinationType(),
 			DbBackupName:    dbBackupName,
 			OplogBackupName: oplogBackupName,
-			DestinationDir:  opts.GetDestinationDir(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
 			OplogStartTime:  opts.GetOplogStartTime(),
 			Description:     opts.Description,
-		})
+			StorageName:     opts.GetStorageName(),
+		}
+		client.startBackup(msg)
 	}
 
 	return nil
@@ -557,10 +597,6 @@ func (s *MessagesServer) WorkDir() string {
 // DBBackupFinished process backup finished message from clients.
 // After the mongodump call finishes, clients should call this method to inform the event to the server
 func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.DBBackupFinishedAck, error) {
-	if !msg.GetOk() {
-		return nil, fmt.Errorf("DBBackupFinished was expecting Ok. Got %T", msg.GetOk())
-	}
-
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -569,6 +605,10 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
 	client.setDBBackupRunning(false)
+
+	if !msg.GetOk() {
+		s.lastBackupErrors = append(s.lastBackupErrors, errors.New(msg.GetError()))
+	}
 
 	replicasets := s.ReplicasetsRunningDBBackup()
 
@@ -791,6 +831,25 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 	return nil
 }
 
+func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) string {
+	ext := ""
+
+	switch cypher {
+	case pb.Cypher_CYPHER_NO_CYPHER:
+	}
+
+	switch compressionType {
+	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
+		ext = ext + ".gz"
+	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
+		ext = ext + ".lz4"
+	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
+		ext = ext + ".snappy"
+	}
+
+	return ext
+}
+
 func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -843,6 +902,7 @@ func (s *MessagesServer) reset() {
 	s.oplogBackupRunning = false
 	s.restoreRunning = false
 	s.err = nil
+	s.lastBackupErrors = []error{}
 }
 
 func (s *MessagesServer) setBackupRunning(status bool) {

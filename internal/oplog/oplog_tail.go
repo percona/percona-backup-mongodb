@@ -37,7 +37,7 @@ type OplogTail struct {
 	readerStopChan  chan bool
 	startedReadChan chan bool
 	readFunc        func([]byte) (int, error)
-	lock            sync.Mutex
+	lock            *sync.Mutex
 	isEOF           bool
 	running         bool
 }
@@ -123,6 +123,7 @@ func open(session *mgo.Session) (*OplogTail, error) {
 		startedReadChan: make(chan bool),
 		running:         true,
 		wg:              &sync.WaitGroup{},
+		lock:            &sync.Mutex{},
 	}
 	ot.readFunc = makeReader(ot)
 	return ot, nil
@@ -197,9 +198,12 @@ func (ot *OplogTail) CloseAt(ts bson.MongoTimestamp) error {
 }
 
 func (ot *OplogTail) isRunning() bool {
-	ot.lock.Lock()
-	defer ot.lock.Unlock()
-	return ot.running
+	if ot != nil {
+		ot.lock.Lock()
+		defer ot.lock.Unlock()
+		return ot.running
+	}
+	return false
 }
 
 func (ot *OplogTail) setRunning(state bool) {

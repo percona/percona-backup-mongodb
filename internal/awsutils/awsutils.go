@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/pkg/errors"
 )
 
@@ -19,21 +21,6 @@ var (
 	awsSession        *session.Session
 	lock              = &sync.Mutex{}
 )
-
-func GetAWSSession() (*session.Session, error) {
-	// Initialize a session in us-west-2 that the SDK will use to load
-	// credentials from the shared credentials file ~/.aws/credentials.
-	var err error
-	lock.Lock()
-	defer lock.Unlock()
-	if awsSession == nil {
-		awsSession, err = session.NewSession(&aws.Config{})
-	}
-	if err != nil {
-		return nil, err
-	}
-	return awsSession, nil
-}
 
 func BucketExists(svc *s3.S3, bucketname string) (bool, error) {
 	input := &s3.ListBucketsInput{}
@@ -65,20 +52,6 @@ func CreateBucket(svc *s3.S3, bucket string) error {
 		return errors.Wrap(err, ("error while waiting the S3 bucket to be created"))
 	}
 	return nil
-}
-
-func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
-	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range resp.Contents {
-		if *item.Key == filename {
-			return item, nil
-		}
-	}
-	return nil, FileNotFoundError
 }
 
 func DeleteFile(svc *s3.S3, bucket, filename string) error {
@@ -134,6 +107,69 @@ func EmptyBucket(svc *s3.S3, bucket string) error {
 		return errors.Wrapf(err, "Unable to delete objects from bucket %q", bucket)
 	}
 
+	return nil
+}
+
+func GetAWSSession() (*session.Session, error) {
+	// Initialize a session in us-west-2 that the SDK will use to load
+	// credentials from the shared credentials file ~/.aws/credentials.
+	var err error
+	lock.Lock()
+	defer lock.Unlock()
+	if awsSession == nil {
+		awsSession, err = session.NewSession(&aws.Config{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return awsSession, nil
+}
+
+func GetAWSSessionFromStorage(opts storage.S3) (*session.Session, error) {
+	token := ""
+	sess, err := session.NewSession(&aws.Config{
+		Region:           aws.String(opts.Region),
+		Endpoint:         aws.String(opts.EndpointURL),
+		Credentials:      credentials.NewStaticCredentials(opts.Credentials.AccessKeyID, opts.Credentials.SecretAccessKey, token),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	return sess, err
+}
+
+func ListObjects(svc *s3.S3, bucket string) (*s3.ListObjectsOutput, error) {
+	input := &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+	}
+
+	return svc.ListObjects(input)
+}
+
+func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
+	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range resp.Contents {
+		if *item.Key == filename {
+			return item, nil
+		}
+	}
+	return nil, FileNotFoundError
+}
+
+func UploadFileToS3(sess *session.Session, fr io.Reader, bucket, filename string) error {
+	svc := s3.New(sess)
+	input := &s3.PutObjectInput{
+		Body:   aws.ReadSeekCloser(fr),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(filename),
+	}
+
+	_, err := svc.PutObject(input)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
