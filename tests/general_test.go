@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"path"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -82,11 +81,12 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	log.Debug("Getting list of connected clients")
@@ -329,11 +329,12 @@ func TestBackupToS3(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	stg, err := testingStorages().Get("s3-us-west")
+	stg, err := testutils.TestingStorages().Get("s3-us-west")
 	if err != nil {
 		t.Fatalf("Cannot get storage named s3-us-west")
 	}
 	bucket := stg.S3.Bucket
+	defer testutils.CleanTempDir()
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
@@ -357,7 +358,7 @@ func TestBackupToS3(t *testing.T) {
 			t.Fatalf("Unable to create bucket %q, %v", bucket, err)
 		}
 	}
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
@@ -542,11 +543,12 @@ func TestClientDisconnect(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
@@ -570,11 +572,12 @@ func TestListStorages(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	storagesList, err := d.MessagesServer.ListStorages()
@@ -617,11 +620,12 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
@@ -655,11 +659,12 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	defer os.RemoveAll(tmpDir) // Clean up
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	bs, err := d.MessagesServer.BackupSourceByReplicaset()
@@ -707,11 +712,12 @@ func TestRunBackupTwice(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	storageName := "local-filesystem"
@@ -776,11 +782,12 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 	d.StartAllAgents()
 
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -849,11 +856,12 @@ func TestConfigServerClusterID(t *testing.T) {
 	}
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+	defer testutils.CleanTempDir()
 
 	portRsList := []testGrpc.PortRs{
 		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
@@ -925,38 +933,6 @@ func getLastOplogDocFromS3(svc *s3.S3, bucket, backupNamePrefix, replicaset stri
 func randomBucket() string {
 	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
-}
-
-func testingStorages() *storage.Storages {
-	if storages != nil {
-		return storages
-	}
-	tmpDir := os.TempDir()
-	st := &storage.Storages{
-		Storages: map[string]storage.Storage{
-			"s3-us-west": {
-				Type: "s3",
-				S3: storage.S3{
-					Region: "us-west-2",
-					//EndpointURL: "https://minio",
-					Bucket: randomBucket(),
-					Credentials: storage.Credentials{
-						AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
-						SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-					},
-				},
-				Filesystem: storage.Filesystem{},
-			},
-			"local-filesystem": {
-				Type: "filesystem",
-				Filesystem: storage.Filesystem{
-					Path: filepath.Join(tmpDir, "dump_test"),
-				},
-			},
-		},
-	}
-	storages = st
-	return st
 }
 
 func sortedReplicaNames(replicas map[string]*server.Client) []string {

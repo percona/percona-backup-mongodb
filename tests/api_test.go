@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/grpc/server"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -47,13 +48,13 @@ func (m *mockBackupsMetadataStream) SetTrailer(h metadata.MD)       {}
 // imports proto/api so if we try to use the daemon from the api package we would end up having
 // cycling imports.
 func TestApiWithDaemon(t *testing.T) {
-	tmpDir := filepath.Join(os.TempDir(), "dump_test") // same dir we have in testingStorages()
+	tmpDir := filepath.Join(os.TempDir(), "dump_test") // same dir we have in testutils.TestingStorages()
 	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
 		t.Fatalf("Cannot create temp dir %q for backup: %s", tmpDir, err)
 	}
 	defer os.RemoveAll(tmpDir) // Clean up after testing.
 
-	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testingStorages(), t, nil)
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}

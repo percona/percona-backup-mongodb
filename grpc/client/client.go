@@ -1439,15 +1439,13 @@ func canPutObject(svc *s3.S3, bucket string) bool {
 		ContentLength:      aws.Int64(int64(len(buffer))),
 		ContentType:        aws.String(http.DetectContentType(buffer)),
 		ContentDisposition: aws.String("attachment"),
-		//ACL:                  aws.String("private"),
-		//ServerSideEncryption: aws.String("AES256"),
 	})
 	if err != nil {
 		return false
 	}
 	input := &s3.DeleteObjectInput{
-		Bucket: aws.String("examplebucket"),
-		Key:    aws.String("objectkey.jpg"),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(filename),
 	}
 	if _, err := svc.DeleteObject(input); err != nil {
 		log.Printf("Cannot delete s3 can write test object %s in bucket %s: %s", filename, bucket, err)
