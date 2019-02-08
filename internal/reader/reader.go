@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/golang/snappy"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
-	"github.com/percona/percona-backup-mongodb/internal/storage"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
+	"github.com/percona/percona-backup-mongodb/storage"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 )
