@@ -8,7 +8,7 @@ builds:
     env:
       - CGO_ENABLED=0
     hooks:
-      post: "./post-build.sh pbm-agent"
+      post: "./packaging/scripts/goreleaser-post-build.sh pbm-agent"
   - binary: pbm-coordinator
     main: ./cli/pbm-coordinator/main.go
     goarch:
@@ -18,7 +18,7 @@ builds:
     env:
       - CGO_ENABLED=0
     hooks:
-      post: "./post-build.sh pbm-coordinator"
+      post: "./packaging/scripts/goreleaser-post-build.sh pbm-coordinator"
   - binary: pbmctl
     main: ./cli/pbmctl/main.go
     goarch:
@@ -28,7 +28,7 @@ builds:
     env:
       - CGO_ENABLED=0
     hooks:
-      post: "./post-build.sh pbmctl"
+      post: "./packaging/scripts/goreleaser-post-build.sh pbmctl"
 #dockers:
 #  - binary: pbm-agent
 #    dockerfile: docker/agent/Dockerfile
