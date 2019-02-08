@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/storage"
 	"github.com/pkg/errors"
 )
 
