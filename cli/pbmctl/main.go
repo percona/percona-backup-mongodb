@@ -33,6 +33,7 @@ var (
 
 	grpcCompressors = []string{
 		gzip.Name,
+		"none",
 	}
 
 	backuptypes = []string{
@@ -372,7 +373,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	restoreCmd.Flag("storage", "Storage Name").Required().StringVar(&opts.storageName)
 
 	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
-	app.Flag("server-compressor", "Backup coordinator gRPC compression (snappy, gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-compressor", "Backup coordinator gRPC compression (gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default(fmt.Sprintf("%v", defaultTlsEnabled)).BoolVar(&opts.TLS)
 	app.Flag("tls-ca-file", "The file containing the CA root cert file").StringVar(&opts.TLSCAFile)
 	app.Terminate(nil) // Don't call os.Exit() on errors

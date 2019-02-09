@@ -30,6 +30,7 @@ var (
 	commit          = "none"
 	grpcCompressors = []string{
 		gzip.Name,
+		"none",
 	}
 )
 
@@ -200,7 +201,7 @@ func processCliParams(args []string) (*cliOptions, error) {
 	//
 	app.Flag("grpc-bindip", "Bind IP for gRPC client connections").StringVar(&opts.GrpcBindIP)
 	app.Flag("grpc-port", "Listening port for gRPC client connections").IntVar(&opts.GrpcPort)
-	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-compressor", "Backup coordintor gRPC compression (gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
 	app.Flag("clients-refresh-secs", "Frequency in seconds to refresh state of clients").IntVar(&opts.ClientsRefreshSecs)

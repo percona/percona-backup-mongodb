@@ -68,6 +68,7 @@ var (
 	program         = filepath.Base(os.Args[0])
 	grpcCompressors = []string{
 		gzip.Name,
+		"none",
 	}
 )
 
@@ -215,7 +216,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").BoolVar(&opts.UseSysLog)
 	//
 	app.Flag("server-address", "Backup coordinator address (host:port)").Short('s').StringVar(&opts.ServerAddress)
-	app.Flag("server-compressor", "Backup coordintor gRPC compression (snappy, gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
+	app.Flag("server-compressor", "Backup coordintor gRPC compression (gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("tls", "Use TLS for server connection").BoolVar(&opts.TLS)
 	app.Flag("tls-cert-file", "TLS certificate file").ExistingFileVar(&opts.TLSCertFile)
 	app.Flag("tls-key-file", "TLS key file").ExistingFileVar(&opts.TLSKeyFile)
