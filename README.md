@@ -198,16 +198,16 @@ $ pbmctl --server-address=127.0.0.1:10001 list nodes
 ```
 Sample output:
 ```
-          Node ID                            Cluster ID                   Node Type                   Node Name
-------------------------------------   ------------------------   --------------------------   ------------------------------
-localhost:17000                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOS           - 127.0.0.1:17000
-127.0.0.1:17001                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17001
-127.0.0.1:17002                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17002
-127.0.0.1:17003                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17003
-127.0.0.1:17004                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17004
-127.0.0.1:17005                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17005
-127.0.0.1:17006                      - 5c1942acbf27f9aceccb3c2f - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17006
-127.0.0.1:17007                      -                          - NODE_TYPE_MONGOD_CONFIGSVR - 127.0.0.1:17007
+          Node ID                            Cluster ID                   Node Type                   Node Name 
+------------------------------------   ------------------------   --------------------------   ------------------------------		
+localhost:17000                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOS           - 127.0.0.1:17000               
+127.0.0.1:17001                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17001               
+127.0.0.1:17002                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17002               
+127.0.0.1:17003                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17003               
+127.0.0.1:17004                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17004               
+127.0.0.1:17005                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17005               
+127.0.0.1:17006                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:17006               
+127.0.0.1:17007                      - 5c5eea0830067ada2d15376c - NODE_TYPE_MONGOD_CONFIGSVR - 127.0.0.1:17007               
 ```
 
 ##### Start a backup
