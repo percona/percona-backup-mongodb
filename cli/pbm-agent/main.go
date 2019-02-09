@@ -229,7 +229,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("mongodb-password", "MongoDB password").Short('p').StringVar(&opts.MongodbConnOptions.Password)
 	app.Flag("mongodb-authdb", "MongoDB authentication database").StringVar(&opts.MongodbConnOptions.AuthDB)
 	app.Flag("mongodb-replicaset", "MongoDB Replicaset name").StringVar(&opts.MongodbConnOptions.ReplicasetName)
-	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").IntVar(&opts.MongodbConnOptions.ReconnectDelay)
+	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").Default("10").IntVar(&opts.MongodbConnOptions.ReconnectDelay)
 	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").IntVar(&opts.MongodbConnOptions.ReconnectCount)
 
 	app.PreAction(func(c *kingpin.ParseContext) error {
