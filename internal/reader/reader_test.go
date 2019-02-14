@@ -12,8 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
-	"github.com/percona/percona-backup-mongodb/internal/storage"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
+	"github.com/percona/percona-backup-mongodb/storage"
 	"gopkg.in/mgo.v2/bson"
 )
 

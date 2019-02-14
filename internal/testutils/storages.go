@@ -10,7 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
-	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/storage"
 )
 
 var (
