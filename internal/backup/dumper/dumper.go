@@ -4,11 +4,19 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/mongodb/mongo-tools-common/log"
 	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	progressBarLength   = 24
+	progressBarWaitTime = time.Second * 3
 )
 
 type MongodumpInput struct {
@@ -146,6 +154,11 @@ func (md *Mongodump) Wait() error {
 }
 
 func (md *Mongodump) dump() {
+	progressManager := progress.NewBarWriter(log.Writer(0), progressBarWaitTime, progressBarLength, false)
+	md.mongodump.ProgressManager = progressManager
+	progressManager.Start()
+	defer progressManager.Stop()
+
 	err := md.mongodump.Dump()
 	md.waitChan <- err
 }

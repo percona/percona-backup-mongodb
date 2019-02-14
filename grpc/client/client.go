@@ -137,11 +137,9 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 		Password:       in.DbConnOptions.Password,
 		Source:         in.DbConnOptions.AuthDB,
 		ReplicaSetName: in.DbConnOptions.ReplicasetName,
-		AppName:        "percona/percona-backup-mongodb",
-		// ReadPreference *ReadPreference
-		// Safe Safe
-		FailFast: true,
-		Direct:   true,
+		AppName:        "percona-backup-mongodb",
+		FailFast:       true,
+		Direct:         true,
 	}
 
 	c := &Client{
@@ -947,7 +945,14 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 	log.Debugf("Starting DB backup")
-	go c.runDBBackup(msg, sess)
+	go func() {
+		err := c.runDBBackup(msg)
+		if err != nil {
+			c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
+			return
+		}
+		c.sendBackupFinishOK()
+	}()
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -1075,15 +1080,14 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	}
 }
 
-func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
+func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 	var err error
 	c.logger.Info("Starting DB backup")
 	stg, _ := c.storages.Get(msg.GetStorageName())
 
 	bw, err := writer.NewBackupWriter(stg, msg.GetDbBackupName(), msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
-		c.sendDBBackupFinishError(fmt.Errorf("cannot check if S3 bucket %q exists: %s", c.backupDir, err))
-		return
+		return err
 	}
 
 	mi := &dumper.MongodumpInput{
@@ -1100,25 +1104,23 @@ func (c *Client) runDBBackup(msg *pb.StartBackup, sess *session.Session) {
 
 	c.mongoDumper, err = dumper.NewMongodump(mi)
 	if err != nil {
-		c.logger.Fatalf("Cannot call mongodump: %s", err)
-		//TODO send error
+		return err
 	}
 
 	c.setDBBackupRunning(true)
+	defer c.setDBBackupRunning(false)
+
 	c.mongoDumper.Start()
-	dumpErr := c.mongoDumper.Wait()
-	bw.Close()
-
-	c.setDBBackupRunning(false)
-
-	if dumpErr != nil {
-		c.sendDBBackupFinishError(fmt.Errorf("backup was cancelled: %s", dumpErr))
-		c.logger.Info("DB dump cancelled")
-		return
+	derr := c.mongoDumper.Wait()
+	if err = bw.Close(); err != nil {
+		return err
+	}
+	if derr != nil {
+		return derr
 	}
 
 	c.logger.Info("DB dump completed")
-	c.sendBackupFinishOK()
+	return nil
 }
 
 func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplogTailer io.Reader) {
@@ -1294,9 +1296,8 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		Password: c.connOpts.Password,
 		Gzip:     false,
 		Oplog:    false,
-		Threads:  1,
-		//Reader:   readers[len(readers)-1],
-		Reader: rdr,
+		Threads:  10,
+		Reader:   rdr,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.

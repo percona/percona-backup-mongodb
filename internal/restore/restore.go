@@ -4,11 +4,19 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/mongodb/mongo-tools-common/log"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
+)
+
+const (
+	progressBarLength   = 24
+	progressBarWaitTime = time.Second * 3
 )
 
 type MongoRestoreInput struct {
@@ -56,6 +64,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		Auth:       &options.Auth{},
 		Namespace:  &options.Namespace{},
 		URI:        &options.URI{},
+		Direct:     true,
 	}
 	if i.Username != "" && i.Password != "" {
 		toolOpts.Auth.Username = i.Username
@@ -68,28 +77,25 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 	inputOpts := &mongorestore.InputOptions{
 		Gzip:                   i.Gzip,
 		Archive:                i.Archive,
-		Objcheck:               true,
+		Objcheck:               false,
 		RestoreDBUsersAndRoles: false,
+		OplogReplay:            false,
 	}
 
 	outputOpts := &mongorestore.OutputOptions{
-		Drop:   true,
-		DryRun: false,
-
-		// By default mongorestore uses a write concern of 'majority'.
-		// Cannot be used simultaneously with write concern options in a URI.
-		WriteConcern:             "majority",
+		BulkBufferSize:           2000,
+		BypassDocumentValidation: true,
+		Drop:                     true,
+		DryRun:                   false,
+		KeepIndexVersion:         false,
 		NoIndexRestore:           false,
 		NoOptionsRestore:         false,
-		KeepIndexVersion:         false,
-		MaintainInsertionOrder:   true,
+		NumInsertionWorkers:      20,
 		NumParallelCollections:   4,
-		NumInsertionWorkers:      1,
 		StopOnError:              false,
-		BypassDocumentValidation: false,
-		// TempUsersColl            string `long:"tempUsersColl" default:"tempusers" hidden:"true"`
-		// TempRolesColl            string `long:"tempRolesColl" default:"temproles" hidden:"true"`
-		// BulkBufferSize           int    `long:"batchSize" default:"1000" hidden:"true"`
+		TempRolesColl:            "temproles",
+		TempUsersColl:            "tempusers",
+		WriteConcern:             "majority",
 	}
 
 	provider, err := db.NewSessionProvider(*toolOpts)
@@ -100,6 +106,8 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		return nil, fmt.Errorf("Cannot set session provider (nil)")
 	}
 
+	progressManager := progress.NewBarWriter(log.Writer(0), progressBarWaitTime, progressBarLength, true)
+
 	restore := &mongorestore.MongoRestore{
 		ToolOptions:       toolOpts,
 		OutputOptions:     outputOpts,
@@ -108,6 +116,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		SkipUsersAndRoles: i.SkipUsersAndRoles,
 		SessionProvider:   provider,
 		InputReader:       i.Reader,
+		ProgressManager:   progressManager,
 	}
 
 	if err := restore.ParseAndValidateOptions(); err != nil {
@@ -156,6 +165,8 @@ func (mr *MongoRestore) Wait() error {
 }
 
 func (mr *MongoRestore) restore() {
+	mr.mongorestore.ProgressManager.(*progress.BarWriter).Start()
+	defer mr.mongorestore.ProgressManager.(*progress.BarWriter).Stop()
 	err := mr.mongorestore.Restore()
 	mr.waitChan <- err
 }

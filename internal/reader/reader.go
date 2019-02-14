@@ -89,20 +89,9 @@ func MakeReader(name string, stg storage.Storage, compressionType pb.Compression
 		if err != nil {
 			return nil, errors.Wrapf(err, "Cannot read backup file %s from bucket %s", name, stg.S3.Bucket)
 		}
-		//pr, pw := io.Pipe()
-		//go func() {
-		//	buf := make([]byte, 16*1024*1024)
-		//	br.bytesRead, err = io.CopyBuffer(pw, result.Body, buf)
-		//	if err := result.Body.Close(); err != nil {
-		//		br.lastError = err
-		//	}
-		//	if err := pw.Close(); err != nil {
-		//		log.Errorf(">>> cannot close pipe: %s", err)
-		//	}
-		//}()
-		//br.readers = append(br.readers, pr)
-		// Since we are chaining readers, we don't want to let s3Svc.GetObject to close the Body, we
-		// have our own Close() method call so, here we need to wrap it with a NopCloser
+
+		// we don't want that the body gets closed when the reader is depleated otherwise it we be
+		// closed too soon
 		br.readers = append(br.readers, ioutil.NopCloser(result.Body))
 	default:
 		return nil, fmt.Errorf("Don't know how to handle %q storage type", stg.Type)
