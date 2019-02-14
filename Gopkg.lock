@@ -71,8 +71,8 @@
     "service/s3/s3manager",
     "service/sts"
   ]
-  revision = "b974aa42e62f8e576fc3e8d793b8e1b2b1f6bbe6"
-  version = "v1.16.28"
+  revision = "24d2586ee6c7aa6a6efec818c2b8709db125ee4c"
+  version = "v1.16.34"
 
 [[projects]]
   branch = "development"
@@ -103,9 +103,7 @@
     "ptypes/duration",
     "ptypes/timestamp"
   ]
-  pruneopts = "UT"
-  revision = "aa810b61a9c79d51363740d207bb46cf8e620ed5"
-  branch = "master"
+  revision = "c823c79ea1570fb5ff454033735a8e68575d1d0f"
 
 [[projects]]
   branch = "master"
@@ -149,8 +147,7 @@
   version = "v0.1.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:0ec7f160910400b79835fcef1c1dca634bb1c476a783ec86fc1330e8fa32a6d3"
+  branch = "v3.6"
   name = "github.com/mongodb/mongo-tools"
   packages = [
     "common",
@@ -176,6 +173,12 @@
     "mongorestore/ns"
   ]
   revision = "cc74524a447ba7e9049cc1de1ae83995618bfbfa"
+
+[[projects]]
+  name = "github.com/mongodb/mongo-tools-common"
+  packages = ["log"]
+  revision = "ee89c9cd40ba048072c6c98c20411daf23cd2011"
+  version = "v0.0.0"
 
 [[projects]]
   branch = "master"
@@ -229,7 +232,7 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
-  revision = "b8fe1690c61389d7d2a8074a507d1d40c5d30448"
+  revision = "74369b46fc6756741c016591724fd1cb8e26845f"
 
 [[projects]]
   branch = "master"
@@ -243,7 +246,7 @@
     "internal/timeseries",
     "trace"
   ]
-  revision = "d26f9f9a57f3fab6a695bec0d84433c2c50f8bbf"
+  revision = "3a22650c66bd7f4fb6d1e8072ffd7b75c8a27898"
 
 [[projects]]
   branch = "master"
@@ -254,7 +257,7 @@
     "windows/registry",
     "windows/svc/eventlog"
   ]
-  revision = "41f3e6584952bb034a481797859f6ab34b6803bd"
+  revision = "983097b1a8a340cd1cc7df17d735154d89e10b1a"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -356,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "acda20281fccd23464362afc3b7a6b5b32b0b32550f54ef184e76585273ea435"
+  inputs-digest = "dfbc786abc3f429f2e1008b56b36ea989da53b0c068bc83c1fdf63e19c56dadd"
   solver-name = "gps-cdcl"
   solver-version = 1
