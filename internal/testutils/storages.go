@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -57,6 +58,7 @@ func createTempDir() {
 	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
 		os.MkdirAll(tmpDir, os.ModePerm)
 	}
+	os.RemoveAll(filepath.Join(tmpDir, "*"))
 }
 
 func createTempBucket(stg storage.S3) error {
@@ -81,9 +83,34 @@ func createTempBucket(stg storage.S3) error {
 
 func RandomBucket() string {
 	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("pbm-test-bucket-%05d", rand.Int63n(99999))
+	return fmt.Sprintf("pbm-test-bucket-%05d", 99999)
 }
 
-func CleanTempDir() {
-	os.RemoveAll(tmpDir)
+func CleanTempDirAndBucket() error {
+	err := os.RemoveAll(tmpDir)
+	if err != nil {
+		log.Printf("cannot delete temporary directory %q", tmpDir)
+	}
+
+	stg, _ := storages.Get("s3-us-west")
+	sess, err := awsutils.GetAWSSessionFromStorage(stg.S3)
+	if err != nil {
+		return err
+	}
+
+	svc := s3.New(sess)
+
+	exists, err := BucketExists(svc, bucket)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
+			return err
+		}
+		if err := DeleteBucket(svc, bucket); err != nil {
+			return err
+		}
+	}
+	return nil
 }

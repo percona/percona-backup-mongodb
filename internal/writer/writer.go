@@ -71,7 +71,11 @@ func NewBackupWriter(stg storage.Storage, name string, compressionType pb.Compre
 		pr, pw := io.Pipe()
 		bw.wg.Add(1)
 		go func() {
-			uploader := s3manager.NewUploader(awsSession)
+			uploader := s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
+				u.PartSize = 32 * 1024 * 1024 // 10MB part size
+				u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
+				u.Concurrency = 10
+			})
 			uploader.Upload(&s3manager.UploadInput{
 				Bucket: aws.String(stg.S3.Bucket),
 				Key:    aws.String(name),

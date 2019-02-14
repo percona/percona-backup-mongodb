@@ -103,7 +103,9 @@
     "ptypes/duration",
     "ptypes/timestamp"
   ]
-  revision = "c823c79ea1570fb5ff454033735a8e68575d1d0f"
+  pruneopts = "UT"
+  revision = "aa810b61a9c79d51363740d207bb46cf8e620ed5"
+  branch = "master"
 
 [[projects]]
   branch = "master"
@@ -147,7 +149,8 @@
   version = "v0.1.0"
 
 [[projects]]
-  branch = "v3.6"
+  branch = "master"
+  digest = "1:0ec7f160910400b79835fcef1c1dca634bb1c476a783ec86fc1330e8fa32a6d3"
   name = "github.com/mongodb/mongo-tools"
   packages = [
     "common",
