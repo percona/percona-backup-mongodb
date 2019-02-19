@@ -22,6 +22,7 @@ var (
 func init() {
 	tmpDir = filepath.Join(os.TempDir(), "dump_test")
 	bucket = RandomBucket()
+	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
 
 	storages = &storage.Storages{
 		Storages: map[string]storage.Storage{
@@ -43,11 +44,25 @@ func init() {
 					Path: tmpDir,
 				},
 			},
+			"minio": {
+				Type: "s3",
+				S3: storage.S3{
+					Region:      "us-west-2",
+					EndpointURL: minioEndpoint,
+					Bucket:      bucket,
+					Credentials: storage.Credentials{
+						AccessKeyID:     os.Getenv("MINIO_ACCESS_KEY_ID"),
+						SecretAccessKey: os.Getenv("MINIO_SECRET_ACCESS_KEY"),
+					},
+				},
+				Filesystem: storage.Filesystem{},
+			},
 		},
 	}
 
 	createTempDir()
 	createTempBucket(storages.Storages["s3-us-west"].S3)
+	createTempBucket(storages.Storages["minio"].S3)
 }
 
 func TestingStorages() *storage.Storages {
