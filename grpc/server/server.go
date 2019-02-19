@@ -585,6 +585,10 @@ func (s *MessagesServer) WriteBackupMetadata(filename string) error {
 	return s.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
 }
 
+func (s MessagesServer) StoreBackupMetadata(storageName, filename string) error {
+
+}
+
 // WorkDir returns the server working directory.
 func (s *MessagesServer) WorkDir() string {
 	return s.workDir

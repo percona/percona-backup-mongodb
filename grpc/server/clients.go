@@ -436,6 +436,19 @@ func (c *Client) stopOplogTail(ts int64) error {
 	return nil
 }
 
+func (c *Client) uploadFile(storageName, filename string, data []byte) error {
+	msg := &pb.UploadToS3{
+		StorageName: storageName,
+		Filename:    filename,
+		Data:        data,
+	}
+	err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_UploadToS3{UploadToS3: msg},
+	})
+
+	return err
+}
+
 func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 	select {
 	case msg := <-c.streamRecvChan:
