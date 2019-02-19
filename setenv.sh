@@ -3,7 +3,6 @@
 # source $(readlink -f $(dirname $0))/.env
 
 export DEBUG=1
-export GOCACHE=off
 export GOLANG_DOCKERHUB_TAG=1.10-stretch
 export AWS_REGION=us-west-2
 
@@ -25,3 +24,7 @@ export TEST_MONGODB_CONFIGSVR1_PORT=17007
 export TEST_MONGODB_CONFIGSVR2_PORT=17008
 export TEST_MONGODB_CONFIGSVR3_PORT=17009
 export TEST_MONGODB_MONGOS_PORT=17000
+
+export MINIO_ENDPOINT=http://localhost:9000/
+export MINIO_ACCESS_KEY_ID=example00000
+export MINIO_SECRET_ACCESS_KEY=secret00000
