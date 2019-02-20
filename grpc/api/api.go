@@ -14,7 +14,6 @@ import (
 
 type ApiServer struct {
 	messagesServer *server.MessagesServer
-	workDir        string
 }
 
 func NewApiServer(server *server.MessagesServer) *ApiServer {
@@ -62,7 +61,9 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 					Finished:          status.BackupCompleted,
 				},
 			}
-			stream.Send(c)
+			if err := stream.Send(c); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

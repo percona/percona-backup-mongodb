@@ -22,6 +22,7 @@ func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 	return &BackupMetadata{
 		metadata: &pb.BackupMetadata{
 			StartTs:         time.Now().UTC().Unix(),
+			StorageName:     opts.GetStorageName(),
 			BackupType:      opts.GetBackupType(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),

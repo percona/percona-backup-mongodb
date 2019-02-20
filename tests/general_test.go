@@ -31,8 +31,7 @@ import (
 var (
 	port, apiPort             string
 	grpcServerShutdownTimeout = 30
-	keepS3Data                bool
-	keepLocalFiles            bool
+	keepTestingData           bool
 	storages                  *storage.Storages
 )
 
@@ -52,8 +51,7 @@ func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
 	log.SetFormatter(&log.TextFormatter{})
 
-	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
-	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
+	flag.BoolVar(&keepTestingData, "keep-testing-data", false, "Do not delete S3 testing bucket and file")
 	flag.Parse()
 
 	if os.Getenv("DEBUG") == "1" {
@@ -72,10 +70,16 @@ func TestMain(m *testing.M) {
 
 func TestGlobalWithDaemon(t *testing.T) {
 	ndocs := 1000
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+	stgs := testutils.TestingStorages()
+
+	fsStorage, err := stgs.Get("local-filesystem")
+	if err != nil {
+		t.Fatalf("Cannot get local-filesystem storage")
+	}
+	tmpDir := fsStorage.Filesystem.Path
+
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	err = os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
 	}
@@ -86,7 +90,10 @@ func TestGlobalWithDaemon(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	if !keepTestingData {
+		defer testutils.CleanTempDirAndBucket()
+		diag("Skipping deletion of temporary files/buckets")
+	}
 	d.StartAllAgents()
 
 	log.Debug("Getting list of connected clients")
@@ -269,6 +276,35 @@ func TestGlobalWithDaemon(t *testing.T) {
 		}
 	}
 
+	ts := time.Unix(d.MessagesServer.LastBackupMetadata().Metadata().StartTs, 0).UTC()
+	date := ts.Format(time.RFC3339)
+
+	wantFiles := []string{}
+	wantRs := []string{"csReplSet", "rs1", "rs2"}
+	for _, rs := range wantRs {
+		wantFiles = append(wantFiles, fmt.Sprintf("%s_%s.dump", date, rs))
+		wantFiles = append(wantFiles, fmt.Sprintf("%s_%s.oplog", date, rs))
+	}
+	wantFiles = append(wantFiles, fmt.Sprintf("%s.json", date))
+	wantFiles = append(wantFiles, fmt.Sprintf("%s.mdf", date))
+
+	files, err := ioutil.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Cannot read backup dir: %s", err)
+	}
+
+	haveFiles := []string{}
+	for _, file := range files {
+		haveFiles = append(haveFiles, file.Name())
+
+	}
+	sort.Strings(wantFiles)
+	sort.Strings(haveFiles)
+
+	if !reflect.DeepEqual(haveFiles, wantFiles) {
+		t.Errorf("Couldn't find all backup files in %s. Want %v, got %v", tmpDir, wantFiles, haveFiles)
+	}
+
 	cleanupDBForRestore(t, s1Session)
 	cleanupDBForRestore(t, s2Session)
 
@@ -334,7 +370,7 @@ func TestBackupToS3(t *testing.T) {
 		t.Fatalf("Cannot get storage named s3-us-west")
 	}
 	bucket := stg.S3.Bucket
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
@@ -519,20 +555,6 @@ func TestBackupToS3(t *testing.T) {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
 	}
 
-	// Clean up after testing
-	if !keepS3Data {
-		diag("Deleting bucket %q", bucket)
-		if err = awsutils.EmptyBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
-
-		diag("Deleting bucket %q", bucket)
-		if err = testutils.DeleteBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
-	} else {
-		diag("Skipping deletion of %q bucket", bucket)
-	}
 }
 
 func TestClientDisconnect(t *testing.T) {
@@ -548,7 +570,7 @@ func TestClientDisconnect(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
@@ -577,7 +599,7 @@ func TestListStorages(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	storagesList, err := d.MessagesServer.ListStorages()
@@ -625,7 +647,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
@@ -664,7 +686,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	bs, err := d.MessagesServer.BackupSourceByReplicaset()
@@ -717,7 +739,7 @@ func TestRunBackupTwice(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	storageName := "local-filesystem"
@@ -787,7 +809,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -861,7 +883,7 @@ func TestConfigServerClusterID(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDir()
+	defer testutils.CleanTempDirAndBucket()
 
 	portRsList := []testGrpc.PortRs{
 		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},

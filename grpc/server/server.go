@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	EVENT_BACKUP_FINISH = iota
-	EVENT_OPLOG_FINISH
-	EVENT_RESTORE_FINISH
+	EventBackupFinish = iota
+	EventOplogFinish
+	EventRestoreFinish
 	logBufferSize = 500
 )
 
@@ -86,9 +86,9 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		logger.Out = logrus.StandardLogger().Out
 	}
 
-	bfc := notify.Start(EVENT_BACKUP_FINISH)
-	ofc := notify.Start(EVENT_OPLOG_FINISH)
-	rbf := notify.Start(EVENT_RESTORE_FINISH)
+	bfc := notify.Start(EventBackupFinish)
+	ofc := notify.Start(EventOplogFinish)
+	rbf := notify.Start(EventRestoreFinish)
 	if workDir == "" {
 		workDir = "."
 	}
@@ -103,7 +103,10 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		dbBackupFinishChan:     bfc,
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
-		//replicasRunningBackup:  make(map[string]bool),
+		backupStatus: backupStatus{
+			lastBackupErrors:      make([]error, 0),
+			replicasRunningBackup: make(map[string]bool),
+		},
 		workDir: workDir,
 		logger:  logger,
 	}
@@ -499,7 +502,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	}
 
 	// Wait until the oplog tailer finish in all clients and then, write the metadata along with the backup files.
-	waitOplogFinishChan := notify.Start(EVENT_OPLOG_FINISH)
+	waitOplogFinishChan := notify.Start(EventOplogFinish)
 	go s.waitOplogBackupToFinish(waitOplogFinishChan)
 
 	return nil
@@ -624,7 +627,7 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	replicasets := s.ReplicasetsRunningDBBackup()
 
 	if len(replicasets) == 0 {
-		notify.Post(EVENT_BACKUP_FINISH, time.Now())
+		notify.Post(EventBackupFinish, time.Now())
 	}
 
 	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
@@ -732,7 +735,7 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
-		notify.Post(EVENT_OPLOG_FINISH, msg.GetClientId())
+		notify.Post(EventOplogFinish, msg.GetClientId())
 	}
 	return &pb.OplogBackupFinishedAck{}, nil
 }
@@ -753,7 +756,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
-		notify.Post(EVENT_RESTORE_FINISH, time.Now())
+		notify.Post(EventRestoreFinish, time.Now())
 	}
 	return &pb.RestoreCompletedAck{}, nil
 }
@@ -845,13 +848,15 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 func (s *MessagesServer) waitOplogBackupToFinish(c <-chan interface{}) {
 	var clientID interface{}
 	for {
-		clientID := <-c
+		clientID = <-c
 		replicasets := s.ReplicasetsRunningOplogBackup()
 		if len(replicasets) == 0 {
 			break
 		}
 	}
 	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if len(s.clients) > 0 {
 		jsonMetadata, err := s.backupStatus.lastBackupMetadata.JSONBytes()
 		if err != nil {
@@ -862,7 +867,7 @@ func (s *MessagesServer) waitOplogBackupToFinish(c <-chan interface{}) {
 		// have access to the storage, but since we already have the client id for the last
 		// agent that completed the oplog backup, we are going to use it instead of searching
 		// for a random agent on the client's map
-		ts := time.Unix(s.backupStatus.lastBackupMetadata.metadata.StartTs, 0)
+		ts := time.Unix(s.backupStatus.lastBackupMetadata.metadata.StartTs, 0).UTC()
 		storage := s.backupStatus.lastBackupMetadata.metadata.StorageName
 		filename := fmt.Sprintf("%s.mdf", ts.Format(time.RFC3339))
 
@@ -895,19 +900,19 @@ func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) stri
 func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.backupRunning
+	return s.backupStatus.backupRunning
 }
 
 func (s *MessagesServer) isOplogBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.oplogBackupRunning
+	return s.backupStatus.oplogBackupRunning
 }
 
 func (s *MessagesServer) isRestoreRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.restoreRunning
+	return s.backupStatus.restoreRunning
 }
 
 func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, msg *pb.ClientMessage) error {

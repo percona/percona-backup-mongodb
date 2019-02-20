@@ -61,8 +61,12 @@ func init() {
 	}
 
 	createTempDir()
-	createTempBucket(storages.Storages["s3-us-west"].S3)
-	createTempBucket(storages.Storages["minio"].S3)
+	if err := createTempBucket(storages.Storages["s3-us-west"].S3); err != nil {
+		panic(err)
+	}
+	if err := createTempBucket(storages.Storages["minio"].S3); err != nil {
+		panic(err)
+	}
 }
 
 func TestingStorages() *storage.Storages {
@@ -71,7 +75,9 @@ func TestingStorages() *storage.Storages {
 
 func createTempDir() {
 	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
-		os.MkdirAll(tmpDir, os.ModePerm)
+		if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
+			panic(err)
+		}
 	}
 	os.RemoveAll(filepath.Join(tmpDir, "*"))
 }
@@ -84,12 +90,12 @@ func createTempBucket(stg storage.S3) error {
 
 	svc := s3.New(sess)
 
-	exists, err := BucketExists(svc, bucket)
+	exists, err := awsutils.BucketExists(svc, bucket)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		if err := CreateBucket(svc, bucket); err != nil {
+		if err := awsutils.CreateBucket(svc, bucket); err != nil {
 			return err
 		}
 	}
@@ -115,7 +121,7 @@ func CleanTempDirAndBucket() error {
 
 	svc := s3.New(sess)
 
-	exists, err := BucketExists(svc, bucket)
+	exists, err := awsutils.BucketExists(svc, bucket)
 	if err != nil {
 		return err
 	}
@@ -123,7 +129,7 @@ func CleanTempDirAndBucket() error {
 		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
 			return err
 		}
-		if err := DeleteBucket(svc, bucket); err != nil {
+		if err := awsutils.DeleteBucket(svc, bucket); err != nil {
 			return err
 		}
 	}

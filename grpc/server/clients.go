@@ -437,13 +437,13 @@ func (c *Client) stopOplogTail(ts int64) error {
 }
 
 func (c *Client) storeFile(storageName, filename string, data []byte) error {
-	msg := &pb.UploadToS3{
+	msg := &pb.StoreFile{
 		StorageName: storageName,
 		Filename:    filename,
 		Data:        data,
 	}
 	err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_UploadToS3{UploadToS3: msg},
+		Payload: &pb.ServerMessage_StoreFile{StoreFile: msg},
 	})
 
 	return err
