@@ -457,6 +457,20 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(&ss); err != nil {
 				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
 			}
+		case *pb.ServerMessage_StoreFile:
+			errMsg := ""
+			if err := c.storeFile(msg.GetStoreFile()); err != nil {
+				errMsg = err.Error()
+			}
+
+			msg := &pb.ClientMessage{
+				ClientId: c.id,
+				Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: errMsg}},
+			}
+			c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
+			if err = c.streamSend(msg); err != nil {
+				c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+			}
 		//
 		default:
 			err = fmt.Errorf("Client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
@@ -1453,4 +1467,19 @@ func canPutObject(svc *s3.S3, bucket string) bool {
 	}
 
 	return true
+}
+
+func (c *Client) storeFile(msg *pb.StoreFile) error {
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return errors.Wrapf(err, "cannot store file %q", msg.GetFilename())
+	}
+
+	w, err := writer.NewBackupWriter(stg, msg.GetFilename(), pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(w, bytes.NewBuffer(msg.GetData()))
+	return err
 }

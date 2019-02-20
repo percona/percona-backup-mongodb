@@ -22,6 +22,7 @@ func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 	return &BackupMetadata{
 		metadata: &pb.BackupMetadata{
 			StartTs:         time.Now().UTC().Unix(),
+			StorageName:     opts.GetStorageName(),
 			BackupType:      opts.GetBackupType(),
 			CompressionType: opts.GetCompressionType(),
 			Cypher:          opts.GetCypher(),
@@ -95,4 +96,12 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 		return errors.Wrap(err, "cannot encode backup metadata")
 	}
 	return ioutil.WriteFile(name, buf, os.ModePerm)
+}
+
+func (b *BackupMetadata) JSONBytes() ([]byte, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	buf, err := json.MarshalIndent(b.metadata, "", "    ")
+	return buf, err
 }
