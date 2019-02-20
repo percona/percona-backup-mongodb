@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apex/log"
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -24,24 +25,30 @@ const (
 	logBufferSize = 500
 )
 
-type MessagesServer struct {
-	stopChan chan struct{}
-	lock     *sync.Mutex
-	clients  map[string]*Client
-	// Current backup status
-	clientsRefreshInterval time.Duration
-	replicasRunningBackup  map[string]bool // Key is ReplicasetUUID
-	lastOplogTs            int64           // Timestamp in Unix format
-	backupRunning          bool
-	oplogBackupRunning     bool
-	restoreRunning         bool
-	err                    error
-	//
-	workDir               string
-	clientLoggingEnabled  bool
+type backupStatus struct {
 	lastBackupMetadata    *BackupMetadata
 	lastBackupErrors      []error
+	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
+	lastBackupStorageName string
+	backupRunning         bool
+	oplogBackupRunning    bool
+	restoreRunning        bool
+}
+
+type MessagesServer struct {
+	backupStatus backupStatus
+	lock         *sync.Mutex
+	clients      map[string]*Client
+
+	clientsRefreshInterval time.Duration
+	lastOplogTs            int64 // Timestamp in Unix format
+	err                    error
+
+	workDir               string
+	clientLoggingEnabled  bool
 	clientDisconnetedChan chan string
+
+	stopChan              chan struct{}
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
@@ -96,9 +103,9 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		dbBackupFinishChan:     bfc,
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
-		replicasRunningBackup:  make(map[string]bool),
-		workDir:                workDir,
-		logger:                 logger,
+		//replicasRunningBackup:  make(map[string]bool),
+		workDir: workDir,
+		logger:  logger,
 	}
 	//if clientsRefreshSecs > 0 {
 	//	go messagesServer.refreshClientsScheduler()
@@ -309,11 +316,11 @@ func (s *MessagesServer) IsShardedSystem() bool {
 }
 
 func (s *MessagesServer) LastBackupErrors() []error {
-	return s.lastBackupErrors
+	return s.backupStatus.lastBackupErrors
 }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
-	return s.lastBackupMetadata
+	return s.backupStatus.lastBackupMetadata
 }
 
 func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
@@ -415,7 +422,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 
 	for replName, source := range clients {
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, source.Client.ID, source.Client.NodeName, source.Client.NodeType)
-		s.replicasRunningBackup[replName] = true
+		s.backupStatus.replicasRunningBackup[replName] = true
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
@@ -454,7 +461,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	ext := getFileExtension(pb.CompressionType(opts.CompressionType), pb.Cypher(opts.Cypher))
 
-	s.lastBackupMetadata = NewBackupMetadata(opts)
+	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
 	if err := s.RefreshClients(); err != nil {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
@@ -471,12 +478,12 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	for replName, client := range clients {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
-		s.replicasRunningBackup[replName] = true
+		s.backupStatus.replicasRunningBackup[replName] = true
 
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
 		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
-		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
+		s.backupStatus.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 
 		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
@@ -490,6 +497,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		}
 		client.startBackup(msg)
 	}
+
+	// Wait until the oplog tailer finish in all clients and then, write the metadata along with the backup files.
+	waitOplogFinishChan := notify.Start(EVENT_OPLOG_FINISH)
+	go s.waitOplogBackupToFinish(waitOplogFinishChan)
 
 	return nil
 }
@@ -582,11 +593,7 @@ func (s *MessagesServer) WaitRestoreFinish() {
 }
 
 func (s *MessagesServer) WriteBackupMetadata(filename string) error {
-	return s.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
-}
-
-func (s MessagesServer) StoreBackupMetadata(storageName, filename string) error {
-
+	return s.backupStatus.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
 }
 
 // WorkDir returns the server working directory.
@@ -611,7 +618,7 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	client.setDBBackupRunning(false)
 
 	if !msg.GetOk() {
-		s.lastBackupErrors = append(s.lastBackupErrors, errors.New(msg.GetError()))
+		s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, errors.New(msg.GetError()))
 	}
 
 	replicasets := s.ReplicasetsRunningDBBackup()
@@ -725,7 +732,7 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
-		notify.Post(EVENT_OPLOG_FINISH, time.Now())
+		notify.Post(EVENT_OPLOG_FINISH, msg.GetClientId())
 	}
 	return &pb.OplogBackupFinishedAck{}, nil
 }
@@ -835,6 +842,37 @@ func (s *MessagesServer) ValidateReplicasetAgents() error {
 	return nil
 }
 
+func (s *MessagesServer) waitOplogBackupToFinish(c <-chan interface{}) {
+	var clientID interface{}
+	for {
+		clientID := <-c
+		replicasets := s.ReplicasetsRunningOplogBackup()
+		if len(replicasets) == 0 {
+			break
+		}
+	}
+	s.lock.Lock()
+	if len(s.clients) > 0 {
+		jsonMetadata, err := s.backupStatus.lastBackupMetadata.JSONBytes()
+		if err != nil {
+			log.Errorf("Cannot encode backup metadata: %s", err)
+			return
+		}
+		// We could store the metadata using any agent for it since all of them should
+		// have access to the storage, but since we already have the client id for the last
+		// agent that completed the oplog backup, we are going to use it instead of searching
+		// for a random agent on the client's map
+		ts := time.Unix(s.backupStatus.lastBackupMetadata.metadata.StartTs, 0)
+		storage := s.backupStatus.lastBackupMetadata.metadata.StorageName
+		filename := fmt.Sprintf("%s.mdf", ts.Format(time.RFC3339))
+
+		if err := s.clients[clientID.(string)].storeFile(storage, filename, jsonMetadata); err != nil {
+			s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, err)
+		}
+	}
+
+}
+
 func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) string {
 	ext := ""
 
@@ -902,29 +940,29 @@ func (s *MessagesServer) reset() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.lastOplogTs = 0
-	s.backupRunning = false
-	s.oplogBackupRunning = false
-	s.restoreRunning = false
+	s.backupStatus.backupRunning = false
+	s.backupStatus.oplogBackupRunning = false
+	s.backupStatus.restoreRunning = false
 	s.err = nil
-	s.lastBackupErrors = []error{}
+	s.backupStatus.lastBackupErrors = []error{}
 }
 
 func (s *MessagesServer) setBackupRunning(status bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.backupRunning = status
+	s.backupStatus.backupRunning = status
 }
 
 func (s *MessagesServer) setOplogBackupRunning(status bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.oplogBackupRunning = status
+	s.backupStatus.oplogBackupRunning = status
 }
 
 func (s *MessagesServer) setRestoreRunning(status bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.restoreRunning = status
+	s.backupStatus.restoreRunning = status
 }
 
 func (s *MessagesServer) unregisterClient(id string) error {

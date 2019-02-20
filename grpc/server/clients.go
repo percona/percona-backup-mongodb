@@ -436,7 +436,7 @@ func (c *Client) stopOplogTail(ts int64) error {
 	return nil
 }
 
-func (c *Client) uploadFile(storageName, filename string, data []byte) error {
+func (c *Client) storeFile(storageName, filename string, data []byte) error {
 	msg := &pb.UploadToS3{
 		StorageName: storageName,
 		Filename:    filename,

@@ -96,3 +96,11 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 	}
 	return ioutil.WriteFile(name, buf, os.ModePerm)
 }
+
+func (b *BackupMetadata) JSONBytes() ([]byte, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	buf, err := json.MarshalIndent(b.metadata, "", "    ")
+	return buf, err
+}
