@@ -288,18 +288,6 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 	return grpcOpts
 }
 
-func makeApiServer(apiGrpcOpts []grpc.ServerOption, messagesServer *server.MessagesServer) *grpc.Server {
-	apiGrpcOpts = append(apiGrpcOpts,
-		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(Auth)),
-		grpc.UnaryInterceptor(grpc_auth.UnaryServerInterceptor(Auth)),
-	)
-	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
-	apiServer := api.NewApiServer(messagesServer)
-	apipb.RegisterApiServer(apiGrpcServer, apiServer)
-
-	return apiGrpcServer
-}
-
 func Auth(ctx context.Context) (context.Context, error) {
 	token, err := grpc_auth.AuthFromMD(ctx, "bearer")
 	if err != nil {
