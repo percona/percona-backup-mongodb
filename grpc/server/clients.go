@@ -72,7 +72,9 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 		logger:         logger,
 		streamRecvChan: make(chan *pb.ClientMessage),
 	}
+
 	go client.handleStreamRecv()
+
 	return client
 }
 

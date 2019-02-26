@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
@@ -18,20 +20,10 @@ import (
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/testdata"
-
 	"google.golang.org/grpc/encoding/gzip"
-)
-
-// vars are set by goreleaser
-var (
-	version         = "dev"
-	commit          = "none"
-	grpcCompressors = []string{
-		gzip.Name,
-		"none",
-	}
+	"google.golang.org/grpc/testdata"
 )
 
 type cliOptions struct {
@@ -45,6 +37,7 @@ type cliOptions struct {
 	UseSysLog            bool   `yaml:"sys_log_url" kingpin:"syslog-url"`
 	APIBindIP            string `yaml:"api_bindip" kingpin:"api-bind-ip"`
 	APIPort              int    `yaml:"api_port" kingpin:"api-port"`
+	APIToken             string `yaml:"api_token" kingpin:"api-token"`
 	GrpcBindIP           string `yaml:"grpc_bindip" kingpin:"grpc-bind-ip"`
 	GrpcPort             int    `yaml:"grpc_port" kingpin:"grpc-port"`
 	TLS                  bool   `yaml:"tls" kingpin:"tls"`
@@ -57,6 +50,9 @@ type cliOptions struct {
 	ServerCompressor     string `yaml:"server_compressor" kingpin:"server-compressor"`
 }
 
+type clientInterceptorFunc func(ctx context.Context, method string, req interface{}, reply interface{},
+	cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error
+
 const (
 	defaultGrpcPort           = 10000
 	defaultAPIPort            = 10001
@@ -68,8 +64,16 @@ const (
 )
 
 var (
-	log     = logrus.New()
-	program = filepath.Base(os.Args[0])
+	log             = logrus.New()
+	program         = filepath.Base(os.Args[0])
+	version         = "dev"
+	commit          = "none"
+	grpcCompressors = []string{
+		gzip.Name,
+		"none",
+	}
+
+	validateToken func(string) bool
 )
 
 func main() {
@@ -86,6 +90,13 @@ func main() {
 
 	if opts.Debug {
 		log.SetLevel(logrus.DebugLevel)
+	}
+
+	validateToken = func(token string) bool {
+		if token == opts.APIToken {
+			return true
+		}
+		return false
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", opts.GrpcBindIP, opts.GrpcPort))
@@ -120,6 +131,7 @@ func main() {
 
 	var messagesServer *server.MessagesServer
 	grpcServer := grpc.NewServer(grpcOpts...)
+
 	if opts.EnableClientsLogging {
 		messagesServer = server.NewMessagesServerWithClientLogging(opts.WorkDir, opts.ClientsRefreshSecs, log)
 	} else {
@@ -131,7 +143,11 @@ func main() {
 	log.Printf("Starting agents gRPC server. Listening on %s", lis.Addr().String())
 	runAgentsGRPCServer(grpcServer, lis, opts.ShutdownTimeout, stopChan, wg)
 
-	apiGrpcServer := grpc.NewServer(grpcOpts...)
+	apiGrpcOpts := make([]grpc.ServerOption, len(grpcOpts))
+	copy(apiGrpcOpts, grpcOpts)
+	apiGrpcOpts = append(apiGrpcOpts, grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(Auth)))
+
+	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
 	apiServer := api.NewApiServer(messagesServer)
 	apipb.RegisterApiServer(apiGrpcServer, apiServer)
 
@@ -204,6 +220,7 @@ func processCliParams(args []string) (*cliOptions, error) {
 	app.Flag("server-compressor", "Backup coordintor gRPC compression (gzip or none)").Default().EnumVar(&opts.ServerCompressor, grpcCompressors...)
 	app.Flag("api-bindip", "Bind IP for API client connections").StringVar(&opts.APIBindIP)
 	app.Flag("api-port", "Listening port for API client connections").IntVar(&opts.APIPort)
+	app.Flag("api-token", "API token for clients connection").StringVar(&opts.APIToken)
 	app.Flag("clients-refresh-secs", "Frequency in seconds to refresh state of clients").IntVar(&opts.ClientsRefreshSecs)
 	app.Flag("enable-clients-logging", "Enable showing logs coming from agents on the server side").BoolVar(&opts.EnableClientsLogging)
 	app.Flag("shutdown-timeout", "Server shutdown timeout").IntVar(&opts.ShutdownTimeout)
@@ -269,4 +286,28 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 		))
 	}
 	return grpcOpts
+}
+
+func makeApiServer(apiGrpcOpts []grpc.ServerOption, messagesServer *server.MessagesServer) *grpc.Server {
+	apiGrpcOpts = append(apiGrpcOpts,
+		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(Auth)),
+		grpc.UnaryInterceptor(grpc_auth.UnaryServerInterceptor(Auth)),
+	)
+	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
+	apiServer := api.NewApiServer(messagesServer)
+	apipb.RegisterApiServer(apiGrpcServer, apiServer)
+
+	return apiGrpcServer
+}
+
+func Auth(ctx context.Context) (context.Context, error) {
+	token, err := grpc_auth.AuthFromMD(ctx, "bearer")
+	if err != nil {
+		return nil, err
+	}
+	if tokenIsValid := validateToken(token); !tokenIsValid {
+		return nil, grpc.Errorf(codes.Unauthenticated, "invalid auth token")
+	}
+	newCtx := context.WithValue(ctx, "tokenInfo", time.Now().UTC().Format(time.RFC3339))
+	return newCtx, nil
 }

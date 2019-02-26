@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/testdata"
 )
 
@@ -58,6 +59,7 @@ const (
 )
 
 type cliOptions struct {
+	APIToken         string `yaml:"api_token" kingpin:"api-token"`
 	TLS              bool   `yaml:"tls" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file" kingpin:"tls-ca-file"`
 	ServerAddress    string `yaml:"server_addr" kingpin:"server_addr"`
@@ -92,7 +94,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var grpcOpts []grpc.DialOption
+	grpcOpts := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(makeUnaryInterceptor(opts.APIToken)),
+		grpc.WithStreamInterceptor(makeStreamInterceptor(opts.APIToken)),
+	}
+
 	if opts.ServerCompressor != "" && opts.ServerCompressor != "none" {
 		grpcOpts = append(grpcOpts, grpc.WithDefaultCallOptions(
 			grpc.UseCompressor(opts.ServerCompressor),
@@ -360,6 +366,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		restore:      restoreCmd,
 	}
 	app.Flag("config-file", "Config file name").Short('c').StringVar(&opts.configFile)
+	app.Flag("api-token", "Security token to use when connecting to the backup coordinator").StringVar(&opts.APIToken)
 	listNodesCmd.Flag("verbose", "Include extra node info").BoolVar(&opts.listNodesVerbose)
 	backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default(defaultBackupType).EnumVar(&opts.backupType, backuptypes...)
 	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default(defaultDestinationType).EnumVar(&opts.destinationType, destinationTypes...)
@@ -401,4 +408,24 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	return cmd, opts, nil
+}
+
+func makeUnaryInterceptor(token string) func(ctx context.Context, method string, req interface{}, reply interface{},
+	cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req interface{}, reply interface{},
+		cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		md := metadata.Pairs("authorization", "bearer "+token)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		return err
+	}
+}
+
+//func StreamInt(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		md := metadata.Pairs("authorization", "bearer "+token)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		return streamer(ctx, desc, cc, method, opts...)
+	}
 }
