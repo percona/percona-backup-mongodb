@@ -96,9 +96,13 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		dbBackupFinishChan:     bfc,
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
-		replicasRunningBackup:  make(map[string]bool),
-		workDir:                workDir,
-		logger:                 logger,
+		backupStatus: backupStatus{
+			lastBackupErrors:      make([]error, 0),
+			replicasRunningBackup: make(map[string]bool),
+			lastBackupMetadata:    NewBackupMetadata(&pb.StartBackup{}),
+		},
+		workDir: workDir,
+		logger:  logger,
 	}
 	//if clientsRefreshSecs > 0 {
 	//	go messagesServer.refreshClientsScheduler()
