@@ -205,9 +205,9 @@ func connectedAgents(ctx context.Context, conn *grpc.ClientConn) ([]*pbapi.Clien
 		}
 		clients = append(clients, msg)
 	}
-	//if err := stream.CloseSend(); err != nil {
-	//	return nil, errors.Wrap(err, "cannot close stream for connectedAgents function")
-	//}
+	if err := stream.CloseSend(); err != nil {
+		return nil, errors.Wrap(err, "cannot close stream for connectedAgents function")
+	}
 	sort.Slice(clients, func(i, j int) bool { return clients[i].NodeName < clients[j].NodeName })
 	return clients, nil
 }
