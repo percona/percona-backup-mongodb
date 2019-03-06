@@ -91,7 +91,8 @@ func (a *Server) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi.Ap
 }
 
 // LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
-func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (*pb.BackupMetadata, error) {
+func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (
+	*pb.BackupMetadata, error) {
 	return a.messagesServer.LastBackupMetadata().Metadata(), nil
 }
 
@@ -112,11 +113,9 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
-	a.logger.Debug("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	a.logger.Debug("Balancer stopped")
 
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
@@ -143,11 +142,9 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 		return &pbapi.Error{Message: err.Error()}, err
 	}
 
-	a.logger.Debug("Starting the balancer")
 	if err := a.messagesServer.StartBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	a.logger.Debug("Balancer started")
 	return &pbapi.Error{}, nil
 }
 
@@ -162,6 +159,9 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
 	storages, err := a.messagesServer.ListStorages()
+	if err != nil {
+		return errors.Wrap(err, "cannot get storages from the server")
+	}
 	for name, stg := range storages {
 		msg := &pbapi.StorageInfo{
 			Name:          name,
@@ -183,7 +183,9 @@ func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_L
 				},
 			},
 		}
-		stream.Send(msg)
+		if err := stream.Send(msg); err != nil {
+			return errors.Wrap(err, "cannot stream storage info msg for ListStorages")
+		}
 	}
-	return err
+	return nil
 }

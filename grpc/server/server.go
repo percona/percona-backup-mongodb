@@ -580,7 +580,11 @@ func (s *MessagesServer) StartBalancer() error {
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
-			return client.startBalancer()
+			if err := client.startBalancer(); err != nil {
+				return errors.Wrapf(err, "cannot start the balancer via client %q", client.ID)
+			}
+			s.logger.Debug("Balancer started")
+			break
 		}
 	}
 	// This is not a sharded system. There is nothing to do.
@@ -597,7 +601,12 @@ func (s *MessagesServer) StopBalancer() error {
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
-			return client.stopBalancer()
+			s.logger.Debug("Stopping the balancer")
+			if err := client.stopBalancer(); err != nil {
+				return errors.Wrapf(err, "cannot stop the balancer via the %q client", client.ID)
+			}
+			s.logger.Debug("Balancer stopped")
+			break
 		}
 	}
 	// This is not a sharded system. There is nothing to do.
@@ -700,7 +709,9 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	replicasets := s.ReplicasetsRunningDBBackup()
 
 	if len(replicasets) == 0 {
-		notify.Post(EventBackupFinish, time.Now())
+		if err := notify.Post(EventBackupFinish, time.Now()); err != nil {
+			return nil, fmt.Errorf("cannot notify EventBackupFinish (DBBackupFinished): %s", err.Error())
+		}
 	}
 
 	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
@@ -810,7 +821,9 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
-		notify.Post(EventOplogFinish, time.Now())
+		if err := notify.Post(EventOplogFinish, msg.GetClientId()); err != nil {
+			return nil, errors.Wrapf(err, "cannot notify OplogBackupFinished for client %s", client.ID)
+		}
 	}
 	return &pb.OplogBackupFinishedAck{}, nil
 }
@@ -832,7 +845,9 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
-		notify.Post(EventRestoreFinish, time.Now())
+		if err := notify.Post(EventRestoreFinish, time.Now()); err != nil {
+			return nil, errors.Wrapf(err, "cannot notify RestoreCompleted for client %s", client.ID)
+		}
 	}
 	return &pb.RestoreCompletedAck{}, nil
 }
@@ -925,16 +940,21 @@ func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) stri
 	ext := ""
 
 	switch cypher {
+	case pb.Cypher_CYPHER_AES:
+		ext += ".aes"
+	case pb.Cypher_CYPHER_RSA:
+		ext += ".rsa"
 	case pb.Cypher_CYPHER_NO_CYPHER:
+	default:
 	}
 
 	switch compressionType {
 	case pb.CompressionType_COMPRESSION_TYPE_GZIP:
-		ext = ext + ".gz"
+		ext += ".gz"
 	case pb.CompressionType_COMPRESSION_TYPE_LZ4:
-		ext = ext + ".lz4"
+		ext += ".lz4"
 	case pb.CompressionType_COMPRESSION_TYPE_SNAPPY:
-		ext = ext + ".snappy"
+		ext += ".snappy"
 	}
 
 	return ext
