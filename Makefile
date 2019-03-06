@@ -40,6 +40,8 @@ AWS_SECRET_ACCESS_KEY?=
 MINIO_PORT=9000
 MINIO_ACCESS_KEY_ID=example00000
 MINIO_SECRET_ACCESS_KEY=secret00000
+export MINIO_ACCESS_KEY_ID
+export MINIO_SECRET_ACCESS_KEY
 
 all: pbmctl pbm-agent pbm-coordinator
 
@@ -120,6 +122,11 @@ test-full: env test-cluster-clean test-cluster
 
 test-clean: test-cluster-clean
 	rm -rf test-out 2>/dev/null || true
+
+test-data: env test-cluster-clean test-cluster
+	go get -u "github.com/feliixx/mgodatagen"
+	mgodatagen --host 127.0.0.1 --port ${TEST_MONGODB_S1_PRIMARY_PORT} --username ${TEST_MONGODB_ADMIN_USERNAME} --password ${TEST_MONGODB_ADMIN_PASSWORD} -f testdata/big.json
+	mgodatagen --host 127.0.0.1 --port ${TEST_MONGODB_S2_PRIMARY_PORT} --username ${TEST_MONGODB_ADMIN_USERNAME} --password ${TEST_MONGODB_ADMIN_PASSWORD} -f testdata/big.json
 
 pbm-agent: vendor cli/pbm-agent/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-agent cli/pbm-agent/main.go
