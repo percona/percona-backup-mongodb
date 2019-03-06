@@ -21,15 +21,15 @@ const (
 
 type MongoRestoreInput struct {
 	Archive           string
-	DryRun            bool // Used only for testing
 	Host              string
 	Port              string
 	Username          string
 	Password          string
 	AuthDB            string
+	Threads           int
+	DryRun            bool // Used only for testing
 	Gzip              bool
 	Oplog             bool
-	Threads           int
 	SkipUsersAndRoles bool
 
 	Reader io.ReadCloser
@@ -41,14 +41,14 @@ type MongoRestore struct {
 
 	lastError error
 	waitChan  chan error
-	//
+
 	lock    *sync.Mutex
 	running bool
 }
 
 func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 	if i.Reader == nil && i.Archive == "" {
-		return nil, fmt.Errorf("You need to specify an archive or a reader")
+		return nil, fmt.Errorf("you need to specify an archive or a reader")
 	}
 
 	// TODO: SSL?
@@ -92,7 +92,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		NoOptionsRestore:         false,
 		NumInsertionWorkers:      20,
 		NumParallelCollections:   4,
-		StopOnError:              false,
+		StopOnError:              true,
 		TempRolesColl:            "temproles",
 		TempUsersColl:            "tempusers",
 		WriteConcern:             "majority",
@@ -103,7 +103,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		return nil, errors.Wrap(err, "cannot instantiate a session provider")
 	}
 	if provider == nil {
-		return nil, fmt.Errorf("Cannot set session provider (nil)")
+		return nil, fmt.Errorf("cannot set session provider (nil)")
 	}
 
 	progressManager := progress.NewBarWriter(log.Writer(0), progressBarWaitTime, progressBarLength, true)
@@ -137,7 +137,7 @@ func (mr *MongoRestore) LastError() error {
 
 func (mr *MongoRestore) Start() error {
 	if mr.isRunning() {
-		return fmt.Errorf("Dumper already running")
+		return fmt.Errorf("a dumper is already running")
 	}
 	mr.waitChan = make(chan error, 1)
 	mr.setRunning(true)
@@ -148,7 +148,7 @@ func (mr *MongoRestore) Start() error {
 
 func (mr *MongoRestore) Stop() error {
 	if !mr.isRunning() {
-		return fmt.Errorf("The dumper is not running")
+		return fmt.Errorf("the dumper is not running")
 	}
 	mr.mongorestore.HandleInterrupt()
 	return mr.Wait()
@@ -156,7 +156,7 @@ func (mr *MongoRestore) Stop() error {
 
 func (mr *MongoRestore) Wait() error {
 	if !mr.isRunning() {
-		return fmt.Errorf("The dumper is not running")
+		return fmt.Errorf("the dumper is not running")
 	}
 	mr.setRunning(false)
 	defer close(mr.waitChan)
