@@ -98,7 +98,6 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	}
 
 	messagesServer := &MessagesServer{
-<<<<<<< HEAD
 		lock:                   &sync.Mutex{},
 		clients:                make(map[string]*Client),
 		clientDisconnetedChan:  make(chan string),
@@ -109,16 +108,14 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
 		replicasRunningBackup:  make(map[string]bool), // Key is ReplicasetUUID
-=======
-		lock:                  &sync.Mutex{},
-		clients:               make(map[string]*Client),
-		clientDisconnetedChan: make(chan string),
-		stopChan:              make(chan struct{}),
-		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:    bfc,
-		oplogBackupFinishChan: ofc,
-		restoreFinishChan:     rbf,
->>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
+		lock:                   &sync.Mutex{},
+		clients:                make(map[string]*Client),
+		clientDisconnetedChan:  make(chan string),
+		stopChan:               make(chan struct{}),
+		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
+		dbBackupFinishChan:     bfc,
+		oplogBackupFinishChan:  ofc,
+		restoreFinishChan:      rbf,
 		backupStatus: backupStatus{
 			lastBackupErrors:      make([]error, 0),
 			replicasRunningBackup: make(map[string]bool),
@@ -454,10 +451,8 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 	}
 
 	for replName, source := range clients {
-<<<<<<< HEAD
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, source.Client.ID, source.Client.NodeName, source.Client.NodeType)
 		s.replicasRunningBackup[replName] = true
-=======
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
 			replName,
 			source.Client.ID,
@@ -465,7 +460,6 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 			source.Client.NodeType,
 		)
 		s.backupStatus.replicasRunningBackup[replName] = true
->>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
@@ -522,10 +516,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.setOplogBackupRunning(true)
 
 	for replName, client := range clients {
-<<<<<<< HEAD
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
-=======
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
 			replName,
 			client.ID,
@@ -536,14 +528,11 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		if client.isPrimary {
 			s.logger.Warnf("Warning! Client %s is the primary", client.ID)
 		}
->>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
 		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
-<<<<<<< HEAD
 		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
-=======
 		err := s.backupStatus.lastBackupMetadata.AddReplicaset(client.ClusterID,
 			client.ReplicasetName,
 			client.ReplicasetUUID,
@@ -553,7 +542,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		if err != nil {
 			return errors.Wrapf(err, "cannot add replicaset to metadata")
 		}
->>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 
 		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
