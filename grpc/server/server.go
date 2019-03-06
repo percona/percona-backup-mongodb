@@ -72,18 +72,18 @@ type restoreSource struct {
 	Port   string
 }
 
-func NewMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
+func NewMessagesServer(workDir string) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, nil)
 	return messagesServer
 }
 
-func NewMessagesServerWithClientLogging(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
-	messagesServer := newMessagesServer(workDir, clientsRefreshSecs, logger)
+func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
+	messagesServer := newMessagesServer(workDir, logger)
 	messagesServer.clientLoggingEnabled = true
 	return messagesServer
 }
 
-func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Logger) *MessagesServer {
+func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -98,6 +98,7 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 	}
 
 	messagesServer := &MessagesServer{
+<<<<<<< HEAD
 		lock:                   &sync.Mutex{},
 		clients:                make(map[string]*Client),
 		clientDisconnetedChan:  make(chan string),
@@ -108,6 +109,16 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
 		replicasRunningBackup:  make(map[string]bool), // Key is ReplicasetUUID
+=======
+		lock:                  &sync.Mutex{},
+		clients:               make(map[string]*Client),
+		clientDisconnetedChan: make(chan string),
+		stopChan:              make(chan struct{}),
+		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
+		dbBackupFinishChan:    bfc,
+		oplogBackupFinishChan: ofc,
+		restoreFinishChan:     rbf,
+>>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 		backupStatus: backupStatus{
 			lastBackupErrors:      make([]error, 0),
 			replicasRunningBackup: make(map[string]bool),
@@ -116,10 +127,21 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		workDir: workDir,
 		logger:  logger,
 	}
-	//if clientsRefreshSecs > 0 {
-	//	go messagesServer.refreshClientsScheduler()
-	//}
 	return messagesServer
+}
+
+func (s *MessagesServer) StartClientsRefreshScheduler(interval int) error {
+	if s == nil {
+		return fmt.Errorf("cannot start clients refresh scheduler. Invalid messages server (nil)")
+	}
+
+	if interval < 1 {
+		return fmt.Errorf("invalid client refresh interval")
+	}
+	s.clientsRefreshInterval = time.Duration(interval) * time.Second
+	go s.refreshClientsScheduler()
+
+	return nil
 }
 
 func (s *MessagesServer) refreshClientsScheduler() {
@@ -182,7 +204,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 				}
 			}
 			if resp.IsPrimary {
-				s, _ := sources[resp.Replicaset]
+				s := sources[resp.Replicaset]
 				s.Host = resp.Host
 				s.Port = resp.Port
 				sources[resp.Replicaset] = s
@@ -426,12 +448,24 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 
 	// Ping will also update the status and if it is primary or secondary
 	for _, source := range clients {
-		source.Client.ping()
+		if err := source.Client.ping(); err != nil {
+			return errors.Wrapf(err, "error while sending ping to client %s", source.Client.ID)
+		}
 	}
 
 	for replName, source := range clients {
+<<<<<<< HEAD
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, source.Client.ID, source.Client.NodeName, source.Client.NodeType)
 		s.replicasRunningBackup[replName] = true
+=======
+		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
+			replName,
+			source.Client.ID,
+			source.Client.NodeName,
+			source.Client.NodeType,
+		)
+		s.backupStatus.replicasRunningBackup[replName] = true
+>>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 		for bmReplName, metadata := range bm.Replicasets {
 			if bmReplName == replName {
 				msg := &pb.RestoreBackup{
@@ -445,7 +479,9 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 					Port:              source.Port,
 					StorageName:       storageName,
 				}
-				source.Client.restoreBackup(msg)
+				if err := source.Client.restoreBackup(msg); err != nil {
+					return errors.Wrapf(err, "cannot send restore backup message to client %s", source.Client.ID)
+				}
 			}
 		}
 	}
@@ -468,7 +504,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrap(err, "cannot start a backup while not all MongoDB instances have a backup agent")
 	}
 
-	ext := getFileExtension(pb.CompressionType(opts.CompressionType), pb.Cypher(opts.Cypher))
+	ext := getFileExtension(opts.CompressionType, opts.Cypher)
 
 	s.lastBackupMetadata = NewBackupMetadata(opts)
 
@@ -478,7 +514,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
-		return errors.Wrapf(err, "Cannot start backup. Cannot find backup source for replicas")
+		return errors.Wrapf(err, "cannot start backup. Cannot find backup source for replicas")
 	}
 
 	s.reset()
@@ -486,13 +522,38 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.setOplogBackupRunning(true)
 
 	for replName, client := range clients {
+<<<<<<< HEAD
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
 		s.replicasRunningBackup[replName] = true
+=======
+		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
+			replName,
+			client.ID,
+			client.NodeName,
+			client.NodeType,
+		)
+		s.backupStatus.replicasRunningBackup[replName] = true
+		if client.isPrimary {
+			s.logger.Warnf("Warning! Client %s is the primary", client.ID)
+		}
+>>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
 		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
+<<<<<<< HEAD
 		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
+=======
+		err := s.backupStatus.lastBackupMetadata.AddReplicaset(client.ClusterID,
+			client.ReplicasetName,
+			client.ReplicasetUUID,
+			dbBackupName,
+			oplogBackupName,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "cannot add replicaset to metadata")
+		}
+>>>>>>> 9789c69... Merge pull request #201 from percona/PBM-105
 
 		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
@@ -504,7 +565,9 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			Description:     opts.Description,
 			StorageName:     opts.GetStorageName(),
 		}
-		client.startBackup(msg)
+		if err := client.startBackup(msg); err != nil {
+			return errors.Wrapf(err, "cannot start backup for client %s", client.ID)
+		}
 	}
 
 	return nil
@@ -556,9 +619,15 @@ func (s *MessagesServer) StopOplogTail() error {
 
 	var gErr error
 	for _, client := range s.clients {
-		s.logger.Debugf("Checking if client %s is running the oplog backup: %v", client.NodeName, client.isOplogTailerRunning())
+		s.logger.Debugf("Checking if client %s is running the oplog backup: %v",
+			client.NodeName,
+			client.isOplogTailerRunning(),
+		)
 		if client.isOplogTailerRunning() {
-			s.logger.Debugf("Stopping oplog tail in client %s at %s", client.NodeName, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
+			s.logger.Debugf("Stopping oplog tail in client %s at %s",
+				client.NodeName,
+				time.Unix(s.lastOplogTs, 0).Format(time.RFC3339),
+			)
 			err := client.stopOplogTail(s.lastOplogTs)
 			if err != nil {
 				gErr = errors.Wrapf(gErr, "client: %s, error: %s", client.NodeName, err)
@@ -612,7 +681,8 @@ func (s *MessagesServer) WorkDir() string {
 
 // DBBackupFinished process backup finished message from clients.
 // After the mongodump call finishes, clients should call this method to inform the event to the server
-func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (*pb.DBBackupFinishedAck, error) {
+func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupFinishStatus) (
+	*pb.DBBackupFinishedAck, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -725,8 +795,10 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 }
 
 // OplogBackupFinished process oplog tailer finished message from clients.
-// After the the oplog tailer has been closed on clients, clients should call this method to inform the event to the server
-func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (*pb.OplogBackupFinishedAck, error) {
+// After the the oplog tailer has been closed on clients, clients should call this method to inform
+// the event to the server
+func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogBackupFinishStatus) (
+	*pb.OplogBackupFinishedAck, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
@@ -745,7 +817,8 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // RestoreCompleted handles a replicaset restore completed messages from clients.
 // After restore is completed or upon errors, each client running the restore will cann this gRPC method
 // to inform the server about the restore status.
-func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (*pb.RestoreCompletedAck, error) {
+func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (
+	*pb.RestoreCompletedAck, error) {
 	//s.lock.Lock()
 	//defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
