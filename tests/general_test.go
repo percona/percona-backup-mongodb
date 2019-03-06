@@ -830,6 +830,36 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	cleanupDBForRestore(t, s1Session)
 }
 
+func TestRefreshClients(t *testing.T) {
+	stgs := testutils.TestingStorages()
+
+	fsStorage, err := stgs.Get("local-filesystem")
+	if err != nil {
+		t.Fatalf("Cannot get local-filesystem storage")
+	}
+	tmpDir := fsStorage.Filesystem.Path
+
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
+	}
+
+	if err := d.MessagesServer.RefreshClients(); err != nil {
+		t.Errorf("Cannot refresh all clients info: %s", err)
+	}
+}
+
 func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMetadata, storageName string) {
 	if err := d.MessagesServer.RestoreBackUp(md, storageName, true); err != nil {
 		t.Errorf("Cannot restore using backup metadata: %s", err)

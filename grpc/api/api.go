@@ -12,28 +12,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type ApiServer struct {
+// Apiserver has unexported fields and all the methods for API calls
+type Server struct {
 	messagesServer *server.MessagesServer
-	workDir        string
+	logger         *logrus.Logger
 }
 
-func NewApiServer(server *server.MessagesServer) *ApiServer {
-	return &ApiServer{
+// NewServer returns a new API Server
+func NewServer(server *server.MessagesServer) *Server {
+	s := &Server{
 		messagesServer: server,
+		logger:         logrus.New(),
 	}
-}
-
-var (
-	logger = logrus.New()
-)
-
-func init() {
 	if os.Getenv("DEBUG") == "1" {
-		logger.SetLevel(logrus.DebugLevel)
+		s.logger.SetLevel(logrus.DebugLevel)
 	}
+
+	return s
 }
 
-func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
+func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
+	if err := a.messagesServer.RefreshClients(); err != nil {
+		return errors.Wrap(err, "cannot refresh clients list")
+	}
+
 	for _, clientsByReplicasets := range a.messagesServer.ClientsByReplicaset() {
 		for _, client := range clientsByReplicasets {
 			status := client.Status()
@@ -68,31 +70,34 @@ func (a *ApiServer) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer
 	return nil
 }
 
-func (a *ApiServer) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi.Api_BackupsMetadataServer) error {
+func (a *Server) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi.Api_BackupsMetadataServer) error {
 	bmd, err := a.messagesServer.ListBackups()
 	if err != nil {
 		return errors.Wrap(err, "cannot get backups metadata listing")
 	}
 
-	for name, md := range bmd {
+	for name := range bmd {
+		md := bmd[name]
 		msg := &pbapi.MetadataFile{
 			Filename: name,
 			Metadata: &md,
 		}
-		stream.Send(msg)
+		if err := stream.Send(msg); err != nil {
+			return errors.Wrap(err, "cannot send MetadataFile through the stream")
+		}
 	}
 
 	return nil
 }
 
 // LastBackupMetadata returns the last backup metadata so it can be stored in the local filesystem as JSON
-func (a *ApiServer) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (*pb.BackupMetadata, error) {
+func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMetadataParams) (*pb.BackupMetadata, error) {
 	return a.messagesServer.LastBackupMetadata().Metadata(), nil
 }
 
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
-func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
+func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
@@ -107,44 +112,46 @@ func (a *ApiServer) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) 
 		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
-	logger.Debug("Stopping the balancer")
+	a.logger.Debug("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	logger.Debug("Balancer stopped")
+	a.logger.Debug("Balancer stopped")
 
-	logger.Debug("Starting the backup")
+	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	logger.Debug("Backup started")
-	logger.Debug("Waiting for backup to finish")
+	a.logger.Debug("Backup started")
+	a.logger.Debug("Waiting for backup to finish")
 
 	a.messagesServer.WaitBackupFinish()
-	logger.Debug("Stopping oplog")
+	a.logger.Debug("Stopping oplog")
 	err := a.messagesServer.StopOplogTail()
 	if err != nil {
-		logger.Fatalf("Cannot stop oplog tailer %s", err)
+		a.logger.Fatalf("Cannot stop oplog tailer %s", err)
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	logger.Debug("Waiting oplog to finish")
+	a.logger.Debug("Waiting oplog to finish")
 	a.messagesServer.WaitOplogBackupFinish()
-	logger.Debug("Oplog finished")
+	a.logger.Debug("Oplog finished")
 
 	mdFilename := msg.NamePrefix + ".json"
 
-	logger.Debugf("Writing metadata to %s", mdFilename)
-	a.messagesServer.WriteBackupMetadata(mdFilename)
+	a.logger.Debugf("Writing metadata to %s", mdFilename)
+	if err := a.messagesServer.WriteBackupMetadata(mdFilename); err != nil {
+		return &pbapi.Error{Message: err.Error()}, err
+	}
 
-	logger.Debug("Starting the balancer")
+	a.logger.Debug("Starting the balancer")
 	if err := a.messagesServer.StartBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
-	logger.Debug("Balancer started")
+	a.logger.Debug("Balancer started")
 	return &pbapi.Error{}, nil
 }
 
-func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
+func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
 		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
@@ -153,7 +160,7 @@ func (a *ApiServer) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams
 	return &pbapi.RunRestoreResponse{}, nil
 }
 
-func (a *ApiServer) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
+func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
 	storages, err := a.messagesServer.ListStorages()
 	for name, stg := range storages {
 		msg := &pbapi.StorageInfo{

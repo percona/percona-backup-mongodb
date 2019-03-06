@@ -11,17 +11,16 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/storage"
+	"github.com/pkg/errors"
 )
 
 var (
 	storages *storage.Storages
-	tmpDir   string
-	bucket   string
 )
 
-func init() {
-	tmpDir = filepath.Join(os.TempDir(), "dump_test")
-	bucket = RandomBucket()
+func initialize() {
+	tmpDir := filepath.Join(os.TempDir(), "dump_test")
+	bucket := RandomBucket()
 	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
 
 	storages = &storage.Storages{
@@ -60,16 +59,23 @@ func init() {
 		},
 	}
 
-	createTempDir()
-	createTempBucket(storages.Storages["s3-us-west"].S3)
-	createTempBucket(storages.Storages["minio"].S3)
+	createTempDir(storages.Storages["local-filesystem"].Filesystem.Path)
+	if err := createTempBucket(storages.Storages["s3-us-west"].S3); err != nil {
+		panic(err)
+	}
+	if err := createTempBucket(storages.Storages["minio"].S3); err != nil {
+		panic(err)
+	}
 }
 
 func TestingStorages() *storage.Storages {
+	if storages == nil {
+		initialize()
+	}
 	return storages
 }
 
-func createTempDir() {
+func createTempDir(tmpDir string) {
 	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
 		os.MkdirAll(tmpDir, os.ModePerm)
 	}
@@ -84,12 +90,12 @@ func createTempBucket(stg storage.S3) error {
 
 	svc := s3.New(sess)
 
-	exists, err := BucketExists(svc, bucket)
+	exists, err := awsutils.BucketExists(svc, stg.Bucket)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		if err := CreateBucket(svc, bucket); err != nil {
+		if err := awsutils.CreateBucket(svc, stg.Bucket); err != nil {
 			return err
 		}
 	}
@@ -102,22 +108,27 @@ func RandomBucket() string {
 }
 
 func CleanTempDirAndBucket() error {
-	err := os.RemoveAll(tmpDir)
+	if storages == nil { // not used even once
+		return nil
+	}
+	path := storages.Storages["local-filesystem"].Filesystem.Path
+	err := os.RemoveAll(path)
 	if err != nil {
-		log.Printf("cannot delete temporary directory %q", tmpDir)
+		log.Printf("cannot delete temporary directory %q", path)
 	}
 
 	stg, _ := storages.Get("s3-us-west")
 	sess, err := awsutils.GetAWSSessionFromStorage(stg.S3)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "cannot get S3 session")
 	}
 
 	svc := s3.New(sess)
 
-	exists, err := BucketExists(svc, bucket)
+	bucket := storages.Storages["s3-us-west"].S3.Bucket
+	exists, err := awsutils.BucketExists(svc, bucket)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "cannot check if the bucket %q exists", bucket)
 	}
 	if exists {
 		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
