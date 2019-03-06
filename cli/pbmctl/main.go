@@ -282,15 +282,6 @@ func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
 	return storages, nil
 }
 
-func printTemplate(tpl string, data interface{}) {
-	var b bytes.Buffer
-	tmpl := template.Must(template.New("").Parse(tpl))
-	if err := tmpl.Execute(&b, data); err != nil {
-		log.Fatal(err)
-	}
-	print(b.String())
-}
-
 func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOptions) error {
 	msg := &pbapi.RunBackupParams{
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
@@ -343,6 +334,15 @@ func restoreBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOpti
 	}
 
 	return nil
+}
+
+func printTemplate(tpl string, data interface{}) {
+	var b bytes.Buffer
+	tmpl := template.Must(template.New("").Parse(tpl))
+	if err := tmpl.Execute(&b, data); err != nil {
+		log.Fatal(err)
+	}
+	print(b.String())
 }
 
 func processCliArgs(args []string) (string, *cliOptions, error) {

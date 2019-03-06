@@ -2,7 +2,7 @@
    {
       "database": "datagen_it_test",
       "collection": "test",
-      "count": 500000,
+      "count": 1000000,
       "content": {
          "_id": {
             "type": "ref",
@@ -86,7 +86,7 @@
                   "type": "string",
                   "unique": true,
                   "minLength": 4,
-                  "maxLength": 4
+                  "maxLength": 10
                },
                "k2": {
                   "type": "int",
@@ -100,7 +100,7 @@
    {
       "database": "datagen_it_test",
       "collection": "link",
-      "count": 500000,
+      "count": 1000000,
       "content": {
          "_id": {
             "type": "objectId"

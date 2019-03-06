@@ -58,7 +58,9 @@ func TestApiWithDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
-	d.StartAllAgents()
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
+	}
 	defer d.Stop()
 
 	msg := &pbapi.RunBackupParams{
@@ -131,10 +133,8 @@ func TestApiWithDaemon(t *testing.T) {
 	mrs1, ok := md.Metadata().Replicasets["rs1"]
 	if !ok {
 		t.Errorf("Missing rs1 in backup metadata")
-	} else {
-		if mrs1.GetClusterId() == "" {
-			t.Errorf("Missing cluster ID for replicaset 1")
-		}
+	} else if mrs1.GetClusterId() == "" {
+		t.Errorf("Missing cluster ID for replicaset 1")
 	}
 
 	stream := newMockBackupsMetadataStream()
@@ -150,9 +150,7 @@ func TestApiWithDaemon(t *testing.T) {
 
 	if jf, ok := stream.files[jsonFile]; !ok {
 		t.Errorf("%s file entry is missing", jsonFile)
-	} else {
-		if jf.Description != msg.Description {
-			t.Errorf("Invalid backup description. Want %q, got %q", msg.Description, jf.Description)
-		}
+	} else if jf.Description != msg.Description {
+		t.Errorf("Invalid backup description. Want %q, got %q", msg.Description, jf.Description)
 	}
 }
