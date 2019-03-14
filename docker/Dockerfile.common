@@ -1,0 +1,10 @@
+FROM alpine
+
+RUN apk update && apk add ca-certificates && rm -rf /var/cache/apk/*
+
+COPY pbmctl pbm-agent pbm-coordinator /usr/local/bin/
+
+RUN adduser -h /data -S pbm
+USER pbm
+
+CMD ["pbm-coordinator"]
