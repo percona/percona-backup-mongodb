@@ -18,6 +18,7 @@ Usage: $0 [OPTIONS]
         --install_deps      Install build dependencies(root privilages are required)
         --branch            Branch for build
         --repo              Repo for build
+        --version           Version to build
         
         --help) usage ;;
 Example $0 --builddir=/tmp/percona-backup-mongodb --get_sources=1 --build_src_rpm=1 --build_rpm=1
@@ -49,6 +50,7 @@ parse_arguments() {
             --build_tarball=*) TARBALL="$val" ;;
             --branch=*) BRANCH="$val" ;;
             --repo=*) REPO="$val" ;;
+            --version=*) VERSION="$val" ;;
             --install_deps=*) INSTALL="$val" ;;
             --help) usage ;;      
             *)
@@ -59,6 +61,31 @@ parse_arguments() {
               ;;
         esac
     done
+}
+
+add_percona_yum_repo(){
+    if [ ! -f /etc/yum.repos.d/percona-dev.repo ]
+    then
+        if [ "x$RHEL" = "x8" ]; then
+            cat >/etc/yum.repos.d/percona-dev.repo <<EOL
+[percona-rhel8-AppStream]
+name=Percona internal YUM repository for RHEL8 AppStream
+baseurl=http://jenkins.percona.com/yum-repo/rhel8/AppStream
+gpgkey=https://jenkins.percona.com/yum-repo/rhel8/AppStream/RPM-GPG-KEY-redhat-beta
+gpgcheck=0
+enabled=1
+[percona-rhel8-BaseOS]
+name=Percona internal YUM repository for RHEL8 BaseOS
+baseurl=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/
+gpgkey=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/RPM-GPG-KEY-redhat-beta
+gpgcheck=0
+enabled=1
+EOL
+        else
+            curl -o /etc/yum.repos.d/ https://jenkins.percona.com/yum-repo/percona-dev.repo
+        fi
+    fi
+    return
 }
 
 check_workdir(){
@@ -87,6 +114,8 @@ get_sources(){
     echo "PRODUCT=${PRODUCT}" > percona-backup-mongodb.properties
     echo "BUILD_NUMBER=${BUILD_NUMBER}" >> percona-backup-mongodb.properties
     echo "BUILD_ID=${BUILD_ID}" >> percona-backup-mongodb.properties
+    echo "VERSION=${VERSION}" >> percona-backup-mongodb.properties
+    echo "BRANCH=${BRANCH}" >> percona-backup-mongodb.properties
     git clone "$REPO"
     retval=$?
     if [ $retval != 0 ]
@@ -154,11 +183,20 @@ install_deps() {
     CURPLACE=$(pwd)
 
     if [ "x$OS" = "xrpm" ]; then
+      add_percona_yum_repo
       yum -y install wget
       yum clean all
-      yum -y install epel-release
       RHEL=$(rpm --eval %rhel)
-      yum -y install rpmbuild rpm-build make rpmlint rpmdevtools upx golang
+      if [ "x${RHEL}" = "x8" ]; then
+          yum -y install rpm-build make rpmlint rpmdevtools golang
+	  wget https://rpmfind.net/linux/fedora/linux/releases/29/Everything/x86_64/os/Packages/u/ucl-1.03-25.fc29.x86_64.rpm
+	  yum -y install ucl-1.03-25.fc29.x86_64.rpm
+	  wget http://download-ib01.fedoraproject.org/pub/fedora/linux/releases/29/Everything/x86_64/os/Packages/u/upx-3.95-1.fc29.x86_64.rpm
+	  yum -y install upx-3.95-1.fc29.x86_64.rpm
+      else
+          yum -y install epel-release
+          yum -y install rpmbuild rpm-build make rpmlint rpmdevtools upx golang
+      fi
       install_golang
       if [ x"$RHEL" = x6 ]; then
           yum install -y http://ftp.tu-chemnitz.de/pub/linux/dag/redhat/el6/en/x86_64/rpmforge/RPMS/upx-3.07-1.el6.rf.x86_64.rpm
@@ -242,9 +280,9 @@ build_srpm(){
     #
     sed -e "s:@@VERSION@@:${VERSION}:g" \
         -e "s:@@RELEASE@@:${RELEASE}:g" \
-    packaging/rpm/percona-backup-mongodb.spec > rpmbuild/SPECS/percona-backup-mongodb.spec
+    packaging/rpm/mongodb-backup.spec > rpmbuild/SPECS/mongodb-backup.spec
     mv -fv ${TARFILE} ${WORKDIR}/rpmbuild/SOURCES
-    rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" rpmbuild/SPECS/percona-backup-mongodb.spec
+    rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "version ${VERSION}" --define "dist .generic" rpmbuild/SPECS/mongodb-backup.spec
     mkdir -p ${WORKDIR}/srpm
     mkdir -p ${CURDIR}/srpm
     cp rpmbuild/SRPMS/*.src.rpm ${CURDIR}/srpm
