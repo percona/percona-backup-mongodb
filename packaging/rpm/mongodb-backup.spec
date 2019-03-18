@@ -10,7 +10,7 @@ License: ASL 2.0
 URL:  https://github.com/percona/percona-backup-mongodb
 Source0: percona-backup-mongodb-%{version}.tar.gz
 
-BuildRequires: upx golang make 
+BuildRequires: golang make 
 
 %description
 MongoDB backup tool
