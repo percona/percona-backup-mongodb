@@ -189,22 +189,15 @@ install_deps() {
       RHEL=$(rpm --eval %rhel)
       if [ "x${RHEL}" = "x8" ]; then
           yum -y install rpm-build make rpmlint rpmdevtools golang
-	  wget https://rpmfind.net/linux/fedora/linux/releases/29/Everything/x86_64/os/Packages/u/ucl-1.03-25.fc29.x86_64.rpm
-	  yum -y install ucl-1.03-25.fc29.x86_64.rpm
-	  wget http://download-ib01.fedoraproject.org/pub/fedora/linux/releases/29/Everything/x86_64/os/Packages/u/upx-3.95-1.fc29.x86_64.rpm
-	  yum -y install upx-3.95-1.fc29.x86_64.rpm
       else
           yum -y install epel-release
-          yum -y install rpmbuild rpm-build make rpmlint rpmdevtools upx golang
+          yum -y install rpmbuild rpm-build make rpmlint rpmdevtools golang
       fi
       install_golang
-      if [ x"$RHEL" = x6 ]; then
-          yum install -y http://ftp.tu-chemnitz.de/pub/linux/dag/redhat/el6/en/x86_64/rpmforge/RPMS/upx-3.07-1.el6.rf.x86_64.rpm
-      fi 
     else
       export DEBIAN=$(lsb_release -sc)
       export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-      INSTALL_LIST="devscripts debhelper debconf pkg-config curl make golang upx"
+      INSTALL_LIST="devscripts debhelper debconf pkg-config curl make golang"
       until apt-get update; do
         sleep 1
         echo "waiting"
