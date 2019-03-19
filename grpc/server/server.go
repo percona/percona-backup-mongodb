@@ -39,9 +39,8 @@ type MessagesServer struct {
 	lock         *sync.Mutex
 	clients      map[string]*Client
 
-	clientsRefreshInterval time.Duration
-	lastOplogTs            int64 // Timestamp in Unix format
-	err                    error
+	lastOplogTs int64 // Timestamp in Unix format
+	err         error
 
 	workDir               string
 	clientLoggingEnabled  bool
@@ -110,38 +109,6 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		logger:  logger,
 	}
 	return messagesServer
-}
-
-func (s *MessagesServer) StartClientsRefreshScheduler(interval int) error {
-	if s == nil {
-		return fmt.Errorf("cannot start clients refresh scheduler. Invalid messages server (nil)")
-	}
-
-	if interval < 1 {
-		return fmt.Errorf("invalid client refresh interval")
-	}
-	s.clientsRefreshInterval = time.Duration(interval) * time.Second
-	go s.refreshClientsScheduler()
-
-	return nil
-}
-
-func (s *MessagesServer) refreshClientsScheduler() {
-	s.logger.Debugf("Starting clients background refresher with interval: %s", s.clientsRefreshInterval)
-	ticker := time.NewTicker(s.clientsRefreshInterval)
-	for {
-		select {
-		case <-s.stopChan:
-			s.logger.Debug("Stopping clients background refresher")
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			err := s.RefreshClients()
-			if err != nil {
-				s.logger.Errorf(err.Error())
-			}
-		}
-	}
 }
 
 func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, error) {
