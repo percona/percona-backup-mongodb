@@ -29,21 +29,25 @@ type backupStatus struct {
 	lastBackupMetadata    *BackupMetadata
 	lastBackupErrors      []error
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
-	backupRunning         bool
-	oplogBackupRunning    bool
-	restoreRunning        bool
 }
 
 type MessagesServer struct {
 	backupStatus backupStatus
+	stopChan     chan struct{}
 	lock         *sync.Mutex
 	clients      map[string]*Client
-
-	lastOplogTs int64 // Timestamp in Unix format
-	err         error
-
-	workDir               string
-	clientLoggingEnabled  bool
+	// Current backup status
+	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
+	lastOplogTs           int64           // Timestamp in Unix format
+	backupRunning         bool
+	oplogBackupRunning    bool
+	restoreRunning        bool
+	err                   error
+	//
+	workDir              string
+	clientLoggingEnabled bool
+	//lastBackupMetadata    *BackupMetadata
+	lastBackupErrors      []error
 	clientDisconnetedChan chan string
 
 	stopChan              chan struct{}
@@ -100,6 +104,7 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		dbBackupFinishChan:    bfc,
 		oplogBackupFinishChan: ofc,
 		restoreFinishChan:     rbf,
+		replicasRunningBackup: make(map[string]bool), // Key is ReplicasetUUID
 		backupStatus: backupStatus{
 			lastBackupErrors:      make([]error, 0),
 			replicasRunningBackup: make(map[string]bool),
@@ -404,6 +409,13 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 	}
 
 	for replName, source := range clients {
+		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
+			replName,
+			source.Client.ID,
+			source.Client.NodeName,
+			source.Client.NodeType,
+		)
+		s.replicasRunningBackup[replName] = true
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
 			replName,
 			source.Client.ID,

@@ -335,7 +335,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	if afterMaxS2.Number < int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS2.Number)
+		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"], afterMaxS2.Number)
 	}
 
 	// we can compare lastOplogDocRsx o.number document because initially we have 100 rows in the table
@@ -370,7 +370,6 @@ func TestBackupToS3(t *testing.T) {
 		t.Fatalf("Cannot get storage named s3-us-west")
 	}
 	bucket := stg.S3.Bucket
-	defer testutils.CleanTempDirAndBucket()
 
 	// Initialize a session in us-west-2 that the SDK will use to load
 	// credentials from the shared credentials file ~/.aws/credentials.
@@ -570,7 +569,6 @@ func TestClientDisconnect(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	clientsCount1 := len(d.MessagesServer.Clients())
@@ -599,7 +597,6 @@ func TestListStorages(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	storagesList, err := d.MessagesServer.ListStorages()
@@ -647,7 +644,6 @@ func TestValidateReplicasetAgents(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	if err := d.MessagesServer.ValidateReplicasetAgents(); err != nil {
@@ -686,7 +682,6 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	bs, err := d.MessagesServer.BackupSourceByReplicaset()
@@ -739,7 +734,6 @@ func TestRunBackupTwice(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	storageName := "local-filesystem"
@@ -809,7 +803,6 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 	d.StartAllAgents()
 
 	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
@@ -913,7 +906,6 @@ func TestConfigServerClusterID(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	defer testutils.CleanTempDirAndBucket()
 
 	portRsList := []testGrpc.PortRs{
 		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
