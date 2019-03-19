@@ -15,7 +15,7 @@ import (
 // Apiserver has unexported fields and all the methods for API calls
 type Server struct {
 	messagesServer *server.MessagesServer
-	logger         *logrus.Logger
+	workDir        string
 }
 
 // NewServer returns a new API Server
@@ -64,9 +64,7 @@ func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) e
 					Finished:          status.BackupCompleted,
 				},
 			}
-			if err := stream.Send(c); err != nil {
-				return err
-			}
+			stream.Send(c)
 		}
 	}
 	return nil
