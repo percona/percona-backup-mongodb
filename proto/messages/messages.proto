@@ -162,47 +162,6 @@ message StopOplogTail {
   int64 ts = 1;
 }
 
-message ServerMessage {
-  int32                 version                = 1;
-  oneof payload {
-    Ack                 ack_msg                = 2;
-    CancelBackup        cancel_backup_msg      = 3;
-    CanRestoreBackup    can_restore_backup_msg = 4;
-    Error               error_msg              = 5;
-    GetBackupSource     backup_source_msg      = 6;
-    GetStatus           get_status_msg         = 7;
-    ListReplicasets     list_replicasets       = 8;
-    GetLastOplogTs      last_oplog_ts          = 9;
-    Ping                ping_msg               = 10;
-    RestoreBackup       restore_backup_msg     = 11;
-    StartBackup         start_backup_msg       = 12;
-    StartBalancer       start_balancer_msg     = 13;
-    StopBalancer        stop_balancer_msg      = 14;
-    StopOplogTail       stop_oplog_tail_msg    = 15;
-    GetStorageInfo      get_storage_info_msg   = 16;
-    ListStorages        list_storages_msg      = 17;
-  }
-}
-
-message ClientMessage {
-  int32                      version                = 1;
-  string                     client_id              = 2;
-  oneof payload {
-    Ack                      ack_msg                = 3;
-    BackupSource             backup_source_msg      = 4;
-    DBBackupFinishStatus     backup_finished_msg    = 5;
-    Error                    error_msg              = 6;
-    OplogBackupFinishStatus  oplog_finished_msg     = 7; 
-    LastOplogTs              last_oplog_ts          = 8;
-    Pong                     pong_msg               = 9;
-    Register                 register_msg           = 10;
-    Replicasets              replicasets_msg        = 11;
-    Status                   status_msg             = 12;
-    CanRestoreBackupResponse can_restore_backup_msg = 13;
-    StorageInfo              storage_info           = 14;
-    StoragesInfo             storages_info          = 15;
-  }
-}
 
 message BackupSource {
   string source_client = 1;
@@ -296,4 +255,58 @@ message StorageInfo {
 
 message StoragesInfo {
   repeated StorageInfo storages_info = 1;
+}
+
+message StoreFile {
+  string storage_name = 1;
+  string filename     = 2;
+  bytes  data         = 3;
+}
+
+message FileStored {
+  string error = 1;
+}
+
+message ServerMessage {
+  int32                 version                = 1;
+  oneof payload {
+    Ack                 ack_msg                = 2;
+    CancelBackup        cancel_backup_msg      = 3;
+    CanRestoreBackup    can_restore_backup_msg = 4;
+    Error               error_msg              = 5;
+    GetBackupSource     backup_source_msg      = 6;
+    GetStatus           get_status_msg         = 7;
+    ListReplicasets     list_replicasets       = 8;
+    GetLastOplogTs      last_oplog_ts          = 9;
+    Ping                ping_msg               = 10;
+    RestoreBackup       restore_backup_msg     = 11;
+    StartBackup         start_backup_msg       = 12;
+    StartBalancer       start_balancer_msg     = 13;
+    StopBalancer        stop_balancer_msg      = 14;
+    StopOplogTail       stop_oplog_tail_msg    = 15;
+    GetStorageInfo      get_storage_info_msg   = 16;
+    ListStorages        list_storages_msg      = 17;
+    StoreFile           store_file             = 18;
+  }
+}
+
+message ClientMessage {
+  int32                      version                = 1;
+  string                     client_id              = 2;
+  oneof payload {
+    Ack                      ack_msg                = 3;
+    BackupSource             backup_source_msg      = 4;
+    DBBackupFinishStatus     backup_finished_msg    = 5;
+    Error                    error_msg              = 6;
+    OplogBackupFinishStatus  oplog_finished_msg     = 7; 
+    LastOplogTs              last_oplog_ts          = 8;
+    Pong                     pong_msg               = 9;
+    Register                 register_msg           = 10;
+    Replicasets              replicasets_msg        = 11;
+    Status                   status_msg             = 12;
+    CanRestoreBackupResponse can_restore_backup_msg = 13;
+    StorageInfo              storage_info           = 14;
+    StoragesInfo             storages_info          = 15;
+    FileStored               file_stored            = 16;
+  }
 }
