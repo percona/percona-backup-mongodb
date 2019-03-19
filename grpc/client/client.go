@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
@@ -743,6 +744,9 @@ func (c *Client) processLastOplogTs() error {
 func (c *Client) processListReplicasets() error {
 	var sm shardsMap
 	err := c.mdbSession.Run("getShardMap", &sm)
+	fmt.Printf("%v 8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888\n", c.id)
+	fmt.Printf("err: %v\n", err)
+	fmt.Println("8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888")
 	if err != nil {
 		c.logger.Errorf("Cannot getShardMap: %s", err)
 		msg := &pb.ClientMessage{
@@ -770,6 +774,7 @@ func (c *Client) processListReplicasets() error {
 	        "ok" : 1
 	}
 	*/
+	pretty.Println(sm)
 	for key := range sm.Map {
 		m := strings.Split(key, "/")
 		if len(m) < 2 {
@@ -782,6 +787,8 @@ func (c *Client) processListReplicasets() error {
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_ReplicasetsMsg{ReplicasetsMsg: &pb.Replicasets{Replicasets: replicasets}},
 	}
+	fmt.Printf("Replicasets: ----------------------------------------")
+	pretty.Println(replicasets)
 	if err := c.streamSend(msg); err != nil {
 		log.Errorf("cannot send processListReplicasets message to the server: %v", err)
 	}

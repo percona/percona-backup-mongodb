@@ -315,6 +315,7 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 
 	_, err := apiClient.RunBackup(ctx, msg)
 	if err != nil {
+		log.Print(err.Error())
 		return err
 	}
 

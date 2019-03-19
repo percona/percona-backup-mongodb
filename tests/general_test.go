@@ -1066,9 +1066,73 @@ func waitForFiles(svc *s3.S3, bucket, prefix string) error {
 		time.Sleep(1 * time.Second)
 		count++
 		if count > 5 {
-			return fmt.Errorf("Waited 5 seconds and bucket %s still doesn't have all the files (have %d files, want 6)", bucket, len(results.Contents))
+			return fmt.Errorf("waited 5 seconds and bucket %s still doesn't have all the files (have %d files, want 6)",
+				bucket,
+				len(results.Contents),
+			)
 		}
 	}
 
 	return nil
+}
+
+func TestInvalidStorage(t *testing.T) {
+	stgs := testutils.TestingStorages()
+
+	fsStorage, err := stgs.Get("local-filesystem")
+	if err != nil {
+		t.Fatalf("Cannot get local-filesystem storage")
+	}
+	tmpDir := fsStorage.Filesystem.Path
+
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	err = os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+	if !keepTestingData {
+		defer testutils.CleanTempDirAndBucket()
+		diag("Skipping deletion of temporary files/buckets")
+	}
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start the agents: %s", err)
+	}
+
+	clients := d.MessagesServer.Clients()
+	for rs, client := range clients {
+		fmt.Printf("rs: %s, client: %s\n", rs, client.ID)
+	}
+
+	err = d.MessagesServer.StartBackup(&pb.StartBackup{
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      "test",
+		Description:     "general_test_backup",
+		StorageName:     "invalid-storage",
+	})
+	if err != nil {
+		t.Fatalf("Cannot start backup: %s", err)
+	}
+	d.MessagesServer.WaitBackupFinish()
+	err = d.MessagesServer.StopOplogTail()
+	if err != nil {
+		t.Fatalf("Cannot stop the oplog tailer: %s", err)
+	}
+	d.MessagesServer.WaitOplogBackupFinish()
+	errs := d.MessagesServer.LastBackupErrors()
+	if len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Println(err)
+		}
+	}
+
 }

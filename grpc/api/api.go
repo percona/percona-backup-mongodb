@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -147,6 +148,8 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	if err := a.messagesServer.StartBalancer(); err != nil {
 		return &pbapi.Error{Message: err.Error()}, err
 	}
+	errs := a.messagesServer.LastBackupErrors()
+	pretty.Println(errs)
 	return &pbapi.Error{}, nil
 }
 
@@ -189,5 +192,19 @@ func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_L
 			return errors.Wrap(err, "cannot stream storage info msg for ListStorages")
 		}
 	}
+	return nil
+}
+
+func (a *Server) LastBackupErrors(args *pbapi.LastBackupErrorsParams, stream pbapi.Api_LastBackupErrorsServer) error {
+	errs := a.messagesServer.LastBackupErrors()
+	for _, err := range errs {
+		msg := &pbapi.LastBackupError{
+			Error: err.Error(),
+		}
+		if err := stream.Send(msg); err != nil {
+			return errors.Wrap(err, "cannot stream last backup errors")
+		}
+	}
+
 	return nil
 }

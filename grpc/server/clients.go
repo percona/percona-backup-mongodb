@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kr/pretty"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -114,6 +115,8 @@ func (c *Client) GetBackupSource() (string, error) {
 	if errMsg := msg.GetErrorMsg(); errMsg != nil {
 		return "", fmt.Errorf("Cannot get backup source for client %s: %s", c.NodeName, errMsg)
 	}
+	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+	pretty.Println(msg.GetBackupSourceMsg())
 	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
@@ -215,7 +218,7 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
-		return 0, fmt.Errorf("Cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
+		return 0, fmt.Errorf("cannot get LastOplogTs from node %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_LastOplogTs:
 		return response.GetLastOplogTs().LastOplogTs, nil
 	}
@@ -229,19 +232,29 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 // and we will use that list to validate we have agents connected to all replicasets, otherwise,
 // a backup would be incomplete.
 func (c *Client) listReplicasets() ([]string, error) {
-	err := c.streamSend(&pb.ServerMessage{Payload: &pb.ServerMessage_ListReplicasets{ListReplicasets: &pb.ListReplicasets{}}})
+	msg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_ListReplicasets{
+			ListReplicasets: &pb.ListReplicasets{},
+		},
+	}
+
+	err := c.streamSend(msg)
+	fmt.Printf("/// Err: %v\n", err)
 	if err != nil {
 		return nil, err
 	}
 
 	response, err := c.streamRecv()
+	fmt.Printf("/// Err 2: %v\n", err)
 	if err != nil {
 		return nil, err
 	}
+	time.Sleep(2 * time.Second)
 
+	pretty.Println(response)
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
-		return nil, fmt.Errorf("Cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
+		return nil, fmt.Errorf("cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_ReplicasetsMsg:
 		shards := response.GetReplicasetsMsg()
 		return shards.Replicasets, nil
@@ -312,6 +325,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 }
 
 func (c *Client) setDBBackupRunning(status bool) {
+	fmt.Printf("client %v, set running : %v\n", c.ID, status)
 	c.statusLock.Lock()
 	c.status.RunningDbBackup = status
 	c.statusLock.Unlock()
