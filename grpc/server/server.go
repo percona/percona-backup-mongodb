@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -18,9 +19,9 @@ import (
 )
 
 const (
-	EVENT_BACKUP_FINISH = iota
-	EVENT_OPLOG_FINISH
-	EVENT_RESTORE_FINISH
+	EventBackupFinish = iota
+	EventOplogFinish
+	EventRestoreFinish
 	logBufferSize = 500
 )
 
@@ -48,9 +49,9 @@ type MessagesServer struct {
 	restoreRunning         bool
 	err                    error
 	//
-	workDir               string
-	clientLoggingEnabled  bool
-	lastBackupMetadata    *BackupMetadata
+	workDir              string
+	clientLoggingEnabled bool
+	//lastBackupMetadata    *BackupMetadata
 	lastBackupErrors      []error
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
@@ -66,7 +67,7 @@ type StorageEntry struct {
 	StorageInfo   *pb.StorageInfo
 }
 
-type restoreSource struct {
+type RestoreSource struct {
 	Client *Client
 	Host   string
 	Port   string
@@ -90,32 +91,31 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		logger.Out = logrus.StandardLogger().Out
 	}
 
-	bfc := notify.Start(EVENT_BACKUP_FINISH)
-	ofc := notify.Start(EVENT_OPLOG_FINISH)
-	rbf := notify.Start(EVENT_RESTORE_FINISH)
+	bfc := notify.Start(EventBackupFinish)
+	ofc := notify.Start(EventOplogFinish)
+	rbf := notify.Start(EventRestoreFinish)
 	if workDir == "" {
 		workDir = "."
 	}
 
 	messagesServer := &MessagesServer{
-		lock:                   &sync.Mutex{},
-		clients:                make(map[string]*Client),
-		clientDisconnetedChan:  make(chan string),
-		clientsRefreshInterval: time.Duration(clientsRefreshSecs) * time.Second,
-		stopChan:               make(chan struct{}),
-		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:     bfc,
-		oplogBackupFinishChan:  ofc,
-		restoreFinishChan:      rbf,
-		replicasRunningBackup:  make(map[string]bool), // Key is ReplicasetUUID
-		lock:                   &sync.Mutex{},
-		clients:                make(map[string]*Client),
-		clientDisconnetedChan:  make(chan string),
-		stopChan:               make(chan struct{}),
-		clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:     bfc,
-		oplogBackupFinishChan:  ofc,
-		restoreFinishChan:      rbf,
+		lock:                  &sync.Mutex{},
+		clients:               make(map[string]*Client),
+		clientDisconnetedChan: make(chan string),
+		stopChan:              make(chan struct{}),
+		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
+		dbBackupFinishChan:    bfc,
+		oplogBackupFinishChan: ofc,
+		restoreFinishChan:     rbf,
+		replicasRunningBackup: make(map[string]bool), // Key is ReplicasetUUID
+		//lock:                   &sync.Mutex{},
+		//clients:                make(map[string]*Client),
+		//clientDisconnetedChan:  make(chan string),
+		//stopChan:               make(chan struct{}),
+		//clientsLogChan:         make(chan *pb.LogEntry, logBufferSize),
+		//dbBackupFinishChan:     bfc,
+		//oplogBackupFinishChan:  ofc,
+		//restoreFinishChan:      rbf,
 		backupStatus: backupStatus{
 			lastBackupErrors:      make([]error, 0),
 			replicasRunningBackup: make(map[string]bool),
@@ -178,10 +178,11 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 	return sources, nil
 }
 
-func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, storageName string) (map[string]restoreSource, error) {
+func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, storageName string) (
+	map[string]RestoreSource, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	sources := make(map[string]restoreSource)
+	sources := make(map[string]RestoreSource)
 	for replicasetName, replicasetMetaData := range bm.Replicasets {
 		for _, client := range s.clients {
 			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
@@ -196,7 +197,7 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 			}
 			_, ok := sources[resp.Replicaset]
 			if !ok {
-				sources[resp.Replicaset] = restoreSource{
+				sources[resp.Replicaset] = RestoreSource{
 					Client: s.getClientByID(resp.ClientId),
 				}
 			}
@@ -348,7 +349,7 @@ func (s *MessagesServer) LastBackupErrors() []error {
 }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
-	return s.lastBackupMetadata
+	return s.backupStatus.lastBackupMetadata
 }
 
 func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
@@ -451,7 +452,12 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 	}
 
 	for replName, source := range clients {
-		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s", replName, source.Client.ID, source.Client.NodeName, source.Client.NodeType)
+		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
+			replName,
+			source.Client.ID,
+			source.Client.NodeName,
+			source.Client.NodeType,
+		)
 		s.replicasRunningBackup[replName] = true
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
 			replName,
@@ -500,7 +506,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	ext := getFileExtension(opts.CompressionType, opts.Cypher)
 
-	s.lastBackupMetadata = NewBackupMetadata(opts)
+	//s.lastBackupMetadata = NewBackupMetadata(opts)
+	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
 	if err := s.RefreshClients(); err != nil {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
@@ -515,8 +522,14 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.setBackupRunning(true)
 	s.setOplogBackupRunning(true)
 
+	pretty.Println(s.backupStatus.lastBackupMetadata)
 	for replName, client := range clients {
-		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s", replName, client.ID, client.NodeName, client.NodeType)
+		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
+			replName,
+			client.ID,
+			client.NodeName,
+			client.NodeType,
+		)
 		s.replicasRunningBackup[replName] = true
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
 			replName,
@@ -532,7 +545,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		dbBackupName := fmt.Sprintf("%s_%s.dump%s", opts.NamePrefix, client.ReplicasetName, ext)
 		oplogBackupName := fmt.Sprintf("%s_%s.oplog%s", opts.NamePrefix, client.ReplicasetName, ext)
 
-		s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
+		//s.lastBackupMetadata.AddReplicaset(client.ClusterID, client.ReplicasetName, client.ReplicasetUUID, dbBackupName, oplogBackupName)
 		err := s.backupStatus.lastBackupMetadata.AddReplicaset(client.ClusterID,
 			client.ReplicasetName,
 			client.ReplicasetUUID,
@@ -655,7 +668,7 @@ func (s *MessagesServer) WaitRestoreFinish() {
 }
 
 func (s *MessagesServer) WriteBackupMetadata(filename string) error {
-	return s.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
+	return s.backupStatus.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
 }
 
 // WorkDir returns the server working directory.
@@ -687,7 +700,7 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	replicasets := s.ReplicasetsRunningDBBackup()
 
 	if len(replicasets) == 0 {
-		notify.Post(EVENT_BACKUP_FINISH, time.Now())
+		notify.Post(EventBackupFinish, time.Now())
 	}
 
 	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
@@ -797,7 +810,7 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
-		notify.Post(EVENT_OPLOG_FINISH, time.Now())
+		notify.Post(EventOplogFinish, time.Now())
 	}
 	return &pb.OplogBackupFinishedAck{}, nil
 }
@@ -819,7 +832,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
-		notify.Post(EVENT_RESTORE_FINISH, time.Now())
+		notify.Post(EventRestoreFinish, time.Now())
 	}
 	return &pb.RestoreCompletedAck{}, nil
 }
