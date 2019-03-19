@@ -29,31 +29,24 @@ type backupStatus struct {
 	lastBackupMetadata    *BackupMetadata
 	lastBackupErrors      []error
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
+	dbBackupRunning       bool
+	oplogBackupRunning    bool
+	restoreRunning        bool
 }
 
 type MessagesServer struct {
-	backupStatus backupStatus
-	stopChan     chan struct{}
-	lock         *sync.Mutex
-	clients      map[string]*Client
-	// Current backup status
+	backupStatus          backupStatus
+	lock                  *sync.Mutex
+	clients               map[string]*Client
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
 	lastOplogTs           int64           // Timestamp in Unix format
-	backupRunning         bool
-	oplogBackupRunning    bool
-	restoreRunning        bool
 	err                   error
-	//
-	workDir              string
-	clientLoggingEnabled bool
-	//lastBackupMetadata    *BackupMetadata
-	lastBackupErrors      []error
-	clientDisconnetedChan chan string
+	workDir               string
 
-	stopChan              chan struct{}
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
+	stopChan              chan struct{}
 	clientsLogChan        chan *pb.LogEntry
 	logger                *logrus.Logger
 }
@@ -77,7 +70,6 @@ func NewMessagesServer(workDir string) *MessagesServer {
 
 func NewMessagesServerWithClientLogging(workDir string, logger *logrus.Logger) *MessagesServer {
 	messagesServer := newMessagesServer(workDir, logger)
-	messagesServer.clientLoggingEnabled = true
 	return messagesServer
 }
 
@@ -98,7 +90,6 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 	messagesServer := &MessagesServer{
 		lock:                  &sync.Mutex{},
 		clients:               make(map[string]*Client),
-		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
 		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
 		dbBackupFinishChan:    bfc,
@@ -807,20 +798,20 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 //                                                        Internal helpers
 // ---------------------------------------------------------------------------------------------------------------------
 
-func (s *MessagesServer) cancelBackup() error {
-	if !s.isOplogBackupRunning() {
-		return fmt.Errorf("Backup is not running")
-	}
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	var gerr error
-	for _, client := range s.clients {
-		if err := client.stopBackup(); err != nil {
-			gerr = errors.Wrapf(err, "cannot stop backup on %s", client.ID)
-		}
-	}
-	return gerr
-}
+// func (s *MessagesServer) cancelBackup() error {
+// 	if !s.isOplogBackupRunning() {
+// 		return fmt.Errorf("Backup is not running")
+// 	}
+// 	s.lock.Lock()
+// 	defer s.lock.Unlock()
+// 	var gerr error
+// 	for _, client := range s.clients {
+// 		if err := client.stopBackup(); err != nil {
+// 			gerr = errors.Wrapf(err, "cannot stop backup on %s", client.ID)
+// 		}
+// 	}
+// 	return gerr
+// }
 
 func (s *MessagesServer) getClientByID(id string) *Client {
 	for _, client := range s.clients {
@@ -947,7 +938,7 @@ func getFileExtension(compressionType pb.CompressionType, cypher pb.Cypher) stri
 func (s *MessagesServer) isBackupRunning() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.backupStatus.backupRunning
+	return s.backupStatus.dbBackupRunning
 }
 
 func (s *MessagesServer) isOplogBackupRunning() bool {
@@ -992,7 +983,7 @@ func (s *MessagesServer) reset() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.lastOplogTs = 0
-	s.backupStatus.backupRunning = false
+	s.backupStatus.dbBackupRunning = false
 	s.backupStatus.oplogBackupRunning = false
 	s.backupStatus.restoreRunning = false
 	s.err = nil
@@ -1002,7 +993,7 @@ func (s *MessagesServer) reset() {
 func (s *MessagesServer) setBackupRunning(status bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.backupStatus.backupRunning = status
+	s.backupStatus.dbBackupRunning = status
 }
 
 func (s *MessagesServer) setOplogBackupRunning(status bool) {
