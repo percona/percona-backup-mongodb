@@ -24,7 +24,18 @@ const (
 	logBufferSize = 500
 )
 
+type backupStatus struct {
+	lastBackupMetadata    *BackupMetadata
+	lastBackupErrors      []error
+	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
+	backupRunning         bool
+	oplogBackupRunning    bool
+	restoreRunning        bool
+}
+
 type MessagesServer struct {
+	backupStatus backupStatus
+
 	stopChan chan struct{}
 	lock     *sync.Mutex
 	clients  map[string]*Client
@@ -96,6 +107,7 @@ func newMessagesServer(workDir string, clientsRefreshSecs int, logger *logrus.Lo
 		dbBackupFinishChan:     bfc,
 		oplogBackupFinishChan:  ofc,
 		restoreFinishChan:      rbf,
+		replicasRunningBackup:  make(map[string]bool), // Key is ReplicasetUUID
 		backupStatus: backupStatus{
 			lastBackupErrors:      make([]error, 0),
 			replicasRunningBackup: make(map[string]bool),
