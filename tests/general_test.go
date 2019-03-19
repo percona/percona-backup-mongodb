@@ -298,7 +298,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	if afterMaxS2.Number < int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS2.Number)
+		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"], afterMaxS2.Number)
 	}
 
 	// we can compare lastOplogDocRsx o.number document because initially we have 100 rows in the table
