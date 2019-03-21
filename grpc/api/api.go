@@ -64,9 +64,7 @@ func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) e
 					Finished:          status.BackupCompleted,
 				},
 			}
-			if err := stream.Send(c); err != nil {
-				return err
-			}
+			stream.Send(c)
 		}
 	}
 	return nil

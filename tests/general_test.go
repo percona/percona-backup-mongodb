@@ -29,40 +29,28 @@ import (
 )
 
 var (
-	port, apiPort             string
-	grpcServerShutdownTimeout = 30
-	keepTestingData           bool
-	storages                  *storage.Storages
+	keepS3Data     bool
+	keepLocalFiles bool
+	storages       *storage.Storages
 )
 
 const (
-	dbName  = "test"
-	colName = "test_col"
+	dbName                    = "test"
+	colName                   = "test_col"
+	localFileSystemStorage    = "local-filesystem"
+	grpcServerShutdownTimeout = 30
 )
-
-type cliOptions struct {
-	clientID   *string
-	tls        *bool
-	caFile     *string
-	serverAddr *string
-}
 
 func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
 	log.SetFormatter(&log.TextFormatter{})
 
-	flag.BoolVar(&keepTestingData, "keep-testing-data", false, "Do not delete S3 testing bucket and file")
+	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
+	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
 	flag.Parse()
 
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
-	}
-
-	if port = os.Getenv("GRPC_PORT"); port == "" {
-		port = "10000"
-	}
-	if apiPort = os.Getenv("GRPC_API_PORT"); apiPort == "" {
-		apiPort = "10001"
 	}
 
 	os.Exit(m.Run())
@@ -70,16 +58,10 @@ func TestMain(m *testing.M) {
 
 func TestGlobalWithDaemon(t *testing.T) {
 	ndocs := 1000
-	stgs := testutils.TestingStorages()
-
-	fsStorage, err := stgs.Get("local-filesystem")
-	if err != nil {
-		t.Fatalf("Cannot get local-filesystem storage")
-	}
-	tmpDir := fsStorage.Filesystem.Path
-
-	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
-	err = os.MkdirAll(tmpDir, os.ModePerm)
+	tmpDir := path.Join(os.TempDir(), "dump_test")
+	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
+	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
 	}
@@ -90,11 +72,9 @@ func TestGlobalWithDaemon(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	if !keepTestingData {
-		defer testutils.CleanTempDirAndBucket()
-		diag("Skipping deletion of temporary files/buckets")
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
 	}
-	d.StartAllAgents()
 
 	log.Debug("Getting list of connected clients")
 	clientsList := d.MessagesServer.Clients()
@@ -184,7 +164,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	s1Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s1Session, ndocs)
-	go generateOplogTraffic(t, s1Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan)
 
 	// Also generate random data on shard 2
 	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
@@ -193,7 +173,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 	s2Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s2Session, ndocs)
-	go generateOplogTraffic(t, s2Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan)
 
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
@@ -276,35 +256,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 		}
 	}
 
-	ts := time.Unix(d.MessagesServer.LastBackupMetadata().Metadata().StartTs, 0).UTC()
-	date := ts.Format(time.RFC3339)
-
-	wantFiles := []string{}
-	wantRs := []string{"csReplSet", "rs1", "rs2"}
-	for _, rs := range wantRs {
-		wantFiles = append(wantFiles, fmt.Sprintf("%s_%s.dump", date, rs))
-		wantFiles = append(wantFiles, fmt.Sprintf("%s_%s.oplog", date, rs))
-	}
-	wantFiles = append(wantFiles, fmt.Sprintf("%s.json", date))
-	wantFiles = append(wantFiles, fmt.Sprintf("%s.mdf", date))
-
-	files, err := ioutil.ReadDir(tmpDir)
-	if err != nil {
-		t.Fatalf("Cannot read backup dir: %s", err)
-	}
-
-	haveFiles := []string{}
-	for _, file := range files {
-		haveFiles = append(haveFiles, file.Name())
-
-	}
-	sort.Strings(wantFiles)
-	sort.Strings(haveFiles)
-
-	if !reflect.DeepEqual(haveFiles, wantFiles) {
-		t.Errorf("Couldn't find all backup files in %s. Want %v, got %v", tmpDir, wantFiles, haveFiles)
-	}
-
 	cleanupDBForRestore(t, s1Session)
 	cleanupDBForRestore(t, s2Session)
 
@@ -331,11 +282,17 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 
 	if afterMaxS1.Number < int64(rs1LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d", rs1LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS1.Number)
+		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d",
+			rs1LastOplogDoc["o"].(bson.M)["number"].(int64),
+			afterMaxS1.Number,
+		)
 	}
 
 	if afterMaxS2.Number < int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"], afterMaxS2.Number)
+		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d",
+			rs2LastOplogDoc["o"].(bson.M)["number"],
+			afterMaxS2.Number,
+		)
 	}
 
 	// we can compare lastOplogDocRsx o.number document because initially we have 100 rows in the table
@@ -408,7 +365,7 @@ func TestBackupToS3(t *testing.T) {
 	}
 	s1Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s1Session, ndocs)
-	go generateOplogTraffic(t, s1Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan)
 
 	// Also generate random data on shard 2
 	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
@@ -417,7 +374,7 @@ func TestBackupToS3(t *testing.T) {
 	}
 	s2Session.SetMode(mgo.Strong, true)
 	generateDataToBackup(t, s2Session, ndocs)
-	go generateOplogTraffic(t, s2Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan)
 
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
@@ -533,11 +490,17 @@ func TestBackupToS3(t *testing.T) {
 	fmt.Printf("after max s2: %+v\n", afterMaxS2)
 
 	if afterMaxS1.Number < int64(rs1LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d", rs1LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS1.Number)
+		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d",
+			rs1LastOplogDoc["o"].(bson.M)["number"].(int64),
+			afterMaxS1.Number,
+		)
 	}
 
 	if afterMaxS2.Number < int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int)) {
-		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d", rs2LastOplogDoc["o"].(bson.M)["number"].(int64), afterMaxS2.Number)
+		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d",
+			rs2LastOplogDoc["o"].(bson.M)["number"].(int64),
+			afterMaxS2.Number,
+		)
 	}
 
 	// we can compare lastOplogDocRsx o.number document because initially we have 100 rows in the table
@@ -545,7 +508,13 @@ func TestBackupToS3(t *testing.T) {
 	rs1BeforeCount := int64(rs1LastOplogDoc["o"].(bson.M)["number"].(int))
 	rs2BeforeCount := int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int))
 	rs1AfterCount, err := s1Session.DB(dbName).C(colName).Find(nil).Count()
+	if err != nil {
+		t.Errorf("Cannot get the # of docs for rs1 before the restore: %s", err)
+	}
 	rs2AfterCount, err := s2Session.DB(dbName).C(colName).Find(nil).Count()
+	if err != nil {
+		t.Errorf("Cannot get the # of docs for rs2 before the restore: %s", err)
+	}
 
 	if int64(rs1AfterCount) < rs1BeforeCount {
 		t.Errorf("Invalid documents count in rs1. Want %d, got %d", rs1BeforeCount, rs1AfterCount)
@@ -554,6 +523,20 @@ func TestBackupToS3(t *testing.T) {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
 	}
 
+	// Clean up after testing
+	if !keepS3Data {
+		diag("Deleting bucket %q", bucket)
+		if err = awsutils.EmptyBucket(svc, bucket); err != nil {
+			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
+		}
+
+		diag("Deleting bucket %q", bucket)
+		if err = testutils.DeleteBucket(svc, bucket); err != nil {
+			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
+		}
+	} else {
+		diag("Skipping deletion of %q bucket", bucket)
+	}
 }
 
 func TestClientDisconnect(t *testing.T) {
@@ -585,11 +568,9 @@ func TestClientDisconnect(t *testing.T) {
 }
 
 func TestListStorages(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pbm_")
-	if err != nil {
-		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
-	}
-	defer os.RemoveAll(tmpDir) // Clean up
+	tmpDir := getTempDir(t)
+	defer cleanupTempDir(t)
+
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
@@ -597,14 +578,16 @@ func TestListStorages(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
-	d.StartAllAgents()
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
+	}
 
 	storagesList, err := d.MessagesServer.ListStorages()
 	if err != nil {
 		t.Errorf("Cannot list storages: %s", err)
 	}
-	if len(storagesList) != 2 {
-		t.Errorf("Invalid number of storages. Want 2, got %d", len(storagesList))
+	if len(storagesList) != len(testutils.TestingStorages().Storages) {
+		t.Errorf("Invalid number of storages. Want %d, got %d", len(testutils.TestingStorages().Storages), len(storagesList))
 	}
 
 	localhost := "127.0.0.1"
@@ -625,10 +608,13 @@ func TestListStorages(t *testing.T) {
 	}
 	for name, stg := range storagesList {
 		if !reflect.DeepEqual(stg.MatchClients, wantMatchingClients) {
-			t.Errorf("Invalid list of matching clients for storage %s.\nWant: %v\nGot : %v", name, wantMatchingClients, stg.MatchClients)
+			t.Errorf("Invalid list of matching clients for storage %s.\nWant: %v\nGot : %v",
+				name,
+				wantMatchingClients,
+				stg.MatchClients,
+			)
 		}
 	}
-
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {
@@ -750,7 +736,7 @@ func runBackup(t *testing.T, d *testGrpc.Daemon, storageName string, ndocs int) 
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
 	generateDataToBackup(t, s1Session, ndocs)
-	go generateOplogTraffic(t, s1Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan)
 
 	// Also generate random data on shard 2
 	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
@@ -758,7 +744,7 @@ func runBackup(t *testing.T, d *testGrpc.Daemon, storageName string, ndocs int) 
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
 	generateDataToBackup(t, s2Session, ndocs)
-	go generateOplogTraffic(t, s2Session, ndocs, oplogGeneratorStopChan)
+	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan)
 
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
@@ -1011,7 +997,7 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, ndocs int) {
 
 // ndocs is the number of documents created for the pre-loaded data.
 // we must start counting from ndocs+1 to avoid duplicated numbers
-func generateOplogTraffic(t *testing.T, session *mgo.Session, ndocs int, stop chan bool) {
+func generateOplogTraffic(session *mgo.Session, ndocs int, stop chan bool) {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	for {
 		ndocs++
@@ -1022,13 +1008,13 @@ func generateOplogTraffic(t *testing.T, session *mgo.Session, ndocs int, stop ch
 		case <-ticker.C:
 			err := session.DB(dbName).C(colName).Insert(bson.M{"number": ndocs})
 			if err != nil {
-				t.Fatalf("insert to test.test failed: %v", err.Error())
+				panic(fmt.Errorf("insert to test.test failed: %v", err.Error()))
 			}
 		}
 	}
 }
 
-func waitForFiles(svc *s3.S3, bucket, prefix string) error {
+func waitForFiles(svc *s3.S3, bucket string) error {
 	count := 0
 	for {
 		exists, err := awsutils.BucketExists(svc, bucket)
@@ -1058,9 +1044,40 @@ func waitForFiles(svc *s3.S3, bucket, prefix string) error {
 		time.Sleep(1 * time.Second)
 		count++
 		if count > 5 {
-			return fmt.Errorf("Waited 5 seconds and bucket %s still doesn't have all the files (have %d files, want 6)", bucket, len(results.Contents))
+			return fmt.Errorf("Waited 5 seconds and bucket %s still doesn't have all the files (have %d files, want 6)",
+				bucket,
+				len(results.Contents),
+			)
 		}
 	}
 
 	return nil
+}
+
+func getTempDir(t *testing.T) string {
+	stgs := testutils.TestingStorages()
+	stg, err := stgs.Get(localFileSystemStorage)
+	if err != nil {
+		t.Fatalf("Cannot get local filesystem storage: %s", err)
+	}
+	if _, err := os.Stat(stg.Filesystem.Path); !os.IsNotExist(err) {
+		if err := os.RemoveAll(stg.Filesystem.Path); err != nil {
+			t.Fatalf("Cannot clean the temporary before starting the test: %s", err)
+		}
+	}
+	if err := os.MkdirAll(stg.Filesystem.Path, os.ModePerm); err != nil {
+		t.Fatalf("Cannot create temporary directory: %s", err)
+	}
+	return stg.Filesystem.Path
+}
+
+func cleanupTempDir(t *testing.T) {
+	stgs := testutils.TestingStorages()
+	stg, err := stgs.Get(localFileSystemStorage)
+	if err != nil {
+		t.Fatalf("Cannot get local filesystem storage: %s", err)
+	}
+	if err := os.RemoveAll(stg.Filesystem.Path); err != nil {
+		t.Fatalf("Cannot remove temporary directory: %s", err)
+	}
 }
