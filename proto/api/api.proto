@@ -10,11 +10,12 @@ package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
-  rpc RunBackup(RunBackupParams) returns (Error) {}
+  rpc RunBackup(RunBackupParams) returns (stream LastBackupError) {}
   rpc RunRestore(RunRestoreParams) returns (RunRestoreResponse) {}
   rpc LastBackupMetadata(LastBackupMetadataParams) returns (messages.BackupMetadata) {}
   rpc BackupsMetadata(BackupsMetadataParams) returns (stream MetadataFile) {}
   rpc ListStorages(ListStoragesParams) returns (stream StorageInfo) {}
+  rpc LastBackupErrors(LastBackupErrorsParams) returns (stream LastBackupError) {}
 }
 
 enum BackupType {
@@ -44,6 +45,7 @@ message Empty {}
 message BackupsMetadataParams {}
 message LastBackupMetadataParams {}
 message ListStoragesParams {}
+message LastBackupErrorsParams {}
 
 message Error {
     string message = 1;
@@ -117,6 +119,10 @@ message BackupReplica {
   string replicaset_name  = 5;
   string replicaset_id    = 6;
   int64  started_at       = 7;
+}
+
+message LastBackupError {
+  string error = 1;
 }
 
 message StorageInfo {

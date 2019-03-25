@@ -31,6 +31,7 @@ func NewServer(server *server.MessagesServer) *Server {
 	return s
 }
 
+// GetClients streams back the list of connected clients
 func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
 	if err := a.messagesServer.RefreshClients(); err != nil {
 		return errors.Wrap(err, "cannot refresh clients list")
@@ -64,12 +65,15 @@ func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) e
 					Finished:          status.BackupCompleted,
 				},
 			}
-			stream.Send(c)
+			if err := stream.Send(c); err != nil {
+				return errors.Wrap(err, "cannot stream GetClients results")
+			}
 		}
 	}
 	return nil
 }
 
+// BackupMetadata streams back the last backup metadata
 func (a *Server) BackupsMetadata(m *pbapi.BackupsMetadataParams, stream pbapi.Api_BackupsMetadataServer) error {
 	bmd, err := a.messagesServer.ListBackups()
 	if err != nil {
@@ -98,7 +102,7 @@ func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMeta
 
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
-func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.Error, error) {
+func (a *Server) RunBackup(opts *pbapi.RunBackupParams, stream pbapi.Api_RunBackupServer) error {
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
@@ -114,12 +118,12 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	}
 
 	if err := a.messagesServer.StopBalancer(); err != nil {
-		return &pbapi.Error{Message: err.Error()}, err
+		return err
 	}
 
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
-		return &pbapi.Error{Message: err.Error()}, err
+		return err
 	}
 	a.logger.Debug("Backup started")
 	a.logger.Debug("Waiting for backup to finish")
@@ -129,7 +133,7 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	err := a.messagesServer.StopOplogTail()
 	if err != nil {
 		a.logger.Fatalf("Cannot stop oplog tailer %s", err)
-		return &pbapi.Error{Message: err.Error()}, err
+		return err
 	}
 	a.logger.Debug("Waiting oplog to finish")
 	a.messagesServer.WaitOplogBackupFinish()
@@ -139,13 +143,23 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	a.logger.Debugf("Writing metadata to %s", mdFilename)
 	if err := a.messagesServer.WriteBackupMetadata(mdFilename); err != nil {
-		return &pbapi.Error{Message: err.Error()}, err
+		return err
 	}
 
 	if err := a.messagesServer.StartBalancer(); err != nil {
-		return &pbapi.Error{Message: err.Error()}, err
+		return err
 	}
-	return &pbapi.Error{}, nil
+
+	for _, err := range a.messagesServer.LastBackupErrors() {
+		msg := &pbapi.LastBackupError{
+			Error: err.Error(),
+		}
+		if err := stream.Send(msg); err != nil {
+			return errors.Wrap(err, "cannot stream last backup errors")
+		}
+	}
+
+	return nil
 }
 
 func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
@@ -155,6 +169,19 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 	}
 
 	return &pbapi.RunRestoreResponse{}, nil
+}
+
+func (a *Server) LastBackupErrors(opts *pbapi.LastBackupErrorsParams, stream pbapi.Api_LastBackupErrorsServer) error {
+	for _, err := range a.messagesServer.LastBackupErrors() {
+		msg := &pbapi.LastBackupError{
+			Error: err.Error(),
+		}
+		if err := stream.Send(msg); err != nil {
+			return errors.Wrap(err, "cannot stream last backup errors")
+		}
+	}
+
+	return nil
 }
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {

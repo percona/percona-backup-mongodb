@@ -37,10 +37,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-type flusher interface {
-	Flush() error
-}
-
 type Client struct {
 	id         string
 	ctx        context.Context
@@ -114,11 +110,14 @@ type shardsMap struct {
 	OK  int               `bson:"ok"`
 }
 
-var (
+const (
 	balancerStopRetries = 3
 	balancerStopTimeout = 30 * time.Second
 	dbReconnectInterval = 30 * time.Second
 	dbPingInterval      = 60 * time.Second
+	isdbgrid            = "isdbgrid"
+	typeFilesystem      = "filesystem"
+	typeS3              = "s3"
 )
 
 func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
@@ -211,7 +210,7 @@ func (c *Client) dbConnect() (err error) {
 		return errors.Wrapf(err, "Cannot get build info")
 	}
 	if !bi.VersionAtLeast(3, 4) {
-		return fmt.Errorf("You need at least MongoDB version 3.4 to run this tool")
+		return fmt.Errorf("you need at least MongoDB version 3.4 to run this tool")
 	}
 
 	return nil
@@ -237,7 +236,7 @@ func (c *Client) updateClientInfo() (err error) {
 		}{}
 		err = c.mdbSession.Run(bson.D{{Name: "serverStatus", Value: 1}}, &status)
 		if err != nil {
-			return fmt.Errorf("Cannot get an agent's ID from serverStatus: %s", err)
+			return fmt.Errorf("cannot get an agent's ID from serverStatus: %s", err)
 		}
 		c.nodeName = status.Host
 	}
@@ -246,7 +245,7 @@ func (c *Client) updateClientInfo() (err error) {
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
 		replset, err := cluster.NewReplset(c.mdbSession)
 		if err != nil {
-			return fmt.Errorf("Cannot create a new replicaset instance: %s", err)
+			return fmt.Errorf("cannot create a new replicaset instance: %s", err)
 		}
 		c.replicasetName = replset.Name()
 		c.replicasetID = replset.ID().Hex()
@@ -319,8 +318,10 @@ func (c *Client) register() error {
 				ClusterId:      c.clusterID,
 				ReplicasetName: c.replicasetName,
 				ReplicasetId:   c.replicasetID,
-				IsPrimary:      isMaster.IsMasterDoc().IsMaster && isMaster.IsMasterDoc().SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
-				IsSecondary:    isMaster.IsMasterDoc().Secondary,
+				IsPrimary: isMaster.IsMasterDoc().IsMaster &&
+					isMaster.IsMasterDoc().SetName != "" &&
+					c.isMasterDoc.Msg != isdbgrid,
+				IsSecondary: isMaster.IsMasterDoc().Secondary,
 			},
 		},
 	}
@@ -342,7 +343,7 @@ func (c *Client) register() error {
 		return fmt.Errorf(response.GetErrorMsg().GetMessage())
 	}
 
-	return fmt.Errorf("Unknow response type %T", response.Payload)
+	return fmt.Errorf("unknow response type %T", response.Payload)
 }
 
 func (c *Client) Stop() error {
@@ -382,11 +383,15 @@ func (c *Client) processIncommingServerMessages() {
 		case *pb.ServerMessage_BackupSourceMsg:
 			c.processGetBackupSource()
 		case *pb.ServerMessage_ListReplicasets:
-			c.processListReplicasets()
+			if err := c.processListReplicasets(); err != nil {
+				c.logger.Errorf("cannot process ping: %s", err)
+			}
 		case *pb.ServerMessage_PingMsg:
 			msg := c.processPing()
 			if err := c.streamSend(msg); err != nil {
-				c.logger.Errorf("Cannot stream ping response to the server: %s. Out message: %+v. In message type: %T", err, *msg, msg.Payload)
+				c.logger.Errorf("cannot stream ping response to the server: %s. Out message: %+v. In message type: %T",
+					err, *msg, msg.Payload,
+				)
 			}
 			continue
 		case *pb.ServerMessage_CanRestoreBackupMsg:
@@ -413,7 +418,7 @@ func (c *Client) processIncommingServerMessages() {
 			c.processStopOplogTail(stopOplogTailMsg)
 		case *pb.ServerMessage_CancelBackupMsg:
 			err = c.processCancelBackup()
-			//
+
 		case *pb.ServerMessage_RestoreBackupMsg:
 			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
 				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
@@ -459,7 +464,7 @@ func (c *Client) processIncommingServerMessages() {
 			}
 		//
 		default:
-			err = fmt.Errorf("Client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
+			err = fmt.Errorf("client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
 			log.Error(err.Error())
 			msg := &pb.ClientMessage{
 				ClientId: c.id,
@@ -509,10 +514,12 @@ func (c *Client) processCancelBackup() error {
 
 func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMessage, error) {
 	var err error
-	c.updateClientInfo()
+	if err := c.updateClientInfo(); err != nil {
+		return nil, err
+	}
 	resp := &pb.CanRestoreBackupResponse{
 		ClientId:   c.id,
-		IsPrimary:  c.isMasterDoc.IsMaster && c.isMasterDoc.SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
+		IsPrimary:  c.isMasterDoc.IsMaster && c.isMasterDoc.SetName != "" && c.isMasterDoc.Msg != isdbgrid,
 		Replicaset: c.ReplicasetName(),
 		Host:       c.connOpts.Host,
 		Port:       c.connOpts.Port,
@@ -524,9 +531,9 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 	}
 
 	switch stg.Type {
-	case "filesystem":
+	case typeFilesystem:
 		resp.CanRestore, err = c.checkCanRestoreLocal(msg)
-	case "s3":
+	case typeS3:
 		resp.CanRestore, err = c.checkCanRestoreS3(msg)
 	}
 	if err != nil {
@@ -593,7 +600,11 @@ func (c *Client) processGetBackupSource() {
 		c.logger.Errorf("Cannot get a backup source winner: %s", err)
 		msg := &pb.ClientMessage{
 			ClientId: c.id,
-			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
+			Payload: &pb.ClientMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Message: fmt.Sprintf("Cannot get backoup source: %s", err),
+				},
+			},
 		}
 		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
 		if err = c.streamSend(msg); err != nil {
@@ -624,9 +635,9 @@ func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (pb.ClientMessage
 	var valid, canRead, canWrite bool
 
 	switch strings.ToLower(stg.Type) {
-	case "s3":
+	case typeS3:
 		valid, canRead, canWrite, err = c.checkS3Access(stg.S3)
-	case "filesystem":
+	case typeFilesystem:
 		valid, canRead, canWrite, err = c.checkFilesystemAccess(stg.Filesystem.Path)
 	}
 	if err != nil {
@@ -665,9 +676,9 @@ func (c *Client) processListStorages() (pb.ClientMessage, error) {
 		var err error
 
 		switch strings.ToLower(stg.Type) {
-		case "s3":
+		case typeS3:
 			valid, canRead, canWrite, err = c.checkS3Access(stg.S3)
-		case "filesystem":
+		case typeFilesystem:
 			valid, canRead, canWrite, err = c.checkFilesystemAccess(stg.Filesystem.Path)
 		}
 		if err != nil {
@@ -706,7 +717,11 @@ func (c *Client) processLastOplogTs() error {
 	if err != nil {
 		msg := &pb.ClientMessage{
 			ClientId: c.id,
-			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot get backoup source: %s", err)}},
+			Payload: &pb.ClientMessage_ErrorMsg{
+				ErrorMsg: &pb.Error{
+					Message: fmt.Sprintf("Cannot get backoup source: %s", err),
+				},
+			},
 		}
 		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
 		if err = c.streamSend(msg); err != nil {
@@ -747,13 +762,13 @@ func (c *Client) processListReplicasets() error {
 	/* Example
 	mongos> db.getSiblingDB('admin').runCommand('getShardMap')
 	{
-	        "map" : {
-	                "config" : "localhost:19001,localhost:19002,localhost:19003",
-	                "localhost:17001" : "r1/localhost:17001,localhost:17002,localhost:17003",
-	                "r1" : "r1/localhost:17001,localhost:17002,localhost:17003",
-	                "r1/localhost:17001,localhost:17002,localhost:17003" : "r1/localhost:17001,localhost:17002,localhost:17003",
-	        },
-	        "ok" : 1
+	  "map" : {
+	    "config" : "localhost:19001,localhost:19002,localhost:19003",
+	    "localhost:17001" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	    "r1" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	    "r1/localhost:17001,localhost:17002,localhost:17003" : "r1/localhost:17001,localhost:17002,localhost:17003",
+	  },
+	  "ok" : 1
 	}
 	*/
 	for key := range sm.Map {
@@ -889,7 +904,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}
 
 	switch stg.Type {
-	case "filesystem":
+	case typeFilesystem:
 		fi, err := os.Stat(stg.Filesystem.Path)
 		if err != nil {
 			c.sendDBBackupFinishError(errors.Wrapf(err, "Error while checking destination directory: %s", stg.Filesystem.Path))
@@ -899,7 +914,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			c.sendDBBackupFinishError(fmt.Errorf("%s is not a directory", stg.Filesystem.Path))
 			return
 		}
-	case "s3":
+	case typeS3:
 		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
 		if err != nil {
 			msg := "Cannot create an AWS session for S3 backup"
@@ -922,7 +937,9 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
 		}
 		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		if _, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("cannot signal OplogBackupFinished: %s", err)
+		}
 		return
 	}
 
@@ -941,7 +958,9 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			Ts:       time.Now().Unix(),
 			Error:    err.Error(),
 		}
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		if _, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("cannot signal OplogBackupFinished: %s", err)
+		}
 		return
 	}
 	log.Debugf("Starting DB backup")
@@ -974,7 +993,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		log.Errorf("cannot send processStartBalancer response to the server: %s", err)
 	}
 
-	return nil, nil
+	return out, nil
 }
 
 func (c *Client) processStatus() {
@@ -1002,7 +1021,9 @@ func (c *Client) processStatus() {
 				CompressionType:    c.status.CompressionType,
 				Cypher:             c.status.Cypher,
 				StartOplogTs:       c.status.StartOplogTs,
-				IsPrimary:          isMaster.IsMasterDoc().IsMaster && isMaster.IsMasterDoc().SetName != "" && c.isMasterDoc.Msg != "isdbgrid",
+				IsPrimary: isMaster.IsMasterDoc().IsMaster &&
+					isMaster.IsMasterDoc().SetName != "" &&
+					c.isMasterDoc.Msg != isdbgrid,
 			},
 		},
 	}
@@ -1010,7 +1031,9 @@ func (c *Client) processStatus() {
 
 	c.logger.Debugf("Sending status to the gRPC server: %+v", *msg)
 	if err := c.streamSend(msg); err != nil {
-		c.logger.Errorf("Cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, msg, msg.Payload)
+		c.logger.Errorf("cannot stream response to the server: %s. Out message: %+v. In message type: %T",
+			err, msg, msg.Payload,
+		)
 	}
 }
 
@@ -1033,7 +1056,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		log.Errorf("cannot send processStopBalancer response to the server: %s", err)
 	}
 
-	return nil, nil
+	return &pb.ClientMessage{}, nil
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
@@ -1142,7 +1165,9 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplo
 			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
 		}
 		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		if _, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("Cannot signal Oplog Backup Finished with error (%s): %s", finishMsg.Error, err)
+		}
 		return
 	}
 
@@ -1158,7 +1183,9 @@ func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplo
 			Error:    fmt.Sprintf("Cannot open the oplog tailer: %s", err),
 		}
 		c.logger.Debugf("Sending OplogFinishStatus with cannot open the tailer error to the gRPC server: %+v", *finishMsg)
-		c.grpcClient.OplogBackupFinished(context.Background(), finishMsg)
+		if _, err := c.grpcClient.OplogBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("Cannot signal Oplog Backup Finished OK: %s", err)
+		}
 		return
 	}
 
@@ -1187,7 +1214,9 @@ func (c *Client) sendACK() {
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
 	if err := c.streamSend(response); err != nil {
-		c.logger.Errorf("sendACK error: cannot stream response to the server: %s. Out message: %+v. In message type: %T", err, *response, response.Payload)
+		c.logger.Errorf("sendACK error: cannot stream response to the server: %s. Out message: %+v. In message type: %T",
+			err, *response, response.Payload,
+		)
 	}
 }
 
@@ -1202,7 +1231,9 @@ func (c *Client) sendBackupFinishOK() {
 			Ts:       0,
 			Error:    err.Error(),
 		}
-		c.grpcClient.DBBackupFinished(context.Background(), finishMsg)
+		if _, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("Cannot signal DB Backup finished with error (%s): %s", finishMsg.Error, err)
+		}
 		return
 	}
 
@@ -1331,6 +1362,9 @@ func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 	}
 
 	bsonReader, err := bsonfile.NewBSONReader(rdr)
+	if err != nil {
+		return errors.Wrap(err, "cannot open the oplog reader for restore")
+	}
 
 	di := &mgo.DialInfo{
 		Addrs:    []string{fmt.Sprintf("%s:%s", msg.Host, msg.Port)},
@@ -1358,9 +1392,12 @@ func (c *Client) checkS3Access(opts storage.S3) (bool, bool, bool, error) {
 	token := ""
 	var valid, canRead, canWrite bool
 	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String(opts.Region),
-		Endpoint:         aws.String(opts.EndpointURL),
-		Credentials:      credentials.NewStaticCredentials(opts.Credentials.AccessKeyID, opts.Credentials.SecretAccessKey, token),
+		Region:   aws.String(opts.Region),
+		Endpoint: aws.String(opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(opts.Credentials.AccessKeyID,
+			opts.Credentials.SecretAccessKey,
+			token,
+		),
 		S3ForcePathStyle: aws.Bool(true),
 	})
 
@@ -1423,10 +1460,7 @@ func canListObjects(svc *s3.S3, bucket string) bool {
 	}
 
 	_, err := svc.ListObjects(params)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func canPutObject(svc *s3.S3, bucket string) bool {

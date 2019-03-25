@@ -270,7 +270,7 @@ func buildAuth(wantToken string) func(context.Context) (context.Context, error) 
 		if err != nil {
 			return nil, err
 		}
-		if wantToken == token {
+		if wantToken != token {
 			return nil, status.Errorf(codes.Unauthenticated, "invalid auth token")
 		}
 		newCtx := context.WithValue(ctx, contextKey("tokenInfo"), time.Now().UTC().Format(time.RFC3339))

@@ -25,23 +25,12 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-var (
-	port    string
-	apiPort string
-)
-
 func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	if port = os.Getenv("GRPC_PORT"); port == "" {
-		port = "10000"
-	}
-	if apiPort = os.Getenv("GRPC_API_PORT"); apiPort == "" {
-		apiPort = "10001"
-	}
 	// Override the default usage writer (io.Stdout) to not to show the errors during the tests
 	usageWriter = &bytes.Buffer{}
 
@@ -59,7 +48,7 @@ func TestListAgents(t *testing.T) {
 	}
 
 	serverAddr := "127.0.0.1:" + testGrpc.TestGrpcAPIPort
-	conn, err := getApiConn(&cliOptions{ServerAddress: serverAddr})
+	conn, err := getAPIConn(&cliOptions{ServerAddress: serverAddr})
 	if err != nil {
 		t.Fatalf("Cannot connect to the API: %s", err)
 	}
@@ -134,9 +123,9 @@ func TestListAgents(t *testing.T) {
 			// fix for mongos having hostname:port instead of ip:port
 			hostname, _ := os.Hostname()
 			wantHostPort := strings.SplitN(want[i].Id, ":", 2)
-			wantHostPortId := hostname + ":" + wantHostPort[1]
-			if client.Id != wantHostPortId && client.Id != want[i].Id {
-				t.Errorf("Invalid mongos client id. Got %v, want %v or %v", client.Id, wantHostPortId, want[i].Id)
+			wantHostPortID := hostname + ":" + wantHostPort[1]
+			if client.Id != wantHostPortID && client.Id != want[i].Id {
+				t.Errorf("Invalid mongos client id. Got %v, want %v or %v", client.Id, wantHostPortID, want[i].Id)
 			}
 		}
 		if client.NodeType != want[i].NodeType {
@@ -169,7 +158,7 @@ func TestListAvailableBackups(t *testing.T) {
 	printTemplate(templates.AvailableBackups, b)
 }
 
-func getApiConn(opts *cliOptions) (*grpc.ClientConn, error) {
+func getAPIConn(opts *cliOptions) (*grpc.ClientConn, error) {
 	var grpcOpts []grpc.DialOption
 
 	if opts.ServerAddress == "" {
@@ -351,6 +340,9 @@ func TestOverrideDefaultsFromConfigFile(t *testing.T) {
 		ServerCompressor: "",
 	}
 	b, err := yaml.Marshal(wantOpts)
+	if err != nil {
+		t.Errorf("Cannot marshal test config file")
+	}
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
@@ -385,6 +377,9 @@ func TestConfigfileEnvPrecedenceOverEnvVars(t *testing.T) {
 		ServerCompressor: "",
 	}
 	b, err := yaml.Marshal(wantOpts)
+	if err != nil {
+		t.Errorf("Cannot marshal test config file")
+	}
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
@@ -456,6 +451,9 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 		ServerCompressor: defaultServerCompressor,
 	}
 	b, err := yaml.Marshal(wantOpts)
+	if err != nil {
+		t.Errorf("cannot marshal test config file: %s", err)
+	}
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
