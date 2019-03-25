@@ -38,7 +38,7 @@ func (b *BackupMetadata) AddReplicaset(clusterID, replName, replUUID, dbBackupNa
 	b.lock.Lock()
 
 	if _, ok := b.metadata.Replicasets[replName]; ok {
-		return fmt.Errorf("Info for replicaset %s already exists", replName)
+		return fmt.Errorf("info for replicaset %s already exists", replName)
 	}
 
 	// Key is replicaset name instead of UUID because the UUID is randomly generated so, on a
@@ -80,7 +80,7 @@ func (b *BackupMetadata) RemoveReplicaset(replName string) error {
 	defer b.lock.Unlock()
 
 	if _, ok := b.metadata.Replicasets[replName]; !ok {
-		return fmt.Errorf("Info for replicaset %s doesn't exists", replName)
+		return fmt.Errorf("info for replicaset %s doesn't exists", replName)
 	}
 	delete(b.metadata.Replicasets, replName)
 	return nil
@@ -96,12 +96,4 @@ func (b *BackupMetadata) WriteMetadataToFile(name string) error {
 		return errors.Wrap(err, "cannot encode backup metadata")
 	}
 	return ioutil.WriteFile(name, buf, os.ModePerm)
-}
-
-func (b *BackupMetadata) JSONBytes() ([]byte, error) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	buf, err := json.MarshalIndent(b.metadata, "", "    ")
-	return buf, err
 }

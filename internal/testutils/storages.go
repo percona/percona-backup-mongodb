@@ -77,9 +77,7 @@ func TestingStorages() *storage.Storages {
 
 func createTempDir(tmpDir string) {
 	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
-			panic(err)
-		}
+		os.MkdirAll(tmpDir, os.ModePerm)
 	}
 	os.RemoveAll(filepath.Join(tmpDir, "*"))
 }
@@ -136,7 +134,7 @@ func CleanTempDirAndBucket() error {
 		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
 			return err
 		}
-		if err := awsutils.DeleteBucket(svc, bucket); err != nil {
+		if err := DeleteBucket(svc, bucket); err != nil {
 			return err
 		}
 	}

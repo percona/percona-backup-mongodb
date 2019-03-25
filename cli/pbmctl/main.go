@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 
 	"text/template"
 
@@ -313,10 +314,25 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		return fmt.Errorf("encryption is not implemented yet")
 	}
 
-	_, err := apiClient.RunBackup(ctx, msg)
+	stream, err := apiClient.RunBackup(ctx, msg)
 	if err != nil {
-		log.Print(err.Error())
 		return err
+	}
+
+	errs := []string{}
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errors.Wrap(err, "cannot get the list of backup errors from the stream")
+		}
+		errs = append(errs, msg.GetError())
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "\n"))
 	}
 
 	return nil
@@ -366,24 +382,66 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		backup:       backupCmd,
 		restore:      restoreCmd,
 	}
-	app.Flag("config-file", "Config file name").Short('c').StringVar(&opts.configFile)
-	app.Flag("api-token", "Security token to use when connecting to the backup coordinator").StringVar(&opts.APIToken)
-	listNodesCmd.Flag("verbose", "Include extra node info").BoolVar(&opts.listNodesVerbose)
-	backupCmd.Flag("backup-type", "Backup type (logical or hot)").Default(defaultBackupType).EnumVar(&opts.backupType, backuptypes...)
-	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").Default(defaultDestinationType).EnumVar(&opts.destinationType, destinationTypes...)
-	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").StringVar(&opts.compressionAlgorithm)
-	backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").StringVar(&opts.encryptionAlgorithm)
-	backupCmd.Flag("description", "Backup description").Required().StringVar(&opts.description)
-	backupCmd.Flag("storage", "Storage Name").Required().StringVar(&opts.storageName)
+	app.Flag("config-file", "Config file name").
+		Short('c').StringVar(&opts.configFile)
 
-	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").HintAction(listAvailableBackups).Required().StringVar(&opts.restoreMetadataFile)
-	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).BoolVar(&opts.restoreSkipUsersAndRoles)
-	restoreCmd.Flag("storage", "Storage Name").Required().StringVar(&opts.storageName)
+	app.Flag("api-token", "Security token to use when connecting to the backup coordinator").
+		StringVar(&opts.APIToken)
 
-	app.Flag("server-address", "Backup coordinator address (host:port)").Default(defaultServerAddress).Short('s').StringVar(&opts.ServerAddress)
-	app.Flag("server-compressor", "Backup coordinator gRPC compression (gzip or none)").Default(defaultServerCompressor).EnumVar(&opts.ServerCompressor, grpcCompressors...)
-	app.Flag("tls", "Connection uses TLS if true, else plain TCP").Default(fmt.Sprintf("%v", defaultTlsEnabled)).BoolVar(&opts.TLS)
-	app.Flag("tls-ca-file", "The file containing the CA root cert file").StringVar(&opts.TLSCAFile)
+	listNodesCmd.Flag("verbose", "Include extra node info").
+		BoolVar(&opts.listNodesVerbose)
+
+	backupCmd.Flag("backup-type", "Backup type (logical or hot)").
+		Default(defaultBackupType).
+		EnumVar(&opts.backupType, backuptypes...)
+
+	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").
+		Default(defaultDestinationType).
+		EnumVar(&opts.destinationType, destinationTypes...)
+
+	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").
+		StringVar(&opts.compressionAlgorithm)
+
+	backupCmd.Flag("encryption-algorithm", "Encryption algorithm used for the backup").
+		StringVar(&opts.encryptionAlgorithm)
+
+	backupCmd.Flag("description", "Backup description").
+		Required().
+		StringVar(&opts.description)
+
+	backupCmd.Flag("storage", "Storage Name").
+		Required().
+		StringVar(&opts.storageName)
+
+	restoreCmd.Arg("metadata-file", "Metadata file having the backup info for restore").
+		HintAction(listAvailableBackups).
+		Required().
+		StringVar(&opts.restoreMetadataFile)
+
+	restoreCmd.Flag("skip-users-and-roles", "Do not restore users and roles").
+		Default(fmt.Sprintf("%v", defaultSkipUserAndRoles)).
+		BoolVar(&opts.restoreSkipUsersAndRoles)
+
+	restoreCmd.Flag("storage", "Storage Name").
+		Required().
+		StringVar(&opts.storageName)
+
+	app.Flag("server-address", "Backup coordinator address (host:port)").
+		Default(defaultServerAddress).
+		Short('s').
+		StringVar(&opts.ServerAddress)
+
+	app.Flag("server-compressor", "Backup coordinator gRPC compression (gzip or none)").
+		Default(defaultServerCompressor).
+		EnumVar(&opts.ServerCompressor, grpcCompressors...)
+
+	app.Flag("tls", "Connection uses TLS if true, else plain TCP").
+		Default(fmt.Sprintf("%v", defaultTlsEnabled)).
+		BoolVar(&opts.TLS)
+
+	app.Flag("tls-ca-file", "The file containing the CA root cert file").
+		StringVar(&opts.TLSCAFile)
+
 	app.Terminate(nil) // Don't call os.Exit() on errors
 	app.UsageWriter(usageWriter)
 
@@ -392,9 +450,8 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 			fn := utils.Expand(defaultConfigFile)
 			if _, err := os.Stat(fn); err != nil {
 				return nil
-			} else {
-				opts.configFile = fn
 			}
+			opts.configFile = fn
 		}
 		return utils.LoadOptionsFromFile(opts.configFile, c, opts)
 	})
@@ -405,7 +462,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	}
 
 	if cmd == "" {
-		return "", opts, fmt.Errorf("Invalid command")
+		return "", opts, fmt.Errorf("invalid command")
 	}
 
 	return cmd, opts, nil

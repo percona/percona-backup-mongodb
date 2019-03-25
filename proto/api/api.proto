@@ -10,7 +10,7 @@ package api;
 
 service Api {
   rpc GetClients(Empty) returns (stream Client) {}
-  rpc RunBackup(RunBackupParams) returns (Error) {}
+  rpc RunBackup(RunBackupParams) returns (stream LastBackupError) {}
   rpc RunRestore(RunRestoreParams) returns (RunRestoreResponse) {}
   rpc LastBackupMetadata(LastBackupMetadataParams) returns (messages.BackupMetadata) {}
   rpc BackupsMetadata(BackupsMetadataParams) returns (stream MetadataFile) {}
@@ -86,10 +86,6 @@ message GetStorageInfoParams {
   string storage_name = 1;
 }
 
-message LastBackupError {
-  string error = 1;
-}
-
 message MetadataFile {
   string                  filename = 1;
   messages.BackupMetadata metadata = 2;
@@ -123,6 +119,10 @@ message BackupReplica {
   string replicaset_name  = 5;
   string replicaset_id    = 6;
   int64  started_at       = 7;
+}
+
+message LastBackupError {
+  string error = 1;
 }
 
 message StorageInfo {

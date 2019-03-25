@@ -270,7 +270,6 @@ func buildAuth(wantToken string) func(context.Context) (context.Context, error) 
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("want token: %q, got: %q\n", wantToken, token)
 		if wantToken != token {
 			return nil, status.Errorf(codes.Unauthenticated, "invalid auth token")
 		}

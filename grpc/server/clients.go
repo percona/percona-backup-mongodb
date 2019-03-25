@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kr/pretty"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -45,7 +44,8 @@ type Client struct {
 	status     pb.Status
 }
 
-func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesChatServer, logger *logrus.Logger) *Client {
+func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesChatServer,
+	logger *logrus.Logger) *Client {
 	if logger == nil {
 		logger = logrus.New()
 		logger.SetLevel(logrus.StandardLogger().Level)
@@ -79,7 +79,8 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 	return client
 }
 
-func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName string) (pb.CanRestoreBackupResponse, error) {
+func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName string) (
+	pb.CanRestoreBackupResponse, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_CanRestoreBackupMsg{
 			CanRestoreBackupMsg: &pb.CanRestoreBackup{
@@ -99,7 +100,7 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName st
 		return *canRestoreBackupMsg, nil
 	}
 
-	return pb.CanRestoreBackupResponse{}, fmt.Errorf("Cannot get CanRestoreBackup Response (response is nil)")
+	return pb.CanRestoreBackupResponse{}, fmt.Errorf("cannot get CanRestoreBackup Response (response is nil)")
 }
 
 func (c *Client) GetBackupSource() (string, error) {
@@ -113,10 +114,8 @@ func (c *Client) GetBackupSource() (string, error) {
 		return "", err
 	}
 	if errMsg := msg.GetErrorMsg(); errMsg != nil {
-		return "", fmt.Errorf("Cannot get backup source for client %s: %s", c.NodeName, errMsg)
+		return "", fmt.Errorf("cannot get backup source for client %s: %s", c.NodeName, errMsg)
 	}
-	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
-	pretty.Println(msg.GetBackupSourceMsg())
 	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
@@ -131,7 +130,7 @@ func (c *Client) GetStoragesInfo() ([]*pb.StorageInfo, error) {
 		return nil, err
 	}
 	if errMsg := msg.GetErrorMsg(); errMsg != nil {
-		return nil, fmt.Errorf("Cannot get backup source for client %s: %s", c.NodeName, errMsg)
+		return nil, fmt.Errorf("cannot get backup source for client %s: %s", c.NodeName, errMsg)
 	}
 	return msg.GetStoragesInfo().GetStoragesInfo(), nil
 }
@@ -156,7 +155,7 @@ func (c *Client) GetStatus() (pb.Status, error) {
 	statusMsg := msg.GetStatusMsg()
 	c.logger.Debugf("grpc/server/clients.go GetStatus recv message (decoded): %v\n", statusMsg)
 	if statusMsg == nil {
-		return pb.Status{}, fmt.Errorf("Received nil GetStatus message from client: %s", c.NodeName)
+		return pb.Status{}, fmt.Errorf("received nil GetStatus message from client: %s", c.NodeName)
 	}
 
 	c.statusLock.Lock()
@@ -179,12 +178,6 @@ func (c *Client) isDBBackupRunning() bool {
 	c.statusLock.Lock()
 	defer c.statusLock.Unlock()
 	return c.status.RunningDbBackup
-}
-
-func (c *Client) isOplogBackupRunning() bool {
-	c.statusLock.Lock()
-	defer c.statusLock.Unlock()
-	return c.status.RunningOplogBackup
 }
 
 func (c *Client) isOplogTailerRunning() (status bool) {
@@ -218,11 +211,11 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
-		return 0, fmt.Errorf("cannot get LastOplogTs from node %s: %s", c.NodeName, response.GetErrorMsg())
+		return 0, fmt.Errorf("cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_LastOplogTs:
 		return response.GetLastOplogTs().LastOplogTs, nil
 	}
-	return 0, fmt.Errorf("Unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+	return 0, fmt.Errorf("unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
 }
 
 // listReplicasets will trigger processGetReplicasets on clients connected to a MongoDB instance.
@@ -232,26 +225,20 @@ func (c *Client) getPrimaryLastOplogTs() (int64, error) {
 // and we will use that list to validate we have agents connected to all replicasets, otherwise,
 // a backup would be incomplete.
 func (c *Client) listReplicasets() ([]string, error) {
-	msg := &pb.ServerMessage{
+	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_ListReplicasets{
 			ListReplicasets: &pb.ListReplicasets{},
 		},
-	}
-
-	err := c.streamSend(msg)
-	fmt.Printf("/// Err: %v\n", err)
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	response, err := c.streamRecv()
-	fmt.Printf("/// Err 2: %v\n", err)
 	if err != nil {
 		return nil, err
 	}
-	time.Sleep(2 * time.Second)
 
-	pretty.Println(response)
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
 		return nil, fmt.Errorf("cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
@@ -259,7 +246,7 @@ func (c *Client) listReplicasets() ([]string, error) {
 		shards := response.GetReplicasetsMsg()
 		return shards.Replicasets, nil
 	}
-	return nil, fmt.Errorf("Unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
+	return nil, fmt.Errorf("unknown response type for list Shards message: %T, %+v", response.Payload, response.Payload)
 }
 
 func (c *Client) ping() error {
@@ -316,16 +303,15 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 	}
 	switch response.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
-		return fmt.Errorf("Cannot start restore on client %s: %s", c.NodeName, response.GetErrorMsg())
+		return fmt.Errorf("cannot start restore on client %s: %s", c.NodeName, response.GetErrorMsg())
 	case *pb.ClientMessage_AckMsg:
 		c.setRestoreRunning(true)
 		return nil
 	}
-	return fmt.Errorf("Unknown response type for Restore message: %T, %+v", response.Payload, response.Payload)
+	return fmt.Errorf("unknown response type for Restore message: %T, %+v", response.Payload, response.Payload)
 }
 
 func (c *Client) setDBBackupRunning(status bool) {
-	fmt.Printf("client %v, set running : %v\n", c.ID, status)
 	c.statusLock.Lock()
 	c.status.RunningDbBackup = status
 	c.statusLock.Unlock()
@@ -368,13 +354,12 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 	if err != nil {
 		return err
 	}
-	switch response.Payload.(type) {
-	case *pb.ClientMessage_AckMsg:
+	if _, ok := response.Payload.(*pb.ClientMessage_AckMsg); ok {
 		c.setDBBackupRunning(true)
 		c.setOplogTailerRunning(true)
 		return nil
 	}
-	return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", response.Payload)
+	return fmt.Errorf("invalid client response to start backup message. Want 'ack', got %T", response.Payload)
 }
 
 func (c *Client) startBalancer() error {
@@ -408,7 +393,7 @@ func (c *Client) stopBackup() error {
 	if msg, err := c.streamRecv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
-		return fmt.Errorf("Invalid client response to stop backup message. Want 'ack', got %T", msg)
+		return fmt.Errorf("invalid client response to stop backup message. Want 'ack', got %T", msg)
 	}
 	return nil
 }
@@ -447,22 +432,9 @@ func (c *Client) stopOplogTail(ts int64) error {
 	if msg, err := c.streamRecv(); err != nil {
 		return err
 	} else if ack := msg.GetAckMsg(); ack == nil {
-		return fmt.Errorf("Invalid client response to start backup message. Want 'ack', got %T", msg)
+		return fmt.Errorf("invalid client response to start backup message. Want 'ack', got %T", msg)
 	}
 	return nil
-}
-
-func (c *Client) storeFile(storageName, filename string, data []byte) error {
-	msg := &pb.StoreFile{
-		StorageName: storageName,
-		Filename:    filename,
-		Data:        data,
-	}
-	err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_StoreFile{StoreFile: msg},
-	})
-
-	return err
 }
 
 func (c *Client) streamRecv() (*pb.ClientMessage, error) {
