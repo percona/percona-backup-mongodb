@@ -22,18 +22,21 @@ import (
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
+	"github.com/percona/percona-backup-mongodb/storage"
 	log "github.com/sirupsen/logrus"
 )
 
 var (
 	keepS3Data     bool
 	keepLocalFiles bool
+	storages       *storage.Storages
 )
 
 const (
-	dbName                 = "test"
-	colName                = "test_col"
-	localFileSystemStorage = "local-filesystem"
+	dbName                    = "test"
+	colName                   = "test_col"
+	localFileSystemStorage    = "local-filesystem"
+	grpcServerShutdownTimeout = 30
 )
 
 func TestMain(m *testing.M) {
