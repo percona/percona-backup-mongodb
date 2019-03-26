@@ -404,6 +404,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 
 	// Ping will also update the status and if it is primary or secondary
 	for _, source := range clients {
+		fmt.Printf("restore client: %s\n", source.Client.ID)
 		if err := source.Client.ping(); err != nil {
 			return errors.Wrapf(err, "error while sending ping to client %s", source.Client.ID)
 		}
