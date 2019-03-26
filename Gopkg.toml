@@ -20,7 +20,7 @@
   branch = "master"
 
 [[constraint]]
-  branch = "v3.6"
+  branch = "master"
   name = "github.com/mongodb/mongo-tools"
 
 [[constraint]]
