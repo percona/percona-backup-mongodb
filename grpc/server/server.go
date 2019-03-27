@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -47,7 +48,6 @@ type MessagesServer struct {
 	workDir              string
 	clientLoggingEnabled bool
 	//lastBackupMetadata    *BackupMetadata
-	lastBackupErrors      []error
 	clientDisconnetedChan chan string
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
@@ -150,6 +150,9 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 			if err != nil {
 				continue
 			}
+			if !resp.CanRestore {
+				continue
+			}
 			_, ok := sources[resp.Replicaset]
 			if !ok {
 				sources[resp.Replicaset] = RestoreSource{
@@ -163,6 +166,21 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 				sources[resp.Replicaset] = s
 			}
 		}
+	}
+
+	if len(sources) != len(bm.Replicasets) {
+		var err error
+		for replicasetName, replicasetMetaData := range bm.Replicasets {
+			if _, ok := sources[replicasetName]; !ok {
+				err = multierror.Append(err,
+					fmt.Errorf("there are no clients that can restore %s from %s",
+						replicasetMetaData.DbBackupName,
+						storageName,
+					),
+				)
+			}
+		}
+		return nil, err
 	}
 	return sources, nil
 }
@@ -303,7 +321,7 @@ func (s *MessagesServer) IsShardedSystem() bool {
 }
 
 func (s *MessagesServer) LastBackupErrors() []error {
-	return s.lastBackupErrors
+	return s.backupStatus.lastBackupErrors
 }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
@@ -399,12 +417,23 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 		return fmt.Errorf("Cannot start a restore while another restore is still running")
 	}
 
+	stgs, err := s.listStorages()
+	if err != nil {
+		return fmt.Errorf("cannot get the storages list: %s", err)
+	}
+
+	stg, ok := stgs[storageName]
+	if !ok {
+		return fmt.Errorf("invalid storage %q", storageName)
+	}
+	if !stg.StorageInfo.Valid {
+		return fmt.Errorf("storage %q is invalid", storageName)
+	}
 	s.reset()
 	s.setRestoreRunning(true)
 
 	// Ping will also update the status and if it is primary or secondary
 	for _, source := range clients {
-		fmt.Printf("restore client: %s\n", source.Client.ID)
 		if err := source.Client.ping(); err != nil {
 			return errors.Wrapf(err, "error while sending ping to client %s", source.Client.ID)
 		}
@@ -678,25 +707,25 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 
 	if len(replicasets) == 0 {
 		if err := notify.Post(EventBackupFinish, time.Now()); err != nil {
-			s.lastBackupErrors = append(s.lastBackupErrors,
+			s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors,
 				fmt.Errorf("cannot notify EventBackupFinish (DBBackupFinished): %s", err.Error()),
 			)
 		}
 	}
 
 	if !msg.GetOk() {
-		s.lastBackupErrors = append(s.lastBackupErrors, errors.New(msg.GetError()))
+		s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, errors.New(msg.GetError()))
 	}
 
 	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
 	// from the primary in order to have a consistent backup.
 	primaryClient, err := s.getPrimaryClient(client.ReplicasetName)
 	if err != nil {
-		s.lastBackupErrors = append(s.lastBackupErrors, err)
+		s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, err)
 	}
 	lastOplogTs, err := primaryClient.getPrimaryLastOplogTs()
 	if err != nil {
-		s.lastBackupErrors = append(s.lastBackupErrors, err)
+		s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, err)
 	}
 	// Keep the last (bigger) oplog timestamp from all clients running the backup.
 	// When all clients finish the backup, we will call CloseAt(s.lastOplogTs) on all clients to have a consistent
@@ -760,7 +789,7 @@ func (s *MessagesServer) MessagesChat(stream pb.Messages_MessagesChatServer) err
 			s.logger.Errorf("Cannot send to client stream %s: %v", clientID, err)
 		}
 
-		return ClientAlreadyExistsError
+		return fmt.Errorf("Client already exists")
 	}
 
 	r := &pb.ServerMessage{
@@ -807,15 +836,15 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (
 	*pb.RestoreCompletedAck, error) {
-	//s.lock.Lock()
-	//defer s.lock.Unlock()
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
 		return nil, fmt.Errorf("Unknown client ID: %s", msg.GetClientId())
 	}
 	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
 	client.setRestoreRunning(false)
-
+	if msg.GetErr() != nil {
+		s.backupStatus.lastBackupErrors = append(s.backupStatus.lastBackupErrors, fmt.Errorf(msg.GetErr().GetMessage()))
+	}
 	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
@@ -963,7 +992,7 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 		if err := client.ping(); err != nil {
 			delete(s.clients, msg.ClientId)
 		} else {
-			return ClientAlreadyExistsError
+			return fmt.Errorf("Client already exists")
 		}
 	}
 
@@ -986,7 +1015,7 @@ func (s *MessagesServer) reset() {
 	s.backupStatus.oplogBackupRunning = false
 	s.restoreRunning = false
 	s.err = nil
-	s.lastBackupErrors = []error{}
+	s.backupStatus.lastBackupErrors = []error{}
 }
 
 func (s *MessagesServer) setBackupRunning(status bool) {
@@ -1013,7 +1042,7 @@ func (s *MessagesServer) unregisterClient(id string) error {
 	defer s.lock.Unlock()
 
 	if _, exists := s.clients[id]; !exists {
-		return UnknownClientID
+		return fmt.Errorf("unknown client")
 	}
 
 	delete(s.clients, id)

@@ -825,7 +825,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.sendACK()
 
 	if err := c.restoreDBDump(msg); err != nil {
-		err := errors.Wrap(err, "cannot restore DB backup")
+		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		c.sendRestoreComplete(err)
 		return err
 	}
@@ -835,7 +835,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.lock.Unlock()
 
 	if err := c.restoreOplog(msg); err != nil {
-		err := errors.Wrap(err, "cannot restore Oplog backup")
+		err := errors.Wrapf(err, "cannot restore Oplog backup file %s", msg.GetOplogSourceName())
 		if err1 := c.sendRestoreComplete(err); err1 != nil {
 			err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
 		}
