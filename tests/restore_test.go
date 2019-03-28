@@ -115,7 +115,10 @@ func TestInvalidRestore(t *testing.T) {
 
 	log.Infof("Wating restore to finish")
 	d.MessagesServer.WaitRestoreFinish()
-	if errs := d.MessagesServer.LastBackupErrors(); len(errs) == 0 {
+	if err != nil {
+		t.Errorf("Trying to restore invalid files should return errors")
+	}
+	if err := d.MessagesServer.LastBackupErrors(); err == nil {
 		t.Errorf("Trying to restore invalid files should return errors")
 	}
 }

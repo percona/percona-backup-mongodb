@@ -150,13 +150,15 @@ func (a *Server) RunBackup(opts *pbapi.RunBackupParams, stream pbapi.Api_RunBack
 		return err
 	}
 
-	for _, err := range a.messagesServer.LastBackupErrors() {
-		msg := &pbapi.LastBackupError{
-			Error: err.Error(),
-		}
-		if err := stream.Send(msg); err != nil {
-			return errors.Wrap(err, "cannot stream last backup errors")
-		}
+	err = a.messagesServer.LastBackupErrors()
+	if err == nil {
+		return nil
+	}
+	m := &pbapi.LastBackupError{
+		Error: err.Error(),
+	}
+	if err := stream.Send(m); err != nil {
+		return errors.Wrap(err, "cannot stream last backup errors")
 	}
 
 	return nil
@@ -172,13 +174,15 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 }
 
 func (a *Server) LastBackupErrors(opts *pbapi.LastBackupErrorsParams, stream pbapi.Api_LastBackupErrorsServer) error {
-	for _, err := range a.messagesServer.LastBackupErrors() {
-		msg := &pbapi.LastBackupError{
-			Error: err.Error(),
-		}
-		if err := stream.Send(msg); err != nil {
-			return errors.Wrap(err, "cannot stream last backup errors")
-		}
+	err := a.messagesServer.LastBackupErrors()
+	if err == nil {
+		return nil
+	}
+	m := &pbapi.LastBackupError{
+		Error: err.Error(),
+	}
+	if err := stream.Send(m); err != nil {
+		return errors.Wrap(err, "cannot stream last backup errors")
 	}
 
 	return nil
