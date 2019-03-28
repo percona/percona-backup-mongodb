@@ -72,7 +72,7 @@ func TestReconnect(t *testing.T) {
 	logMessage := "I am the man with no name. Zapp Brannigan, at your service."
 	grpcOpts := []grpc.ServerOption{}
 	grpcServer := grpc.NewServer(grpcOpts...)
-	messagesServer := server.NewMessagesServerWithClientLogging(os.TempDir(), 1, serverLogger)
+	messagesServer := server.NewMessagesServerWithClientLogging(os.TempDir(), serverLogger)
 	pb.RegisterMessagesServer(grpcServer, messagesServer)
 
 	stopChan := make(chan interface{})
@@ -164,7 +164,7 @@ func TestReconnect(t *testing.T) {
 	}
 
 	grpcServer2 := grpc.NewServer(grpcOpts...)
-	messagesServer2 := server.NewMessagesServerWithClientLogging(os.TempDir(), 1, serverLogger2)
+	messagesServer2 := server.NewMessagesServerWithClientLogging(os.TempDir(), serverLogger2)
 	pb.RegisterMessagesServer(grpcServer2, messagesServer2)
 	runAgentsGRPCServer(grpcServer2, lis2, defaultShutdownTimeout, stopChan, wg)
 

@@ -480,4 +480,5 @@ func nilOpts(opts *cliOptions) {
 	opts.list = nil
 	opts.listNodes = nil
 	opts.listBackups = nil
+	opts.listStorages = nil
 }

@@ -27,6 +27,7 @@ const (
 
 type backupStatus struct {
 	lastBackupMetadata    *BackupMetadata
+	lastOplogTs           int64 // Timestamp in Unix format
 	lastBackupErrors      []error
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
 	backupRunning         bool
@@ -34,26 +35,25 @@ type backupStatus struct {
 }
 
 type MessagesServer struct {
-	backupStatus backupStatus
-
-	stopChan chan struct{}
-	lock     *sync.Mutex
-	clients  map[string]*Client
-	// Current backup status
+	workDir               string
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
-	lastOplogTs           int64           // Timestamp in Unix format
 	restoreRunning        bool
+	clientLoggingEnabled  bool
 	err                   error
-	//
-	workDir              string
-	clientLoggingEnabled bool
-	//lastBackupMetadata    *BackupMetadata
+
+	backupStatusLock *sync.Mutex
+	backupStatus     backupStatus
+	lock             *sync.Mutex
+	clients          map[string]*Client
+
+	logger *logrus.Logger
+
 	clientDisconnetedChan chan string
+	stopChan              chan struct{}
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
 	clientsLogChan        chan *pb.LogEntry
-	logger                *logrus.Logger
 }
 
 type StorageEntry struct {
@@ -95,6 +95,7 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 
 	messagesServer := &MessagesServer{
 		lock:                  &sync.Mutex{},
+		backupStatusLock:      &sync.Mutex{},
 		clients:               make(map[string]*Client),
 		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
@@ -238,7 +239,7 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 func (s *MessagesServer) LastOplogTs() int64 {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.lastOplogTs
+	return s.backupStatus.lastOplogTs
 }
 
 func (s *MessagesServer) ListStorages() (map[string]StorageEntry, error) {
@@ -620,11 +621,14 @@ func (s *MessagesServer) StopOplogTail() error {
 		return fmt.Errorf("Backup is not running")
 	}
 	// This should never happen. We get the last oplog timestamp when agents call DBBackupFinished
-	if s.lastOplogTs == 0 {
-		s.lastOplogTs = time.Now().Unix()
+	if s.backupStatus.lastOplogTs == 0 {
+		s.backupStatus.lastOplogTs = time.Now().Unix()
 		s.logger.Errorf("Trying to stop the oplog tailer but last oplog timestamp is 0. Using current timestamp")
 	}
-	s.logger.Infof("StopOplogTs: %d (%v)", s.lastOplogTs, time.Unix(s.lastOplogTs, 0).Format(time.RFC3339))
+	s.logger.Infof("StopOplogTs: %d (%v)",
+		s.backupStatus.lastOplogTs,
+		time.Unix(s.backupStatus.lastOplogTs, 0).Format(time.RFC3339),
+	)
 
 	var gErr error
 	for _, client := range s.clients {
@@ -635,9 +639,9 @@ func (s *MessagesServer) StopOplogTail() error {
 		if client.isOplogTailerRunning() {
 			s.logger.Debugf("Stopping oplog tail in client %s at %s",
 				client.NodeName,
-				time.Unix(s.lastOplogTs, 0).Format(time.RFC3339),
+				time.Unix(s.backupStatus.lastOplogTs, 0).Format(time.RFC3339),
 			)
-			err := client.stopOplogTail(s.lastOplogTs)
+			err := client.stopOplogTail(s.backupStatus.lastOplogTs)
 			if err != nil {
 				gErr = errors.Wrapf(gErr, "client: %s, error: %s", client.NodeName, err)
 			}
@@ -730,8 +734,8 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	// Keep the last (bigger) oplog timestamp from all clients running the backup.
 	// When all clients finish the backup, we will call CloseAt(s.lastOplogTs) on all clients to have a consistent
 	// stop time for all oplogs.
-	if lastOplogTs > s.lastOplogTs {
-		s.lastOplogTs = lastOplogTs
+	if lastOplogTs > s.backupStatus.lastOplogTs {
+		s.backupStatus.lastOplogTs = lastOplogTs
 	}
 	return &pb.DBBackupFinishedAck{}, nil
 }
@@ -1010,12 +1014,12 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 func (s *MessagesServer) reset() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.lastOplogTs = 0
+	s.backupStatus.lastOplogTs = 0
 	s.backupStatus.backupRunning = false
 	s.backupStatus.oplogBackupRunning = false
 	s.restoreRunning = false
-	s.err = nil
 	s.backupStatus.lastBackupErrors = []error{}
+	s.err = nil
 }
 
 func (s *MessagesServer) setBackupRunning(status bool) {

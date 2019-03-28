@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/grpc-ecosystem/go-grpc-middleware/auth"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/logger"
@@ -137,7 +137,8 @@ func main() {
 	apiGrpcOpts := make([]grpc.ServerOption, len(grpcOpts))
 	copy(apiGrpcOpts, grpcOpts)
 	apiGrpcOpts = append(apiGrpcOpts,
-		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(buildAuth(opts.APIToken))))
+		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(buildAuth(opts.APIToken))),
+	)
 
 	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
 	apiServer := api.NewServer(messagesServer)
@@ -259,7 +260,7 @@ func checkWorkDir(dir string) error {
 		return os.MkdirAll(dir, os.ModePerm)
 	}
 	if !fi.IsDir() {
-		return fmt.Errorf("Cannot use %s for backups metadata. It is not a directory", dir)
+		return fmt.Errorf("cannot use %s for backups metadata. It is not a directory", dir)
 	}
 	return err
 }
