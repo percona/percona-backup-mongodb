@@ -9,13 +9,13 @@ option java_outer_classname = "ApiProto";
 package api;
 
 service Api {
-  rpc GetClients(Empty) returns (stream Client) {}
-  rpc RunBackup(RunBackupParams) returns (stream LastBackupError) {}
+  rpc RunBackup(RunBackupParams) returns (RunBackupResponse) {}
   rpc RunRestore(RunRestoreParams) returns (RunRestoreResponse) {}
   rpc LastBackupMetadata(LastBackupMetadataParams) returns (messages.BackupMetadata) {}
+  // Stream response
   rpc BackupsMetadata(BackupsMetadataParams) returns (stream MetadataFile) {}
+  rpc GetClients(Empty) returns (stream Client) {}
   rpc ListStorages(ListStoragesParams) returns (stream StorageInfo) {}
-  rpc LastBackupErrors(LastBackupErrorsParams) returns (stream LastBackupError) {}
 }
 
 enum BackupType {
@@ -46,6 +46,8 @@ message BackupsMetadataParams {}
 message LastBackupMetadataParams {}
 message ListStoragesParams {}
 message LastBackupErrorsParams {}
+message RunBackupResponse {}
+message RunRestoreResponse {}
 
 message Error {
     string message = 1;
@@ -105,10 +107,6 @@ message RunRestoreParams {
   string metadata_file        = 1;
   bool   skip_users_and_roles = 2;
   string storage_name         = 3;
-}
-
-message RunRestoreResponse {
-  string error = 1;
 }
 
 message BackupReplica {

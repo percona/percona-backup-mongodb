@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"strings"
 
 	"text/template"
 
@@ -56,7 +55,7 @@ const (
 	defaultServerAddress    = "127.0.0.1:10001"
 	defaultServerCompressor = "gzip"
 	defaultSkipUserAndRoles = true
-	defaultTlsEnabled       = false
+	defaultTLSEnabled       = false
 )
 
 type cliOptions struct {
@@ -314,25 +313,9 @@ func startBackup(ctx context.Context, apiClient pbapi.ApiClient, opts *cliOption
 		return fmt.Errorf("encryption is not implemented yet")
 	}
 
-	stream, err := apiClient.RunBackup(ctx, msg)
+	_, err := apiClient.RunBackup(ctx, msg)
 	if err != nil {
 		return err
-	}
-
-	errs := []string{}
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return errors.Wrap(err, "cannot get the list of backup errors from the stream")
-		}
-		errs = append(errs, msg.GetError())
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("%s", strings.Join(errs, "\n"))
 	}
 
 	return nil
@@ -436,7 +419,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		EnumVar(&opts.ServerCompressor, grpcCompressors...)
 
 	app.Flag("tls", "Connection uses TLS if true, else plain TCP").
-		Default(fmt.Sprintf("%v", defaultTlsEnabled)).
+		Default(fmt.Sprintf("%v", defaultTLSEnabled)).
 		BoolVar(&opts.TLS)
 
 	app.Flag("tls-ca-file", "The file containing the CA root cert file").
@@ -479,9 +462,12 @@ func makeUnaryInterceptor(token string) func(ctx context.Context, method string,
 	}
 }
 
-//func StreamInt(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn,
+	method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
+		streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+
 		md := metadata.Pairs("authorization", "bearer "+token)
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return streamer(ctx, desc, cc, method, opts...)

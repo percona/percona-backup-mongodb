@@ -1,7 +1,7 @@
 package writer
 
 import (
-	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,17 +18,14 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-var (
-	keepS3Data     bool
-	keepLocalFiles bool
-)
-
 func TestMain(m *testing.M) {
-	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
-	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
-	flag.Parse()
-
-	os.Exit(m.Run())
+	exitStatus := m.Run()
+	if os.Getenv("KEEP_DATA") == "" {
+		if err := testutils.CleanTempDirAndBucket(); err != nil {
+			fmt.Printf("Cannot clean up temp dir and/or buckets: %s", err)
+		}
+	}
+	os.Exit(exitStatus)
 }
 
 func TestWriteToLocalFs(t *testing.T) {
@@ -63,10 +60,12 @@ func TestWriteToLocalFs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot get storage %q: %s", storageName, err)
 	}
-	err = os.MkdirAll(localStg.Filesystem.Path, os.ModePerm)
-	defer os.RemoveAll(localStg.Filesystem.Path)
 
-	bw, err := NewBackupWriter(localStg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	bw, err := NewBackupWriter(localStg,
+		filename,
+		pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		pb.Cypher_CYPHER_NO_CYPHER,
+	)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -100,8 +99,7 @@ func TestUploadToS3(t *testing.T) {
 
 	mdbSession, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
-		t.Errorf("Cannot connect to MongoDB: %s", err)
-		t.Fail()
+		t.Fatalf("Cannot connect to MongoDB: %s", err)
 	}
 	defer mdbSession.Close()
 
@@ -117,28 +115,6 @@ func TestUploadToS3(t *testing.T) {
 
 	// Create S3 service client
 	svc := s3.New(sess)
-
-	exists, err := awsutils.BucketExists(svc, bucket)
-	if err != nil {
-		t.Fatalf("Cannot check if bucket exists %s: %s", bucket, err)
-	}
-	if !exists {
-		_, err = svc.CreateBucket(&s3.CreateBucketInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			t.Errorf("Unable to create bucket %q, %v", bucket, err)
-			t.Fail()
-		}
-
-		err = svc.WaitUntilBucketExists(&s3.HeadBucketInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			t.Errorf("Error while waiting the S3 bucket to be created: %s", err)
-			t.Fail()
-		}
-	}
 
 	if err := awsutils.EmptyBucket(svc, bucket); err != nil {
 		t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
@@ -156,7 +132,12 @@ func TestUploadToS3(t *testing.T) {
 		stopWriter <- true
 	}()
 
-	bw, err := NewBackupWriter(s3Stg, filename, pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION, pb.Cypher_CYPHER_NO_CYPHER)
+	bw, err := NewBackupWriter(
+		s3Stg,
+		filename,
+		pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		pb.Cypher_CYPHER_NO_CYPHER,
+	)
 	if err != nil {
 		t.Fatalf("cannot create a new backup writer: %s", err)
 	}
@@ -185,25 +166,6 @@ func TestUploadToS3(t *testing.T) {
 	if !fileExistsOnS3 {
 		t.Errorf("File %s doesn't exists on the %s S3 bucket", filename, bucket)
 		t.Fail()
-	}
-
-	if !keepS3Data {
-		if err := awsutils.EmptyBucket(svc, bucket); err != nil {
-			t.Fatalf("Cannot empty bucket %q: %s", bucket, err)
-		}
-		_, err = svc.DeleteBucket(&s3.DeleteBucketInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			t.Errorf("Unable to delete bucket %q, %v", bucket, err)
-		}
-
-		err = svc.WaitUntilBucketNotExists(&s3.HeadBucketInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			t.Errorf("Error occurred while waiting for bucket to be deleted, %s", bucket)
-		}
 	}
 }
 

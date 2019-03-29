@@ -286,7 +286,7 @@ func TestOverrideDefaultsFromCommandLine(t *testing.T) {
 	wantOpts := &cliOptions{
 		ServerAddress:    defaultServerAddress,
 		ServerCompressor: defaultServerCompressor,
-		TLS:              defaultTlsEnabled,
+		TLS:              defaultTLSEnabled,
 		TLSCAFile:        "",
 		backupType:       defaultBackupType,
 		description:      "'some description'",

@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -102,7 +104,8 @@ func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMeta
 
 // StartBackup starts a backup by calling server's StartBackup gRPC method
 // This call waits until the backup finish
-func (a *Server) RunBackup(opts *pbapi.RunBackupParams, stream pbapi.Api_RunBackupServer) error {
+func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.RunBackupResponse, error) {
+	var gerr error
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
@@ -117,75 +120,62 @@ func (a *Server) RunBackup(opts *pbapi.RunBackupParams, stream pbapi.Api_RunBack
 		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
+	a.logger.Info("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
-		return err
+		return nil, err
 	}
+	defer func() {
+		a.logger.Info("Starting the balancer")
+		if err := a.messagesServer.StartBalancer(); err != nil {
+			gerr = multierror.Append(gerr, err)
+		}
+	}()
 
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
-		return err
+		return nil, err
 	}
 	a.logger.Debug("Backup started")
 	a.logger.Debug("Waiting for backup to finish")
 
-	a.messagesServer.WaitBackupFinish()
-	a.logger.Debug("Stopping oplog")
-	err := a.messagesServer.StopOplogTail()
-	if err != nil {
-		a.logger.Fatalf("Cannot stop oplog tailer %s", err)
-		return err
+	if err := a.messagesServer.WaitBackupFinish(); err != nil {
+		gerr = multierror.Append(gerr, err)
 	}
+	a.logger.Info("Database dump completed")
+
+	a.logger.Debug("Stopping oplog")
+	if err := a.messagesServer.StopOplogTail(); err != nil {
+		gerr = multierror.Append(gerr, fmt.Errorf("cannot stop oplog tailer %s", err))
+		return nil, gerr
+	}
+
 	a.logger.Debug("Waiting oplog to finish")
-	a.messagesServer.WaitOplogBackupFinish()
-	a.logger.Debug("Oplog finished")
+	if err := a.messagesServer.WaitOplogBackupFinish(); err != nil {
+		gerr = multierror.Append(gerr, err)
+	}
+	a.logger.Info("Oplog finished")
 
 	mdFilename := msg.NamePrefix + ".json"
 
 	a.logger.Debugf("Writing metadata to %s", mdFilename)
 	if err := a.messagesServer.WriteBackupMetadata(mdFilename); err != nil {
-		return err
+		gerr = multierror.Append(gerr, fmt.Errorf("cannot write backup metadata: %s", err))
 	}
 
-	if err := a.messagesServer.StartBalancer(); err != nil {
-		return err
-	}
-
-	err = a.messagesServer.LastBackupErrors()
-	if err == nil {
-		return nil
-	}
-	m := &pbapi.LastBackupError{
-		Error: err.Error(),
-	}
-	if err := stream.Send(m); err != nil {
-		return errors.Wrap(err, "cannot stream last backup errors")
-	}
-
-	return nil
+	return nil, gerr
 }
 
 func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
-		return &pbapi.RunRestoreResponse{Error: err.Error()}, err
+		return nil, err
 	}
 
-	return &pbapi.RunRestoreResponse{}, nil
-}
-
-func (a *Server) LastBackupErrors(opts *pbapi.LastBackupErrorsParams, stream pbapi.Api_LastBackupErrorsServer) error {
-	err := a.messagesServer.LastBackupErrors()
-	if err == nil {
-		return nil
-	}
-	m := &pbapi.LastBackupError{
-		Error: err.Error(),
-	}
-	if err := stream.Send(m); err != nil {
-		return errors.Wrap(err, "cannot stream last backup errors")
+	if err := a.messagesServer.WaitRestoreFinish(); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {

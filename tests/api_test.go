@@ -37,8 +37,7 @@ func TestApiWithDaemon(t *testing.T) {
 		StorageName:     "local-filesystem",
 	}
 
-	stream := newMockBackupStream()
-	err = d.APIServer.RunBackup(msg, stream)
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Cannot start backup from API: %s", err)
 	}
@@ -143,8 +142,7 @@ func TestBackupFail(t *testing.T) {
 		StorageName:     "invalid-storage-name",
 	}
 
-	stream := newMockBackupStream()
-	err = d.APIServer.RunBackup(msg, stream)
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
 	if err == nil {
 		t.Error("Backup shouldn't start with an invalid storage")
 	}

@@ -655,28 +655,37 @@ func (s *MessagesServer) StopOplogTail() error {
 	return nil
 }
 
-func (s *MessagesServer) WaitBackupFinish() {
+func (s *MessagesServer) lastBackupErrors() error {
+	s.backupStatusLock.Lock()
+	defer s.backupStatusLock.Unlock()
+	return s.backupStatus.lastBackupErrors
+}
+
+func (s *MessagesServer) WaitBackupFinish() error {
 	replicasets := s.ReplicasetsRunningDBBackup()
 	if len(replicasets) == 0 {
-		return
+		return nil
 	}
 	<-s.dbBackupFinishChan
+	return s.lastBackupErrors()
 }
 
-func (s *MessagesServer) WaitOplogBackupFinish() {
+func (s *MessagesServer) WaitOplogBackupFinish() error {
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
-		return
+		return nil
 	}
 	<-s.oplogBackupFinishChan
+	return s.lastBackupErrors()
 }
 
-func (s *MessagesServer) WaitRestoreFinish() {
+func (s *MessagesServer) WaitRestoreFinish() error {
 	replicasets := s.ReplicasetsRunningRestore()
 	if len(replicasets) == 0 {
-		return
+		return nil
 	}
 	<-s.restoreFinishChan
+	return s.lastBackupErrors()
 }
 
 func (s *MessagesServer) WriteBackupMetadata(filename string) error {
