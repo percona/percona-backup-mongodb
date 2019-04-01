@@ -106,6 +106,10 @@ func (a *Server) LastBackupMetadata(ctx context.Context, e *pbapi.LastBackupMeta
 // This call waits until the backup finish
 func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*pbapi.RunBackupResponse, error) {
 	var gerr error
+	// response is an empty message because gRPC doesn't allow methods without a response message but we are
+	// only interested in the error
+	response := &pbapi.RunBackupResponse{}
+
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
@@ -122,7 +126,7 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	a.logger.Info("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
-		return nil, err
+		return response, err
 	}
 	defer func() {
 		a.logger.Info("Starting the balancer")
@@ -133,7 +137,7 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
-		return nil, err
+		return response, err
 	}
 	a.logger.Debug("Backup started")
 	a.logger.Debug("Waiting for backup to finish")
@@ -146,7 +150,7 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	a.logger.Debug("Stopping oplog")
 	if err := a.messagesServer.StopOplogTail(); err != nil {
 		gerr = multierror.Append(gerr, fmt.Errorf("cannot stop oplog tailer %s", err))
-		return nil, gerr
+		return response, gerr
 	}
 
 	a.logger.Debug("Waiting oplog to finish")
@@ -162,20 +166,23 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 		gerr = multierror.Append(gerr, fmt.Errorf("cannot write backup metadata: %s", err))
 	}
 
-	return nil, gerr
+	return response, gerr
 }
 
 func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
+	// response is an empty message because gRPC doesn't allow methods without a response message but we are
+	// only interested in the error
+	response := &pbapi.RunRestoreResponse{}
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
-		return nil, err
+		return response, err
 	}
 
 	if err := a.messagesServer.WaitRestoreFinish(); err != nil {
-		return nil, err
+		return response, err
 	}
 
-	return nil, nil
+	return response, nil
 }
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {

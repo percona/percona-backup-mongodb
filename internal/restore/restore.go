@@ -92,7 +92,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		NoOptionsRestore:         false,
 		NumInsertionWorkers:      20,
 		NumParallelCollections:   4,
-		StopOnError:              true,
+		StopOnError:              false,
 		TempRolesColl:            "temproles",
 		TempUsersColl:            "tempusers",
 		WriteConcern:             "majority",
