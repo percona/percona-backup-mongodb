@@ -727,7 +727,9 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	}
 
 	if !msg.GetOk() {
-		s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, errors.New(msg.GetError()))
+		if strings.TrimSpace(msg.GetError()) != "" {
+			s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, errors.New(msg.GetError()))
+		}
 	}
 
 	// Most probably, we are running the backup from a secondary, but we need the last oplog timestamp
@@ -855,7 +857,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	}
 	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
 	client.setRestoreRunning(false)
-	if msg.GetErr() != nil {
+	if msg.GetErr() != nil && msg.GetErr().GetMessage() != "" {
 		s.backupStatus.lastBackupErrors = multierror.Append(
 			s.backupStatus.lastBackupErrors,
 			fmt.Errorf(msg.GetErr().GetMessage()),
