@@ -1,0 +1,11 @@
+#!/bin/sh
+SOURCE_DIR=$1
+BUILD_ROOT=$2
+cd $SOURCE_DIR
+
+install -m 0755 -d $BUILD_ROOT/usr/bin
+install -m 0755 -d $BUILD_ROOT/lib/systemd/system
+install -m 0755 -d $BUILD_ROOT/etc
+install -m 0755 etc/pbm-coordinator.conf $BUILD_ROOT/etc
+install -m 0755 bin/pbm-coordinator $BUILD_ROOT/usr/bin
+install -m 0755 lib/systemd/system/pbm-coordinator.service $BUILD_ROOT/lib/systemd/system

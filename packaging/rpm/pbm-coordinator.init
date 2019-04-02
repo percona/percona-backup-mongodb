@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# pbm-coordinator - Startup script for pbm-coordinator
+
+# chkconfig: 35 85 15
+# processname: pbm-coordinator
+# config: /etc/pbm-coordinator.conf
+
+. /etc/rc.d/init.d/functions
+
+CONFIGFILE="/etc/pbm-coordinator.conf"
+OPTIONS="--config-file=$CONFIGFILE"
+USER=pbm
+GROUP=pbm
+pbm_coordinator=${PBM_coordinator:-/usr/bin/pbm-coordinator}
+
+start()
+{
+  echo -n $"Starting pbm-coordinator: "
+  daemon --user "$USER" --check ${pbm-coordinator} " $pbm-coordinator $OPTIONS > ${STDOUT} 2> ${STDERR}"
+  RETVAL=$?
+  echo
+  [ $RETVAL -eq 0 ] && touch /var/lock/subsys/pbm_coordinator
+}
+
+stop()
+{
+  echo -n $"Stopping pbm-coordinator: "
+  pbm_coordinator_killproc $pbm_coordinator
+  RETVAL=$?
+  echo
+  [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/pbm-coordinator
+}
+
+restart () {
+	stop
+	start
+}
+
+pbm_coordinator_killproc()
+{
+  local procname=$1
+  local -i delay=300
+  local -i duration=10
+  local pid=`pidof ${procname}`
+
+  kill -TERM $pid >/dev/null 2>&1
+  usleep 100000
+  local -i x=0
+  while [ $x -le $delay ] && checkpid $pid; do
+    sleep $duration
+    x=$(( $x + $duration))
+  done
+
+  kill -KILL $pid >/dev/null 2>&1
+  usleep 100000
+
+  checkpid $pid
+  local RC=$?
+  [ "$RC" -eq 0 ] && failure "${procname} shutdown" || success "${procname} shutdown"
+  RC=$((! $RC))
+  return $RC
+}
+
+RETVAL=0
+
+case "$1" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart|reload|force-reload)
+    restart
+    ;;
+  condrestart)
+    [ -f /var/lock/subsys/pbm-coordinator ] && restart || :
+    ;;
+  status)
+    status $pbm_coordinator
+    RETVAL=$?
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|status|restart|reload|force-reload|condrestart}"
+    RETVAL=1
+esac
+
+exit $RETVAL

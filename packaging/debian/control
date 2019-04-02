@@ -5,6 +5,14 @@ Maintainer: Percona LLC
 Version: %{version}
 Homepage: https://percona.com
 
-Package: percona-backup-mongodb
+Package: percona-backup-mongodb-agent
 Architecture: amd64
-Description: MongoDB backup tool
+Description: MongoDB backup Agents are in charge of receiving commands from the coordinator and run them. The agent must run locally (connected to 'localhost') on every MongoDB instance (mongos and config servers included) in order to collect information about the instance and forward it to the coordinator. With that information, the coordinator can determine the best agent to start a backup or restore, to start/stop the balancer, etc.
+
+Package: percona-backup-mongodb-coordinator
+Architecture: amd64
+Description: The MongoDB backup coordinator is a daemon that handles communication with backup agents and the backup control program
+
+Package: percona-backup-mongodb-pbmctl
+Architecture: amd64
+Description: MongoDB backup command line utility to send commands to the coordinator
