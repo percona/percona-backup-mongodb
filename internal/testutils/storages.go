@@ -104,7 +104,7 @@ func createTempBucket(stg storage.S3) error {
 
 func RandomBucket() string {
 	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("pbm-test-bucket-%05d", 99999)
+	return fmt.Sprintf("pbm-test-bucket-%04d", rand.Int63n(10000))
 }
 
 func CleanTempDirAndBucket() error {

@@ -17,11 +17,8 @@ import (
 // imports proto/api so if we try to use the daemon from the api package we would end up having
 // cycling imports.
 func TestApiWithDaemon(t *testing.T) {
-	tmpDir := filepath.Join(os.TempDir(), "dump_test") // same dir we have in testutils.TestingStorages()
-	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
-		t.Fatalf("Cannot create temp dir %q for backup: %s", tmpDir, err)
-	}
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	defer cleanupTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -40,8 +37,7 @@ func TestApiWithDaemon(t *testing.T) {
 		StorageName:     "local-filesystem",
 	}
 
-	stream := newMockBackupStream()
-	err = d.APIServer.RunBackup(msg, stream)
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Cannot start backup from API: %s", err)
 	}
@@ -146,8 +142,7 @@ func TestBackupFail(t *testing.T) {
 		StorageName:     "invalid-storage-name",
 	}
 
-	stream := newMockBackupStream()
-	err = d.APIServer.RunBackup(msg, stream)
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
 	if err == nil {
 		t.Error("Backup shouldn't start with an invalid storage")
 	}

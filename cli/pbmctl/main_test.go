@@ -103,7 +103,7 @@ func TestListAgents(t *testing.T) {
 			NodeName:       "127.0.0.1:17007",
 			ReplicasetName: "csReplSet",
 		},
-		&api.Client{
+		{
 			Version:        0,
 			Id:             "127.0.0.1:17000",
 			NodeType:       "NODE_TYPE_MONGOS",
@@ -273,7 +273,11 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestOverrideDefaultsFromCommandLine(t *testing.T) {
-	cmd, opts, err := processCliArgs([]string{"run", "backup", "--description", "'some description'"})
+	cmd, opts, err := processCliArgs([]string{
+		"run", "backup",
+		"--description", "'some description'",
+		"--storage", "local-filesystem",
+	})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -282,10 +286,11 @@ func TestOverrideDefaultsFromCommandLine(t *testing.T) {
 	wantOpts := &cliOptions{
 		ServerAddress:    defaultServerAddress,
 		ServerCompressor: defaultServerCompressor,
-		TLS:              defaultTlsEnabled,
+		TLS:              defaultTLSEnabled,
 		TLSCAFile:        "",
 		backupType:       defaultBackupType,
 		description:      "'some description'",
+		storageName:      "local-filesystem",
 		destinationType:  defaultDestinationType,
 	}
 
@@ -480,4 +485,5 @@ func nilOpts(opts *cliOptions) {
 	opts.list = nil
 	opts.listNodes = nil
 	opts.listBackups = nil
+	opts.listStorages = nil
 }

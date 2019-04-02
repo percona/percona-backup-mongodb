@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -14,12 +15,32 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	dbName = "test001"
+	col1   = "col1"
+	col2   = "col2"
+)
+
+func TestMain(m *testing.M) {
+	exitStatus := m.Run()
+	if os.Getenv("KEEP_DATA") == "" {
+		if err := testutils.CleanTempDirAndBucket(); err != nil {
+			fmt.Printf("Cannot clean up directory and bucket: %s", err)
+		}
+	}
+	os.Exit(exitStatus)
+}
+
 func TestValidateFilesystemStorage(t *testing.T) {
 	input, err := buildInputParams()
 	if err != nil {
 		t.Fatalf("Cannot build agent's input params: %s", err)
 	}
 	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot create a new client: %s", err)
+	}
+
 	msg := &pb.GetStorageInfo{
 		StorageName: "local-filesystem",
 	}
@@ -62,6 +83,10 @@ func TestValidateS3Storage(t *testing.T) {
 		t.Fatalf("Cannot build agent's input params: %s", err)
 	}
 	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot create a client: %s", err)
+	}
+
 	msg := &pb.GetStorageInfo{
 		StorageName: "s3-us-west",
 	}
@@ -101,152 +126,18 @@ func TestValidateS3Storage(t *testing.T) {
 }
 
 func TestFsBackupAndRestore(t *testing.T) {
-	dbName := "test001"
-	col1 := "col1"
-	col2 := "col2"
-	ndocs := 100000
-	bulkSize := 5000
-
-	input, err := buildInputParams()
-	if err != nil {
-		t.Fatalf("Cannot build agent's input params: %s", err)
-	}
-
-	c, err := NewClient(context.TODO(), input)
-	if err != nil {
-		t.Fatalf("Cannot get S3 storage: %s", err)
-	}
-	c.dbConnect()
-
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
-	if err != nil {
-		log.Fatalf("Cannot connect to the DB: %s", err)
-	}
-
-	session.SetMode(mgo.Strong, true)
-	session.DB(dbName).C(col1).DropCollection()
-	session.DB(dbName).C(col2).DropCollection()
-
-	generateDataToBackup(t, c.mdbSession, dbName, col1, ndocs, bulkSize)
-	generateDataToBackup(t, c.mdbSession, dbName, col2, ndocs, bulkSize)
-
-	msg := &pb.StartBackup{
-		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DbBackupName:    "0001.dump",
-		OplogBackupName: "",
-		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
-		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
-		OplogStartTime:  0,
-		Description:     "test001",
-		StorageName:     "local-filesystem",
-	}
-
-	err = c.runDBBackup(msg)
-	if err != nil {
-		t.Errorf("Cannot process restore from s3: %s", err)
-	}
-
-	rmsg := &pb.RestoreBackup{
-		MongodbHost: "127.0.0.1",
-		BackupType:  pb.BackupType_BACKUP_TYPE_LOGICAL,
-		//SourceBucket
-		DbSourceName:      "0001.dump",
-		OplogSourceName:   "",
-		CompressionType:   pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
-		Cypher:            pb.Cypher_CYPHER_NO_CYPHER,
-		OplogStartTime:    0,
-		SkipUsersAndRoles: true,
-		Host:              "127.0.0.1",
-		Port:              "17001",
-		StorageName:       "local-filesystem",
-	}
-
-	err = c.restoreDBDump(rmsg)
-	if err != nil {
-		t.Errorf("Cannot process restore from s3: %s", err)
-	}
-
-	if err := testutils.CleanTempDirAndBucket(); err != nil {
-		t.Errorf("Cannot clean up directory and bucket: %s", err)
-	}
+	testBackupAndRestore(t, "local-filesystem")
 }
 
 func TestMinioBackupAndRestore(t *testing.T) {
-	dbName := "test001"
-	col1 := "col1"
-	col2 := "col2"
-	ndocs := 100000
-	bulkSize := 5000
-
-	input, err := buildInputParams()
-	if err != nil {
-		t.Fatalf("Cannot build agent's input params: %s", err)
-	}
-
-	c, err := NewClient(context.TODO(), input)
-	if err != nil {
-		t.Fatalf("Cannot get S3 storage: %s", err)
-	}
-	c.dbConnect()
-
-	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
-	if err != nil {
-		log.Fatalf("Cannot connect to the DB: %s", err)
-	}
-
-	session.SetMode(mgo.Strong, true)
-	session.DB(dbName).C(col1).DropCollection()
-	session.DB(dbName).C(col2).DropCollection()
-
-	generateDataToBackup(t, c.mdbSession, dbName, col1, ndocs, bulkSize)
-	generateDataToBackup(t, c.mdbSession, dbName, col2, ndocs, bulkSize)
-
-	msg := &pb.StartBackup{
-		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		NamePrefix:      "backup_test_",
-		DbBackupName:    "0001.dump",
-		OplogBackupName: "",
-		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
-		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
-		OplogStartTime:  0,
-		Description:     "test001",
-		StorageName:     "minio",
-	}
-
-	err = c.runDBBackup(msg)
-	if err != nil {
-		t.Errorf("Cannot process restore from s3: %s", err)
-	}
-
-	rmsg := &pb.RestoreBackup{
-		MongodbHost: "127.0.0.1",
-		BackupType:  pb.BackupType_BACKUP_TYPE_LOGICAL,
-		//SourceBucket
-		DbSourceName:      "0001.dump",
-		OplogSourceName:   "",
-		CompressionType:   pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
-		Cypher:            pb.Cypher_CYPHER_NO_CYPHER,
-		OplogStartTime:    0,
-		SkipUsersAndRoles: true,
-		Host:              "127.0.0.1",
-		Port:              "17001",
-		StorageName:       "minio",
-	}
-
-	err = c.restoreDBDump(rmsg)
-	if err != nil {
-		t.Errorf("Cannot process restore from s3: %s", err)
-	}
-
-	if err := testutils.CleanTempDirAndBucket(); err != nil {
-		t.Errorf("Cannot clean up directory and bucket: %s", err)
-	}
+	testBackupAndRestore(t, "minio")
 }
 
 func TestS3sBackupAndRestore(t *testing.T) {
-	dbName := "test001"
-	col1 := "col1"
-	col2 := "col2"
+	testBackupAndRestore(t, "s3-us-west")
+}
+
+func testBackupAndRestore(t *testing.T, storage string) {
 	ndocs := 100000
 	bulkSize := 5000
 
@@ -259,7 +150,9 @@ func TestS3sBackupAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot get S3 storage: %s", err)
 	}
-	c.dbConnect()
+	if err := c.dbConnect(); err != nil {
+		t.Fatalf("Cannot connect to the db: %s", err)
+	}
 
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
@@ -267,22 +160,20 @@ func TestS3sBackupAndRestore(t *testing.T) {
 	}
 
 	session.SetMode(mgo.Strong, true)
-	session.DB(dbName).C(col1).DropCollection()
-	session.DB(dbName).C(col2).DropCollection()
 
 	generateDataToBackup(t, c.mdbSession, dbName, col1, ndocs, bulkSize)
 	generateDataToBackup(t, c.mdbSession, dbName, col2, ndocs, bulkSize)
+	defer dropCollections(t, c.mdbSession, dbName, col1, col2)
 
 	msg := &pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-		NamePrefix:      "backup_test_",
 		DbBackupName:    "0001.dump",
 		OplogBackupName: "",
 		CompressionType: pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
 		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 		OplogStartTime:  0,
 		Description:     "test001",
-		StorageName:     "s3-us-west",
+		StorageName:     storage,
 	}
 
 	err = c.runDBBackup(msg)
@@ -302,7 +193,7 @@ func TestS3sBackupAndRestore(t *testing.T) {
 		SkipUsersAndRoles: true,
 		Host:              "127.0.0.1",
 		Port:              "17001",
-		StorageName:       "s3-us-west",
+		StorageName:       storage,
 	}
 
 	err = c.restoreDBDump(rmsg)
@@ -310,9 +201,6 @@ func TestS3sBackupAndRestore(t *testing.T) {
 		t.Errorf("Cannot process restore from s3: %s", err)
 	}
 
-	if err := testutils.CleanTempDirAndBucket(); err != nil {
-		t.Errorf("Cannot clean up directory and bucket: %s", err)
-	}
 }
 
 func buildInputParams() (InputOptions, error) {
@@ -347,9 +235,10 @@ func buildInputParams() (InputOptions, error) {
 
 func generateDataToBackup(t *testing.T, session *mgo.Session, dbName string, colName string, ndocs, bulkSize int) {
 	// Don't check for error because the collection might not exist.
-	session.DB(dbName).C(colName).DropCollection()
-	session.DB(dbName).C(colName).EnsureIndexKey("number")
-	session.Refresh()
+	dropCollections(t, session, dbName, colName)
+	if err := session.DB(dbName).C(colName).EnsureIndexKey("number"); err != nil {
+		t.Logf("Cannot ensure index 'number' in collection %s.%s: %s", dbName, colName, err)
+	}
 
 	number := 0
 	for i := 0; i < ndocs/bulkSize; i++ {
@@ -365,4 +254,22 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, dbName string, col
 			t.Fatalf("Cannot insert data to back up: %s", err)
 		}
 	}
+}
+
+func dropCollections(t *testing.T, session *mgo.Session, dbName string, cols ...string) {
+	colsInDB, err := session.DB(dbName).CollectionNames()
+	if err != nil {
+		t.Errorf("Cannot get the collections list in %q db", dbName)
+		return
+	}
+	for _, colToDelete := range cols {
+		for _, col := range colsInDB {
+			if col == colToDelete {
+				if err := session.DB(dbName).C(colToDelete).DropCollection(); err != nil {
+					t.Logf("Cannot drop collection %s.%s: %s", dbName, colToDelete, err)
+				}
+			}
+		}
+	}
+	session.Refresh()
 }

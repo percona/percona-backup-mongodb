@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,39 +14,17 @@ import (
 	// "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	// "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	"github.com/kr/pretty"
+	"github.com/percona/percona-backup-mongodb/grpc/api"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/utils"
+	apipb "github.com/percona/percona-backup-mongodb/proto/api"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	yaml "gopkg.in/yaml.v2"
 )
-
-// basicAuthCreds is an implementation of credentials.PerRPCCredentials
-// that transforms the username and password into a base64 encoded value similar
-// to HTTP Basic xxx
-type basicAuthCreds struct {
-	username, password string
-}
-
-// GetRequestMetadata sets the value for "authorization" key
-func (b *basicAuthCreds) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
-	return map[string]string{
-		"authorization": "Basic " + basicAuth(b.username, b.password),
-	}, nil
-}
-
-// RequireTransportSecurity should be true as even though the credentials are base64, we want to have it encrypted over the wire.
-func (b *basicAuthCreds) RequireTransportSecurity() bool {
-	return true
-}
-
-//helper function
-func basicAuth(username, password string) string {
-	auth := username + ":" + password
-	return base64.StdEncoding.EncodeToString([]byte(auth))
-}
 
 func TestDefaults(t *testing.T) {
 	opts, err := processCliParams([]string{})
@@ -126,7 +103,7 @@ func TestOverrideDefaultsFromConfigFile(t *testing.T) {
 		Debug:                defaultDebugMode,
 		WorkDir:              os.TempDir(),
 	}
-	b, err := yaml.Marshal(wantOpts)
+	b, _ := yaml.Marshal(wantOpts)
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
@@ -162,7 +139,7 @@ func TestConfigfileEnvPrecedenceOverEnvVars(t *testing.T) {
 		Debug:                defaultDebugMode,
 		WorkDir:              os.TempDir(),
 	}
-	b, err := yaml.Marshal(wantOpts)
+	b, _ := yaml.Marshal(wantOpts)
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
@@ -221,7 +198,7 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 		Debug:                defaultDebugMode,
 		WorkDir:              os.TempDir(),
 	}
-	b, err := yaml.Marshal(wantOpts)
+	b, _ := yaml.Marshal(wantOpts)
 
 	if _, err := tmpfile.Write(b); err != nil {
 		log.Fatal(err)
@@ -231,7 +208,11 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 	}
 
 	wantOpts.APIPort = 12345
-	opts, err := processCliParams([]string{"--config-file", tmpfile.Name(), "--work-dir", os.TempDir(), "--api-port", "12345"})
+	opts, err := processCliParams([]string{
+		"--config-file", tmpfile.Name(),
+		"--work-dir", os.TempDir(),
+		"--api-port", "12345",
+	})
 	opts.configFile = "" // It is not exported so, it doesn't exists in the config file
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
@@ -253,24 +234,23 @@ func TestAuth(t *testing.T) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	messagesServer := server.NewMessagesServer(os.TempDir(), 1, nil)
+	messagesServer := server.NewMessagesServer(os.TempDir())
 
 	validToken := "test-token"
 	invalidToken := validToken + "some-extra-string"
 
-	validateToken = func(token string) bool {
-		fmt.Printf("Token: %s\n", token)
-		if token == validToken {
-			return true
-		}
-		return false
-	}
+	apiGrpcOpts := []grpc.ServerOption{}
+	apiGrpcOpts = append(apiGrpcOpts,
+		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(buildAuth(validToken))),
+		grpc.UnaryInterceptor(grpc_auth.UnaryServerInterceptor(buildAuth(validToken))),
+	)
 
-	grpcServerOpts := []grpc.ServerOption{}
+	apiServer := api.NewServer(messagesServer)
+	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
+	apipb.RegisterApiServer(apiGrpcServer, apiServer)
 
-	apiServer := makeApiServer(grpcServerOpts, messagesServer)
-
-	runAgentsGRPCServer(apiServer, apilis, 1, stopChan, wg)
+	wg.Add(1)
+	runAgentsGRPCServer(apiGrpcServer, apilis, 1, stopChan, wg)
 
 	/*
 		Test with an invalid token / client interceptor
@@ -290,16 +270,18 @@ func TestAuth(t *testing.T) {
 	ctx := context.Background()
 
 	apiClient := pbapi.NewApiClient(clientConn)
-	_, err = apiClient.LastBackupMetadata(ctx, &pbapi.LastBackupMetadataParams{})
-	if err == nil {
-		t.Errorf("Auth should have failled. Got ok instead")
+	if _, err := apiClient.LastBackupMetadata(ctx, &pbapi.LastBackupMetadataParams{}); err == nil {
+		t.Errorf("Auth should have failled for unary interceptor. Got ok instead")
 	}
-	fmt.Printf("err lastbackupmetadata: %v\n", err)
 
-	_, err1 := apiClient.GetClients(ctx, &pbapi.Empty{})
-	fmt.Printf("err getclients: %v\n", err1)
-	if err1 == nil {
-		t.Errorf("Auth should have failled. Got ok instead")
+	stream, err := apiClient.GetClients(ctx, &pbapi.Empty{})
+	if err != nil {
+		t.Errorf("Stream connection shouldn't fail")
+	}
+	if _, err := stream.Recv(); err == nil {
+		t.Errorf("Auth should have failled for stream interceptor(2). Got ok instead")
+	} else if err == io.EOF {
+		t.Errorf("Auth should have failled for stream interceptor(3). Got io.EOF instead")
 	}
 
 	clientConn.Close()
@@ -327,7 +309,17 @@ func TestAuth(t *testing.T) {
 		t.Errorf("Auth should be valid. Got error: %s", err)
 	}
 
+	stream, err = apiClient.GetClients(ctx, &pbapi.Empty{})
+	if err != nil {
+		t.Errorf("Stream connection shouldn't fail")
+	}
+	if _, err := stream.Recv(); err != nil && err != io.EOF {
+		t.Errorf("Stream auth shouldn't fail with a valid token. Got: %s", err)
+	}
+
 	clientConn.Close()
+	stopChan <- true
+	wg.Wait()
 }
 
 func TestAuthStream(t *testing.T) {
@@ -339,23 +331,22 @@ func TestAuthStream(t *testing.T) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	messagesServer := server.NewMessagesServer(os.TempDir(), 1, nil)
+	messagesServer := server.NewMessagesServer(os.TempDir())
 
-	validToken := "test-token"
-	invalidToken := validToken + "some-extra-string"
+	invalidToken := "invalid-token"
+	validToken := "valid-token"
 
-	validateToken = func(token string) bool {
-		if token == validToken {
-			return true
-		}
-		return false
-	}
+	apiGrpcOpts := []grpc.ServerOption{}
+	apiGrpcOpts = append(apiGrpcOpts,
+		grpc.StreamInterceptor(grpc_auth.StreamServerInterceptor(buildAuth(validToken))),
+	)
 
-	grpcServerOpts := []grpc.ServerOption{}
+	apiServer := api.NewServer(messagesServer)
+	apiGrpcServer := grpc.NewServer(apiGrpcOpts...)
+	apipb.RegisterApiServer(apiGrpcServer, apiServer)
 
-	apiServer := makeApiServer(grpcServerOpts, messagesServer)
-
-	runAgentsGRPCServer(apiServer, apilis, 1, stopChan, wg)
+	wg.Add(1)
+	runAgentsGRPCServer(apiGrpcServer, apilis, 1, stopChan, wg)
 
 	/*
 		Test with an invalid token / client interceptor
@@ -411,6 +402,9 @@ func TestAuthStream(t *testing.T) {
 	}
 
 	clientConn.Close()
+
+	stopChan <- true
+	wg.Wait()
 }
 
 func makeUnaryInterceptor(token string) func(ctx context.Context, method string, req interface{}, reply interface{},
@@ -424,9 +418,10 @@ func makeUnaryInterceptor(token string) func(ctx context.Context, method string,
 	}
 }
 
-//func StreamInt(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn,
+	method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
+		streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		md := metadata.Pairs("authorization", "bearer "+token)
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return streamer(ctx, desc, cc, method, opts...)
