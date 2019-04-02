@@ -19,7 +19,7 @@ Usage: $0 [OPTIONS]
         --branch            Branch for build
         --repo              Repo for build
         --version           Version to build
-        
+
         --help) usage ;;
 Example $0 --builddir=/tmp/percona-backup-mongodb --get_sources=1 --build_src_rpm=1 --build_rpm=1
 EOF
@@ -37,7 +37,7 @@ parse_arguments() {
         pick_args=1
         shift
     fi
-  
+
     for arg do
         val=$(echo "$arg" | sed -e 's;^--[^=]*=;;')
         case "$arg" in
@@ -52,7 +52,7 @@ parse_arguments() {
             --repo=*) REPO="$val" ;;
             --version=*) VERSION="$val" ;;
             --install_deps=*) INSTALL="$val" ;;
-            --help) usage ;;      
+            --help) usage ;;
             *)
               if test -n "$pick_args"
               then
@@ -131,6 +131,8 @@ get_sources(){
         git checkout "$BRANCH"
     fi
     REVISION=$(git rev-parse --short HEAD)
+    echo "VERSION=${VERSION}" > VERSION
+    echo "REVISION=${REVISION}" >> VERSION
     echo "REVISION=${REVISION}" >> ${WORKDIR}/percona-backup-mongodb.properties
     rm -fr debian rpm
     cd ${WORKDIR}
@@ -267,12 +269,14 @@ build_srpm(){
     ls | grep -v tar.gz | xargs rm -rf
     TARFILE=$(find . -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1)
     SRC_DIR=${TARFILE%.tar.gz}
-    #
     mkdir -vp rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
     tar vxzf ${WORKDIR}/${TARFILE} --wildcards '*/packaging' --strip=1
+    tar vxzf ${WORKDIR}/${TARFILE} --wildcards '*/VERSION' --strip=1
+    source VERSION
     #
     sed -e "s:@@VERSION@@:${VERSION}:g" \
         -e "s:@@RELEASE@@:${RELEASE}:g" \
+        -e "s:@@REVISION@@:${REVISION}:g" \
     packaging/rpm/mongodb-backup.spec > rpmbuild/SPECS/mongodb-backup.spec
     mv -fv ${TARFILE} ${WORKDIR}/rpmbuild/SOURCES
     rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "version ${VERSION}" --define "dist .generic" rpmbuild/SPECS/mongodb-backup.spec
@@ -313,7 +317,7 @@ build_rpm(){
     rm -fr rpmbuild
     mkdir -vp rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
     cp $SRC_RPM rpmbuild/SRPMS/
-    
+
     RHEL=$(rpm --eval %rhel)
     ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
 
@@ -355,7 +359,7 @@ build_source_deb(){
     TARFILE=$(basename $(find . -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
     DEBIAN=$(lsb_release -sc)
     ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-    tar zxf ${TARFILE} 
+    tar zxf ${TARFILE}
     BUILDDIR=${TARFILE%.tar.gz}
     #
     rm -fr ${BUILDDIR}/debian
@@ -363,7 +367,10 @@ build_source_deb(){
     #
     mv ${TARFILE} ${PRODUCT}_${VERSION}.orig.tar.gz
     cd ${BUILDDIR}
+    source VERSION
     cp -r packaging/debian ./
+    sed -i "s:@@VERSION@@:${VERSION}:g" debian/rules
+    sed -i "s:@@REVISION@@:${REVISION}:g" debian/rules
     dch -D unstable --force-distribution -v "${VERSION}-${RELEASE}" "Update to new MongoDB-Backup version ${VERSION}"
     dpkg-buildpackage -S
     cd ../
@@ -392,7 +399,7 @@ build_deb(){
         echo "It is not possible to build source deb here"
         exit 1
     fi
-    for file in 'dsc' 'orig.tar.gz' 'changes' 'diff.gz' 
+    for file in 'dsc' 'orig.tar.gz' 'changes' 'diff.gz'
     do
         get_deb_sources $file
     done
@@ -411,13 +418,17 @@ build_deb(){
     dpkg-source -x ${DSC}
     #
     cd ${PRODUCT}-${VERSION}
-    
+    source VERSION
+    sed -i "s:@@VERSION@@:${VERSION}:g" debian/rules
+    sed -i "s:@@REVISION@@:${REVISION}:g" debian/rules
+
     dch -m -D "${DEBIAN}" --force-distribution -v "${VERSION}-${RELEASE}.${DEBIAN}" 'Update distribution'
 
     export PATH=/usr/local/go/bin:${PATH}
     export GOROOT="/usr/local/go/"
     export GOPATH=$(pwd)/build
     export PATH="/usr/local/go/bin:$PATH:$GOPATH"
+    export GO_BUILD_LDFLAGS="-w -s -X main.version=${VERSION} -X main.commit=${REVISION}"
     export GOBINPATH="/usr/local/go/bin"
 
     dpkg-buildpackage -rfakeroot -us -uc -b
@@ -462,12 +473,12 @@ build_tarball(){
     export GOPATH=${PWD}/build
     export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
     export GOBINPATH="/usr/local/go/bin"
-    cd build/src/github.com/percona/percona-backup-mongodb && pwd && make
+    cd build/src/github.com/percona/percona-backup-mongodb && pwd && source VERSION && export GO_BUILD_LDFLAGS="-w -s -X main.version=$VERSION -X main.commit=$REVISION" && make
     cp pbmctl ${WORKDIR}/${PSMDIR}/
     cp pbm-agent ${WORKDIR}/${PSMDIR}/
     cp pbm-coordinator ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
-    
+
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}
     DIRNAME="tarball"
     mkdir -p ${WORKDIR}/${DIRNAME}
