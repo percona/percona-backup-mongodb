@@ -26,6 +26,7 @@ export GOROOT="/usr/local/go/"
 export GOPATH=$(pwd)/
 export PATH="/usr/local/go/bin:$PATH:$GOPATH"
 export GOBINPATH="/usr/local/go/bin"
+export GO_BUILD_LDFLAGS="-w -s -X main.version=@@VERSION@@ -X main.commit=@@REVISION@@"
 mkdir -p src/github.com/percona/
 mv percona-backup-mongodb-%{version} src/github.com/percona/percona-backup-mongodb
 ln -s src/github.com/percona/percona-backup-mongodb percona-backup-mongodb-%{version}
