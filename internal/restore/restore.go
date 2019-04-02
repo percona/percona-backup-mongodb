@@ -20,14 +20,22 @@ const (
 )
 
 type MongoRestoreInput struct {
-	Archive           string
-	Host              string
-	Port              string
-	Username          string
-	Password          string
-	AuthDB            string
-	Threads           int
-	DryRun            bool // Used only for testing
+	Archive  string
+	Host     string
+	Port     string
+	Username string
+	Password string
+	AuthDB   string
+	Threads  int
+	DryRun   bool // Used only for testing
+	// There is an error in MongoDB/MongoRestore when trying to restore the config servers.
+	// Mongo Restore throws:  cannot drop config.version document while in --configsvr mode"
+	// See: https://jira.mongodb.org/browse/SERVER-28796
+	DropCollections bool
+	// This field is not StopOnError as we should send it to MongoRestore, because the default
+	// we want is true so, just to prevent forgetting setting it on the struct, we are going to
+	// use the opposite.
+	IgnoreErrors      bool
 	Gzip              bool
 	Oplog             bool
 	SkipUsersAndRoles bool
@@ -85,14 +93,14 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 	outputOpts := &mongorestore.OutputOptions{
 		BulkBufferSize:           2000,
 		BypassDocumentValidation: true,
-		Drop:                     true,
+		Drop:                     i.DropCollections,
 		DryRun:                   false,
 		KeepIndexVersion:         false,
 		NoIndexRestore:           false,
 		NoOptionsRestore:         false,
 		NumInsertionWorkers:      20,
 		NumParallelCollections:   4,
-		StopOnError:              true,
+		StopOnError:              !i.IgnoreErrors,
 		TempRolesColl:            "temproles",
 		TempUsersColl:            "tempusers",
 		WriteConcern:             "majority",

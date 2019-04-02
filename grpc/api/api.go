@@ -166,16 +166,17 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 }
 
 func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (*pbapi.RunRestoreResponse, error) {
+	response := &pbapi.RunRestoreResponse{}
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
-		return nil, err
+		return response, err
 	}
 
 	if err := a.messagesServer.WaitRestoreFinish(); err != nil {
-		return nil, err
+		return response, err
 	}
 
-	return nil, nil
+	return response, nil
 }
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {

@@ -44,10 +44,11 @@ type Client struct {
 
 	replicasetName string
 	replicasetID   string
-	nodeType       pb.NodeType
 	nodeName       string
 	clusterID      string
 	backupDir      string
+	nodeType       pb.NodeType
+	running        bool
 
 	mdbSession  *mgo.Session
 	mgoDI       *mgo.DialInfo
@@ -63,10 +64,9 @@ type Client struct {
 	grpcClient      pb.MessagesClient
 	dbReconnectChan chan struct{}
 	//
-	lock    *sync.Mutex
-	running bool
-	status  pb.Status
-	//
+	status pb.Status
+	lock   *sync.Mutex
+
 	streamLock *sync.Mutex
 	stream     pb.Messages_MessagesChatClient
 }
@@ -86,11 +86,11 @@ type ConnectionOptions struct {
 
 // Struct holding ssl-related options
 type SSLOptions struct {
-	UseSSL              bool   `yaml:"use_ssl,omitempty"`
 	SSLCAFile           string `yaml:"sslca_file,omitempty"`
 	SSLPEMKeyFile       string `yaml:"sslpem_key_file,omitempty"`
 	SSLPEMKeyPassword   string `yaml:"sslpem_key_password,omitempty"`
 	SSLCRLFile          string `yaml:"sslcrl_file,omitempty"`
+	UseSSL              bool   `yaml:"use_ssl,omitempty"`
 	SSLAllowInvalidCert bool   `yaml:"ssl_allow_invalid_cert,omitempty"`
 	SSLAllowInvalidHost bool   `yaml:"ssl_allow_invalid_host,omitempty"`
 	SSLFipsMode         bool   `yaml:"ssl_fips_mode,omitempty"`
@@ -830,16 +830,18 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		return err
 	}
 
-	c.lock.Lock()
-	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
-	c.lock.Unlock()
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		c.lock.Lock()
+		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
+		c.lock.Unlock()
 
-	if err := c.restoreOplog(msg); err != nil {
-		err := errors.Wrapf(err, "cannot restore Oplog backup file %s", msg.GetOplogSourceName())
-		if err1 := c.sendRestoreComplete(err); err1 != nil {
-			err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
+		if err := c.restoreOplog(msg); err != nil {
+			err := errors.Wrapf(err, "cannot restore Oplog backup file %s", msg.GetOplogSourceName())
+			if err1 := c.sendRestoreComplete(err); err1 != nil {
+				err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
+			}
+			return err
 		}
-		return err
 	}
 
 	if err := c.sendRestoreComplete(nil); err != nil {
@@ -1318,17 +1320,28 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// 2. Use different compression algorithms.
 	// 3. Read from encrypted backups.
 	// That's why we are providing our own reader to MongoRestore
+	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		ignoreCols := map[string][]string{
+			"admin": {"system.users"},
+		}
+		if err := c.cleanupConfigSrvDatabases(ignoreCols); err != nil {
+			log.Warnf("Cannot clean up collections in the config server: %s", err)
+		}
+	}
+
 	input := &restore.MongoRestoreInput{
-		Archive:  "-",
-		DryRun:   false,
-		Host:     msg.Host,
-		Port:     msg.Port,
-		Username: c.connOpts.User,
-		Password: c.connOpts.Password,
-		Gzip:     false,
-		Oplog:    false,
-		Threads:  10,
-		Reader:   rdr,
+		Archive:         "-",
+		DryRun:          false,
+		Host:            msg.Host,
+		Port:            msg.Port,
+		Username:        c.connOpts.User,
+		Password:        c.connOpts.Password,
+		DropCollections: c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
+		IgnoreErrors:    c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
+		Gzip:            false,
+		Oplog:           false,
+		Threads:         10,
+		Reader:          rdr,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.
@@ -1348,7 +1361,50 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "error while trying to restore")
 	}
 
+	// clean up the config.mongos collection to remove posibble invalid mongos servers from
+	// the mongos collection. This collection will be updated automatically since all mongos
+	// instances will ping the config server and the collection will be updated with all the
+	// really alive mongos servers.
+	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
+		c.logger.Info("cannot empty config.mongos collection")
+	}
 	return nil
+}
+
+func (c *Client) cleanupConfigSrvDatabases(ignore map[string][]string) error {
+	databases, err := c.mdbSession.DatabaseNames()
+	if err != nil {
+		return errors.Wrap(err, "cannot get DBs list to clean up the config server")
+	}
+	for _, dbName := range databases {
+		collections, err := c.mdbSession.DB(dbName).CollectionNames()
+		if err != nil {
+			return errors.Wrapf(err, "cannot list %s database collections to clean up config server", dbName)
+		}
+		for _, collection := range collections {
+			if skipCollection(dbName, collection, ignore) {
+				continue
+			}
+			if _, err := c.mdbSession.DB(dbName).C(collection).RemoveAll(nil); err != nil {
+				c.logger.Infof("cannot empty %s.%s collection", dbName, collection)
+			}
+		}
+	}
+
+	return nil
+}
+
+func skipCollection(db, col string, ignoreList map[string][]string) bool {
+	ignoreCols, ok := ignoreList[db]
+	if !ok {
+		return false
+	}
+	for _, c := range ignoreCols {
+		if c == col {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
