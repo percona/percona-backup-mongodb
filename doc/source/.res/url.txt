@@ -1,0 +1,4 @@
+.. _`MongoDB Authentication`: https://docs.mongodb.com/manual/core/authentication/
+.. _`JIRA issue tracker`: https://jira.percona.com/projects/PBM
+.. _`WiredTiger Encryption`: https://www.percona.com/blog/2018/11/01/wiredtiger-encryption-at-rest-percona-server-for-mongodb/
+.. _`Percona Server for MongoDB Hot Backup`: https://www.percona.com/doc/percona-server-for-mongodb/LATEST/hot-backup.html

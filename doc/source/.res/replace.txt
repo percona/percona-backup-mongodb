@@ -1,0 +1,12 @@
+.. |percona| replace:: Percona
+.. |pbm| replace:: Percona Backup for MongoDB
+.. |mongodb| replace:: MongoDB
+.. |backup-coordinator| replace:: ``backup coordinator``
+.. |bc| replace:: ``backup coordinator``
+.. |mongos| replace:: ``mongos``
+.. |pbmctl| replace:: ``pbmctl``
+.. |pbm-coordinator| replace:: :program:`pbm-coordinator`
+.. |opt-work-dir| replace:: :option:`--work-dir`
+.. |work-dir| replace:: :dir:`${HOME}/percona-backup-mongodb`
+.. |opt-server-address| replace:: :option:`--server-address`
+.. |docker| replace:: Docker
