@@ -1,0 +1,18 @@
+#!/bin/sh
+
+if ! getent passwd pbm >/dev/null 2>&1; then
+  adduser --system --no-create-home --group pbm
+fi
+
+if [ ! -d /run/pbm-agent ]; then
+    install -m 0755 -d -opbm -gpbm /run/pbm-agent
+fi
+
+if [ ! -f /var/log/pbm-agent.log ]; then
+    install -m 0755 -opbm -gpbm /dev/null /var/log/pbm-agent.log
+fi
+
+#DEBHELPER#
+
+exit 0
+
