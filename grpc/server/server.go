@@ -321,9 +321,9 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-func (s *MessagesServer) LastBackupErrors() error {
-	return s.backupStatus.lastBackupErrors
-}
+// func (s *MessagesServer) LastBackupErrors() error {
+// 	return s.backupStatus.lastBackupErrors
+// }
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 	return s.backupStatus.lastBackupMetadata
@@ -655,6 +655,12 @@ func (s *MessagesServer) StopOplogTail() error {
 	return nil
 }
 
+func (s *MessagesServer) AddError(err error) {
+	s.backupStatusLock.Lock()
+	defer s.backupStatusLock.Unlock()
+	s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, err)
+}
+
 func (s *MessagesServer) lastBackupErrors() error {
 	s.backupStatusLock.Lock()
 	defer s.backupStatusLock.Unlock()
@@ -720,15 +726,13 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 
 	if len(replicasets) == 0 {
 		if err := notify.Post(EventBackupFinish, time.Now()); err != nil {
-			s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors,
-				fmt.Errorf("cannot notify EventBackupFinish (DBBackupFinished): %s", err.Error()),
-			)
+			s.AddError(errors.Wrap(err, "cannot notify EventBackupFinish (DBBackupFinished)"))
 		}
 	}
 
 	if !msg.GetOk() {
 		if strings.TrimSpace(msg.GetError()) != "" {
-			s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, errors.New(msg.GetError()))
+			s.AddError(errors.New(msg.GetError()))
 		}
 	}
 
@@ -736,11 +740,11 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	// from the primary in order to have a consistent backup.
 	primaryClient, err := s.getPrimaryClient(client.ReplicasetName)
 	if err != nil {
-		s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, err)
+		s.AddError(errors.Wrap(err, "cannot get the primary client"))
 	}
 	lastOplogTs, err := primaryClient.getPrimaryLastOplogTs()
 	if err != nil {
-		s.backupStatus.lastBackupErrors = multierror.Append(s.backupStatus.lastBackupErrors, err)
+		s.AddError(errors.Wrap(err, "cannot get primary's last oplog timestamp"))
 	}
 	// Keep the last (bigger) oplog timestamp from all clients running the backup.
 	// When all clients finish the backup, we will call CloseAt(s.lastOplogTs) on all clients to have a consistent
@@ -858,9 +862,9 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
 	client.setRestoreRunning(false)
 	if msg.GetErr() != nil && msg.GetErr().GetMessage() != "" {
-		s.backupStatus.lastBackupErrors = multierror.Append(
-			s.backupStatus.lastBackupErrors,
-			fmt.Errorf(msg.GetErr().GetMessage()),
+		s.AddError(fmt.Errorf("received error in RestoreCompleted from client %s: %s",
+			msg.GetErr().GetMessage(),
+			msg.GetClientId()),
 		)
 	}
 	replicasets := s.ReplicasetsRunningRestore()
@@ -1026,8 +1030,8 @@ func (s *MessagesServer) registerClient(stream pb.Messages_MessagesChatServer, m
 }
 
 func (s *MessagesServer) reset() {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.backupStatusLock.Lock()
+	defer s.backupStatusLock.Unlock()
 	s.backupStatus.lastOplogTs = 0
 	s.backupStatus.backupRunning = false
 	s.backupStatus.oplogBackupRunning = false

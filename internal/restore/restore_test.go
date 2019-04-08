@@ -11,16 +11,17 @@ func TestRestore(t *testing.T) {
 	host := strings.SplitN(testutils.GetMongoDBAddr(testutils.MongoDBShard1ReplsetName, "primary"), ":", 2)
 	input := &MongoRestoreInput{
 		// this file was generated with the dump pkg
-		Archive:  "testdata/dump_test.000622955",
-		DryRun:   true,
-		Host:     host[0],
-		Port:     host[1],
-		Username: testutils.MongoDBUser,
-		Password: testutils.MongoDBPassword,
-		Gzip:     false,
-		Oplog:    false,
-		Threads:  1,
-		Reader:   nil,
+		Archive:         "testdata/dump_test.000622955",
+		DryRun:          false,
+		DropCollections: true,
+		Host:            host[0],
+		Port:            host[1],
+		Username:        testutils.MongoDBUser,
+		Password:        testutils.MongoDBPassword,
+		Gzip:            false,
+		Oplog:           false,
+		Threads:         1,
+		Reader:          nil,
 	}
 
 	r, err := NewMongoRestore(input)

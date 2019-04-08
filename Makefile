@@ -16,6 +16,7 @@ DEST_DIR?=/usr/local/bin
 UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
 TEST_PSMDB_VERSION?=3.6
+TEST_MONGODB_FLAVOR?=percona/percona-server-mongodb
 TEST_MONGODB_ADMIN_USERNAME?=admin
 TEST_MONGODB_ADMIN_PASSWORD?=admin123456
 TEST_MONGODB_USERNAME?=test

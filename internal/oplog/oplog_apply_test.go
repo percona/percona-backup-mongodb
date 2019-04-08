@@ -11,6 +11,7 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
@@ -26,6 +27,8 @@ func TestBasicApplyLog(t *testing.T) {
 		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
 	}
 
+	di := testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName)
+	pretty.Println(di)
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Cannot connect to primary: %s", err)
@@ -43,14 +46,26 @@ func TestBasicApplyLog(t *testing.T) {
 	col := db.C(colname)
 
 	// Clean up before starting
-	col.DropCollection()
+	colNames, err := db.CollectionNames()
+	if err != nil {
+		t.Fatalf("Cannot list collections in %q database: %s", dbname, err)
+	}
+	for _, cname := range colNames {
+		if cname == colname {
+			if err := col.DropCollection(); err != nil {
+				t.Errorf("Cannot drop %s collection: %s", colname, err)
+			}
+		}
+	}
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	// Start tailing the oplog in background while some records are being generated
 	go func() {
-		io.Copy(tmpfile, ot)
+		if _, err := io.Copy(tmpfile, ot); err != nil {
+			t.Errorf("Error while tailing the oplog: %s", err)
+		}
 		wg.Done()
 	}()
 
@@ -77,6 +92,7 @@ func TestBasicApplyLog(t *testing.T) {
 	tmpfile.Close()
 
 	// Now, empty the collection and try to re-apply the oplog
+	// Do not remove the collection because the oplog won't have the "create" command
 	if _, err := col.RemoveAll(nil); err != nil {
 		t.Errorf("Cannot drop the test collection %q: %s", colname, err)
 		return

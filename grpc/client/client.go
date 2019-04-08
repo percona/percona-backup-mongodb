@@ -835,8 +835,10 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
 		c.lock.Unlock()
 
+		c.mdbSession.ResetIndexCache()
+		c.mdbSession.Refresh()
 		if err := c.restoreOplog(msg); err != nil {
-			err := errors.Wrapf(err, "cannot restore Oplog backup file %s", msg.GetOplogSourceName())
+			err := errors.Wrapf(err, "[%s] cannot restore Oplog backup file %s", c.id, msg.GetOplogSourceName())
 			if err1 := c.sendRestoreComplete(err); err1 != nil {
 				err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
 			}
@@ -1313,6 +1315,14 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
+	// The config.version collection cannot be dropped while in --configsvr mode so, we need to clean it
+	// up manually
+	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
+			log.Warnf("cannot empty config.version collection: %s", err)
+		}
+	}
+
 	// We need to set Archive = "-" so MongoRestore can use the provided reader.
 	// Why we don't want to use archive? Because if we use Archive, we are limited to files in the local
 	// filesystem and those files could be plain dumps or gzipped dump files but we want to be able to:
@@ -1320,15 +1330,6 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// 2. Use different compression algorithms.
 	// 3. Read from encrypted backups.
 	// That's why we are providing our own reader to MongoRestore
-	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		ignoreCols := map[string][]string{
-			"admin": {"system.users"},
-		}
-		if err := c.cleanupConfigSrvDatabases(ignoreCols); err != nil {
-			log.Warnf("Cannot clean up collections in the config server: %s", err)
-		}
-	}
-
 	input := &restore.MongoRestoreInput{
 		Archive:         "-",
 		DryRun:          false,
@@ -1336,12 +1337,15 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		Port:            msg.Port,
 		Username:        c.connOpts.User,
 		Password:        c.connOpts.Password,
-		DropCollections: c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
-		IgnoreErrors:    c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
-		Gzip:            false,
-		Oplog:           false,
-		Threads:         10,
-		Reader:          rdr,
+		DropCollections: true,
+		// For config servers, we are going to receive this error:
+		// cannot drop config.version document while in --configsvr mode
+		// We should ignore it
+		IgnoreErrors: c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
+		Gzip:         false,
+		Oplog:        false,
+		Threads:      10,
+		Reader:       rdr,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.
@@ -1371,42 +1375,6 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	return nil
 }
 
-func (c *Client) cleanupConfigSrvDatabases(ignore map[string][]string) error {
-	databases, err := c.mdbSession.DatabaseNames()
-	if err != nil {
-		return errors.Wrap(err, "cannot get DBs list to clean up the config server")
-	}
-	for _, dbName := range databases {
-		collections, err := c.mdbSession.DB(dbName).CollectionNames()
-		if err != nil {
-			return errors.Wrapf(err, "cannot list %s database collections to clean up config server", dbName)
-		}
-		for _, collection := range collections {
-			if skipCollection(dbName, collection, ignore) {
-				continue
-			}
-			if _, err := c.mdbSession.DB(dbName).C(collection).RemoveAll(nil); err != nil {
-				c.logger.Infof("cannot empty %s.%s collection", dbName, collection)
-			}
-		}
-	}
-
-	return nil
-}
-
-func skipCollection(db, col string, ignoreList map[string][]string) bool {
-	ignoreCols, ok := ignoreList[db]
-	if !ok {
-		return false
-	}
-	for _, c := range ignoreCols {
-		if c == col {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
@@ -1431,6 +1399,7 @@ func (c *Client) restoreOplog(msg *pb.RestoreBackup) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "cannot connect to MongoDB to apply the oplog")
 	}
+	session.SetMode(mgo.Strong, true)
 	// Replay the oplog
 	oa, err := oplog.NewOplogApply(session, bsonReader)
 	if err != nil {
