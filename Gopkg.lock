@@ -40,7 +40,7 @@
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
-  digest = "1:9874425f935d8483b5fc9b7b2c6d7d57305521565899b9b498f7bdf413abc329"
+  digest = "1:14ae506460871ff99420f281178ec77894f1e7df1e17fc90b0200c706765dfca"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -81,8 +81,8 @@
     "service/sts",
   ]
   pruneopts = "UT"
-  revision = "f778816ebd8f4a83264c207c77e6bcd0a5a76603"
-  version = "v1.19.1"
+  revision = "97ab38e1626747eaa660ff7e5e7d3f1a37172b36"
+  version = "v1.19.9"
 
 [[projects]]
   branch = "master"
@@ -142,6 +142,22 @@
   version = "v1.0.0"
 
 [[projects]]
+  digest = "1:0ade334594e69404d80d9d323445d2297ff8161637f9b2d347cc6973d2d6f05b"
+  name = "github.com/hashicorp/errwrap"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "8a6fb523712970c966eefc6b39ed2c5e74880354"
+  version = "v1.0.0"
+
+[[projects]]
+  digest = "1:f668349b83f7d779567c880550534addeca7ebadfdcf44b0b9c39be61864b4b7"
+  name = "github.com/hashicorp/go-multierror"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "886a7fbe3eb1c874d46f623bfa70af45f425b3d1"
+  version = "v1.0.0"
+
+[[projects]]
   branch = "master"
   digest = "1:0778dc7fce1b4669a8bfa7ae506ec1f595b6ab0f8989c1c0d22a8ca1144e9972"
   name = "github.com/howeyc/gopass"
@@ -189,7 +205,7 @@
   version = "v0.1.0"
 
 [[projects]]
-  digest = "1:54cb1fc706f2593183fb01ae63ce549eeaa7cb0d15fbca1c91f1df8fd1cf2b32"
+  digest = "1:7d2722b201c0f63cc2cca9cf4f38f761c60d22c701da841726ea7e011d77660d"
   name = "github.com/mongodb/mongo-tools"
   packages = [
     "common",
@@ -215,8 +231,8 @@
     "mongorestore/ns",
   ]
   pruneopts = "UT"
-  revision = "ecd6b33eda1ac4a59210cc41e1dc6b1b1bbd39b1"
-  version = "r4.0.7"
+  revision = "5db0b4a18cc1366ebd368eed8e7c4d426d851f13"
+  version = "r4.0.8"
 
 [[projects]]
   digest = "1:6e68e9264ce8eff8ea51a8c17b0be1ecb3bc00fba4bc9529d85c35c6a8247106"
@@ -235,15 +251,15 @@
   version = "v1.0.1"
 
 [[projects]]
-  digest = "1:d4c88b5ad20151a96c1e5a55547a944b6af623aa315f69ee0d172b00f95d27fb"
+  digest = "1:d886a3c32c8c1a770d07e36340f061d3afc948d065ffc3c9a19b01b34d4f0b65"
   name = "github.com/pierrec/lz4"
   packages = [
     ".",
     "internal/xxh32",
   ]
   pruneopts = "UT"
-  revision = "062282ea0dcff40c9fb8525789eef9644b1fbd6e"
-  version = "v2.1.0"
+  revision = "315a67e90e415bcdaff33057da191569bf4d8479"
+  version = "v2.1.1"
 
 [[projects]]
   digest = "1:cf31692c14422fa27c83a05292eb5cbe0fb2775972e8f1f8446a71549bd8980b"
@@ -262,15 +278,15 @@
   version = "v0.2.0"
 
 [[projects]]
-  digest = "1:5eb4061f5eadce5a16bdd92306e50989ab7366b8e29904450587ecc6ee3bee7b"
+  digest = "1:3b92b6a96ffd905c5eb0abad457c01a99e8e62b52bb40b1b2e22de27117a16b8"
   name = "github.com/sirupsen/logrus"
   packages = [
     ".",
     "hooks/syslog",
   ]
   pruneopts = "UT"
-  revision = "dae0fa8d5b0c810a8ab733fbd5510c7cae84eca4"
-  version = "v1.4.0"
+  revision = "8bdbc7bcc01dcbb8ec23dc8a28e332258d25251f"
+  version = "v1.4.1"
 
 [[projects]]
   branch = "master"
@@ -294,11 +310,11 @@
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
   pruneopts = "UT"
-  revision = "a5d413f7728c81fb97d96a2b722368945f651e78"
+  revision = "8e1b8d32e692162a446e97250c5d34f5a52efed6"
 
 [[projects]]
   branch = "master"
-  digest = "1:4512c74e2c934a151fa9246cdc565d29611f53295bfb05e7a6275e80ee540a0c"
+  digest = "1:a7550c619a7f9701bc2f0b2c866668a207cfb693a2834796f723d2c78b514372"
   name = "golang.org/x/net"
   packages = [
     "context",
@@ -310,11 +326,11 @@
     "trace",
   ]
   pruneopts = "UT"
-  revision = "15845e8f865bdabdefb6e7da65b4d9e8de5e94ef"
+  revision = "b630fd6fe46bcfc98f989005d8b8ec1400e60a6e"
 
 [[projects]]
   branch = "master"
-  digest = "1:17247723052f82a0c8df5637c76b138e1f971e6a06b734bf3c8f59dac2a0429c"
+  digest = "1:92bb3dcdcdde21b5f1c2b3391fb7cf24d0814d4b8b8b6e3c91e44dad543ce234"
   name = "golang.org/x/sys"
   packages = [
     "unix",
@@ -323,7 +339,7 @@
     "windows/svc/eventlog",
   ]
   pruneopts = "UT"
-  revision = "f49334f85ddcf0f08d7fb6dd7363e9e6d6b777eb"
+  revision = "81d4e9dc473e5e8c933f2aaeba2a3d81efb9aed2"
 
 [[projects]]
   digest = "1:a2ab62866c75542dd18d2b069fec854577a20211d7c0ea6ae746072a1dccdd18"
@@ -354,7 +370,7 @@
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
   pruneopts = "UT"
-  revision = "e79c0c59cdb5e117ef82a6f885294df3d74065d5"
+  revision = "f467c93bbac2133ff463e1f93d18d8f9f3f04451"
 
 [[projects]]
   digest = "1:0fb0d9616b0a3ae619eb1b0dbea156b37ba35bf6d24ee26b42beb0cbcd1acf80"
@@ -453,6 +469,7 @@
     "github.com/golang/protobuf/proto",
     "github.com/golang/snappy",
     "github.com/grpc-ecosystem/go-grpc-middleware/auth",
+    "github.com/hashicorp/go-multierror",
     "github.com/kr/pretty",
     "github.com/mongodb/mongo-tools-common/log",
     "github.com/mongodb/mongo-tools/common/db",

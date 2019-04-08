@@ -5,10 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/apex/log"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
-	"github.com/prometheus/common/log"
+	"github.com/pkg/errors"
 )
 
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
@@ -91,8 +92,8 @@ func (oa *OplogApply) Run() error {
 		result := bson.M{}
 		err := oa.dbSession.Run(bson.M{"applyOps": []bson.M{dest}}, result)
 		if err != nil {
-			log.Errorf("Cannot apply oplog: %s\n%+v\n", err, dest)
-			return err
+			log.Errorf("cannot apply oplog: %s\n%+v\n", err, dest)
+			return errors.Wrap(err, "cannot apply oplog operation")
 		}
 		atomic.AddInt64(&oa.docsCount, 1)
 	}

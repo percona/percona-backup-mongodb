@@ -57,10 +57,10 @@ func TestInvalidRestore(t *testing.T) {
 	}
 
 	log.Infof("Wating restore to finish")
-	d.MessagesServer.WaitRestoreFinish()
-	// if err := d.MessagesServer.WaitRestoreFinish(); err != nil {
-	// 	t.Errorf("Backup finished with errors: %s", err)
-	// }
+	//err := d.MessagesServer.WaitRestoreFinish()
+	if err := d.MessagesServer.WaitRestoreFinish(); err != nil {
+		t.Errorf("Backup finished with errors: %s", err)
+	}
 
 	// Now, make the files exist but fill them with invalid data.
 	// The restore should also fail.
@@ -114,11 +114,7 @@ func TestInvalidRestore(t *testing.T) {
 	}
 
 	log.Infof("Wating restore to finish")
-	d.MessagesServer.WaitRestoreFinish()
-	if err != nil {
-		t.Errorf("Trying to restore invalid files should return errors")
-	}
-	if err := d.MessagesServer.LastBackupErrors(); err == nil {
+	if err := d.MessagesServer.WaitRestoreFinish(); err == nil {
 		t.Errorf("Trying to restore invalid files should return errors")
 	}
 }

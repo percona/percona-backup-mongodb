@@ -2,7 +2,6 @@ package test_test
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -27,31 +26,30 @@ import (
 )
 
 var (
-	keepS3Data     bool
-	keepLocalFiles bool
-	storages       *storage.Storages
+	storages *storage.Storages
 )
 
 const (
-	dbName                    = "test"
-	colName                   = "test_col"
-	localFileSystemStorage    = "local-filesystem"
-	grpcServerShutdownTimeout = 30
+	dbName                 = "test"
+	colName                = "test_col"
+	localFileSystemStorage = "local-filesystem"
 )
 
 func TestMain(m *testing.M) {
 	log.SetLevel(log.ErrorLevel)
 	log.SetFormatter(&log.TextFormatter{})
 
-	flag.BoolVar(&keepS3Data, "keep-s3-data", false, "Do not delete S3 testing bucket and file")
-	flag.BoolVar(&keepLocalFiles, "keep-local-files", false, "Do not files downloaded from the S3 bucket")
-	flag.Parse()
-
 	if os.Getenv("DEBUG") == "1" {
 		log.SetLevel(log.DebugLevel)
 	}
 
 	os.Exit(m.Run())
+
+	if os.Getenv("KEEP_DATA") != "1" {
+		if err := testutils.CleanTempDirAndBucket(); err != nil {
+			log.Warnf("Cannot clean up temp dir and buckets: %s", err)
+		}
+	}
 }
 
 func TestGlobalWithDaemon(t *testing.T) {
@@ -267,6 +265,8 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	testRestoreWithMetadata(t, d, md, "local-filesystem")
 
+	s1Session.Refresh()
+	s1Session.ResetIndexCache()
 	type maxNumber struct {
 		Number int64 `bson:"number"`
 	}
@@ -281,16 +281,25 @@ func TestGlobalWithDaemon(t *testing.T) {
 		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
-	if afterMaxS1.Number < int64(rs1LastOplogDoc["o"].(bson.M)["number"].(int)) {
+	max1Before, err := getMaxNumber(rs1LastOplogDoc)
+	if err != nil {
+		t.Fatalf("cannot get max number before restore for rs1: %s", err)
+	}
+	max2Before, err := getMaxNumber(rs2LastOplogDoc)
+	if err != nil {
+		t.Fatalf("cannot get max number before restore for rs2: %s", err)
+	}
+
+	if afterMaxS1.Number < max1Before {
 		t.Errorf("Invalid documents count after restore is shard 1. Before restore: %d > after restore: %d",
-			rs1LastOplogDoc["o"].(bson.M)["number"].(int64),
+			max1Before,
 			afterMaxS1.Number,
 		)
 	}
 
-	if afterMaxS2.Number < int64(rs2LastOplogDoc["o"].(bson.M)["number"].(int)) {
+	if afterMaxS2.Number < max2Before {
 		t.Errorf("Invalid documents count after restore is shard 2. Before restore: %d > after restore: %d",
-			rs2LastOplogDoc["o"].(bson.M)["number"],
+			max2Before,
 			afterMaxS2.Number,
 		)
 	}
@@ -308,6 +317,28 @@ func TestGlobalWithDaemon(t *testing.T) {
 	if int64(rs2AfterCount) < rs2BeforeCount {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
 	}
+}
+
+func getMaxNumber(doc bson.M) (int64, error) {
+	if o, ok := doc["o"]; ok {
+		if bo, ok := o.(bson.M); ok {
+			if number, ok := bo["number"]; ok {
+				switch n := number.(type) {
+				case int:
+					return int64(n), nil
+				case int64:
+					return n, nil
+				default:
+					return 0, fmt.Errorf("number %v is not int or int64: %T", number, number)
+				}
+			} else {
+				return 0, fmt.Errorf("there is no 'number' field in the doc: %+v", doc)
+			}
+		} else {
+			return 0, fmt.Errorf("'o' field is not bson.M: %+v", doc)
+		}
+	}
+	return 0, fmt.Errorf("there is no 'o' field in the document")
 }
 
 func TestBackupToS3(t *testing.T) {
@@ -527,21 +558,6 @@ func TestBackupToS3(t *testing.T) {
 	}
 	if int64(rs2AfterCount) < rs2BeforeCount {
 		t.Errorf("Invalid documents count in rs2. Want %d, got %d", rs2BeforeCount, rs2AfterCount)
-	}
-
-	// Clean up after testing
-	if !keepS3Data {
-		diag("Deleting bucket %q", bucket)
-		if err = awsutils.EmptyBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
-
-		diag("Deleting bucket %q", bucket)
-		if err = testutils.DeleteBucket(svc, bucket); err != nil {
-			t.Errorf("Cannot delete bucket %q: %s", bucket, err)
-		}
-	} else {
-		diag("Skipping deletion of %q bucket", bucket)
 	}
 }
 

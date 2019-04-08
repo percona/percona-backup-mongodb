@@ -23,7 +23,7 @@ func TestHotBackupNewBackupWiredTiger(t *testing.T) {
 
 	var server dbtest.DBServer
 	server.SetPath(tmpDBPath)
-	server.SetEngine("wiredTiger")
+	//	server.SetEngine("wiredTiger")
 	defer server.Stop()
 
 	session := server.Session()
@@ -76,7 +76,7 @@ func TestHotBackupNewBackupMMAPv1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create backup temp dir: %v", err.Error())
 	}
-	server.SetEngine("mmapv1")
+	//server.SetEngine("mmapv1")
 	defer server.Stop()
 
 	session := server.Session()
