@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/kr/pretty"
+	"github.com/percona/percona-backup-mongodb/internal/reader"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	log "github.com/sirupsen/logrus"
@@ -27,6 +29,10 @@ func TestMain(m *testing.M) {
 		if err := testutils.CleanTempDirAndBucket(); err != nil {
 			fmt.Printf("Cannot clean up directory and bucket: %s", err)
 		}
+	} else {
+		fmt.Println("Keeping testing data (env var KEEP_DATA is not empty)")
+		fmt.Printf("Directory %s was not deleted\n", testutils.TestingStorages().Storages["local-filesystem"].Filesystem.Path)
+		fmt.Printf("S3 bucket %s was not deleted\n", testutils.TestingStorages().Storages["s3-us-west"].S3.Bucket)
 	}
 	os.Exit(exitStatus)
 }
@@ -199,6 +205,85 @@ func testBackupAndRestore(t *testing.T, storage string) {
 	err = c.restoreDBDump(rmsg)
 	if err != nil {
 		t.Errorf("Cannot process restore from s3: %s", err)
+	}
+
+}
+
+func TestWriteFile(t *testing.T) {
+	input, err := buildInputParams()
+	if err != nil {
+		t.Fatalf("Cannot build agent's input params: %s", err)
+	}
+
+	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot instantiate a new client: %s", err)
+	}
+
+	tests := map[string]struct {
+		storageName string
+		fileName    string
+		wantErr     bool
+	}{
+		"valid-local":      {storageName: "local-filesystem", fileName: "file-001.txt", wantErr: false},
+		"invalid-storage":  {storageName: "invalid-storage", fileName: "file-001.txt", wantErr: true},
+		"invalid-filename": {storageName: "local-filesystem", fileName: "/non-existent-dir/file-001.txt", wantErr: true},
+		"s3":               {storageName: "s3-us-west", fileName: "file-001.txt", wantErr: false},
+	}
+	for name, args := range tests {
+		testName := name
+		fn := args.fileName
+		sn := args.storageName
+		wantErr := args.wantErr
+		t.Run(name, func(t *testing.T) {
+			txt := []byte("I am the man with no name. Zapp Brannigan at your service.")
+			msg := &pb.WriteFile{
+				StorageName: sn,
+				FileName:    fn,
+				Data:        txt,
+			}
+
+			resp, err := c.processWriteFile(msg)
+			if wantErr {
+				if err == nil {
+					t.Errorf("Error expected in test %s, got nil instead", testName)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Cannot write file %s: %s", msg.FileName, err)
+			}
+			if resp.GetWriteStatus().Error != "" {
+				t.Errorf("Write file (%s at %s) returned an error: %s", msg.FileName, msg.StorageName, err)
+			}
+
+			stg, err := testutils.TestingStorages().Get(msg.StorageName)
+			if err != nil {
+				t.Errorf("Cannot get storage %s: %s", msg.StorageName, err)
+			}
+			br, err := reader.MakeReader(msg.FileName,
+				stg,
+				pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+				pb.Cypher_CYPHER_NO_CYPHER,
+			)
+			if err != nil {
+				t.Errorf("Cannot create a reader: %s", err)
+			}
+			b := make([]byte, len(txt))
+			n, err := br.Read(b)
+			if err != nil && err != io.EOF {
+				t.Errorf("Cannot read %s file from %s storage: %s", msg.FileName, msg.StorageName, err)
+			}
+			if n != len(txt) {
+				t.Errorf("Invalid read bytes count. Got %d, want %d.\n%s\n%s", n, len(txt), string(txt), string(b))
+			}
+			if err := br.Close(); err != nil {
+				t.Errorf("Cannot close file: %s", err)
+			}
+			if string(txt) != string(b) {
+				t.Errorf("file content is invalid. Got:\n%s\nWant:\n%s", string(b), string(txt))
+			}
+		})
 	}
 
 }
