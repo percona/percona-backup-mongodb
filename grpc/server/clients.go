@@ -437,6 +437,37 @@ func (c *Client) stopOplogTail(ts int64) error {
 	return nil
 }
 
+func (c *Client) writeBackupMetadata(fileName, storageName string, data []byte) error {
+	msg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_WriteFile{
+			WriteFile: &pb.WriteFile{
+				StorageName: storageName,
+				FileName:    fileName,
+				Data:        data,
+			},
+		},
+	}
+	if err := c.streamSend(msg); err != nil {
+		return err
+	}
+	response, err := c.streamRecv()
+	if err != nil {
+		return err
+	}
+	if errMsg := response.GetErrorMsg(); errMsg != nil {
+		return fmt.Errorf(errMsg.GetMessage())
+	}
+
+	resp, ok := response.Payload.(*pb.ClientMessage_WriteStatus)
+	if !ok {
+		return fmt.Errorf("invalid client response to writeBackupMetadata. Want 'WriteStatus', got %T", response.Payload)
+	}
+	if resp.WriteStatus.GetError() != "" {
+		return fmt.Errorf(resp.WriteStatus.GetError())
+	}
+	return nil
+}
+
 func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 	select {
 	case msg := <-c.streamRecvChan:

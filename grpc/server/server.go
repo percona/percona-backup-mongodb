@@ -694,8 +694,33 @@ func (s *MessagesServer) WaitRestoreFinish() error {
 	return s.lastBackupErrors()
 }
 
-func (s *MessagesServer) WriteBackupMetadata(filename string) error {
+// WriteServerBackupMetadata writes the backup metadata into the coordinator's working dir
+func (s *MessagesServer) WriteServerBackupMetadata(filename string) error {
 	return s.backupStatus.lastBackupMetadata.WriteMetadataToFile(filepath.Join(s.workDir, filename))
+}
+
+// WriteBackupMetadata writes the metadata along with the backed up files in the destination storage
+func (s *MessagesServer) WriteBackupMetadata() error {
+	var c *Client
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	buf, err := s.backupStatus.lastBackupMetadata.JSON()
+	if err != nil {
+		return errors.Wrap(err, "cannot encode last backup metadata as JSON")
+	}
+	// Take the first client from the connected clients list.
+	// All clients should have access to all storages so any client will be able to write the metadata
+	for _, client := range s.clients {
+		c = client
+		break
+	}
+
+	return c.writeBackupMetadata(
+		s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
+		s.backupStatus.lastBackupMetadata.metadata.StorageName,
+		buf,
+	)
 }
 
 // WorkDir returns the server working directory.

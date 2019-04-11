@@ -352,7 +352,8 @@ func (c *Client) Stop() error {
 	c.running = false
 
 	c.cancelFunc()
-	return c.stream.CloseSend()
+	return nil
+	//return c.stream.CloseSend()
 }
 
 func (c *Client) IsDBBackupRunning() bool {
@@ -371,8 +372,14 @@ func (c *Client) processIncommingServerMessages() {
 	for {
 		msg, err := c.stream.Recv()
 		if err != nil { // Stream has been closed
+			if !c.isRunning() {
+				return
+			}
 			c.connect()
-			c.register()
+			if err := c.register(); err != nil {
+				c.logger.Errorf("Cannot register client %s: %s", c.id, err)
+				time.Sleep(5 * time.Second)
+			}
 			continue
 		}
 
@@ -462,6 +469,21 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(&ss); err != nil {
 				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
 			}
+		case *pb.ServerMessage_WriteFile:
+			omsg, err := c.processWriteFile(msg.GetWriteFile())
+			if err != nil {
+				errMsg := &pb.ClientMessage{
+					ClientId: c.id,
+					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+				}
+				if err = c.streamSend(errMsg); err != nil {
+					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+				}
+			}
+			if err = c.streamSend(omsg); err != nil {
+				c.logger.Errorf("Cannot send WriteFile response (%+v) to the RPC server: %s", omsg, err)
+			}
+
 		//
 		default:
 			err = fmt.Errorf("client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
@@ -1105,6 +1127,52 @@ func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {
 	} else {
 		c.logger.Debugf("Received ACK from OplogBackupFinished RPC method: %+v", *ack)
 	}
+}
+
+func (c *Client) processWriteFile(msg *pb.WriteFile) (*pb.ClientMessage, error) {
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot process Write File")
+	}
+
+	bw, err := writer.NewBackupWriter(
+		stg, msg.GetFileName(),
+		pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		pb.Cypher_CYPHER_NO_CYPHER,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot create a writer for file %s using storage %s",
+			msg.GetFileName(),
+			msg.GetStorageName(),
+		)
+	}
+	defer func() {
+		if err := bw.Close(); err != nil {
+			c.logger.Errorf("cannot close file writer for processWriteFile. Storage: %s, file: %s, Error: %s",
+				msg.GetStorageName(),
+				msg.GetFileName(),
+				err,
+			)
+
+		}
+	}()
+	_, err = io.Copy(bw, bytes.NewBuffer(msg.GetData()))
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot write file %s to storage %s: %s",
+			msg.GetFileName(),
+			msg.GetStorageName(),
+			err,
+		)
+	}
+	omsg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_WriteStatus{
+			WriteStatus: &pb.WriteStatus{
+				Error: "",
+			},
+		},
+	}
+	return omsg, nil
 }
 
 func (c *Client) runDBBackup(msg *pb.StartBackup) error {

@@ -40,7 +40,7 @@
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
-  digest = "1:14ae506460871ff99420f281178ec77894f1e7df1e17fc90b0200c706765dfca"
+  digest = "1:27162030e6e116b8cfd8e5df85735fd3c79ab8ce67489e5be6e6fc258d52441c"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -81,8 +81,8 @@
     "service/sts",
   ]
   pruneopts = "UT"
-  revision = "97ab38e1626747eaa660ff7e5e7d3f1a37172b36"
-  version = "v1.19.9"
+  revision = "56c1def75689cceec1fa6f14c2eedb4b798827f9"
+  version = "v1.19.11"
 
 [[projects]]
   branch = "master"
@@ -310,7 +310,7 @@
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
   pruneopts = "UT"
-  revision = "8e1b8d32e692162a446e97250c5d34f5a52efed6"
+  revision = "38d8ce5564a5b71b2e3a00553993f1b9a7ae852f"
 
 [[projects]]
   branch = "master"
@@ -326,11 +326,11 @@
     "trace",
   ]
   pruneopts = "UT"
-  revision = "b630fd6fe46bcfc98f989005d8b8ec1400e60a6e"
+  revision = "eb5bcb51f2a31c7d5141d810b70815c05d9c9146"
 
 [[projects]]
   branch = "master"
-  digest = "1:92bb3dcdcdde21b5f1c2b3391fb7cf24d0814d4b8b8b6e3c91e44dad543ce234"
+  digest = "1:92a74ff72684a27ac48e56ba5a29725e1f4bacf7dad7bfc2c24c19e25e075406"
   name = "golang.org/x/sys"
   packages = [
     "unix",
@@ -339,7 +339,7 @@
     "windows/svc/eventlog",
   ]
   pruneopts = "UT"
-  revision = "81d4e9dc473e5e8c933f2aaeba2a3d81efb9aed2"
+  revision = "4b34438f7a67ee5f45cc6132e2bad873a20324e9"
 
 [[projects]]
   digest = "1:a2ab62866c75542dd18d2b069fec854577a20211d7c0ea6ae746072a1dccdd18"
@@ -370,10 +370,10 @@
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
   pruneopts = "UT"
-  revision = "f467c93bbac2133ff463e1f93d18d8f9f3f04451"
+  revision = "64821d5d210748c883cd2b809589555ae4654203"
 
 [[projects]]
-  digest = "1:0fb0d9616b0a3ae619eb1b0dbea156b37ba35bf6d24ee26b42beb0cbcd1acf80"
+  digest = "1:70022c20d4a6f27b201d7b3fdadfa6b20fe855b4c5aac2c3f9a5d9c5bcfce4f7"
   name = "google.golang.org/grpc"
   packages = [
     ".",
@@ -391,6 +391,7 @@
     "grpclog",
     "internal",
     "internal/backoff",
+    "internal/balancerload",
     "internal/binarylog",
     "internal/channelz",
     "internal/envconfig",
@@ -411,8 +412,8 @@
     "testdata",
   ]
   pruneopts = "UT"
-  revision = "3507fb8e1a5ad030303c106fef3a47c9fdad16ad"
-  version = "v1.19.1"
+  revision = "236199dd5f8031d698fb64091194aecd1c3895b2"
+  version = "v1.20.0"
 
 [[projects]]
   digest = "1:c06d9e11d955af78ac3bbb26bd02e01d2f61f689e1a3bce2ef6fb683ef8a7f2d"
