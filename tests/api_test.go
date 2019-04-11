@@ -17,8 +17,7 @@ import (
 // imports proto/api so if we try to use the daemon from the api package we would end up having
 // cycling imports.
 func TestApiWithDaemon(t *testing.T) {
-	tmpDir := getTempDir(t)
-	defer cleanupTempDir(t)
+	tmpDir := getCleanTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -123,7 +122,6 @@ func TestApiWithDaemon(t *testing.T) {
 
 func TestBackupFail(t *testing.T) {
 	tmpDir := getTempDir(t)
-	defer cleanupTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {

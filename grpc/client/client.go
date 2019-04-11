@@ -352,7 +352,8 @@ func (c *Client) Stop() error {
 	c.running = false
 
 	c.cancelFunc()
-	return c.stream.CloseSend()
+	return nil
+	//return c.stream.CloseSend()
 }
 
 func (c *Client) IsDBBackupRunning() bool {
@@ -369,14 +370,11 @@ func (c *Client) IsOplogBackupRunning() bool {
 
 func (c *Client) processIncommingServerMessages() {
 	for {
-		select {
-		case <-c.ctx.Done():
-			c.stream.CloseSend()
-			return
-		default:
-		}
 		msg, err := c.stream.Recv()
 		if err != nil { // Stream has been closed
+			if !c.isRunning() {
+				return
+			}
 			c.connect()
 			if err := c.register(); err != nil {
 				c.logger.Errorf("Cannot register client %s: %s", c.id, err)

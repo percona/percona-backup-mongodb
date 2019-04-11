@@ -16,8 +16,7 @@ import (
 )
 
 func TestInvalidRestore(t *testing.T) {
-	tmpDir := getTempDir(t)
-	defer cleanupTempDir(t)
+	tmpDir := getCleanTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -120,8 +119,7 @@ func TestInvalidRestore(t *testing.T) {
 }
 
 func TestRestoreOnPrimary(t *testing.T) {
-	tmpDir := getTempDir(t)
-	//defer cleanupTempDir(t)
+	tmpDir := getCleanTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {

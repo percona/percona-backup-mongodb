@@ -161,8 +161,14 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	mdFilename := msg.NamePrefix + ".json"
 
+	// This writes the backup metadata along with the backup files
+	if err := a.messagesServer.WriteBackupMetadata(); err != nil {
+		gerr = multierror.Append(gerr, fmt.Errorf("cannot write backup metadata: %s", err))
+	}
+
+	// Writes a copy of the backup metadata into the coordinator's working directory
 	a.logger.Debugf("Writing metadata to %s", mdFilename)
-	if err := a.messagesServer.WriteBackupMetadata(mdFilename); err != nil {
+	if err := a.messagesServer.WriteServerBackupMetadata(mdFilename); err != nil {
 		gerr = multierror.Append(gerr, fmt.Errorf("cannot write backup metadata: %s", err))
 	}
 

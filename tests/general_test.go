@@ -3,7 +3,6 @@ package test_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"reflect"
@@ -21,12 +20,7 @@ import (
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
-	"github.com/percona/percona-backup-mongodb/storage"
 	log "github.com/sirupsen/logrus"
-)
-
-var (
-	storages *storage.Storages
 )
 
 const (
@@ -43,20 +37,28 @@ func TestMain(m *testing.M) {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	os.Exit(m.Run())
+	status := m.Run()
 
-	if os.Getenv("KEEP_DATA") != "1" {
+	if os.Getenv("KEEP_DATA") == "" {
 		if err := testutils.CleanTempDirAndBucket(); err != nil {
 			log.Warnf("Cannot clean up temp dir and buckets: %s", err)
 		}
+		fmt.Println("Deleting testing data (env var KEEP_DATA is empty)")
+		fmt.Printf("Directory %s was deleted\n", testutils.TestingStorages().Storages["local-filesystem"].Filesystem.Path)
+		fmt.Printf("S3 bucket %s was deleted\n", testutils.TestingStorages().Storages["s3-us-west"].S3.Bucket)
+	} else {
+		fmt.Println("Keeping testing data (env var KEEP_DATA is not empty)")
+		fmt.Printf("Directory %s was not deleted\n", testutils.TestingStorages().Storages["local-filesystem"].Filesystem.Path)
+		fmt.Printf("S3 bucket %s was not deleted\n", testutils.TestingStorages().Storages["s3-us-west"].S3.Bucket)
 	}
+
+	os.Exit(status)
 }
 
 func TestGlobalWithDaemon(t *testing.T) {
 	ndocs := 1000
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -235,7 +237,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	// Test list backups
 	log.Debug("Testing backup metadata")
 	mdFilename := backupNamePrefix + ".json"
-	if err := d.MessagesServer.WriteBackupMetadata(mdFilename); err != nil {
+	if err := d.MessagesServer.WriteServerBackupMetadata(mdFilename); err != nil {
 		t.Errorf("Cannot write backup metadata to file %s: %s", mdFilename, err)
 	}
 	bms, err := d.MessagesServer.ListBackups()
@@ -344,9 +346,8 @@ func getMaxNumber(doc bson.M) (int64, error) {
 func TestBackupToS3(t *testing.T) {
 	ndocs := 100
 	storageName := "s3-us-west"
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -480,7 +481,7 @@ func TestBackupToS3(t *testing.T) {
 	// Test list backups
 	log.Debug("Testing backup metadata")
 	mdFilename := backupNamePrefix + ".json"
-	if err := d.MessagesServer.WriteBackupMetadata(mdFilename); err != nil {
+	if err := d.MessagesServer.WriteServerBackupMetadata(mdFilename); err != nil {
 		t.Errorf("cannot write backup metadata: %s", err)
 	}
 	bms, err := d.MessagesServer.ListBackups()
@@ -562,12 +563,7 @@ func TestBackupToS3(t *testing.T) {
 }
 
 func TestClientDisconnect(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pbm_")
-	if err != nil {
-		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
-	}
-	defer os.RemoveAll(tmpDir) // Clean up
-	log.Printf("Using %s as the temporary directory", tmpDir)
+	tmpDir := getTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -595,7 +591,6 @@ func TestClientDisconnect(t *testing.T) {
 
 func TestListStorages(t *testing.T) {
 	tmpDir := getTempDir(t)
-	defer cleanupTempDir(t)
 
 	log.Printf("Using %s as the temporary directory", tmpDir)
 
@@ -644,12 +639,7 @@ func TestListStorages(t *testing.T) {
 }
 
 func TestValidateReplicasetAgents(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pbm_")
-	if err != nil {
-		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
-	}
-	defer os.RemoveAll(tmpDir) // Clean up
-	log.Printf("Using %s as the temporary directory", tmpDir)
+	tmpDir := getTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -686,12 +676,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 }
 
 func TestBackupSourceByReplicaset(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "pbm_")
-	if err != nil {
-		t.Fatalf("Cannot create temporary directory for TestClientDisconnect: %s", err)
-	}
-	defer os.RemoveAll(tmpDir) // Clean up
-	log.Printf("Using %s as the temporary directory", tmpDir)
+	tmpDir := getTempDir(t)
 
 	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
 	if err != nil {
@@ -737,9 +722,8 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 // This test checks if statuses are being set correctly
 func TestRunBackupTwice(t *testing.T) {
 	ndocs := 1000
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
@@ -809,9 +793,8 @@ func runBackup(t *testing.T, d *testGrpc.Daemon, storageName string, ndocs int) 
 
 func TestBackupWithNoOplogActivity(t *testing.T) {
 	ndocs := 1000
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -857,7 +840,7 @@ func TestBackupWithNoOplogActivity(t *testing.T) {
 	// Test list backups
 	log.Debug("Testing backup metadata")
 	mdFilename := backupNamePrefix + ".json"
-	if err := d.MessagesServer.WriteBackupMetadata(mdFilename); err != nil {
+	if err := d.MessagesServer.WriteServerBackupMetadata(mdFilename); err != nil {
 		t.Errorf("Cannot write backup metadata to file %s: %s", mdFilename, err)
 	}
 	bms, err := d.MessagesServer.ListBackups()
@@ -918,9 +901,8 @@ func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMeta
 }
 
 func TestConfigServerClusterID(t *testing.T) {
-	tmpDir := path.Join(os.TempDir(), "dump_test")
-	os.RemoveAll(tmpDir)       // Cleanup before start. Don't check for errors. The path might not exist
-	defer os.RemoveAll(tmpDir) // Clean up after testing.
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
@@ -1090,6 +1072,15 @@ func getTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("Cannot get local filesystem storage: %s", err)
 	}
+	return stg.Filesystem.Path
+}
+
+func getCleanTempDir(t *testing.T) string {
+	stgs := testutils.TestingStorages()
+	stg, err := stgs.Get(localFileSystemStorage)
+	if err != nil {
+		t.Fatalf("Cannot get local filesystem storage: %s", err)
+	}
 	if _, err := os.Stat(stg.Filesystem.Path); !os.IsNotExist(err) {
 		if err := os.RemoveAll(stg.Filesystem.Path); err != nil {
 			t.Fatalf("Cannot clean the temporary before starting the test: %s", err)
@@ -1099,15 +1090,4 @@ func getTempDir(t *testing.T) string {
 		t.Fatalf("Cannot create temporary directory: %s", err)
 	}
 	return stg.Filesystem.Path
-}
-
-func cleanupTempDir(t *testing.T) {
-	stgs := testutils.TestingStorages()
-	stg, err := stgs.Get(localFileSystemStorage)
-	if err != nil {
-		t.Fatalf("Cannot get local filesystem storage: %s", err)
-	}
-	if err := os.RemoveAll(stg.Filesystem.Path); err != nil {
-		t.Fatalf("Cannot remove temporary directory: %s", err)
-	}
 }
