@@ -380,7 +380,7 @@ func (c *Client) startBalancer() error {
 	case *pb.ClientMessage_AckMsg:
 		return nil
 	}
-	return fmt.Errorf("unknown respose type %T", msg)
+	return fmt.Errorf("start balancer unknown respose type. Want ACK, got %T", msg)
 }
 
 func (c *Client) stopBackup() error {
@@ -417,7 +417,7 @@ func (c *Client) stopBalancer() error {
 		errMsg := msg.GetErrorMsg()
 		return fmt.Errorf("%s", errMsg.Message)
 	}
-	return fmt.Errorf("unknown respose type %T", msg)
+	return fmt.Errorf("stop balancer unknown respose type. Want ACK, got %T", msg)
 }
 
 func (c *Client) stopOplogTail(ts int64) error {

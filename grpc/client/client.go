@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -432,9 +433,39 @@ func (c *Client) processIncommingServerMessages() {
 			}
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
-			c.processStopBalancer()
+			resp, err := c.processStopBalancer()
+			if err != nil {
+				errMsg := &pb.ClientMessage{
+					ClientId: c.id,
+					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+				}
+				if err = c.streamSend(errMsg); err != nil {
+					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+				}
+				continue
+			}
+
+			c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
+			if err := c.streamSend(resp); err != nil {
+				log.Errorf("cannot send processStopBalancer response to the server: %s", err)
+			}
+
 		case *pb.ServerMessage_StartBalancerMsg:
-			c.processStartBalancer()
+			out, err := c.processStartBalancer()
+			if err != nil {
+				errMsg := &pb.ClientMessage{
+					ClientId: c.id,
+					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+				}
+				if err = c.streamSend(errMsg); err != nil {
+					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+				}
+				continue
+			}
+			c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
+			if err := c.streamSend(out); err != nil {
+				log.Errorf("cannot send processStartBalancer response to the server: %s", err)
+			}
 		case *pb.ServerMessage_LastOplogTs:
 			c.processLastOplogTs()
 
@@ -1001,22 +1032,26 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
-	balancer, err := cluster.NewBalancer(c.mdbSession)
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		return nil, fmt.Errorf("Start balancer only works on config servers")
+	}
+
+	mongosSession, err := c.getMongosSession()
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "processStartBalancer -> cannot create a balancer instance")
 	}
 	if err := balancer.Start(); err != nil {
 		return nil, err
 	}
-	c.logger.Debugf("Balancer has been started by me")
+	c.logger.Debugf("Balancer has been started by %s", c.id)
 
 	out := &pb.ClientMessage{
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-	}
-	c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
-	if err := c.streamSend(out); err != nil {
-		log.Errorf("cannot send processStartBalancer response to the server: %s", err)
 	}
 
 	return out, nil
@@ -1063,8 +1098,56 @@ func (c *Client) processStatus() {
 	}
 }
 
+func (c *Client) getMongosSession() (*mgo.Session, error) {
+	routers, err := cluster.GetMongosRouters(c.mdbSession)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+	if len(routers) < 1 {
+		return nil, fmt.Errorf("there are no mongodb routers")
+	}
+
+	parts := strings.Split(routers[0].Id, ":")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("cannot get host and port from %s", routers[0].Id)
+	}
+
+	f, err := net.LookupHost(parts[0])
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot get host for %s", routers[0].Id)
+	}
+
+	configHost := net.JoinHostPort(f[0], parts[1])
+
+	di := &mgo.DialInfo{
+		Addrs:    []string{configHost},
+		Username: c.mgoDI.Username,
+		Password: c.mgoDI.Password,
+		Source:   c.mgoDI.Source,
+		AppName:  "percona-backup-mongodb",
+		FailFast: true,
+		Direct:   true,
+	}
+
+	session, err := mgo.DialWithInfo(di)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot connect to the mongos instance on %s", configHost)
+	}
+
+	return session, nil
+}
+
 func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
-	balancer, err := cluster.NewBalancer(c.mdbSession)
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		return nil, fmt.Errorf("Stop balancer only works on config servers")
+	}
+
+	mongosSession, err := c.getMongosSession()
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+
+	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "processStopBalancer -> cannot create a balancer instance")
 	}
@@ -1077,12 +1160,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
 	}
-	c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
-	if err := c.streamSend(out); err != nil {
-		log.Errorf("cannot send processStopBalancer response to the server: %s", err)
-	}
-
-	return &pb.ClientMessage{}, nil
+	return out, nil
 }
 
 func (c *Client) processStopOplogTail(msg *pb.StopOplogTail) {

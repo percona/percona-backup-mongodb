@@ -579,7 +579,7 @@ func (s *MessagesServer) StartBalancer() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 			if err := client.startBalancer(); err != nil {
 				return errors.Wrapf(err, "cannot start the balancer via client %q", client.ID)
 			}
@@ -600,7 +600,7 @@ func (s *MessagesServer) StopBalancer() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
-		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 			s.logger.Debug("Stopping the balancer")
 			if err := client.stopBalancer(); err != nil {
 				return errors.Wrapf(err, "cannot stop the balancer via the %q client", client.ID)
