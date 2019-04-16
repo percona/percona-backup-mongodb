@@ -288,6 +288,41 @@ func TestWriteFile(t *testing.T) {
 
 }
 
+func TestBalancerStartStop(t *testing.T) {
+	input, err := buildInputParams()
+	if err != nil {
+		t.Fatalf("Cannot build agent's input params: %s", err)
+	}
+
+	input.DbConnOptions.Host = testutils.MongoDBHost
+	input.DbConnOptions.Port = testutils.MongoDBConfigsvr1Port
+	input.DbConnOptions.ReplicasetName = testutils.MongoDBConfigsvrReplsetName
+
+	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot create a new client: %s", err)
+	}
+	if err := c.dbConnect(); err != nil {
+		t.Fatalf("Cannot connect to the config server: %s", err)
+	}
+
+	resp, err := c.processStopBalancer()
+	if err != nil {
+		t.Error(err)
+	}
+	if _, ok := resp.Payload.(*pb.ClientMessage_AckMsg); !ok {
+		t.Errorf("Invalid Stop Balancer response type. Want Ack, got %T", resp.Payload)
+	}
+
+	resp, err = c.processStartBalancer()
+	if err != nil {
+		t.Error(err)
+	}
+	if _, ok := resp.Payload.(*pb.ClientMessage_AckMsg); !ok {
+		t.Errorf("Invalid Start Balancer response type. Want Ack, got %T", resp.Payload)
+	}
+}
+
 func buildInputParams() (InputOptions, error) {
 	port := testutils.MongoDBShard1PrimaryPort
 	rs := testutils.MongoDBShard1ReplsetName
