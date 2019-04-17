@@ -103,6 +103,31 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName st
 	return pb.CanRestoreBackupResponse{}, fmt.Errorf("cannot get CanRestoreBackup Response (response is nil)")
 }
 
+func (c *Client) GetCmdLineOpts() (*pb.CmdLineOpts, error) {
+	msg := &pb.ServerMessage{
+		Payload: &pb.ServerMessage_GetCmdLineOpts{
+			GetCmdLineOpts: &pb.GetCmdLineOpts{},
+		},
+	}
+	if err := c.stream.SendMsg(msg); err != nil {
+		return nil, errors.Wrap(err, "cannot get cmd line options")
+	}
+
+	response, err := c.streamRecv()
+	if err != nil {
+		return nil, err
+	}
+
+	switch response.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return nil, fmt.Errorf("cannot list shards on client %s: %s", c.NodeName, response.GetErrorMsg())
+	case *pb.ClientMessage_CmdLineOpts:
+		return response.GetCmdLineOpts(), nil
+	}
+
+	return nil, fmt.Errorf("invalid response type for GetCmdLineOpts (%T)", response.Payload)
+}
+
 func (c *Client) GetBackupSource() (string, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_BackupSourceMsg{BackupSourceMsg: &pb.GetBackupSource{}},

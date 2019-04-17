@@ -508,8 +508,16 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	ext := getFileExtension(opts.CompressionType, opts.Cypher)
 
-	//s.lastBackupMetadata = NewBackupMetadata(opts)
 	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
+
+	cmdLineOpts, err := s.AllServersCmdLineOpts()
+	if err != nil {
+		return errors.Wrap(err, "cannot Get Cmd Line Opts")
+	}
+	for i, f := range cmdLineOpts {
+		fmt.Printf("%d: %s\n", i, string(f.CmdLineOpts))
+	}
+	s.backupStatus.lastBackupMetadata.metadata.Servers = cmdLineOpts
 
 	if err := s.RefreshClients(); err != nil {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
@@ -946,6 +954,53 @@ func (s *MessagesServer) getClientByNodeName(name string) *Client {
 		}
 	}
 	return nil
+}
+
+// AllServersCmdLineOpts returns CmdLineOpts from all servers.
+// This info will be saved with the backup metadata as extra information that might be
+// needed to rebuild the servers
+func (s *MessagesServer) AllServersCmdLineOpts() ([]*pb.Server, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	serverOpts := make([]*pb.Server, 0)
+	serverOptsChan := make(chan *pb.Server)
+
+	var errs error
+
+	wga := &sync.WaitGroup{}
+	wga.Add(1)
+	go func() {
+		for opts := range serverOptsChan {
+			serverOpts = append(serverOpts, opts)
+		}
+		wga.Done()
+	}()
+
+	wgb := &sync.WaitGroup{}
+	for _, client := range s.clients {
+		wgb.Add(1)
+		c := client
+		s.logger.Debugf("Getting CmdLineOpts from client: %s", c.ID)
+		go func() {
+			defer wgb.Done()
+			msg, err := c.GetCmdLineOpts()
+			if err != nil {
+				errs = multierror.Append(errs, err)
+				return
+			}
+			serverOptsChan <- &pb.Server{Id: c.ID, CmdLineOpts: string(msg.GetOptions())}
+		}()
+	}
+	wgb.Wait()
+	close(serverOptsChan)
+	wga.Wait()
+
+	if errs != nil {
+		return nil, errs
+	}
+
+	return serverOpts, nil
 }
 
 // validateReplicasetAgents will run getShardMap and parse the results on a config server.

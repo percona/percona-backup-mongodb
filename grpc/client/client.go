@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -384,24 +385,23 @@ func (c *Client) processIncommingServerMessages() {
 			continue
 		}
 
+		var omsg *pb.ClientMessage
+
 		c.logger.Debugf("Incoming message: %+v", msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
 			c.processStatus()
+			continue
 		case *pb.ServerMessage_BackupSourceMsg:
 			c.processGetBackupSource()
+			continue
 		case *pb.ServerMessage_ListReplicasets:
 			if err := c.processListReplicasets(); err != nil {
 				c.logger.Errorf("cannot process ping: %s", err)
 			}
-		case *pb.ServerMessage_PingMsg:
-			msg := c.processPing()
-			if err := c.streamSend(msg); err != nil {
-				c.logger.Errorf("cannot stream ping response to the server: %s. Out message: %+v. In message type: %T",
-					err, *msg, msg.Payload,
-				)
-			}
 			continue
+		case *pb.ServerMessage_PingMsg:
+			omsg = c.processPing()
 		case *pb.ServerMessage_CanRestoreBackupMsg:
 			msg, err := c.processCanRestoreBackup(msg.GetCanRestoreBackupMsg())
 			if err != nil {
@@ -417,58 +417,34 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(msg); err != nil {
 				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
 			}
+			continue
+		case *pb.ServerMessage_GetCmdLineOpts:
+			omsg, err = c.processGetCmdLineOpts()
 		//
 		case *pb.ServerMessage_StartBackupMsg:
 			startBackupMsg := msg.GetStartBackupMsg()
 			c.processStartBackup(startBackupMsg)
+			continue
 		case *pb.ServerMessage_StopOplogTailMsg:
-			stopOplogTailMsg := msg.GetStopOplogTailMsg()
-			c.processStopOplogTail(stopOplogTailMsg)
+			c.processStopOplogTail(msg.GetStopOplogTailMsg())
+			continue
 		case *pb.ServerMessage_CancelBackupMsg:
 			err = c.processCancelBackup()
-
 		case *pb.ServerMessage_RestoreBackupMsg:
 			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
 				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
 			}
+			continue
 		//
 		case *pb.ServerMessage_StopBalancerMsg:
-			resp, err := c.processStopBalancer()
-			if err != nil {
-				errMsg := &pb.ClientMessage{
-					ClientId: c.id,
-					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
-				}
-				if err = c.streamSend(errMsg); err != nil {
-					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
-				}
-				continue
-			}
-
-			c.logger.Debugf("processStopBalancer Sending ACK message to the gRPC server")
-			if err := c.streamSend(resp); err != nil {
-				log.Errorf("cannot send processStopBalancer response to the server: %s", err)
-			}
-
+			omsg, err = c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
-			out, err := c.processStartBalancer()
-			if err != nil {
-				errMsg := &pb.ClientMessage{
-					ClientId: c.id,
-					Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
-				}
-				if err = c.streamSend(errMsg); err != nil {
-					c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
-				}
-				continue
-			}
-			c.logger.Debugf("processStartBalancer Sending ACK message to the gRPC server")
-			if err := c.streamSend(out); err != nil {
-				log.Errorf("cannot send processStartBalancer response to the server: %s", err)
-			}
+			omsg, err = c.processStartBalancer()
 		case *pb.ServerMessage_LastOplogTs:
-			c.processLastOplogTs()
-
+			if err := c.processLastOplogTs(); err != nil {
+				c.logger.Errorf("cannot process LastOplogTs: %s", err)
+			}
+			continue
 		//
 		case *pb.ServerMessage_GetStorageInfoMsg:
 			si, err := c.processGetStorageInfo(msg.GetGetStorageInfoMsg())
@@ -485,6 +461,7 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(&si); err != nil {
 				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
 			}
+			continue
 		case *pb.ServerMessage_ListStoragesMsg:
 			ss, err := c.processListStorages()
 			if err != nil {
@@ -500,6 +477,7 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(&ss); err != nil {
 				c.logger.Errorf("Cannot send CanRestoreBackup response (%+v) to the RPC server: %s", msg, err)
 			}
+			continue
 		case *pb.ServerMessage_WriteFile:
 			omsg, err := c.processWriteFile(msg.GetWriteFile())
 			if err != nil {
@@ -514,7 +492,7 @@ func (c *Client) processIncommingServerMessages() {
 			if err = c.streamSend(omsg); err != nil {
 				c.logger.Errorf("Cannot send WriteFile response (%+v) to the RPC server: %s", omsg, err)
 			}
-
+			continue
 		//
 		default:
 			err = fmt.Errorf("client: %s, Message type %v is not implemented yet", c.NodeName(), msg.Payload)
@@ -526,6 +504,24 @@ func (c *Client) processIncommingServerMessages() {
 			c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
 			if err = c.streamSend(msg); err != nil {
 				c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
+			}
+			continue
+		}
+
+		if err != nil {
+			errMsg := &pb.ClientMessage{
+				ClientId: c.id,
+				Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: err.Error()}},
+			}
+			if err = c.streamSend(errMsg); err != nil {
+				c.logger.Errorf("Cannot send error response (%+v) for message type %T to the RPC server: %s", msg, msg.Payload, err)
+			}
+			continue
+		}
+
+		if omsg != nil {
+			if err := c.streamSend(omsg); err != nil {
+				log.Errorf("cannot send processStopBalancer response to the server: %s", err)
 			}
 		}
 	}
@@ -677,6 +673,29 @@ func (c *Client) processGetBackupSource() {
 	if err := c.streamSend(msg); err != nil {
 		log.Errorf("cannot send processGetBackupSource message to the server: %s", err)
 	}
+}
+
+func (c *Client) processGetCmdLineOpts() (*pb.ClientMessage, error) {
+	cmdLineOpts := bson.M{}
+	err := c.mdbSession.Run(bson.D{{Name: "getCmdLineOpts", Value: 1}}, &cmdLineOpts)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get cmdLineOpts: %s", err)
+	}
+	buf, err := json.Marshal(cmdLineOpts)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot encode cmdLineOpts as JSON")
+	}
+
+	omsg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_CmdLineOpts{
+			CmdLineOpts: &pb.CmdLineOpts{
+				Options: buf,
+			},
+		},
+	}
+
+	return omsg, nil
 }
 
 func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (pb.ClientMessage, error) {
