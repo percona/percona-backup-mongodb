@@ -288,6 +288,26 @@ func TestWriteFile(t *testing.T) {
 
 }
 
+func TestGetCmdLineOpts(t *testing.T) {
+	input, err := buildInputParams()
+	if err != nil {
+		t.Fatalf("Cannot build agent's input params: %s", err)
+	}
+
+	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot instantiate a new client: %s", err)
+	}
+	if err := c.dbConnect(); err != nil {
+		t.Fatalf("Cannot connect to the mongod server: %s", err)
+	}
+
+	_, err = c.processGetCmdLineOpts()
+	if err != nil {
+		t.Errorf("GetCmdLineOpts returned an error: %s", err)
+	}
+}
+
 func TestBalancerStartStop(t *testing.T) {
 	input, err := buildInputParams()
 	if err != nil {

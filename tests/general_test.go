@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -929,6 +930,33 @@ func TestConfigServerClusterID(t *testing.T) {
 			t.Errorf("Cluster ID is empty for node %v", i)
 		}
 	}
+}
+
+func TestAllServersCmdLineOpts(t *testing.T) {
+	tmpDir := getTempDir(t)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all clients: %s", err)
+	}
+
+	cmdLineOpts, err := d.MessagesServer.AllServersCmdLineOpts()
+	if err != nil {
+		t.Errorf("Cannot get cmdLineOpts from all clients: %s", err)
+	}
+	want := 8 // rs1: 3 agents, rs2: 3 agents, 1 config server and 1 mongos
+	if len(cmdLineOpts) != want {
+		t.Errorf("Invalid cmdLineOpts clients count. Want %d, got %d", want, len(cmdLineOpts))
+	}
+	for i, f := range cmdLineOpts {
+		fmt.Printf("%d: %s\n", i, string(f.CmdLineOpts))
+	}
+	pretty.Println(cmdLineOpts)
 }
 
 func diag(params ...interface{}) {

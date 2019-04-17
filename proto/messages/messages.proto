@@ -69,6 +69,7 @@ message CancelBackup {}
 message DBBackupFinishedAck {}
 message Empty {}
 message GetBackupSource {}
+message GetCmdLineOpts {}
 message GetLastOplogTs {}
 message GetStatus {}
 message ListReplicasets {}
@@ -79,23 +80,33 @@ message RestoreCompletedAck {}
 message StartBalancer {}
 message StopBalancer {}
 
+message Server {
+  string id            = 1;
+  string cmd_line_opts = 2;
+}
+
 message BackupMetadata {
-  int64                           start_ts         = 1;
-  int64                           end_ts           = 2;
-  BackupType                      backup_type      = 3;
-  int64                           oplog_start_time = 4;
-  int64                           last_oplog_ts    = 5;
-  Cypher                          cypher           = 6;
-  CompressionType                 compression_type = 7;
-  string                          description      = 8;
-  map<string, ReplicasetMetadata> replicasets      = 9;
-  string                          storage_name     = 10;
+           int64                           start_ts         = 1;
+           int64                           end_ts           = 2;
+           BackupType                      backup_type      = 3;
+           int64                           oplog_start_time = 4;
+           int64                           last_oplog_ts    = 5;
+           Cypher                          cypher           = 6;
+           CompressionType                 compression_type = 7;
+           string                          description      = 8;
+           map<string, ReplicasetMetadata> replicasets      = 9;
+           string                          storage_name     = 10;
+  repeated Server                          servers          = 11;
 }
 
 message CanRestoreBackup {
   BackupType      backup_type      = 1;
   string          backup_name      = 2;
   string          storage_name     = 3;
+}
+
+message CmdLineOpts {
+  bytes options = 1;
 }
 
 message Error {
@@ -182,6 +193,7 @@ message ServerMessage {
     GetStorageInfo      get_storage_info_msg   = 16;
     ListStorages        list_storages_msg      = 17;
     WriteFile           write_file             = 18;
+    GetCmdLineOpts      get_cmd_line_opts      = 19;
   }
 }
 
@@ -203,6 +215,7 @@ message ClientMessage {
     StorageInfo              storage_info           = 14;
     StoragesInfo             storages_info          = 15;
     WriteStatus              write_status           = 16;
+    CmdLineOpts              cmd_line_opts          = 17;
   }
 }
 
