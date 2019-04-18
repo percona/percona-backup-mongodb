@@ -253,6 +253,9 @@ func (s *MessagesServer) Clients() map[string]Client {
 func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 	replicas := make(map[string][]Client)
 	for _, client := range s.clients {
+		if client.ReplicasetName == "" { // mongos?
+			continue
+		}
 		if _, ok := replicas[client.ReplicasetName]; !ok {
 			replicas[client.ReplicasetName] = make([]Client, 0)
 		}

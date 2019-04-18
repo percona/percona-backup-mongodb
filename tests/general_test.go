@@ -87,12 +87,18 @@ func TestGlobalWithDaemon(t *testing.T) {
 	log.Debugf("Clients by replicaset: %+v\n", clientsByReplicaset)
 
 	var firstClient server.Client
-	for _, client := range clientsByReplicaset {
-		if len(client) == 0 {
+	for _, clients := range clientsByReplicaset {
+		if len(clients) == 0 {
 			break
 		}
-		firstClient = client[0]
-		break
+
+		for _, client := range clients {
+			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+				continue
+			}
+			firstClient = client
+			break
+		}
 	}
 
 	log.Debugf("Getting first client status")

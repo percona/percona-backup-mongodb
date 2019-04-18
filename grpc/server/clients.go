@@ -14,7 +14,7 @@ import (
 var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
-	// This variable is exported because in tests we might want to change it
+	// Timeuot is exported because in tests we might want to change it
 	Timeout = 10000 * time.Millisecond
 )
 
