@@ -395,10 +395,7 @@ func (c *Client) processIncommingServerMessages() {
 			c.processGetBackupSource()
 			continue
 		case *pb.ServerMessage_ListReplicasets:
-			if err := c.processListReplicasets(); err != nil {
-				c.logger.Errorf("cannot process ping: %s", err)
-			}
-			continue
+			omsg, err = c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
 			omsg = c.processPing()
 		case *pb.ServerMessage_CanRestoreBackupMsg:
@@ -812,21 +809,11 @@ func (c *Client) processLastOplogTs() error {
 	return nil
 }
 
-func (c *Client) processListReplicasets() error {
+func (c *Client) processListReplicasets() (*pb.ClientMessage, error) {
 	var sm shardsMap
 	err := c.mdbSession.Run("getShardMap", &sm)
 	if err != nil {
-		c.logger.Errorf("Cannot getShardMap: %s", err)
-		msg := &pb.ClientMessage{
-			ClientId: c.id,
-			Payload:  &pb.ClientMessage_ErrorMsg{ErrorMsg: &pb.Error{Message: fmt.Sprintf("Cannot getShardMap: %s", err)}},
-		}
-
-		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
-		if err = c.streamSend(msg); err != nil {
-			c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
-		}
-		return errors.Wrap(err, "processListShards: getShardMap")
+		return nil, errors.Wrap(err, "cannot getShardMap for processListReplicasets")
 	}
 
 	replicasets := []string{}
@@ -854,10 +841,7 @@ func (c *Client) processListReplicasets() error {
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_ReplicasetsMsg{ReplicasetsMsg: &pb.Replicasets{Replicasets: replicasets}},
 	}
-	if err := c.streamSend(msg); err != nil {
-		log.Errorf("cannot send processListReplicasets message to the server: %v", err)
-	}
-	return nil
+	return msg, nil
 }
 
 func (c *Client) processPing() *pb.ClientMessage {
