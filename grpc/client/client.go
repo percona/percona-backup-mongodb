@@ -390,8 +390,7 @@ func (c *Client) processIncommingServerMessages() {
 		c.logger.Debugf("Incoming message: %+v", msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
-			c.processStatus()
-			continue
+			omsg, err = c.processStatus()
 		case *pb.ServerMessage_BackupSourceMsg:
 			c.processGetBackupSource()
 			continue
@@ -1076,13 +1075,13 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 	return out, nil
 }
 
-func (c *Client) processStatus() {
+func (c *Client) processStatus() (*pb.ClientMessage, error) {
 	c.logger.Debug("Received Status command")
 	c.lock.Lock()
 
 	isMaster, err := cluster.NewIsMaster(c.mdbSession)
 	if err != nil {
-		log.Errorf("Cannot get IsMaster for processStatus")
+		return nil, errors.Wrap(err, "cannot get IsMaster for processStatus")
 	}
 
 	msg := &pb.ClientMessage{
@@ -1108,13 +1107,7 @@ func (c *Client) processStatus() {
 		},
 	}
 	c.lock.Unlock()
-
-	c.logger.Debugf("Sending status to the gRPC server: %+v", *msg)
-	if err := c.streamSend(msg); err != nil {
-		c.logger.Errorf("cannot stream response to the server: %s. Out message: %+v. In message type: %T",
-			err, msg, msg.Payload,
-		)
-	}
+	return msg, nil
 }
 
 func (c *Client) getMongosSession() (*mgo.Session, error) {
