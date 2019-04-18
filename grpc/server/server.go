@@ -570,9 +570,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot Get Cmd Line Opts")
 	}
-	for i, f := range cmdLineOpts {
-		fmt.Printf("%d: %s\n", i, string(f.CmdLineOpts))
-	}
 	s.backupStatus.lastBackupMetadata.metadata.Servers = cmdLineOpts
 
 	if err := s.RefreshClients(); err != nil {
