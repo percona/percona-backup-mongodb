@@ -138,19 +138,15 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 	map[string]RestoreSource, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
 	sources := make(map[string]RestoreSource)
-	for replicasetName, replicasetMetaData := range bm.Replicasets {
-		for _, client := range s.clients {
-			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
-				continue
-			}
-			if client.ReplicasetName != replicasetName {
-				continue
-			}
-			resp, err := client.CanRestoreBackup(bm.BackupType, replicasetMetaData.DbBackupName, storageName)
-			if err != nil {
-				continue
-			}
+	wga := &sync.WaitGroup{}
+	wgb := &sync.WaitGroup{}
+	ch := make(chan pb.CanRestoreBackupResponse)
+
+	wga.Add(1)
+	go func() {
+		for resp := range ch {
 			if !resp.CanRestore {
 				continue
 			}
@@ -167,7 +163,37 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 				sources[resp.Replicaset] = s
 			}
 		}
+		wga.Done()
+	}()
+
+	for replicasetName, replicasetMetaData := range bm.Replicasets {
+		for _, client := range s.clients {
+			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
+				continue
+			}
+			if client.ReplicasetName != replicasetName {
+				continue
+			}
+
+			// make a copy to avoid dataraces
+			c := client
+			bmType := bm.BackupType
+			backupName := replicasetMetaData.DbBackupName
+
+			wgb.Add(1)
+			go func() {
+				defer wgb.Done()
+				resp, err := c.CanRestoreBackup(bmType, backupName, storageName)
+				if err != nil {
+					return
+				}
+				ch <- resp
+			}()
+		}
 	}
+	wgb.Wait()
+	close(ch)
+	wga.Wait()
 
 	if len(sources) != len(bm.Replicasets) {
 		var err error
@@ -254,13 +280,40 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 	// Get all storages from all clients.
 	// At the end of this loop, stgs is a map where the key is the client id and the value is an
 	// array of all storages that client has defined.
-	for id, c := range s.clients {
-		ssInfo, err := c.GetStoragesInfo()
-		if err != nil {
-			return nil, errors.Wrapf(err, "Cannot get Storages Info on client %s", id)
-		}
-		stgs[id] = ssInfo
+	type resp struct {
+		id     string
+		ssInfo []*pb.StorageInfo
 	}
+	var errs error
+	wga := &sync.WaitGroup{}
+	wgb := sync.WaitGroup{}
+	ch := make(chan resp)
+
+	wga.Add(1)
+	go func() {
+		for r := range ch {
+			stgs[r.id] = r.ssInfo
+		}
+		wga.Done()
+	}()
+
+	for lid, lc := range s.clients {
+		id := lid
+		c := lc
+		wgb.Add(1)
+		go func() {
+			defer wgb.Done()
+			ssInfo, err := c.GetStoragesInfo()
+			if err != nil {
+				errs = multierror.Append(errs, err)
+				return
+			}
+			ch <- resp{id: id, ssInfo: ssInfo}
+		}()
+	}
+	wgb.Wait()
+	close(ch)
+	wga.Wait()
 
 	// Group storages by name and build two lists:
 	// 1. Clients where the storages definitions matches
