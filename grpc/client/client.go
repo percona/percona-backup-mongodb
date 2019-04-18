@@ -392,8 +392,7 @@ func (c *Client) processIncommingServerMessages() {
 		case *pb.ServerMessage_GetStatusMsg:
 			omsg, err = c.processStatus()
 		case *pb.ServerMessage_BackupSourceMsg:
-			c.processGetBackupSource()
-			continue
+			omsg, err = c.processGetBackupSource()
 		case *pb.ServerMessage_ListReplicasets:
 			omsg, err = c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
@@ -626,36 +625,16 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 	return true, nil
 }
 
-func (c *Client) processGetBackupSource() {
+func (c *Client) processGetBackupSource() (*pb.ClientMessage, error) {
 	c.logger.Debug("Received GetBackupSource command")
 	r, err := cluster.NewReplset(c.mdbSession)
 	if err != nil {
-		msg := &pb.ClientMessage{
-			ClientId: c.id,
-			Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: c.nodeName}},
-		}
-		if err := c.streamSend(msg); err != nil {
-			log.Errorf("cannot send processGetBackupSource error message: %s", err)
-		}
-		return
+		return nil, errors.Wrap(err, "cannot get cluster's replicasets for processGetBackupSource")
 	}
 
 	winner, err := r.BackupSource(nil)
 	if err != nil {
-		c.logger.Errorf("Cannot get a backup source winner: %s", err)
-		msg := &pb.ClientMessage{
-			ClientId: c.id,
-			Payload: &pb.ClientMessage_ErrorMsg{
-				ErrorMsg: &pb.Error{
-					Message: fmt.Sprintf("Cannot get backoup source: %s", err),
-				},
-			},
-		}
-		c.logger.Debugf("Sending error response to the RPC server: %+v", *msg)
-		if err = c.streamSend(msg); err != nil {
-			c.logger.Errorf("Cannot send error response (%+v) to the RPC server: %s", msg, err)
-		}
-		return
+		return nil, errors.Wrap(err, "cannot get a backup source winner for processGetBackupSource")
 	}
 	if winner == "" {
 		winner = c.nodeName
@@ -665,10 +644,7 @@ func (c *Client) processGetBackupSource() {
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_BackupSourceMsg{BackupSourceMsg: &pb.BackupSource{SourceClient: winner}},
 	}
-	c.logger.Debugf("%s -> Sending GetBackupSource response to the RPC server: %+v (winner: %q)", c.nodeName, *msg, winner)
-	if err := c.streamSend(msg); err != nil {
-		log.Errorf("cannot send processGetBackupSource message to the server: %s", err)
-	}
+	return msg, nil
 }
 
 func (c *Client) processGetCmdLineOpts() (*pb.ClientMessage, error) {
