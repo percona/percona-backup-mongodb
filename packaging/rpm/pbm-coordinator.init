@@ -13,11 +13,12 @@ OPTIONS="--config-file=$CONFIGFILE"
 USER=pbm
 GROUP=pbm
 pbm_coordinator=${PBM_coordinator:-/usr/bin/pbm-coordinator}
+pbm_log="/var/log/pbm-coordinator.log"
 
 start()
 {
   echo -n $"Starting pbm-coordinator: "
-  daemon --user "$USER" --check ${pbm-coordinator} " $pbm-coordinator $OPTIONS > ${STDOUT} 2> ${STDERR}"
+  daemon --user "$USER" --check ${pbm_coordinator} " $pbm_coordinator $OPTIONS > ${pbm_log} 2> ${pbm_log} &"
   RETVAL=$?
   echo
   [ $RETVAL -eq 0 ] && touch /var/lock/subsys/pbm_coordinator
