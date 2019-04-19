@@ -110,10 +110,10 @@ install -D -m 0644 packaging/conf/pbm-coordinator.conf $RPM_BUILD_ROOT/%{_syscon
 /usr/bin/getent group pbm || /usr/sbin/groupadd -r pbm
 /usr/bin/getent passwd pbm || /usr/sbin/useradd -r -s /sbin/nologin -g pbm pbm
 if [ ! -d /run/pbm-agent ]; then
-    install -m 0755 -d -opbm -gpbm /run/pbm-agent
+    install -m 0640 -d -opbm -gpbm /run/pbm-agent
 fi
 if [ ! -f /var/log/pbm-agent.log ]; then
-    install -m 0755 -opbm -gpbm /dev/null /var/log/pbm-agent.log
+    install -m 0640 -opbm -gpbm /dev/null /var/log/pbm-agent.log
 fi
 
 
@@ -162,10 +162,10 @@ esac
 /usr/bin/getent group pbm || /usr/sbin/groupadd -r pbm
 /usr/bin/getent passwd pbm || /usr/sbin/useradd -r -s /sbin/nologin -g pbm pbm
 if [ ! -d /var/lib/pbm-coordinator ]; then
-    install -m 0755 -d -opbm -gpbm /var/lib/pbm-coordinator
+    install -m 0640 -d -opbm -gpbm /var/lib/pbm-coordinator
 fi
 if [ ! -f /var/log/pbm-coordinator.log ]; then
-    install -m 0755 -opbm -gpbm /dev/null /var/log/pbm-coordinator.log
+    install -m 0640 -opbm -gpbm /dev/null /var/log/pbm-coordinator.log
 fi
 
 %postun -n percona-backup-mongodb-coordinator
