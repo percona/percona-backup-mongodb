@@ -10,16 +10,21 @@ flexibility.
 .. contents::
    :local:
 
+.. figure:: .res/graphics/mongodb-replica-set.png
+
+   The architecture of |pbm|
+
 .. _pbm.architecture.coordinator:
 
 Backup Coordinator
 ================================================================================
 
-The |backup-coordinator| is a daemon that handles communication with backup
-agents and the backup control program.
+The |backup-coordinator| is a service that transparently handles communication
+with backup agents (started with |pbm-agent|)and the backup control program
+(|pbmctl|).
 
-The main function of the backup coordinator is to gather information from the
-|mongodb| instances through the agents to determine which nodes should run
+The main function of the |bc| is to gather information from the
+|mongod| instances through the agents to determine which nodes should run
 backup or restore and to establish consistent backup and restore points across
 all shards.
 
@@ -32,16 +37,18 @@ API
 
 .. _pbm.architecture.agent:
 
-Agent
+|pbm-agent|
 ================================================================================
 
-Backup agents receive commands from the coordinator and run them.
+Backup agents (instances of |pbm-agent|) receive commands from the
+|backup-coordinator|.
 
-The agent runs locally (connected to 'localhost') on every |mongodb| instance
-(|mongos| and config servers included) in order to collect information about
-the instance and forward it to the coordinator. With that information, the
-coordinator can determine the best agent to start a backup or restore, to
-start/stop the balancer, and so on.
+An instance of |pbm-agent| must run locally (connected to 'localhost') on every
+|mongod| instance and config servers in order to collect
+information about the instance and to forward it to the
+|backup-coordinator|. The |backup-coordinator| uses this information to
+determine the best agent to start a backup or restore, to start or stop the
+balancer, and so on.
 
 The agent requires outbound network access to the :ref:`backup coordinator
 <pbm.architecture.coordinator>` RPC port.
@@ -59,6 +66,8 @@ Command         Description
 ==============  ================================================================
 list nodes      List all nodes (agents) connected to the coordinator
 list backups    List all finished backups.
+list storages   List all storages configured via |pbm-agent| on one of the
+                members of the replica set.
 run backup      Start a new backup
 run restore     Restore a backup
 ==============  ================================================================
