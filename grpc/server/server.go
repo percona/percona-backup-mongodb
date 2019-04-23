@@ -200,7 +200,8 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 		for replicasetName, replicasetMetaData := range bm.Replicasets {
 			if _, ok := sources[replicasetName]; !ok {
 				err = multierror.Append(err,
-					fmt.Errorf("there are no clients that can restore %s from %s",
+					fmt.Errorf("there are no clients connected to replicaset %s that can restore %s from %s",
+						replicasetName,
 						replicasetMetaData.DbBackupName,
 						storageName,
 					),
@@ -317,6 +318,10 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 	wgb.Wait()
 	close(ch)
 	wga.Wait()
+
+	if errs != nil {
+		return nil, errs
+	}
 
 	// Group storages by name and build two lists:
 	// 1. Clients where the storages definitions matches
@@ -496,6 +501,11 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 		}
 	}
 
+	mongoDBVersion, err := s.getMongoDBVersion()
+	if err != nil {
+		return err
+	}
+
 	for replName, source := range clients {
 		s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
 			replName,
@@ -523,6 +533,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 					Host:              source.Host,
 					Port:              source.Port,
 					StorageName:       storageName,
+					MongodbVersion:    mongoDBVersion,
 				}
 				if err := source.Client.restoreBackup(msg); err != nil {
 					return errors.Wrapf(err, "cannot send restore backup message to client %s", source.Client.ID)
@@ -581,6 +592,12 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrapf(err, "cannot start backup. Cannot find backup source for replicas")
 	}
 
+	mongoDBVersion, err := s.getMongoDBVersion()
+	if err != nil {
+		return err
+	}
+	s.backupStatus.lastBackupMetadata.metadata.MongodbVersion = mongoDBVersion
+
 	s.reset()
 	s.setBackupRunning(true)
 	s.setOplogBackupRunning(true)
@@ -626,6 +643,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			OplogStartTime:  opts.GetOplogStartTime(),
 			Description:     opts.Description,
 			StorageName:     opts.GetStorageName(),
+			MongodbVersion:  mongoDBVersion,
 		}
 		if err := client.startBackup(msg); err != nil {
 			return errors.Wrapf(err, "cannot start backup for client %s", client.ID)
@@ -633,6 +651,18 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	}
 
 	return nil
+}
+
+func (s *MessagesServer) getMongoDBVersion() (string, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, client := range s.clients {
+		fmt.Printf("type: %v\n", client.NodeType)
+		if client.NodeType != pb.NodeType_NODE_TYPE_MONGOS {
+			return client.GetMongoDBVersion()
+		}
+	}
+	return "", fmt.Errorf("cannot get MongoDB version. There are no agents connected to a mongod instance")
 }
 
 // StartBalancer restarts the balancer if this is a sharded system

@@ -35,6 +35,7 @@ type MongoRestoreInput struct {
 	// This field is not StopOnError as we should send it to MongoRestore, because the default
 	// we want is true so, just to prevent forgetting setting it on the struct, we are going to
 	// use the opposite.
+	PreserveUUID      bool
 	IgnoreErrors      bool
 	Gzip              bool
 	Oplog             bool
@@ -100,7 +101,7 @@ func NewMongoRestore(i *MongoRestoreInput) (*MongoRestore, error) {
 		NoOptionsRestore:         false,
 		NumInsertionWorkers:      20,
 		NumParallelCollections:   4,
-		PreserveUUID:             true,
+		PreserveUUID:             i.PreserveUUID,
 		StopOnError:              !i.IgnoreErrors,
 		TempRolesColl:            "temproles",
 		TempUsersColl:            "tempusers",
