@@ -144,6 +144,22 @@ func (c *Client) GetBackupSource() (string, error) {
 	return msg.GetBackupSourceMsg().GetSourceClient(), nil
 }
 
+func (c *Client) GetMongoDBVersion() (string, error) {
+	if err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_GetMongodbVersion{GetMongodbVersion: &pb.GetMongoDBVersion{}},
+	}); err != nil {
+		return "", err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return "", err
+	}
+	if errMsg := msg.GetErrorMsg(); errMsg != nil {
+		return "", fmt.Errorf("cannot get MongoDB version from client %s: %s", c.NodeName, errMsg)
+	}
+	return msg.GetMongodbVersion().GetVersion(), nil
+}
+
 func (c *Client) GetStoragesInfo() ([]*pb.StorageInfo, error) {
 	if err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_ListStoragesMsg{ListStoragesMsg: &pb.ListStorages{}},
@@ -155,7 +171,7 @@ func (c *Client) GetStoragesInfo() ([]*pb.StorageInfo, error) {
 		return nil, err
 	}
 	if errMsg := msg.GetErrorMsg(); errMsg != nil {
-		return nil, fmt.Errorf("cannot get backup source for client %s: %s", c.NodeName, errMsg)
+		return nil, fmt.Errorf("cannot get storages info from client %s: %s", c.NodeName, errMsg)
 	}
 	return msg.GetStoragesInfo().GetStoragesInfo(), nil
 }

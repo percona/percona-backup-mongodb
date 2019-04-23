@@ -22,6 +22,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-version"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
@@ -419,6 +420,8 @@ func (c *Client) processIncommingServerMessages() {
 				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
 			}
 			continue
+		case *pb.ServerMessage_GetMongodbVersion:
+			omsg, err = c.processGetMongoDBVersion()
 		case *pb.ServerMessage_StopBalancerMsg:
 			omsg, err = c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
@@ -641,6 +644,26 @@ func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (*pb.ClientMessag
 		},
 	}
 
+	return omsg, nil
+}
+
+// processGetMongoDBVersion returns the MongoDB version from the BuildInfo mgo's method.
+// We need to know it because starting with MongoDB 4.0, collections have an UUID and mongo restore
+// has a parameter named preserveUUID but it should be set to false for Mongo 3.6 bacause if it is
+// set to true and the underlying Mongo version is not 4.0+, mongo restore fails
+func (c *Client) processGetMongoDBVersion() (*pb.ClientMessage, error) {
+	bi, err := c.mdbSession.BuildInfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot read BuildInfo to get MongoDB version")
+	}
+	omsg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_MongodbVersion{
+			MongodbVersion: &pb.MongoDBVersion{
+				Version: bi.Version,
+			},
+		},
+	}
 	return omsg, nil
 }
 
@@ -1336,6 +1359,42 @@ func getNodeType(isMaster *cluster.IsMaster) pb.NodeType {
 	return pb.NodeType_NODE_TYPE_MONGOD
 }
 
+func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
+	ssi := []*pb.StorageInfo{}
+
+	for name, stg := range c.storages.Storages {
+		var valid, canRead, canWrite bool
+		var err error
+
+		switch strings.ToLower(stg.Type) {
+		case typeS3:
+			valid, canRead, canWrite, err = c.checkS3Access(stg.S3)
+		case typeFilesystem:
+			valid, canRead, canWrite, err = c.checkFilesystemAccess(stg.Filesystem.Path)
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "processListStorages: storage %q is invalid", name)
+		}
+		si := &pb.StorageInfo{
+			Name:     name,
+			Type:     stg.Type,
+			Valid:    valid,
+			CanRead:  canRead,
+			CanWrite: canWrite,
+			S3: &pb.S3{
+				Region:      stg.S3.Region,
+				EndpointUrl: stg.S3.EndpointURL,
+				Bucket:      stg.S3.Bucket,
+			},
+			Filesystem: &pb.Filesystem{
+				Path: stg.Filesystem.Path,
+			},
+		}
+		ssi = append(ssi, si)
+	}
+	return ssi, nil
+}
+
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
@@ -1361,6 +1420,42 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// 2. Use different compression algorithms.
 	// 3. Read from encrypted backups.
 	// That's why we are providing our own reader to MongoRestore
+	v4, _ := version.NewVersion("4.0")
+	bi, err := c.mdbSession.BuildInfo()
+	if err != nil {
+		return errors.Wrap(err, "cannot read BuildInfo to get MongoDB version")
+	}
+	v, err := version.NewVersion(bi.Version)
+	if err != nil {
+		return errors.Wrap(err, "cannot parse MongoDB version")
+	}
+
+	preserveUUID := true
+	dropCollections := true
+	ingnoreErrors := false
+	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		// For config servers, if we set dropCollections to true, we are going to receive this error:
+		//   cannot drop config.version document while in --configsvr mode
+		// We must ignore the errors and we shouldn't drop the collections
+		dropCollections = false
+		ingnoreErrors = true
+		preserveUUID = false // cannot be used with dropCollections=false
+	}
+
+	// If the destination server is < v4.0, collections don't have an UUID
+	if v.LessThan(v4) {
+		preserveUUID = false
+	}
+
+	v, err = version.NewVersion(msg.GetMongodbVersion())
+	if err != nil {
+		return errors.Wrapf(err, "cannot parse backup source MongoDB version from %q", msg.GetMongodbVersion())
+	}
+	// If the backup source was MongoDB < 4.0, the backed up collection don't have an UUID
+	if v.LessThan(v4) {
+		preserveUUID = false
+	}
+
 	input := &restore.MongoRestoreInput{
 		Archive:         "-",
 		DryRun:          false,
@@ -1368,15 +1463,13 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		Port:            msg.Port,
 		Username:        c.connOpts.User,
 		Password:        c.connOpts.Password,
-		DropCollections: true,
-		// For config servers, we are going to receive this error:
-		// cannot drop config.version document while in --configsvr mode
-		// We should ignore it
-		IgnoreErrors: c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR,
-		Gzip:         false,
-		Oplog:        false,
-		Threads:      10,
-		Reader:       rdr,
+		DropCollections: dropCollections,
+		IgnoreErrors:    ingnoreErrors,
+		Gzip:            false,
+		Oplog:           false,
+		Threads:         10,
+		Reader:          rdr,
+		PreserveUUID:    preserveUUID,
 		// A real restore would be applied to a just created and empty instance and it should be
 		// configured to run without user authentication.
 		// For testing purposes, we can skip restoring users and roles.

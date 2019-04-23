@@ -29,6 +29,7 @@ func NewBackupMetadata(opts *pb.StartBackup) *BackupMetadata {
 			Description:     opts.GetDescription(),
 			Replicasets:     make(map[string]*pb.ReplicasetMetadata),
 			StorageName:     opts.GetStorageName(),
+			MongodbVersion:  opts.GetMongodbVersion(),
 		},
 		namePrefix: opts.GetNamePrefix(),
 		lock:       &sync.Mutex{},

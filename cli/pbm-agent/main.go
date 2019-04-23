@@ -183,6 +183,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	stgs, err := client.ListStorages()
+	if err != nil {
+		log.Fatalf("Cannot check if all storages from file %q are valid: %s", opts.StoragesConfig, err)
+	}
+	count := 0
+	for _, stg := range stgs {
+		if stg.Valid {
+			count++
+			continue
+		}
+		log.Errorf("Storage %s is not valid. Can read: %v, can write: %v", stg.Name, stg.CanRead, stg.CanWrite)
+	}
+	if count != len(stgs) { // not all storages are valid
+		log.Error("Not all storages are valid")
+	}
+
 	if err := client.Start(); err != nil {
 		log.Fatalf("Cannot start client: %s", err)
 	}
@@ -198,7 +214,9 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 
 	<-c
-	client.Stop()
+	if err := client.Stop(); err != nil {
+		log.Fatalf("Cannot stop client: %s", err)
+	}
 }
 
 func processCliArgs(args []string) (*cliOptions, error) {
@@ -230,6 +248,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		Short('q').
 		BoolVar(&opts.Quiet)
 	app.Flag("storages-config", "Storages config yaml file").
+		Required().
 		StringVar(&opts.StoragesConfig)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").
 		BoolVar(&opts.UseSysLog)

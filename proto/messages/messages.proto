@@ -71,6 +71,7 @@ message Empty {}
 message GetBackupSource {}
 message GetCmdLineOpts {}
 message GetLastOplogTs {}
+message GetMongoDBVersion {}
 message GetStatus {}
 message ListReplicasets {}
 message ListStorages {}
@@ -96,7 +97,8 @@ message BackupMetadata {
            string                          description      = 8;
            map<string, ReplicasetMetadata> replicasets      = 9;
            string                          storage_name     = 10;
-  repeated Server                          servers          = 11;
+           string                          mongodb_version  = 11;
+  repeated Server                          servers          = 12;
 }
 
 message CanRestoreBackup {
@@ -129,6 +131,10 @@ message LogEntry {
   string message   = 4;
 }
 
+message MongoDBVersion {
+  string version = 1;
+}
+
 message ReplicasetMetadata {
   string cluster_id        = 1;
   string replicaset_uuid   = 2;
@@ -150,6 +156,7 @@ message RestoreBackup {
   string          host                 = 10;  // MongoDB primary's host & port
   string          port                 = 11; 
   string          storage_name         = 12;
+  string          mongodb_version      = 13;
 }
 
 message RestoreComplete {
@@ -167,6 +174,7 @@ message StartBackup {
   int64           oplog_start_time  = 7;
   string          description       = 8;
   string          storage_name      = 9;
+  string          mongodb_version   = 10;
 }
 
 message StopOplogTail {
@@ -194,6 +202,7 @@ message ServerMessage {
     ListStorages        list_storages_msg      = 17;
     WriteFile           write_file             = 18;
     GetCmdLineOpts      get_cmd_line_opts      = 19;
+    GetMongoDBVersion   get_mongodb_version    = 20;
   }
 }
 
@@ -216,6 +225,7 @@ message ClientMessage {
     StoragesInfo             storages_info          = 15;
     WriteStatus              write_status           = 16;
     CmdLineOpts              cmd_line_opts          = 17;
+    MongoDBVersion           mongodb_version        = 18;
   }
 }
 
