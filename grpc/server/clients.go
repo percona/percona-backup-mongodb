@@ -331,6 +331,7 @@ func (c *Client) restoreBackup(msg *pb.RestoreBackup) error {
 				Host:              msg.Host,
 				Port:              msg.Port,
 				StorageName:       msg.GetStorageName(),
+				MongodbVersion:    msg.MongodbVersion,
 			},
 		},
 	}
