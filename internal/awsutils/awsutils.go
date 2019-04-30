@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -127,10 +128,15 @@ func GetAWSSession() (*session.Session, error) {
 
 func GetAWSSessionFromStorage(opts storage.S3) (*session.Session, error) {
 	token := ""
+	log.Printf("opts msg: %+v", opts)
 	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String(opts.Region),
-		Endpoint:         aws.String(opts.EndpointURL),
-		Credentials:      credentials.NewStaticCredentials(opts.Credentials.AccessKeyID, opts.Credentials.SecretAccessKey, token),
+		Region:   aws.String(opts.Region),
+		Endpoint: aws.String(opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			opts.Credentials.AccessKeyID,
+			opts.Credentials.SecretAccessKey,
+			token,
+		),
 		S3ForcePathStyle: aws.Bool(true),
 	})
 	return sess, err
@@ -145,20 +151,30 @@ func ListObjects(svc *s3.S3, bucket string) (*s3.ListObjectsOutput, error) {
 }
 
 func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
-	resp, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	obj := &s3.Object{}
+	err := svc.ListObjectsPages(
+		&s3.ListObjectsInput{Bucket: aws.String(bucket)},
+		func(page *s3.ListObjectsOutput, lastPage bool) bool {
+			for _, item := range page.Contents {
+				fmt.Printf("item: %s, filename: %s\n", *item.Key, filename)
+				if *item.Key == filename {
+					obj = item
+					return false
+				}
+			}
+			return true
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	for _, item := range resp.Contents {
-		if *item.Key == filename {
-			return item, nil
-		}
+	if obj != nil {
+		return obj, nil
 	}
 	return nil, FileNotFoundError
 }
 
-func UploadFileToS3(sess *session.Session, fr io.Reader, bucket, filename string) error {
+func UploadFileToS3(sess client.ConfigProvider, fr io.Reader, bucket, filename string) error {
 	svc := s3.New(sess)
 	input := &s3.PutObjectInput{
 		Body:   aws.ReadSeekCloser(fr),
