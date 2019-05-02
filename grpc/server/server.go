@@ -659,7 +659,6 @@ func (s *MessagesServer) getMongoDBVersion() (string, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
-		fmt.Printf("type: %v\n", client.NodeType)
 		if client.NodeType != pb.NodeType_NODE_TYPE_MONGOS {
 			return client.GetMongoDBVersion()
 		}

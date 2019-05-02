@@ -490,7 +490,6 @@ func (c *Client) processCancelBackup() error {
 }
 
 func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMessage, error) {
-	c.logger.Info("Checking if can restore backup")
 	var err error
 	if err := c.updateClientInfo(); err != nil {
 		return nil, err
@@ -511,10 +510,8 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 
 	switch stg.Type {
 	case typeFilesystem:
-		c.logger.Println("filesystem")
 		resp.CanRestore, err = c.checkCanRestoreLocal(msg)
 	case typeS3:
-		c.logger.Println("s3")
 		resp.CanRestore, err = c.checkCanRestoreS3(msg)
 	}
 	if err != nil {
