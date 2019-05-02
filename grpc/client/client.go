@@ -37,7 +37,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/storage"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -390,7 +389,6 @@ func (c *Client) processIncommingServerMessages() {
 
 		var omsg *pb.ClientMessage
 
-		c.logger.Debugf("Incoming message: %+v", msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
 			omsg, err = c.processStatus()
@@ -417,7 +415,7 @@ func (c *Client) processIncommingServerMessages() {
 			err = c.processCancelBackup()
 		case *pb.ServerMessage_RestoreBackupMsg:
 			if err := c.processRestore(msg.GetRestoreBackupMsg()); err != nil {
-				log.Errorf("[client %s] cannot process restore: %s", c.id, err)
+				c.logger.Errorf("[client %s] cannot process restore: %s", c.id, err)
 			}
 			continue
 		case *pb.ServerMessage_GetMongodbVersion:
@@ -451,7 +449,7 @@ func (c *Client) processIncommingServerMessages() {
 
 		if omsg != nil {
 			if err := c.streamSend(omsg); err != nil {
-				log.Errorf("cannot send processStopBalancer response to the server: %s", err)
+				c.logger.Errorf("cannot send processStopBalancer response to the server: %s", err)
 			}
 		}
 	}
@@ -506,6 +504,7 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
+		c.logger.Errorf("cannot get storage name %s: %s", msg.GetStorageName(), err)
 		return nil, err
 	}
 
@@ -516,6 +515,7 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 		resp.CanRestore, err = c.checkCanRestoreS3(msg)
 	}
 	if err != nil {
+		c.logger.Errorf("can restore error: %s", err)
 		return nil, err
 	}
 
@@ -550,6 +550,11 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 		return false, fmt.Errorf("checkCanRestoreS3: cannot get AWS session: %s", err)
 	}
 	svc := s3.New(awsSession)
+	c.logger.Debugf("Checking if client %s can restore %s from s3 %s bucket %s", c.id,
+		msg.GetBackupName(),
+		stg.S3.Region,
+		stg.S3.Bucket,
+	)
 	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
 		if err == awsutils.FileNotFoundError {
@@ -891,7 +896,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	case typeS3:
 		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
 		if err != nil {
-			msg := "Cannot create an AWS session for S3 backup"
+			msg := "cannot create an AWS session for S3 backup"
 			c.sendDBBackupFinishError(fmt.Errorf(msg))
 			c.logger.Error(msg)
 			return
@@ -917,11 +922,11 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
-	log.Debug("Starting oplog backup")
+	c.logger.Debug("Starting oplog backup")
 	go c.runOplogBackup(msg, sess, c.oplogTailer)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
-	log.Debug("Waiting oplog first doc")
+	c.logger.Debug("Waiting oplog first doc")
 	if err := c.oplogTailer.WaitUntilFirstDoc(); err != nil {
 		err := errors.Wrapf(err, "Cannot read from the oplog tailer")
 		c.oplogTailer.Cancel()
@@ -937,7 +942,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		}
 		return
 	}
-	log.Debugf("Starting DB backup")
+	c.logger.Debugf("Starting DB backup")
 	go func() {
 		err := c.runDBBackup(msg)
 		if err != nil {
@@ -1050,7 +1055,9 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 
 func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		return nil, fmt.Errorf("Stop balancer only works on config servers")
+		return nil, fmt.Errorf("Stop balancer only works on config servers. This is a [%d]%s type",
+			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
+		)
 	}
 
 	mongosSession, err := c.getMongosSession()
@@ -1409,7 +1416,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// up manually
 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
-			log.Warnf("cannot empty config.version collection: %s", err)
+			c.logger.Warnf("cannot empty config.version collection: %s", err)
 		}
 	}
 
@@ -1568,8 +1575,8 @@ func (c *Client) checkS3Access(opts storage.S3) (bool, bool, bool, error) {
 		canWrite = true
 	} else {
 		valid = true
-		canRead = canListObjects(svc, opts.Bucket)
-		canWrite = canPutObject(svc, opts.Bucket)
+		canRead = c.canListObjects(svc, opts.Bucket)
+		canWrite = c.canPutObject(svc, opts.Bucket)
 	}
 
 	return valid, canRead, canWrite, nil
@@ -1603,7 +1610,7 @@ func (c *Client) checkFilesystemAccess(path string) (bool, bool, bool, error) {
 	return valid, canRead, canWrite, nil
 }
 
-func canListObjects(svc *s3.S3, bucket string) bool {
+func (c *Client) canListObjects(svc *s3.S3, bucket string) bool {
 	params := &s3.ListObjectsInput{
 		Bucket: aws.String(bucket),
 	}
@@ -1612,7 +1619,7 @@ func canListObjects(svc *s3.S3, bucket string) bool {
 	return err == nil
 }
 
-func canPutObject(svc *s3.S3, bucket string) bool {
+func (c *Client) canPutObject(svc *s3.S3, bucket string) bool {
 	buffer := []byte("test can write to bucket")
 	rand.Seed(time.Now().UnixNano())
 	filename := fmt.Sprintf("temp_file_for_test_%6d", rand.Int63n(999999))
@@ -1632,7 +1639,7 @@ func canPutObject(svc *s3.S3, bucket string) bool {
 		Key:    aws.String(filename),
 	}
 	if _, err := svc.DeleteObject(input); err != nil {
-		log.Printf("Cannot delete s3 can write test object %s in bucket %s: %s", filename, bucket, err)
+		c.logger.Printf("Cannot delete s3 can write test object %s in bucket %s: %s", filename, bucket, err)
 	}
 
 	return true

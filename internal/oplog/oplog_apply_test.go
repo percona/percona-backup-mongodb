@@ -11,7 +11,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
@@ -27,8 +26,6 @@ func TestBasicApplyLog(t *testing.T) {
 		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
 	}
 
-	di := testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName)
-	pretty.Println(di)
 	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		t.Fatalf("Cannot connect to primary: %s", err)

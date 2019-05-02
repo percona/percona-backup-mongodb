@@ -78,7 +78,7 @@ func TestValidateFilesystemStorage(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot process GetStorageInfo: %s", err)
 	}
-	if !reflect.DeepEqual(wantFs, info) {
+	if !reflect.DeepEqual(wantFs, *info) {
 		t.Errorf("Invalid info.\nWant:\n%s\nGot:\n%s", pretty.Sprint(wantFs), pretty.Sprint(info))
 	}
 }
@@ -126,21 +126,19 @@ func TestValidateS3Storage(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot process GetStorageInfo: %s", err)
 	}
-	if !reflect.DeepEqual(wantFs, info) {
+	if !reflect.DeepEqual(wantFs, *info) {
 		t.Errorf("Invalid info.\nWant:\n%s\nGot:\n%s", pretty.Sprint(wantFs), pretty.Sprint(info))
 	}
 }
 
 func TestFsBackupAndRestore(t *testing.T) {
-	testBackupAndRestore(t, "local-filesystem")
-}
-
-func TestMinioBackupAndRestore(t *testing.T) {
-	testBackupAndRestore(t, "minio")
-}
-
-func TestS3sBackupAndRestore(t *testing.T) {
-	testBackupAndRestore(t, "s3-us-west")
+	testNames := []string{"local-filesystem", "minio", "s3-us-west"}
+	for _, testName := range testNames {
+		name := testName
+		t.Run(name, func(t *testing.T) {
+			testBackupAndRestore(t, name)
+		})
+	}
 }
 
 func testBackupAndRestore(t *testing.T, storage string) {
@@ -180,6 +178,7 @@ func testBackupAndRestore(t *testing.T, storage string) {
 		OplogStartTime:  0,
 		Description:     "test001",
 		StorageName:     storage,
+		MongodbVersion:  "3.6.0",
 	}
 
 	err = c.runDBBackup(msg)
@@ -188,9 +187,8 @@ func testBackupAndRestore(t *testing.T, storage string) {
 	}
 
 	rmsg := &pb.RestoreBackup{
-		MongodbHost: "127.0.0.1",
-		BackupType:  pb.BackupType_BACKUP_TYPE_LOGICAL,
-		//SourceBucket
+		MongodbHost:       "127.0.0.1",
+		BackupType:        pb.BackupType_BACKUP_TYPE_LOGICAL,
 		DbSourceName:      "0001.dump",
 		OplogSourceName:   "",
 		CompressionType:   pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
@@ -200,6 +198,7 @@ func testBackupAndRestore(t *testing.T, storage string) {
 		Host:              "127.0.0.1",
 		Port:              "17001",
 		StorageName:       storage,
+		MongodbVersion:    "3.6.0",
 	}
 
 	err = c.restoreDBDump(rmsg)
@@ -326,9 +325,13 @@ func TestBalancerStartStop(t *testing.T) {
 		t.Fatalf("Cannot connect to the config server: %s", err)
 	}
 
+	if err := c.updateClientInfo(); err != nil {
+		t.Errorf("Cannot update client info: %s", err)
+	}
+
 	resp, err := c.processStopBalancer()
 	if err != nil {
-		t.Error(err)
+		t.Fatalf("processStopBalancer error: %s; cannot continue", err)
 	}
 	if _, ok := resp.Payload.(*pb.ClientMessage_AckMsg); !ok {
 		t.Errorf("Invalid Stop Balancer response type. Want Ack, got %T", resp.Payload)
