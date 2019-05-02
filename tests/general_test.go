@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -77,7 +76,6 @@ func TestGlobalWithDaemon(t *testing.T) {
 
 	log.Debug("Getting list of connected clients")
 	clientsList := d.MessagesServer.Clients()
-	log.Debugf("Clients: %+v\n", clientsList)
 	if len(clientsList) != d.ClientsCount() {
 		t.Errorf("Want %d connected clients, got %d", d.ClientsCount(), len(clientsList))
 	}
@@ -959,10 +957,6 @@ func TestAllServersCmdLineOpts(t *testing.T) {
 	if len(cmdLineOpts) != want {
 		t.Errorf("Invalid cmdLineOpts clients count. Want %d, got %d", want, len(cmdLineOpts))
 	}
-	for i, f := range cmdLineOpts {
-		fmt.Printf("%d: %s\n", i, string(f.CmdLineOpts))
-	}
-	pretty.Println(cmdLineOpts)
 }
 
 func diag(params ...interface{}) {

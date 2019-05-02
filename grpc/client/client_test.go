@@ -79,7 +79,7 @@ func TestValidateFilesystemStorage(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot process GetStorageInfo: %s", err)
 	}
-	if !reflect.DeepEqual(wantFs, info) {
+	if !reflect.DeepEqual(wantFs, *info) {
 		t.Errorf("Invalid info.\nWant:\n%s\nGot:\n%s", pretty.Sprint(wantFs), pretty.Sprint(info))
 	}
 }
@@ -127,7 +127,7 @@ func TestValidateS3Storage(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot process GetStorageInfo: %s", err)
 	}
-	if !reflect.DeepEqual(wantFs, info) {
+	if !reflect.DeepEqual(wantFs, *info) {
 		t.Errorf("Invalid info.\nWant:\n%s\nGot:\n%s", pretty.Sprint(wantFs), pretty.Sprint(info))
 	}
 }
@@ -179,6 +179,7 @@ func testBackupAndRestore(t *testing.T, storage string) {
 		OplogStartTime:  0,
 		Description:     "test001",
 		StorageName:     storage,
+		MongodbVersion:  "3.6.0",
 	}
 
 	err = c.runDBBackup(msg)
@@ -198,6 +199,7 @@ func testBackupAndRestore(t *testing.T, storage string) {
 		Host:              "127.0.0.1",
 		Port:              "17001",
 		StorageName:       storage,
+		MongodbVersion:    "3.6.0",
 	}
 
 	err = c.restoreDBDump(rmsg)
@@ -376,9 +378,13 @@ func TestBalancerStartStop(t *testing.T) {
 		t.Fatalf("Cannot connect to the config server: %s", err)
 	}
 
+	if err := c.updateClientInfo(); err != nil {
+		t.Errorf("Cannot update client info: %s", err)
+	}
+
 	resp, err := c.processStopBalancer()
 	if err != nil {
-		t.Error(err)
+		t.Fatalf("processStopBalancer error: %s; cannot continue", err)
 	}
 	if _, ok := resp.Payload.(*pb.ClientMessage_AckMsg); !ok {
 		t.Errorf("Invalid Stop Balancer response type. Want Ack, got %T", resp.Payload)

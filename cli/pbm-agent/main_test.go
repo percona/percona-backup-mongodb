@@ -3,26 +3,37 @@ package main
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/grpc/client"
+	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	yaml "gopkg.in/yaml.v2"
 )
 
+func TestNoStorages(t *testing.T) {
+	_, err := processCliArgs([]string{})
+	if err == nil {
+		t.Fatalf("--storages-config should be mandatory")
+	}
+}
+
 func TestDefaults(t *testing.T) {
-	opts, err := processCliArgs([]string{})
+	opts, err := processCliArgs([]string{"--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	opts.app = nil
 	wantOpts := &cliOptions{
-		ServerAddress: defaultServerAddress,
+		ServerAddress:  defaultServerAddress,
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           defaultMongoDBPort,
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 
@@ -32,17 +43,19 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestOverrideDefaultsFromCommandLine(t *testing.T) {
-	opts, err := processCliArgs([]string{"--server-address", "127.0.0.1:12345"})
+	opts, err := processCliArgs([]string{"--server-address", "127.0.0.1:12345", "--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	opts.app = nil
 	wantOpts := &cliOptions{
-		ServerAddress: "127.0.0.1:12345",
+		ServerAddress:  "127.0.0.1:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           defaultMongoDBPort,
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 
@@ -53,17 +66,19 @@ func TestOverrideDefaultsFromCommandLine(t *testing.T) {
 
 func TestOverrideDefaultsFromEnv(t *testing.T) {
 	os.Setenv("PBM_AGENT_SERVER_ADDRESS", "localhost:12345")
-	opts, err := processCliArgs([]string{})
+	opts, err := processCliArgs([]string{"--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	opts.app = nil
 	wantOpts := &cliOptions{
-		ServerAddress: "localhost:12345",
+		ServerAddress:  "localhost:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           defaultMongoDBPort,
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 
@@ -80,12 +95,14 @@ func TestOverrideDefaultsFromConfigFile(t *testing.T) {
 
 	defer os.Remove(tmpfile.Name())
 	wantOpts := &cliOptions{
-		configFile:    tmpfile.Name(),
-		ServerAddress: "localhost:12345",
+		configFile:     tmpfile.Name(),
+		ServerAddress:  "localhost:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           defaultMongoDBPort,
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 	b, _ := yaml.Marshal(wantOpts)
@@ -97,7 +114,7 @@ func TestOverrideDefaultsFromConfigFile(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name()})
+	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -116,12 +133,14 @@ func TestConfigfileEnvPrecedenceOverEnvVars(t *testing.T) {
 
 	defer os.Remove(tmpfile.Name())
 	wantOpts := &cliOptions{
-		configFile:    tmpfile.Name(),
-		ServerAddress: "localhost:12345",
+		configFile:     tmpfile.Name(),
+		ServerAddress:  "localhost:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           defaultMongoDBPort,
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 	b, _ := yaml.Marshal(wantOpts)
@@ -136,7 +155,7 @@ func TestConfigfileEnvPrecedenceOverEnvVars(t *testing.T) {
 	os.Setenv("PBM_AGENT_BACKUP_DIR", "/some/dir")
 	defer os.Setenv("PBM_AGENT_BACKUP_DIR", "")
 
-	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name()})
+	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -152,17 +171,19 @@ func TestCommandLineArgsPrecedenceOverEnvVars(t *testing.T) {
 	os.Setenv("PBM_AGENT_MONGODB_PORT", "12346")
 	defer os.Setenv("PBM_AGENT_MONGODB_PORT", "")
 
-	opts, err := processCliArgs([]string{"--mongodb-port", "12345"})
+	opts, err := processCliArgs([]string{"--mongodb-port", "12345", "--storages-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	opts.app = nil
 	wantOpts := &cliOptions{
-		ServerAddress: "localhost:12345",
+		ServerAddress:  "localhost:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           "12345",
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 
@@ -179,11 +200,13 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 
 	defer os.Remove(tmpfile.Name())
 	wantOpts := &cliOptions{
-		ServerAddress: "localhost:12345",
+		ServerAddress:  "localhost:12345",
+		StoragesConfig: storagesFile(),
 		MongodbConnOptions: client.ConnectionOptions{
 			Host:           defaultMongoDBHost,
 			Port:           "12346",
-			ReconnectDelay: 10,
+			ReconnectDelay: defaultReconnectDelay,
+			ReconnectCount: defaultReconnectCount,
 		},
 	}
 	b, _ := yaml.Marshal(wantOpts)
@@ -198,9 +221,9 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 	wantOpts.MongodbConnOptions.Port = "12345"
 
 	opts, err := processCliArgs([]string{
-		"--config-file",
-		tmpfile.Name(),
+		"--config-file", tmpfile.Name(),
 		"--mongodb-port", "12345",
+		"--storages-config", storagesFile(),
 	})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
@@ -211,4 +234,8 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 	if !reflect.DeepEqual(opts, wantOpts) {
 		t.Errorf("Invalid default options. Want: \n%s\nGot:\n%s", pretty.Sprint(wantOpts), pretty.Sprint(opts))
 	}
+}
+
+func storagesFile() string {
+	return filepath.Join(testutils.BaseDir(), "testdata", "storages.yaml")
 }

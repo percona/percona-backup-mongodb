@@ -1,0 +1,20 @@
+s3-us-east:
+  type: s3
+  s3:
+    region: us-east-1
+    bucket: operator-testing
+    credentials:
+      access-key-id: access_key
+      secret-access-key: secret_key
+s3-us-west:
+  type: s3
+  s3:
+    region: us-west-2
+    bucket: pbm-test-bucket-1234
+    credentials:
+      access-key-id: access_key
+      secret-access-key: secret_key
+local-filesystem:
+  type: filesystem
+  filesystem:
+    path: /tmp/dump_test/

@@ -28,6 +28,15 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+const (
+	defaultReconnectCount = 3
+	defaultReconnectDelay = 10
+	sampleConfigFile      = "config.sample.yml"
+	defaultServerAddress  = "127.0.0.1:10000"
+	defaultMongoDBHost    = "127.0.0.1"
+	defaultMongoDBPort    = "27017"
+)
+
 type cliOptions struct {
 	app                  *kingpin.Application
 	configFile           string
@@ -53,13 +62,6 @@ type cliOptions struct {
 	// MongoDB connection SSL options
 	MongodbSslOptions client.SSLOptions `yaml:"mongodb_ssl_options,omitempty"`
 }
-
-const (
-	sampleConfigFile     = "config.sample.yml"
-	defaultServerAddress = "127.0.0.1:10000"
-	defaultMongoDBHost   = "127.0.0.1"
-	defaultMongoDBPort   = "27017"
-)
 
 var (
 	version         = "dev"
@@ -285,10 +287,10 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("mongodb-replicaset", "MongoDB Replicaset name").
 		StringVar(&opts.MongodbConnOptions.ReplicasetName)
 	app.Flag("mongodb-reconnect-delay", "MongoDB reconnection delay in seconds").
-		Default("10").
+		Default(fmt.Sprintf("%d", defaultReconnectDelay)).
 		IntVar(&opts.MongodbConnOptions.ReconnectDelay)
 	app.Flag("mongodb-reconnect-count", "MongoDB max reconnection attempts (0: forever)").
-		Default("3").
+		Default(fmt.Sprintf("%d", defaultReconnectCount)).
 		IntVar(&opts.MongodbConnOptions.ReconnectCount)
 
 	app.PreAction(func(c *kingpin.ParseContext) error {

@@ -289,6 +289,8 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo []*pb.StorageInfo
 	}
 	var errs error
+	//lock := sync.Mutex{}
+
 	wga := &sync.WaitGroup{}
 	wgb := sync.WaitGroup{}
 	ch := make(chan resp)

@@ -128,7 +128,6 @@ func GetAWSSession() (*session.Session, error) {
 
 func GetAWSSessionFromStorage(opts storage.S3) (*session.Session, error) {
 	token := ""
-	log.Printf("opts msg: %+v", opts)
 	sess, err := session.NewSession(&aws.Config{
 		Region:   aws.String(opts.Region),
 		Endpoint: aws.String(opts.EndpointURL),

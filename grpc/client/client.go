@@ -389,7 +389,6 @@ func (c *Client) processIncommingServerMessages() {
 
 		var omsg *pb.ClientMessage
 
-		c.logger.Debugf("Incoming message: %+v", msg)
 		switch msg.Payload.(type) {
 		case *pb.ServerMessage_GetStatusMsg:
 			omsg, err = c.processStatus()
@@ -527,7 +526,6 @@ func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMe
 		ClientId: c.id,
 		Payload:  &pb.ClientMessage_CanRestoreBackupMsg{CanRestoreBackupMsg: resp},
 	}
-	c.logger.Errorf("resp: %+v", resp)
 
 	return outMsg, nil
 }
@@ -550,20 +548,18 @@ func (c *Client) checkCanRestoreLocal(msg *pb.CanRestoreBackup) (bool, error) {
 
 func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 	stg, _ := c.storages.Get(msg.GetStorageName())
-	c.logger.Errorf("stg: %+v", stg)
 	awsSession, err := awsutils.GetAWSSessionFromStorage(stg.S3)
 	if err != nil {
 		return false, fmt.Errorf("checkCanRestoreS3: cannot get AWS session: %s", err)
 	}
 	svc := s3.New(awsSession)
-	c.logger.Errorf("Checking if client %s can restore %s from s3 %s bucket %s", c.id,
+	c.logger.Debugf("Checking if client %s can restore %s from s3 %s bucket %s", c.id,
 		msg.GetBackupName(),
 		stg.S3.Region,
 		stg.S3.Bucket,
 	)
 	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
-		c.logger.Errorf("S3Stat returned an error: %s", err)
 		if err == awsutils.FileNotFoundError {
 			return false, nil
 		}
@@ -903,7 +899,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	case typeS3:
 		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
 		if err != nil {
-			msg := "Cannot create an AWS session for S3 backup"
+			msg := "cannot create an AWS session for S3 backup"
 			c.sendDBBackupFinishError(fmt.Errorf(msg))
 			c.logger.Error(msg)
 			return
@@ -1062,7 +1058,9 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 
 func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		return nil, fmt.Errorf("Stop balancer only works on config servers")
+		return nil, fmt.Errorf("Stop balancer only works on config servers. This is a [%d]%s type",
+			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
+		)
 	}
 
 	mongosSession, err := c.getMongosSession()
