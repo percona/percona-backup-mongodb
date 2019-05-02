@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -209,58 +208,6 @@ func testBackupAndRestore(t *testing.T, storage string) {
 
 }
 
-func TestGzipRestore(t *testing.T) {
-	storage := "local-filesystem"
-	testFiles := []string{"rs0.json", "rs0.dump.gz", "rs0.oplog.gz"}
-	stg, err := testutils.TestingStorages().Get(storage)
-	if err != nil {
-		t.Fatalf("Cannot get storage %q: %v", storage, err)
-	}
-	for _, filename := range testFiles {
-		src := filepath.Join(testutils.BaseDir(), "testdata", "gz_restore", filename)
-		dst := filepath.Join(stg.Filesystem.Path, filename)
-		if err := os.Symlink(src, dst); err != nil {
-			t.Fatalf("Cannot link test backup file %q: %s", filename, err)
-		}
-	}
-
-	input, err := buildInputParams()
-	if err != nil {
-		t.Fatalf("Cannot build agent's input params: %s", err)
-	}
-
-	c, err := NewClient(context.TODO(), input)
-	if err != nil {
-		t.Fatalf("Cannot create a new client: %s", err)
-	}
-	if err := c.dbConnect(); err != nil {
-		t.Fatalf("Cannot connect to the db: %s", err)
-	}
-
-	rmsg := &pb.RestoreBackup{
-		MongodbHost:       "127.0.0.1",
-		BackupType:        pb.BackupType_BACKUP_TYPE_LOGICAL,
-		DbSourceName:      "rs0.dump.gz",
-		OplogSourceName:   "rs0.oplog.gz",
-		CompressionType:   pb.CompressionType_COMPRESSION_TYPE_GZIP,
-		Cypher:            pb.Cypher_CYPHER_NO_CYPHER,
-		OplogStartTime:    0,
-		SkipUsersAndRoles: true,
-		Host:              "127.0.0.1",
-		Port:              "17001",
-		StorageName:       storage,
-		MongodbVersion:    "4.0.0",
-	}
-
-	err = c.restoreDBDump(rmsg)
-	if err != nil {
-		t.Errorf("Cannot process restore from s3: %s", err)
-	}
-	if err := c.restoreOplog(rmsg); err != nil {
-		t.Errorf("Cannot process oplog restore: %s", err)
-	}
-
-}
 func TestWriteFile(t *testing.T) {
 	input, err := buildInputParams()
 	if err != nil {
