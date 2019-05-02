@@ -149,6 +149,11 @@ pbm-coordinator: vendor cli/pbm-coordinator/main.go grpc/*/*.go internal/*/*.go 
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pbm-coordinator; fi
 
+build-all: vendor
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbmctl cli/pbmctl/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-agent cli/pbm-agent/main.go
+
 install: pbmctl pbm-agent pbm-coordinator
 	install pbmctl $(DEST_DIR)/pbmctl
 	install pbm-agent $(DEST_DIR)/pbm-agent
