@@ -27,8 +27,12 @@ import (
 
 // some vars are set by goreleaser
 var (
-	version               = "dev"
-	commit                = "none"
+	Version   = "dev"
+	Commit    = "none"
+	Build     = "date"
+	Branch    = "master"
+	GoVersion = "0.0.0"
+
 	usageWriter io.Writer = os.Stdout // for testing purposes. In tests, we redirect this to a bytes buffer
 	conn        *grpc.ClientConn
 
@@ -347,7 +351,7 @@ func printTemplate(tpl string, data interface{}) {
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("pbmctl", "Percona Backup for MongoDB CLI")
-	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
+	app.Version(versionMessage())
 
 	runCmd := app.Command("run", "Start a new backup or restore process")
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
@@ -472,4 +476,13 @@ func makeStreamInterceptor(token string) func(ctx context.Context, desc *grpc.St
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return streamer(ctx, desc, cc, method, opts...)
 	}
+}
+
+func versionMessage() string {
+	msg := "Version   : " + Version + "\n"
+	msg += "Commit    : " + Commit + "\n"
+	msg += "Build     : " + Build + "\n"
+	msg += "Branch    : " + Branch + "\n"
+	msg += "Go version: " + GoVersion + "\n"
+	return msg
 }

@@ -972,11 +972,15 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 // to inform the server about the restore status.
 func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreComplete) (
 	*pb.RestoreCompletedAck, error) {
+	s.logger.Debugf("Received restore completed message from client %q", msg.GetClientId())
+
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
-		return nil, fmt.Errorf("unknown client ID: %s", msg.GetClientId())
+		err := fmt.Errorf("unknown client ID: %s", msg.GetClientId())
+		s.logger.Error(err)
+		return nil, err
 	}
-	s.logger.Debugf("Received RestoreCompleted from client %v", msg.GetClientId())
+
 	client.setRestoreRunning(false)
 	if msg.GetErr() != nil && msg.GetErr().GetMessage() != "" {
 		s.AddError(fmt.Errorf("received error in RestoreCompleted from client %s: %s",
@@ -985,12 +989,17 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 		)
 	}
 	replicasets := s.ReplicasetsRunningRestore()
+	s.logger.Debugf("Replicasets still running the restore: %d", len(replicasets))
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
+		s.logger.Debug("Sending EventRestoreFinish notification")
 		if err := notify.Post(EventRestoreFinish, time.Now()); err != nil {
-			return nil, errors.Wrapf(err, "cannot notify RestoreCompleted for client %s", client.ID)
+			err := errors.Wrapf(err, "cannot notify RestoreCompleted for client %s", client.ID)
+			return nil, err
 		}
 	}
+
+	s.logger.Debug("RestoreCompleted finished")
 	return &pb.RestoreCompletedAck{}, nil
 }
 

@@ -4,7 +4,14 @@ GO_TEST_PATH?=./...
 GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
-GO_BUILD_LDFLAGS?=-w -s
+
+VERSION ?=$(shell git describe --abbrev=0)
+BUILD ?=$(shell date +%FT%T%z)
+GOVERSION ?=$(shell go version | cut --delimiter=" " -f3)
+COMMIT ?=$(shell git rev-parse HEAD)
+BRANCH ?=$(shell git rev-parse --abbrev-ref HEAD)
+
+GO_BUILD_LDFLAGS=-X main.Version=${VERSION} -X main.Build=${BUILD} -X main.Commit=${COMMIT} -X main.Branch=${BRANCH} -X main.GoVersion=${GOVERSION} -s -w
 GOSEC_VERSION?=1.2.0
 
 NAME?=percona-backup-mongodb

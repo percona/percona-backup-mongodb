@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -64,8 +63,11 @@ type cliOptions struct {
 }
 
 var (
-	version         = "dev"
-	commit          = "none"
+	Version         = "dev"
+	Commit          = "none"
+	Build           = "date"
+	Branch          = "master"
+	GoVersion       = "0.0.0"
 	log             = logrus.New()
 	program         = filepath.Base(os.Args[0])
 	grpcCompressors = []string{
@@ -101,16 +103,13 @@ func main() {
 	if opts.Quiet {
 		log.SetLevel(logrus.ErrorLevel)
 	}
-	if opts.Debug {
+	if opts.Debug || os.Getenv("DEBUG") == "1" {
 		log.SetLevel(logrus.DebugLevel)
 	}
-	log.SetLevel(logrus.DebugLevel)
 
-	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
+	log.Infof("Starting %s version %s, git commit %s", program, Version, Commit)
 
 	grpcOpts := getgRPCOptions(opts)
-
-	rand.Seed(time.Now().UnixNano())
 
 	// Connect to the percona-backup-mongodb gRPC server
 	conn, err := grpc.Dial(opts.ServerAddress, grpcOpts...)
@@ -185,6 +184,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	stgs, err := client.ListStorages()
 	if err != nil {
 		log.Fatalf("Cannot check if all storages from file %q are valid: %s", opts.StoragesConfig, err)
@@ -223,7 +223,7 @@ func main() {
 
 func processCliArgs(args []string) (*cliOptions, error) {
 	app := kingpin.New("pbm-agent", "Percona Backup for MongoDB agent")
-	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
+	app.Version(versionMessage())
 
 	opts := &cliOptions{
 		app:           app,
@@ -395,4 +395,13 @@ func writePidFile(pidFile string) error {
 	// If we get here, then the pidfile didn't exist,
 	// or the pid in it doesn't belong to the user running this app.
 	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+}
+
+func versionMessage() string {
+	msg := "Version   : " + Version + "\n"
+	msg += "Commit    : " + Commit + "\n"
+	msg += "Build     : " + Build + "\n"
+	msg += "Branch    : " + Branch + "\n"
+	msg += "Go version: " + GoVersion + "\n"
+	return msg
 }
