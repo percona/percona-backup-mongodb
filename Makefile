@@ -4,7 +4,14 @@ GO_TEST_PATH?=./...
 GO_TEST_EXTRA?=
 GO_TEST_COVER_PROFILE?=cover.out
 GO_TEST_CODECOV?=
-GO_BUILD_LDFLAGS?=-w -s
+
+VERSION ?=$(shell git describe --abbrev=0)
+BUILD ?=$(shell date +%FT%T%z)
+GOVERSION ?=$(shell go version | cut --delimiter=" " -f3)
+COMMIT ?=$(shell git rev-parse HEAD)
+BRANCH ?=$(shell git rev-parse --abbrev-ref HEAD)
+
+GO_BUILD_LDFLAGS=-X main.Version=${VERSION} -X main.Build=${BUILD} -X main.Commit=${COMMIT} -X main.Branch=${BRANCH} -X main.GoVersion=${GOVERSION} -s -w
 GOSEC_VERSION?=1.2.0
 
 NAME?=percona-backup-mongodb
@@ -141,6 +148,11 @@ pbmctl: vendor cli/pbmctl/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go
 pbm-coordinator: vendor cli/pbm-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
 	if [ -x $(UPX_BIN) ]; then upx -q pbm-coordinator; fi
+
+build-all: vendor
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbmctl cli/pbmctl/main.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-agent cli/pbm-agent/main.go
 
 install: pbmctl pbm-agent pbm-coordinator
 	install pbmctl $(DEST_DIR)/pbmctl

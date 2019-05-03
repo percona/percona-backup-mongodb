@@ -787,9 +787,12 @@ func (c *Client) processPing() *pb.ClientMessage {
 }
 
 func (c *Client) processRestore(msg *pb.RestoreBackup) error {
+	c.logger.Debug("Starting restore")
+	c.logger.Debug("Status mutex Lock")
 	c.lock.Lock()
 	c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGDB
 	c.lock.Unlock()
+	c.logger.Debug("Status mutex Unlock")
 
 	defer func() {
 		c.lock.Lock()
@@ -797,20 +800,26 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.lock.Unlock()
 	}()
 
+	c.logger.Debug("Sending ACK to the gRPC server")
 	c.sendACK()
 
+	c.logger.Debug("Starting DB dump restore process")
 	if err := c.restoreDBDump(msg); err != nil {
 		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		if sendErr := c.sendRestoreComplete(err); sendErr != nil {
 			err = multierror.Append(err, sendErr)
 		}
+		c.logger.Debug(err)
 		return err
 	}
 
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		c.logger.Debug("Starting oplog restore process")
+		c.logger.Debug("Config Server mutex lock")
 		c.lock.Lock()
 		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_RESTORINGOPLOG
 		c.lock.Unlock()
+		c.logger.Debug("Config Server mutex unlocked")
 
 		c.mdbSession.ResetIndexCache()
 		c.mdbSession.Refresh()
@@ -819,14 +828,19 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 			if err1 := c.sendRestoreComplete(err); err1 != nil {
 				err = errors.Wrapf(err, "cannot send backup complete message: %s", err1)
 			}
+			c.logger.Debug(err)
 			return err
 		}
 	}
 
+	c.logger.Debug("Sending restore completed message to the gRPC server")
 	if err := c.sendRestoreComplete(nil); err != nil {
-		return errors.Wrap(err, "cannot send backup completed message")
+		err = errors.Wrap(err, "cannot send backup completed message")
+		c.logger.Error(err)
+		return err
 	}
 
+	c.logger.Debug("Restore completed")
 	return nil
 }
 

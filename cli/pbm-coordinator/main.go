@@ -64,12 +64,15 @@ const (
 	defaultClientsLogging  = true
 	defaultDebugMode       = false
 	defaultWorkDir         = "~/percona-backup-mongodb"
-	version                = "dev"
-	commit                 = "none"
 )
 
 var (
-	log = logrus.New()
+	log       = logrus.New()
+	Version   = "dev"
+	Commit    = "none"
+	Build     = "date"
+	Branch    = "master"
+	GoVersion = "0.0.0"
 )
 
 func main() {
@@ -86,7 +89,7 @@ func main() {
 		log = logger.NewDefaultLogger(opts.LogFile)
 	}
 
-	if opts.Debug {
+	if opts.Debug || os.Getenv("DEBUG") == "1" {
 		log.SetLevel(logrus.DebugLevel)
 	}
 
@@ -115,7 +118,7 @@ func main() {
 		grpcOpts = []grpc.ServerOption{grpc.Creds(creds)}
 	}
 
-	log.Infof("Starting %s version %s, git commit %s", program, version, commit)
+	log.Infof("Starting %s version %s, git commit %s", program, Version, Commit)
 
 	stopChan := make(chan interface{})
 	wg := &sync.WaitGroup{}
@@ -191,7 +194,7 @@ func runAgentsGRPCServer(grpcServer *grpc.Server, lis net.Listener, shutdownTime
 func processCliParams(args []string) (*cliOptions, error) {
 	var err error
 	app := kingpin.New("pbm-coordinator", "Percona Backup for MongoDB coordinator")
-	app.Version(fmt.Sprintf("%s version %s, git commit %s", app.Name, version, commit))
+	app.Version(versionMessage())
 
 	opts := &cliOptions{
 		app:                  app,
@@ -277,4 +280,13 @@ func buildAuth(wantToken string) func(context.Context) (context.Context, error) 
 		newCtx := context.WithValue(ctx, contextKey("tokenInfo"), time.Now().UTC().Format(time.RFC3339))
 		return newCtx, nil
 	}
+}
+
+func versionMessage() string {
+	msg := "Version   : " + Version + "\n"
+	msg += "Commit    : " + Commit + "\n"
+	msg += "Build     : " + Build + "\n"
+	msg += "Branch    : " + Branch + "\n"
+	msg += "Go version: " + GoVersion + "\n"
+	return msg
 }
