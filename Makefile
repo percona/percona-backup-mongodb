@@ -7,7 +7,7 @@ GO_TEST_CODECOV?=
 
 VERSION ?=$(shell git describe --abbrev=0)
 BUILD ?=$(shell date +%FT%T%z)
-GOVERSION ?=$(shell go version | cut --delimiter=" " -f3)
+GOVERSION ?=$(shell go version | cut -d " " -f3)
 COMMIT ?=$(shell git rev-parse HEAD)
 BRANCH ?=$(shell git rev-parse --abbrev-ref HEAD)
 

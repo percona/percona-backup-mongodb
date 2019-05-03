@@ -1,10 +1,17 @@
-FROM alpine
+FROM centos:7
+RUN yum update -y && yum clean all && rm -rf /var/cache/yum
+#FROM registry.access.redhat.com/rhel7-minimal
+#RUN microdnf update && microdnf clean all
 
-RUN apk update && apk add ca-certificates && rm -rf /var/cache/apk/*
+MAINTAINER Percona Development <info@percona.com>
+LABEL name="Percona Backup for MongoDB" \
+      vendor="Percona" \
+      summary="Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets." \
+      description=" This is a tool for creating consistent backups across a MongoDB sharded cluster (or a single replica set), and for restoring those backups to a specific point in time. Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions."
 
+COPY LICENSE /licenses/
 COPY pbmctl pbm-agent pbm-coordinator /usr/local/bin/
 
-RUN adduser -h /data -S pbm
-USER pbm
+USER nobody
 
 CMD ["pbm-coordinator"]
