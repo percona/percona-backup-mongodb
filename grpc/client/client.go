@@ -23,6 +23,7 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
@@ -766,7 +767,9 @@ func (c *Client) processListReplicasets() (*pb.ClientMessage, error) {
 
 func (c *Client) processPing() *pb.ClientMessage {
 	c.logger.Debug("Received Ping command")
-	c.updateClientInfo()
+	if err := c.updateClientInfo(); err != nil {
+		c.logger.Errorf("Error while processing the ping message: %s", err)
+	}
 
 	pongMsg := &pb.Pong{
 		Timestamp:           time.Now().Unix(),
@@ -1417,18 +1420,25 @@ func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
+	c.logger.Debugf("Entering restoreDBDump")
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
 	}
+	c.logger.Debugf("Making a backup reader for the restore. Name: %s, CompressionType: %v"+
+		", cypher: %v, storage: %s", msg.GetDbSourceName(), msg.GetCompressionType(),
+		msg.GetCypher(), msg.GetStorageName())
+
 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
+		c.logger.Errorf("restoreDBDump: cannot get a backup reader: %s", err)
 		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
 	// The config.version collection cannot be dropped while in --configsvr mode so, we need to clean it
 	// up manually
 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		c.logger.Debugf("This is a comfig server. Removing the config.version collection")
 		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
 			c.logger.Warnf("cannot empty config.version collection: %s", err)
 		}
@@ -1496,24 +1506,30 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		// For testing purposes, we can skip restoring users and roles.
 		SkipUsersAndRoles: msg.SkipUsersAndRoles,
 	}
+	c.logger.Debugf("Instantiating a new MongoRestore with: %s", pretty.Sprint(input))
 
 	r, err := restore.NewMongoRestore(input)
 	if err != nil {
+		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)
 		return errors.Wrap(err, "cannot instantiate mongo restore instance")
 	}
 
+	c.logger.Debug("Calling mongorestore.Start")
 	if err := r.Start(); err != nil {
 		return errors.Wrap(err, "cannot start restore")
 	}
 
+	c.logger.Debug("Waiting for mongo restore to finish")
 	if err := r.Wait(); err != nil {
 		return errors.Wrap(err, "error while trying to restore")
 	}
+	c.logger.Debug("mongo restore finished")
 
 	// clean up the config.mongos collection to remove posibble invalid mongos servers from
 	// the mongos collection. This collection will be updated automatically since all mongos
 	// instances will ping the config server and the collection will be updated with all the
 	// really alive mongos servers.
+	c.logger.Debug("removing config.mongos")
 	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
 		c.logger.Info("cannot empty config.mongos collection")
 	}

@@ -166,6 +166,7 @@ func (mr *MongoRestore) Stop() error {
 
 func (mr *MongoRestore) Wait() error {
 	if !mr.isRunning() {
+		fmt.Println("mongo restore is no running")
 		return fmt.Errorf("the dumper is not running")
 	}
 	mr.setRunning(false)
@@ -175,20 +176,26 @@ func (mr *MongoRestore) Wait() error {
 }
 
 func (mr *MongoRestore) restore() {
+	fmt.Println("Starting mongo restore progress bar")
 	mr.mongorestore.ProgressManager.(*progress.BarWriter).Start()
 	defer mr.mongorestore.ProgressManager.(*progress.BarWriter).Stop()
+	fmt.Println("calling mr.mongorestore.Restore()")
 	err := mr.mongorestore.Restore()
 	mr.waitChan <- err
 }
 
 func (mr *MongoRestore) isRunning() bool {
+	fmt.Println("isRunning lock")
 	mr.lock.Lock()
 	defer mr.lock.Unlock()
+	fmt.Println("isRunning unlock")
 	return mr.running
 }
 
 func (mr *MongoRestore) setRunning(status bool) {
+	fmt.Println("setRunning lock")
 	mr.lock.Lock()
 	defer mr.lock.Unlock()
+	fmt.Println("setRunning unlock")
 	mr.running = status
 }
