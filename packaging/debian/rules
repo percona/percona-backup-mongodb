@@ -41,10 +41,9 @@ override_dh_auto_build:
 	export GOPATH=${PWD}/build
 	export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
 	export GOBINPATH="/usr/local/go/bin"
-	export GO_BUILD_LDFLAGS="-w -s -X main.version=@@VERSION@@ -X main.commit=@@REVISION@@"
 	mkdir -p build/src/github.com/percona/percona-backup-mongodb
 	cp -r `ls | grep -v build` build/src/github.com/percona/percona-backup-mongodb/
-	cd build/src/github.com/percona/percona-backup-mongodb/ && $(MAKE) -j$(NCPU)
+	cd build/src/github.com/percona/percona-backup-mongodb/ && $(MAKE) -j$(NCPU) build-all
 
 	touch $@
 
