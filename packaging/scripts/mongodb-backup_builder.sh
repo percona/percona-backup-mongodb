@@ -190,16 +190,16 @@ install_deps() {
       yum clean all
       RHEL=$(rpm --eval %rhel)
       if [ "x${RHEL}" = "x8" ]; then
-          yum -y install rpm-build make rpmlint rpmdevtools golang
+          yum -y install rpm-build make rpmlint rpmdevtools golang git
       else
-          yum -y install epel-release
+          yum -y install epel-release git
           yum -y install rpmbuild rpm-build make rpmlint rpmdevtools golang
       fi
       install_golang
     else
       export DEBIAN=$(lsb_release -sc)
       export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-      INSTALL_LIST="devscripts debhelper debconf pkg-config curl make golang"
+      INSTALL_LIST="devscripts debhelper debconf pkg-config curl make golang git"
       until apt-get update; do
         sleep 1
         echo "waiting"
@@ -473,7 +473,7 @@ build_tarball(){
     export GOPATH=${PWD}/build
     export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
     export GOBINPATH="/usr/local/go/bin"
-    cd build/src/github.com/percona/percona-backup-mongodb && pwd && source VERSION && export GO_BUILD_LDFLAGS="-w -s -X main.version=$VERSION -X main.commit=$REVISION" && make
+    cd build/src/github.com/percona/percona-backup-mongodb && make build-all
     cp pbmctl ${WORKDIR}/${PSMDIR}/
     cp pbm-agent ${WORKDIR}/${PSMDIR}/
     cp pbm-coordinator ${WORKDIR}/${PSMDIR}/

@@ -15,7 +15,7 @@ License: ASL 2.0
 URL:  https://github.com/percona/percona-backup-mongodb
 Source0: percona-backup-mongodb-%{version}.tar.gz
 
-BuildRequires: golang make
+BuildRequires: golang make git
 Requires(pre): /usr/sbin/useradd, /usr/bin/getent
 Requires(postun): /usr/sbin/userdel
 %if 0%{?systemd}
@@ -40,7 +40,7 @@ Summary: MongoDB backup coordinator
 Requires(pre): /usr/sbin/useradd, /usr/bin/getent
 Requires(postun): /usr/sbin/userdel
 %if 0%{?systemd}
-BuildRequires:  systemd
+BuildRequires:  systemd git
 BuildRequires:  pkgconfig(systemd)
 Requires(post):   systemd
 Requires(preun):  systemd
@@ -71,12 +71,11 @@ export GOROOT="/usr/local/go/"
 export GOPATH=$(pwd)/
 export PATH="/usr/local/go/bin:$PATH:$GOPATH"
 export GOBINPATH="/usr/local/go/bin"
-export GO_BUILD_LDFLAGS="-w -s -X main.version=@@VERSION@@ -X main.commit=@@REVISION@@"
 mkdir -p src/github.com/percona/
 mv percona-backup-mongodb-%{version} src/github.com/percona/percona-backup-mongodb
 ln -s src/github.com/percona/percona-backup-mongodb percona-backup-mongodb-%{version}
 cd src/github.com/percona/percona-backup-mongodb
-make %{?_smp_mflags}
+make %{?_smp_mflags} build-all
 cd %{_builddir}
 
 
