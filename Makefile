@@ -7,7 +7,7 @@ GO_TEST_CODECOV?=
 
 VERSION ?=$(shell git describe --abbrev=0)
 BUILD ?=$(shell date +%FT%T%z)
-GOVERSION ?=$(shell go version | cut --delimiter=" " -f3)
+GOVERSION ?=$(shell go version | cut -d " " -f3)
 COMMIT ?=$(shell git rev-parse HEAD)
 BRANCH ?=$(shell git rev-parse --abbrev-ref HEAD)
 
@@ -20,7 +20,6 @@ GORELEASER_FLAGS?=
 
 UID?=$(shell id -u)
 DEST_DIR?=/usr/local/bin
-UPX_BIN?=$(shell whereis -b upx 2>/dev/null | awk '{print $$(NF-0)}')
 
 TEST_PSMDB_VERSION?=3.6
 TEST_MONGODB_FLAVOR?=percona/percona-server-mongodb
@@ -139,15 +138,12 @@ test-data: env test-cluster-clean test-cluster
 
 pbm-agent: vendor cli/pbm-agent/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-agent cli/pbm-agent/main.go
-	if [ -x $(UPX_BIN) ]; then upx -q pbm-agent; fi
 
 pbmctl: vendor cli/pbmctl/main.go grpc/api/*.go grpc/client/*.go internal/*/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbmctl cli/pbmctl/main.go
-	if [ -x $(UPX_BIN) ]; then upx -q pbmctl; fi
 
 pbm-coordinator: vendor cli/pbm-coordinator/main.go grpc/*/*.go internal/*/*.go mdbstructs/*.go proto/*/*.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
-	if [ -x $(UPX_BIN) ]; then upx -q pbm-coordinator; fi
 
 build-all: vendor
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="$(GO_BUILD_LDFLAGS)" -o pbm-coordinator cli/pbm-coordinator/main.go
@@ -178,4 +174,4 @@ docker-build: pbmctl pbm-agent pbm-coordinator
 
 clean:
 	rm -rf vendor 2>/dev/null || true
-	rm -f pbm-agent pbmctl pbm-coordinator test-out *.upx *.000 2>/dev/null || true
+	rm -f pbm-agent pbmctl pbm-coordinator test-out *.000 2>/dev/null || true
