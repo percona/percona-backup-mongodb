@@ -807,6 +807,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.sendACK()
 
 	c.logger.Debug("Starting DB dump restore process")
+	c.logger.Debugf("Incomig restore msg: %+v", msg)
 	if err := c.restoreDBDump(msg); err != nil {
 		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		if sendErr := c.sendRestoreComplete(err); sendErr != nil {
@@ -1458,7 +1459,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	}
 	v, err := version.NewVersion(bi.Version)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse MongoDB version")
+		return errors.Wrapf(err, "cannot parse MongoDB version from BuildInfo: %q", bi.Version)
 	}
 
 	preserveUUID := true
@@ -1480,7 +1481,11 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 
 	v, err = version.NewVersion(msg.GetMongodbVersion())
 	if err != nil {
-		return errors.Wrapf(err, "cannot parse backup source MongoDB version from %q", msg.GetMongodbVersion())
+		fmt.Println("--------------------- Incoming restore message:")
+		pretty.Println(msg)
+		fmt.Println("-----------------------------------------------")
+		return errors.Wrapf(err, "cannot parse backup source MongoDB version from incomming message version (%q)",
+			msg.GetMongodbVersion())
 	}
 	// If the backup source was MongoDB < 4.0, the backed up collection don't have an UUID
 	if v.LessThan(v4) {
