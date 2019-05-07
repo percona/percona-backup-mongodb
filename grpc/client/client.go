@@ -23,7 +23,6 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
 	"github.com/percona/percona-backup-mongodb/internal/backup/dumper"
@@ -558,7 +557,7 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 	)
 	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
-		if err == awsutils.FileNotFoundError {
+		if awsutils.IsFileNotFoundError(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("cannot check if backup exists in S3: %s", err)
@@ -891,7 +890,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
-	var sess *session.Session
 	var err error
 
 	stg, err := c.storages.Get(msg.GetStorageName())
@@ -912,13 +910,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			return
 		}
 	case typeS3:
-		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
-		if err != nil {
-			msg := "cannot create an AWS session for S3 backup"
-			c.sendDBBackupFinishError(fmt.Errorf(msg))
-			c.logger.Error(msg)
-			return
-		}
 	}
 
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
@@ -941,7 +932,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}
 
 	c.logger.Debug("Starting oplog backup")
-	go c.runOplogBackup(msg, sess, c.oplogTailer)
+	go c.runOplogBackup(msg, c.oplogTailer)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
 	c.logger.Debug("Waiting oplog first doc")
@@ -1212,7 +1203,10 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 	c.setDBBackupRunning(true)
 	defer c.setDBBackupRunning(false)
 
-	c.mongoDumper.Start()
+	if err := c.mongoDumper.Start(); err != nil {
+		return errors.Wrap(err, "Cannot start the backup")
+	}
+
 	derr := c.mongoDumper.Wait()
 	if err = bw.Close(); err != nil {
 		return err
@@ -1225,7 +1219,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 	return nil
 }
 
-func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplogTailer io.Reader) {
+func (c *Client) runOplogBackup(msg *pb.StartBackup, oplogTailer io.Reader) {
 	c.logger.Info("Starting oplog backup")
 
 	c.setOplogBackupRunning(true)
@@ -1480,8 +1474,9 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	}
 
 	v, err = version.NewVersion(msg.GetMongodbVersion())
+	c.logger.Debugf("Incoming restore message: %+v", msg)
 	if err != nil {
-		c.logger.Debugf("Message MongoDB version: %v\n", msg.GetMongodbVersion())
+		c.logger.Debugf("MongoDB version from incommig message: %v\n", msg.GetMongodbVersion())
 		return errors.Wrapf(err, "cannot parse backup source MongoDB version from incomming message version (%q)",
 			msg.GetMongodbVersion())
 	}
@@ -1509,7 +1504,6 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		// For testing purposes, we can skip restoring users and roles.
 		SkipUsersAndRoles: msg.SkipUsersAndRoles,
 	}
-	c.logger.Debugf("Instantiating a new MongoRestore with: %s", pretty.Sprint(input))
 
 	r, err := restore.NewMongoRestore(input)
 	if err != nil {

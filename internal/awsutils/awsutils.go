@@ -17,9 +17,30 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	FileNotFoundError = fmt.Errorf("File not found")
-)
+type FileNotFoundError struct {
+	err error
+}
+
+func NewFileNotFoundErrorf(args ...string) *FileNotFoundError {
+	if len(args) < 1 {
+		return &FileNotFoundError{
+			err: fmt.Errorf("file not found"),
+		}
+	}
+
+	return &FileNotFoundError{
+		err: fmt.Errorf(args[0], args[1:]),
+	}
+}
+
+func (f *FileNotFoundError) Error() string {
+	return f.err.Error()
+}
+
+func IsFileNotFoundError(err error) bool {
+	_, ok := err.(*FileNotFoundError)
+	return ok
+}
 
 func BucketExists(svc *s3.S3, bucketname string) (bool, error) {
 	input := &s3.ListBucketsInput{}
@@ -162,13 +183,13 @@ func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
 	if obj != nil {
 		return obj, nil
 	}
-	return nil, FileNotFoundError
+	return nil, NewFileNotFoundErrorf("file %s was not found in %s", filename, bucket)
 }
 
-func UploadFileToS3(sess client.ConfigProvider, fr io.Reader, bucket, filename string) error {
+func UploadFileToS3(sess client.ConfigProvider, fr io.ReadSeeker, bucket, filename string) error {
 	svc := s3.New(sess)
 	input := &s3.PutObjectInput{
-		Body:   aws.ReadSeekCloser(fr),
+		Body:   fr,
 		Bucket: aws.String(bucket),
 		Key:    aws.String(filename),
 	}
