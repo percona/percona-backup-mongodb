@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -209,9 +208,6 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 				)
 			}
 		}
-		fmt.Println("----------- Backup sources:")
-		pretty.Println(sources)
-		fmt.Println("---------------------------")
 		return nil, err
 	}
 	return sources, nil

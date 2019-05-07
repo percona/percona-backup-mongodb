@@ -139,7 +139,11 @@ func ListObjects(svc *s3.S3, bucket string) (*s3.ListObjectsOutput, error) {
 func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
 	obj := &s3.Object{}
 	err := svc.ListObjectsPages(
-		&s3.ListObjectsInput{Bucket: aws.String(bucket)},
+		&s3.ListObjectsInput{
+			Bucket:       aws.String(bucket),
+			Prefix:       aws.String(filename),
+			RequestPayer: aws.String("requester"),
+		},
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, item := range page.Contents {
 				if *item.Key == filename {
@@ -148,7 +152,9 @@ func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
 				}
 			}
 			return true
-		})
+		},
+	)
+
 	if err != nil {
 		return nil, err
 	}

@@ -1481,9 +1481,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 
 	v, err = version.NewVersion(msg.GetMongodbVersion())
 	if err != nil {
-		fmt.Println("--------------------- Incoming restore message:")
-		pretty.Println(msg)
-		fmt.Println("-----------------------------------------------")
+		c.logger.Debugf("Message MongoDB version: %v\n", msg.GetMongodbVersion())
 		return errors.Wrapf(err, "cannot parse backup source MongoDB version from incomming message version (%q)",
 			msg.GetMongodbVersion())
 	}

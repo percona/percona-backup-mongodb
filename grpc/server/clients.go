@@ -15,7 +15,7 @@ var (
 	ClientAlreadyExistsError = fmt.Errorf("Client ID already registered")
 	UnknownClientID          = fmt.Errorf("Unknown client ID")
 	// Timeuot is exported because in tests we might want to change it
-	Timeout = 10000 * time.Millisecond
+	Timeout = 180 * time.Second
 )
 
 type Client struct {
