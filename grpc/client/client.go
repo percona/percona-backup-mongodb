@@ -1205,7 +1205,6 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 		Threads:  1,
 		Writer:   bw,
 	}
-	c.logger.Debugf("Calling Mongodump using: %+v", *mi)
 
 	c.mongoDumper, err = dumper.NewMongodump(mi)
 	if err != nil {
