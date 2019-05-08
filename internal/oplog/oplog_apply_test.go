@@ -5,12 +5,15 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/hashicorp/go-multierror"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
@@ -30,29 +33,23 @@ func TestBasicApplyLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot connect to primary: %s", err)
 	}
+
+	fmt.Println("0")
+	dbname := "test"
+	testColsPrefix := "testcol_"
+	maxCollections := 10
+	maxDocs := 50
+
+	db := session.DB(dbname)
+
+	if err := cleanup(db, testColsPrefix); err != nil {
+		t.Fatalf("Cannot clean up %s database before starting: %s", dbname, err)
+	}
+	fmt.Println("0.1")
+
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
-	}
-
-	dbname := "test"
-	colname := "test_collection"
-	docCount := 50
-
-	db := session.DB(dbname)
-	col := db.C(colname)
-
-	// Clean up before starting
-	colNames, err := db.CollectionNames()
-	if err != nil {
-		t.Fatalf("Cannot list collections in %q database: %s", dbname, err)
-	}
-	for _, cname := range colNames {
-		if cname == colname {
-			if err := col.DropCollection(); err != nil {
-				t.Errorf("Cannot drop %s collection: %s", colname, err)
-			}
-		}
 	}
 
 	wg := &sync.WaitGroup{}
@@ -66,44 +63,69 @@ func TestBasicApplyLog(t *testing.T) {
 		wg.Done()
 	}()
 
-	for i := 0; i < docCount; i++ {
-		rec := bson.M{"id": i, "name": fmt.Sprintf("name_%03d", i)}
-		if err := col.Insert(rec); err != nil {
-			t.Fatalf("Cannot insert row: %v\n%s", rec, err)
+	wg2 := &sync.WaitGroup{}
+	validationLevels := []string{"strict", "moderate", "off"}
+	for cc := 0; cc < maxCollections; cc++ {
+		for disableIDIndex := 0; disableIDIndex < 2; disableIDIndex++ {
+			for capped := 0; capped < 2; capped++ {
+				for validationLevel := 0; validationLevel < 3; validationLevel++ {
+					vLevel := validationLevel
+					isCapped := capped
+					dii := disableIDIndex
+					cname := fmt.Sprintf("%s%05d", testColsPrefix, cc)
+					wg2.Add(1)
+					go func() {
+						fmt.Printf("cname: %s\n", cname)
+						col := session.Clone().DB(dbname).C(cname)
+						var maxBytes, maxDocs int
+						if isCapped != 0 {
+							maxBytes = 10000 + int(rand.Int63n(1000))
+							maxDocs = 500 + int(rand.Int63n(100))
+						}
+
+						cInfo := &mgo.CollectionInfo{
+							DisableIdIndex:  dii == 0,
+							ForceIdIndex:    dii != 0,
+							Capped:          isCapped == 0,
+							ValidationLevel: validationLevels[vLevel],
+							MaxDocs:         maxDocs,
+							MaxBytes:        maxBytes,
+						}
+						if err1 := col.Create(cInfo); err != nil {
+							err = multierror.Append(err, err1)
+						}
+
+						for i := 0; i < maxDocs; i++ {
+							rec := bson.M{"id": i, "name": fmt.Sprintf("name_%03d", i)}
+							if err1 := col.Insert(rec); err != nil {
+								err = multierror.Append(err, err1)
+							}
+						}
+						fmt.Printf("%s done\n", cname)
+						wg2.Done()
+					}()
+				}
+			}
 		}
 	}
-
-	n, err := col.Find(nil).Count()
-	if err != nil {
-		t.Errorf("Cannot get documents count: %s", err)
-		return
-	}
-
-	if n != docCount {
-		t.Errorf("Invalid document count. Want %d, got %d", docCount, n)
-	}
+	wg2.Wait()
 
 	ot.Close()
+	fmt.Println("1")
 
 	wg.Wait()
 	tmpfile.Close()
 
-	// Now, empty the collection and try to re-apply the oplog
-	// Do not remove the collection because the oplog won't have the "create" command
-	if _, err := col.RemoveAll(nil); err != nil {
-		t.Errorf("Cannot drop the test collection %q: %s", colname, err)
-		return
-	}
-	// Ensure the collection is empty
-	n, err = col.Find(nil).Count()
-	if err != nil {
-		t.Errorf("Cannot get documents count: %s", err)
-		return
+	if err := cleanup(db, testColsPrefix); err != nil {
+		t.Fatalf("Cannot clean up %s database before applying the oplog: %s", dbname, err)
 	}
 
+	n, _, err := count(db, testColsPrefix)
+	if err != nil {
+		t.Errorf("Cannot verify collections have been dropped before applying the oplog: %s", err)
+	}
 	if n != 0 {
-		t.Errorf("Invalid document count after applying oplog. Want %d, got %d", docCount, n)
-		return
+		t.Fatalf("Collections %s* already exists. Cannot test oplog apply", testColsPrefix)
 	}
 
 	// Open the oplog file we just wrote and use it as a reader for the oplog apply
@@ -123,37 +145,55 @@ func TestBasicApplyLog(t *testing.T) {
 		t.Errorf("Error while running the oplog applier: %s", err)
 	}
 
-	// Maybe this is not necessary but just to be completly sure, lets check the
-	// documents we have in the collection after replaying the oplog, are the same
-	// we wrote in the inserts above.
-	iter := col.Find(nil).Iter()
-	doc := bson.M{}
-	i := 0
-	for iter.Next(&doc) {
-		gotID, ok := doc["id"]
-		if !ok {
-			t.Errorf("The returned document #%dis invalid. Missing 'id' field", i)
-			break
-		}
-
-		gotName, ok := doc["name"]
-		if !ok {
-			t.Errorf("The returned document #%dis invalid. Missing 'name' field", i)
-			break
-		}
-
-		if gotID.(int) != i {
-			t.Errorf("Invalid id value for document #%d. Want: %d, got %d", i, i, doc["id"].(int))
-		}
-
-		wantName := fmt.Sprintf("name_%03d", i)
-		if gotName.(string) != wantName {
-			t.Errorf("Invalid name value for document #%d. Want: %q, got %q", i, wantName, gotName)
-		}
-		i++
+	n, d, err := count(db, testColsPrefix)
+	if err != nil {
+		t.Errorf("Cannot verify collections have been created by the oplog: %s", err)
+	}
+	if n != maxCollections {
+		t.Fatalf("Invalid collections count after aplplying the oplog. Want %d, got %d", maxCollections, n)
+	}
+	wantDocs := maxCollections * maxDocs
+	if d != wantDocs {
+		t.Fatalf("Invalid documents count after aplplying the oplog. Want %d, got %d", wantDocs, d)
 	}
 
-	if i != docCount {
-		t.Errorf("Invalid document count after replaying the oplog. Want %d, got %d", docCount, i)
+	if err := cleanup(db, testColsPrefix); err != nil {
+		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
 	}
+}
+
+func cleanup(db *mgo.Database, testColsPrefix string) error {
+	// Clean up before starting
+	colNames, err := db.CollectionNames()
+	if err != nil {
+		return fmt.Errorf("Cannot list collections in %q database", err)
+	}
+	for _, cname := range colNames {
+		fmt.Println(cname)
+		if strings.HasPrefix(cname, testColsPrefix) {
+			if err := db.C(cname).DropCollection(); err != nil {
+				return fmt.Errorf("Cannot drop %s collection: %s", cname, err)
+			}
+		}
+	}
+	return nil
+}
+
+func count(db *mgo.Database, testColsPrefix string) (int, int, error) {
+	var totalCols, totalDocs int
+	colNames, err := db.CollectionNames()
+	if err != nil {
+		return 0, 0, fmt.Errorf("Cannot list collections in %q database", err)
+	}
+	for _, cname := range colNames {
+		if strings.HasPrefix(cname, testColsPrefix) {
+			n, err := db.C(cname).Count()
+			if err != nil {
+				return 0, 0, fmt.Errorf("Cannot count documents in collection %s: %s", cname, err)
+			}
+			totalCols++
+			totalDocs += n
+		}
+	}
+	return totalCols, totalDocs, nil
 }
