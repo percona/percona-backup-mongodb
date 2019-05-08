@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -126,12 +127,17 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	a.logger.Info("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
-		return response, err
+		if !client.IsError(errors.Cause(err), client.NoMongosError) {
+			return response, err
+		}
 	}
+
 	defer func() {
 		a.logger.Info("Starting the balancer")
 		if err := a.messagesServer.StartBalancer(); err != nil {
-			gerr = multierror.Append(gerr, err)
+			if !client.IsError(errors.Cause(err), client.NoMongosError) {
+				gerr = multierror.Append(gerr, err)
+			}
 		}
 	}()
 

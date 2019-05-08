@@ -40,6 +40,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	NoMongosError = iota
+)
+
 type Client struct {
 	id         string
 	ctx        context.Context
@@ -111,6 +115,42 @@ type InputOptions struct {
 type shardsMap struct {
 	Map map[string]string `bson:"map"`
 	OK  int               `bson:"ok"`
+}
+
+type Error struct {
+	code int
+	err  error
+}
+
+func (ce *Error) Error() string {
+	return ce.err.Error()
+}
+
+func (ce *Error) Cause() error {
+	return ce.err
+}
+
+func Errorf(code int, args ...string) *Error {
+	ce := &Error{
+		code: code,
+	}
+
+	// if args are not provided this will panic. it is intentional
+	if len(args) > 1 {
+		ce.err = fmt.Errorf(args[0], args[1:])
+	} else {
+		ce.err = fmt.Errorf(args[0])
+	}
+
+	return ce
+}
+
+func IsError(err error, code int) bool {
+	ce, ok := err.(*Error)
+	if !ok {
+		return false
+	}
+	return ce.code == code
 }
 
 const (
@@ -1029,7 +1069,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
 	if len(routers) < 1 {
-		return nil, fmt.Errorf("there are no mongodb routers")
+		return nil, Errorf(NoMongosError, "there are no mongodb routers")
 	}
 
 	parts := strings.Split(routers[0].Id, ":")
