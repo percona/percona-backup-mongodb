@@ -7,24 +7,26 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/kr/pretty"
+	"github.com/hashicorp/go-multierror"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
 
-type OplogApply struct {
-	dbSession  *mgo.Session
-	bsonReader bsonfile.BSONReader
-	lock       *sync.Mutex
-	docsCount  int64
-	stopAtTs   bson.MongoTimestamp
-	fcheck     checker
+type Apply struct {
+	dbSession    *mgo.Session
+	bsonReader   bsonfile.BSONReader
+	lock         *sync.Mutex
+	docsCount    int64
+	stopAtTs     bson.MongoTimestamp
+	fcheck       checker
+	ignoreErrors bool // used for testing/debug
 }
 
-func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*OplogApply, error) {
-	return &OplogApply{
+func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*Apply, error) {
+	return &Apply{
 		bsonReader: r,
 		dbSession:  session.Clone(),
 		lock:       &sync.Mutex{},
@@ -34,8 +36,8 @@ func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*OplogApply, er
 }
 
 func NewOplogApplyUntil(session *mgo.Session, r bsonfile.BSONReader, stopAtTs bson.MongoTimestamp,
-) (*OplogApply, error) {
-	return &OplogApply{
+) (*Apply, error) {
+	return &Apply{
 		bsonReader: r,
 		dbSession:  session.Clone(),
 		lock:       &sync.Mutex{},
@@ -52,8 +54,9 @@ func check(ts, stopAt bson.MongoTimestamp) bool {
 	return ts > stopAt
 }
 
-func (oa *OplogApply) Run() error {
+func (oa *Apply) Run() error {
 	oa.docsCount = 0
+	var merr error // multi-error
 	for {
 		/* dest:
 		bson.M{
@@ -78,17 +81,10 @@ func (oa *OplogApply) Run() error {
 		dest := bson.M{}
 		if err := oa.bsonReader.UnmarshalNext(dest); err != nil {
 			if err == io.EOF {
-				return nil
+				return merr
 			}
-			return err
-		}
-
-		if dest["op"].(string) == "c" {
-			colname := dest["o"].(bson.M)["name"].(string)
-			colnames, err := oa.dbSession.DB().CollectionNames()
-			for _, colname := range colnames {
-				if colname
-			pretty.Println(dest)
+			merr = multierror.Append(merr, err)
+			return merr
 		}
 
 		//if oa.fcheck(dest["ts"].(bson.MongoTimestamp), oa.stopAtTs) {
@@ -102,14 +98,16 @@ func (oa *OplogApply) Run() error {
 		err := oa.dbSession.Run(bson.M{"applyOps": []bson.M{dest}}, result)
 		if err != nil {
 			log.Errorf("cannot apply oplog: %s\n%+v\n", err, dest)
-			pretty.Println(dest)
-			//return errors.Wrap(err, "cannot apply oplog operation")
+			if !oa.ignoreErrors {
+				return errors.Wrap(err, "cannot apply oplog operation")
+			}
+			merr = multierror.Append(merr, err)
 		}
 		atomic.AddInt64(&oa.docsCount, 1)
 	}
 }
 
-func (oa *OplogApply) Count() int64 {
+func (oa *Apply) Count() int64 {
 	oa.lock.Lock()
 	defer oa.lock.Unlock()
 	return oa.docsCount

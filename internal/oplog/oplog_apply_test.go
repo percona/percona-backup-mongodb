@@ -10,13 +10,133 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/hashicorp/go-multierror"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
+
+type mockBSONReader struct {
+	index int
+	docs  []bson.M
+}
+
+func (m *mockBSONReader) ReadNext() ([]byte, error) {
+	return []byte{}, nil
+}
+
+func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
+	m.index++
+	if m.index >= len(m.docs) {
+		return io.EOF
+	}
+	pretty.Println(m.docs[m.index])
+	buff, err := bson.Marshal(m.docs[m.index])
+	if err != nil {
+		return err
+	}
+	if err := bson.Unmarshal(buff, dest); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func newMockBSONReader(docs []bson.M) *mockBSONReader {
+	return &mockBSONReader{
+		index: -1,
+		docs:  docs,
+	}
+}
+
+func TestApplyCreateCollection(t *testing.T) {
+	docs := []bson.M{
+		{
+			"v":  int(2),
+			"op": "c",
+			"ns": "test.$cmd",
+			"ts": bson.MongoTimestamp(6688736102603292686),
+			"t":  int64(1),
+			"h":  int64(2385982676716983621),
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0xa6, 0xcb, 0xa6, 0xd5, 0xb0, 0x3, 0x4d, 0xab, 0x8b, 0x3, 0x96, 0xe9, 0x81, 0xc2, 0x9b, 0x48},
+			},
+			"wall": time.Now(),
+			"o": bson.M{
+				"create":          "testcol_00001",
+				"autoIndexId":     bool(true),
+				"validationLevel": "strict",
+				"idIndex": bson.M{
+					"ns": "test.testcol_00001",
+					"v":  int(2),
+					"key": bson.M{
+						"_id": int(1),
+					},
+					"name": "_id_",
+				},
+			},
+		},
+		{
+			"ts": bson.MongoTimestamp(6688736102603292690),
+			"ns": "test.$cmd",
+			"o": bson.M{
+				"validationLevel": "strict",
+				"idIndex": bson.M{
+					"ns": "test.testcol_00002",
+					"v":  int(2),
+					"key": bson.M{
+						"_id": int(1),
+					},
+					"name": "_id_",
+				},
+				"create":      "testcol_00002",
+				"autoIndexId": bool(true),
+			},
+			"wall": time.Now(),
+			"t":    int64(1),
+			"h":    int64(4227177456625961085),
+			"v":    int(2),
+			"op":   "c",
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0xf, 0x67, 0x4, 0x2f, 0x99, 0x17, 0x41, 0x8, 0xa0, 0x68, 0xe9, 0x51, 0x75, 0xc, 0xac, 0x3c},
+			},
+		},
+	}
+
+	bsonReader := newMockBSONReader(docs)
+
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+
+	dbname := "test"
+	testColsPrefix := "testcol_"
+
+	db := session.DB(dbname)
+
+	if err := cleanup(db, testColsPrefix); err != nil {
+		t.Fatalf("Cannot clean up %s database before starting: %s", dbname, err)
+	}
+
+	oa, err := NewOplogApply(session, bsonReader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+
+	// If you need to debug and see all failed operations output
+	oa.ignoreErrors = true
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+}
 
 func TestBasicApplyLog(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "example.bson.")
@@ -34,7 +154,6 @@ func TestBasicApplyLog(t *testing.T) {
 		t.Fatalf("Cannot connect to primary: %s", err)
 	}
 
-	fmt.Println("0")
 	dbname := "test"
 	testColsPrefix := "testcol_"
 	maxCollections := 10
@@ -45,7 +164,6 @@ func TestBasicApplyLog(t *testing.T) {
 	if err := cleanup(db, testColsPrefix); err != nil {
 		t.Fatalf("Cannot clean up %s database before starting: %s", dbname, err)
 	}
-	fmt.Println("0.1")
 
 	ot, err := Open(session)
 	if err != nil {
@@ -111,7 +229,6 @@ func TestBasicApplyLog(t *testing.T) {
 	wg2.Wait()
 
 	ot.Close()
-	fmt.Println("1")
 
 	wg.Wait()
 	tmpfile.Close()
