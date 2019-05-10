@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/percona/percona-backup-mongodb/grpc/client"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
@@ -35,8 +36,11 @@ func NewServer(server *server.MessagesServer) *Server {
 
 // GetClients streams back the list of connected clients
 func (a *Server) GetClients(m *pbapi.Empty, stream pbapi.Api_GetClientsServer) error {
-	if err := a.messagesServer.RefreshClients(); err != nil {
-		return errors.Wrap(err, "cannot refresh clients list")
+	// If there are a backup or restore running we should not send messages over the stream
+	if !a.isBackupOrRestoreRunning() {
+		if err := a.messagesServer.RefreshClients(); err != nil {
+			return errors.Wrap(err, "cannot refresh clients list")
+		}
 	}
 
 	for _, clientsByReplicasets := range a.messagesServer.ClientsByReplicaset() {
@@ -109,13 +113,21 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	// response is an empty message because gRPC doesn't allow methods without a response message but we are
 	// only interested in the error
 	response := &pbapi.RunBackupResponse{}
+	if a.isBackupOrRestoreRunning() {
+		return response, fmt.Errorf("cannot start a new process while a backup or restore are running")
+	}
+
+	namePrefix := time.Now().UTC().Format(time.RFC3339)
+	if opts.GetFilename() != "" {
+		namePrefix = opts.GetFilename()
+	}
 
 	msg := &pb.StartBackup{
 		OplogStartTime:  time.Now().Unix(),
 		BackupType:      pb.BackupType(opts.BackupType),
 		CompressionType: pb.CompressionType(opts.CompressionType),
 		Cypher:          pb.Cypher(opts.Cypher),
-		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
+		NamePrefix:      namePrefix,
 		Description:     opts.Description,
 		StorageName:     opts.GetStorageName(),
 		// DBBackupName & OplogBackupName are going to be set in server.go
@@ -126,12 +138,17 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	a.logger.Info("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
-		return response, err
+		if !client.IsError(errors.Cause(err), client.NoMongosError) {
+			return response, err
+		}
 	}
+
 	defer func() {
 		a.logger.Info("Starting the balancer")
 		if err := a.messagesServer.StartBalancer(); err != nil {
-			gerr = multierror.Append(gerr, err)
+			if !client.IsError(errors.Cause(err), client.NoMongosError) {
+				gerr = multierror.Append(gerr, err)
+			}
 		}
 	}()
 
@@ -179,6 +196,10 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 	// response is an empty message because gRPC doesn't allow methods without a response message but we are
 	// only interested in the error
 	response := &pbapi.RunRestoreResponse{}
+	if a.isBackupOrRestoreRunning() {
+		return response, fmt.Errorf("cannot start a new process while a backup or restore are running")
+	}
+
 	err := a.messagesServer.RestoreBackupFromMetadataFile(opts.MetadataFile, opts.GetStorageName(), opts.SkipUsersAndRoles)
 	if err != nil {
 		return response, err
@@ -192,6 +213,10 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 }
 
 func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_ListStoragesServer) error {
+	if a.isBackupOrRestoreRunning() {
+		return fmt.Errorf("cannot start a new process while a backup or restore are running")
+	}
+
 	storages, err := a.messagesServer.ListStorages()
 	if err != nil {
 		return errors.Wrap(err, "cannot get storages from the server")
@@ -222,4 +247,14 @@ func (a *Server) ListStorages(opts *pbapi.ListStoragesParams, stream pbapi.Api_L
 		}
 	}
 	return nil
+}
+
+func (a *Server) isBackupOrRestoreRunning() bool {
+	rsrb := a.messagesServer.ReplicasetsRunningDBBackup()
+	if len(rsrb) > 0 {
+		return true
+	}
+
+	rsrr := a.messagesServer.ReplicasetsRunningRestore()
+	return len(rsrr) > 0
 }

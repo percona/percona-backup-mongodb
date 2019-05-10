@@ -22,6 +22,8 @@ const (
 	EventBackupFinish = iota
 	EventOplogFinish
 	EventRestoreFinish
+	EventBackupStarted
+
 	logBufferSize = 500
 )
 
@@ -50,10 +52,14 @@ type MessagesServer struct {
 
 	clientDisconnetedChan chan string
 	stopChan              chan struct{}
+
+	// Events notification channels
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
-	clientsLogChan        chan *pb.LogEntry
+	backupStartedChan     chan interface{}
+
+	clientsLogChan chan *pb.LogEntry
 }
 
 type StorageEntry struct {
@@ -86,9 +92,6 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		logger.Out = logrus.StandardLogger().Out
 	}
 
-	bfc := notify.Start(EventBackupFinish)
-	ofc := notify.Start(EventOplogFinish)
-	rbf := notify.Start(EventRestoreFinish)
 	if workDir == "" {
 		workDir = "."
 	}
@@ -100,9 +103,12 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		clientDisconnetedChan: make(chan string),
 		stopChan:              make(chan struct{}),
 		clientsLogChan:        make(chan *pb.LogEntry, logBufferSize),
-		dbBackupFinishChan:    bfc,
-		oplogBackupFinishChan: ofc,
-		restoreFinishChan:     rbf,
+		//
+		dbBackupFinishChan:    notify.Start(EventBackupFinish),
+		oplogBackupFinishChan: notify.Start(EventOplogFinish),
+		restoreFinishChan:     notify.Start(EventRestoreFinish),
+		backupStartedChan:     notify.Start(EventBackupStarted),
+
 		replicasRunningBackup: make(map[string]bool), // Key is ReplicasetUUID
 		backupStatus: backupStatus{
 			lastBackupErrors:      nil,
@@ -603,6 +609,9 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.reset()
 	s.setBackupRunning(true)
 	s.setOplogBackupRunning(true)
+	if err := notify.Post(EventBackupStarted, time.Now()); err != nil {
+		s.logger.Errorf("cannot notify start backup event")
+	}
 
 	for replName, client := range clients {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",

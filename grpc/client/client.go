@@ -40,6 +40,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	NoMongosError = iota
+)
+
 type Client struct {
 	id         string
 	ctx        context.Context
@@ -111,6 +115,42 @@ type InputOptions struct {
 type shardsMap struct {
 	Map map[string]string `bson:"map"`
 	OK  int               `bson:"ok"`
+}
+
+type Error struct {
+	code int
+	err  error
+}
+
+func (ce *Error) Error() string {
+	return ce.err.Error()
+}
+
+func (ce *Error) Cause() error {
+	return ce.err
+}
+
+func Errorf(code int, args ...string) *Error {
+	ce := &Error{
+		code: code,
+	}
+
+	// if args are not provided this will panic. it is intentional
+	if len(args) > 1 {
+		ce.err = fmt.Errorf(args[0], args[1:])
+	} else {
+		ce.err = fmt.Errorf(args[0])
+	}
+
+	return ce
+}
+
+func IsError(err error, code int) bool {
+	ce, ok := err.(*Error)
+	if !ok {
+		return false
+	}
+	return ce.code == code
 }
 
 const (
@@ -555,14 +595,14 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 		stg.S3.Region,
 		stg.S3.Bucket,
 	)
-	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
+	fi, err := awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
-		if err == awsutils.FileNotFoundError {
-			return false, nil
-		}
 		return false, fmt.Errorf("cannot check if backup exists in S3: %s", err)
 	}
-	return true, nil
+	if fi != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (c *Client) processGetBackupSource() (*pb.ClientMessage, error) {
@@ -766,7 +806,9 @@ func (c *Client) processListReplicasets() (*pb.ClientMessage, error) {
 
 func (c *Client) processPing() *pb.ClientMessage {
 	c.logger.Debug("Received Ping command")
-	c.updateClientInfo()
+	if err := c.updateClientInfo(); err != nil {
+		c.logger.Errorf("Error while processing the ping message: %s", err)
+	}
 
 	pongMsg := &pb.Pong{
 		Timestamp:           time.Now().Unix(),
@@ -804,6 +846,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.sendACK()
 
 	c.logger.Debug("Starting DB dump restore process")
+	c.logger.Debugf("Incomig restore msg: %+v", msg)
 	if err := c.restoreDBDump(msg); err != nil {
 		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		if sendErr := c.sendRestoreComplete(err); sendErr != nil {
@@ -887,7 +930,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 		return
 	}
 
-	var sess *session.Session
 	var err error
 
 	stg, err := c.storages.Get(msg.GetStorageName())
@@ -908,13 +950,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 			return
 		}
 	case typeS3:
-		sess, err = awsutils.GetAWSSessionFromStorage(stg.S3)
-		if err != nil {
-			msg := "cannot create an AWS session for S3 backup"
-			c.sendDBBackupFinishError(fmt.Errorf(msg))
-			c.logger.Error(msg)
-			return
-		}
 	}
 
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
@@ -937,7 +972,7 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}
 
 	c.logger.Debug("Starting oplog backup")
-	go c.runOplogBackup(msg, sess, c.oplogTailer)
+	go c.runOplogBackup(msg, c.oplogTailer)
 	// Wait until we have at least one document from the tailer to start the backup only after we have
 	// documents in the oplog tailer.
 	c.logger.Debug("Waiting oplog first doc")
@@ -1034,7 +1069,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
 	if len(routers) < 1 {
-		return nil, fmt.Errorf("there are no mongodb routers")
+		return nil, Errorf(NoMongosError, "there are no mongodb routers")
 	}
 
 	parts := strings.Split(routers[0].Id, ":")
@@ -1214,7 +1249,10 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 	c.setDBBackupRunning(true)
 	defer c.setDBBackupRunning(false)
 
-	c.mongoDumper.Start()
+	if err := c.mongoDumper.Start(); err != nil {
+		return errors.Wrap(err, "Cannot start the backup")
+	}
+
 	derr := c.mongoDumper.Wait()
 	if err = bw.Close(); err != nil {
 		return err
@@ -1227,7 +1265,7 @@ func (c *Client) runDBBackup(msg *pb.StartBackup) error {
 	return nil
 }
 
-func (c *Client) runOplogBackup(msg *pb.StartBackup, sess *session.Session, oplogTailer io.Reader) {
+func (c *Client) runOplogBackup(msg *pb.StartBackup, oplogTailer io.Reader) {
 	c.logger.Info("Starting oplog backup")
 
 	c.setOplogBackupRunning(true)
@@ -1423,18 +1461,25 @@ func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
+	c.logger.Debugf("Entering restoreDBDump")
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
 	}
+	c.logger.Debugf("Making a backup reader for the restore. Name: %s, CompressionType: %v"+
+		", cypher: %v, storage: %s", msg.GetDbSourceName(), msg.GetCompressionType(),
+		msg.GetCypher(), msg.GetStorageName())
+
 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
+		c.logger.Errorf("restoreDBDump: cannot get a backup reader: %s", err)
 		return errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
 	}
 
 	// The config.version collection cannot be dropped while in --configsvr mode so, we need to clean it
 	// up manually
 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		c.logger.Debugf("This is a comfig server. Removing the config.version collection")
 		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
 			c.logger.Warnf("cannot empty config.version collection: %s", err)
 		}
@@ -1454,7 +1499,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	}
 	v, err := version.NewVersion(bi.Version)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse MongoDB version")
+		return errors.Wrapf(err, "cannot parse MongoDB version from BuildInfo: %q", bi.Version)
 	}
 
 	preserveUUID := true
@@ -1475,8 +1520,11 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	}
 
 	v, err = version.NewVersion(msg.GetMongodbVersion())
+	c.logger.Debugf("Incoming restore message: %+v", msg)
 	if err != nil {
-		return errors.Wrapf(err, "cannot parse backup source MongoDB version from %q", msg.GetMongodbVersion())
+		c.logger.Debugf("MongoDB version from incommig message: %v\n", msg.GetMongodbVersion())
+		return errors.Wrapf(err, "cannot parse backup source MongoDB version from incomming message version (%q)",
+			msg.GetMongodbVersion())
 	}
 	// If the backup source was MongoDB < 4.0, the backed up collection don't have an UUID
 	if v.LessThan(v4) {
@@ -1505,21 +1553,26 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 
 	r, err := restore.NewMongoRestore(input)
 	if err != nil {
+		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)
 		return errors.Wrap(err, "cannot instantiate mongo restore instance")
 	}
 
+	c.logger.Debug("Calling mongorestore.Start")
 	if err := r.Start(); err != nil {
 		return errors.Wrap(err, "cannot start restore")
 	}
 
+	c.logger.Debug("Waiting for mongo restore to finish")
 	if err := r.Wait(); err != nil {
 		return errors.Wrap(err, "error while trying to restore")
 	}
+	c.logger.Debug("mongo restore finished")
 
 	// clean up the config.mongos collection to remove posibble invalid mongos servers from
 	// the mongos collection. This collection will be updated automatically since all mongos
 	// instances will ping the config server and the collection will be updated with all the
 	// really alive mongos servers.
+	c.logger.Debug("removing config.mongos")
 	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
 		c.logger.Info("cannot empty config.mongos collection")
 	}
