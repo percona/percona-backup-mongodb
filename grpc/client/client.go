@@ -595,14 +595,14 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 		stg.S3.Region,
 		stg.S3.Bucket,
 	)
-	_, err = awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
+	fi, err := awsutils.S3Stat(svc, stg.S3.Bucket, msg.GetBackupName())
 	if err != nil {
-		if awsutils.IsFileNotFoundError(err) {
-			return false, nil
-		}
 		return false, fmt.Errorf("cannot check if backup exists in S3: %s", err)
 	}
-	return true, nil
+	if fi != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (c *Client) processGetBackupSource() (*pb.ClientMessage, error) {

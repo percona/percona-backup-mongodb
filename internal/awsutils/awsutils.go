@@ -183,7 +183,7 @@ func S3Stat(svc *s3.S3, bucket, filename string) (*s3.Object, error) {
 	if obj != nil {
 		return obj, nil
 	}
-	return nil, NewFileNotFoundErrorf("file %s was not found in %s", filename, bucket)
+	return nil, nil
 }
 
 func UploadFileToS3(sess client.ConfigProvider, fr io.ReadSeeker, bucket, filename string) error {

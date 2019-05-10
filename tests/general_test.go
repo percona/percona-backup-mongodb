@@ -26,6 +26,7 @@ const (
 	dbName                 = "test"
 	colName                = "test_col"
 	localFileSystemStorage = "local-filesystem"
+	bulkSize               = 5000
 )
 
 func TestMain(m *testing.M) {
@@ -749,13 +750,26 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, ndocs int64) {
 			}
 		}
 	}
+
 	session.Refresh()
+	bulkCount := 0
+	bulk := session.DB(dbName).C(colName).Bulk()
 
 	for i := int64(0); i < ndocs; i++ {
-		err := session.DB(dbName).C(colName).Insert(bson.M{"number": i})
-		if err != nil {
-			t.Fatalf("Cannot insert data to back up: %s", err)
+		doc := bson.M{"number": i}
+		bulk.Insert(doc)
+		bulkCount++
+		if bulkCount == bulkSize {
+			if _, err := bulk.Run(); err != nil {
+				t.Fatalf("Cannot insert data to back up (1): %s", err)
+			}
+			bulk = session.DB(dbName).C(colName).Bulk()
+			bulkCount = 0
 		}
+	}
+
+	if _, err := bulk.Run(); err != nil {
+		t.Fatalf("Cannot insert data to back up (2): %s", err)
 	}
 }
 
