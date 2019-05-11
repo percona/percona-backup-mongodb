@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/olebedev/emitter"
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -22,7 +23,9 @@ const (
 	EventBackupFinish = iota
 	EventOplogFinish
 	EventRestoreFinish
-	EventBackupStarted
+
+	BackupFinishedEvent = "backup_finished"
+	BackupStartedEvent  = "backup_started"
 
 	logBufferSize = 500
 )
@@ -50,6 +53,8 @@ type MessagesServer struct {
 
 	logger *logrus.Logger
 
+	eventsNotifier *emitter.Emitter
+
 	clientDisconnetedChan chan string
 	stopChan              chan struct{}
 
@@ -57,7 +62,6 @@ type MessagesServer struct {
 	dbBackupFinishChan    chan interface{}
 	oplogBackupFinishChan chan interface{}
 	restoreFinishChan     chan interface{}
-	backupStartedChan     chan interface{}
 
 	clientsLogChan chan *pb.LogEntry
 }
@@ -107,7 +111,8 @@ func newMessagesServer(workDir string, logger *logrus.Logger) *MessagesServer {
 		dbBackupFinishChan:    notify.Start(EventBackupFinish),
 		oplogBackupFinishChan: notify.Start(EventOplogFinish),
 		restoreFinishChan:     notify.Start(EventRestoreFinish),
-		backupStartedChan:     notify.Start(EventBackupStarted),
+
+		eventsNotifier: &emitter.Emitter{},
 
 		replicasRunningBackup: make(map[string]bool), // Key is ReplicasetUUID
 		backupStatus: backupStatus{
@@ -609,9 +614,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.reset()
 	s.setBackupRunning(true)
 	s.setOplogBackupRunning(true)
-	if err := notify.Post(EventBackupStarted, time.Now()); err != nil {
-		s.logger.Errorf("cannot notify start backup event")
-	}
+
+	s.triggerEvent(BackupStartedEvent, time.Now())
 
 	for replName, client := range clients {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
@@ -774,6 +778,7 @@ func (s *MessagesServer) WaitBackupFinish() error {
 		return nil
 	}
 	<-s.dbBackupFinishChan
+	s.triggerEvent(BackupFinishedEvent, time.Now())
 	return s.lastBackupErrors()
 }
 
@@ -848,13 +853,6 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 		return nil, fmt.Errorf("unknown client ID: %s", msg.GetClientId())
 	}
 	client.setDBBackupRunning(false)
-	replicasets := s.ReplicasetsRunningDBBackup()
-
-	if len(replicasets) == 0 {
-		if err := notify.Post(EventBackupFinish, time.Now()); err != nil {
-			s.AddError(errors.Wrap(err, "cannot notify EventBackupFinish (DBBackupFinished)"))
-		}
-	}
 
 	if !msg.GetOk() {
 		if strings.TrimSpace(msg.GetError()) != "" {
@@ -877,7 +875,14 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 	// stop time for all oplogs.
 	if lastOplogTs > s.backupStatus.lastOplogTs {
 		s.backupStatus.lastOplogTs = lastOplogTs
+		s.backupStatus.lastBackupMetadata.metadata.LastOplogTs = lastOplogTs
 	}
+
+	replicasets := s.ReplicasetsRunningDBBackup()
+	if len(replicasets) == 0 {
+		s.triggerEvent(BackupFinishedEvent, time.Now())
+	}
+
 	return &pb.DBBackupFinishedAck{}, nil
 }
 
@@ -1250,4 +1255,45 @@ func (s *MessagesServer) unregisterClient(id string) error {
 
 	delete(s.clients, id)
 	return nil
+}
+
+func (s *MessagesServer) triggerEvent(event string, value interface{}) {
+	c := s.eventsNotifier.Emit(event, value)
+	select {
+	case <-c:
+	default:
+		close(c)
+	}
+}
+
+// WaitForEvent will wait until the desired event gets fired.
+// timeout = 0 means wait forever
+func (s *MessagesServer) WaitForEvent(name string, timeout time.Duration) (re interface{}, err error) {
+	validEvents := []string{BackupStartedEvent}
+	found := false
+	for _, event := range validEvents {
+		if event == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("unknown event %q", name)
+	}
+
+	t := time.NewTimer(timeout)
+	if int64(timeout) == 0 {
+		t.Stop() // wait forever
+	}
+	c := s.eventsNotifier.Once(name, func(ev *emitter.Event) {
+		re = ev
+	})
+	select {
+	case <-c:
+		t.Stop()
+	case <-t.C:
+		err = fmt.Errorf("timeout for %s event", name)
+	}
+
+	return
 }

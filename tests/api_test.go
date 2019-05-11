@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/kr/pretty"
@@ -72,7 +71,9 @@ func TestBusyServer(t *testing.T) {
 		_, berr = d.APIServer.RunBackup(context.Background(), msg)
 		wg.Done()
 	}()
-	time.Sleep(7 * time.Second)
+	if _, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, 0); err != nil {
+		t.Errorf("Wait for backup start returned an error: %s", err)
+	}
 
 	rmsg := &pbapi.RunRestoreParams{
 		MetadataFile:      bck1 + ".json",
@@ -81,14 +82,15 @@ func TestBusyServer(t *testing.T) {
 	}
 
 	_, err = d.APIServer.RunRestore(context.Background(), rmsg)
+	if err == nil {
+		t.Errorf("Trying to restore while a backup is running should fail")
+	}
+
 	wg.Wait()
 	if berr != nil {
 		t.Fatalf("Cannot start backup from API: %s", err)
 	}
 
-	if err == nil {
-		t.Errorf("Trying to restore while a backup is running should fail")
-	}
 }
 
 // Why this is not in the grpc/api dir? Because the daemon implemented to test the whole behavior
