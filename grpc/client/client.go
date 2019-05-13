@@ -44,6 +44,8 @@ const (
 	NoMongosError = iota
 )
 
+var ErrNoMongos = errors.New("no mongos")
+
 type Client struct {
 	id         string
 	ctx        context.Context
@@ -1002,32 +1004,6 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	}()
 }
 
-func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
-	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		return nil, fmt.Errorf("Start balancer only works on config servers")
-	}
-
-	mongosSession, err := c.getMongosSession()
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot process Stop Balancer")
-	}
-	balancer, err := cluster.NewBalancer(mongosSession)
-	if err != nil {
-		return nil, errors.Wrap(err, "processStartBalancer -> cannot create a balancer instance")
-	}
-	if err := balancer.Start(); err != nil {
-		return nil, err
-	}
-	c.logger.Debugf("Balancer has been started by %s", c.id)
-
-	out := &pb.ClientMessage{
-		ClientId: c.id,
-		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-	}
-
-	return out, nil
-}
-
 func (c *Client) processStatus() (*pb.ClientMessage, error) {
 	c.logger.Debug("Received Status command")
 	c.lock.Lock()
@@ -1109,7 +1085,44 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 	return session, nil
 }
 
+func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
+	out := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		return nil, fmt.Errorf("Start balancer only works on config servers")
+	}
+
+	mongosSession, err := c.getMongosSession()
+	if err != nil {
+		if IsError(err, NoMongosError) {
+			c.logger.Debugf("There are no mongos instances. Start Balancer was ignored")
+			// In some scenarios like in Kubernetes, there are no mongos instances so, there is nothing to do
+			return out, nil
+		}
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+
+	balancer, err := cluster.NewBalancer(mongosSession)
+	if err != nil {
+		return nil, errors.Wrap(err, "processStartBalancer -> cannot create a balancer instance")
+	}
+	if err := balancer.Start(); err != nil {
+		return nil, err
+	}
+	c.logger.Debugf("Balancer has been started by %s", c.id)
+
+	return out, nil
+}
+
 func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
+	out := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
+	}
+
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 		return nil, fmt.Errorf("Stop balancer only works on config servers. This is a [%d]%s type",
 			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
@@ -1118,6 +1131,11 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 
 	mongosSession, err := c.getMongosSession()
 	if err != nil {
+		if IsError(err, NoMongosError) {
+			// In some scenarios like in Kubernetes, there are no mongos instances so, there is nothing to do
+			c.logger.Debugf("There are no mongos instances. Stop Balancer was ignored")
+			return out, nil
+		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
 
@@ -1130,10 +1148,6 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 	}
 
 	c.logger.Debugf("Balancer has been stopped by %s", c.nodeName)
-	out := &pb.ClientMessage{
-		ClientId: c.id,
-		Payload:  &pb.ClientMessage_AckMsg{AckMsg: &pb.Ack{}},
-	}
 	return out, nil
 }
 
