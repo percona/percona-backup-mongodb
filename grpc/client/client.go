@@ -909,12 +909,7 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.sendACK()
 
 	c.logger.Debug("Starting DB dump restore process")
-<<<<<<< HEAD
-	c.logger.Debugf("Incomig restore msg: %+v", msg)
-	if err := c.restoreDBDump(msg); err != nil {
-=======
 	/*if err := c.restoreDBDump(msg); err != nil {
->>>>>>> Update restore
 		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		if sendErr := c.sendRestoreComplete(err); sendErr != nil {
 			err = multierror.Append(err, sendErr)
@@ -1538,23 +1533,17 @@ func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
-<<<<<<< HEAD
 	c.logger.Debugf("Entering restoreDBDump")
-=======
 
->>>>>>> Update restore
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
 	}
-<<<<<<< HEAD
 	c.logger.Debugf("Making a backup reader for the restore. Name: %s, CompressionType: %v"+
 		", cypher: %v, storage: %s", msg.GetDbSourceName(), msg.GetCompressionType(),
 		msg.GetCypher(), msg.GetStorageName())
 
-=======
 	c.logger.Debug("Starting MakeReader")
->>>>>>> Update restore
 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
 		c.logger.Errorf("restoreDBDump: cannot get a backup reader: %s", err)
@@ -1655,22 +1644,14 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)
 		return errors.Wrap(err, "cannot instantiate mongo restore instance")
 	}
-<<<<<<< HEAD
 
 	c.logger.Debug("Calling mongorestore.Start")
-=======
-	c.logger.Debug("starting MakeReader")
->>>>>>> Update restore
 	if err := r.Start(); err != nil {
 		c.logger.Debugf("cannot start restore, %v", err)
 		return errors.Wrap(err, "cannot start restore")
 	}
-<<<<<<< HEAD
 
 	c.logger.Debug("Waiting for mongo restore to finish")
-=======
-	c.logger.Debug("Wait MakeReader")
->>>>>>> Update restore
 	if err := r.Wait(); err != nil {
 		return errors.Wrap(err, "error while trying to restore")
 	}
@@ -1680,11 +1661,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// the mongos collection. This collection will be updated automatically since all mongos
 	// instances will ping the config server and the collection will be updated with all the
 	// really alive mongos servers.
-<<<<<<< HEAD
 	c.logger.Debug("removing config.mongos")
-=======
-	c.logger.Debug("Remove all from DB")
->>>>>>> Update restore
 	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
 		c.logger.Info("cannot empty config.mongos collection: " + err.Error())
 	}

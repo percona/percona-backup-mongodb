@@ -284,12 +284,8 @@ func (mr *MongoRestore) Wait() error {
 	return nil
 }
 
-<<<<<<< HEAD
-func (mr *MongoRestore) restore() {
-	fmt.Println("Starting mongo restore progress bar")
-=======
 func (mr *MongoRestore) restore() error {
->>>>>>> Update restore
+	fmt.Println("Starting mongo restore progress bar")
 	mr.mongorestore.ProgressManager.(*progress.BarWriter).Start()
 	defer mr.mongorestore.ProgressManager.(*progress.BarWriter).Stop()
 	fmt.Println("calling mr.mongorestore.Restore()")
