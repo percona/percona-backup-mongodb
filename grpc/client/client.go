@@ -1077,16 +1077,16 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 		return nil, fmt.Errorf("cannot get host and port from %s", routers[0].Id)
 	}
 
-	// Due to a debian patch as a workaround for some issues.
-	// MongoDB ussualy binds to 127.0.0.1 so, we have to manually fix it in order to be able to connect.
-	// See https://www.debian.org/doc/manuals/debian-reference/ch05.en.html#_the_hostname_resolution
-	if parts[0] == "127.0.1.1" {
-		parts[0] = "127.0.0.1"
-	}
-
 	f, err := net.LookupHost(parts[0])
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot get host for %s", routers[0].Id)
+	}
+
+	// Due to a debian patch as a workaround for some issues.
+	// MongoDB ussualy binds to 127.0.0.1 so, we have to manually fix it in order to be able to connect.
+	// See https://www.debian.org/doc/manuals/debian-reference/ch05.en.html#_the_hostname_resolution
+	if f[0] == "127.0.1.1" {
+		f[0] = "127.0.0.1"
 	}
 
 	configHost := net.JoinHostPort(f[0], parts[1])
