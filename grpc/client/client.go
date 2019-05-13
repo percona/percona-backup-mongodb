@@ -21,7 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -438,8 +437,11 @@ func (c *Client) processIncommingServerMessages() {
 			omsg, err = c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
 			omsg = c.processPing()
+		case *pb.ServerMessage_RestoreBackupCheckMsg:
+			omsg, err = c.processRestoreBackupCheck(msg.GetRestoreBackupCheckMsg())
 		case *pb.ServerMessage_CanRestoreBackupMsg:
 			omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupMsg())
+			//omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupCheckMsg())
 		case *pb.ServerMessage_GetCmdLineOpts:
 			omsg, err = c.processGetCmdLineOpts()
 		case *pb.ServerMessage_StartBackupMsg:
@@ -527,6 +529,67 @@ func (c *Client) processCancelBackup() error {
 	err := c.mongoDumper.Stop()
 	c.oplogTailer.Cancel()
 	return err
+}
+
+func (c *Client) processRestoreBackupCheck(msg *pb.RestoreBackupCheck) (*pb.ClientMessage, error) {
+	msg.Host = c.connOpts.Host
+	msg.Port = c.connOpts.Port
+	preserveUUID := true
+	dropCollections := true
+	ingnoreErrors := false
+	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		// For config servers, if we set dropCollections to true, we are going to receive this error:
+		//   cannot drop config.version document while in --configsvr mode
+		// We must ignore the errors and we shouldn't drop the collections
+		dropCollections = false
+		ingnoreErrors = true
+		preserveUUID = false // cannot be used with dropCollections=false
+	}
+	stg, err := c.storages.Get(msg.GetStorageName())
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid storage name received in restoreDBDump")
+	}
+	c.logger.Debug("Starting MakeReader")
+	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+	if err != nil {
+		return nil, errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
+	}
+
+	input := &restore.MongoRestoreInput{
+		Archive:         "-",
+		DryRun:          false,
+		Host:            msg.Host,
+		Port:            msg.Port,
+		Username:        c.connOpts.User,
+		Password:        c.connOpts.Password,
+		DropCollections: dropCollections,
+		IgnoreErrors:    ingnoreErrors,
+		Gzip:            false,
+		Oplog:           false,
+		Threads:         10,
+		Reader:          rdr,
+		PreserveUUID:    preserveUUID,
+		// A real restore would be applied to a just created and empty instance and it should be
+		// configured to run without user authentication.
+		// For testing purposes, we can skip restoring users and roles.
+		SkipUsersAndRoles: msg.SkipUsersAndRoles,
+	}
+	possible := restore.Possible(input, c.logger)
+	if !possible {
+		c.sendRestoreComplete(fmt.Errorf("backup not ready"))
+	} else {
+		c.logger.Info("Backup ready")
+		c.sendRestoreComplete(fmt.Errorf("backup ready"))
+	}
+	omsg := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_RestoreBackupCheckMsg{
+			RestoreBackupCheckResponse: &pb.RestoreBackupCheckResponse{
+				CanRestore: possible,
+			},
+		},
+	}
+	return omsg, nil
 }
 
 func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMessage, error) {
@@ -846,8 +909,12 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	c.sendACK()
 
 	c.logger.Debug("Starting DB dump restore process")
+<<<<<<< HEAD
 	c.logger.Debugf("Incomig restore msg: %+v", msg)
 	if err := c.restoreDBDump(msg); err != nil {
+=======
+	/*if err := c.restoreDBDump(msg); err != nil {
+>>>>>>> Update restore
 		err := errors.Wrapf(err, "cannot restore DB backup file %s", msg.GetDbSourceName())
 		if sendErr := c.sendRestoreComplete(err); sendErr != nil {
 			err = multierror.Append(err, sendErr)
@@ -855,7 +922,17 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.logger.Debug(err)
 		return err
 	}
+	*/
 
+	err := c.restoreDBDump(msg)
+	if err != nil {
+		c.logger.Debug("Restore dunp: " + err.Error())
+		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_INVALID
+		c.sendRestoreComplete(err)
+		return err
+	}
+
+	c.logger.Debug("Check nodeTypr")
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 		c.logger.Debug("Starting oplog restore process")
 		c.logger.Debug("Config Server mutex lock")
@@ -1461,15 +1538,23 @@ func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
 }
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
+<<<<<<< HEAD
 	c.logger.Debugf("Entering restoreDBDump")
+=======
+
+>>>>>>> Update restore
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
 		return errors.Wrap(err, "invalid storage name received in restoreDBDump")
 	}
+<<<<<<< HEAD
 	c.logger.Debugf("Making a backup reader for the restore. Name: %s, CompressionType: %v"+
 		", cypher: %v, storage: %s", msg.GetDbSourceName(), msg.GetCompressionType(),
 		msg.GetCypher(), msg.GetStorageName())
 
+=======
+	c.logger.Debug("Starting MakeReader")
+>>>>>>> Update restore
 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
 	if err != nil {
 		c.logger.Errorf("restoreDBDump: cannot get a backup reader: %s", err)
@@ -1478,6 +1563,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 
 	// The config.version collection cannot be dropped while in --configsvr mode so, we need to clean it
 	// up manually
+	c.logger.Debug("Check c.nodeType")
 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 		c.logger.Debugf("This is a comfig server. Removing the config.version collection")
 		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
@@ -1492,11 +1578,14 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// 2. Use different compression algorithms.
 	// 3. Read from encrypted backups.
 	// That's why we are providing our own reader to MongoRestore
+	c.logger.Debug("get version 4.0")
 	v4, _ := version.NewVersion("4.0")
+	c.logger.Debug("starting BuildInfo")
 	bi, err := c.mdbSession.BuildInfo()
 	if err != nil {
 		return errors.Wrap(err, "cannot read BuildInfo to get MongoDB version")
 	}
+	c.logger.Debug("get new version")
 	v, err := version.NewVersion(bi.Version)
 	if err != nil {
 		return errors.Wrapf(err, "cannot parse MongoDB version from BuildInfo: %q", bi.Version)
@@ -1515,10 +1604,12 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	}
 
 	// If the destination server is < v4.0, collections don't have an UUID
+	c.logger.Debug("check version")
 	if v.LessThan(v4) {
 		preserveUUID = false
 	}
 
+	c.logger.Debug("get version from msg")
 	v, err = version.NewVersion(msg.GetMongodbVersion())
 	c.logger.Debugf("Incoming restore message: %+v", msg)
 	if err != nil {
@@ -1527,6 +1618,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 			msg.GetMongodbVersion())
 	}
 	// If the backup source was MongoDB < 4.0, the backed up collection don't have an UUID
+	c.logger.Debug("check version again")
 	if v.LessThan(v4) {
 		preserveUUID = false
 	}
@@ -1550,19 +1642,35 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 		// For testing purposes, we can skip restoring users and roles.
 		SkipUsersAndRoles: msg.SkipUsersAndRoles,
 	}
-
-	r, err := restore.NewMongoRestore(input)
+	c.logger.Debug("new MakeReader")
+	possible := restore.Possible(input, c.logger)
+	if !possible {
+		c.logger.Info("Backup not ready")
+		return fmt.Errorf("backup not ready")
+	} else {
+		c.logger.Info("Backup ready")
+	}
+	r, err := restore.NewMongoRestore(input, c.logger)
 	if err != nil {
 		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)
 		return errors.Wrap(err, "cannot instantiate mongo restore instance")
 	}
+<<<<<<< HEAD
 
 	c.logger.Debug("Calling mongorestore.Start")
+=======
+	c.logger.Debug("starting MakeReader")
+>>>>>>> Update restore
 	if err := r.Start(); err != nil {
+		c.logger.Debugf("cannot start restore, %v", err)
 		return errors.Wrap(err, "cannot start restore")
 	}
+<<<<<<< HEAD
 
 	c.logger.Debug("Waiting for mongo restore to finish")
+=======
+	c.logger.Debug("Wait MakeReader")
+>>>>>>> Update restore
 	if err := r.Wait(); err != nil {
 		return errors.Wrap(err, "error while trying to restore")
 	}
@@ -1572,9 +1680,13 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// the mongos collection. This collection will be updated automatically since all mongos
 	// instances will ping the config server and the collection will be updated with all the
 	// really alive mongos servers.
+<<<<<<< HEAD
 	c.logger.Debug("removing config.mongos")
+=======
+	c.logger.Debug("Remove all from DB")
+>>>>>>> Update restore
 	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
-		c.logger.Info("cannot empty config.mongos collection")
+		c.logger.Info("cannot empty config.mongos collection: " + err.Error())
 	}
 	return nil
 }

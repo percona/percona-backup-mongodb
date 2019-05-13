@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/notify"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
+	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 )
 
@@ -390,9 +391,9 @@ func (s *MessagesServer) IsShardedSystem() bool {
 	return false
 }
 
-// func (s *MessagesServer) LastBackupErrors() error {
-// 	return s.backupStatus.lastBackupErrors
-// }
+func (s *MessagesServer) LastBackupErrors() error {
+	return s.backupStatus.lastBackupErrors
+}
 
 func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 	return s.backupStatus.lastBackupMetadata
@@ -405,6 +406,7 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 	}
 
 	backups := make(map[string]pb.BackupMetadata)
+
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".json") {
 			continue
@@ -414,9 +416,82 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid backup metadata file %s: %s", filename, err)
 		}
-		backups[file.Name()] = *bm.Metadata()
-	}
 
+		backups[file.Name()] = *bm.Metadata()
+		//backup := backups[file.Name()]
+		//s.getClientByNodeName
+		/*clients, err := s.RestoreSourcesByReplicaset(&backup, backup.StorageName)
+		if err != nil {
+			s.logger.Info("cannot start backup restore. Cannot find backup source for replicas: %v", err)
+			continue //return nil, errors.Wrapf(err, "cannot start backup restore. Cannot find backup source for replicas")
+		}*/
+
+		/*stgs, err := s.listStorages()
+		if err != nil {
+			log.Errorf("cannot get the storages list: %s", err)
+			return nil, fmt.Errorf("cannot get the storages list: %s", err)
+		}*/
+
+		// Ping will also update the status and if it is primary or secondary
+		clients := s.Clients()
+
+		for replName, source := range clients {
+			if err := source.ping(); err != nil {
+				s.logger.Info("error while sending ping to client: " + err.Error())
+				continue
+			}
+			/*s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
+				replName,
+				source.ID,
+				source.NodeName,
+				source.NodeType,
+			)*/
+			//s.replicasRunningBackup[replName] = true
+			/*s.logger.Infof("Starting restore for replicaset %q on client %s %s %s",
+				replName,
+				source.ID,
+				source.NodeName,
+				source.NodeType,
+			)*/
+			//s.backupStatus.replicasRunningBackup[replName] = true
+
+			mongoDBVersion, err := s.getMongoDBVersion()
+			if err != nil {
+				s.logger.Info("get db version: " + err.Error())
+			}
+			s.logger.Info("Range replicasets for replset " + replName + "and s.replsname: " + source.ReplicasetName)
+			for bmReplName, metadata := range backups[file.Name()].Replicasets {
+				s.logger.Info("bmRepName:" + bmReplName + ", meta:" + metadata.ClusterId)
+				if bmReplName == source.ReplicasetName {
+					msg := &pb.RestoreBackupCheck{
+						BackupType:        backups[file.Name()].BackupType,
+						DbSourceName:      metadata.DbBackupName,
+						OplogSourceName:   metadata.OplogBackupName,
+						CompressionType:   backups[file.Name()].CompressionType,
+						Cypher:            backups[file.Name()].Cypher,
+						SkipUsersAndRoles: false,
+						Host:              "",
+						Port:              "",
+						StorageName:       backups[file.Name()].StorageName,
+						MongodbVersion:    mongoDBVersion,
+					}
+					s.logger.Info("Check if can restore")
+					resp, err := source.RestoreBackupCheck(msg, metadata.DbBackupName, backups[file.Name()].StorageName)
+					if err != nil {
+						s.logger.Info("canrestore request:" + err.Error())
+						continue
+					}
+
+					newBackup := backups[file.Name()]
+					if resp.CanRestore && time.Now().Unix()-newBackup.StartTs > 30 {
+						newBackup.EndTs = int64(1)
+					}
+					backups[file.Name()] = newBackup
+				}
+			}
+		}
+	}
+	s.restoreRunning = false
 	return backups, nil
 }
 
@@ -466,6 +541,7 @@ func (s *MessagesServer) RestoreBackupFromMetadataFile(filename, storageName str
 	filename = filepath.Join(s.workDir, filename)
 	bm, err := LoadMetadataFromFile(filename)
 	if err != nil {
+		log.Errorf("invalid backup metadata file %s: %s", filename, err)
 		return fmt.Errorf("invalid backup metadata file %s: %s", filename, err)
 	}
 
@@ -477,26 +553,32 @@ func (s *MessagesServer) RestoreBackupFromMetadataFile(filename, storageName str
 func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string, skipUsersAndRoles bool) error {
 	clients, err := s.RestoreSourcesByReplicaset(bm, storageName)
 	if err != nil {
+		log.Errorf("cannot start backup restore. Cannot find backup source for replicas: %v", err)
 		return errors.Wrapf(err, "cannot start backup restore. Cannot find backup source for replicas")
 	}
 
 	if s.isBackupRunning() {
+		log.Errorf("cannot start a restore while a backup is running")
 		return fmt.Errorf("cannot start a restore while a backup is running")
 	}
 	if s.isRestoreRunning() {
-		return fmt.Errorf("cannot start a restore while another restore is still running")
+		log.Errorf("cannot start a restore while another restore is still running")
+		//return fmt.Errorf("cannot start a restore while another restore is still running")
 	}
 
 	stgs, err := s.listStorages()
 	if err != nil {
+		log.Errorf("cannot get the storages list: %s", err)
 		return fmt.Errorf("cannot get the storages list: %s", err)
 	}
 
 	stg, ok := stgs[storageName]
 	if !ok {
+		log.Errorf("invalid storage %q", storageName)
 		return fmt.Errorf("invalid storage %q", storageName)
 	}
 	if !stg.StorageInfo.Valid {
+		log.Errorf("storage %q is invalid", storageName)
 		return fmt.Errorf("storage %q is invalid", storageName)
 	}
 	s.reset()
@@ -544,6 +626,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 					MongodbVersion:    mongoDBVersion,
 				}
 				if err := source.Client.restoreBackup(msg); err != nil {
+					log.Errorf("cannot send restore backup message to client %v", err)
 					return errors.Wrapf(err, "cannot send restore backup message to client %s", source.Client.ID)
 				}
 			}
@@ -677,17 +760,19 @@ func (s *MessagesServer) getMongoDBVersion() (string, error) {
 
 // StartBalancer restarts the balancer if this is a sharded system
 func (s *MessagesServer) StartBalancer() error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	for _, client := range s.clients {
+	//s.lock.Lock()
+	//defer s.lock.Unlock()
+	/*for _, client := range s.clients {
+		s.logger.Info("client node: " + client.NodeName)
 		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+			s.logger.Info("start client balancer")
 			if err := client.startBalancer(); err != nil {
 				return errors.Wrapf(err, "cannot start the balancer via client %q", client.ID)
 			}
 			s.logger.Debug("Balancer started")
 			break
 		}
-	}
+	}*/
 	// This is not a sharded system. There is nothing to do.
 	return nil
 }
@@ -698,7 +783,7 @@ func (s *MessagesServer) Stop() {
 
 // StopBalancer stops the balancer if this is a sharded system
 func (s *MessagesServer) StopBalancer() error {
-	s.lock.Lock()
+	/*s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
@@ -709,7 +794,7 @@ func (s *MessagesServer) StopBalancer() error {
 			s.logger.Debug("Balancer stopped")
 			break
 		}
-	}
+	}*/
 	// This is not a sharded system. There is nothing to do.
 	return nil
 }

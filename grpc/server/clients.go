@@ -103,6 +103,34 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName st
 	return pb.CanRestoreBackupResponse{}, fmt.Errorf("cannot get CanRestoreBackup Response (response is nil)")
 }
 
+func (c *Client) RestoreBackupCheck(backup *pb.RestoreBackupCheck, name, storageName string) (
+	pb.RestoreBackupCheckResponse, error) {
+	if err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_RestoreBackupCheckMsg{
+			RestoreBackupCheckMsg: backup,
+		},
+	}); err != nil {
+		return pb.RestoreBackupCheckResponse{}, err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return pb.RestoreBackupCheckResponse{}, err
+	}
+
+	switch msg.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+	case *pb.ClientMessage_RestoreBackupCheckMsg:
+		resp := msg.GetRestoreBackupCheck()
+		if resp.CanRestore {
+			return pb.RestoreBackupCheckResponse{CanRestore: true}, nil
+		}
+		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+	}
+
+	return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+}
+
 func (c *Client) GetCmdLineOpts() (*pb.CmdLineOpts, error) {
 	msg := &pb.ServerMessage{
 		Payload: &pb.ServerMessage_GetCmdLineOpts{
@@ -405,17 +433,20 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 }
 
 func (c *Client) startBalancer() error {
+	c.logger.Info("stream send")
 	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_StartBalancerMsg{StartBalancerMsg: &pb.StartBalancer{}},
 	})
 	if err != nil {
+		c.logger.Info("stream send error:" + err.Error())
 		return err
 	}
+	c.logger.Info("stream recieve")
 	msg, err := c.streamRecv()
 	if err != nil {
 		return err
 	}
-
+	c.logger.Info("read streqm msg")
 	switch msg.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
 		return fmt.Errorf("%s", msg.GetErrorMsg().Message)

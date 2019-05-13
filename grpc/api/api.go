@@ -136,6 +136,7 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
+<<<<<<< HEAD
 	a.logger.Info("Stopping the balancer")
 	if err := a.messagesServer.StopBalancer(); err != nil {
 		if !client.IsError(errors.Cause(err), client.NoMongosError) {
@@ -151,6 +152,18 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 			}
 		}
 	}()
+=======
+	//a.logger.Info("Stopping the balancer")
+	//if err := a.messagesServer.StopBalancer(); err != nil {
+	//	return response, err
+	//}
+	//defer func() {
+	//	a.logger.Info("Starting the balancer")
+	//	if err := a.messagesServer.StartBalancer(); err != nil {
+	//		gerr = multierror.Append(gerr, err)
+	//	}
+	//}()
+>>>>>>> Update restore
 
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
