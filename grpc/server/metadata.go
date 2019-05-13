@@ -93,6 +93,18 @@ func (b *BackupMetadata) RemoveReplicaset(replName string) error {
 	return nil
 }
 
+func (b *BackupMetadata) LastOplogTs() int64 {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.metadata.LastOplogTs
+}
+
+func (b *BackupMetadata) SetLastOplogTs(ts int64) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	b.metadata.LastOplogTs = ts
+}
+
 func (b *BackupMetadata) JSON() ([]byte, error) {
 	b.lock.Lock()
 	defer b.lock.Unlock()

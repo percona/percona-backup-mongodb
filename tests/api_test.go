@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/globalsign/mgo"
 	"github.com/kr/pretty"
@@ -60,35 +61,39 @@ func TestBusyServer(t *testing.T) {
 		t.Fatalf("Cannot generate a backup to restore while the second backup is running: %s", err)
 	}
 
+	msg.Filename = bck2
+	generateDataToBackup(t, s1Session, ndocs*3000)
+
 	var berr error
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	msg.Filename = bck2
-	generateDataToBackup(t, s1Session, ndocs*3000)
-
 	go func() {
-		_, berr = d.APIServer.RunBackup(context.Background(), msg)
+		if _, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, 100*time.Second); err != nil {
+			t.Errorf("Wait for backup start returned an error: %s", err)
+			return
+		}
+
+		rmsg := &pbapi.RunRestoreParams{
+			MetadataFile:      bck1 + ".json",
+			SkipUsersAndRoles: true,
+			StorageName:       msg.StorageName,
+		}
+
+		time.Sleep(2 * time.Second)
+		_, berr = d.APIServer.RunRestore(context.Background(), rmsg)
 		wg.Done()
 	}()
-	if _, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, 0); err != nil {
-		t.Errorf("Wait for backup start returned an error: %s", err)
-	}
 
-	rmsg := &pbapi.RunRestoreParams{
-		MetadataFile:      bck1 + ".json",
-		SkipUsersAndRoles: true,
-		StorageName:       msg.StorageName,
-	}
-
-	_, err = d.APIServer.RunRestore(context.Background(), rmsg)
-	if err == nil {
-		t.Errorf("Trying to restore while a backup is running should fail")
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
+	if err != nil {
+		t.Errorf("Cannot run the second backup: %s", err)
 	}
 
 	wg.Wait()
-	if berr != nil {
-		t.Fatalf("Cannot start backup from API: %s", err)
+
+	if berr == nil {
+		t.Errorf("Trying to restore while a backup is running should fail")
 	}
 
 }

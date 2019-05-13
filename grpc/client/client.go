@@ -757,7 +757,7 @@ func (c *Client) processListStorages() (*pb.ClientMessage, error) {
 }
 
 func (c *Client) processLastOplogTs() (*pb.ClientMessage, error) {
-	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	isMaster, err := cluster.NewIsMaster(c.mdbSession.Clone())
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get masterDoc for processLastOplogTs")
 	}
