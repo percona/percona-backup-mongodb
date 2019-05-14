@@ -61,34 +61,41 @@ func TestBusyServer(t *testing.T) {
 		t.Fatalf("Cannot generate a backup to restore while the second backup is running: %s", err)
 	}
 
+	msg.Filename = bck2
+	generateDataToBackup(t, s1Session, ndocs*3000)
+
 	var berr error
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	msg.Filename = bck2
-	generateDataToBackup(t, s1Session, ndocs*3000)
-
 	go func() {
-		_, berr = d.APIServer.RunBackup(context.Background(), msg)
+		if _, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, 100*time.Second); err != nil {
+			t.Errorf("Wait for backup start returned an error: %s", err)
+			return
+		}
+
+		rmsg := &pbapi.RunRestoreParams{
+			MetadataFile:      bck1 + ".json",
+			SkipUsersAndRoles: true,
+			StorageName:       msg.StorageName,
+		}
+
+		time.Sleep(2 * time.Second)
+		_, berr = d.APIServer.RunRestore(context.Background(), rmsg)
 		wg.Done()
 	}()
-	time.Sleep(7 * time.Second)
 
-	rmsg := &pbapi.RunRestoreParams{
-		MetadataFile:      bck1 + ".json",
-		SkipUsersAndRoles: true,
-		StorageName:       msg.StorageName,
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
+	if err != nil {
+		t.Errorf("Cannot run the second backup: %s", err)
 	}
 
-	_, err = d.APIServer.RunRestore(context.Background(), rmsg)
 	wg.Wait()
-	if berr != nil {
-		t.Fatalf("Cannot start backup from API: %s", err)
-	}
 
-	if err == nil {
+	if berr == nil {
 		t.Errorf("Trying to restore while a backup is running should fail")
 	}
+
 }
 
 // Why this is not in the grpc/api dir? Because the daemon implemented to test the whole behavior

@@ -72,7 +72,6 @@ type cliOptions struct {
 
 	backup               *kingpin.CmdClause
 	backupType           string
-	destinationType      string
 	compressionAlgorithm string
 	encryptionAlgorithm  string
 	description          string
@@ -85,8 +84,8 @@ type cliOptions struct {
 	list             *kingpin.CmdClause
 	listBackups      *kingpin.CmdClause
 	listNodes        *kingpin.CmdClause
-	listNodesVerbose bool
 	listStorages     *kingpin.CmdClause
+	listNodesVerbose bool
 }
 
 func main() {
@@ -381,10 +380,6 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	backupCmd.Flag("backup-type", "Backup type (logical or hot)").
 		Default(defaultBackupType).
 		EnumVar(&opts.backupType, backuptypes...)
-
-	backupCmd.Flag("destination-type", "Backup destination type (file or aws)").
-		Default(defaultDestinationType).
-		EnumVar(&opts.destinationType, destinationTypes...)
 
 	backupCmd.Flag("compression-algorithm", "Compression algorithm used for the backup").
 		StringVar(&opts.compressionAlgorithm)
