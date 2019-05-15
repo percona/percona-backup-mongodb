@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,6 +212,7 @@ func TestBackups(t *testing.T) {
 
 func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daemon) {
 	ndocs := int64(1000)
+	wg := &sync.WaitGroup{}
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
@@ -222,7 +224,8 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 	defer s1Session.Close()
 
 	generateDataToBackup(t, s1Session, ndocs)
-	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan)
+	wg.Add(1)
+	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan, wg)
 
 	// Also generate random data on shard 2
 	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
@@ -236,7 +239,8 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 	cleanupDB(t, s2Session)
 
 	generateDataToBackup(t, s2Session, ndocs)
-	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan)
+	wg.Add(1)
+	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan, wg)
 
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
@@ -298,6 +302,14 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 		t.Fatalf("Cannot get last backup metadata to start the restore process: %s", err)
 	}
 
+	st, err := testutils.TestingStorages().Get(params.StorageName)
+	if err != nil {
+		t.Errorf("Cannot load storage %q: %s", params.StorageName, err)
+	}
+	if st.Type == "s3" {
+		time.Sleep(15 * time.Second) // give it some time to refresh
+	}
+
 	testRestoreWithMetadata(t, d, md, params.StorageName)
 
 	s1Session.Refresh()
@@ -308,12 +320,12 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 	var afterMaxS1, afterMaxS2 maxNumber
 	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
 	if err != nil {
-		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+		log.Errorf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
 	err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS2)
 	if err != nil {
-		log.Fatalf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
+		log.Errorf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
 	if afterMaxS1.Number < maxRs1NumBeforeRestore {
@@ -329,6 +341,7 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 			afterMaxS2.Number,
 		)
 	}
+	wg.Wait()
 }
 
 func TestClientDisconnect(t *testing.T) {
@@ -775,8 +788,10 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, ndocs int64) {
 
 // ndocs is the number of documents created for the pre-loaded data.
 // we must start counting from ndocs+1 to avoid duplicated numbers
-func generateOplogTraffic(session *mgo.Session, ndocs int64, stop chan bool) {
+func generateOplogTraffic(session *mgo.Session, ndocs int64, stop chan bool, wg *sync.WaitGroup) {
+	defer wg.Done()
 	ticker := time.NewTicker(10 * time.Millisecond)
+
 	for {
 		ndocs++
 		select {
@@ -786,7 +801,8 @@ func generateOplogTraffic(session *mgo.Session, ndocs int64, stop chan bool) {
 		case <-ticker.C:
 			err := session.DB(dbName).C(colName).Insert(bson.M{"number": ndocs})
 			if err != nil {
-				panic(fmt.Errorf("insert to test.test failed: %v", err.Error()))
+				//panic(fmt.Errorf("insert to test.test failed: %v", err.Error()))
+				return
 			}
 		}
 	}

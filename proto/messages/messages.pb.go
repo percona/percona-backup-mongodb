@@ -6,9 +6,10 @@ package messages
 import (
 	context "context"
 	fmt "fmt"
+	math "math"
+
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
-	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1614,6 +1615,141 @@ func (m *StopOplogTail) GetTs() int64 {
 	return 0
 }
 
+type RestoreBackupCheck struct {
+	MongodbHost          string          `protobuf:"bytes,1,opt,name=mongodb_host,json=mongodbHost,proto3" json:"mongodb_host,omitempty"`
+	BackupType           BackupType      `protobuf:"varint,2,opt,name=backup_type,json=backupType,proto3,enum=messages.BackupType" json:"backup_type,omitempty"`
+	SourceBucket         string          `protobuf:"bytes,3,opt,name=source_bucket,json=sourceBucket,proto3" json:"source_bucket,omitempty"`
+	DbSourceName         string          `protobuf:"bytes,4,opt,name=db_source_name,json=dbSourceName,proto3" json:"db_source_name,omitempty"`
+	OplogSourceName      string          `protobuf:"bytes,5,opt,name=oplog_source_name,json=oplogSourceName,proto3" json:"oplog_source_name,omitempty"`
+	CompressionType      CompressionType `protobuf:"varint,6,opt,name=compression_type,json=compressionType,proto3,enum=messages.CompressionType" json:"compression_type,omitempty"`
+	Cypher               Cypher          `protobuf:"varint,7,opt,name=cypher,proto3,enum=messages.Cypher" json:"cypher,omitempty"`
+	OplogStartTime       int64           `protobuf:"varint,8,opt,name=oplog_start_time,json=oplogStartTime,proto3" json:"oplog_start_time,omitempty"`
+	SkipUsersAndRoles    bool            `protobuf:"varint,9,opt,name=skip_users_and_roles,json=skipUsersAndRoles,proto3" json:"skip_users_and_roles,omitempty"`
+	Host                 string          `protobuf:"bytes,10,opt,name=host,proto3" json:"host,omitempty"`
+	Port                 string          `protobuf:"bytes,11,opt,name=port,proto3" json:"port,omitempty"`
+	StorageName          string          `protobuf:"bytes,12,opt,name=storage_name,json=storageName,proto3" json:"storage_name,omitempty"`
+	MongodbVersion       string          `protobuf:"bytes,13,opt,name=mongodb_version,json=mongodbVersion,proto3" json:"mongodb_version,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
+	XXX_unrecognized     []byte          `json:"-"`
+	XXX_sizecache        int32           `json:"-"`
+}
+
+func (m *RestoreBackupCheck) Reset()         { *m = RestoreBackupCheck{} }
+func (m *RestoreBackupCheck) String() string { return proto.CompactTextString(m) }
+func (*RestoreBackupCheck) ProtoMessage()    {}
+func (*RestoreBackupCheck) Descriptor() ([]byte, []int) {
+	return fileDescriptor_83994550f81e9f35, []int{26}
+}
+
+func (m *RestoreBackupCheck) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RestoreBackupCheck.Unmarshal(m, b)
+}
+func (m *RestoreBackupCheck) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RestoreBackupCheck.Marshal(b, m, deterministic)
+}
+func (m *RestoreBackupCheck) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RestoreBackupCheck.Merge(m, src)
+}
+func (m *RestoreBackupCheck) XXX_Size() int {
+	return xxx_messageInfo_RestoreBackupCheck.Size(m)
+}
+func (m *RestoreBackupCheck) XXX_DiscardUnknown() {
+	xxx_messageInfo_RestoreBackupCheck.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RestoreBackupCheck proto.InternalMessageInfo
+
+func (m *RestoreBackupCheck) GetMongodbHost() string {
+	if m != nil {
+		return m.MongodbHost
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetBackupType() BackupType {
+	if m != nil {
+		return m.BackupType
+	}
+	return BackupType_BACKUP_TYPE_INVALID
+}
+
+func (m *RestoreBackupCheck) GetSourceBucket() string {
+	if m != nil {
+		return m.SourceBucket
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetDbSourceName() string {
+	if m != nil {
+		return m.DbSourceName
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetOplogSourceName() string {
+	if m != nil {
+		return m.OplogSourceName
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetCompressionType() CompressionType {
+	if m != nil {
+		return m.CompressionType
+	}
+	return CompressionType_COMPRESSION_TYPE_INVALID
+}
+
+func (m *RestoreBackupCheck) GetCypher() Cypher {
+	if m != nil {
+		return m.Cypher
+	}
+	return Cypher_CYPHER_INVALID
+}
+
+func (m *RestoreBackupCheck) GetOplogStartTime() int64 {
+	if m != nil {
+		return m.OplogStartTime
+	}
+	return 0
+}
+
+func (m *RestoreBackupCheck) GetSkipUsersAndRoles() bool {
+	if m != nil {
+		return m.SkipUsersAndRoles
+	}
+	return false
+}
+
+func (m *RestoreBackupCheck) GetHost() string {
+	if m != nil {
+		return m.Host
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetPort() string {
+	if m != nil {
+		return m.Port
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetStorageName() string {
+	if m != nil {
+		return m.StorageName
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheck) GetMongodbVersion() string {
+	if m != nil {
+		return m.MongodbVersion
+	}
+	return ""
+}
+
 type ServerMessage struct {
 	Version int32 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	// Types that are valid to be assigned to Payload:
@@ -1636,6 +1772,7 @@ type ServerMessage struct {
 	//	*ServerMessage_WriteFile
 	//	*ServerMessage_GetCmdLineOpts
 	//	*ServerMessage_GetMongodbVersion
+	//	*ServerMessage_RestoreBackupCheckMsg
 	Payload              isServerMessage_Payload `protobuf_oneof:"payload"`
 	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
 	XXX_unrecognized     []byte                  `json:"-"`
@@ -1754,6 +1891,10 @@ type ServerMessage_GetMongodbVersion struct {
 	GetMongodbVersion *GetMongoDBVersion `protobuf:"bytes,20,opt,name=get_mongodb_version,json=getMongodbVersion,proto3,oneof"`
 }
 
+type ServerMessage_RestoreBackupCheckMsg struct {
+	RestoreBackupCheckMsg *RestoreBackupCheck `protobuf:"bytes,21,opt,name=restore_backup_check_msg,json=restoreBackupCheckMsg,proto3,oneof"`
+}
+
 func (*ServerMessage_AckMsg) isServerMessage_Payload() {}
 
 func (*ServerMessage_CancelBackupMsg) isServerMessage_Payload() {}
@@ -1791,6 +1932,8 @@ func (*ServerMessage_WriteFile) isServerMessage_Payload() {}
 func (*ServerMessage_GetCmdLineOpts) isServerMessage_Payload() {}
 
 func (*ServerMessage_GetMongodbVersion) isServerMessage_Payload() {}
+
+func (*ServerMessage_RestoreBackupCheckMsg) isServerMessage_Payload() {}
 
 func (m *ServerMessage) GetPayload() isServerMessage_Payload {
 	if m != nil {
@@ -1932,6 +2075,13 @@ func (m *ServerMessage) GetGetMongodbVersion() *GetMongoDBVersion {
 	return nil
 }
 
+func (m *ServerMessage) GetRestoreBackupCheckMsg() *RestoreBackupCheck {
+	if x, ok := m.GetPayload().(*ServerMessage_RestoreBackupCheckMsg); ok {
+		return x.RestoreBackupCheckMsg
+	}
+	return nil
+}
+
 // XXX_OneofWrappers is for the internal use of the proto package.
 func (*ServerMessage) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
@@ -1954,6 +2104,7 @@ func (*ServerMessage) XXX_OneofWrappers() []interface{} {
 		(*ServerMessage_WriteFile)(nil),
 		(*ServerMessage_GetCmdLineOpts)(nil),
 		(*ServerMessage_GetMongodbVersion)(nil),
+		(*ServerMessage_RestoreBackupCheckMsg)(nil),
 	}
 }
 
@@ -1977,6 +2128,7 @@ type ClientMessage struct {
 	//	*ClientMessage_WriteStatus
 	//	*ClientMessage_CmdLineOpts
 	//	*ClientMessage_MongodbVersion
+	//	*ClientMessage_RestoreBackupCheck
 	Payload              isClientMessage_Payload `protobuf_oneof:"payload"`
 	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
 	XXX_unrecognized     []byte                  `json:"-"`
@@ -2090,6 +2242,10 @@ type ClientMessage_MongodbVersion struct {
 	MongodbVersion *MongoDBVersion `protobuf:"bytes,18,opt,name=mongodb_version,json=mongodbVersion,proto3,oneof"`
 }
 
+type ClientMessage_RestoreBackupCheckMsg struct {
+	RestoreBackupCheckResponse *RestoreBackupCheckResponse `protobuf:"bytes,19,opt,name=restore_backup_check_response,json=RestoreBackupCheckResponse,proto3,oneof"`
+}
+
 func (*ClientMessage_AckMsg) isClientMessage_Payload() {}
 
 func (*ClientMessage_BackupSourceMsg) isClientMessage_Payload() {}
@@ -2121,6 +2277,8 @@ func (*ClientMessage_WriteStatus) isClientMessage_Payload() {}
 func (*ClientMessage_CmdLineOpts) isClientMessage_Payload() {}
 
 func (*ClientMessage_MongodbVersion) isClientMessage_Payload() {}
+
+func (*ClientMessage_RestoreBackupCheckMsg) isClientMessage_Payload() {}
 
 func (m *ClientMessage) GetPayload() isClientMessage_Payload {
 	if m != nil {
@@ -2241,6 +2399,13 @@ func (m *ClientMessage) GetMongodbVersion() *MongoDBVersion {
 	return nil
 }
 
+func (m *ClientMessage) GetRestoreBackupCheck() *RestoreBackupCheckResponse {
+	if x, ok := m.GetPayload().(*ClientMessage_RestoreBackupCheckMsg); ok {
+		return x.RestoreBackupCheckResponse
+	}
+	return nil
+}
+
 // XXX_OneofWrappers is for the internal use of the proto package.
 func (*ClientMessage) XXX_OneofWrappers() []interface{} {
 	return []interface{}{
@@ -2260,6 +2425,7 @@ func (*ClientMessage) XXX_OneofWrappers() []interface{} {
 		(*ClientMessage_WriteStatus)(nil),
 		(*ClientMessage_CmdLineOpts)(nil),
 		(*ClientMessage_MongodbVersion)(nil),
+		(*ClientMessage_RestoreBackupCheckMsg)(nil),
 	}
 }
 
@@ -3193,6 +3359,93 @@ func (m *WriteStatus) GetError() string {
 	return ""
 }
 
+type RestoreBackupCheckResponse struct {
+	ClientId             string   `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	Replicaset           string   `protobuf:"bytes,2,opt,name=replicaset,proto3" json:"replicaset,omitempty"`
+	IsPrimary            bool     `protobuf:"varint,3,opt,name=is_primary,json=isPrimary,proto3" json:"is_primary,omitempty"`
+	CanRestore           bool     `protobuf:"varint,4,opt,name=can_restore,json=canRestore,proto3" json:"can_restore,omitempty"`
+	Host                 string   `protobuf:"bytes,5,opt,name=host,proto3" json:"host,omitempty"`
+	Port                 string   `protobuf:"bytes,6,opt,name=port,proto3" json:"port,omitempty"`
+	Error                string   `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *RestoreBackupCheckResponse) Reset()         { *m = RestoreBackupCheckResponse{} }
+func (m *RestoreBackupCheckResponse) String() string { return proto.CompactTextString(m) }
+func (*RestoreBackupCheckResponse) ProtoMessage()    {}
+func (*RestoreBackupCheckResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_83994550f81e9f35, []int{33}
+}
+
+func (m *RestoreBackupCheckResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RestoreBackupCheckResponse.Unmarshal(m, b)
+}
+func (m *RestoreBackupCheckResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RestoreBackupCheckResponse.Marshal(b, m, deterministic)
+}
+func (m *RestoreBackupCheckResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RestoreBackupCheckResponse.Merge(m, src)
+}
+func (m *RestoreBackupCheckResponse) XXX_Size() int {
+	return xxx_messageInfo_RestoreBackupCheckResponse.Size(m)
+}
+func (m *RestoreBackupCheckResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_RestoreBackupCheckResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RestoreBackupCheckResponse proto.InternalMessageInfo
+
+func (m *RestoreBackupCheckResponse) GetClientId() string {
+	if m != nil {
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheckResponse) GetReplicaset() string {
+	if m != nil {
+		return m.Replicaset
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheckResponse) GetIsPrimary() bool {
+	if m != nil {
+		return m.IsPrimary
+	}
+	return false
+}
+
+func (m *RestoreBackupCheckResponse) GetCanRestore() bool {
+	if m != nil {
+		return m.CanRestore
+	}
+	return false
+}
+
+func (m *RestoreBackupCheckResponse) GetHost() string {
+	if m != nil {
+		return m.Host
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheckResponse) GetPort() string {
+	if m != nil {
+		return m.Port
+	}
+	return ""
+}
+
+func (m *RestoreBackupCheckResponse) GetError() string {
+	if m != nil {
+		return m.Error
+	}
+	return ""
+}
+
 func init() {
 	proto.RegisterEnum("messages.ErrorType", ErrorType_name, ErrorType_value)
 	proto.RegisterEnum("messages.BackupType", BackupType_name, BackupType_value)
@@ -3247,6 +3500,8 @@ func init() {
 	proto.RegisterType((*StoragesInfo)(nil), "messages.StoragesInfo")
 	proto.RegisterType((*WriteFile)(nil), "messages.WriteFile")
 	proto.RegisterType((*WriteStatus)(nil), "messages.WriteStatus")
+	proto.RegisterType((*RestoreBackupCheck)(nil), "messages.RestoreBackupCheck")
+	proto.RegisterType((*RestoreBackupCheckResponse)(nil), "messages.RestoreBackupCheckResponse")
 }
 
 func init() { proto.RegisterFile("messages/messages.proto", fileDescriptor_83994550f81e9f35) }

@@ -36,15 +36,13 @@ type Client struct {
 	LastSeen        time.Time `json:"last_seen"`
 	logger          *logrus.Logger
 
-	streamRecvChan chan *pb.ClientMessage
-
-	streamLock *sync.Mutex
-	stream     pb.Messages_MessagesChatServer
+	inChan     chan *pb.ClientMessage
+	outChan    chan *pb.ServerMessage
 	statusLock *sync.Mutex
 	status     pb.Status
 }
 
-func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesChatServer,
+func newClient(id string, msg *pb.Register, in chan *pb.ClientMessage, out chan *pb.ServerMessage,
 	logger *logrus.Logger) *Client {
 	if logger == nil {
 		logger = logrus.New()
@@ -54,27 +52,26 @@ func newClient(id string, registerMsg *pb.Register, stream pb.Messages_MessagesC
 
 	client := &Client{
 		ID:             id,
-		ClusterID:      registerMsg.ClusterId,
-		ReplicasetUUID: registerMsg.ReplicasetId,
-		ReplicasetName: registerMsg.ReplicasetName,
-		NodeType:       registerMsg.NodeType,
-		NodeName:       registerMsg.NodeName,
-		isPrimary:      registerMsg.IsPrimary,
-		isSecondary:    registerMsg.IsSecondary,
-		stream:         stream,
+		ClusterID:      msg.ClusterId,
+		ReplicasetUUID: msg.ReplicasetId,
+		ReplicasetName: msg.ReplicasetName,
+		NodeType:       msg.NodeType,
+		NodeName:       msg.NodeName,
+		isPrimary:      msg.IsPrimary,
+		isSecondary:    msg.IsSecondary,
 		LastSeen:       time.Now(),
+
+		inChan:  in,
+		outChan: out,
+
 		status: pb.Status{
 			RunningDbBackup:    false,
 			RunningOplogBackup: false,
 			RestoreStatus:      pb.RestoreStatus_RESTORE_STATUS_NOT_RUNNING,
 		},
-		streamLock:     &sync.Mutex{},
-		statusLock:     &sync.Mutex{},
-		logger:         logger,
-		streamRecvChan: make(chan *pb.ClientMessage),
+		statusLock: &sync.Mutex{},
+		logger:     logger,
 	}
-
-	go client.handleStreamRecv()
 
 	return client
 }
@@ -103,15 +100,41 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName st
 	return pb.CanRestoreBackupResponse{}, fmt.Errorf("cannot get CanRestoreBackup Response (response is nil)")
 }
 
+func (c *Client) RestoreBackupCheck(backup *pb.RestoreBackupCheck, name, storageName string) (
+	pb.RestoreBackupCheckResponse, error) {
+	if err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_RestoreBackupCheckMsg{
+			RestoreBackupCheckMsg: backup,
+		},
+	}); err != nil {
+		return pb.RestoreBackupCheckResponse{}, err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return pb.RestoreBackupCheckResponse{}, err
+	}
+
+	switch msg.Payload.(type) {
+	case *pb.ClientMessage_ErrorMsg:
+		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+	case *pb.ClientMessage_RestoreBackupCheckMsg:
+		resp := msg.GetRestoreBackupCheck()
+		if resp.CanRestore {
+			return pb.RestoreBackupCheckResponse{CanRestore: true}, nil
+		}
+		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+	}
+
+	return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+}
+
 func (c *Client) GetCmdLineOpts() (*pb.CmdLineOpts, error) {
 	msg := &pb.ServerMessage{
 		Payload: &pb.ServerMessage_GetCmdLineOpts{
 			GetCmdLineOpts: &pb.GetCmdLineOpts{},
 		},
 	}
-	if err := c.stream.SendMsg(msg); err != nil {
-		return nil, errors.Wrap(err, "cannot get cmd line options")
-	}
+	c.outChan <- msg
 
 	response, err := c.streamRecv()
 	if err != nil {
@@ -203,16 +226,6 @@ func (c *Client) GetStatus() (pb.Status, error) {
 	c.status = *statusMsg
 	c.statusLock.Unlock()
 	return *statusMsg, nil
-}
-
-func (c *Client) handleStreamRecv() {
-	for {
-		msg, err := c.stream.Recv()
-		if err != nil {
-			return
-		}
-		c.streamRecvChan <- msg
-	}
 }
 
 func (c *Client) isDBBackupRunning() bool {
@@ -405,17 +418,20 @@ func (c *Client) startBackup(opts *pb.StartBackup) error {
 }
 
 func (c *Client) startBalancer() error {
+	c.logger.Info("stream send")
 	err := c.streamSend(&pb.ServerMessage{
 		Payload: &pb.ServerMessage_StartBalancerMsg{StartBalancerMsg: &pb.StartBalancer{}},
 	})
 	if err != nil {
+		c.logger.Info("stream send error:" + err.Error())
 		return err
 	}
+	c.logger.Info("stream recieve")
 	msg, err := c.streamRecv()
 	if err != nil {
 		return err
 	}
-
+	c.logger.Info("read streqm msg")
 	switch msg.Payload.(type) {
 	case *pb.ClientMessage_ErrorMsg:
 		return fmt.Errorf("%s", msg.GetErrorMsg().Message)
@@ -512,7 +528,7 @@ func (c *Client) writeBackupMetadata(fileName, storageName string, data []byte) 
 
 func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 	select {
-	case msg := <-c.streamRecvChan:
+	case msg := <-c.inChan:
 		return msg, nil
 	case <-time.After(Timeout):
 		return nil, fmt.Errorf("Timeout reading from the stream: \n" + string(debug.Stack()))
@@ -520,7 +536,10 @@ func (c *Client) streamRecv() (*pb.ClientMessage, error) {
 }
 
 func (c *Client) streamSend(msg *pb.ServerMessage) error {
-	c.streamLock.Lock()
-	defer c.streamLock.Unlock()
-	return c.stream.Send(msg)
+	select {
+	case c.outChan <- msg:
+		return nil
+	default:
+	}
+	return fmt.Errorf("cannot send message to the gRPC server. channel is busy")
 }
