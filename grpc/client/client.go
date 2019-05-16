@@ -58,7 +58,7 @@ type Client struct {
 	nodeType       pb.NodeType
 	running        bool
 
-	mdbSession  *mgo.Session
+	mgoSession  *mgo.Session
 	mgoDI       *mgo.DialInfo
 	connOpts    ConnectionOptions
 	sslOpts     SSLOptions
@@ -243,13 +243,13 @@ func (c *Client) Start() error {
 }
 
 func (c *Client) dbConnect() (err error) {
-	c.mdbSession, err = mgo.DialWithInfo(c.mgoDI)
+	c.mgoSession, err = mgo.DialWithInfo(c.mgoDI)
 	if err != nil {
 		return err
 	}
-	c.mdbSession.SetMode(mgo.Eventual, true)
+	c.mgoSession.SetMode(mgo.Eventual, true)
 
-	bi, err := c.mdbSession.BuildInfo()
+	bi, err := c.mgoSession.BuildInfo()
 	if err != nil {
 		return errors.Wrapf(err, "Cannot get build info")
 	}
@@ -264,7 +264,12 @@ func (c *Client) updateClientInfo() (err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		return err
+	}
+
+	isMaster, err := cluster.NewIsMaster(sess)
 	if err != nil {
 		return errors.Wrap(err, "cannot update client info")
 	}
@@ -278,7 +283,7 @@ func (c *Client) updateClientInfo() (err error) {
 		status := struct {
 			Host string `bson:"host"`
 		}{}
-		err = c.mdbSession.Run(bson.D{{Name: "serverStatus", Value: 1}}, &status)
+		err = sess.Run(bson.D{{Name: "serverStatus", Value: 1}}, &status)
 		if err != nil {
 			return fmt.Errorf("cannot get an agent's ID from serverStatus: %s", err)
 		}
@@ -287,7 +292,7 @@ func (c *Client) updateClientInfo() (err error) {
 
 	c.id = c.nodeName
 	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOS {
-		replset, err := cluster.NewReplset(c.mdbSession)
+		replset, err := cluster.NewReplset(sess)
 		if err != nil {
 			return fmt.Errorf("cannot create a new replicaset instance: %s", err)
 		}
@@ -297,7 +302,7 @@ func (c *Client) updateClientInfo() (err error) {
 		c.nodeName = c.mgoDI.Addrs[0]
 	}
 
-	if clusterID, _ := cluster.GetClusterID(c.mdbSession); clusterID != nil {
+	if clusterID, _ := cluster.GetClusterID(sess); clusterID != nil {
 		c.clusterID = clusterID.Hex()
 	}
 
@@ -348,7 +353,12 @@ func (c *Client) register() error {
 		return fmt.Errorf("gRPC stream is closed. Cannot register the client (%s)", c.id)
 	}
 
-	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		return err
+	}
+
+	isMaster, err := cluster.NewIsMaster(sess)
 	if err != nil {
 		return errors.Wrap(err, "cannot get IsMasterDoc for register method")
 	}
@@ -503,7 +513,11 @@ func (c *Client) dbWatchdog() {
 	for {
 		select {
 		case <-time.After(dbPingInterval):
-			if err := c.mdbSession.Ping(); err != nil {
+			if c.mgoSession == nil {
+				c.dbReconnect()
+				continue
+			}
+			if err := c.mgoSession.Ping(); err != nil {
 				c.dbReconnect()
 			}
 		case <-c.dbReconnectChan:
@@ -672,7 +686,11 @@ func (c *Client) checkCanRestoreS3(msg *pb.CanRestoreBackup) (bool, error) {
 
 func (c *Client) processGetBackupSource() (*pb.ClientMessage, error) {
 	c.logger.Debug("Received GetBackupSource command")
-	r, err := cluster.NewReplset(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, err
+	}
+	r, err := cluster.NewReplset(sess)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get cluster's replicasets for processGetBackupSource")
 	}
@@ -694,7 +712,12 @@ func (c *Client) processGetBackupSource() (*pb.ClientMessage, error) {
 
 func (c *Client) processGetCmdLineOpts() (*pb.ClientMessage, error) {
 	cmdLineOpts := bson.M{}
-	err := c.mdbSession.Run(bson.D{{Name: "getCmdLineOpts", Value: 1}}, &cmdLineOpts)
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, err
+	}
+
+	err = sess.Run(bson.D{{Name: "getCmdLineOpts", Value: 1}}, &cmdLineOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get cmdLineOpts: %s", err)
 	}
@@ -762,7 +785,12 @@ func (c *Client) processGetStorageInfo(msg *pb.GetStorageInfo) (*pb.ClientMessag
 // has a parameter named preserveUUID but it should be set to false for Mongo 3.6 bacause if it is
 // set to true and the underlying Mongo version is not 4.0+, mongo restore fails
 func (c *Client) processGetMongoDBVersion() (*pb.ClientMessage, error) {
-	bi, err := c.mdbSession.BuildInfo()
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, err
+	}
+
+	bi, err := sess.BuildInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot read BuildInfo to get MongoDB version")
 	}
@@ -822,7 +850,12 @@ func (c *Client) processListStorages() (*pb.ClientMessage, error) {
 }
 
 func (c *Client) processLastOplogTs() (*pb.ClientMessage, error) {
-	isMaster, err := cluster.NewIsMaster(c.mdbSession.Clone())
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, err
+	}
+
+	isMaster, err := cluster.NewIsMaster(sess.Clone())
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get masterDoc for processLastOplogTs")
 	}
@@ -836,7 +869,12 @@ func (c *Client) processLastOplogTs() (*pb.ClientMessage, error) {
 
 func (c *Client) processListReplicasets() (*pb.ClientMessage, error) {
 	var sm shardsMap
-	err := c.mdbSession.Run("getShardMap", &sm)
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, err
+	}
+
+	err = sess.Run("getShardMap", &sm)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot getShardMap for processListReplicasets")
 	}
@@ -938,8 +976,6 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 		c.lock.Unlock()
 		c.logger.Debug("Config Server mutex unlocked")
 
-		c.mdbSession.ResetIndexCache()
-		c.mdbSession.Refresh()
 		if err := c.restoreOplog(msg); err != nil {
 			err := errors.Wrapf(err, "[%s] cannot restore Oplog backup file %s", c.id, msg.GetOplogSourceName())
 			if err1 := c.sendRestoreComplete(err); err1 != nil {
@@ -1029,7 +1065,14 @@ func (c *Client) processStartBackup(msg *pb.StartBackup) {
 	// There is a delay when starting a new go-routine. We need to instantiate c.oplogTailer here otherwise
 	// if we run go c.runOplogBackup(msg) and then WaitUntilFirstDoc(), the oplogTailer can be nill because
 	// of the delay
-	c.oplogTailer, err = oplog.Open(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		c.sendDBBackupFinishError(fmt.Errorf("cannot get a MongoDB session: %s", err))
+		return
+	}
+	sess.Clone()
+
+	c.oplogTailer, err = oplog.Open(sess)
 	if err != nil {
 		c.logger.Errorf("Cannot open the oplog tailer: %s", err)
 		finishMsg := &pb.OplogBackupFinishStatus{
@@ -1080,7 +1123,12 @@ func (c *Client) processStatus() (*pb.ClientMessage, error) {
 	c.logger.Debug("Received Status command")
 	c.lock.Lock()
 
-	isMaster, err := cluster.NewIsMaster(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot process status")
+	}
+
+	isMaster, err := cluster.NewIsMaster(sess)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get IsMaster for processStatus")
 	}
@@ -1112,7 +1160,12 @@ func (c *Client) processStatus() (*pb.ClientMessage, error) {
 }
 
 func (c *Client) getMongosSession() (*mgo.Session, error) {
-	routers, err := cluster.GetMongosRouters(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot get a MongoS session")
+	}
+
+	routers, err := cluster.GetMongosRouters(sess)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
@@ -1426,7 +1479,23 @@ func (c *Client) sendACK() {
 }
 
 func (c *Client) sendBackupFinishOK() {
-	ismaster, err := cluster.NewIsMaster(c.mdbSession)
+	sess, err := c.getSession()
+	if err != nil {
+		err := errors.Wrap(err, "cannot process backup finish")
+		c.logger.Error(err)
+		finishMsg := &pb.DBBackupFinishStatus{
+			ClientId: c.id,
+			Ok:       false,
+			Ts:       0,
+			Error:    err.Error(),
+		}
+		if _, err := c.grpcClient.DBBackupFinished(context.Background(), finishMsg); err != nil {
+			c.logger.Errorf("Cannot signal DB Backup finished with error (%s): %s", finishMsg.Error, err)
+		}
+		return
+	}
+
+	ismaster, err := cluster.NewIsMaster(sess)
 	// This should never happen.
 	if err != nil {
 		c.logger.Errorf("cannot get LastWrite.OpTime.Ts from MongoDB: %s", err)
@@ -1548,6 +1617,10 @@ func (c *Client) ListStorages() ([]*pb.StorageInfo, error) {
 
 func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	c.logger.Debugf("Entering restoreDBDump")
+	sess, err := c.getSession()
+	if err != nil {
+		return err
+	}
 
 	stg, err := c.storages.Get(msg.GetStorageName())
 	if err != nil {
@@ -1569,7 +1642,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	c.logger.Debug("Check c.nodeType")
 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
 		c.logger.Debugf("This is a comfig server. Removing the config.version collection")
-		if _, err := c.mdbSession.DB("config").C("version").RemoveAll(nil); err != nil {
+		if _, err := sess.DB("config").C("version").RemoveAll(nil); err != nil {
 			c.logger.Warnf("cannot empty config.version collection: %s", err)
 		}
 	}
@@ -1584,7 +1657,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	c.logger.Debug("get version 4.0")
 	v4, _ := version.NewVersion("4.0")
 	c.logger.Debug("starting BuildInfo")
-	bi, err := c.mdbSession.BuildInfo()
+	bi, err := sess.BuildInfo()
 	if err != nil {
 		return errors.Wrap(err, "cannot read BuildInfo to get MongoDB version")
 	}
@@ -1676,7 +1749,7 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	// instances will ping the config server and the collection will be updated with all the
 	// really alive mongos servers.
 	c.logger.Debug("removing config.mongos")
-	if _, err := c.mdbSession.DB("config").C("mongos").RemoveAll(nil); err != nil {
+	if _, err := sess.DB("config").C("mongos").RemoveAll(nil); err != nil {
 		c.logger.Info("cannot empty config.mongos collection: " + err.Error())
 	}
 	return nil
@@ -1819,4 +1892,28 @@ func (c *Client) canPutObject(svc *s3.S3, bucket string) bool {
 	}
 
 	return true
+}
+
+func (c *Client) getSession() (*mgo.Session, error) {
+	if c.mgoSession == nil {
+		return nil, fmt.Errorf("mongodb session is nil")
+	}
+
+	alive := func() bool {
+		defer func() {
+			if r := recover(); r != nil {
+				return
+			}
+		}()
+		// Ping() will panic if session is closed
+		if err := c.mgoSession.Ping(); err != nil {
+			return false
+		}
+		return true
+	}()
+
+	if alive {
+		return c.mgoSession.Clone(), nil
+	}
+	return nil, fmt.Errorf("MongoDB session is not alive")
 }
