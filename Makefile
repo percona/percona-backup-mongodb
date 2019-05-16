@@ -168,9 +168,6 @@ release: vendor
 
 docker-build: pbmctl pbm-agent pbm-coordinator
 	docker build -t $(REPO):common -f docker/Dockerfile.common .
-	docker build -t $(REPO):agent -f docker/agent/Dockerfile .
-	docker build -t $(REPO):coordinator -f docker/coordinator/Dockerfile .
-	docker build -t $(REPO):pbmctl -f docker/pbmctl/Dockerfile .
 
 clean:
 	rm -rf vendor 2>/dev/null || true

@@ -251,6 +251,14 @@
   version = "v0.0.0"
 
 [[projects]]
+  branch = "master"
+  digest = "1:06dbb3dd9104b854479546944f509a15abbfa0664bd4acbb428a10f53f3acb9b"
+  name = "github.com/olebedev/emitter"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "e8d1457e6aee6368f6abda5ad334fde63e9cc3fa"
+
+[[projects]]
   digest = "1:7c69f3c227b0d085296096a2c7e3185be663c901e8ddad4c95c223aa5cb88bd8"
   name = "github.com/otiai10/copy"
   packages = ["."]
@@ -489,6 +497,7 @@
     "github.com/mongodb/mongo-tools/common/progress",
     "github.com/mongodb/mongo-tools/mongodump",
     "github.com/mongodb/mongo-tools/mongorestore",
+    "github.com/olebedev/emitter",
     "github.com/otiai10/copy",
     "github.com/pierrec/lz4",
     "github.com/pkg/errors",
