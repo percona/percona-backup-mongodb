@@ -165,9 +165,9 @@ func testBackupAndRestore(t *testing.T, storage string) {
 
 	session.SetMode(mgo.Strong, true)
 
-	generateDataToBackup(t, c.mdbSession, dbName, col1, ndocs, bulkSize)
-	generateDataToBackup(t, c.mdbSession, dbName, col2, ndocs, bulkSize)
-	defer dropCollections(t, c.mdbSession, dbName, col1, col2)
+	generateDataToBackup(t, c.mgoSession, dbName, col1, ndocs, bulkSize)
+	generateDataToBackup(t, c.mgoSession, dbName, col2, ndocs, bulkSize)
+	defer dropCollections(t, c.mgoSession, dbName, col1, col2)
 
 	msg := &pb.StartBackup{
 		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
@@ -343,6 +343,35 @@ func TestBalancerStartStop(t *testing.T) {
 	}
 	if _, ok := resp.Payload.(*pb.ClientMessage_AckMsg); !ok {
 		t.Errorf("Invalid Start Balancer response type. Want Ack, got %T", resp.Payload)
+	}
+}
+
+func TestDBDisconnect(t *testing.T) {
+	input, err := buildInputParams()
+	if err != nil {
+		t.Fatalf("Cannot build agent's input params: %s", err)
+	}
+
+	c, err := NewClient(context.TODO(), input)
+	if err != nil {
+		t.Fatalf("Cannot create a new client: %s", err)
+	}
+	if err := c.dbConnect(); err != nil {
+		t.Fatalf("Cannot connect to the config server: %s", err)
+	}
+
+	c.mgoSession.Close()
+
+	sess, err := c.getSession()
+	if err == nil {
+		t.Errorf("Error must not be nil")
+	}
+	if sess != nil {
+		t.Errorf("Session must be nil")
+	}
+
+	if err := c.updateClientInfo(); err == nil {
+		t.Errorf("Shouldn't be possible to update client's info")
 	}
 }
 

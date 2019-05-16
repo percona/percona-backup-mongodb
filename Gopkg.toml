@@ -32,7 +32,7 @@
 
 [[constraint]]
   name = "github.com/mongodb/mongo-tools"
-  version = "r4.0.8"
+  version = "r4.0.9"
 
 [[constraint]]
   name = "github.com/mongodb/mongo-tools-common"

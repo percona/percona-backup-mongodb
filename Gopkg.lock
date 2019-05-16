@@ -158,6 +158,14 @@
   version = "v1.0.0"
 
 [[projects]]
+  digest = "1:88e0b0baeb9072f0a4afbcf12dda615fc8be001d1802357538591155998da21b"
+  name = "github.com/hashicorp/go-version"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "ac23dc3fea5d1a983c43f6a0f6e2c13f0195d8bd"
+  version = "v1.2.0"
+
+[[projects]]
   branch = "master"
   digest = "1:0778dc7fce1b4669a8bfa7ae506ec1f595b6ab0f8989c1c0d22a8ca1144e9972"
   name = "github.com/howeyc/gopass"
@@ -232,7 +240,7 @@
   ]
   pruneopts = "UT"
   revision = "5db0b4a18cc1366ebd368eed8e7c4d426d851f13"
-  version = "r4.0.8"
+  version = "r4.0.9"
 
 [[projects]]
   digest = "1:6e68e9264ce8eff8ea51a8c17b0be1ecb3bc00fba4bc9529d85c35c6a8247106"
@@ -241,6 +249,14 @@
   pruneopts = "UT"
   revision = "ee89c9cd40ba048072c6c98c20411daf23cd2011"
   version = "v0.0.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:06dbb3dd9104b854479546944f509a15abbfa0664bd4acbb428a10f53f3acb9b"
+  name = "github.com/olebedev/emitter"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "e8d1457e6aee6368f6abda5ad334fde63e9cc3fa"
 
 [[projects]]
   digest = "1:7c69f3c227b0d085296096a2c7e3185be663c901e8ddad4c95c223aa5cb88bd8"
@@ -459,9 +475,11 @@
   input-imports = [
     "github.com/alecthomas/kingpin",
     "github.com/aws/aws-sdk-go/aws",
+    "github.com/aws/aws-sdk-go/aws/client",
     "github.com/aws/aws-sdk-go/aws/credentials",
     "github.com/aws/aws-sdk-go/aws/session",
     "github.com/aws/aws-sdk-go/service/s3",
+    "github.com/aws/aws-sdk-go/service/s3/s3iface",
     "github.com/aws/aws-sdk-go/service/s3/s3manager",
     "github.com/globalsign/mgo",
     "github.com/globalsign/mgo/bson",
@@ -471,6 +489,7 @@
     "github.com/golang/snappy",
     "github.com/grpc-ecosystem/go-grpc-middleware/auth",
     "github.com/hashicorp/go-multierror",
+    "github.com/hashicorp/go-version",
     "github.com/kr/pretty",
     "github.com/mongodb/mongo-tools-common/log",
     "github.com/mongodb/mongo-tools/common/db",
@@ -478,6 +497,7 @@
     "github.com/mongodb/mongo-tools/common/progress",
     "github.com/mongodb/mongo-tools/mongodump",
     "github.com/mongodb/mongo-tools/mongorestore",
+    "github.com/olebedev/emitter",
     "github.com/otiai10/copy",
     "github.com/pierrec/lz4",
     "github.com/pkg/errors",

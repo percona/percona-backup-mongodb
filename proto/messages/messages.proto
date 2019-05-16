@@ -159,6 +159,22 @@ message RestoreBackup {
   string          mongodb_version      = 13;
 }
 
+message RestoreBackupCheck {
+  string          mongodb_host         = 1;
+  BackupType      backup_type          = 2;
+  string          source_bucket        = 3;  // This is also used as S3 bucket name
+  string          db_source_name       = 4;
+  string          oplog_source_name    = 5;
+  CompressionType compression_type     = 6;
+  Cypher          cypher               = 7;
+  int64           oplog_start_time     = 8;
+  bool            skip_users_and_roles = 9;  // Used only for testing
+  string          host                 = 10;  // MongoDB primary's host & port
+  string          port                 = 11; 
+  string          storage_name         = 12;
+  string          mongodb_version      = 13;
+}
+
 message RestoreComplete {
   string client_id = 1;
   Error  err       = 2;
@@ -203,6 +219,7 @@ message ServerMessage {
     WriteFile           write_file             = 18;
     GetCmdLineOpts      get_cmd_line_opts      = 19;
     GetMongoDBVersion   get_mongodb_version    = 20;
+    RestoreBackupCheck  restore_backup_check_msg  = 21;
   }
 }
 

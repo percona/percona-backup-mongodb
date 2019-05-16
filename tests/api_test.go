@@ -2,16 +2,101 @@ package test_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/globalsign/mgo"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	"github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
+	pb "github.com/percona/percona-backup-mongodb/proto/messages"
+	log "github.com/sirupsen/logrus"
 )
+
+func TestBusyServer(t *testing.T) {
+	tmpDir := getCleanTempDir(t)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
+	}
+	defer d.Stop()
+
+	ndocs := int64(100)
+	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		log.Fatalf("Cannot connect to the DB: %s", err)
+	}
+	s1Session.SetMode(mgo.Strong, true)
+	defer s1Session.Close()
+
+	cleanupDB(t, s1Session)
+	defer cleanupDB(t, s1Session)
+
+	generateDataToBackup(t, s1Session, ndocs)
+
+	bck1 := "bck001"
+	bck2 := "bck002"
+
+	msg := &pbapi.RunBackupParams{
+		BackupType:      pbapi.BackupType_BACKUP_TYPE_LOGICAL,
+		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		Cypher:          pbapi.Cypher_CYPHER_NO_CYPHER,
+		Description:     "test backup",
+		StorageName:     "local-filesystem",
+		Filename:        bck1,
+	}
+	if _, err := d.APIServer.RunBackup(context.Background(), msg); err != nil {
+		t.Fatalf("Cannot generate a backup to restore while the second backup is running: %s", err)
+	}
+
+	msg.Filename = bck2
+	generateDataToBackup(t, s1Session, ndocs*3000)
+
+	var berr error
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	go func() {
+		if _, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, 100*time.Second); err != nil {
+			t.Errorf("Wait for backup start returned an error: %s", err)
+			return
+		}
+
+		rmsg := &pbapi.RunRestoreParams{
+			MetadataFile:      bck1 + ".json",
+			SkipUsersAndRoles: true,
+			StorageName:       msg.StorageName,
+		}
+
+		time.Sleep(2 * time.Second)
+		_, berr = d.APIServer.RunRestore(context.Background(), rmsg)
+		wg.Done()
+	}()
+
+	_, err = d.APIServer.RunBackup(context.Background(), msg)
+	if err != nil {
+		t.Errorf("Cannot run the second backup: %s", err)
+	}
+
+	wg.Wait()
+
+	if berr == nil {
+		t.Errorf("Trying to restore while a backup is running should fail")
+	}
+
+}
 
 // Why this is not in the grpc/api dir? Because the daemon implemented to test the whole behavior
 // imports proto/api so if we try to use the daemon from the api package we would end up having
@@ -144,4 +229,26 @@ func TestBackupFail(t *testing.T) {
 	if err == nil {
 		t.Error("Backup shouldn't start with an invalid storage")
 	}
+}
+
+func readMetadataFile(d *grpc.Daemon, bckName string) (*pb.BackupMetadata, error) {
+	mdStream := newMockBackupsMetadataStream()
+
+	err := d.APIServer.BackupsMetadata(&pbapi.BackupsMetadataParams{}, mdStream)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot get backups metadata: %s", err)
+	}
+
+	if len(mdStream.files) != 1 {
+		return nil, fmt.Errorf("Invalid backup metadata files list. Want 1 file, got %d", len(mdStream.files))
+	}
+	if !strings.HasSuffix(bckName, ".json") {
+		bckName += ".json"
+	}
+	pretty.Println(mdStream.files)
+	md, ok := mdStream.files[bckName]
+	if !ok {
+		return nil, fmt.Errorf("cannot find backup name")
+	}
+	return md, nil
 }
