@@ -5,7 +5,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"os"
 	"strings"
 	"sync"
@@ -14,8 +13,6 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
-	"github.com/hashicorp/go-multierror"
-	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 )
@@ -34,7 +31,7 @@ func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
 	if m.index >= len(m.docs) {
 		return io.EOF
 	}
-	pretty.Println(m.docs[m.index])
+
 	buff, err := bson.Marshal(m.docs[m.index])
 	if err != nil {
 		return err
@@ -156,7 +153,6 @@ func TestBasicApplyLog(t *testing.T) {
 
 	dbname := "test"
 	testColsPrefix := "testcol_"
-	maxCollections := 10
 	maxDocs := 50
 
 	db := session.DB(dbname)
@@ -181,52 +177,47 @@ func TestBasicApplyLog(t *testing.T) {
 		wg.Done()
 	}()
 
-	wg2 := &sync.WaitGroup{}
-	validationLevels := []string{"strict", "moderate", "off"}
-	for cc := 0; cc < maxCollections; cc++ {
-		for disableIDIndex := 0; disableIDIndex < 2; disableIDIndex++ {
-			for capped := 0; capped < 2; capped++ {
-				for validationLevel := 0; validationLevel < 3; validationLevel++ {
-					vLevel := validationLevel
-					isCapped := capped
-					dii := disableIDIndex
-					cname := fmt.Sprintf("%s%05d", testColsPrefix, cc)
-					wg2.Add(1)
-					go func() {
-						fmt.Printf("cname: %s\n", cname)
-						col := session.Clone().DB(dbname).C(cname)
-						var maxBytes, maxDocs int
-						if isCapped != 0 {
-							maxBytes = 10000 + int(rand.Int63n(1000))
-							maxDocs = 500 + int(rand.Int63n(100))
-						}
+	if err := ot.WaitUntilFirstDoc(); err != nil {
+		t.Fatalf("Error while waiting for first doc: %s", err)
+	}
 
-						cInfo := &mgo.CollectionInfo{
-							DisableIdIndex:  dii == 0,
-							ForceIdIndex:    dii != 0,
-							Capped:          isCapped == 0,
-							ValidationLevel: validationLevels[vLevel],
-							MaxDocs:         maxDocs,
-							MaxBytes:        maxBytes,
-						}
-						if err1 := col.Create(cInfo); err != nil {
-							err = multierror.Append(err, err1)
-						}
+	testCols := []*mgo.CollectionInfo{
+		{
+			DisableIdIndex: false,
+			ForceIdIndex:   true,
+			Capped:         false,
+		},
+		{
+			DisableIdIndex: false,
+			ForceIdIndex:   true,
+			Capped:         true,
+			MaxDocs:        100,
+			MaxBytes:       1E6,
+		},
+	}
 
-						for i := 0; i < maxDocs; i++ {
-							rec := bson.M{"id": i, "name": fmt.Sprintf("name_%03d", i)}
-							if err1 := col.Insert(rec); err != nil {
-								err = multierror.Append(err, err1)
-							}
-						}
-						fmt.Printf("%s done\n", cname)
-						wg2.Done()
-					}()
-				}
+	for i, info := range testCols {
+		name := fmt.Sprintf("%s%02d", testColsPrefix, i)
+		if err := db.C(name).Create(info); err != nil {
+			t.Fatalf("Cannot create capped collection %s with info: %+v: %s", name, info, err)
+		}
+	}
+
+	for i := 0; i < len(testCols); i++ {
+		name := fmt.Sprintf("%s%02d", testColsPrefix, i)
+		for j := 0; j < maxDocs; j++ {
+			if err := db.C(name).Insert(bson.M{"number": j}); err != nil {
+				t.Errorf("Cannot insert document # %d into collection %s: %s", j, name, err)
 			}
 		}
 	}
-	wg2.Wait()
+	//	index := Index{
+	//    Key: []string{"lastname", "firstname"},
+	//    Unique: true,
+	//    DropDups: true,
+	//    Background: true, // See notes.
+	//    Sparse: true,
+	//}
 
 	ot.Close()
 
@@ -258,6 +249,8 @@ func TestBasicApplyLog(t *testing.T) {
 		t.Errorf("Cannot instantiate the oplog applier: %s", err)
 	}
 
+	oa.ignoreErrors = true
+
 	if err := oa.Run(); err != nil {
 		t.Errorf("Error while running the oplog applier: %s", err)
 	}
@@ -266,6 +259,9 @@ func TestBasicApplyLog(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cannot verify collections have been created by the oplog: %s", err)
 	}
+
+	maxCollections := len(testCols)
+
 	if n != maxCollections {
 		t.Fatalf("Invalid collections count after aplplying the oplog. Want %d, got %d", maxCollections, n)
 	}
@@ -286,7 +282,6 @@ func cleanup(db *mgo.Database, testColsPrefix string) error {
 		return fmt.Errorf("Cannot list collections in %q database", err)
 	}
 	for _, cname := range colNames {
-		fmt.Println(cname)
 		if strings.HasPrefix(cname, testColsPrefix) {
 			if err := db.C(cname).DropCollection(); err != nil {
 				return fmt.Errorf("Cannot drop %s collection: %s", cname, err)
