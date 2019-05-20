@@ -160,6 +160,9 @@ func TestBasicApplyLog(t *testing.T) {
 	if err := cleanup(db, testColsPrefix); err != nil {
 		t.Fatalf("Cannot clean up %s database before starting: %s", dbname, err)
 	}
+	if err := cleanup(db, "drop_col"); err != nil {
+		t.Fatalf("Cannot clean up %s database before starting: %s", "drop_col", err)
+	}
 
 	ot, err := Open(session)
 	if err != nil {
@@ -206,18 +209,42 @@ func TestBasicApplyLog(t *testing.T) {
 	for i := 0; i < len(testCols); i++ {
 		name := fmt.Sprintf("%s%02d", testColsPrefix, i)
 		for j := 0; j < maxDocs; j++ {
-			if err := db.C(name).Insert(bson.M{"number": j}); err != nil {
+			if err := db.C(name).Insert(bson.M{"f1": j, "f2": maxDocs - j}); err != nil {
 				t.Errorf("Cannot insert document # %d into collection %s: %s", j, name, err)
 			}
 		}
 	}
-	//	index := Index{
-	//    Key: []string{"lastname", "firstname"},
-	//    Unique: true,
-	//    DropDups: true,
-	//    Background: true, // See notes.
-	//    Sparse: true,
-	//}
+
+	index := mgo.Index{
+		Key:        []string{"f1", "-f2"},
+		Unique:     true,
+		DropDups:   true,
+		Background: true, // See notes.
+		Sparse:     true,
+	}
+	colName := fmt.Sprintf("%s%02d", testColsPrefix, 0)
+	if err := db.C(colName).EnsureIndex(index); err != nil {
+		t.Errorf("Cannot create index for testing")
+	}
+
+	if err := db.C(colName).Remove(bson.M{"f1": bson.M{"$gt": 10}}); err != nil {
+		t.Errorf("Cannot remove some documents")
+	}
+
+	dropColName := "drop_col"
+
+	info := &mgo.CollectionInfo{
+		DisableIdIndex: false,
+		ForceIdIndex:   true,
+		Capped:         false,
+	}
+	if err := db.C(dropColName).Create(info); err != nil {
+		t.Fatalf("Cannot create capped collection %s with info: %+v: %s", dropColName, info, err)
+	}
+
+	if err := db.C(dropColName).DropCollection(); err != nil {
+		t.Errorf("Cannot drop collection %s: %s", dropColName, err)
+	}
 
 	ot.Close()
 
@@ -265,14 +292,31 @@ func TestBasicApplyLog(t *testing.T) {
 	if n != maxCollections {
 		t.Fatalf("Invalid collections count after aplplying the oplog. Want %d, got %d", maxCollections, n)
 	}
-	wantDocs := maxCollections * maxDocs
+	wantDocs := maxCollections*maxDocs - 1 // 1 removed doc
 	if d != wantDocs {
 		t.Fatalf("Invalid documents count after aplplying the oplog. Want %d, got %d", wantDocs, d)
+	}
+
+	if colExists(db, dropColName) {
+		t.Errorf("Collection %s was not dropped", dropColName)
 	}
 
 	if err := cleanup(db, testColsPrefix); err != nil {
 		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
 	}
+}
+
+func colExists(db *mgo.Database, name string) bool {
+	cols, err := db.CollectionNames()
+	if err != nil {
+		return false
+	}
+	for _, col := range cols {
+		if col == name {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanup(db *mgo.Database, testColsPrefix string) error {

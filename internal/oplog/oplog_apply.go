@@ -16,6 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	invalidOp = iota
+	createCollectionOp
+	createIndexOp
+	dropColOp
+)
+
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
 
 type Apply struct {
@@ -28,15 +35,25 @@ type Apply struct {
 	ignoreErrors bool // used for testing/debug
 }
 
-type oplogDoc struct {
-	NS   string    `bson:"ns"`
-	Wall time.Time `bson:"wall"`
-	O    struct {
+type Common struct {
+	H    int64               `bson:"h"`
+	NS   string              `bson:"ns"`
+	Op   string              `bson:"op"`
+	T    int                 `bson:"t"`
+	TS   bson.MongoTimestamp `bson:"ts"`
+	UI   bson.Binary         `bson:"ui"`
+	V    int                 `bson:"v"`
+	Wall time.Time           `bson:"wall"`
+}
+
+type createCollectionDoc struct {
+	Common `bson:",inline"`
+	O      struct {
 		Create      string `bson:"create"`
-		Capped      bool   `bson:"capped"`
 		Size        int    `bson:"size"`
 		Max         int    `bson:"max"`
 		AutoIndexID bool   `bson:"autoIndexId"`
+		Capped      bool   `bson:"capped"`
 		IDIndex     struct {
 			Key  bson.M `bson:"key"`
 			Name string `bson:"name"`
@@ -44,12 +61,26 @@ type oplogDoc struct {
 			V    int    `bson:"v"`
 		} `bson:"idIndex"`
 	} `bson:"o"`
-	TS bson.MongoTimestamp `bson:"ts"`
-	T  int                 `bson:"t"`
-	H  int64               `bson:"h"`
-	V  int                 `bson:"v"`
-	Op string              `bson:"op"`
-	UI bson.Binary         `bson:"ui"`
+}
+
+type createIndexDoc struct {
+	Common `bson:",inline"`
+	O      struct {
+		Key           bson.D `bson:"key"`
+		V             int    `bson:"v"`
+		CreateIndexes string `bson:"createIndexes"`
+		Name          string `bson:"name"`
+		Background    bool   `bson:"background"`
+		Sparse        bool   `bson:"sparse"`
+		Unique        bool   `bson:"unique"`
+	} `bson:"o"`
+}
+
+type dropColDoc struct {
+	Common `bson:",inline"`
+	O      struct {
+		Drop string `bson:"drop"`
+	} `bson:"o"`
 }
 
 func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*Apply, error) {
@@ -130,12 +161,28 @@ func (oa *Apply) Run() error {
 		}
 
 		if cmd, ok := icmd.(string); ok && cmd == "c" {
-			err := processCreateCollection(oa.dbSession, buf)
-			if err != nil {
-				return fmt.Errorf("cannot create collection from oplog: %s, %+v", err, dest)
+			switch getCreateType(dest) {
+			case createCollectionOp:
+				err := processCreateCollection(oa.dbSession, buf)
+				if err != nil {
+					return errors.Wrapf(err, "cannot create collection from oplog cmd %+v", dest)
+				}
+				continue
+			case createIndexOp:
+				err := processCreateIndex(oa.dbSession, buf)
+				if err != nil {
+					return errors.Wrapf(err, "cannot create index from oplog cmd %+v", dest)
+				}
+				continue
+			case dropColOp:
+				err := processDropColCmd(oa.dbSession, buf)
+				if err != nil {
+					return errors.Wrapf(err, "cannot drop collection from oplog cmd %+v", dest)
+				}
+				continue
+			default:
+				log.Errorf("unknown command in op: %+v", dest)
 			}
-			oa.dbSession.Refresh()
-			continue
 		}
 
 		/* TODO: Fix me
@@ -183,7 +230,7 @@ bson.M{
 }
 */
 func processCreateCollection(sess *mgo.Session, buf []byte) error {
-	opdoc := oplogDoc{}
+	opdoc := createCollectionDoc{}
 	if err := bson.Unmarshal(buf, &opdoc); err != nil {
 		return errors.Wrap(err, "cannot unmarshal create collection command")
 	}
@@ -203,6 +250,100 @@ func processCreateCollection(sess *mgo.Session, buf []byte) error {
 	}
 
 	return sess.DB(ns).C(opdoc.O.Create).Create(info)
+}
+
+/*
+   "o": bson.M{
+       "key": bson.M{
+           "f1": int(1),
+           "f2": int(-1),
+       },
+       "name":          "f1_1_f2_-1",
+       "background":    bool(true),
+       "sparse":        bool(true),
+       "createIndexes": "testcol_00",
+       "v":             int(2),
+       "unique":        bool(true),
+   },
+*/
+func processCreateIndex(sess *mgo.Session, buf []byte) error {
+	opdoc := createIndexDoc{}
+	if err := bson.Unmarshal(buf, &opdoc); err != nil {
+		return errors.Wrap(err, "cannot unmarshal create collection command")
+	}
+
+	ns := strings.TrimSuffix(opdoc.NS, ".$cmd")
+
+	if ns == "" {
+		return fmt.Errorf("invalid namespace (empty)")
+	}
+
+	index := mgo.Index{
+		Key:        []string{},
+		Unique:     opdoc.O.Unique,
+		Background: opdoc.O.Background,
+		Sparse:     opdoc.O.Sparse,
+		Name:       opdoc.O.Name,
+	}
+
+	for _, key := range opdoc.O.Key {
+		sign := ""
+		if key.Value.(int) < 0 {
+			sign = "-"
+		}
+		index.Key = append(index.Key, sign+key.Name)
+
+	}
+	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
+	if err != nil {
+		return errors.Wrapf(err, "cannot create index %+v", index)
+	}
+	return nil
+}
+
+func processDropColCmd(sess *mgo.Session, buf []byte) error {
+	opdoc := dropColDoc{}
+	if err := bson.Unmarshal(buf, &opdoc); err != nil {
+		return errors.Wrap(err, "cannot unmarshal drop collection command")
+	}
+
+	ns := strings.TrimSuffix(opdoc.NS, ".$cmd")
+
+	if ns == "" {
+		return fmt.Errorf("invalid namespace (empty)")
+	}
+	return sess.DB(ns).C(opdoc.O.Drop).DropCollection()
+}
+
+func getCreateType(doc bson.M) int {
+	om, ok := doc["o"]
+	if !ok {
+		return invalidOp
+	}
+	o, ok := om.(bson.M)
+	if !ok {
+		return invalidOp
+	}
+
+	switch {
+	case getString(o, "create"):
+		return createCollectionOp
+	case getString(o, "createIndexes"):
+		return createIndexOp
+	case getString(o, "drop"):
+		return dropColOp
+	}
+
+	return invalidOp
+}
+
+func getString(o bson.M, key string) bool {
+	if cmd, ok := o[key]; ok {
+		if _, ok := cmd.(string); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (oa *Apply) Count() int64 {
