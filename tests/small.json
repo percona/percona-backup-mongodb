@@ -1,0 +1,122 @@
+[
+   {
+      "database": "datagen_it_test",
+      "collection": "test",
+      "count": 20000,
+      "content": {
+         "_id": {
+            "type": "ref",
+            "id": 1,
+            "refContent": {
+               "type": "objectId"
+            }
+         },
+         "date": {
+            "type": "date",
+            "startDate": "2010-01-10T00:00:00+00:00",
+            "endDate": "2017-01-01T22:00:00+00:00"
+         },
+         "binaryData": {
+            "type": "binary",
+            "minLength": 24,
+            "maxLength": 24
+         },
+         "dt": {
+            "type": "fromArray",
+            "in": [
+               "2012-10-10",
+               "2012-12-12",
+               "2014-01-01",
+               "2016-05-05"
+            ]
+         },
+         "name": {
+            "type": "string",
+            "maxDistinctValue": 500,
+            "minLength": 3,
+            "maxLength": 8
+         },
+         "c32": {
+            "type": "int",
+            "minInt": 11,
+            "maxInt": 20
+         },
+         "c64": {
+            "type": "long",
+            "nullPercentage": 10,
+            "minLong": 1000,
+            "maxLong": 20000
+         },
+         "float": {
+            "type": "double",
+            "minDouble": 0,
+            "maxDouble": 10
+         },
+         "verified": {
+            "type": "boolean"
+         },
+         "array": {
+            "type": "array",
+            "size": 3,
+            "arrayContent": {
+               "type": "string",
+               "minLength": 1,
+               "maxLength": 3
+            }
+         },
+         "nb": {
+            "type": "autoincrement",
+            "autoType": "long",
+            "startLong": 0
+         },
+         "pos": {
+            "type": "position"
+         },
+         "cst": {
+            "type": "constant",
+            "constVal": {
+               "k": 2,
+               "nm": "adr"
+            }
+         },
+         "object": {
+            "type": "object",
+            "objectContent": {
+               "k1": {
+                  "type": "string",
+                  "unique": true,
+                  "minLength": 4,
+                  "maxLength": 4
+               },
+               "k2": {
+                  "type": "int",
+                  "minInt": -10,
+                  "maxInt": -5
+               }
+            }
+         }
+      }
+   },
+   {
+      "database": "datagen_it_test",
+      "collection": "link",
+      "count": 20000,
+      "content": {
+         "_id": {
+            "type": "objectId"
+         },
+         "ref": {
+            "type": "ref",
+            "id": 1
+         },
+         "arrRef": {
+            "type": "array",
+            "size": 3,
+            "arrayContent": {
+               "type": "ref",
+               "id": 1
+            }
+         }
+      }
+   }
+]
