@@ -858,8 +858,9 @@ func (s *MessagesServer) WaitBackupFinish() error {
 	if len(replicasets) == 0 {
 		return nil
 	}
-
-	s.WaitForEvent(BackupFinishedEvent, 0)
+	if _, err := s.WaitForEvent(BackupFinishedEvent, -1); err != nil {
+		s.AddError(errors.Wrap(err, "cannot wait for backup to finish"))
+	}
 	return s.lastBackupErrors()
 }
 
@@ -1382,16 +1383,7 @@ func (s *MessagesServer) triggerEvent(event string, value interface{}) {
 func (s *MessagesServer) WaitForEvent(name string, timeout time.Duration) (interface{}, error) {
 	var re interface{}
 	var err error
-	validEvents := []string{BackupStartedEvent}
-	found := false
-
-	for _, event := range validEvents {
-		if event == name {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !isValidEvent(name) {
 		return nil, fmt.Errorf("unknown event %q", name)
 	}
 
@@ -1413,4 +1405,16 @@ func (s *MessagesServer) WaitForEvent(name string, timeout time.Duration) (inter
 	}
 
 	return re, err
+}
+
+func isValidEvent(name string) bool {
+	validEvents := []string{BackupStartedEvent, BackupFinishedEvent}
+	found := false
+	for _, event := range validEvents {
+		if event == name {
+			found = true
+			break
+		}
+	}
+	return found
 }
