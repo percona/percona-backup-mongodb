@@ -215,6 +215,13 @@ func TestBasicApplyLog(t *testing.T) {
 		}
 	}
 
+	if err := db.C("new_index").Insert(bson.M{"f1": 33, "f2": 34}); err != nil {
+		t.Errorf("Cannot create the new_index collection and insert a doc: %s", err)
+	}
+	if err := db.C("new_index").DropCollection(); err != nil {
+		t.Errorf("Cannot drop the new_index collection")
+	}
+
 	index := mgo.Index{
 		Key:        []string{"f1", "-f2"},
 		Unique:     true,
@@ -302,6 +309,9 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 
 	if err := cleanup(db, testColsPrefix); err != nil {
+		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	}
+	if err := cleanup(db, "new_index"); err != nil {
 		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
 	}
 }

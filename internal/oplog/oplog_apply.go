@@ -241,15 +241,22 @@ func processCreateCollection(sess *mgo.Session, buf []byte) error {
 		return fmt.Errorf("invalid namespace (empty)")
 	}
 
+	autoIndexID := !opdoc.O.AutoIndexID
+	if _, ok := opdoc.O.IDIndex.Key["_id"]; ok {
+		autoIndexID = true
+	}
 	info := &mgo.CollectionInfo{
-		DisableIdIndex: !opdoc.O.AutoIndexID,
+		DisableIdIndex: !autoIndexID,
 		ForceIdIndex:   opdoc.O.AutoIndexID,
 		Capped:         opdoc.O.Capped,
 		MaxBytes:       opdoc.O.Size,
 		MaxDocs:        opdoc.O.Max,
 	}
 
-	return sess.DB(ns).C(opdoc.O.Create).Create(info)
+	if err := sess.DB(ns).C(opdoc.O.Create).Create(info); err != nil {
+		return err
+	}
+	return nil
 }
 
 /*
