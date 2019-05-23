@@ -167,7 +167,7 @@ func (d *Daemon) StartAllAgents() error {
 
 		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
 
-		// {Port: testutils.MongoDBMongosPort, Rs: ""},
+		{Port: testutils.MongoDBMongosPort, Rs: ""},
 	}
 	return d.StartAgents(portRsList)
 }

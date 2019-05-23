@@ -201,11 +201,12 @@ func TestBackups(t *testing.T) {
 		}
 	}
 
-	for i, msg := range msgs {
+	testCount := 0
+	for _, msg := range msgs {
 		params := msg
-		testNum := i + 1
 		t.Run(params.Name, func(t *testing.T) {
-			testBackups(t, testNum, params.Params, d)
+			testCount++
+			testBackups(t, testCount, params.Params, d)
 		})
 	}
 }
@@ -342,6 +343,7 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 		)
 	}
 	wg.Wait()
+
 }
 
 func TestClientDisconnect(t *testing.T) {

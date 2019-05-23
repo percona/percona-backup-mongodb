@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -25,8 +26,15 @@ const (
 	EventOplogFinish
 	EventRestoreFinish
 
-	BackupFinishedEvent = "backup_finished"
-	BackupStartedEvent  = "backup_started"
+	// If this list is updated, please also update the isValidEvent and eventName functions
+	BackupFinishedEvent      = 0
+	BackupStartedEvent       = 1
+	BeforeBalancerStartEvent = 2
+	AfterBalancerStartEvent  = 3
+	BeforeBalancerStopEvent  = 4
+	AfterBalancerStopEvent   = 5
+
+	WaitForever = -1
 
 	logBufferSize = 500
 )
@@ -149,7 +157,6 @@ func (s *MessagesServer) BackupSourceNameByReplicaset() (map[string]string, erro
 
 func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, storageName string) (
 	map[string]RestoreSource, error) {
-
 	sources := make(map[string]RestoreSource)
 	wga := &sync.WaitGroup{}
 	wgb := &sync.WaitGroup{}
@@ -410,6 +417,7 @@ func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 }
 
 func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
+	s.logger.Debug("ListBackups -----")
 	files, err := ioutil.ReadDir(s.workDir)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot list workdir %q backup filenames", s.workDir)
@@ -417,10 +425,10 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 
 	backups := make(map[string]pb.BackupMetadata)
 
-	mongoDBVersion, err := s.getMongoDBVersion()
-	if err != nil {
-		s.logger.Info("get db version: " + err.Error())
-	}
+	// mongoDBVersion, err := s.getMongoDBVersion()
+	// if err != nil {
+	// 	s.logger.Info("get db version: " + err.Error())
+	// }
 
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".json") {
@@ -434,46 +442,38 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 
 		backups[file.Name()] = *bm.Metadata()
 
-		// Ping will also update the status and if it is primary or secondary
-		clients := s.Clients()
+		// for replName, source := range s.clients {
+		// 	s.logger.Info("Range replicasets for replset " + replName + "and s.replsname: " + source.ReplicasetName)
+		// 	for bmReplName, metadata := range backups[file.Name()].Replicasets {
+		// 		s.logger.Info("bmRepName:" + bmReplName + ", meta:" + metadata.ClusterId)
+		// 		if bmReplName == source.ReplicasetName {
+		// 			msg := &pb.RestoreBackupCheck{
+		// 				BackupType:        backups[file.Name()].BackupType,
+		// 				DbSourceName:      metadata.DbBackupName,
+		// 				OplogSourceName:   metadata.OplogBackupName,
+		// 				CompressionType:   backups[file.Name()].CompressionType,
+		// 				Cypher:            backups[file.Name()].Cypher,
+		// 				SkipUsersAndRoles: false,
+		// 				Host:              "",
+		// 				Port:              "",
+		// 				StorageName:       backups[file.Name()].StorageName,
+		// 				MongodbVersion:    mongoDBVersion,
+		// 			}
+		// 			s.logger.Info("Check if can restore")
+		// 			resp, err := source.RestoreBackupCheck(msg, metadata.DbBackupName, backups[file.Name()].StorageName)
+		// 			if err != nil {
+		// 				s.logger.Info("canrestore request:" + err.Error())
+		// 				continue
+		// 			}
 
-		for replName, source := range clients {
-			if err := source.ping(); err != nil {
-				s.logger.Info("error while sending ping to client: " + err.Error())
-				continue
-			}
-
-			s.logger.Info("Range replicasets for replset " + replName + "and s.replsname: " + source.ReplicasetName)
-			for bmReplName, metadata := range backups[file.Name()].Replicasets {
-				s.logger.Info("bmRepName:" + bmReplName + ", meta:" + metadata.ClusterId)
-				if bmReplName == source.ReplicasetName {
-					msg := &pb.RestoreBackupCheck{
-						BackupType:        backups[file.Name()].BackupType,
-						DbSourceName:      metadata.DbBackupName,
-						OplogSourceName:   metadata.OplogBackupName,
-						CompressionType:   backups[file.Name()].CompressionType,
-						Cypher:            backups[file.Name()].Cypher,
-						SkipUsersAndRoles: false,
-						Host:              "",
-						Port:              "",
-						StorageName:       backups[file.Name()].StorageName,
-						MongodbVersion:    mongoDBVersion,
-					}
-					s.logger.Info("Check if can restore")
-					resp, err := source.RestoreBackupCheck(msg, metadata.DbBackupName, backups[file.Name()].StorageName)
-					if err != nil {
-						s.logger.Info("canrestore request:" + err.Error())
-						continue
-					}
-
-					newBackup := backups[file.Name()]
-					if resp.CanRestore && time.Now().Unix()-newBackup.StartTs > 30 {
-						newBackup.EndTs = int64(1)
-					}
-					backups[file.Name()] = newBackup
-				}
-			}
-		}
+		// 			newBackup := backups[file.Name()]
+		// 			if resp.CanRestore && time.Now().Unix()-newBackup.StartTs > 30 {
+		// 				newBackup.EndTs = int64(1)
+		// 			}
+		// 			backups[file.Name()] = newBackup
+		// 		}
+		// 	}
+		// }
 	}
 	s.restoreRunning = false
 	return backups, nil
@@ -679,7 +679,9 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	s.setBackupRunning(true)
 	s.setOplogBackupRunning(true)
 
-	s.triggerEvent(BackupStartedEvent, time.Now())
+	if err := s.triggerEvent(BackupStartedEvent, time.Now()); err != nil {
+		s.logger.Errorf("cannot trigger event %s: %s", eventName(BackupStartedEvent), err)
+	}
 
 	for replName, client := range clients {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
@@ -760,11 +762,21 @@ func (s *MessagesServer) StartBalancer() error {
 		return nil // This is not a sharded system. There is nothing to do.
 	}
 
-	s.logger.Info("start client balancer")
+	s.logger.Info("Start client balancer")
+	if err := s.triggerEvent(BeforeBalancerStartEvent, time.Now()); err != nil {
+		s.logger.Errorf("cannot triggerBeforeBalancerStartEvent: %s", err)
+	}
+
 	if err := c.startBalancer(); err != nil {
+		s.logger.Errorf("cannot start the balancer via client %q: %s", c.ID, err)
 		return errors.Wrapf(err, "cannot start the balancer via client %q", c.ID)
 	}
+
 	s.logger.Debug("Balancer started")
+	if err := s.triggerEvent(AfterBalancerStartEvent, time.Now()); err != nil {
+		s.logger.Errorf("cannot trigger AfterBalancerStartEvent: %s", err)
+	}
+
 	return nil
 }
 
@@ -790,10 +802,19 @@ func (s *MessagesServer) StopBalancer() error {
 	}
 
 	s.logger.Debug("Stopping the balancer")
+	if err := s.triggerEvent(BeforeBalancerStopEvent, time.Now()); err != nil {
+		s.logger.Errorf("cannot trigger BeforeBalancerStopEvent: %s", err)
+	}
+
 	if err := c.stopBalancer(); err != nil {
 		return errors.Wrapf(err, "cannot stop the balancer via the %q client", c.ID)
 	}
+
 	s.logger.Debug("Balancer stopped")
+	if err := s.triggerEvent(AfterBalancerStopEvent, time.Now()); err != nil {
+		s.logger.Errorf("cannot trigger AfterBalancerStopEvent: %s", err)
+	}
+
 	return nil
 }
 
@@ -858,7 +879,7 @@ func (s *MessagesServer) WaitBackupFinish() error {
 	if len(replicasets) == 0 {
 		return nil
 	}
-	if _, err := s.WaitForEvent(BackupFinishedEvent, -1); err != nil {
+	if _, err := s.WaitForEvent(BackupFinishedEvent, WaitForever); err != nil {
 		s.AddError(errors.Wrap(err, "cannot wait for backup to finish"))
 	}
 	return s.lastBackupErrors()
@@ -1369,22 +1390,29 @@ func (s *MessagesServer) unregisterClient(id string) error {
 	return nil
 }
 
-func (s *MessagesServer) triggerEvent(event string, value interface{}) {
-	c := s.eventsNotifier.Emit(event, value)
+func (s *MessagesServer) triggerEvent(event int, value interface{}) error {
+	s.logger.Debugf("triggering event %s after %v", eventName(event), 1)
+	if !isValidEvent(event) {
+		return fmt.Errorf("event %d is invalid", event)
+	}
+	c := s.eventsNotifier.Emit(eventName(event), value)
 	select {
 	case <-c:
+		s.logger.Debugf("triggered event %s after %v", eventName(event), 1)
 	case <-time.After(1 * time.Second):
+		s.logger.Debugf("timeout triggering event %s after %v", eventName(event), 1)
 		close(c)
 	}
+	return nil
 }
 
 // WaitForEvent will wait until the desired event gets fired.
 // timeout = -1 means wait forever
-func (s *MessagesServer) WaitForEvent(name string, timeout time.Duration) (interface{}, error) {
+func (s *MessagesServer) WaitForEvent(event int, timeout time.Duration) (interface{}, error) {
 	var re interface{}
 	var err error
-	if !isValidEvent(name) {
-		return nil, fmt.Errorf("unknown event %q", name)
+	if !isValidEvent(event) {
+		return nil, fmt.Errorf("unknown event %q", eventName(event))
 	}
 
 	var t *time.Timer
@@ -1394,27 +1422,43 @@ func (s *MessagesServer) WaitForEvent(name string, timeout time.Duration) (inter
 		t = time.NewTimer(0)
 		t.Stop()
 	}
-	c := s.eventsNotifier.Once(name, func(ev *emitter.Event) {
+	c := s.eventsNotifier.Once(eventName(event), func(ev *emitter.Event) {
 		re = ev
 	})
 	select {
 	case <-c:
 		t.Stop()
 	case <-t.C:
-		err = fmt.Errorf("timeout for %s event", name)
+		err = fmt.Errorf("timeout (%v) for event %q", timeout, eventName(event))
 	}
 
 	return re, err
 }
 
-func isValidEvent(name string) bool {
-	validEvents := []string{BackupStartedEvent, BackupFinishedEvent}
-	found := false
+func isValidEvent(e int) bool {
+	validEvents := []int{BackupFinishedEvent, BackupStartedEvent, BeforeBalancerStartEvent,
+		AfterBalancerStartEvent, BeforeBalancerStopEvent, AfterBalancerStopEvent}
+
 	for _, event := range validEvents {
-		if event == name {
-			found = true
-			break
+		if event == e {
+			return true
 		}
 	}
-	return found
+	return false
+}
+
+func eventName(event int) string {
+	names := []string{
+		"BackupFinishedEvent",
+		"BackupStartedEvent",
+		"BeforeBalancerStartEvent",
+		"AfterBalancerStartEvent",
+		"BeforeBalancerStopEvent",
+		"AfterBalancerStopEvent",
+	}
+	if event < 0 || event >= len(names) {
+		debug.PrintStack()
+		return fmt.Sprintf("invalid event %d", event)
+	}
+	return names[event]
 }
