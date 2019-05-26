@@ -63,16 +63,31 @@ type createCollectionDoc struct {
 	} `bson:"o"`
 }
 
+type Collation struct {
+	Locale          string `bson:"locale"`
+	Alternate       string `bson:"alternate"`
+	CaseFirst       string `bson:"caseFirst"`
+	MaxVariable     string `bson:"maxVariable"`
+	Version         string `bson:"version"`
+	Strength        int    `bson:"strength"`
+	CaseLevel       bool   `bson:"caseLevel"`
+	NumericOrdering bool   `bson:"numericOrdering"`
+	Normalization   bool   `bson:"normalization"`
+	Backwards       bool   `bson:"backwards"`
+}
+
 type createIndexDoc struct {
 	Common `bson:",inline"`
 	O      struct {
-		Key           bson.D `bson:"key"`
-		V             int    `bson:"v"`
-		CreateIndexes string `bson:"createIndexes"`
-		Name          string `bson:"name"`
-		Background    bool   `bson:"background"`
-		Sparse        bool   `bson:"sparse"`
-		Unique        bool   `bson:"unique"`
+		Key                bson.D    `bson:"key"`
+		V                  int       `bson:"v"`
+		CreateIndexes      string    `bson:"createIndexes"`
+		Name               string    `bson:"name"`
+		Background         bool      `bson:"background"`
+		Sparse             bool      `bson:"sparse"`
+		Unique             bool      `bson:"unique"`
+		ExpireAfterSeconds int       `bson:"expireAfterSeconds"`
+		Collation          Collation `bson:"collation"`
 	} `bson:"o"`
 }
 
@@ -84,9 +99,10 @@ type dropColDoc struct {
 }
 
 func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*Apply, error) {
+	session.SetMode(mgo.Strong, true)
 	return &Apply{
 		bsonReader: r,
-		dbSession:  session.Clone(),
+		dbSession:  session,
 		lock:       &sync.Mutex{},
 		stopAtTs:   -1,
 		fcheck:     noCheck,
@@ -286,25 +302,67 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 	}
 
 	index := mgo.Index{
-		Key:        []string{},
-		Unique:     opdoc.O.Unique,
-		Background: opdoc.O.Background,
-		Sparse:     opdoc.O.Sparse,
-		Name:       opdoc.O.Name,
+		Key:         []string{},
+		Unique:      opdoc.O.Unique,
+		DropDups:    opdoc.O.Unique,
+		Background:  opdoc.O.Background,
+		Sparse:      opdoc.O.Sparse,
+		Name:        opdoc.O.Name,
+		ExpireAfter: time.Duration(opdoc.O.ExpireAfterSeconds) * time.Second,
+		Collation: &mgo.Collation{
+			Locale:          opdoc.O.Collation.Locale,
+			Alternate:       opdoc.O.Collation.Alternate,
+			CaseFirst:       opdoc.O.Collation.CaseFirst,
+			MaxVariable:     opdoc.O.Collation.MaxVariable,
+			Strength:        opdoc.O.Collation.Strength,
+			CaseLevel:       opdoc.O.Collation.CaseLevel,
+			NumericOrdering: opdoc.O.Collation.NumericOrdering,
+			Normalization:   opdoc.O.Collation.Normalization,
+			Backwards:       opdoc.O.Collation.Backwards,
+		},
 	}
-
 	for _, key := range opdoc.O.Key {
 		sign := ""
 		if key.Value.(int) < 0 {
 			sign = "-"
 		}
 		index.Key = append(index.Key, sign+key.Name)
-
 	}
+	// index := mgo.Index{
+	// 	Key:         []string{"f1", "-f2"},
+	// 	Unique:      true,
+	// 	Background:  true, // See notes.
+	// 	Sparse:      true,
+	// 	ExpireAfter: 5 * time.Minute,
+	// 	Name:        "this_is_my_index",
+	// 	Collation: &mgo.Collation{
+	// 		Locale:          "fr",
+	// 		CaseFirst:       "off",
+	// 		Strength:        3,
+	// 		Alternate:       "non-ignorable",
+	// 		MaxVariable:     "punct",
+	// 		Normalization:   false,
+	// 		CaseLevel:       false,
+	// 		NumericOrdering: false,
+	// 		Backwards:       false,
+	// 	},
+	// }
+
+	sess.ResetIndexCache()
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {
 		return errors.Wrapf(err, "cannot create index %+v", index)
 	}
+	sess.ResetIndexCache()
+
+	// fmt.Printf("ns: %s, C: %s\n", ns, opdoc.O.CreateIndexes)
+	// idx, err := sess.DB(ns).C(opdoc.O.CreateIndexes).Indexes()
+	// fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+	// pretty.Println(index)
+	// pretty.Println(idx)
+	// pretty.Println(err)
+	// fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+
 	return nil
 }
 
