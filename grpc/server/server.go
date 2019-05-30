@@ -40,6 +40,9 @@ const (
 )
 
 type backupStatus struct {
+	// the balancer status before starting a backup/restore.
+	// After backup/restore has been completed, we must return the balancer status to its original state
+	balancerStatus     *pb.BalancerStatus
 	lastBackupMetadata *BackupMetadata
 	//	lastOplogTs        int64 // Timestamp in Unix format
 	// The name lastBackupErrors is plural because we are concatenating errors using the multierror pkg
@@ -442,6 +445,7 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 
 		backups[file.Name()] = *bm.Metadata()
 
+		// TODO: Why do we need the for the K8s operator?
 		// for replName, source := range s.clients {
 		// 	s.logger.Info("Range replicasets for replset " + replName + "and s.replsname: " + source.ReplicasetName)
 		// 	for bmReplName, metadata := range backups[file.Name()].Replicasets {
@@ -664,6 +668,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
 	}
 
+	if err := s.getBalancerStatus(); err != nil {
+		return errors.Wrap(err, "cannot save the current balancer status")
+	}
+
 	clients, err := s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "cannot start backup. Cannot find backup source for replicas")
@@ -735,14 +743,25 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 }
 
 func (s *MessagesServer) getMongoDBVersion() (string, error) {
-	//s.lock.Lock()
-	//defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeType != pb.NodeType_NODE_TYPE_MONGOS {
 			return client.GetMongoDBVersion()
 		}
 	}
 	return "", fmt.Errorf("cannot get MongoDB version. There are no agents connected to a mongod instance")
+}
+
+func (s *MessagesServer) getBalancerStatus() error {
+	c := s.getClientByType(pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR)
+	bs, err := c.getBalancerStatus()
+	if err != nil {
+		return errors.Wrap(err, "cannot save the balancer status")
+	}
+
+	s.backupStatusLock.Lock()
+	s.backupStatus.balancerStatus = bs
+	s.backupStatusLock.Unlock()
+	return nil
 }
 
 // StartBalancer restarts the balancer if this is a sharded system
@@ -1435,6 +1454,12 @@ func (s *MessagesServer) WaitForEvent(event int, timeout time.Duration) (interfa
 	return re, err
 }
 
+func (s *MessagesServer) BalancerStatus() *pb.BalancerStatus {
+	s.backupStatusLock.Lock()
+	defer s.backupStatusLock.Unlock()
+	return s.backupStatus.balancerStatus
+}
+
 func isValidEvent(e int) bool {
 	validEvents := []int{BackupFinishedEvent, BackupStartedEvent, BeforeBalancerStartEvent,
 		AfterBalancerStartEvent, BeforeBalancerStopEvent, AfterBalancerStopEvent}
@@ -1461,4 +1486,17 @@ func eventName(event int) string {
 		return fmt.Sprintf("invalid event %d", event)
 	}
 	return names[event]
+}
+
+func (s *MessagesServer) getClientByType(pb.NodeType) *Client {
+	var c *Client
+	s.clientsLock.Lock()
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+			c = client
+			break
+		}
+	}
+	s.clientsLock.Unlock()
+	return c
 }

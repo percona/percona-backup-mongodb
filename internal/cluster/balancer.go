@@ -44,7 +44,7 @@ func (b *Balancer) RestoreState() error {
 //
 // https://docs.mongodb.com/manual/reference/command/balancerStatus/
 //
-func (b *Balancer) getStatus() (*mdbstructs.BalancerStatus, error) {
+func (b *Balancer) GetStatus() (*mdbstructs.BalancerStatus, error) {
 	status := mdbstructs.BalancerStatus{}
 	err := b.session.Run(bson.D{{"balancerStatus", "1"}}, &status)
 	return &status, err
@@ -69,7 +69,7 @@ func (b *Balancer) runBalancerCommand(balancerCommand string) error {
 // IsEnabled returns a boolean reflecting if the balancer
 // is enabled
 func (b *Balancer) IsEnabled() (bool, error) {
-	status, err := b.getStatus()
+	status, err := b.GetStatus()
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +79,7 @@ func (b *Balancer) IsEnabled() (bool, error) {
 // IsRunning returns a boolean reflecting if the balancer
 // is currently running
 func (b *Balancer) IsRunning() (bool, error) {
-	status, err := b.getStatus()
+	status, err := b.GetStatus()
 	if err != nil {
 		return false, err
 	}
