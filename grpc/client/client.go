@@ -85,7 +85,7 @@ type ConnectionOptions struct {
 	User                string `yaml:"username,omitempty" kingpin:"mongodb-user"`
 	Password            string `yaml:"password,omitempty" kingpin:"mongodb-password"`
 	AuthDB              string `yaml:"authdb,omitempty" kingpin:"mongodb-authdb"`
-	ReplicasetName      string `yaml:"replicaset_name,omitempty" kingpin:"mongodb-replicaset"`
+	ReplicasetName      string `yaml:"replicaset,omitempty" kingpin:"mongodb-replicaset"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
 	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty" kingpin:"mongodb-reconnect-delay"`
