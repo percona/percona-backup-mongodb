@@ -288,7 +288,7 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 
 	for _, key := range opdoc.O.Key {
 		sign := ""
-		if key.Value.(int) < 0 {
+		if key.Value.(float64) < 0 {
 			sign = "-"
 		}
 		index.Key = append(index.Key, sign+key.Name)
