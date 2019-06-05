@@ -141,10 +141,6 @@ func main() {
 		}
 	}
 
-	if di.Username == "" || di.Password == "" {
-		log.Fatalf("Not enough data for authentication. Please set correctly either `dns` or `username`/`password` options")
-	}
-
 	// Test the connection to the MongoDB server before starting the agent.
 	// We don't want to wait until backup/restore start to know there is an error with the
 	// connection options
