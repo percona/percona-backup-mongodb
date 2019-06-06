@@ -315,6 +315,7 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo []*pb.StorageInfo
 	}
 	var errs error
+	l := &sync.Mutex{}
 
 	wga := &sync.WaitGroup{}
 	wgb := sync.WaitGroup{}
@@ -337,7 +338,9 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 			defer wgb.Done()
 			ssInfo, err := c.GetStoragesInfo()
 			if err != nil {
+				l.Lock()
 				errs = multierror.Append(errs, err)
+				l.Unlock()
 				return
 			}
 			ch <- resp{id: id, ssInfo: ssInfo}

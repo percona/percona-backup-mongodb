@@ -1210,7 +1210,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 		return nil, errors.Wrapf(err, "cannot connect to the mongos instance on %s", configHost)
 	}
 
-	return session, nil
+	return session.Clone(), nil
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
