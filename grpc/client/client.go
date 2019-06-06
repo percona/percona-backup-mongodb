@@ -159,7 +159,7 @@ const (
 	balancerStopRetries = 3
 	balancerStopTimeout = 30 * time.Second
 	dbReconnectInterval = 30 * time.Second
-	dbPingInterval      = 60 * time.Second
+	dbPingInterval      = 1 * time.Second
 	isdbgrid            = "isdbgrid"
 	typeFilesystem      = "filesystem"
 	typeS3              = "s3"
@@ -216,16 +216,28 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 }
 
 func (c *Client) Start() error {
+	if err := c.dbConnect(); err != nil {
+		return errors.Wrap(err, "cannot connect to the database")
+	}
+
+	go c.dbWatchdog()
+
+	if err := c.newCoordinatorStream(); err != nil {
+		return errors.Wrap(err, "cannot connect to the coordinator")
+	}
+
+	return nil
+}
+
+func (c *Client) newCoordinatorStream() error {
 	var err error
+
+	c.ctx, c.cancelFunc = context.WithCancel(context.Background())
 
 	c.grpcClient = pb.NewMessagesClient(c.grpcClientConn)
 	c.stream, err = c.grpcClient.MessagesChat(c.ctx)
 	if err != nil {
 		return errors.Wrap(err, "cannot connect to the gRPC server")
-	}
-
-	if err := c.dbConnect(); err != nil {
-		return errors.Wrap(err, "cannot connect to the database")
 	}
 
 	if err := c.updateClientInfo(); err != nil {
@@ -238,7 +250,6 @@ func (c *Client) Start() error {
 
 	// start listening server messages
 	go c.processIncommingServerMessages()
-	go c.dbWatchdog()
 
 	return nil
 }
@@ -514,17 +525,27 @@ func (c *Client) dbWatchdog() {
 	for {
 		select {
 		case <-time.After(dbPingInterval):
-			if c.mgoSession == nil {
+			if c.mgoSession == nil || c.mgoSession.Ping() != nil {
+				if c.isRunning() {
+					c.logger.Infof("Closing grpc connection with coordinator: %v",
+						c.Stop(),
+					)
+				}
+
 				c.dbReconnect()
 				continue
 			}
-			if err := c.mgoSession.Ping(); err != nil {
-				c.dbReconnect()
+
+			if !c.isRunning() {
+				c.lock.Lock()
+				c.running = true
+				c.lock.Unlock()
+				c.logger.Infof("Open grpc connection with coordinator: %v",
+					c.newCoordinatorStream(),
+				)
 			}
 		case <-c.dbReconnectChan:
 			c.dbReconnect()
-		case <-c.ctx.Done():
-			return
 		}
 	}
 }
