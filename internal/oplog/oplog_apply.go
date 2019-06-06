@@ -295,11 +295,37 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 
 	for _, key := range opdoc.O.Key {
 		sign := ""
-		if key.Value.(int) < 0 {
-			sign = "-"
+		switch k := key.Value.(type) {
+		case int:
+			if k < 0 {
+				sign = "-"
+			}
+		case int8:
+			if k < 0 {
+				sign = "-"
+			}
+		case int16:
+			if k < 0 {
+				sign = "-"
+			}
+		case int32:
+			if k < 0 {
+				sign = "-"
+			}
+		case int64:
+			if k < 0 {
+				sign = "-"
+			}
+		case float32:
+			if k < 0 {
+				sign = "-"
+			}
+		case float64:
+			if k < 0 {
+				sign = "-"
+			}
 		}
 		index.Key = append(index.Key, sign+key.Name)
-
 	}
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {

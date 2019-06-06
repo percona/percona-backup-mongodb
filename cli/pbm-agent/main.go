@@ -41,7 +41,6 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	DSN              string `yaml:"dsn,omitempty" kingpin:"dsn"`
 	Debug            bool   `yaml:"debug,omitempty" kingpin:"debug"`
 	LogFile          string `yaml:"log_file,omitempty" kingpin:"log-file"`
 	PIDFile          string `yaml:"pid_file,omitempty" kingpin:"pid-file"`
@@ -125,7 +124,7 @@ func main() {
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo
-	if opts.DSN == "" {
+	if opts.MongodbConnOptions.DSN == "" {
 		di = &mgo.DialInfo{
 			Addrs:          []string{opts.MongodbConnOptions.Host + ":" + opts.MongodbConnOptions.Port},
 			Username:       opts.MongodbConnOptions.User,
@@ -135,12 +134,13 @@ func main() {
 			Source:         "admin",
 		}
 	} else {
-		di, err = mgo.ParseURL(opts.DSN)
+		di, err = mgo.ParseURL(opts.MongodbConnOptions.DSN)
 		di.FailFast = true
 		if err != nil {
-			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.DSN, err)
+			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.MongodbConnOptions.DSN, err)
 		}
 	}
+
 	// Test the connection to the MongoDB server before starting the agent.
 	// We don't want to wait until backup/restore start to know there is an error with the
 	// connection options
@@ -269,7 +269,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("tls-ca-file", "TLS CA file").
 		ExistingFileVar(&opts.TLSCAFile)
 	app.Flag("mongodb-dsn", "MongoDB connection string").
-		StringVar(&opts.DSN)
+		StringVar(&opts.MongodbConnOptions.DSN)
 	app.Flag("mongodb-host", "MongoDB hostname").
 		Short('H').
 		StringVar(&opts.MongodbConnOptions.Host)
@@ -327,8 +327,8 @@ func validateOptions(opts *cliOptions) error {
 		}
 	}
 
-	if opts.DSN != "" {
-		di, err := mgo.ParseURL(opts.DSN)
+	if opts.MongodbConnOptions.DSN != "" {
+		di, err := mgo.ParseURL(opts.MongodbConnOptions.DSN)
 		if err != nil {
 			return err
 		}
