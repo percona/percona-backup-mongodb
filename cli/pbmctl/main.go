@@ -165,10 +165,10 @@ func main() {
 			return
 		}
 		fmt.Println("No backups found")
-	case "list storages":
+	case "list storage":
 		storages, err := listStorages(ctx)
 		if err != nil {
-			log.Fatalf("Cannot get storages list: %s", err)
+			log.Fatalf("Cannot get storage list: %s", err)
 		}
 		printTemplate(templates.AvailableStorages, storages)
 	case "run backup":
@@ -267,7 +267,7 @@ func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
 	apiClient := pbapi.NewApiClient(conn)
 	stream, err := apiClient.ListStorages(ctx, &pbapi.ListStoragesParams{})
 	if err != nil {
-		return nil, errors.Wrap(err, "Cannot list storages")
+		return nil, errors.Wrap(err, "Cannot list remote storage")
 	}
 
 	storages := []pbapi.StorageInfo{}
@@ -277,7 +277,7 @@ func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, errors.Wrap(err, "A problem was found while receiving storages list from the server")
+			return nil, errors.Wrap(err, "A problem was found while receiving storage list from the server")
 		}
 		storages = append(storages, *msg)
 	}
@@ -356,7 +356,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
 	listBackupsCmd := listCmd.Command("backups", "List backups")
 	listNodesCmd := listCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
-	listStoragesCmd := listCmd.Command("storages", "List available storageds")
+	listStoragesCmd := listCmd.Command("storage", "List available remote storage")
 	backupCmd := runCmd.Command("backup", "Start a backup")
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 

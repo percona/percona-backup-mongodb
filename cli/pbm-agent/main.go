@@ -47,7 +47,7 @@ type cliOptions struct {
 	Quiet            bool   `yaml:"quiet,omitempty" kingpin:"quiet"`
 	ServerAddress    string `yaml:"server_address" kingping:"server-address"`
 	ServerCompressor string `yaml:"server_compressor" kingpin:"server-compressor"`
-	StoragesConfig   string `yaml:"storages_config" kingpin:"storages-config"`
+	StoragesConfig   string `yaml:"storage_config" kingpin:"storage-config"`
 	TLS              bool   `yaml:"tls,omitempty" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
@@ -169,7 +169,7 @@ func main() {
 
 	stg, err := storage.NewStorageBackendsFromYaml(utils.Expand(opts.StoragesConfig))
 	if err != nil {
-		log.Fatalf("Canot load storages config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
+		log.Fatalf("Canot load storage config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
 	}
 
 	input := client.InputOptions{
@@ -187,7 +187,7 @@ func main() {
 
 	stgs, err := client.ListStorages()
 	if err != nil {
-		log.Fatalf("Cannot check if all storages from file %q are valid: %s", opts.StoragesConfig, err)
+		log.Fatalf("Cannot check if all storage entries in file %q are valid: %s", opts.StoragesConfig, err)
 	}
 	count := 0
 	for _, stg := range stgs {
@@ -195,10 +195,10 @@ func main() {
 			count++
 			continue
 		}
-		log.Errorf("Storage %s is not valid. Can read: %v, can write: %v", stg.Name, stg.CanRead, stg.CanWrite)
+		log.Errorf("Config for storage %s is not valid. Can read: %v; Can write: %v", stg.Name, stg.CanRead, stg.CanWrite)
 	}
-	if count != len(stgs) { // not all storages are valid
-		log.Error("Not all storages are valid")
+	if count != len(stgs) { // not all storage entries are valid
+		log.Error("Not all storage config entries are valid")
 	}
 
 	if err := client.Start(); err != nil {
@@ -249,7 +249,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("quiet", "Quiet mode. Log only errors").
 		Short('q').
 		BoolVar(&opts.Quiet)
-	app.Flag("storages-config", "Storages config yaml file").
+	app.Flag("storage-config", "Storage config yaml file").
 		Required().
 		StringVar(&opts.StoragesConfig)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").
