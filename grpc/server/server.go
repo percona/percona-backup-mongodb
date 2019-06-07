@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -661,6 +660,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
+	if err := s.getBalancerStatus(); err != nil {
+		return errors.Wrap(err, "cannot save the current balancer status")
+	}
+
 	cmdLineOpts, err := s.AllServersCmdLineOpts()
 	if err != nil {
 		return errors.Wrap(err, "cannot Get Cmd Line Opts")
@@ -669,10 +672,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	if err := s.RefreshClients(); err != nil {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
-	}
-
-	if err := s.getBalancerStatus(); err != nil {
-		return errors.Wrap(err, "cannot save the current balancer status")
 	}
 
 	clients, err := s.BackupSourceByReplicaset()
@@ -1485,7 +1484,6 @@ func eventName(event int) string {
 		"AfterBalancerStopEvent",
 	}
 	if event < 0 || event >= len(names) {
-		debug.PrintStack()
 		return fmt.Sprintf("invalid event %d", event)
 	}
 	return names[event]

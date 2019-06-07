@@ -5,7 +5,9 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/mdbstructs"
+	"github.com/pkg/errors"
 )
 
 // configMongosColl is the mongodb collection storing mongos state
@@ -25,5 +27,13 @@ func GetMongosRouters(session *mgo.Session) ([]*mdbstructs.Mongos, error) {
 			"$gte": time.Now().Add(-pingStaleLimit),
 		},
 	}).Sort("-ping").All(&routers)
+	if len(routers) < 1 {
+		err = session.DB(configDB).C(configMongosColl).Find(nil).Sort("-ping").All(&routers)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot list routers after error")
+		}
+		pretty.Println(routers)
+	}
+
 	return routers, err
 }

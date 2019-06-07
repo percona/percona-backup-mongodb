@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime/debug"
 	"sync"
 	"testing"
 	"time"
@@ -791,6 +792,12 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, ndocs int64) {
 // ndocs is the number of documents created for the pre-loaded data.
 // we must start counting from ndocs+1 to avoid duplicated numbers
 func generateOplogTraffic(session *mgo.Session, ndocs int64, stop chan bool, wg *sync.WaitGroup) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
+		}
+	}()
 	defer wg.Done()
 	ticker := time.NewTicker(10 * time.Millisecond)
 

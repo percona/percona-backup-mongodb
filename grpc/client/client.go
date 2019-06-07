@@ -1167,14 +1167,29 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get a MongoS session")
 	}
+	fmt.Println("A ---------------------------------------------")
+	sess.Ping()
+	fmt.Println("B ---------------------------------------------")
 
 	routers, err := cluster.GetMongosRouters(sess)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+		return nil, errors.Wrap(err, "cannot get mongo routers")
 	}
 	if len(routers) < 1 {
 		return nil, Errorf(NoMongosError, "there are no mongodb routers")
 	}
+	fmt.Println("C ---------------------------------------------")
+	// routers := []*mdbstructs.Mongos{
+
+	// 	{
+	// 		Id: "127.0.0.1",
+	// 		//Ping              time.Time `bson:"ping"`
+	// 		//Up                int64     `bson:"up"`
+	// 		//MongoVersion      string    `bson:"mongoVersion"`
+	// 		//AdvisoryHostFQDNs []string  `bson:"advisoryHostFQDNs,omitempty"`
+	// 		//Waiting           bool      `bson:"waiting,omitempty"`
+	// 	},
+	// }
 
 	parts := strings.Split(routers[0].Id, ":")
 	if len(parts) < 2 {
@@ -1210,7 +1225,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 		return nil, errors.Wrapf(err, "cannot connect to the mongos instance on %s", configHost)
 	}
 
-	return session.Clone(), nil
+	return session, nil
 }
 
 func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
@@ -1232,6 +1247,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1251,26 +1267,33 @@ func (c *Client) processGetBalancerStatus() (*pb.ClientMessage, error) {
 			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
 		)
 	}
+	fmt.Println("1 ------------------------------")
 
 	mongosSession, err := c.getMongosSession()
 	if err != nil {
 		if IsError(err, NoMongosError) {
 			// In some scenarios like in Kubernetes, there are no mongos instances so, there is nothing to do
-			c.logger.Debugf("There are no mongos instances. Stop Balancer was ignored")
+			c.logger.Debugf("There are no mongos instances. Process Balancer status was ignored")
 			return nil, nil
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
 
+	defer mongosSession.Close()
+	fmt.Println("2 ------------------------------")
+
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "processStopBalancer -> cannot create a balancer instance")
 	}
+	fmt.Println("3 ------------------------------")
 	bs, err := balancer.GetStatus()
 	if err != nil {
 		return nil, err
 	}
+	//bs := &mdbstructs.BalancerStatus{}
 
+	fmt.Println("4 ------------------------------")
 	out := &pb.ClientMessage{
 		ClientId: c.id,
 		Payload: &pb.ClientMessage_BalancerStatus{
@@ -1306,6 +1329,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1956,7 +1980,7 @@ func (c *Client) getSession() (*mgo.Session, error) {
 	}()
 
 	if alive {
-		return c.mgoSession.Clone(), nil
+		return c.mgoSession, nil
 	}
 	return nil, fmt.Errorf("MongoDB session is not alive")
 }
