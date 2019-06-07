@@ -66,13 +66,26 @@ type createCollectionDoc struct {
 type createIndexDoc struct {
 	Common `bson:",inline"`
 	O      struct {
-		Key           bson.D `bson:"key"`
-		V             int    `bson:"v"`
-		CreateIndexes string `bson:"createIndexes"`
-		Name          string `bson:"name"`
-		Background    bool   `bson:"background"`
-		Sparse        bool   `bson:"sparse"`
-		Unique        bool   `bson:"unique"`
+		Key              bson.D         `bson:"key"`
+		V                int            `bson:"v"`
+		CreateIndexes    string         `bson:"createIndexes"`
+		Name             string         `bson:"name"`
+		Background       bool           `bson:"background"`
+		Sparse           bool           `bson:"sparse"`
+		Unique           bool           `bson:"unique"`
+		DropDups         bool           `bson:"dropDups"`
+		PartialFilter    bson.M         `bson:"partialFilter"`
+		ExpireAfter      time.Duration  `bson:"expireAfter"`
+		Min              int            `bson:"min"`
+		Max              int            `bson:"max"`
+		Minf             float64        `bson:"minf"`
+		Maxf             float64        `bson:"maxf"`
+		BucketSize       float64        `bson:"bucketSize"`
+		Bits             int            `bson:"bits"`
+		DefaultLanguage  string         `bson:"defaultLanguage"`
+		LanguageOverride string         `bson:"languageOverride"`
+		Weights          map[string]int `bson:"weigths"`
+		Collation        *mgo.Collation `bson:"collation"`
 	} `bson:"o"`
 }
 
@@ -279,11 +292,24 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 	}
 
 	index := mgo.Index{
-		Key:        []string{},
-		Unique:     opdoc.O.Unique,
-		Background: opdoc.O.Background,
-		Sparse:     opdoc.O.Sparse,
-		Name:       opdoc.O.Name,
+		Key:              []string{},
+		Unique:           opdoc.O.Unique,
+		DropDups:         opdoc.O.DropDups,
+		Background:       opdoc.O.Background,
+		Sparse:           opdoc.O.Sparse,
+		PartialFilter:    opdoc.O.PartialFilter,
+		ExpireAfter:      opdoc.O.ExpireAfter,
+		Name:             opdoc.O.Name,
+		Min:              opdoc.O.Min,
+		Max:              opdoc.O.Max,
+		Minf:             opdoc.O.Minf,
+		Maxf:             opdoc.O.Maxf,
+		BucketSize:       opdoc.O.BucketSize,
+		Bits:             opdoc.O.Bits,
+		DefaultLanguage:  opdoc.O.DefaultLanguage,
+		LanguageOverride: opdoc.O.LanguageOverride,
+		Weights:          opdoc.O.Weights,
+		Collation:        opdoc.O.Collation,
 	}
 
 	for _, key := range opdoc.O.Key {
@@ -318,7 +344,9 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 				sign = "-"
 			}
 		}
-		index.Key = append(index.Key, sign+key.Name)
+		if key.Name != "_fts" && key.Name != "_ftsx" {
+			index.Key = append(index.Key, sign+key.Name)
+		}
 	}
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {
