@@ -71,20 +71,9 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
     - [ ] Support for incremental backups using oplogs
 - [ ] Prometheus metrics
 
-
-# The quick picture
-
-After installing and configuring the DBA initiates a backup by running a command such as `pmbctl run backup --server-address=coord_host.domain.net:10000 `
-
-The backup data goes to remote storage - which is ???, ??? or ??? AKIRA note: we're missing a section about this.
-
-When you restore it ??? (Overwrites existing db path directories? You need to specify new hosts??? AKIRA TODO)
-
 # Architecture
 
-Percona Backup for MongoDB uses a distributed set of small client/server programs installed alongside your MongoDB nodes.
-
-One of the backup agents installed on replica set will be dynamically selected to capture the backup data for the replicaset, and the coordinator process orchestrates which one it will be at the time. The coordinator also synchronizes settings between them, such as the parameters of the remote backup store.
+Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions. This architecture model was chosen to provide maximum scalability/flexibility.
 
 ![MongoDB Replica Set](mongodb-replica-set.png)
 
@@ -100,16 +89,16 @@ The Coordinator listens on 2 x TCP ports:
 
 ## Agent
 
-Backup Agents are in charge of receiving commands from the coordinator and running them.
+Backup Agents are in charge of receiving commands from the coordinator and run them.
 
-The agent must be installed 1-to-1 for every MongoDB instance and connect to them by *localhost* in order to collect information about the instance and forward it to the coordinator. In a cluster this includes configsvr nodes and at least one mongos node too. With that information, the coordinator can determine the best agent to start a backup or restore, to start/stop the balancer, etc. (AKIRA note: I assume one mongos node is needed to read sh.status(), config db collections, etc., but I also assume there's no point to having more than one.)
+The agent must run locally *(connected to 'localhost')* on every MongoDB instance *(mongos and config servers included)* in order to collect information about the instance and forward it to the coordinator. With that information, the coordinator can determine the best agent to start a backup or restore, to start/stop the balancer, etc.
 
-The agent requires outbound network access to the [Coordinator](#Coordinator) RPC host and port.
+The agent requires outbound network access to the [Coordinator](#Coordinator) RPC port.
 
 ## PBM Control (pbmctl)
 
 This program is a command line utility to send commands to the coordinator.
-Currently, the available commands are:
+Currently, the available commands are:  
 - **list nodes**: List all nodes (agents) connected to the coordinator
 - **list backups**: List all finished backups.
 - **run backup**: Start a new backup
@@ -121,7 +110,7 @@ The pbmctl utility requires outbound network access to the [Coordinator](#Coordi
 
 ### Running the Coordinator
 
-The `pbm-coordinator` process can be hosted on any server which allows the network access described above, but only that. It doesn't need to make any direct connections to any MongoDB instances instance itself. Only one coordinator is needed per deployment.
+The backup coordinator can be executed in any server since it doesn't need a connection to a MongoDB instance. One Coordinator is needed per deployment.
 
 To start the coordinator run:
 
@@ -133,7 +122,7 @@ By default, the coordinator will listen for agents on port 10000.
 
 ### Running the Agent
 
-On the same server as every MongoDB instance you need to start one `pbm-agent` a process. If you have multiple MongoDB instances on a server it will require one `pbm-agent` for each. This agent process will notify it's presence to the coordinator and then passively await commands from it.
+On every MongoDB instance, you need to start an agent that will receive commands from the coordinator.
 
 By default the agent will connect to MongoDB using the host '127.0.0.1' and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the MongoDB host.
 
