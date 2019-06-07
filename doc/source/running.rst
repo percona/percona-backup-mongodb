@@ -312,11 +312,19 @@ Restoring a Backup
 
 To restore a backup that you have made using ``pbmctl run backup`` you should
 use the ``pbmctl run restore`` command. This command takes two required
-parameters: the storage name and the metadata file.
+parameters: the storage name and the metadata file. 
 
 .. code-block:: bash
 
    $ pbmctl run restore --storage=localfs datestamp.json
+
+.. important::
+
+   The instance that you intend to restore your backup to may already
+   have data. After running ``pbmctl run restore``, the instance will
+   have both its existing data and the data from the backup. To make sure
+   that your data are consistent, either clean up the target instance or
+   use an instance without data.
 
 .. rubric:: Storage
 
