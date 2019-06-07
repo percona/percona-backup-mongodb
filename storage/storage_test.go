@@ -141,6 +141,6 @@ func TestStoragesInfo(t *testing.T) {
 
 	si := s.StoragesInfo()
 	if !reflect.DeepEqual(si, want) {
-		t.Errorf("Invalid list of storages:\n%v", pretty.Diff(want, si))
+		t.Errorf("Invalid list of remote storage:\n%v", pretty.Diff(want, si))
 	}
 }
