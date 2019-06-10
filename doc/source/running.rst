@@ -46,11 +46,11 @@ In |version|, |pbm| supports the following types of storage:
 associated with an instance of |pbm-agent| started on a member of the replica set. |pbmctl| retrieves the storage by name when either
 running the backup or restore operation. You specify where the
 |storages-yml| file is located by using its configuration file or via the
-``--storages-config`` parameter.
+``--storage-config`` parameter.
 
 .. code-block:: bash
 
-   $ pbm-agent --storages-config="./storages.yml"
+   $ pbm-agent --storage-config="./storages.yml"
 
 When using a configuration file, |pbm-agent| must be started with the
 ``--config-file`` parameter. Note that the configuration file for |pbm-agent|
@@ -336,7 +336,7 @@ the shard replica set is on 127.0.0.1:27018.
 
    .. code-block:: bash
 
-      $ pbm-agent --mongodb-port=12018 --storages-config=./storages.yml
+      $ pbm-agent --mongodb-port=12018 --storage-config=./storages.yml
 
 When |pbm-agent| starts successfully, the new node appears on the list of nodes.
 
