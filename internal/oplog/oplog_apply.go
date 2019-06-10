@@ -33,6 +33,7 @@ type Apply struct {
 	stopAtTs     bson.MongoTimestamp
 	fcheck       checker
 	ignoreErrors bool // used for testing/debug
+	debug        uint32
 }
 
 type Common struct {
@@ -164,13 +165,31 @@ func (oa *Apply) Run() error {
 			return fmt.Errorf("cannot unmarshal oplog document: %s", err)
 		}
 
-		if oa.fcheck(dest["ts"].(bson.MongoTimestamp), oa.stopAtTs) {
-			return nil
+		if ts, ok := dest["ts"].(bson.MongoTimestamp); ok {
+			if oa.fcheck(ts, oa.stopAtTs) {
+				return nil
+			}
+		} else {
+			return fmt.Errorf("oplog document ts field is not bson.MongoTimestamp, it is %T", dest["ts"])
 		}
 
 		icmd, ok := dest["op"]
 		if !ok {
 			return fmt.Errorf("invalid oplog document. there is no command")
+		}
+
+		if atomic.LoadUint32(&oa.debug) != 0 {
+			fmt.Printf("%#v\n", dest)
+		}
+
+		if ns, ok := dest["ns"]; ok {
+			if nss, ok := ns.(string); ok {
+				if skip(nss) {
+					continue
+				}
+			} else {
+				return fmt.Errorf("invalid type for oplog cmd ns. Want string, got %T", ns)
+			}
 		}
 
 		if cmd, ok := icmd.(string); ok && cmd == "c" {
@@ -411,4 +430,15 @@ func (oa *Apply) Count() int64 {
 	oa.lock.Lock()
 	defer oa.lock.Unlock()
 	return oa.docsCount
+}
+
+func skip(ns string) bool {
+	systemNS := map[string]struct{}{
+		"config.system.sessions":   {},
+		"config.cache.collections": {},
+	}
+
+	_, ok := systemNS[ns]
+
+	return ok
 }
