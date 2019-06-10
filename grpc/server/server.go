@@ -762,13 +762,17 @@ func (s *MessagesServer) getMongoDBVersion() (string, error) {
 func (s *MessagesServer) getBalancerStatus() error {
 	c := s.getClientByType(pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR)
 	bs, err := c.getBalancerStatus()
-	if err != nil {
-		return errors.Wrap(err, "cannot save the balancer status")
-	}
 
+	// Update the status even if there is a nil in the response.
+	// If for some reason the mongoS instace has gone, we should clear s.backupStatus.balancerStatus so
+	// the balancer is not re-enabled based on an old value
 	s.backupStatusLock.Lock()
 	s.backupStatus.balancerStatus = bs
 	s.backupStatusLock.Unlock()
+
+	if err != nil {
+		return errors.Wrap(err, "cannot get balancer status. internal status was resetted")
+	}
 	return nil
 }
 
@@ -1007,7 +1011,9 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 
 	replicasets := s.ReplicasetsRunningDBBackup()
 	if len(replicasets) == 0 {
-		s.triggerEvent(BackupFinishedEvent, time.Now())
+		if err := s.triggerEvent(BackupFinishedEvent, time.Now()); err != nil {
+			s.AddError(errors.Wrap(err, "cannot trigger BackupFinished event"))
+		}
 	}
 
 	return &pb.DBBackupFinishedAck{}, nil
