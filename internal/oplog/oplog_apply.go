@@ -170,8 +170,12 @@ func (oa *Apply) Run() error {
 		}
 
 		if ns, ok := dest["ns"]; ok {
-			if skip(ns.(string)) {
-				continue
+			if nss, ok := ns.(string); ok {
+				if skip(nss) {
+					continue
+				}
+			} else {
+				return fmt.Errorf("invalid type for oplog cmd ns. Want string, got %T", ns)
 			}
 		}
 
@@ -401,15 +405,12 @@ func (oa *Apply) Count() int64 {
 }
 
 func skip(ns string) bool {
-	systemNS := []string{
-		"config.system.sessions",
-		"config.cache.collections",
+	systemNS := map[string]struct{}{
+		"config.system.sessions":   {},
+		"config.cache.collections": {},
 	}
 
-	for _, skipNS := range systemNS {
-		if skipNS == ns {
-			return true
-		}
-	}
-	return false
+	_, ok := systemNS[ns]
+
+	return ok
 }

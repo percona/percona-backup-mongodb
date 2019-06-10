@@ -390,6 +390,28 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 }
 
+func TestSkipSystemCollections(t *testing.T) {
+	tests := []struct {
+		NS   string
+		Skip bool
+	}{
+		{NS: "config.system.sessions", Skip: true},
+		{NS: "config.cache.collections", Skip: true},
+		{NS: "some-other-col", Skip: false},
+	}
+
+	for i, test := range tests {
+		name := fmt.Sprintf("Test #%d: %s", i, test.NS)
+		ns := test.NS
+		want := test.Skip
+		t.Run(name, func(t *testing.T) {
+			if got := skip(ns); got != want {
+				t.Errorf("Invalid result for collection skip %q. Want %v, got %v", ns, want, got)
+			}
+		})
+	}
+}
+
 func colExists(db *mgo.Database, name string) bool {
 	cols, err := db.CollectionNames()
 	if err != nil {
