@@ -6,6 +6,7 @@ Percona Backup for MongoDB is a distributed, low-impact solution for achieving c
 The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_consistent_backup](https://github.com/Percona-Lab/mongodb_consistent_backup) tool.
 
 1. [Feature Progress](#feature-progress)
+1. [How to use](#how-to-use)
 1. [Architecture](#architecture)
     1. [Coordinator](#coordinator)
     1. [Agent](#agent)
@@ -70,6 +71,55 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 - [ ] Restore from any Point-in-time
     - [ ] Support for incremental backups using oplogs
 - [ ] Prometheus metrics
+
+# How to use
+
+## Go back in time ("run restore")
+
+In highly-available architecture such as MongoDB replication there is no need to backup to recover from disk failure etc. If you lose one node you can replace it by re-initialising from one of it's replica set peers.
+
+The only point of backups of a replica set are **to go back in time**. E.g. the web application update was released on Sunday June 9th 23:00 EST but, by 11:23 Monday, someone realizes it has slowly but steadily wiped the historical data of any user who logged in, due to a bug nobody found during QA.
+
+No-one likes to have downtime, but it's time roll back: what's the best backup to use?
+
+```
+$ pbmctl list backups
+       Metadata file name      -     Description
+------------------------------ - ----------------------------
+2019-06-10T07:04:14Z.json      - daily_bk_20190610_0300
+2019-06-09T07:03:50Z.json      - daily_bk_20190609_0300
+2019-06-08T07:04:21Z.json      - daily_bk_20190608_0300
+2019-06-07T07:04:18Z.json      - daily_bk_20190607_0300
+```
+
+The most recent daily backup would include 4 hrs of damage caused by the bug; Let's restore the one before that:
+
+```
+pbmctl run restore 2019-06-09T07:03:50Z.json
+```
+
+## Save points in time to travel to ("run backup")
+
+```
+#The cronjob for '0 3 * * *' (on servers with EST timezone)
+pbmctl run backup --description daily_bk_$(date +%Y%m%d_%H%M)
+```
+
+... and next time there is an application release it might be best to make an extra one manually just before ;)
+
+```
+pbmctl run backup --description "Pre-release v0.8.3 backup"
+```
+
+## Set up the time machine (remote store, pbm-coordinator, pbm-agent)
+
+Overview:
+
+- Create a remote store for the backups. S3-compatible storage (AWS S3, Minio, etc.). A locally-mounted filesystem can also be used.
+- Run one `pbm-coordinator` service.
+- Run a local `pbm-agent` process for each `mongod` process, pointing them to the coordinator's hostname and RPC port.
+
+For details see "Installing" below.
 
 # Architecture
 
