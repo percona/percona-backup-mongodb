@@ -21,6 +21,7 @@ const (
 	createCollectionOp
 	createIndexOp
 	dropColOp
+	dropIndexOp
 )
 
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
@@ -94,6 +95,14 @@ type dropColDoc struct {
 	Common `bson:",inline"`
 	O      struct {
 		Drop string `bson:"drop"`
+	} `bson:"o"`
+}
+
+type dropIndexDoc struct {
+	Common `bson:",inline"`
+	O      struct {
+		Index       string `bson:"index"`
+		DropIndexes string `bson:"dropIndexes"`
 	} `bson:"o"`
 }
 
@@ -193,7 +202,7 @@ func (oa *Apply) Run() error {
 		}
 
 		if cmd, ok := icmd.(string); ok && cmd == "c" {
-			switch getCreateType(dest) {
+			switch getOplogCmd(dest) {
 			case createCollectionOp:
 				err := processCreateCollection(oa.dbSession, buf)
 				if err != nil {
@@ -212,8 +221,13 @@ func (oa *Apply) Run() error {
 					return errors.Wrapf(err, "cannot drop collection from oplog cmd %+v", dest)
 				}
 				continue
+			case dropIndexOp:
+				if err := processDropIndexCmd(oa.dbSession, buf); err != nil {
+					return errors.Wrapf(err, "cannot drop index from oplog cmd %+v", dest)
+				}
+				continue
 			default:
-				log.Errorf("unknown command in op: %+v", dest)
+				log.Errorf("unknown command in op: %#v", dest)
 			}
 		}
 
@@ -374,10 +388,12 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 			index.Key = append(index.Key, sign+key.Name)
 		}
 	}
+	sess.ResetIndexCache()
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {
 		return errors.Wrapf(err, "cannot create index %+v", index)
 	}
+	sess.ResetIndexCache()
 	return nil
 }
 
@@ -395,7 +411,29 @@ func processDropColCmd(sess *mgo.Session, buf []byte) error {
 	return sess.DB(ns).C(opdoc.O.Drop).DropCollection()
 }
 
-func getCreateType(doc bson.M) int {
+func processDropIndexCmd(sess *mgo.Session, buf []byte) error {
+	opdoc := dropIndexDoc{}
+	if err := bson.Unmarshal(buf, &opdoc); err != nil {
+		return errors.Wrap(err, "cannot unmarshal drop index command")
+	}
+
+	ns := strings.TrimSuffix(opdoc.NS, ".$cmd")
+
+	if ns == "" {
+		return fmt.Errorf("invalid namespace (empty)")
+	}
+	result := struct {
+		ErrMsg string
+		Ok     bool
+	}{}
+	sess.ResetIndexCache()
+	// Don't use mgo's DropIndex method because it will add a suffix
+	op := bson.D{{Name: "dropIndexes", Value: opdoc.O.DropIndexes}, {Name: "index", Value: opdoc.O.Index}}
+	sess.ResetIndexCache()
+	return sess.DB(ns).Run(op, &result)
+}
+
+func getOplogCmd(doc bson.M) int {
 	om, ok := doc["o"]
 	if !ok {
 		return invalidOp
@@ -412,6 +450,8 @@ func getCreateType(doc bson.M) int {
 		return createIndexOp
 	case getString(o, "drop"):
 		return dropColOp
+	case getString(o, "dropIndexes"):
+		return dropIndexOp
 	}
 
 	return invalidOp
