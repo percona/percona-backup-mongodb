@@ -409,10 +409,10 @@ func TestListStorages(t *testing.T) {
 
 	storagesList, err := d.MessagesServer.ListStorages()
 	if err != nil {
-		t.Errorf("Cannot list storages: %s", err)
+		t.Errorf("Cannot list remote storage: %s", err)
 	}
 	if len(storagesList) != len(testutils.TestingStorages().Storages) {
-		t.Errorf("Invalid number of storages. Want %d, got %d", len(testutils.TestingStorages().Storages), len(storagesList))
+		t.Errorf("Invalid number of remote storage entries. Wanted %d, got %d", len(testutils.TestingStorages().Storages), len(storagesList))
 	}
 
 	localhost := "127.0.0.1"

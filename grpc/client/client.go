@@ -82,14 +82,15 @@ type Client struct {
 type ConnectionOptions struct {
 	Host                string `yaml:"host,omitempty" kingpin:"mongodb-host"`
 	Port                string `yaml:"port,omitempty" kingpin:"mongodb-port"`
-	User                string `yaml:"user,omitempty" kingpin:"mongodb-user"`
+	User                string `yaml:"username,omitempty" kingpin:"mongodb-user"`
 	Password            string `yaml:"password,omitempty" kingpin:"mongodb-password"`
 	AuthDB              string `yaml:"authdb,omitempty" kingpin:"mongodb-authdb"`
-	ReplicasetName      string `yaml:"replicaset_name,omitempty" kingpin:"mongodb-replicaset"`
+	ReplicasetName      string `yaml:"replicaset,omitempty" kingpin:"mongodb-replicaset"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
 	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty" kingpin:"mongodb-reconnect-delay"`
 	ReconnectCount      int    `yaml:"reconnect_count,omitempty" kingpin:"mongodb-reconnect-count"` // 0: forever
+	DSN                 string `yaml:"dsn,omitempty" kingpin:"dsn"`
 }
 
 // Struct holding ssl-related options
@@ -158,7 +159,7 @@ const (
 	balancerStopRetries = 3
 	balancerStopTimeout = 30 * time.Second
 	dbReconnectInterval = 30 * time.Second
-	dbPingInterval      = 60 * time.Second
+	dbPingInterval      = 1 * time.Second
 	isdbgrid            = "isdbgrid"
 	typeFilesystem      = "filesystem"
 	typeS3              = "s3"
@@ -215,16 +216,28 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 }
 
 func (c *Client) Start() error {
+	if err := c.dbConnect(); err != nil {
+		return errors.Wrap(err, "cannot connect to the database")
+	}
+
+	go c.dbWatchdog()
+
+	if err := c.newCoordinatorStream(); err != nil {
+		return errors.Wrap(err, "cannot connect to the coordinator")
+	}
+
+	return nil
+}
+
+func (c *Client) newCoordinatorStream() error {
 	var err error
+
+	c.ctx, c.cancelFunc = context.WithCancel(context.Background())
 
 	c.grpcClient = pb.NewMessagesClient(c.grpcClientConn)
 	c.stream, err = c.grpcClient.MessagesChat(c.ctx)
 	if err != nil {
 		return errors.Wrap(err, "cannot connect to the gRPC server")
-	}
-
-	if err := c.dbConnect(); err != nil {
-		return errors.Wrap(err, "cannot connect to the database")
 	}
 
 	if err := c.updateClientInfo(); err != nil {
@@ -237,7 +250,6 @@ func (c *Client) Start() error {
 
 	// start listening server messages
 	go c.processIncommingServerMessages()
-	go c.dbWatchdog()
 
 	return nil
 }
@@ -516,17 +528,27 @@ func (c *Client) dbWatchdog() {
 	for {
 		select {
 		case <-time.After(dbPingInterval):
-			if c.mgoSession == nil {
+			if c.mgoSession == nil || c.mgoSession.Ping() != nil {
+				if c.isRunning() {
+					c.logger.Infof("Closing grpc connection with coordinator: %v",
+						c.Stop(),
+					)
+				}
+
 				c.dbReconnect()
 				continue
 			}
-			if err := c.mgoSession.Ping(); err != nil {
-				c.dbReconnect()
+
+			if !c.isRunning() {
+				c.lock.Lock()
+				c.running = true
+				c.lock.Unlock()
+				c.logger.Infof("Open grpc connection with coordinator: %v",
+					c.newCoordinatorStream(),
+				)
 			}
 		case <-c.dbReconnectChan:
 			c.dbReconnect()
-		case <-c.ctx.Done():
-			return
 		}
 	}
 }

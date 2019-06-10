@@ -16,12 +16,12 @@ import (
 func TestNoStorages(t *testing.T) {
 	_, err := processCliArgs([]string{})
 	if err == nil {
-		t.Fatalf("--storages-config should be mandatory")
+		t.Fatalf("--storage-config should be mandatory")
 	}
 }
 
 func TestDefaults(t *testing.T) {
-	opts, err := processCliArgs([]string{"--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -43,7 +43,7 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestOverrideDefaultsFromCommandLine(t *testing.T) {
-	opts, err := processCliArgs([]string{"--server-address", "127.0.0.1:12345", "--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--server-address", "127.0.0.1:12345", "--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -66,7 +66,7 @@ func TestOverrideDefaultsFromCommandLine(t *testing.T) {
 
 func TestOverrideDefaultsFromEnv(t *testing.T) {
 	os.Setenv("PBM_AGENT_SERVER_ADDRESS", "localhost:12345")
-	opts, err := processCliArgs([]string{"--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -114,7 +114,7 @@ func TestOverrideDefaultsFromConfigFile(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -155,7 +155,7 @@ func TestConfigfileEnvPrecedenceOverEnvVars(t *testing.T) {
 	os.Setenv("PBM_AGENT_BACKUP_DIR", "/some/dir")
 	defer os.Setenv("PBM_AGENT_BACKUP_DIR", "")
 
-	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--config-file", tmpfile.Name(), "--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -171,7 +171,7 @@ func TestCommandLineArgsPrecedenceOverEnvVars(t *testing.T) {
 	os.Setenv("PBM_AGENT_MONGODB_PORT", "12346")
 	defer os.Setenv("PBM_AGENT_MONGODB_PORT", "")
 
-	opts, err := processCliArgs([]string{"--mongodb-port", "12345", "--storages-config", storagesFile()})
+	opts, err := processCliArgs([]string{"--mongodb-port", "12345", "--storage-config", storagesFile()})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -223,7 +223,7 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 	opts, err := processCliArgs([]string{
 		"--config-file", tmpfile.Name(),
 		"--mongodb-port", "12345",
-		"--storages-config", storagesFile(),
+		"--storage-config", storagesFile(),
 	})
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
@@ -237,5 +237,5 @@ func TestCommandLineArgsPrecedenceOverConfig(t *testing.T) {
 }
 
 func storagesFile() string {
-	return filepath.Join(testutils.BaseDir(), "testdata", "storages.yaml")
+	return filepath.Join(testutils.BaseDir(), "testdata", "storage.yml")
 }

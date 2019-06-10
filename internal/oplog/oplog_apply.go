@@ -33,6 +33,7 @@ type Apply struct {
 	stopAtTs     bson.MongoTimestamp
 	fcheck       checker
 	ignoreErrors bool // used for testing/debug
+	debug        uint32
 }
 
 type Common struct {
@@ -79,15 +80,26 @@ type Collation struct {
 type createIndexDoc struct {
 	Common `bson:",inline"`
 	O      struct {
-		Key                bson.D    `bson:"key"`
-		V                  int       `bson:"v"`
-		CreateIndexes      string    `bson:"createIndexes"`
-		Name               string    `bson:"name"`
-		Background         bool      `bson:"background"`
-		Sparse             bool      `bson:"sparse"`
-		Unique             bool      `bson:"unique"`
-		ExpireAfterSeconds int       `bson:"expireAfterSeconds"`
-		Collation          Collation `bson:"collation"`
+		Key              bson.D         `bson:"key"`
+		V                int            `bson:"v"`
+		CreateIndexes    string         `bson:"createIndexes"`
+		Name             string         `bson:"name"`
+		Background       bool           `bson:"background"`
+		Sparse           bool           `bson:"sparse"`
+		Unique           bool           `bson:"unique"`
+		DropDups         bool           `bson:"dropDups"`
+		PartialFilter    bson.M         `bson:"partialFilter"`
+		ExpireAfter      time.Duration  `bson:"expireAfter"`
+		Min              int            `bson:"min"`
+		Max              int            `bson:"max"`
+		Minf             float64        `bson:"minf"`
+		Maxf             float64        `bson:"maxf"`
+		BucketSize       float64        `bson:"bucketSize"`
+		Bits             int            `bson:"bits"`
+		DefaultLanguage  string         `bson:"defaultLanguage"`
+		LanguageOverride string         `bson:"languageOverride"`
+		Weights          map[string]int `bson:"weigths"`
+		Collation        *mgo.Collation `bson:"collation"`
 	} `bson:"o"`
 }
 
@@ -167,13 +179,31 @@ func (oa *Apply) Run() error {
 			return fmt.Errorf("cannot unmarshal oplog document: %s", err)
 		}
 
-		if oa.fcheck(dest["ts"].(bson.MongoTimestamp), oa.stopAtTs) {
-			return nil
+		if ts, ok := dest["ts"].(bson.MongoTimestamp); ok {
+			if oa.fcheck(ts, oa.stopAtTs) {
+				return nil
+			}
+		} else {
+			return fmt.Errorf("oplog document ts field is not bson.MongoTimestamp, it is %T", dest["ts"])
 		}
 
 		icmd, ok := dest["op"]
 		if !ok {
 			return fmt.Errorf("invalid oplog document. there is no command")
+		}
+
+		if atomic.LoadUint32(&oa.debug) != 0 {
+			fmt.Printf("%#v\n", dest)
+		}
+
+		if ns, ok := dest["ns"]; ok {
+			if nss, ok := ns.(string); ok {
+				if skip(nss) {
+					continue
+				}
+			} else {
+				return fmt.Errorf("invalid type for oplog cmd ns. Want string, got %T", ns)
+			}
 		}
 
 		if cmd, ok := icmd.(string); ok && cmd == "c" {
@@ -302,31 +332,60 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 	}
 
 	index := mgo.Index{
-		Key:         []string{},
-		Unique:      opdoc.O.Unique,
-		DropDups:    opdoc.O.Unique,
-		Background:  opdoc.O.Background,
-		Sparse:      opdoc.O.Sparse,
-		Name:        opdoc.O.Name,
-		ExpireAfter: time.Duration(opdoc.O.ExpireAfterSeconds) * time.Second,
-		Collation: &mgo.Collation{
-			Locale:          opdoc.O.Collation.Locale,
-			Alternate:       opdoc.O.Collation.Alternate,
-			CaseFirst:       opdoc.O.Collation.CaseFirst,
-			MaxVariable:     opdoc.O.Collation.MaxVariable,
-			Strength:        opdoc.O.Collation.Strength,
-			CaseLevel:       opdoc.O.Collation.CaseLevel,
-			NumericOrdering: opdoc.O.Collation.NumericOrdering,
-			Normalization:   opdoc.O.Collation.Normalization,
-			Backwards:       opdoc.O.Collation.Backwards,
-		},
+		Key:              []string{},
+		Unique:           opdoc.O.Unique,
+		DropDups:         opdoc.O.DropDups,
+		Background:       opdoc.O.Background,
+		Sparse:           opdoc.O.Sparse,
+		PartialFilter:    opdoc.O.PartialFilter,
+		ExpireAfter:      opdoc.O.ExpireAfter,
+		Name:             opdoc.O.Name,
+		Min:              opdoc.O.Min,
+		Max:              opdoc.O.Max,
+		Minf:             opdoc.O.Minf,
+		Maxf:             opdoc.O.Maxf,
+		BucketSize:       opdoc.O.BucketSize,
+		Bits:             opdoc.O.Bits,
+		DefaultLanguage:  opdoc.O.DefaultLanguage,
+		LanguageOverride: opdoc.O.LanguageOverride,
+		Weights:          opdoc.O.Weights,
+		Collation:        opdoc.O.Collation,
 	}
 	for _, key := range opdoc.O.Key {
 		sign := ""
-		if key.Value.(int) < 0 {
-			sign = "-"
+		switch k := key.Value.(type) {
+		case int:
+			if k < 0 {
+				sign = "-"
+			}
+		case int8:
+			if k < 0 {
+				sign = "-"
+			}
+		case int16:
+			if k < 0 {
+				sign = "-"
+			}
+		case int32:
+			if k < 0 {
+				sign = "-"
+			}
+		case int64:
+			if k < 0 {
+				sign = "-"
+			}
+		case float32:
+			if k < 0 {
+				sign = "-"
+			}
+		case float64:
+			if k < 0 {
+				sign = "-"
+			}
 		}
-		index.Key = append(index.Key, sign+key.Name)
+		if key.Name != "_fts" && key.Name != "_ftsx" {
+			index.Key = append(index.Key, sign+key.Name)
+		}
 	}
 
 	sess.ResetIndexCache()
@@ -388,4 +447,15 @@ func (oa *Apply) Count() int64 {
 	oa.lock.Lock()
 	defer oa.lock.Unlock()
 	return oa.docsCount
+}
+
+func skip(ns string) bool {
+	systemNS := map[string]struct{}{
+		"config.system.sessions":   {},
+		"config.cache.collections": {},
+	}
+
+	_, ok := systemNS[ns]
+
+	return ok
 }

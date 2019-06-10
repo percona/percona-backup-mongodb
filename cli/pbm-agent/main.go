@@ -41,14 +41,13 @@ type cliOptions struct {
 	configFile           string
 	generateSampleConfig bool
 
-	DSN              string `yaml:"dsn,omitempty" kingpin:"dsn"`
 	Debug            bool   `yaml:"debug,omitempty" kingpin:"debug"`
 	LogFile          string `yaml:"log_file,omitempty" kingpin:"log-file"`
 	PIDFile          string `yaml:"pid_file,omitempty" kingpin:"pid-file"`
 	Quiet            bool   `yaml:"quiet,omitempty" kingpin:"quiet"`
 	ServerAddress    string `yaml:"server_address" kingping:"server-address"`
 	ServerCompressor string `yaml:"server_compressor" kingpin:"server-compressor"`
-	StoragesConfig   string `yaml:"storages_config" kingpin:"storages-config"`
+	StoragesConfig   string `yaml:"storage_config" kingpin:"storage-config"`
 	TLS              bool   `yaml:"tls,omitempty" kingpin:"tls"`
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
@@ -125,7 +124,7 @@ func main() {
 
 	// Connect to the MongoDB instance
 	var di *mgo.DialInfo
-	if opts.DSN == "" {
+	if opts.MongodbConnOptions.DSN == "" {
 		di = &mgo.DialInfo{
 			Addrs:          []string{opts.MongodbConnOptions.Host + ":" + opts.MongodbConnOptions.Port},
 			Username:       opts.MongodbConnOptions.User,
@@ -135,12 +134,13 @@ func main() {
 			Source:         "admin",
 		}
 	} else {
-		di, err = mgo.ParseURL(opts.DSN)
+		di, err = mgo.ParseURL(opts.MongodbConnOptions.DSN)
 		di.FailFast = true
 		if err != nil {
-			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.DSN, err)
+			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.MongodbConnOptions.DSN, err)
 		}
 	}
+
 	// Test the connection to the MongoDB server before starting the agent.
 	// We don't want to wait until backup/restore start to know there is an error with the
 	// connection options
@@ -169,7 +169,7 @@ func main() {
 
 	stg, err := storage.NewStorageBackendsFromYaml(utils.Expand(opts.StoragesConfig))
 	if err != nil {
-		log.Fatalf("Canot load storages config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
+		log.Fatalf("Canot load storage config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
 	}
 
 	input := client.InputOptions{
@@ -187,7 +187,7 @@ func main() {
 
 	stgs, err := client.ListStorages()
 	if err != nil {
-		log.Fatalf("Cannot check if all storages from file %q are valid: %s", opts.StoragesConfig, err)
+		log.Fatalf("Cannot check if all storage entries in file %q are valid: %s", opts.StoragesConfig, err)
 	}
 	count := 0
 	for _, stg := range stgs {
@@ -195,10 +195,10 @@ func main() {
 			count++
 			continue
 		}
-		log.Errorf("Storage %s is not valid. Can read: %v, can write: %v", stg.Name, stg.CanRead, stg.CanWrite)
+		log.Errorf("Config for storage %s is not valid. Can read: %v; Can write: %v", stg.Name, stg.CanRead, stg.CanWrite)
 	}
-	if count != len(stgs) { // not all storages are valid
-		log.Error("Not all storages are valid")
+	if count != len(stgs) { // not all storage entries are valid
+		log.Error("Not all storage config entries are valid")
 	}
 
 	if err := client.Start(); err != nil {
@@ -249,7 +249,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("quiet", "Quiet mode. Log only errors").
 		Short('q').
 		BoolVar(&opts.Quiet)
-	app.Flag("storages-config", "Storages config yaml file").
+	app.Flag("storage-config", "Storage config yaml file").
 		Required().
 		StringVar(&opts.StoragesConfig)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").
@@ -269,7 +269,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("tls-ca-file", "TLS CA file").
 		ExistingFileVar(&opts.TLSCAFile)
 	app.Flag("mongodb-dsn", "MongoDB connection string").
-		StringVar(&opts.DSN)
+		StringVar(&opts.MongodbConnOptions.DSN)
 	app.Flag("mongodb-host", "MongoDB hostname").
 		Short('H').
 		StringVar(&opts.MongodbConnOptions.Host)
@@ -327,8 +327,8 @@ func validateOptions(opts *cliOptions) error {
 		}
 	}
 
-	if opts.DSN != "" {
-		di, err := mgo.ParseURL(opts.DSN)
+	if opts.MongodbConnOptions.DSN != "" {
+		di, err := mgo.ParseURL(opts.MongodbConnOptions.DSN)
 		if err != nil {
 			return err
 		}
