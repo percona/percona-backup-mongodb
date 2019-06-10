@@ -119,11 +119,15 @@ Overview:
 - Run one `pbm-coordinator` service.
 - Run a local `pbm-agent` process for each `mongod` process, pointing them to the coordinator's hostname and RPC port.
 
-For details see "Installing" below.
+For details see [Installing](#Installing) below.
+
+*Tip:* backup setup is also the time to automate the deletion of older-than-needed backups. Delete from the remote store by cron job or, if your remote store supports it, by setting a retention policy.
 
 # Architecture
 
-Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions. This architecture model was chosen to provide maximum scalability/flexibility.
+Percona Backup for MongoDB uses a distributed set of small client/server programs installed alongside your MongoDB nodes.
+
+In each replica set one of the pbm-agent processes connected the mongod nodes will be dynamically selected to backup data for the replicaset (or restore, when that happens). The coordinator process orchestrates which ones it will be at the time. The coordinator also synchronizes settings between them, such as the parameters of the remote backup store. ???
 
 ![MongoDB Replica Set](mongodb-replica-set.png)
 
@@ -139,16 +143,16 @@ The Coordinator listens on 2 x TCP ports:
 
 ## Agent
 
-Backup Agents are in charge of receiving commands from the coordinator and run them.
+Backup Agents are in charge of receiving commands from the coordinator and running them.
 
-The agent must run locally *(connected to 'localhost')* on every MongoDB instance *(mongos and config servers included)* in order to collect information about the instance and forward it to the coordinator. With that information, the coordinator can determine the best agent to start a backup or restore, to start/stop the balancer, etc.
+The agent must be installed 1-to-1 for every `mongod` instance (including configsvr nodes if a cluster) and connect to them by *localhost* in order to collect information about the instance and forward it to the coordinator.
 
-The agent requires outbound network access to the [Coordinator](#Coordinator) RPC port.
+The agent requires outbound network access to the [Coordinator](#Coordinator) RPC host and port.
 
 ## PBM Control (pbmctl)
 
 This program is a command line utility to send commands to the coordinator.
-Currently, the available commands are:  
+Currently, the available commands are:
 - **list nodes**: List all nodes (agents) connected to the coordinator
 - **list backups**: List all finished backups.
 - **run backup**: Start a new backup
@@ -160,19 +164,20 @@ The pbmctl utility requires outbound network access to the [Coordinator](#Coordi
 
 ### Running the Coordinator
 
-The backup coordinator can be executed in any server since it doesn't need a connection to a MongoDB instance. One Coordinator is needed per deployment.
+The `pbm-coordinator` process can be hosted on any server which allows the network access described above. (N.b. it doesn't need to make direct connections to any MongoDB instances instance itself.) Only one coordinator is needed per deployment.
 
 To start the coordinator run:
 
 ```
 $ pbm-coordinator --work-dir=<directory to store metadata>
 ```
+
 If `--work-dir` is not specified, it will use the default `${HOME}/percona-backup-mongodb`.
 By default, the coordinator will listen for agents on port 10000.
 
 ### Running the Agent
 
-On every MongoDB instance, you need to start an agent that will receive commands from the coordinator.
+On the servers hosting the MongoDB data you need to start one `pbm-agent` process per `mongod`. This agent process will notify it's presence to the coordinator and then passively await commands from it. Don't forget to add them on the configsvr nodes if you have a cluster rather than a non-sharded replicaset. No agent is needed for `mongos` nodes.
 
 By default the agent will connect to MongoDB using the host '127.0.0.1' and the port 27017. See [MongoDB Authentication](#MongoDB-Authentication) below if Authentication is enabled on the MongoDB host.
 
