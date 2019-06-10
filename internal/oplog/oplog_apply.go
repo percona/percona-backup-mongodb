@@ -328,25 +328,6 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 		}
 		index.Key = append(index.Key, sign+key.Name)
 	}
-	// index := mgo.Index{
-	// 	Key:         []string{"f1", "-f2"},
-	// 	Unique:      true,
-	// 	Background:  true, // See notes.
-	// 	Sparse:      true,
-	// 	ExpireAfter: 5 * time.Minute,
-	// 	Name:        "this_is_my_index",
-	// 	Collation: &mgo.Collation{
-	// 		Locale:          "fr",
-	// 		CaseFirst:       "off",
-	// 		Strength:        3,
-	// 		Alternate:       "non-ignorable",
-	// 		MaxVariable:     "punct",
-	// 		Normalization:   false,
-	// 		CaseLevel:       false,
-	// 		NumericOrdering: false,
-	// 		Backwards:       false,
-	// 	},
-	// }
 
 	sess.ResetIndexCache()
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
@@ -354,14 +335,6 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 		return errors.Wrapf(err, "cannot create index %+v", index)
 	}
 	sess.ResetIndexCache()
-
-	// fmt.Printf("ns: %s, C: %s\n", ns, opdoc.O.CreateIndexes)
-	// idx, err := sess.DB(ns).C(opdoc.O.CreateIndexes).Indexes()
-	// fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-	// pretty.Println(index)
-	// pretty.Println(idx)
-	// pretty.Println(err)
-	// fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
 
 	return nil
 }
