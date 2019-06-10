@@ -1167,9 +1167,6 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot get a MongoS session")
 	}
-	fmt.Println("A ---------------------------------------------")
-	sess.Ping()
-	fmt.Println("B ---------------------------------------------")
 
 	routers, err := cluster.GetMongosRouters(sess)
 	if err != nil {
@@ -1178,18 +1175,6 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 	if len(routers) < 1 {
 		return nil, Errorf(NoMongosError, "there are no mongodb routers")
 	}
-	fmt.Println("C ---------------------------------------------")
-	// routers := []*mdbstructs.Mongos{
-
-	// 	{
-	// 		Id: "127.0.0.1",
-	// 		//Ping              time.Time `bson:"ping"`
-	// 		//Up                int64     `bson:"up"`
-	// 		//MongoVersion      string    `bson:"mongoVersion"`
-	// 		//AdvisoryHostFQDNs []string  `bson:"advisoryHostFQDNs,omitempty"`
-	// 		//Waiting           bool      `bson:"waiting,omitempty"`
-	// 	},
-	// }
 
 	parts := strings.Split(routers[0].Id, ":")
 	if len(parts) < 2 {
@@ -1267,7 +1252,6 @@ func (c *Client) processGetBalancerStatus() (*pb.ClientMessage, error) {
 			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
 		)
 	}
-	fmt.Println("1 ------------------------------")
 
 	mongosSession, err := c.getMongosSession()
 	if err != nil {
@@ -1280,20 +1264,17 @@ func (c *Client) processGetBalancerStatus() (*pb.ClientMessage, error) {
 	}
 
 	defer mongosSession.Close()
-	fmt.Println("2 ------------------------------")
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "processStopBalancer -> cannot create a balancer instance")
 	}
-	fmt.Println("3 ------------------------------")
+
 	bs, err := balancer.GetStatus()
 	if err != nil {
 		return nil, err
 	}
-	//bs := &mdbstructs.BalancerStatus{}
 
-	fmt.Println("4 ------------------------------")
 	out := &pb.ClientMessage{
 		ClientId: c.id,
 		Payload: &pb.ClientMessage_BalancerStatus{
