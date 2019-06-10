@@ -248,18 +248,17 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			backupSource, err := client.GetBackupSource()
 			if err != nil {
 				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("cannot get best client for replicaset %q: %s", client.ReplicasetName, err)
+				continue
 			}
 			bestClient := s.getClientByNodeName(backupSource)
-			if bestClient == nil {
-				return nil, fmt.Errorf("cannot get the client connected to MongoDB %s", backupSource)
+			if bestClient != nil {
+				sources[client.ReplicasetName] = bestClient
 			}
-			sources[client.ReplicasetName] = bestClient
 		}
 	}
-
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("cannot get best client")
+	}
 	return sources, nil
 }
 
