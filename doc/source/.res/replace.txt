@@ -10,6 +10,7 @@
 .. |amazon-s3| replace:: Amazon Simple Storage Service
 .. |minio| replace:: MinIO
 .. |yaml| replace:: YAML
+.. |psmdb| replace:: Percona Server for MongoDB
 
 .. |docker| replace:: Docker
 
