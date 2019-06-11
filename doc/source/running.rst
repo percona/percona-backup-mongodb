@@ -27,7 +27,7 @@ Setting Up Storages for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
 For running the backup (`pbmctl run backup`) and restore (`pbmctl run restore`)
-operations you need to set up a storage. This is a location known to |pbmctl|
+operations, you need to set up a storage. This is a location known to |pbmctl|
 where the backup data are stored. All storages must be listed in the
 |storages-yml| file. You can use the name of the storage without
 having to supply its connection parameters on the command line. 
@@ -318,13 +318,17 @@ parameters: the storage name and the metadata file.
 
    $ pbmctl run restore --storage=localfs datestamp.json
 
-.. important::
+The instance that you intend to restore your backup to may already
+have data. After running ``pbmctl run restore``, the instance will
+have both its existing data and the data from the backup. To make sure
+that your data are consistent, either clean up the target instance or
+use an instance without data.
 
-   The instance that you intend to restore your backup to may already
-   have data. After running ``pbmctl run restore``, the instance will
-   have both its existing data and the data from the backup. To make sure
-   that your data are consistent, either clean up the target instance or
-   use an instance without data.
+.. warning::
+
+   The data may be inconsistent on the node where you restore the
+   backup to (usually, a primary node) if this node steps down or a
+   different primary is elected.
 
 .. rubric:: Storage
 
