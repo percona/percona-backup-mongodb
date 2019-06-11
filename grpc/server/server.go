@@ -926,16 +926,21 @@ func (s *MessagesServer) WriteBackupMetadata() error {
 	// All clients should have access to all storages so any client will be able to write the metadata
 	s.clientsLock.Lock()
 	for _, client := range s.clients {
-		c = client
-		break
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+			c = client
+			break
+		}
 	}
 	s.clientsLock.Unlock()
 
-	return c.writeBackupMetadata(
-		s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
-		s.backupStatus.lastBackupMetadata.metadata.StorageName,
-		buf,
-	)
+	if c != nil {
+		return c.writeBackupMetadata(
+			s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
+			s.backupStatus.lastBackupMetadata.metadata.StorageName,
+			buf,
+		)
+	}
+	return nil
 }
 
 // WorkDir returns the server working directory.
