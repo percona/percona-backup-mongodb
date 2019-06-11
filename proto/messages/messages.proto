@@ -80,6 +80,7 @@ message Ping {}
 message RestoreCompletedAck {}
 message StartBalancer {}
 message StopBalancer {}
+message GetBalancerStatus {}
 
 message Server {
   string id            = 1;
@@ -198,28 +199,29 @@ message StopOplogTail {
 }
 
 message ServerMessage {
-  int32                 version                = 1;
+  int32                 version                   = 1;
   oneof payload {
-    Ack                 ack_msg                = 2;
-    CancelBackup        cancel_backup_msg      = 3;
-    CanRestoreBackup    can_restore_backup_msg = 4;
-    Error               error_msg              = 5;
-    GetBackupSource     backup_source_msg      = 6;
-    GetStatus           get_status_msg         = 7;
-    ListReplicasets     list_replicasets       = 8;
-    GetLastOplogTs      last_oplog_ts          = 9;
-    Ping                ping_msg               = 10;
-    RestoreBackup       restore_backup_msg     = 11;
-    StartBackup         start_backup_msg       = 12;
-    StartBalancer       start_balancer_msg     = 13;
-    StopBalancer        stop_balancer_msg      = 14;
-    StopOplogTail       stop_oplog_tail_msg    = 15;
-    GetStorageInfo      get_storage_info_msg   = 16;
-    ListStorages        list_storages_msg      = 17;
-    WriteFile           write_file             = 18;
-    GetCmdLineOpts      get_cmd_line_opts      = 19;
-    GetMongoDBVersion   get_mongodb_version    = 20;
+    Ack                 ack_msg                   = 2;
+    CancelBackup        cancel_backup_msg         = 3;
+    CanRestoreBackup    can_restore_backup_msg    = 4;
+    Error               error_msg                 = 5;
+    GetBackupSource     backup_source_msg         = 6;
+    GetStatus           get_status_msg            = 7;
+    ListReplicasets     list_replicasets          = 8;
+    GetLastOplogTs      last_oplog_ts             = 9;
+    Ping                ping_msg                  = 10;
+    RestoreBackup       restore_backup_msg        = 11;
+    StartBackup         start_backup_msg          = 12;
+    StartBalancer       start_balancer_msg        = 13;
+    StopBalancer        stop_balancer_msg         = 14;
+    StopOplogTail       stop_oplog_tail_msg       = 15;
+    GetStorageInfo      get_storage_info_msg      = 16;
+    ListStorages        list_storages_msg         = 17;
+    WriteFile           write_file                = 18;
+    GetCmdLineOpts      get_cmd_line_opts         = 19;
+    GetMongoDBVersion   get_mongodb_version       = 20;
     RestoreBackupCheck  restore_backup_check_msg  = 21;
+    GetBalancerStatus   get_balancer_status       = 22;
   }
 }
 
@@ -243,6 +245,7 @@ message ClientMessage {
     WriteStatus              write_status           = 16;
     CmdLineOpts              cmd_line_opts          = 17;
     MongoDBVersion           mongodb_version        = 18;
+    BalancerStatus           balancer_status        = 19;
   }
 }
 
@@ -348,4 +351,11 @@ message WriteFile {
 
 message WriteStatus {
   string error = 1;
+}
+
+message BalancerStatus {
+  string mode                = 1; // full / off 
+  bool   in_balancer_round   = 2; // A boolean that specifies if the balancer is currently in a balancing round; i.e. distributing chunks.
+  int64  num_balancer_rounds = 3; // The number of balancer rounds which have occurred since the config servers were started.
+  int32  ok                  = 4;
 }

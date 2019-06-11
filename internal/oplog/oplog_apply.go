@@ -65,6 +65,19 @@ type createCollectionDoc struct {
 	} `bson:"o"`
 }
 
+type Collation struct {
+	Locale          string `bson:"locale"`
+	Alternate       string `bson:"alternate"`
+	CaseFirst       string `bson:"caseFirst"`
+	MaxVariable     string `bson:"maxVariable"`
+	Version         string `bson:"version"`
+	Strength        int    `bson:"strength"`
+	CaseLevel       bool   `bson:"caseLevel"`
+	NumericOrdering bool   `bson:"numericOrdering"`
+	Normalization   bool   `bson:"normalization"`
+	Backwards       bool   `bson:"backwards"`
+}
+
 type createIndexDoc struct {
 	Common `bson:",inline"`
 	O      struct {
@@ -107,9 +120,10 @@ type dropIndexDoc struct {
 }
 
 func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*Apply, error) {
+	session.SetMode(mgo.Strong, true)
 	return &Apply{
 		bsonReader: r,
-		dbSession:  session.Clone(),
+		dbSession:  session,
 		lock:       &sync.Mutex{},
 		stopAtTs:   -1,
 		fcheck:     noCheck,
@@ -351,7 +365,6 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 		Weights:          opdoc.O.Weights,
 		Collation:        opdoc.O.Collation,
 	}
-
 	for _, key := range opdoc.O.Key {
 		sign := ""
 		switch k := key.Value.(type) {
@@ -388,6 +401,7 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 			index.Key = append(index.Key, sign+key.Name)
 		}
 	}
+
 	sess.ResetIndexCache()
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {

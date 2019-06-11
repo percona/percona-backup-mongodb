@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime/debug"
 	"sync"
 	"testing"
 	"time"
@@ -180,21 +181,22 @@ func TestBackups(t *testing.T) {
 	}
 	msgs := []backupParams{}
 
-	// 1: "COMPRESSION_TYPE_NO_COMPRESSION",
-	// 2: "COMPRESSION_TYPE_GZIP",
-	compressionTypes := []int32{1, 2}
+	compressionTypes := []pb.CompressionType{
+		pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
+		pb.CompressionType_COMPRESSION_TYPE_GZIP,
+	}
 
 	for stgName := range testutils.TestingStorages().Storages {
 		for _, compressionType := range compressionTypes {
 			msgs = append(msgs, backupParams{
-				Name: stgName + "_" + pb.CompressionType_name[compressionType],
+				Name: stgName + "_" + pb.CompressionType_name[int32(compressionType)],
 				Params: &pb.StartBackup{
 					BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
-					CompressionType: pb.CompressionType(compressionType),
+					CompressionType: compressionType,
 					Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
 					OplogStartTime:  time.Now().UTC().Unix(),
 					NamePrefix:      time.Now().UTC().Format(time.RFC3339),
-					Description:     "test_backup_" + pb.CompressionType_name[compressionType] + "_" + stgName,
+					Description:     "test_backup_" + pb.CompressionType_name[int32(compressionType)] + "_" + stgName,
 					StorageName:     stgName,
 				},
 			})
@@ -207,6 +209,24 @@ func TestBackups(t *testing.T) {
 		t.Run(params.Name, func(t *testing.T) {
 			testCount++
 			testBackups(t, testCount, params.Params, d)
+			// session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
+			// if err != nil {
+			// 	log.Fatalf("Cannot connect to the DB: %s", err)
+			// }
+			// session.SetMode(mgo.Strong, true)
+
+			// defer session.Close()
+			// balancer, err := cluster.NewBalancer(session)
+			// if err != nil {
+			// 	t.Errorf("Cannot instantiate a new cluster: %s", err)
+			// 	return
+			// }
+
+			// _, err = balancer.GetStatus()
+			// if err != nil {
+			// 	t.Errorf("Cannot get balancer status: %s", err)
+			// 	return
+			// }
 		})
 	}
 }
@@ -217,31 +237,31 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 
 	// Genrate random data so we have something in the oplog
 	oplogGeneratorStopChan := make(chan bool)
-	s1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	rs1Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
-	s1Session.SetMode(mgo.Strong, true)
-	defer s1Session.Close()
+	rs1Session.SetMode(mgo.Strong, true)
+	defer rs1Session.Close()
 
-	generateDataToBackup(t, s1Session, ndocs)
+	generateDataToBackup(t, rs1Session, ndocs)
 	wg.Add(1)
-	go generateOplogTraffic(s1Session, ndocs, oplogGeneratorStopChan, wg)
+	go generateOplogTraffic(rs1Session, ndocs, oplogGeneratorStopChan, wg)
 
 	// Also generate random data on shard 2
-	s2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
+	rs2Session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard2ReplsetName))
 	if err != nil {
 		log.Fatalf("Cannot connect to the DB: %s", err)
 	}
-	s2Session.SetMode(mgo.Strong, true)
-	defer s2Session.Close()
+	rs2Session.SetMode(mgo.Strong, true)
+	defer rs2Session.Close()
 
-	cleanupDB(t, s1Session)
-	cleanupDB(t, s2Session)
+	cleanupDB(t, rs1Session)
+	cleanupDB(t, rs2Session)
 
-	generateDataToBackup(t, s2Session, ndocs)
+	generateDataToBackup(t, rs2Session, ndocs)
 	wg.Add(1)
-	go generateOplogTraffic(s2Session, ndocs, oplogGeneratorStopChan, wg)
+	go generateOplogTraffic(rs2Session, ndocs, oplogGeneratorStopChan, wg)
 
 	backupNamePrefix := time.Now().UTC().Format(time.RFC3339)
 
@@ -294,8 +314,8 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 		t.Errorf("Cannot get max number from oplog for rs1: %s", err)
 	}
 
-	cleanupDB(t, s1Session)
-	cleanupDB(t, s2Session)
+	cleanupDB(t, rs1Session)
+	cleanupDB(t, rs2Session)
 
 	log.Info("Starting restore test")
 	md, err := d.APIServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
@@ -313,18 +333,18 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 
 	testRestoreWithMetadata(t, d, md, params.StorageName)
 
-	s1Session.Refresh()
-	s1Session.ResetIndexCache()
+	rs1Session.Refresh()
+	rs1Session.ResetIndexCache()
 	type maxNumber struct {
 		Number int64 `bson:"number"`
 	}
 	var afterMaxS1, afterMaxS2 maxNumber
-	err = s1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
+	err = rs1Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS1)
 	if err != nil {
 		log.Errorf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
 
-	err = s2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS2)
+	err = rs2Session.DB(dbName).C(colName).Find(nil).Sort("-number").Limit(1).One(&afterMaxS2)
 	if err != nil {
 		log.Errorf("Cannot get the max 'number' field in %s.%s: %s", dbName, colName, err)
 	}
@@ -791,6 +811,12 @@ func generateDataToBackup(t *testing.T, session *mgo.Session, ndocs int64) {
 // ndocs is the number of documents created for the pre-loaded data.
 // we must start counting from ndocs+1 to avoid duplicated numbers
 func generateOplogTraffic(session *mgo.Session, ndocs int64, stop chan bool, wg *sync.WaitGroup) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
+		}
+	}()
 	defer wg.Done()
 	ticker := time.NewTicker(10 * time.Millisecond)
 

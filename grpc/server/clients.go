@@ -100,33 +100,33 @@ func (c *Client) CanRestoreBackup(backupType pb.BackupType, name, storageName st
 	return pb.CanRestoreBackupResponse{}, fmt.Errorf("cannot get CanRestoreBackup Response (response is nil)")
 }
 
-func (c *Client) RestoreBackupCheck(backup *pb.RestoreBackupCheck, name, storageName string) (
-	pb.RestoreBackupCheckResponse, error) {
-	if err := c.streamSend(&pb.ServerMessage{
-		Payload: &pb.ServerMessage_RestoreBackupCheckMsg{
-			RestoreBackupCheckMsg: backup,
-		},
-	}); err != nil {
-		return pb.RestoreBackupCheckResponse{}, err
-	}
-	msg, err := c.streamRecv()
-	if err != nil {
-		return pb.RestoreBackupCheckResponse{}, err
-	}
-
-	switch msg.Payload.(type) {
-	case *pb.ClientMessage_ErrorMsg:
-		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
-	case *pb.ClientMessage_RestoreBackupCheckMsg:
-		resp := msg.GetRestoreBackupCheck()
-		if resp.CanRestore {
-			return pb.RestoreBackupCheckResponse{CanRestore: true}, nil
-		}
-		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
-	}
-
-	return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
-}
+// func (c *Client) RestoreBackupCheck(backup *pb.RestoreBackupCheck, name, storageName string) (
+// 	pb.RestoreBackupCheckResponse, error) {
+// 	if err := c.streamSend(&pb.ServerMessage{
+// 		Payload: &pb.ServerMessage_RestoreBackupCheckMsg{
+// 			RestoreBackupCheckMsg: backup,
+// 		},
+// 	}); err != nil {
+// 		return pb.RestoreBackupCheckResponse{}, err
+// 	}
+// 	msg, err := c.streamRecv()
+// 	if err != nil {
+// 		return pb.RestoreBackupCheckResponse{}, err
+// 	}
+//
+// 	switch msg.Payload.(type) {
+// 	case *pb.ClientMessage_ErrorMsg:
+// 		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+// 	case *pb.ClientMessage_RestoreBackupCheckMsg:
+// 		resp := msg.GetRestoreBackupCheck()
+// 		if resp.CanRestore {
+// 			return pb.RestoreBackupCheckResponse{CanRestore: true}, nil
+// 		}
+// 		return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+// 	}
+//
+// 	return pb.RestoreBackupCheckResponse{CanRestore: false}, nil
+// }
 
 func (c *Client) GetCmdLineOpts() (*pb.CmdLineOpts, error) {
 	msg := &pb.ServerMessage{
@@ -454,6 +454,28 @@ func (c *Client) stopBackup() error {
 		return fmt.Errorf("invalid client response to stop backup message. Want 'ack', got %T", msg)
 	}
 	return nil
+}
+
+func (c *Client) getBalancerStatus() (*pb.BalancerStatus, error) {
+	err := c.streamSend(&pb.ServerMessage{
+		Payload: &pb.ServerMessage_GetBalancerStatus{GetBalancerStatus: &pb.GetBalancerStatus{}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	msg, err := c.streamRecv()
+	if err != nil {
+		return nil, err
+	}
+
+	switch msg.Payload.(type) {
+	case *pb.ClientMessage_BalancerStatus:
+		return msg.GetBalancerStatus(), nil
+	case *pb.ClientMessage_ErrorMsg:
+		errMsg := msg.GetErrorMsg()
+		return nil, fmt.Errorf("%s", errMsg.Message)
+	}
+	return nil, fmt.Errorf("unknown response type (%T) for getBalancerStatus", msg)
 }
 
 func (c *Client) stopBalancer() error {
