@@ -47,6 +47,7 @@ type backupStatus struct {
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
 	backupRunning         bool
 	oplogBackupRunning    bool
+	sources               map[string]*Client // clients that ran the last backup
 }
 
 type MessagesServer struct {
@@ -416,7 +417,6 @@ func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 }
 
 func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
-	s.logger.Debug("ListBackups -----")
 	files, err := ioutil.ReadDir(s.workDir)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot list workdir %q backup filenames", s.workDir)
@@ -666,7 +666,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
 	}
 
-	clients, err := s.BackupSourceByReplicaset()
+	s.backupStatus.sources, err = s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "cannot start backup. Cannot find backup source for replicas")
 	}
@@ -685,7 +685,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		s.logger.Errorf("cannot trigger event %s: %s", eventName(BackupStartedEvent), err)
 	}
 
-	for replName, client := range clients {
+	for replName, client := range s.backupStatus.sources {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
 			replName,
 			client.ID,
@@ -933,6 +933,7 @@ func (s *MessagesServer) WriteBackupMetadata() error {
 	}
 	s.clientsLock.Unlock()
 
+	// Try to write the metadata to theconfig server
 	if c != nil {
 		return c.writeBackupMetadata(
 			s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
@@ -940,6 +941,17 @@ func (s *MessagesServer) WriteBackupMetadata() error {
 			buf,
 		)
 	}
+
+	// if there are no config servers, try to write the metadata using one of the agents that ran
+	// the last backup
+	for _, c := range s.backupStatus.sources {
+		return c.writeBackupMetadata(
+			s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
+			s.backupStatus.lastBackupMetadata.metadata.StorageName,
+			buf,
+		)
+	}
+
 	return nil
 }
 
