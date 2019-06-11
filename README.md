@@ -174,6 +174,44 @@ $ pbm-coordinator --work-dir=<directory to store metadata>
 If `--work-dir` is not specified, it will use the default `${HOME}/percona-backup-mongodb`.
 By default, the coordinator will listen for agents on port 10000.
 
+<details>
+  <summary>pbm-coordinator --help</summary>
+
+```
+usage: pbm-coordinator [<flags>]
+
+Percona Backup for MongoDB coordinator
+
+Flags:
+      --help                     Show context-sensitive help (also try --help-long and
+                                 --help-man).
+      --version                  Show application version.
+  -c, --config-file=CONFIG-FILE  Config file
+  -d, --work-dir=WORK-DIR        Working directory for backup metadata
+  -l, --log-file=LOG-FILE        Write logs to file
+  -v, --debug                    Enable debug log level
+      --use-syslog               Also send the logs to the local syslog server
+      --grpc-bindip=GRPC-BINDIP  Bind IP for gRPC client connections
+      --grpc-port=GRPC-PORT      Listening port for gRPC client connections
+      --server-compressor=SERVER-COMPRESSOR
+                                 Backup coordintor gRPC compression (gzip or none)
+      --api-bindip=API-BINDIP    Bind IP for API client connections
+      --api-port=API-PORT        Listening port for API client connections
+      --api-token=API-TOKEN      API token for clients connection
+      --clients-refresh-secs=CLIENTS-REFRESH-SECS
+                                 Frequency in seconds to refresh state of clients
+      --enable-clients-logging   Enable showing logs coming from agents on the server side
+      --shutdown-timeout=SHUTDOWN-TIMEOUT
+                                 Server shutdown timeout
+      --tls                      Enable TLS
+      --tls-cert-file=TLS-CERT-FILE
+                                 Cert file for gRPC client connections
+      --tls-key-file=TLS-KEY-FILE
+                                 Key file for gRPC client connections
+      --tls-ca-file=TLS-CA-FILE  TLS CA file
+```
+</details>
+
 ### Running the Agent
 
 On the servers hosting the MongoDB data you need to start one `pbm-agent` process per `mongod`. This agent process will notify it's presence to the coordinator and then passively await commands from it. Don't forget to add them on the configsvr nodes if you have a cluster rather than a non-sharded replicaset. No agent is needed for `mongos` nodes.
@@ -189,6 +227,57 @@ $ pbm-agent --server-address=172.16.0.2:10000 \
             --mongodb-password=securePassw0rd \
             --pid-file=/tmp/pbm-agent.pid
 ```
+
+<details>
+  <summary>pbm-agent --help</summary>
+
+```
+usage: pbm-agent --storage-config=STORAGE-CONFIG [<flags>]
+
+Percona Backup for MongoDB agent
+
+Flags:
+      --help                     Show context-sensitive help (also try --help-long and
+                                 --help-man).
+      --version                  Show application version.
+  -c, --config-file=CONFIG-FILE  Backup agent config file
+  -v, --debug                    Enable debug log level
+      --generate-sample-config   Generate sample config.yml file with the defaults
+  -l, --log-file=LOG-FILE        Backup agent log file
+      --pid-file=PID-FILE        Backup agent pid file
+  -q, --quiet                    Quiet mode. Log only errors
+      --storage-config=STORAGE-CONFIG
+                                 Storage config yaml file
+      --use-syslog               Use syslog instead of Stderr or file
+  -s, --server-address=SERVER-ADDRESS
+                                 Backup coordinator address (host:port)
+      --server-compressor=SERVER-COMPRESSOR
+                                 Backup coordintor gRPC compression (gzip or none)
+      --tls                      Use TLS for server connection
+      --tls-cert-file=TLS-CERT-FILE
+                                 TLS certificate file
+      --tls-key-file=TLS-KEY-FILE
+                                 TLS key file
+      --tls-ca-file=TLS-CA-FILE  TLS CA file
+      --mongodb-dsn=MONGODB-DSN  MongoDB connection string
+  -H, --mongodb-host=MONGODB-HOST
+                                 MongoDB hostname
+  -P, --mongodb-port=MONGODB-PORT
+                                 MongoDB port
+  -u, --mongodb-username=MONGODB-USERNAME
+                                 MongoDB username
+  -p, --mongodb-password=MONGODB-PASSWORD
+                                 MongoDB password
+      --mongodb-authdb=MONGODB-AUTHDB
+                                 MongoDB authentication database
+      --mongodb-replicaset=MONGODB-REPLICASET
+                                 MongoDB Replicaset name
+      --mongodb-reconnect-delay=10
+                                 MongoDB reconnection delay in seconds
+      --mongodb-reconnect-count=3
+                                 MongoDB max reconnection attempts (0: forever)
+```
+</details>
 
 #### MongoDB Authentication
 
