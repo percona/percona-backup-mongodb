@@ -25,6 +25,7 @@ or MongoDB Community v3.6 or higher with `MongoDB Replication
    installation
    running
    docker
+   release-notes
    contributing
 
 .. _pbm.feature:

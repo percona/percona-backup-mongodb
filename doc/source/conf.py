@@ -62,7 +62,7 @@ copyright = 'Percona LLC and/or its affiliates 2009-2019'
 # built documents.
 #
 # The short X.Y version.
-version = '1.0'
+version = '0.5'
 # The full version, including alpha/beta/rc tags.
 release = "0"
 release = ".".join([version, release])
@@ -125,7 +125,7 @@ rst_prolog = '''
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
 
-extlinks = {'jirabug': ('https://jira.percona.com/browse/PBM-%s', 'PBM')
+extlinks = {'jirabug': ('https://jira.percona.com/browse/PBM-%s', 'PBM-')
 }
 
 # -- Options for HTML output ----------------------------------------------
