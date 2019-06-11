@@ -78,9 +78,9 @@ The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_
 
 In highly-available architecture such as MongoDB replication there is no need to backup to recover from disk failure etc. If you lose one node you can replace it by re-initialising from one of it's replica set peers.
 
-The only point of backups of a replica set are **to go back in time**. E.g. the web application update was released on Sunday June 9th 23:00 EST but, by 11:23 Monday, someone realizes it has slowly but steadily wiped the historical data of any user who logged in, due to a bug nobody found during QA.
+The only point of backups of a replica set are **to go back in time**. For example imagine your company's web application update was released on Sunday June 9th 23:00 EST but, by 11:23 Monday, someone realizes it has slowly but steadily wiped the historical data of any user who logged in, due to a bug nobody found during QA.
 
-No-one likes to have downtime, but it's time roll back: what's the best backup to use?
+No-one likes to have downtime, but it's time to roll back. What's the best backup to use?
 
 ```
 $ pbmctl list backups
@@ -127,8 +127,6 @@ For details see [Installing](#Installing) below.
 
 Percona Backup for MongoDB uses a distributed set of small client/server programs installed alongside your MongoDB nodes.
 
-In each replica set one of the pbm-agent processes connected the mongod nodes will be dynamically selected to backup data for the replicaset (or restore, when that happens). The coordinator process orchestrates which ones it will be at the time. The coordinator also synchronizes settings between them, such as the parameters of the remote backup store. ???
-
 ![MongoDB Replica Set](mongodb-replica-set.png)
 
 ## Coordinator
@@ -147,12 +145,13 @@ Backup Agents are in charge of receiving commands from the coordinator and runni
 
 The agent must be installed 1-to-1 for every `mongod` instance (including configsvr nodes if a cluster) and connect to them by *localhost* in order to collect information about the instance and forward it to the coordinator.
 
-The agent requires outbound network access to the [Coordinator](#Coordinator) RPC host and port.
+The agent requires outbound network access to the [Coordinator](#Coordinator) host on the RPC port.
 
 ## PBM Control (pbmctl)
 
 This program is a command line utility to send commands to the coordinator.
-Currently, the available commands are:
+
+The available commands are:
 - **list nodes**: List all nodes (agents) connected to the coordinator
 - **list backups**: List all finished backups.
 - **run backup**: Start a new backup
@@ -164,7 +163,7 @@ The pbmctl utility requires outbound network access to the [Coordinator](#Coordi
 
 ### Running the Coordinator
 
-The `pbm-coordinator` process can be hosted on any server which allows the network access described above. (N.b. it doesn't need to make direct connections to any MongoDB instances instance itself.) Only one coordinator is needed per deployment.
+The `pbm-coordinator` process can be hosted on any server which allows the network access described above. (N.b. it doesn't need to make direct connections to any MongoDB instances instance itself.) Only one coordinator is needed per cluster or non-sharded replicaset.
 
 To start the coordinator run:
 
