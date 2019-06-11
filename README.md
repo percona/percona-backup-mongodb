@@ -1,9 +1,11 @@
 # Percona Backup for MongoDB
 [![Go Report Card](https://goreportcard.com/badge/github.com/percona/percona-backup-mongodb)](https://goreportcard.com/report/github.com/percona/percona-backup-mongodb) [![codecov](https://codecov.io/gh/percona/percona-backup-mongodb/branch/master/graph/badge.svg?token=TiuOmTfp2p)](https://codecov.io/gh/percona/percona-backup-mongodb) [![CLA assistant](https://cla-assistant.percona.com/readme/badge/percona/percona-backup-mongodb)](https://cla-assistant.percona.com/percona/percona-backup-mongodb)
 
-Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets.
+Percona Backup for MongoDB is a distributed, low-impact solution for achieving
+consistent backups of MongoDB Sharded Clusters and Replica Sets.
 
-The project was inspired by *(and intends to replace)* the [Percona-Lab/mongodb_consistent_backup](https://github.com/Percona-Lab/mongodb_consistent_backup) tool.
+For more information about its components and how to use this software, see the
+[documentation of Percona Backup for MongoDB](https://www.percona.com/doc/percona-backup-mongodb)
 
 1. [Feature Progress](#feature-progress)
 1. [How to use](#how-to-use)
@@ -487,14 +489,6 @@ $ docker stop mongodb-backup-agent
 # Submit Bug Report / Feature Request
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).
 
-Your first step should be to search the existing set of open tickets for a similar report. If you find that someone else has already reported your problem, then you can upvote that report to increase its visibility.
-
-If there is no existing report, submit a report following these steps:
-
-1. Sign in to Percona JIRA. You will need to create an account if you do not have one.
-2. Go to the Create Issue screen and select the relevant project.
-3. Fill in the fields of Summary, Description, Steps To Reproduce, and Affects Version to the best you can. If the bug corresponds to a crash, attach the stack trace from the logs.
-  
 As a general rule of thumb, please try to create bug reports that are:
 
 - Reproducible. Include steps to reproduce the problem.

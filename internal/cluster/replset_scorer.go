@@ -199,6 +199,9 @@ func (r *Replset) BackupSource(replsetTags map[string]string) (string, error) {
 
 	var winner *ReplsetScoringMember
 	for _, member := range scorer.members {
+		if member.score == 0 {
+			continue
+		}
 		if member.score > 0 && winner == nil || member.score > winner.score {
 			winner = member
 		}

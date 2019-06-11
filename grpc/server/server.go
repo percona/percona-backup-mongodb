@@ -248,18 +248,17 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			backupSource, err := client.GetBackupSource()
 			if err != nil {
 				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("cannot get best client for replicaset %q: %s", client.ReplicasetName, err)
+				continue
 			}
 			bestClient := s.getClientByNodeName(backupSource)
-			if bestClient == nil {
-				return nil, fmt.Errorf("cannot get the client connected to MongoDB %s", backupSource)
+			if bestClient != nil {
+				sources[client.ReplicasetName] = bestClient
 			}
-			sources[client.ReplicasetName] = bestClient
 		}
 	}
-
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("cannot get best client")
+	}
 	return sources, nil
 }
 
@@ -573,12 +572,14 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 	// Ping will also update the status and if it is primary or secondary
 	for _, source := range clients {
 		if err := source.Client.ping(); err != nil {
+			s.setRestoreRunning(false)
 			return errors.Wrapf(err, "error while sending ping to client %s", source.Client.ID)
 		}
 	}
 
 	mongoDBVersion, err := s.getMongoDBVersion()
 	if err != nil {
+		s.setRestoreRunning(false)
 		return err
 	}
 
@@ -612,6 +613,7 @@ func (s *MessagesServer) RestoreBackUp(bm *pb.BackupMetadata, storageName string
 					MongodbVersion:    mongoDBVersion,
 				}
 				if err := source.Client.restoreBackup(msg); err != nil {
+					s.setRestoreRunning(false)
 					log.Errorf("cannot send restore backup message to client %v", err)
 					return errors.Wrapf(err, "cannot send restore backup message to client %s", source.Client.ID)
 				}
@@ -712,6 +714,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			oplogBackupName,
 		)
 		if err != nil {
+			s.setBackupRunning(false)
+			s.setOplogBackupRunning(false)
 			return errors.Wrapf(err, "cannot add replicaset to metadata")
 		}
 
@@ -727,6 +731,8 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			MongodbVersion:  mongoDBVersion,
 		}
 		if err := client.startBackup(msg); err != nil {
+			s.setBackupRunning(false)
+			s.setOplogBackupRunning(false)
 			return errors.Wrapf(err, "cannot start backup for client %s", client.ID)
 		}
 	}
@@ -1117,6 +1123,7 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 
 	client := s.getClientByID(msg.GetClientId())
 	if client == nil {
+		s.setRestoreRunning(false)
 		err := fmt.Errorf("unknown client ID: %s", msg.GetClientId())
 		s.logger.Error(err)
 		return nil, err

@@ -15,6 +15,7 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	"github.com/pkg/errors"
 )
 
 type mockBSONReader struct {
@@ -23,7 +24,12 @@ type mockBSONReader struct {
 }
 
 func (m *mockBSONReader) ReadNext() ([]byte, error) {
-	return []byte{}, nil
+	m.index++
+	if m.index >= len(m.docs) {
+		return nil, io.EOF
+	}
+
+	return bson.Marshal(m.docs[m.index])
 }
 
 func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
@@ -34,7 +40,7 @@ func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
 
 	buff, err := bson.Marshal(m.docs[m.index])
 	if err != nil {
-		return err
+		return errors.Wrap(err, "cannot marshal to unmarshal")
 	}
 	if err := bson.Unmarshal(buff, dest); err != nil {
 		return err
@@ -129,6 +135,74 @@ func TestApplyCreateCollection(t *testing.T) {
 
 	// If you need to debug and see all failed operations output
 	oa.ignoreErrors = true
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+}
+
+func TestIgnoreSystemCollections(t *testing.T) {
+	docs := []bson.M{
+		{
+			"ts": bson.MongoTimestamp(6699345900185059329),
+			"h":  int64(1603488249581412698),
+			"op": "i",
+			"ns": "config.system.sessions",
+			"t":  int64(1),
+			"v":  int(2),
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0x1, 0x69, 0xc9, 0x79, 0xb4, 0x6e, 0x42, 0xcf, 0x87, 0x5b, 0x6b, 0xab, 0xfd, 0x89, 0xa4, 0x51},
+			},
+			"wall": time.Now().Add(-1 * time.Minute),
+			"o": bson.M{
+				"_id": bson.M{
+					"id": bson.Binary{
+						Kind: 0x4,
+						Data: []byte{0xb7, 0xa1, 0x43, 0xd8, 0xf4, 0x54, 0x43, 0xb3, 0xad, 0xc5, 0x9c, 0xbd, 0x21, 0x41, 0xba, 0x44},
+					},
+					"uid": []byte{0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+						0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55},
+				},
+				"lastUse": time.Now().Add(-1 * time.Minute),
+			},
+		},
+		{
+			"t":  1,
+			"ns": "config.cache.collections",
+			"o2": bson.M{
+				"_id": "ycsb_test2.usertable",
+			},
+			"wall": time.Now(),
+			"ts":   bson.MongoTimestamp(time.Now().Unix()),
+			"h":    int64(-2273244757254710743),
+			"v":    2,
+			"op":   "u",
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0x1, 0x69, 0xc9, 0x79, 0xb4, 0x6e, 0x42, 0xcf, 0x87, 0x5b, 0x6b, 0xab, 0xfd, 0x89, 0xa4, 0x52},
+			},
+			"o": bson.M{
+				"$v":   1,
+				"$set": bson.M{"refreshing": true},
+			},
+		},
+	}
+
+	bsonReader := newMockBSONReader(docs)
+
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+
+	oa, err := NewOplogApply(session, bsonReader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+
+	// If you need to debug and see all failed operations output
+	oa.ignoreErrors = false
 
 	if err := oa.Run(); err != nil {
 		t.Errorf("Error while running the oplog applier: %s", err)
@@ -313,6 +387,28 @@ func TestBasicApplyLog(t *testing.T) {
 	}
 	if err := cleanup(db, "new_index"); err != nil {
 		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	}
+}
+
+func TestSkipSystemCollections(t *testing.T) {
+	tests := []struct {
+		NS   string
+		Skip bool
+	}{
+		{NS: "config.system.sessions", Skip: true},
+		{NS: "config.cache.collections", Skip: true},
+		{NS: "some-other-col", Skip: false},
+	}
+
+	for i, test := range tests {
+		name := fmt.Sprintf("Test #%d: %s", i, test.NS)
+		ns := test.NS
+		want := test.Skip
+		t.Run(name, func(t *testing.T) {
+			if got := skip(ns); got != want {
+				t.Errorf("Invalid result for collection skip %q. Want %v, got %v", ns, want, got)
+			}
+		})
 	}
 }
 
