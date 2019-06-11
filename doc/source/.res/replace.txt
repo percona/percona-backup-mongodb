@@ -1,12 +1,34 @@
+
+.. Products
+
 .. |percona| replace:: Percona
+.. |percona-release| replace:: ``percona-release``
 .. |pbm| replace:: Percona Backup for MongoDB
 .. |mongodb| replace:: MongoDB
 .. |backup-coordinator| replace:: ``backup coordinator``
 .. |bc| replace:: ``backup coordinator``
-.. |mongos| replace:: ``mongos``
-.. |pbmctl| replace:: ``pbmctl``
-.. |pbm-coordinator| replace:: :program:`pbm-coordinator`
-.. |opt-work-dir| replace:: :option:`--work-dir`
-.. |work-dir| replace:: :dir:`${HOME}/percona-backup-mongodb`
-.. |opt-server-address| replace:: :option:`--server-address`
+.. |amazon-s3| replace:: Amazon Simple Storage Service
+.. |minio| replace:: MinIO
+.. |yaml| replace:: YAML
+
 .. |docker| replace:: Docker
+
+.. Commands
+
+.. |pbm-coordinator| replace:: :program:`pbm-coordinator`
+.. |pbm-agent| replace:: ``pbm-agent``
+.. |pbmctl| replace:: ``pbmctl``
+.. |mongos| replace:: ``mongos``
+.. |pbmctl-restore| replace:: ``pbmctl run restore``
+.. |pbmctl-backup| replace:: ``pbmctl run backup``
+
+.. Assets
+
+.. |storages-yml| replace:: :file:`storages.yml`
+.. |work-dir| replace:: :dir:`${HOME}/percona-backup-mongodb`
+
+.. Options & Parameters (prefix: opt-)
+
+.. |opt-work-dir| replace:: :option:`--work-dir`
+.. |opt-server-address| replace:: :option:`--server-address`
+.. |opt-storage| replace:: :option:`--storage`

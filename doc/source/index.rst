@@ -6,26 +6,50 @@
 |pbm| is a distributed, low-impact solution for achieving consistent backups of
 MongoDB Sharded Clusters and Replica Sets.
 
-The project was inspired by (and intends to replace) the
-`mongodb_consistent_backup
-<https://github.com/Percona-Lab/mongodb_consistent_backup>`_ tool.
+`Percona Server for MongoDB
+<https://www.percona.com/software/mongo-database/percona-server-for-mongodb>`_
+or MongoDB Community v3.6 or higher with `MongoDB Replication
+<https://docs.mongodb.com/manual/replication/>`_ enabled.
 
-.. admonition:: Requirements
+.. note:: 
 
-   `Percona Server for MongoDB
-   <https://www.percona.com/software/mongo-database/percona-server-for-mongodb>`_
-   or MongoDB Community v3.6 or higher with `MongoDB Replication
-   <https://docs.mongodb.com/manual/replication/>`_ enabled.
+   The |pbm| project was inspired by (and intends to replace)
+   `mongodb_consistent_backup`. This tool is not supported any longer.
+
+.. rubric:: Contents
 
 .. toctree::
    :maxdepth: 2
 
-   feature-progress
    architecture
-   building
+   installation
    running
    docker
    contributing
+
+.. _pbm.feature:
+
+.. rubric:: Features
+
+.. hlist::
+   :columns: 2
+
+   - Oplog tailer
+   - Oplog applier
+   - AWS S3 streamer
+   - AWS S3 streamer: Backup (upload)
+   - Mongodump Backup Method
+   - Mongodump Backup Method: Backup
+   - Mongodump Backup Method: Restore
+   - Agent selection algorithm
+   - SSL/TLS support
+   - Replica Set Backup
+   - Sharded Cluster Backup
+   - Sharded Cluster Backup: Pausing of balancer at backup-time
+   - Command-line management utility
+   - Compression: Agent and CLI RPC communications
+   - Authorization of Agents and CLI
+   - Restore from any Point-in-time
 
 .. rubric:: Contact Us
 
