@@ -288,6 +288,9 @@ Starting a backup
 
    $ pbmctl run backup --description "Test backup 01" --storage=./storages.yml
 
+While the ``pbmctl run backup`` operation is running, neither rename nor drop
+collections or indexes from the backup lest the backup operation should fail.
+
 .. _pbm.running.backup.listing:
 
 Listing all completed backups
