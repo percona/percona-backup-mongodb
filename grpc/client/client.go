@@ -461,8 +461,8 @@ func (c *Client) processIncommingServerMessages() {
 			omsg, err = c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
 			omsg = c.processPing()
-		case *pb.ServerMessage_RestoreBackupCheckMsg:
-			omsg, err = c.processRestoreBackupCheck(msg.GetRestoreBackupCheckMsg())
+		// case *pb.ServerMessage_RestoreBackupCheckMsg:
+		// 	omsg, err = c.processRestoreBackupCheck(msg.GetRestoreBackupCheckMsg())
 		case *pb.ServerMessage_CanRestoreBackupMsg:
 			omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupMsg())
 			//omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupCheckMsg())
@@ -486,6 +486,9 @@ func (c *Client) processIncommingServerMessages() {
 			continue
 		case *pb.ServerMessage_GetMongodbVersion:
 			omsg, err = c.processGetMongoDBVersion()
+
+		case *pb.ServerMessage_GetBalancerStatus:
+			omsg, err = c.processGetBalancerStatus()
 		case *pb.ServerMessage_StopBalancerMsg:
 			omsg, err = c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
@@ -569,66 +572,66 @@ func (c *Client) processCancelBackup() error {
 	return err
 }
 
-func (c *Client) processRestoreBackupCheck(msg *pb.RestoreBackupCheck) (*pb.ClientMessage, error) {
-	msg.Host = c.connOpts.Host
-	msg.Port = c.connOpts.Port
-	preserveUUID := true
-	dropCollections := true
-	ingnoreErrors := false
-	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		// For config servers, if we set dropCollections to true, we are going to receive this error:
-		//   cannot drop config.version document while in --configsvr mode
-		// We must ignore the errors and we shouldn't drop the collections
-		dropCollections = false
-		ingnoreErrors = true
-		preserveUUID = false // cannot be used with dropCollections=false
-	}
-	stg, err := c.storages.Get(msg.GetStorageName())
-	if err != nil {
-		return nil, errors.Wrap(err, "invalid storage name received in restoreDBDump")
-	}
-	c.logger.Debug("Starting MakeReader")
-	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
-	if err != nil {
-		return nil, errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
-	}
-
-	input := &restore.MongoRestoreInput{
-		Archive:         "-",
-		DryRun:          false,
-		Host:            msg.Host,
-		Port:            msg.Port,
-		Username:        c.connOpts.User,
-		Password:        c.connOpts.Password,
-		DropCollections: dropCollections,
-		IgnoreErrors:    ingnoreErrors,
-		Gzip:            false,
-		Oplog:           false,
-		Threads:         10,
-		Reader:          rdr,
-		PreserveUUID:    preserveUUID,
-		// A real restore would be applied to a just created and empty instance and it should be
-		// configured to run without user authentication.
-		// For testing purposes, we can skip restoring users and roles.
-		SkipUsersAndRoles: msg.SkipUsersAndRoles,
-	}
-	possible := restore.Possible(input, c.logger)
-	if !possible {
-		c.sendRestoreComplete(fmt.Errorf("backup not ready"))
-	} else {
-		c.logger.Info("Backup ready")
-		c.sendRestoreComplete(fmt.Errorf("backup ready"))
-	}
-	omsg := &pb.ClientMessage{
-		ClientId: c.id,
-		Payload: &pb.ClientMessage_RestoreBackupCheckMsg{
-			RestoreBackupCheckResponse: &pb.RestoreBackupCheckResponse{
-				CanRestore: possible,
-			},
-		},
-	}
-	return omsg, nil
-}
+// func (c *Client) processRestoreBackupCheck(msg *pb.RestoreBackupCheck) (*pb.ClientMessage, error) {
+// 	msg.Host = c.connOpts.Host
+// 	msg.Port = c.connOpts.Port
+// 	preserveUUID := true
+// 	dropCollections := true
+// 	ingnoreErrors := false
+// 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+// 		// For config servers, if we set dropCollections to true, we are going to receive this error:
+// 		//   cannot drop config.version document while in --configsvr mode
+// 		// We must ignore the errors and we shouldn't drop the collections
+// 		dropCollections = false
+// 		ingnoreErrors = true
+// 		preserveUUID = false // cannot be used with dropCollections=false
+// 	}
+// 	stg, err := c.storages.Get(msg.GetStorageName())
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "invalid storage name received in restoreDBDump")
+// 	}
+// 	c.logger.Debug("Starting MakeReader")
+// 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
+// 	}
+//
+// 	input := &restore.MongoRestoreInput{
+// 		Archive:         "-",
+// 		DryRun:          false,
+// 		Host:            msg.Host,
+// 		Port:            msg.Port,
+// 		Username:        c.connOpts.User,
+// 		Password:        c.connOpts.Password,
+// 		DropCollections: dropCollections,
+// 		IgnoreErrors:    ingnoreErrors,
+// 		Gzip:            false,
+// 		Oplog:           false,
+// 		Threads:         10,
+// 		Reader:          rdr,
+// 		PreserveUUID:    preserveUUID,
+// 		// A real restore would be applied to a just created and empty instance and it should be
+// 		// configured to run without user authentication.
+// 		// For testing purposes, we can skip restoring users and roles.
+// 		SkipUsersAndRoles: msg.SkipUsersAndRoles,
+// 	}
+// 	possible := restore.Possible(input, c.logger)
+// 	if !possible {
+// 		c.sendRestoreComplete(fmt.Errorf("backup not ready"))
+// 	} else {
+// 		c.logger.Info("Backup ready")
+// 		c.sendRestoreComplete(fmt.Errorf("backup ready"))
+// 	}
+// 	omsg := &pb.ClientMessage{
+// 		ClientId: c.id,
+// 		Payload: &pb.ClientMessage_RestoreBackupCheckMsg{
+// 			RestoreBackupCheckResponse: &pb.RestoreBackupCheckResponse{
+// 				CanRestore: possible,
+// 			},
+// 		},
+// 	}
+// 	return omsg, nil
+// }
 
 func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMessage, error) {
 	var err error
@@ -1189,7 +1192,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 
 	routers, err := cluster.GetMongosRouters(sess)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+		return nil, errors.Wrap(err, "cannot get mongo routers")
 	}
 	if len(routers) < 1 {
 		return nil, Errorf(NoMongosError, "there are no mongodb routers")
@@ -1251,6 +1254,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1261,6 +1265,49 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 	}
 	c.logger.Debugf("Balancer has been started by %s", c.id)
 
+	return out, nil
+}
+
+func (c *Client) processGetBalancerStatus() (*pb.ClientMessage, error) {
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		return nil, fmt.Errorf("Stop balancer only works on config servers. This is a [%d]%s type",
+			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
+		)
+	}
+
+	mongosSession, err := c.getMongosSession()
+	if err != nil {
+		if IsError(err, NoMongosError) {
+			// In some scenarios like in Kubernetes, there are no mongos instances so, there is nothing to do
+			c.logger.Debugf("There are no mongos instances. Process Balancer status was ignored")
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+
+	defer mongosSession.Close()
+
+	balancer, err := cluster.NewBalancer(mongosSession)
+	if err != nil {
+		return nil, errors.Wrap(err, "processStopBalancer -> cannot create a balancer instance")
+	}
+
+	bs, err := balancer.GetStatus()
+	if err != nil {
+		return nil, err
+	}
+
+	out := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_BalancerStatus{
+			BalancerStatus: &pb.BalancerStatus{
+				Mode:              string(bs.Mode),
+				InBalancerRound:   bs.InBalancerRound,
+				NumBalancerRounds: bs.NumBalancerRounds,
+				Ok:                int32(bs.Ok),
+			},
+		},
+	}
 	return out, nil
 }
 
@@ -1285,6 +1332,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1935,7 +1983,7 @@ func (c *Client) getSession() (*mgo.Session, error) {
 	}()
 
 	if alive {
-		return c.mgoSession.Clone(), nil
+		return c.mgoSession, nil
 	}
 	return nil, fmt.Errorf("MongoDB session is not alive")
 }

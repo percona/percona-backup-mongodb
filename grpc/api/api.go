@@ -141,8 +141,12 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 	}
 	defer func() {
 		a.logger.Info("Starting the balancer")
-		if err := a.messagesServer.StartBalancer(); err != nil {
-			gerr = multierror.Append(gerr, err)
+		if bs := a.messagesServer.BalancerStatus(); bs != nil {
+			if bs.Mode == "full" { // if it was running before starting the backup
+				if err := a.messagesServer.StartBalancer(); err != nil {
+					gerr = multierror.Append(gerr, err)
+				}
+			}
 		}
 	}()
 

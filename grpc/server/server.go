@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -40,6 +39,9 @@ const (
 )
 
 type backupStatus struct {
+	// the balancer status before starting a backup/restore.
+	// After backup/restore has been completed, we must return the balancer status to its original state
+	balancerStatus     *pb.BalancerStatus
 	lastBackupMetadata *BackupMetadata
 	//	lastOplogTs        int64 // Timestamp in Unix format
 	// The name lastBackupErrors is plural because we are concatenating errors using the multierror pkg
@@ -47,6 +49,7 @@ type backupStatus struct {
 	replicasRunningBackup map[string]bool // Key is ReplicasetUUID
 	backupRunning         bool
 	oplogBackupRunning    bool
+	sources               map[string]*Client // clients that ran the last backup
 }
 
 type MessagesServer struct {
@@ -307,6 +310,7 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo []*pb.StorageInfo
 	}
 	var errs error
+	l := &sync.Mutex{}
 
 	for lid, lc := range s.clients {
 		id := lid
@@ -314,7 +318,6 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo, err := c.GetStoragesInfo()
 		if err != nil {
 			errs = multierror.Append(errs, err)
-			return nil, errs
 		}
 		stgs[id] = ssInfo
 	}
@@ -391,7 +394,6 @@ func (s *MessagesServer) LastBackupMetadata() *BackupMetadata {
 }
 
 func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
-	s.logger.Debug("ListBackups -----")
 	files, err := ioutil.ReadDir(s.workDir)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot list workdir %q backup filenames", s.workDir)
@@ -416,6 +418,7 @@ func (s *MessagesServer) ListBackups() (map[string]pb.BackupMetadata, error) {
 
 		backups[file.Name()] = *bm.Metadata()
 
+		// TODO: Why do we need the for the K8s operator?
 		// for replName, source := range s.clients {
 		// 	s.logger.Info("Range replicasets for replset " + replName + "and s.replsname: " + source.ReplicasetName)
 		// 	for bmReplName, metadata := range backups[file.Name()].Replicasets {
@@ -631,6 +634,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
+	if err := s.getBalancerStatus(); err != nil {
+		return errors.Wrap(err, "cannot save the current balancer status")
+	}
+
 	cmdLineOpts, err := s.AllServersCmdLineOpts()
 	if err != nil {
 		return errors.Wrap(err, "cannot Get Cmd Line Opts")
@@ -641,7 +648,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		return errors.Wrapf(err, "cannot refresh clients state for backup")
 	}
 
-	clients, err := s.BackupSourceByReplicaset()
+	s.backupStatus.sources, err = s.BackupSourceByReplicaset()
 	if err != nil {
 		return errors.Wrapf(err, "cannot start backup. Cannot find backup source for replicas")
 	}
@@ -660,7 +667,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		s.logger.Errorf("cannot trigger event %s: %s", eventName(BackupStartedEvent), err)
 	}
 
-	for replName, client := range clients {
+	for replName, client := range s.backupStatus.sources {
 		s.logger.Infof("Starting backup for replicaset %q on client %s %s %s",
 			replName,
 			client.ID,
@@ -716,14 +723,29 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 }
 
 func (s *MessagesServer) getMongoDBVersion() (string, error) {
-	//s.lock.Lock()
-	//defer s.lock.Unlock()
 	for _, client := range s.clients {
 		if client.NodeType != pb.NodeType_NODE_TYPE_MONGOS {
 			return client.GetMongoDBVersion()
 		}
 	}
 	return "", fmt.Errorf("cannot get MongoDB version. There are no agents connected to a mongod instance")
+}
+
+func (s *MessagesServer) getBalancerStatus() error {
+	c := s.getClientByType(pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR)
+	bs, err := c.getBalancerStatus()
+
+	// Update the status even if there is a nil in the response.
+	// If for some reason the mongoS instace has gone, we should clear s.backupStatus.balancerStatus so
+	// the balancer is not re-enabled based on an old value
+	s.backupStatusLock.Lock()
+	s.backupStatus.balancerStatus = bs
+	s.backupStatusLock.Unlock()
+
+	if err != nil {
+		return errors.Wrap(err, "cannot get balancer status. internal status was resetted")
+	}
+	return nil
 }
 
 // StartBalancer restarts the balancer if this is a sharded system
@@ -901,16 +923,33 @@ func (s *MessagesServer) WriteBackupMetadata() error {
 	// All clients should have access to all storages so any client will be able to write the metadata
 	s.clientsLock.Lock()
 	for _, client := range s.clients {
-		c = client
-		break
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+			c = client
+			break
+		}
 	}
 	s.clientsLock.Unlock()
 
-	return c.writeBackupMetadata(
-		s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
-		s.backupStatus.lastBackupMetadata.metadata.StorageName,
-		buf,
-	)
+	// Try to write the metadata to theconfig server
+	if c != nil {
+		return c.writeBackupMetadata(
+			s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
+			s.backupStatus.lastBackupMetadata.metadata.StorageName,
+			buf,
+		)
+	}
+
+	// if there are no config servers, try to write the metadata using one of the agents that ran
+	// the last backup
+	for _, c := range s.backupStatus.sources {
+		return c.writeBackupMetadata(
+			s.backupStatus.lastBackupMetadata.NamePrefix()+".json",
+			s.backupStatus.lastBackupMetadata.metadata.StorageName,
+			buf,
+		)
+	}
+
+	return nil
 }
 
 // WorkDir returns the server working directory.
@@ -961,7 +1000,9 @@ func (s *MessagesServer) DBBackupFinished(ctx context.Context, msg *pb.DBBackupF
 
 	replicasets := s.ReplicasetsRunningDBBackup()
 	if len(replicasets) == 0 {
-		s.triggerEvent(BackupFinishedEvent, time.Now())
+		if err := s.triggerEvent(BackupFinishedEvent, time.Now()); err != nil {
+			s.AddError(errors.Wrap(err, "cannot trigger BackupFinished event"))
+		}
 	}
 
 	return &pb.DBBackupFinishedAck{}, nil
@@ -1417,6 +1458,12 @@ func (s *MessagesServer) WaitForEvent(event int, timeout time.Duration) (interfa
 	return re, err
 }
 
+func (s *MessagesServer) BalancerStatus() *pb.BalancerStatus {
+	s.backupStatusLock.Lock()
+	defer s.backupStatusLock.Unlock()
+	return s.backupStatus.balancerStatus
+}
+
 func isValidEvent(e int) bool {
 	validEvents := []int{BackupFinishedEvent, BackupStartedEvent, BeforeBalancerStartEvent,
 		AfterBalancerStartEvent, BeforeBalancerStopEvent, AfterBalancerStopEvent}
@@ -1439,8 +1486,20 @@ func eventName(event int) string {
 		"AfterBalancerStopEvent",
 	}
 	if event < 0 || event >= len(names) {
-		debug.PrintStack()
 		return fmt.Sprintf("invalid event %d", event)
 	}
 	return names[event]
+}
+
+func (s *MessagesServer) getClientByType(pb.NodeType) *Client {
+	var c *Client
+	s.clientsLock.Lock()
+	for _, client := range s.clients {
+		if client.NodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+			c = client
+			break
+		}
+	}
+	s.clientsLock.Unlock()
+	return c
 }
