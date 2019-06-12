@@ -278,8 +278,6 @@ func (s *MessagesServer) Clients() map[string]Client {
 
 func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 	replicas := make(map[string][]Client)
-	s.clientsLock.Lock()
-
 	for _, client := range s.clients {
 		if client.ReplicasetName == "" { // mongos?
 			continue
@@ -291,7 +289,6 @@ func (s *MessagesServer) ClientsByReplicaset() map[string][]Client {
 
 	}
 
-	s.clientsLock.Unlock()
 	return replicas
 }
 
@@ -300,7 +297,6 @@ func (s *MessagesServer) LastOplogTs() int64 {
 }
 
 func (s *MessagesServer) ListStorages() (map[string]StorageEntry, error) {
-
 	return s.listStorages()
 }
 
@@ -314,41 +310,16 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo []*pb.StorageInfo
 	}
 	var errs error
-	l := &sync.Mutex{}
 
-	wga := &sync.WaitGroup{}
-	wgb := sync.WaitGroup{}
-	ch := make(chan resp)
-
-	wga.Add(1)
-	go func() {
-		for r := range ch {
-			stgs[r.id] = r.ssInfo
-		}
-		wga.Done()
-	}()
-
-	s.clientsLock.Lock()
 	for lid, lc := range s.clients {
 		id := lid
 		c := lc
-		wgb.Add(1)
-		go func() {
-			defer wgb.Done()
-			ssInfo, err := c.GetStoragesInfo()
-			if err != nil {
-				l.Lock()
-				errs = multierror.Append(errs, err)
-				l.Unlock()
-				return
-			}
-			ch <- resp{id: id, ssInfo: ssInfo}
-		}()
+		ssInfo, err := c.GetStoragesInfo()
+		if err != nil {
+			errs = multierror.Append(errs, err)
+		}
+		stgs[id] = ssInfo
 	}
-	s.clientsLock.Unlock()
-	wgb.Wait()
-	close(ch)
-	wga.Wait()
 
 	if errs != nil {
 		return nil, errs
