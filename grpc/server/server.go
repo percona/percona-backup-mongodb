@@ -310,7 +310,6 @@ func (s *MessagesServer) listStorages() (map[string]StorageEntry, error) {
 		ssInfo []*pb.StorageInfo
 	}
 	var errs error
-	l := &sync.Mutex{}
 
 	for lid, lc := range s.clients {
 		id := lid
