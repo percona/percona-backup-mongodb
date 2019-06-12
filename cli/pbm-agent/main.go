@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -36,6 +40,8 @@ const (
 	defaultMongoDBPort    = "27017"
 )
 
+type dialerFn func(addr *mgo.ServerAddr) (net.Conn, error)
+
 type cliOptions struct {
 	app                  *kingpin.Application
 	configFile           string
@@ -52,7 +58,8 @@ type cliOptions struct {
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
 	TLSKeyFile       string `yaml:"tls_key_file,omitempty" kingpin:"tls-key-file"`
-	UseSysLog        bool   `yaml:"use_syslog,omitempty" kingpin:"use-syslog"`
+
+	UseSysLog bool `yaml:"use_syslog,omitempty" kingpin:"use-syslog"`
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options,omitempty"`
@@ -139,6 +146,17 @@ func main() {
 		if err != nil {
 			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.MongodbConnOptions.DSN, err)
 		}
+	}
+
+	if opts.MongodbSslOptions.SSLCAFile != "" && opts.MongodbSslOptions.SSLCRLFile != "" &&
+		opts.MongodbSslOptions.SSLPEMKeyFile != "" {
+		dialer, err := makeDialer(opts.MongodbSslOptions.SSLCAFile, opts.MongodbSslOptions.SSLCRLFile,
+			opts.MongodbSslOptions.SSLPEMKeyFile, opts.MongodbSslOptions.SSLPEMKeyPassword)
+		if err != nil {
+			log.Fatalf("cannot create a MongoDB dialer: %s", err)
+		}
+		di.DialServer = dialer
+		opts.MongodbSslOptions.UseSSL = true
 	}
 
 	// Test the connection to the MongoDB server before starting the agent.
@@ -260,6 +278,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("server-compressor", "Backup coordintor gRPC compression (gzip or none)").
 		Default().
 		EnumVar(&opts.ServerCompressor, grpcCompressors...)
+
 	app.Flag("tls", "Use TLS for server connection").
 		BoolVar(&opts.TLS)
 	app.Flag("tls-cert-file", "TLS certificate file").
@@ -268,6 +287,16 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		ExistingFileVar(&opts.TLSKeyFile)
 	app.Flag("tls-ca-file", "TLS CA file").
 		ExistingFileVar(&opts.TLSCAFile)
+
+	app.Flag("mongodb-ssl-cert-file", "MongoDB SSL certificate file").
+		ExistingFileVar(&opts.MongodbSslOptions.SSLCRLFile)
+	app.Flag("mongodb-ssl-key-file", "MongoDB SSL key file").
+		ExistingFileVar(&opts.MongodbSslOptions.SSLPEMKeyFile)
+	app.Flag("mongodb-ssl-ca-file", "MongoDB SSL CA file").
+		ExistingFileVar(&opts.MongodbSslOptions.SSLCAFile)
+	app.Flag("mongodb-ssl-key-file-password", "MongoDB SSL key file password").
+		StringVar(&opts.MongodbSslOptions.SSLPEMKeyPassword)
+
 	app.Flag("mongodb-dsn", "MongoDB connection string").
 		StringVar(&opts.MongodbConnOptions.DSN)
 	app.Flag("mongodb-host", "MongoDB hostname").
@@ -320,6 +349,10 @@ func validateOptions(opts *cliOptions) error {
 	opts.TLSCertFile = utils.Expand(opts.TLSCertFile)
 	opts.TLSKeyFile = utils.Expand(opts.TLSKeyFile)
 	opts.PIDFile = utils.Expand(opts.PIDFile)
+
+	opts.MongodbSslOptions.SSLCAFile = utils.Expand(opts.MongodbSslOptions.SSLCAFile)
+	opts.MongodbSslOptions.SSLCRLFile = utils.Expand(opts.MongodbSslOptions.SSLCRLFile)
+	opts.MongodbSslOptions.SSLPEMKeyFile = utils.Expand(opts.MongodbSslOptions.SSLPEMKeyFile)
 
 	if opts.PIDFile != "" {
 		if err := writePidFile(opts.PIDFile); err != nil {
@@ -374,6 +407,70 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 		))
 	}
 	return grpcOpts
+}
+
+func makeDialer(caFile, certFile, keyFile, keyPassword string) (dialerFn, error) {
+	// --sslCAFile
+	rootCerts := x509.NewCertPool()
+	ca, err := ioutil.ReadFile(caFile)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot read CA cert file")
+	}
+	rootCerts.AppendCertsFromPEM(ca)
+
+	// --sslPEMKeyFile
+	clientCerts := []tls.Certificate{}
+
+	crt, err := ioutil.ReadFile(certFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot read %s", certFile)
+	}
+
+	key, err := ioutil.ReadFile(keyFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot read %s", keyFile)
+	}
+	key = decodeKey(key, keyPassword)
+
+	cert, err := tls.X509KeyPair(crt, key)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot read cert or key file")
+	}
+	clientCerts = append(clientCerts, cert)
+
+	dialer := func(addr *mgo.ServerAddr) (net.Conn, error) {
+		return tls.Dial("tcp", addr.String(), &tls.Config{
+			RootCAs:      rootCerts,
+			Certificates: clientCerts,
+		})
+	}
+
+	return dialer, nil
+}
+
+func decodeKey(key []byte, pass string) []byte {
+	var v *pem.Block
+	var pkey []byte
+
+	for {
+		v, key = pem.Decode(key)
+		if v == nil {
+			break
+		}
+		if v.Type == "RSA PRIVATE KEY" {
+			if x509.IsEncryptedPEMBlock(v) {
+				pkey, _ = x509.DecryptPEMBlock(v, []byte(pass))
+				pkey = pem.EncodeToMemory(&pem.Block{
+					Type:  v.Type,
+					Bytes: pkey,
+				})
+			} else {
+				pkey = pem.EncodeToMemory(v)
+			}
+		}
+	}
+	//c, _ := tls.X509KeyPair(pem.EncodeToMemory(pemBlocks[0]), pkey)
+	return pkey
 }
 
 // Write a pid file, but first make sure it doesn't exist with a running pid.
