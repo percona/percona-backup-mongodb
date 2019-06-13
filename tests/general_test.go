@@ -156,6 +156,34 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 }
 
+func TestNotSharding(t *testing.T) {
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+
+	portRsList := []testGrpc.PortRs{
+		{Port: "27017", Rs: ""},
+	}
+
+	if err := d.StartAgents(portRsList); err != nil {
+		t.Fatalf("Cannot start config server: %s", err)
+	}
+
+	time.Sleep(10 * time.Second)
+	d.Stop()
+
+}
+
 func TestBackups(t *testing.T) {
 	tmpDir := getTempDir(t)
 	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist

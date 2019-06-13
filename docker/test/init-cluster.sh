@@ -115,7 +115,8 @@ done
 echo "# INFO: all replsets have primary"
 
 
-for MONGODB_PORT in ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}; do
+for MONGODB_PORT in 27017 ${TEST_MONGODB_S1_PRIMARY_PORT} ${TEST_MONGODB_S2_PRIMARY_PORT} ${TEST_MONGODB_CONFIGSVR1_PORT}; do
+    echo "PORT $MONGODB_PORT"
 	tries=1
 	while [ $tries -lt $max_tries ]; do
 		/usr/bin/mongo ${MONGO_FLAGS} \

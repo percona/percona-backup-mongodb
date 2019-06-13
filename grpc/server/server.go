@@ -633,8 +633,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
-	if err := s.getBalancerStatus(); err != nil {
-		return errors.Wrap(err, "cannot save the current balancer status")
+	if s.IsShardedSystem() {
+		if err := s.getBalancerStatus(); err != nil {
+			return errors.Wrap(err, "cannot save the current balancer status")
+		}
 	}
 
 	cmdLineOpts, err := s.AllServersCmdLineOpts()
