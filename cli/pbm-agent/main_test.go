@@ -3,6 +3,7 @@ package main
 import (
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -62,6 +63,34 @@ func TestOverrideDefaultsFromCommandLine(t *testing.T) {
 	if !reflect.DeepEqual(opts, wantOpts) {
 		t.Errorf("Invalid default options. Want: \n%s\nGot:\n%s", pretty.Sprint(wantOpts), pretty.Sprint(opts))
 	}
+}
+
+func TestMongoDBSSL(t *testing.T) {
+	opts := &cliOptions{
+		MongodbConnOptions: client.ConnectionOptions{
+			Host:           testutils.MongoDBHost,
+			Port:           testutils.MongoDBShard1PrimaryPort,
+			User:           testutils.MongoDBUser,
+			Password:       testutils.MongoDBPassword,
+			AuthDB:         "admin",
+			ReplicasetName: testutils.MongoDBShard1ReplsetName,
+		},
+		MongodbSslOptions: client.SSLOptions{
+			SSLCAFile:     path.Join(testutils.BaseDir(), "docker", "test", "ssl", "rootCA.crt"),
+			SSLPEMKeyFile: path.Join(testutils.BaseDir(), "docker", "test", "ssl", "client.pem"),
+		},
+	}
+
+	di, err := buildDialInfo(opts)
+	if err != nil {
+		t.Errorf("Cannot get dial info: %s", err)
+	}
+
+	sess, err := dbConnect(di, 1, 0)
+	if err != nil {
+		t.Errorf("Cannot connect to the db: %s", err)
+	}
+	sess.Close()
 }
 
 func TestOverrideDefaultsFromEnv(t *testing.T) {

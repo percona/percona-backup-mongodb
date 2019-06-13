@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,6 @@ import (
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/percona/percona-backup-mongodb/storage"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -118,7 +118,7 @@ func NewDaemon(ctx context.Context, workDir string, storages *storage.Storages, 
 	return d, nil
 }
 
-func (d *Daemon) StartAgents(portRsList []PortRs) error {
+func (d *Daemon) StartAgents(portRsList []PortRs, useSSL bool) error {
 	for _, portRs := range portRsList {
 		di, err := testutils.DialInfoForPort(portRs.Rs, portRs.Port)
 		if err != nil {
@@ -132,14 +132,23 @@ func (d *Daemon) StartAgents(portRsList []PortRs) error {
 			Password:       di.Password,
 			ReplicasetName: di.ReplicaSetName,
 		}
+		sslOptions := client.SSLOptions{}
+
+		if useSSL {
+			sslOptions = client.SSLOptions{
+				SSLCAFile:     path.Join(testutils.BaseDir(), "docker", "test", "ssl", "rootCA.crt"),
+				SSLPEMKeyFile: path.Join(testutils.BaseDir(), "docker", "test", "ssl", "client.pem"),
+				UseSSL:        true,
+			}
+		}
 
 		input := client.InputOptions{
 			BackupDir:     d.workDir,
 			DbConnOptions: dbConnOpts,
-			//DbSSLOptions  SSLOptions
-			GrpcConn: d.clientConn,
-			Logger:   d.logger,
-			Storages: d.storages,
+			GrpcConn:      d.clientConn,
+			DbSSLOptions:  sslOptions,
+			Logger:        d.logger,
+			Storages:      d.storages,
 		}
 		c, err := client.NewClient(d.ctx, input)
 		if err != nil {
@@ -169,7 +178,24 @@ func (d *Daemon) StartAllAgents() error {
 
 		{Port: testutils.MongoDBMongosPort, Rs: ""},
 	}
-	return d.StartAgents(portRsList)
+	return d.StartAgents(portRsList, false)
+}
+
+func (d *Daemon) StartAllAgentsUsingSSL() error {
+	portRsList := []PortRs{
+		{Port: testutils.MongoDBShard1PrimaryPort, Rs: testutils.MongoDBShard1ReplsetName},
+		{Port: testutils.MongoDBShard1Secondary1Port, Rs: testutils.MongoDBShard1ReplsetName},
+		{Port: testutils.MongoDBShard1Secondary2Port, Rs: testutils.MongoDBShard1ReplsetName},
+
+		{Port: testutils.MongoDBShard2PrimaryPort, Rs: testutils.MongoDBShard2ReplsetName},
+		{Port: testutils.MongoDBShard2Secondary1Port, Rs: testutils.MongoDBShard2ReplsetName},
+		{Port: testutils.MongoDBShard2Secondary2Port, Rs: testutils.MongoDBShard2ReplsetName},
+
+		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
+
+		{Port: testutils.MongoDBMongosPort, Rs: ""},
+	}
+	return d.StartAgents(portRsList, true)
 }
 
 func (d *Daemon) APIClient() *grpc.Server {
@@ -185,9 +211,7 @@ func (d *Daemon) Stop() {
 	defer d.lock.Unlock()
 
 	for _, client := range d.clients {
-		if err := client.Stop(); err != nil {
-			log.Errorf("Cannot stop client %s: %s", client.ID(), err)
-		}
+		client.Stop()
 	}
 	d.MessagesServer.Stop()
 	d.cancelFunc()
