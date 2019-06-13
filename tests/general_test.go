@@ -156,7 +156,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 }
 
-func TestBackupsUsingSSL(t *testing.T) {
+func TestBackupUsingSSL(t *testing.T) {
 	tmpDir := getTempDir(t)
 	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
