@@ -359,11 +359,11 @@ When |pbm-agent| starts successfully, the new node appears on the list of nodes.
       127.0.0.1:27018      - 5cb864db62350b10f654e592 - NODE_TYPE_MONGOD_SHARDSVR  - 127.0.0.1:27018   - pbmdocshard           -       No / No 
       127.0.0.1:27019      - 5cb864db62350b10f654e592 - NODE_TYPE_MONGOS           - 127.0.0.1:27019   -                       -       No / No 
 
-Check the registered storages by using ``pbmctl list storages`` command:
+Check the registered storages by using ``pbmctl list storage`` command:
 
 .. code-block:: bash
 
-   $ pbmctl list storages
+   $ pbmctl list storage
 
 .. admonition:: Output
 
