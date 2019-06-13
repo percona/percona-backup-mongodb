@@ -66,7 +66,7 @@ Command         Description
 ==============  ================================================================
 list nodes      List all nodes (agents) connected to the coordinator
 list backups    List all finished backups.
-list storages   List all storages configured via |pbm-agent| on one of the
+list storage    List all storages configured via |pbm-agent| on one of the
                 members of the replica set.
 run backup      Start a new backup
 run restore     Restore a backup
