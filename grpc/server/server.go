@@ -633,12 +633,6 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 
 	s.backupStatus.lastBackupMetadata = NewBackupMetadata(opts)
 
-	if s.IsShardedSystem() {
-		if err := s.getBalancerStatus(); err != nil {
-			return errors.Wrap(err, "cannot save the current balancer status")
-		}
-	}
-
 	cmdLineOpts, err := s.AllServersCmdLineOpts()
 	if err != nil {
 		return errors.Wrap(err, "cannot Get Cmd Line Opts")
@@ -702,6 +696,7 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 			return errors.Wrapf(err, "cannot add replicaset to metadata")
 		}
 
+		//client.setOplogTailerRunning(true)
 		msg := &pb.StartBackup{
 			BackupType:      opts.GetBackupType(),
 			DbBackupName:    dbBackupName,
@@ -734,6 +729,10 @@ func (s *MessagesServer) getMongoDBVersion() (string, error) {
 
 func (s *MessagesServer) getBalancerStatus() error {
 	c := s.getClientByType(pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR)
+	if c == nil { // Not a sharded cluster.
+		return nil
+	}
+
 	bs, err := c.getBalancerStatus()
 
 	// Update the status even if there is a nil in the response.

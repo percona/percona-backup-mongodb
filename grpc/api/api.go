@@ -135,21 +135,14 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 		// Here we are just using the same pb.StartBackup message to avoid declaring a new structure.
 	}
 
-	a.logger.Info("Stopping the balancer")
-	if err := a.messagesServer.StopBalancer(); err != nil {
-		return response, err
-	}
-	defer func() {
-		a.logger.Info("Starting the balancer")
+	if a.messagesServer.IsShardedSystem() {
+		a.logger.Infof("Is a sharded cluster. Getting the balancer status")
 		if bs := a.messagesServer.BalancerStatus(); bs != nil {
-			if bs.Mode == "full" { // if it was running before starting the backup
-				if err := a.messagesServer.StartBalancer(); err != nil {
-					gerr = multierror.Append(gerr, err)
-				}
+			if err := a.messagesServer.StopBalancer(); err != nil {
+				return response, errors.Wrap(err, "cannot stop the balancer")
 			}
 		}
-	}()
-
+	}
 	a.logger.Debug("Starting the backup")
 	if err := a.messagesServer.StartBackup(msg); err != nil {
 		return response, err
@@ -176,6 +169,16 @@ func (a *Server) RunBackup(ctx context.Context, opts *pbapi.RunBackupParams) (*p
 
 	mdFilename := msg.NamePrefix + ".json"
 
+	if a.messagesServer.IsShardedSystem() {
+		a.logger.Info("Starting the balancer")
+		if bs := a.messagesServer.BalancerStatus(); bs != nil {
+			if bs.Mode == "full" { // if it was running before starting the backup
+				if err := a.messagesServer.StartBalancer(); err != nil {
+					a.logger.Errorf("cannot restart the balancer: %s", err)
+				}
+			}
+		}
+	}
 	// This writes the backup metadata along with the backup files
 	if err := a.messagesServer.WriteBackupMetadata(); err != nil {
 		gerr = multierror.Append(gerr, fmt.Errorf("cannot write backup metadata: %s", err))
