@@ -399,9 +399,7 @@ func TestClientDisconnect(t *testing.T) {
 
 	clientsCount1 := len(d.MessagesServer.Clients())
 	// Disconnect a client to check if the server detects the disconnection immediately
-	if err := d.Clients()[0].Stop(); err != nil {
-		t.Errorf("Cannot stop agent %s: %s", d.Clients()[0].ID(), err)
-	}
+	d.Clients()[0].Stop()
 
 	time.Sleep(2 * time.Second)
 
@@ -483,9 +481,7 @@ func TestValidateReplicasetAgents(t *testing.T) {
 	for _, client := range d.Clients() {
 		if client.ReplicasetName() == "rs1" {
 			log.Infof("Stopping client: %s, rs: %s\n", client.NodeName(), client.ReplicasetName())
-			if err := client.Stop(); err != nil {
-				t.Errorf("Cannot stop client %s: %s", client.ID(), err)
-			}
+			client.Stop()
 			time.Sleep(1 * time.Second)
 		}
 	}
@@ -521,9 +517,7 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	for _, client := range d.Clients() {
 		if client.NodeName() == bs["rs1"].NodeName {
-			if err := client.Stop(); err != nil {
-				t.Errorf("Cannot stop client %s: %s", client.NodeName(), err)
-			}
+			client.Stop()
 		}
 	}
 

@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -414,15 +415,21 @@ func (c *Client) register() error {
 	return fmt.Errorf("unknow response type %T", response.Payload)
 }
 
-func (c *Client) Stop() error {
+func (c *Client) Stop() {
+	select {
+	case c.watchDogStopChan <- struct{}{}: // in case the agent was already stopped
+		c.logger.Debugf("Stopping agent's DB watchdog")
+	default:
+	}
+	c.stop()
+}
+
+func (c *Client) stop() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.running = false
-	c.watchDogStopChan <- struct{}{}
 
 	c.cancelFunc()
-	return nil
-	//return c.stream.CloseSend()
 }
 
 func (c *Client) IsDBBackupRunning() bool {
@@ -537,9 +544,8 @@ func (c *Client) dbWatchdog() {
 		case <-time.After(dbPingInterval):
 			if c.mgoSession == nil || c.mgoSession.Ping() != nil {
 				if c.isRunning() {
-					c.logger.Infof("Closing grpc connection with coordinator: %v",
-						c.Stop(),
-					)
+					c.logger.Info("Closing grpc connection with coordinator")
+					c.stop()
 				}
 
 				c.dbReconnect()
@@ -993,7 +999,9 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	if err != nil {
 		c.logger.Debug("Restore dunp: " + err.Error())
 		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_INVALID
-		c.sendRestoreComplete(err)
+		if errs := c.sendRestoreComplete(err); errs != nil {
+			err = multierror.Append(err, errs)
+		}
 		return err
 	}
 
@@ -1798,9 +1806,8 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	if !possible {
 		c.logger.Info("Backup not ready")
 		return fmt.Errorf("backup not ready")
-	} else {
-		c.logger.Info("Backup ready")
 	}
+	c.logger.Info("Backup ready")
 	r, err := restore.NewMongoRestore(input, c.logger)
 	if err != nil {
 		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)

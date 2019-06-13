@@ -17,7 +17,6 @@ import (
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/percona/percona-backup-mongodb/storage"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -212,9 +211,7 @@ func (d *Daemon) Stop() {
 	defer d.lock.Unlock()
 
 	for _, client := range d.clients {
-		if err := client.Stop(); err != nil {
-			log.Errorf("Cannot stop client %s: %s", client.ID(), err)
-		}
+		client.Stop()
 	}
 	d.MessagesServer.Stop()
 	d.cancelFunc()
