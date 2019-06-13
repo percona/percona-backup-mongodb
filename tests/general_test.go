@@ -156,7 +156,7 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 }
 
-func TestBackups(t *testing.T) {
+func TestBackupsUsingSSL(t *testing.T) {
 	tmpDir := getTempDir(t)
 	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
@@ -170,6 +170,42 @@ func TestBackups(t *testing.T) {
 		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
 	}
 	defer d.Stop()
+
+	if err := d.StartAllAgents(); err != nil {
+		t.Fatalf("Cannot start all agents: %s", err)
+	}
+
+	stgName := localFileSystemStorage
+	compressionType := pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION
+
+	msg := &pb.StartBackup{
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		CompressionType: compressionType,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
+		Description:     "test_backup_" + pb.CompressionType_name[int32(compressionType)] + "_" + stgName,
+		StorageName:     stgName,
+	}
+
+	t.Run("params.Name", func(t *testing.T) {
+		testBackups(t, 1, msg, d)
+	})
+}
+
+func TestBackups(t *testing.T) {
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
 
 	if err := d.StartAllAgents(); err != nil {
 		t.Fatalf("Cannot start all agents: %s", err)
@@ -209,26 +245,9 @@ func TestBackups(t *testing.T) {
 		t.Run(params.Name, func(t *testing.T) {
 			testCount++
 			testBackups(t, testCount, params.Params, d)
-			// session, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
-			// if err != nil {
-			// 	log.Fatalf("Cannot connect to the DB: %s", err)
-			// }
-			// session.SetMode(mgo.Strong, true)
-
-			// defer session.Close()
-			// balancer, err := cluster.NewBalancer(session)
-			// if err != nil {
-			// 	t.Errorf("Cannot instantiate a new cluster: %s", err)
-			// 	return
-			// }
-
-			// _, err = balancer.GetStatus()
-			// if err != nil {
-			// 	t.Errorf("Cannot get balancer status: %s", err)
-			// 	return
-			// }
 		})
 	}
+	d.Stop()
 }
 
 func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daemon) {
@@ -412,7 +431,8 @@ func TestListStorages(t *testing.T) {
 		t.Errorf("Cannot list remote storage: %s", err)
 	}
 	if len(storagesList) != len(testutils.TestingStorages().Storages) {
-		t.Errorf("Invalid number of remote storage entries. Wanted %d, got %d", len(testutils.TestingStorages().Storages), len(storagesList))
+		t.Errorf("Invalid number of remote storage entries. Wanted %d, got %d",
+			len(testutils.TestingStorages().Storages), len(storagesList))
 	}
 
 	localhost := "127.0.0.1"
@@ -636,6 +656,7 @@ func testRestoreWithMetadata(t *testing.T, d *testGrpc.Daemon, md *pb.BackupMeta
 	if err := d.MessagesServer.WaitRestoreFinish(); err != nil {
 		t.Errorf("WaitRestoreFinish has failed: %s", err)
 	}
+	d.MessagesServer.WaitRestoreFinish()
 }
 
 func TestConfigServerClusterID(t *testing.T) {
@@ -657,7 +678,7 @@ func TestConfigServerClusterID(t *testing.T) {
 		{Port: testutils.MongoDBConfigsvr1Port, Rs: testutils.MongoDBConfigsvrReplsetName},
 	}
 
-	if err := d.StartAgents(portRsList); err != nil {
+	if err := d.StartAgents(portRsList, false); err != nil {
 		t.Fatalf("Cannot start config server: %s", err)
 	}
 

@@ -64,13 +64,14 @@ type Client struct {
 	sslOpts     SSLOptions
 	isMasterDoc *mdbstructs.IsMaster
 
-	storages        *storage.Storages
-	mongoDumper     *dumper.Mongodump
-	oplogTailer     *oplog.OplogTail
-	logger          *logrus.Logger
-	grpcClientConn  *grpc.ClientConn
-	grpcClient      pb.MessagesClient
-	dbReconnectChan chan struct{}
+	storages         *storage.Storages
+	mongoDumper      *dumper.Mongodump
+	oplogTailer      *oplog.OplogTail
+	logger           *logrus.Logger
+	grpcClientConn   *grpc.ClientConn
+	grpcClient       pb.MessagesClient
+	dbReconnectChan  chan struct{}
+	watchDogStopChan chan struct{}
 	//
 	status pb.Status
 	lock   *sync.Mutex
@@ -194,13 +195,14 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 		status: pb.Status{
 			BackupType: pb.BackupType_BACKUP_TYPE_LOGICAL,
 		},
-		connOpts:        in.DbConnOptions,
-		sslOpts:         in.DbSSLOptions,
-		logger:          in.Logger,
-		lock:            &sync.Mutex{},
-		running:         true,
-		mgoDI:           di,
-		dbReconnectChan: make(chan struct{}),
+		connOpts:         in.DbConnOptions,
+		sslOpts:          in.DbSSLOptions,
+		logger:           in.Logger,
+		lock:             &sync.Mutex{},
+		running:          true,
+		mgoDI:            di,
+		dbReconnectChan:  make(chan struct{}),
+		watchDogStopChan: make(chan struct{}),
 		// This lock is used to sync the access to the stream Send() method.
 		// For example, if the backup is running, we can receive a Ping request from
 		// the server but while we are sending the Ping response, the backup can finish
@@ -416,6 +418,7 @@ func (c *Client) Stop() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.running = false
+	c.watchDogStopChan <- struct{}{}
 
 	c.cancelFunc()
 	return nil
@@ -527,6 +530,10 @@ func (c *Client) processIncommingServerMessages() {
 func (c *Client) dbWatchdog() {
 	for {
 		select {
+		case <-c.watchDogStopChan:
+			return
+		case <-c.dbReconnectChan:
+			c.dbReconnect()
 		case <-time.After(dbPingInterval):
 			if c.mgoSession == nil || c.mgoSession.Ping() != nil {
 				if c.isRunning() {
@@ -547,8 +554,6 @@ func (c *Client) dbWatchdog() {
 					c.newCoordinatorStream(),
 				)
 			}
-		case <-c.dbReconnectChan:
-			c.dbReconnect()
 		}
 	}
 }

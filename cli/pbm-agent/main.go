@@ -129,59 +129,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Connect to the MongoDB instance
-	var di *mgo.DialInfo
-	if opts.MongodbConnOptions.DSN == "" {
-		di = &mgo.DialInfo{
-			Addrs:          []string{opts.MongodbConnOptions.Host + ":" + opts.MongodbConnOptions.Port},
-			Username:       opts.MongodbConnOptions.User,
-			Password:       opts.MongodbConnOptions.Password,
-			ReplicaSetName: opts.MongodbConnOptions.ReplicasetName,
-			FailFast:       true,
-			Source:         "admin",
-		}
-	} else {
-		di, err = mgo.ParseURL(opts.MongodbConnOptions.DSN)
-		di.FailFast = true
-		if err != nil {
-			log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.MongodbConnOptions.DSN, err)
-		}
-	}
-
-	if opts.MongodbSslOptions.SSLCAFile != "" && opts.MongodbSslOptions.SSLCRLFile != "" &&
-		opts.MongodbSslOptions.SSLPEMKeyFile != "" {
-		dialer, err := makeDialer(opts.MongodbSslOptions.SSLCAFile, opts.MongodbSslOptions.SSLCRLFile,
-			opts.MongodbSslOptions.SSLPEMKeyFile, opts.MongodbSslOptions.SSLPEMKeyPassword)
-		if err != nil {
-			log.Fatalf("cannot create a MongoDB dialer: %s", err)
-		}
-		di.DialServer = dialer
-		opts.MongodbSslOptions.UseSSL = true
+	di, err := buildDialInfo(opts)
+	if err != nil {
+		log.Fatalf("Cannot parse MongoDB DSN %q, %s", opts.MongodbConnOptions.DSN, err)
 	}
 
 	// Test the connection to the MongoDB server before starting the agent.
 	// We don't want to wait until backup/restore start to know there is an error with the
 	// connection options
-	connectionAttempts := 0
-	for {
-		connectionAttempts++
-		mdbSession, err := mgo.DialWithInfo(di)
-		if err != nil {
-			log.Errorf("Cannot connect to MongoDB at %s: %s. Connection atempt %d of %d",
-				di.Addrs[0], err, connectionAttempts, opts.MongodbConnOptions.ReconnectCount)
-			if opts.MongodbConnOptions.ReconnectCount == 0 || connectionAttempts < opts.MongodbConnOptions.ReconnectCount {
-				time.Sleep(time.Duration(opts.MongodbConnOptions.ReconnectDelay) * time.Second)
-				continue
-			}
-			log.Fatalf("Could not connect to MongoDB. Retried every %d seconds, %d times",
-				opts.MongodbConnOptions.ReconnectDelay, connectionAttempts)
-		}
-		if err := mdbSession.Ping(); err != nil {
-			log.Fatalf("Cannot connect to the database server: %s", err)
-		}
-		mdbSession.Close()
-		break
+	mdbSession, err := dbConnect(di, opts.MongodbConnOptions.ReconnectCount, opts.MongodbConnOptions.ReconnectDelay)
+	if err != nil {
+		log.Fatalf("Cannot connect to the database: %s", err)
 	}
+	mdbSession.Close()
 
 	log.Infof("Connected to MongoDB at %s", di.Addrs[0])
 
@@ -288,13 +248,11 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("tls-ca-file", "TLS CA file").
 		ExistingFileVar(&opts.TLSCAFile)
 
-	app.Flag("mongodb-ssl-cert-file", "MongoDB SSL certificate file").
-		ExistingFileVar(&opts.MongodbSslOptions.SSLCRLFile)
-	app.Flag("mongodb-ssl-key-file", "MongoDB SSL key file").
+	app.Flag("mongodb-ssl-pem-key-file", "MongoDB SSL pem file").
 		ExistingFileVar(&opts.MongodbSslOptions.SSLPEMKeyFile)
 	app.Flag("mongodb-ssl-ca-file", "MongoDB SSL CA file").
 		ExistingFileVar(&opts.MongodbSslOptions.SSLCAFile)
-	app.Flag("mongodb-ssl-key-file-password", "MongoDB SSL key file password").
+	app.Flag("mongodb-ssl-pem-key-password", "MongoDB SSL key file password").
 		StringVar(&opts.MongodbSslOptions.SSLPEMKeyPassword)
 
 	app.Flag("mongodb-dsn", "MongoDB connection string").
@@ -409,7 +367,7 @@ func getgRPCOptions(opts *cliOptions) []grpc.DialOption {
 	return grpcOpts
 }
 
-func makeDialer(caFile, certFile, keyFile, keyPassword string) (dialerFn, error) {
+func makeDialer(caFile, keyFile, keyPassword string) (dialerFn, error) {
 	// --sslCAFile
 	rootCerts := x509.NewCertPool()
 	ca, err := ioutil.ReadFile(caFile)
@@ -421,21 +379,18 @@ func makeDialer(caFile, certFile, keyFile, keyPassword string) (dialerFn, error)
 	// --sslPEMKeyFile
 	clientCerts := []tls.Certificate{}
 
-	crt, err := ioutil.ReadFile(certFile)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot read %s", certFile)
-	}
-
 	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot read %s", keyFile)
 	}
-	key = decodeKey(key, keyPassword)
 
-	cert, err := tls.X509KeyPair(crt, key)
+	keyblock, crt := decodeKey(key, keyPassword)
+
+	cert, err := tls.X509KeyPair(crt, keyblock)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot read cert or key file")
 	}
+
 	clientCerts = append(clientCerts, cert)
 
 	dialer := func(addr *mgo.ServerAddr) (net.Conn, error) {
@@ -448,9 +403,10 @@ func makeDialer(caFile, certFile, keyFile, keyPassword string) (dialerFn, error)
 	return dialer, nil
 }
 
-func decodeKey(key []byte, pass string) []byte {
+func decodeKey(key []byte, pass string) ([]byte, []byte) {
 	var v *pem.Block
 	var pkey []byte
+	var pemBlocks []*pem.Block
 
 	for {
 		v, key = pem.Decode(key)
@@ -467,10 +423,11 @@ func decodeKey(key []byte, pass string) []byte {
 			} else {
 				pkey = pem.EncodeToMemory(v)
 			}
+		} else {
+			pemBlocks = append(pemBlocks, v)
 		}
 	}
-	//c, _ := tls.X509KeyPair(pem.EncodeToMemory(pemBlocks[0]), pkey)
-	return pkey
+	return pkey, pem.EncodeToMemory(pemBlocks[0])
 }
 
 // Write a pid file, but first make sure it doesn't exist with a running pid.
@@ -501,4 +458,66 @@ func versionMessage() string {
 	msg += "Branch    : " + Branch + "\n"
 	msg += "Go version: " + GoVersion + "\n"
 	return msg
+}
+
+func buildDialInfo(opts *cliOptions) (*mgo.DialInfo, error) {
+	var di *mgo.DialInfo
+	var err error
+
+	if opts.MongodbConnOptions.DSN == "" {
+		di = &mgo.DialInfo{
+			Addrs:          []string{opts.MongodbConnOptions.Host + ":" + opts.MongodbConnOptions.Port},
+			Username:       opts.MongodbConnOptions.User,
+			Password:       opts.MongodbConnOptions.Password,
+			ReplicaSetName: opts.MongodbConnOptions.ReplicasetName,
+			FailFast:       true,
+			Source:         "admin",
+		}
+	} else {
+		di, err = mgo.ParseURL(opts.MongodbConnOptions.DSN)
+		di.FailFast = true
+		if err != nil {
+			return nil, errors.Wrapf(err, "Cannot parse MongoDB DSN %q", opts.MongodbConnOptions.DSN)
+		}
+	}
+
+	if opts.MongodbSslOptions.SSLCAFile != "" && opts.MongodbSslOptions.SSLPEMKeyFile != "" {
+		dialer, err := makeDialer(opts.MongodbSslOptions.SSLCAFile,
+			opts.MongodbSslOptions.SSLPEMKeyFile, opts.MongodbSslOptions.SSLPEMKeyPassword)
+		if err != nil {
+			log.Fatalf("cannot create a MongoDB dialer: %s", err)
+		}
+		di.DialServer = dialer
+		opts.MongodbSslOptions.UseSSL = true
+	}
+
+	return di, nil
+}
+
+func dbConnect(di *mgo.DialInfo, maxReconnects int, reconnectDelay int) (*mgo.Session, error) {
+	connectionAttempts := 0
+	var session *mgo.Session
+	var err error
+
+	for {
+		connectionAttempts++
+		session, err = mgo.DialWithInfo(di)
+		if err != nil {
+			log.Errorf("Cannot connect to MongoDB at %s: %s. Connection atempt %d of %d",
+				di.Addrs[0], err, connectionAttempts, maxReconnects)
+			if maxReconnects == 0 || connectionAttempts < maxReconnects {
+				time.Sleep(time.Duration(reconnectDelay) * time.Second)
+				continue
+			}
+			return nil, fmt.Errorf("could not connect to MongoDB. Retried every %d seconds, %d times",
+				reconnectDelay, connectionAttempts)
+		}
+
+		if err := session.Ping(); err != nil {
+			return nil, errors.Wrap(err, "Cannot connect to the database server")
+		}
+		break
+	}
+
+	return session, nil
 }
