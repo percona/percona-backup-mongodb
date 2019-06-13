@@ -206,6 +206,7 @@ func (a *Server) RunRestore(ctx context.Context, opts *pbapi.RunRestoreParams) (
 	if err := a.messagesServer.WaitRestoreFinish(); err != nil {
 		return response, err
 	}
+	a.logger.Info("Finished restore process")
 
 	return response, nil
 }

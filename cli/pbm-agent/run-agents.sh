@@ -32,6 +32,8 @@ export TEST_MONGODB_CONFIGSVR3_PORT=17009
 export TEST_MONGODB_MONGOS_PORT=17000
 export STORAGE_FILE=${HOME}/.storage.yml
 
+mkdir -p /tmp/dump_test/
+
 run_agents() {
     ports=$1
     replicaset=$2

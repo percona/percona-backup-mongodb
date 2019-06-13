@@ -194,9 +194,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 
 	<-c
-	if err := client.Stop(); err != nil {
-		log.Fatalf("Cannot stop client: %s", err)
-	}
+	client.Stop()
 }
 
 func processCliArgs(args []string) (*cliOptions, error) {
