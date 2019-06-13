@@ -168,20 +168,19 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 	wga.Add(1)
 	go func() {
 		for resp := range ch {
-			if !resp.CanRestore {
-				continue
-			}
 			_, ok := sources[resp.Replicaset]
 			if !ok {
-				sources[resp.Replicaset] = RestoreSource{
-					Client: s.getClientByID(resp.ClientId),
-				}
+				sources[resp.Replicaset] = RestoreSource{}
 			}
 			if resp.IsPrimary {
-				s := sources[resp.Replicaset]
-				s.Host = resp.Host
-				s.Port = resp.Port
-				sources[resp.Replicaset] = s
+				source := sources[resp.Replicaset]
+				source.Host = resp.Host
+				source.Port = resp.Port
+				sources[resp.Replicaset] = source
+			}
+			if resp.CanRestore {
+				source := sources[resp.Replicaset]
+				source.Client = s.getClientByID(resp.ClientId)
 			}
 		}
 		wga.Done()
@@ -219,10 +218,27 @@ func (s *MessagesServer) RestoreSourcesByReplicaset(bm *pb.BackupMetadata, stora
 	close(ch)
 	wga.Wait()
 
+	/* here we have list of clients by replicaset. The list can be:
+	      [rs1] -> .Client = nil
+		  [rs2] -> .Client = pointer to the restore client
+
+		  we need to check that we have sources from all replicasets and sources have a valid client (! nil)
+	*/
+
 	if len(sources) != len(bm.Replicasets) {
 		var err error
 		for replicasetName, replicasetMetaData := range bm.Replicasets {
 			if _, ok := sources[replicasetName]; !ok {
+				err = multierror.Append(err,
+					fmt.Errorf("there are no clients connected to replicaset %s that can restore %s from %s",
+						replicasetName,
+						replicasetMetaData.DbBackupName,
+						storageName,
+					),
+				)
+			}
+			source := sources[replicasetName]
+			if source.Client == nil {
 				err = multierror.Append(err,
 					fmt.Errorf("there are no clients connected to replicaset %s that can restore %s from %s",
 						replicasetName,
