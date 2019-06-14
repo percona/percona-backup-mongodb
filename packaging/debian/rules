@@ -53,7 +53,7 @@ override_dh_auto_install:
 	cp -f build/src/github.com/percona/percona-backup-mongodb/pbmctl $(TMP)/pbmctl
 	cp -f build/src/github.com/percona/percona-backup-mongodb/pbm-agent $(TMP)/pbm-agent
 	cp -f build/src/github.com/percona/percona-backup-mongodb/pbm-coordinator $(TMP)/pbm-coordinator
-	cp -f packaging/conf/pbm-agent-storages.conf  $(TMP)/pbm-agent-storages.conf
+	cp -f packaging/conf/pbm-agent-storage.conf  $(TMP)/pbm-agent-storages.conf
 	cp -f packaging/conf/pbm-agent.conf  $(TMP)/pbm-agent.conf
 	cp -f packaging/conf/pbm-coordinator.conf  $(TMP)/pbm-coordinator.conf
 	cp -f packaging/conf/pbm-agent.service $(TMP)/pbm-agent.service
