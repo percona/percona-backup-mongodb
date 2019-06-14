@@ -91,9 +91,9 @@ export GOBINPATH="/usr/local/go/bin"
 cd src/github.com/percona/percona-backup-mongodb
 make install DEST_DIR=$RPM_BUILD_ROOT/%{_bindir}
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
-install -D -m 0644 packaging/conf/pbm-agent-storages.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent-storages.conf
-install -D -m 0644 packaging/conf/pbm-agent.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent.conf
-install -D -m 0644 packaging/conf/pbm-coordinator.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-coordinator.conf
+install -D -m 0640 packaging/conf/pbm-agent-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent-storage.conf
+install -D -m 0640 packaging/conf/pbm-agent.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent.conf
+install -D -m 0640 packaging/conf/pbm-coordinator.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-coordinator.conf
 %if 0%{?systemd}
   install -m 0755 -d $RPM_BUILD_ROOT/%{_unitdir}
   install -m 0644 packaging/conf/pbm-coordinator.service $RPM_BUILD_ROOT/%{_unitdir}/pbm-coordinator.service
@@ -207,7 +207,7 @@ esac
 %files -n percona-backup-mongodb-agent
 %{_bindir}/pbm-agent
 %config(noreplace) /%{_sysconfdir}/pbm-agent.conf
-%config(noreplace) /%{_sysconfdir}/pbm-agent-storages.conf
+%config(noreplace) /%{_sysconfdir}/pbm-agent-storage.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
