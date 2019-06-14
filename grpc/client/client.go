@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/awsutils"
@@ -64,13 +65,14 @@ type Client struct {
 	sslOpts     SSLOptions
 	isMasterDoc *mdbstructs.IsMaster
 
-	storages        *storage.Storages
-	mongoDumper     *dumper.Mongodump
-	oplogTailer     *oplog.OplogTail
-	logger          *logrus.Logger
-	grpcClientConn  *grpc.ClientConn
-	grpcClient      pb.MessagesClient
-	dbReconnectChan chan struct{}
+	storages         *storage.Storages
+	mongoDumper      *dumper.Mongodump
+	oplogTailer      *oplog.OplogTail
+	logger           *logrus.Logger
+	grpcClientConn   *grpc.ClientConn
+	grpcClient       pb.MessagesClient
+	dbReconnectChan  chan struct{}
+	watchDogStopChan chan struct{}
 	//
 	status pb.Status
 	lock   *sync.Mutex
@@ -82,14 +84,15 @@ type Client struct {
 type ConnectionOptions struct {
 	Host                string `yaml:"host,omitempty" kingpin:"mongodb-host"`
 	Port                string `yaml:"port,omitempty" kingpin:"mongodb-port"`
-	User                string `yaml:"user,omitempty" kingpin:"mongodb-user"`
+	User                string `yaml:"username,omitempty" kingpin:"mongodb-user"`
 	Password            string `yaml:"password,omitempty" kingpin:"mongodb-password"`
 	AuthDB              string `yaml:"authdb,omitempty" kingpin:"mongodb-authdb"`
-	ReplicasetName      string `yaml:"replicaset_name,omitempty" kingpin:"mongodb-replicaset"`
+	ReplicasetName      string `yaml:"replicaset,omitempty" kingpin:"mongodb-replicaset"`
 	Timeout             int    `yaml:"timeout,omitempty"`
 	TCPKeepAliveSeconds int    `yaml:"tcp_keep_alive_seconds,omitempty"`
 	ReconnectDelay      int    `yaml:"reconnect_delay,omitempty" kingpin:"mongodb-reconnect-delay"`
 	ReconnectCount      int    `yaml:"reconnect_count,omitempty" kingpin:"mongodb-reconnect-count"` // 0: forever
+	DSN                 string `yaml:"dsn,omitempty" kingpin:"dsn"`
 }
 
 // Struct holding ssl-related options
@@ -158,7 +161,7 @@ const (
 	balancerStopRetries = 3
 	balancerStopTimeout = 30 * time.Second
 	dbReconnectInterval = 30 * time.Second
-	dbPingInterval      = 60 * time.Second
+	dbPingInterval      = 1 * time.Second
 	isdbgrid            = "isdbgrid"
 	typeFilesystem      = "filesystem"
 	typeS3              = "s3"
@@ -193,13 +196,14 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 		status: pb.Status{
 			BackupType: pb.BackupType_BACKUP_TYPE_LOGICAL,
 		},
-		connOpts:        in.DbConnOptions,
-		sslOpts:         in.DbSSLOptions,
-		logger:          in.Logger,
-		lock:            &sync.Mutex{},
-		running:         true,
-		mgoDI:           di,
-		dbReconnectChan: make(chan struct{}),
+		connOpts:         in.DbConnOptions,
+		sslOpts:          in.DbSSLOptions,
+		logger:           in.Logger,
+		lock:             &sync.Mutex{},
+		running:          true,
+		mgoDI:            di,
+		dbReconnectChan:  make(chan struct{}),
+		watchDogStopChan: make(chan struct{}),
 		// This lock is used to sync the access to the stream Send() method.
 		// For example, if the backup is running, we can receive a Ping request from
 		// the server but while we are sending the Ping response, the backup can finish
@@ -215,16 +219,28 @@ func NewClient(inctx context.Context, in InputOptions) (*Client, error) {
 }
 
 func (c *Client) Start() error {
+	if err := c.dbConnect(); err != nil {
+		return errors.Wrap(err, "cannot connect to the database")
+	}
+
+	go c.dbWatchdog()
+
+	if err := c.newCoordinatorStream(); err != nil {
+		return errors.Wrap(err, "cannot connect to the coordinator")
+	}
+
+	return nil
+}
+
+func (c *Client) newCoordinatorStream() error {
 	var err error
+
+	c.ctx, c.cancelFunc = context.WithCancel(context.Background())
 
 	c.grpcClient = pb.NewMessagesClient(c.grpcClientConn)
 	c.stream, err = c.grpcClient.MessagesChat(c.ctx)
 	if err != nil {
 		return errors.Wrap(err, "cannot connect to the gRPC server")
-	}
-
-	if err := c.dbConnect(); err != nil {
-		return errors.Wrap(err, "cannot connect to the database")
 	}
 
 	if err := c.updateClientInfo(); err != nil {
@@ -237,7 +253,6 @@ func (c *Client) Start() error {
 
 	// start listening server messages
 	go c.processIncommingServerMessages()
-	go c.dbWatchdog()
 
 	return nil
 }
@@ -400,14 +415,21 @@ func (c *Client) register() error {
 	return fmt.Errorf("unknow response type %T", response.Payload)
 }
 
-func (c *Client) Stop() error {
+func (c *Client) Stop() {
+	select {
+	case c.watchDogStopChan <- struct{}{}: // in case the agent was already stopped
+		c.logger.Debugf("Stopping agent's DB watchdog")
+	default:
+	}
+	c.stop()
+}
+
+func (c *Client) stop() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.running = false
 
 	c.cancelFunc()
-	return nil
-	//return c.stream.CloseSend()
 }
 
 func (c *Client) IsDBBackupRunning() bool {
@@ -449,8 +471,8 @@ func (c *Client) processIncommingServerMessages() {
 			omsg, err = c.processListReplicasets()
 		case *pb.ServerMessage_PingMsg:
 			omsg = c.processPing()
-		case *pb.ServerMessage_RestoreBackupCheckMsg:
-			omsg, err = c.processRestoreBackupCheck(msg.GetRestoreBackupCheckMsg())
+		// case *pb.ServerMessage_RestoreBackupCheckMsg:
+		// 	omsg, err = c.processRestoreBackupCheck(msg.GetRestoreBackupCheckMsg())
 		case *pb.ServerMessage_CanRestoreBackupMsg:
 			omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupMsg())
 			//omsg, err = c.processCanRestoreBackup(msg.GetCanRestoreBackupCheckMsg())
@@ -474,6 +496,9 @@ func (c *Client) processIncommingServerMessages() {
 			continue
 		case *pb.ServerMessage_GetMongodbVersion:
 			omsg, err = c.processGetMongoDBVersion()
+
+		case *pb.ServerMessage_GetBalancerStatus:
+			omsg, err = c.processGetBalancerStatus()
 		case *pb.ServerMessage_StopBalancerMsg:
 			omsg, err = c.processStopBalancer()
 		case *pb.ServerMessage_StartBalancerMsg:
@@ -512,18 +537,29 @@ func (c *Client) processIncommingServerMessages() {
 func (c *Client) dbWatchdog() {
 	for {
 		select {
+		case <-c.watchDogStopChan:
+			return
+		case <-c.dbReconnectChan:
+			c.dbReconnect()
 		case <-time.After(dbPingInterval):
-			if c.mgoSession == nil {
+			if c.mgoSession == nil || c.mgoSession.Ping() != nil {
+				if c.isRunning() {
+					c.logger.Info("Closing grpc connection with coordinator")
+					c.stop()
+				}
+
 				c.dbReconnect()
 				continue
 			}
-			if err := c.mgoSession.Ping(); err != nil {
-				c.dbReconnect()
+
+			if !c.isRunning() {
+				c.lock.Lock()
+				c.running = true
+				c.lock.Unlock()
+				c.logger.Infof("Open grpc connection with coordinator: %v",
+					c.newCoordinatorStream(),
+				)
 			}
-		case <-c.dbReconnectChan:
-			c.dbReconnect()
-		case <-c.ctx.Done():
-			return
 		}
 	}
 }
@@ -547,66 +583,66 @@ func (c *Client) processCancelBackup() error {
 	return err
 }
 
-func (c *Client) processRestoreBackupCheck(msg *pb.RestoreBackupCheck) (*pb.ClientMessage, error) {
-	msg.Host = c.connOpts.Host
-	msg.Port = c.connOpts.Port
-	preserveUUID := true
-	dropCollections := true
-	ingnoreErrors := false
-	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
-		// For config servers, if we set dropCollections to true, we are going to receive this error:
-		//   cannot drop config.version document while in --configsvr mode
-		// We must ignore the errors and we shouldn't drop the collections
-		dropCollections = false
-		ingnoreErrors = true
-		preserveUUID = false // cannot be used with dropCollections=false
-	}
-	stg, err := c.storages.Get(msg.GetStorageName())
-	if err != nil {
-		return nil, errors.Wrap(err, "invalid storage name received in restoreDBDump")
-	}
-	c.logger.Debug("Starting MakeReader")
-	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
-	if err != nil {
-		return nil, errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
-	}
-
-	input := &restore.MongoRestoreInput{
-		Archive:         "-",
-		DryRun:          false,
-		Host:            msg.Host,
-		Port:            msg.Port,
-		Username:        c.connOpts.User,
-		Password:        c.connOpts.Password,
-		DropCollections: dropCollections,
-		IgnoreErrors:    ingnoreErrors,
-		Gzip:            false,
-		Oplog:           false,
-		Threads:         10,
-		Reader:          rdr,
-		PreserveUUID:    preserveUUID,
-		// A real restore would be applied to a just created and empty instance and it should be
-		// configured to run without user authentication.
-		// For testing purposes, we can skip restoring users and roles.
-		SkipUsersAndRoles: msg.SkipUsersAndRoles,
-	}
-	possible := restore.Possible(input, c.logger)
-	if !possible {
-		c.sendRestoreComplete(fmt.Errorf("backup not ready"))
-	} else {
-		c.logger.Info("Backup ready")
-		c.sendRestoreComplete(fmt.Errorf("backup ready"))
-	}
-	omsg := &pb.ClientMessage{
-		ClientId: c.id,
-		Payload: &pb.ClientMessage_RestoreBackupCheckMsg{
-			RestoreBackupCheckResponse: &pb.RestoreBackupCheckResponse{
-				CanRestore: possible,
-			},
-		},
-	}
-	return omsg, nil
-}
+// func (c *Client) processRestoreBackupCheck(msg *pb.RestoreBackupCheck) (*pb.ClientMessage, error) {
+// 	msg.Host = c.connOpts.Host
+// 	msg.Port = c.connOpts.Port
+// 	preserveUUID := true
+// 	dropCollections := true
+// 	ingnoreErrors := false
+// 	if c.nodeType == pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+// 		// For config servers, if we set dropCollections to true, we are going to receive this error:
+// 		//   cannot drop config.version document while in --configsvr mode
+// 		// We must ignore the errors and we shouldn't drop the collections
+// 		dropCollections = false
+// 		ingnoreErrors = true
+// 		preserveUUID = false // cannot be used with dropCollections=false
+// 	}
+// 	stg, err := c.storages.Get(msg.GetStorageName())
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "invalid storage name received in restoreDBDump")
+// 	}
+// 	c.logger.Debug("Starting MakeReader")
+// 	rdr, err := reader.MakeReader(msg.GetDbSourceName(), stg, msg.GetCompressionType(), msg.GetCypher())
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "restoreDBDump: cannot get a backup reader")
+// 	}
+//
+// 	input := &restore.MongoRestoreInput{
+// 		Archive:         "-",
+// 		DryRun:          false,
+// 		Host:            msg.Host,
+// 		Port:            msg.Port,
+// 		Username:        c.connOpts.User,
+// 		Password:        c.connOpts.Password,
+// 		DropCollections: dropCollections,
+// 		IgnoreErrors:    ingnoreErrors,
+// 		Gzip:            false,
+// 		Oplog:           false,
+// 		Threads:         10,
+// 		Reader:          rdr,
+// 		PreserveUUID:    preserveUUID,
+// 		// A real restore would be applied to a just created and empty instance and it should be
+// 		// configured to run without user authentication.
+// 		// For testing purposes, we can skip restoring users and roles.
+// 		SkipUsersAndRoles: msg.SkipUsersAndRoles,
+// 	}
+// 	possible := restore.Possible(input, c.logger)
+// 	if !possible {
+// 		c.sendRestoreComplete(fmt.Errorf("backup not ready"))
+// 	} else {
+// 		c.logger.Info("Backup ready")
+// 		c.sendRestoreComplete(fmt.Errorf("backup ready"))
+// 	}
+// 	omsg := &pb.ClientMessage{
+// 		ClientId: c.id,
+// 		Payload: &pb.ClientMessage_RestoreBackupCheckMsg{
+// 			RestoreBackupCheckResponse: &pb.RestoreBackupCheckResponse{
+// 				CanRestore: possible,
+// 			},
+// 		},
+// 	}
+// 	return omsg, nil
+// }
 
 func (c *Client) processCanRestoreBackup(msg *pb.CanRestoreBackup) (*pb.ClientMessage, error) {
 	var err error
@@ -963,7 +999,9 @@ func (c *Client) processRestore(msg *pb.RestoreBackup) error {
 	if err != nil {
 		c.logger.Debug("Restore dunp: " + err.Error())
 		c.status.RestoreStatus = pb.RestoreStatus_RESTORE_STATUS_INVALID
-		c.sendRestoreComplete(err)
+		if errs := c.sendRestoreComplete(err); errs != nil {
+			err = multierror.Append(err, errs)
+		}
 		return err
 	}
 
@@ -1167,7 +1205,7 @@ func (c *Client) getMongosSession() (*mgo.Session, error) {
 
 	routers, err := cluster.GetMongosRouters(sess)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+		return nil, errors.Wrap(err, "cannot get mongo routers")
 	}
 	if len(routers) < 1 {
 		return nil, Errorf(NoMongosError, "there are no mongodb routers")
@@ -1229,6 +1267,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1239,6 +1278,49 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 	}
 	c.logger.Debugf("Balancer has been started by %s", c.id)
 
+	return out, nil
+}
+
+func (c *Client) processGetBalancerStatus() (*pb.ClientMessage, error) {
+	if c.nodeType != pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR {
+		return nil, fmt.Errorf("Stop balancer only works on config servers. This is a [%d]%s type",
+			c.nodeType, pb.NodeType_name[int32(c.nodeType)],
+		)
+	}
+
+	mongosSession, err := c.getMongosSession()
+	if err != nil {
+		if IsError(err, NoMongosError) {
+			// In some scenarios like in Kubernetes, there are no mongos instances so, there is nothing to do
+			c.logger.Debugf("There are no mongos instances. Process Balancer status was ignored")
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "cannot process Stop Balancer")
+	}
+
+	defer mongosSession.Close()
+
+	balancer, err := cluster.NewBalancer(mongosSession)
+	if err != nil {
+		return nil, errors.Wrap(err, "processStopBalancer -> cannot create a balancer instance")
+	}
+
+	bs, err := balancer.GetStatus()
+	if err != nil {
+		return nil, err
+	}
+
+	out := &pb.ClientMessage{
+		ClientId: c.id,
+		Payload: &pb.ClientMessage_BalancerStatus{
+			BalancerStatus: &pb.BalancerStatus{
+				Mode:              string(bs.Mode),
+				InBalancerRound:   bs.InBalancerRound,
+				NumBalancerRounds: bs.NumBalancerRounds,
+				Ok:                int32(bs.Ok),
+			},
+		},
+	}
 	return out, nil
 }
 
@@ -1263,6 +1345,7 @@ func (c *Client) processStopBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
+	//defer mongosSession.Close()
 
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
@@ -1723,9 +1806,8 @@ func (c *Client) restoreDBDump(msg *pb.RestoreBackup) (err error) {
 	if !possible {
 		c.logger.Info("Backup not ready")
 		return fmt.Errorf("backup not ready")
-	} else {
-		c.logger.Info("Backup ready")
 	}
+	c.logger.Info("Backup ready")
 	r, err := restore.NewMongoRestore(input, c.logger)
 	if err != nil {
 		c.logger.Errorf("cannot instantiate mongo restore instance: %s", err)
@@ -1913,7 +1995,7 @@ func (c *Client) getSession() (*mgo.Session, error) {
 	}()
 
 	if alive {
-		return c.mgoSession.Clone(), nil
+		return c.mgoSession, nil
 	}
 	return nil, fmt.Errorf("MongoDB session is not alive")
 }

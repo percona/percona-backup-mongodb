@@ -113,6 +113,18 @@ func TestApiWithDaemon(t *testing.T) {
 	}
 	defer d.Stop()
 
+	balancerStarted := false
+	var balancerError error
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		_, balancerError = d.MessagesServer.WaitForEvent(server.AfterBalancerStartEvent, 300*time.Second)
+		if balancerError == nil {
+			balancerStarted = true
+		}
+		wg.Done()
+	}()
+
 	msg := &pbapi.RunBackupParams{
 		BackupType:      pbapi.BackupType_BACKUP_TYPE_LOGICAL,
 		CompressionType: pbapi.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION,
@@ -202,6 +214,14 @@ func TestApiWithDaemon(t *testing.T) {
 		t.Errorf("%s file entry is missing", jsonFile)
 	} else if jf.Description != msg.Description {
 		t.Errorf("Invalid backup description. Want %q, got %q", msg.Description, jf.Description)
+	}
+
+	wg.Wait()
+	if !balancerStarted {
+		t.Errorf("Balancer was not started")
+	}
+	if balancerError != nil {
+		t.Errorf("Balancer start wait returned an error: %v", balancerError)
 	}
 }
 

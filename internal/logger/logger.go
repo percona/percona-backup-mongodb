@@ -51,7 +51,6 @@ func newDefaultLogger(w io.Writer) *logrus.Logger {
 		Level: logrus.InfoLevel,
 	}
 	logger.SetLevel(logrus.StandardLogger().Level)
-	logger.Out = logrus.StandardLogger().Out
 
 	return logger
 }

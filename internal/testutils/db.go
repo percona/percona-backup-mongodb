@@ -38,6 +38,7 @@ func dialInfo(addrs []string, rs string) (*mgo.DialInfo, error) {
 		Username:       MongoDBUser,
 		Password:       MongoDBPassword,
 		Timeout:        MongoDBTimeout,
+		Direct:         true,
 	})
 	if err != nil {
 		return nil, err

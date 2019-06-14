@@ -21,6 +21,7 @@ const (
 	createCollectionOp
 	createIndexOp
 	dropColOp
+	dropIndexOp
 )
 
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
@@ -33,6 +34,7 @@ type Apply struct {
 	stopAtTs     bson.MongoTimestamp
 	fcheck       checker
 	ignoreErrors bool // used for testing/debug
+	debug        uint32
 }
 
 type Common struct {
@@ -63,16 +65,42 @@ type createCollectionDoc struct {
 	} `bson:"o"`
 }
 
+type Collation struct {
+	Locale          string `bson:"locale"`
+	Alternate       string `bson:"alternate"`
+	CaseFirst       string `bson:"caseFirst"`
+	MaxVariable     string `bson:"maxVariable"`
+	Version         string `bson:"version"`
+	Strength        int    `bson:"strength"`
+	CaseLevel       bool   `bson:"caseLevel"`
+	NumericOrdering bool   `bson:"numericOrdering"`
+	Normalization   bool   `bson:"normalization"`
+	Backwards       bool   `bson:"backwards"`
+}
+
 type createIndexDoc struct {
 	Common `bson:",inline"`
 	O      struct {
-		Key           bson.D `bson:"key"`
-		V             int    `bson:"v"`
-		CreateIndexes string `bson:"createIndexes"`
-		Name          string `bson:"name"`
-		Background    bool   `bson:"background"`
-		Sparse        bool   `bson:"sparse"`
-		Unique        bool   `bson:"unique"`
+		Key              bson.D         `bson:"key"`
+		V                int            `bson:"v"`
+		CreateIndexes    string         `bson:"createIndexes"`
+		Name             string         `bson:"name"`
+		Background       bool           `bson:"background"`
+		Sparse           bool           `bson:"sparse"`
+		Unique           bool           `bson:"unique"`
+		DropDups         bool           `bson:"dropDups"`
+		PartialFilter    bson.M         `bson:"partialFilter"`
+		ExpireAfter      time.Duration  `bson:"expireAfter"`
+		Min              int            `bson:"min"`
+		Max              int            `bson:"max"`
+		Minf             float64        `bson:"minf"`
+		Maxf             float64        `bson:"maxf"`
+		BucketSize       float64        `bson:"bucketSize"`
+		Bits             int            `bson:"bits"`
+		DefaultLanguage  string         `bson:"defaultLanguage"`
+		LanguageOverride string         `bson:"languageOverride"`
+		Weights          map[string]int `bson:"weigths"`
+		Collation        *mgo.Collation `bson:"collation"`
 	} `bson:"o"`
 }
 
@@ -83,10 +111,19 @@ type dropColDoc struct {
 	} `bson:"o"`
 }
 
+type dropIndexDoc struct {
+	Common `bson:",inline"`
+	O      struct {
+		Index       string `bson:"index"`
+		DropIndexes string `bson:"dropIndexes"`
+	} `bson:"o"`
+}
+
 func NewOplogApply(session *mgo.Session, r bsonfile.BSONReader) (*Apply, error) {
+	session.SetMode(mgo.Strong, true)
 	return &Apply{
 		bsonReader: r,
-		dbSession:  session.Clone(),
+		dbSession:  session,
 		lock:       &sync.Mutex{},
 		stopAtTs:   -1,
 		fcheck:     noCheck,
@@ -151,8 +188,12 @@ func (oa *Apply) Run() error {
 			return fmt.Errorf("cannot unmarshal oplog document: %s", err)
 		}
 
-		if oa.fcheck(dest["ts"].(bson.MongoTimestamp), oa.stopAtTs) {
-			return nil
+		if ts, ok := dest["ts"].(bson.MongoTimestamp); ok {
+			if oa.fcheck(ts, oa.stopAtTs) {
+				return nil
+			}
+		} else {
+			return fmt.Errorf("oplog document ts field is not bson.MongoTimestamp, it is %T", dest["ts"])
 		}
 
 		icmd, ok := dest["op"]
@@ -160,8 +201,22 @@ func (oa *Apply) Run() error {
 			return fmt.Errorf("invalid oplog document. there is no command")
 		}
 
+		if atomic.LoadUint32(&oa.debug) != 0 {
+			fmt.Printf("%#v\n", dest)
+		}
+
+		if ns, ok := dest["ns"]; ok {
+			if nss, ok := ns.(string); ok {
+				if skip(nss) {
+					continue
+				}
+			} else {
+				return fmt.Errorf("invalid type for oplog cmd ns. Want string, got %T", ns)
+			}
+		}
+
 		if cmd, ok := icmd.(string); ok && cmd == "c" {
-			switch getCreateType(dest) {
+			switch getOplogCmd(dest) {
 			case createCollectionOp:
 				err := processCreateCollection(oa.dbSession, buf)
 				if err != nil {
@@ -180,8 +235,13 @@ func (oa *Apply) Run() error {
 					return errors.Wrapf(err, "cannot drop collection from oplog cmd %+v", dest)
 				}
 				continue
+			case dropIndexOp:
+				if err := processDropIndexCmd(oa.dbSession, buf); err != nil {
+					return errors.Wrapf(err, "cannot drop index from oplog cmd %+v", dest)
+				}
+				continue
 			default:
-				log.Errorf("unknown command in op: %+v", dest)
+				log.Errorf("unknown command in op: %#v", dest)
 			}
 		}
 
@@ -241,15 +301,22 @@ func processCreateCollection(sess *mgo.Session, buf []byte) error {
 		return fmt.Errorf("invalid namespace (empty)")
 	}
 
+	autoIndexID := !opdoc.O.AutoIndexID
+	if _, ok := opdoc.O.IDIndex.Key["_id"]; ok {
+		autoIndexID = true
+	}
 	info := &mgo.CollectionInfo{
-		DisableIdIndex: !opdoc.O.AutoIndexID,
+		DisableIdIndex: !autoIndexID,
 		ForceIdIndex:   opdoc.O.AutoIndexID,
 		Capped:         opdoc.O.Capped,
 		MaxBytes:       opdoc.O.Size,
 		MaxDocs:        opdoc.O.Max,
 	}
 
-	return sess.DB(ns).C(opdoc.O.Create).Create(info)
+	if err := sess.DB(ns).C(opdoc.O.Create).Create(info); err != nil {
+		return err
+	}
+	return nil
 }
 
 /*
@@ -279,25 +346,68 @@ func processCreateIndex(sess *mgo.Session, buf []byte) error {
 	}
 
 	index := mgo.Index{
-		Key:        []string{},
-		Unique:     opdoc.O.Unique,
-		Background: opdoc.O.Background,
-		Sparse:     opdoc.O.Sparse,
-		Name:       opdoc.O.Name,
+		Key:              []string{},
+		Unique:           opdoc.O.Unique,
+		DropDups:         opdoc.O.DropDups,
+		Background:       opdoc.O.Background,
+		Sparse:           opdoc.O.Sparse,
+		PartialFilter:    opdoc.O.PartialFilter,
+		ExpireAfter:      opdoc.O.ExpireAfter,
+		Name:             opdoc.O.Name,
+		Min:              opdoc.O.Min,
+		Max:              opdoc.O.Max,
+		Minf:             opdoc.O.Minf,
+		Maxf:             opdoc.O.Maxf,
+		BucketSize:       opdoc.O.BucketSize,
+		Bits:             opdoc.O.Bits,
+		DefaultLanguage:  opdoc.O.DefaultLanguage,
+		LanguageOverride: opdoc.O.LanguageOverride,
+		Weights:          opdoc.O.Weights,
+		Collation:        opdoc.O.Collation,
 	}
-
 	for _, key := range opdoc.O.Key {
 		sign := ""
-		if key.Value.(int) < 0 {
-			sign = "-"
+		switch k := key.Value.(type) {
+		case int:
+			if k < 0 {
+				sign = "-"
+			}
+		case int8:
+			if k < 0 {
+				sign = "-"
+			}
+		case int16:
+			if k < 0 {
+				sign = "-"
+			}
+		case int32:
+			if k < 0 {
+				sign = "-"
+			}
+		case int64:
+			if k < 0 {
+				sign = "-"
+			}
+		case float32:
+			if k < 0 {
+				sign = "-"
+			}
+		case float64:
+			if k < 0 {
+				sign = "-"
+			}
 		}
-		index.Key = append(index.Key, sign+key.Name)
-
+		if key.Name != "_fts" && key.Name != "_ftsx" {
+			index.Key = append(index.Key, sign+key.Name)
+		}
 	}
+
+	sess.ResetIndexCache()
 	err := sess.DB(ns).C(opdoc.O.CreateIndexes).EnsureIndex(index)
 	if err != nil {
 		return errors.Wrapf(err, "cannot create index %+v", index)
 	}
+	sess.ResetIndexCache()
 	return nil
 }
 
@@ -315,7 +425,29 @@ func processDropColCmd(sess *mgo.Session, buf []byte) error {
 	return sess.DB(ns).C(opdoc.O.Drop).DropCollection()
 }
 
-func getCreateType(doc bson.M) int {
+func processDropIndexCmd(sess *mgo.Session, buf []byte) error {
+	opdoc := dropIndexDoc{}
+	if err := bson.Unmarshal(buf, &opdoc); err != nil {
+		return errors.Wrap(err, "cannot unmarshal drop index command")
+	}
+
+	ns := strings.TrimSuffix(opdoc.NS, ".$cmd")
+
+	if ns == "" {
+		return fmt.Errorf("invalid namespace (empty)")
+	}
+	result := struct {
+		ErrMsg string
+		Ok     bool
+	}{}
+	sess.ResetIndexCache()
+	// Don't use mgo's DropIndex method because it will add a suffix
+	op := bson.D{{Name: "dropIndexes", Value: opdoc.O.DropIndexes}, {Name: "index", Value: opdoc.O.Index}}
+	sess.ResetIndexCache()
+	return sess.DB(ns).Run(op, &result)
+}
+
+func getOplogCmd(doc bson.M) int {
 	om, ok := doc["o"]
 	if !ok {
 		return invalidOp
@@ -332,6 +464,8 @@ func getCreateType(doc bson.M) int {
 		return createIndexOp
 	case getString(o, "drop"):
 		return dropColOp
+	case getString(o, "dropIndexes"):
+		return dropIndexOp
 	}
 
 	return invalidOp
@@ -350,4 +484,15 @@ func (oa *Apply) Count() int64 {
 	oa.lock.Lock()
 	defer oa.lock.Unlock()
 	return oa.docsCount
+}
+
+func skip(ns string) bool {
+	systemNS := map[string]struct{}{
+		"config.system.sessions":   {},
+		"config.cache.collections": {},
+	}
+
+	_, ok := systemNS[ns]
+
+	return ok
 }

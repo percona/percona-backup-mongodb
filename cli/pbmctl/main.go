@@ -85,16 +85,22 @@ type cliOptions struct {
 	listBackups      *kingpin.CmdClause
 	listNodes        *kingpin.CmdClause
 	listStorages     *kingpin.CmdClause
+	showVersion      *kingpin.CmdClause
+	showVersionFlag  bool
 	listNodesVerbose bool
 }
 
 func main() {
 	cmd, opts, err := processCliArgs(os.Args[1:])
 	if err != nil {
-		if opts != nil {
+		if opts != nil && !opts.showVersionFlag {
 			kingpin.Usage()
 		}
-		log.Fatal(err)
+		if opts != nil && opts.showVersionFlag {
+			kingpin.Usage()
+			return
+		}
+		os.Exit(1)
 	}
 
 	grpcOpts := []grpc.DialOption{
@@ -165,10 +171,10 @@ func main() {
 			return
 		}
 		fmt.Println("No backups found")
-	case "list storages":
+	case "list storage":
 		storages, err := listStorages(ctx)
 		if err != nil {
-			log.Fatalf("Cannot get storages list: %s", err)
+			log.Fatalf("Cannot get storage list: %s", err)
 		}
 		printTemplate(templates.AvailableStorages, storages)
 	case "run backup":
@@ -184,6 +190,8 @@ func main() {
 			log.Fatalf("Cannot send the RestoreBackup command to the gRPC server: %s", err)
 		}
 		log.Println("Restore completed")
+	case "version":
+		print(versionMessage())
 	default:
 		log.Fatalf("Unknown command %q", cmd)
 	}
@@ -267,7 +275,7 @@ func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
 	apiClient := pbapi.NewApiClient(conn)
 	stream, err := apiClient.ListStorages(ctx, &pbapi.ListStoragesParams{})
 	if err != nil {
-		return nil, errors.Wrap(err, "Cannot list storages")
+		return nil, errors.Wrap(err, "Cannot list remote storage")
 	}
 
 	storages := []pbapi.StorageInfo{}
@@ -277,7 +285,7 @@ func listStorages(ctx context.Context) ([]pbapi.StorageInfo, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, errors.Wrap(err, "A problem was found while receiving storages list from the server")
+			return nil, errors.Wrap(err, "A problem was found while receiving storage list from the server")
 		}
 		storages = append(storages, *msg)
 	}
@@ -350,13 +358,14 @@ func printTemplate(tpl string, data interface{}) {
 
 func processCliArgs(args []string) (string, *cliOptions, error) {
 	app := kingpin.New("pbmctl", "Percona Backup for MongoDB CLI")
-	app.Version(versionMessage())
+	///app.Version(versionMessage())
 
 	runCmd := app.Command("run", "Start a new backup or restore process")
+	versionCmd := app.Command("version", "Show program version and exit")
 	listCmd := app.Command("list", "List objects (connected nodes, backups, etc)")
 	listBackupsCmd := listCmd.Command("backups", "List backups")
 	listNodesCmd := listCmd.Command("nodes", "List objects (connected nodes, backups, etc)")
-	listStoragesCmd := listCmd.Command("storages", "List available storageds")
+	listStoragesCmd := listCmd.Command("storage", "List available remote storage")
 	backupCmd := runCmd.Command("backup", "Start a backup")
 	restoreCmd := runCmd.Command("restore", "Restore a backup given a metadata file name")
 
@@ -367,9 +376,13 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 		listStorages: listStoragesCmd,
 		backup:       backupCmd,
 		restore:      restoreCmd,
+		showVersion:  versionCmd,
 	}
 	app.Flag("config-file", "Config file name").
 		Short('c').StringVar(&opts.configFile)
+
+	//app.Flag("version", "Show version and exit").
+	//	BoolVar(&opts.showVersionFlag)
 
 	app.Flag("api-token", "Security token to use when connecting to the backup coordinator").
 		StringVar(&opts.APIToken)
@@ -440,7 +453,7 @@ func processCliArgs(args []string) (string, *cliOptions, error) {
 
 	cmd, err := app.DefaultEnvars().Parse(args)
 	if err != nil {
-		return "", nil, err
+		return "", opts, err
 	}
 
 	if cmd == "" {

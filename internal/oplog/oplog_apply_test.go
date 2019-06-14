@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -13,8 +14,10 @@ import (
 
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
+	"github.com/kr/pretty"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
+	"github.com/pkg/errors"
 )
 
 type mockBSONReader struct {
@@ -23,7 +26,12 @@ type mockBSONReader struct {
 }
 
 func (m *mockBSONReader) ReadNext() ([]byte, error) {
-	return []byte{}, nil
+	m.index++
+	if m.index >= len(m.docs) {
+		return nil, io.EOF
+	}
+
+	return bson.Marshal(m.docs[m.index])
 }
 
 func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
@@ -34,7 +42,7 @@ func (m *mockBSONReader) UnmarshalNext(dest interface{}) error {
 
 	buff, err := bson.Marshal(m.docs[m.index])
 	if err != nil {
-		return err
+		return errors.Wrap(err, "cannot marshal to unmarshal")
 	}
 	if err := bson.Unmarshal(buff, dest); err != nil {
 		return err
@@ -135,6 +143,74 @@ func TestApplyCreateCollection(t *testing.T) {
 	}
 }
 
+func TestIgnoreSystemCollections(t *testing.T) {
+	docs := []bson.M{
+		{
+			"ts": bson.MongoTimestamp(6699345900185059329),
+			"h":  int64(1603488249581412698),
+			"op": "i",
+			"ns": "config.system.sessions",
+			"t":  int64(1),
+			"v":  int(2),
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0x1, 0x69, 0xc9, 0x79, 0xb4, 0x6e, 0x42, 0xcf, 0x87, 0x5b, 0x6b, 0xab, 0xfd, 0x89, 0xa4, 0x51},
+			},
+			"wall": time.Now().Add(-1 * time.Minute),
+			"o": bson.M{
+				"_id": bson.M{
+					"id": bson.Binary{
+						Kind: 0x4,
+						Data: []byte{0xb7, 0xa1, 0x43, 0xd8, 0xf4, 0x54, 0x43, 0xb3, 0xad, 0xc5, 0x9c, 0xbd, 0x21, 0x41, 0xba, 0x44},
+					},
+					"uid": []byte{0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+						0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55},
+				},
+				"lastUse": time.Now().Add(-1 * time.Minute),
+			},
+		},
+		{
+			"t":  1,
+			"ns": "config.cache.collections",
+			"o2": bson.M{
+				"_id": "ycsb_test2.usertable",
+			},
+			"wall": time.Now(),
+			"ts":   bson.MongoTimestamp(time.Now().Unix()),
+			"h":    int64(-2273244757254710743),
+			"v":    2,
+			"op":   "u",
+			"ui": bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0x1, 0x69, 0xc9, 0x79, 0xb4, 0x6e, 0x42, 0xcf, 0x87, 0x5b, 0x6b, 0xab, 0xfd, 0x89, 0xa4, 0x52},
+			},
+			"o": bson.M{
+				"$v":   1,
+				"$set": bson.M{"refreshing": true},
+			},
+		},
+	}
+
+	bsonReader := newMockBSONReader(docs)
+
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+
+	oa, err := NewOplogApply(session, bsonReader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+
+	// If you need to debug and see all failed operations output
+	oa.ignoreErrors = false
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+}
+
 func TestBasicApplyLog(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "example.bson.")
 	if err != nil {
@@ -167,6 +243,9 @@ func TestBasicApplyLog(t *testing.T) {
 	ot, err := Open(session)
 	if err != nil {
 		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
+	}
+	if err := ot.WaitUntilFirstDoc(); err != nil {
+		t.Fatalf("Cannot get first doc from oplog tailer: %s", err)
 	}
 
 	wg := &sync.WaitGroup{}
@@ -215,18 +294,38 @@ func TestBasicApplyLog(t *testing.T) {
 		}
 	}
 
-	index := mgo.Index{
-		Key:        []string{"f1", "-f2"},
-		Unique:     true,
-		DropDups:   true,
-		Background: true, // See notes.
-		Sparse:     true,
+	if err := db.C("new_index").Insert(bson.M{"f1": 33, "f2": 34}); err != nil {
+		t.Errorf("Cannot create the new_index collection and insert a doc: %s", err)
 	}
-	colName := fmt.Sprintf("%s%02d", testColsPrefix, 0)
-	if err := db.C(colName).EnsureIndex(index); err != nil {
+	if err := db.C("new_index").DropCollection(); err != nil {
+		t.Errorf("Cannot drop the new_index collection")
+	}
+
+	complexIndexCol := "complex_idx"
+	index := mgo.Index{
+		Key:         []string{"f1", "-f2"},
+		Unique:      true,
+		Background:  true, // See notes.
+		Sparse:      true,
+		ExpireAfter: 5 * time.Minute,
+		Name:        "this_is_my_index",
+		Collation: &mgo.Collation{
+			Locale:          "fr",
+			CaseFirst:       "off",
+			Strength:        3,
+			Alternate:       "non-ignorable",
+			MaxVariable:     "punct",
+			Normalization:   false,
+			CaseLevel:       false,
+			NumericOrdering: false,
+			Backwards:       false,
+		},
+	}
+	if err := db.C(complexIndexCol).EnsureIndex(index); err != nil {
 		t.Errorf("Cannot create index for testing")
 	}
 
+	colName := fmt.Sprintf("%s%02d", testColsPrefix, 0)
 	if err := db.C(colName).Remove(bson.M{"f1": bson.M{"$gt": 10}}); err != nil {
 		t.Errorf("Cannot remove some documents")
 	}
@@ -250,6 +349,10 @@ func TestBasicApplyLog(t *testing.T) {
 
 	wg.Wait()
 	tmpfile.Close()
+
+	if err := db.C(complexIndexCol).DropCollection(); err != nil {
+		t.Fatalf("Cannot drop %s: %s", complexIndexCol, err)
+	}
 
 	if err := cleanup(db, testColsPrefix); err != nil {
 		t.Fatalf("Cannot clean up %s database before applying the oplog: %s", dbname, err)
@@ -301,8 +404,331 @@ func TestBasicApplyLog(t *testing.T) {
 		t.Errorf("Collection %s was not dropped", dropColName)
 	}
 
-	if err := cleanup(db, testColsPrefix); err != nil {
+	waitCount := 0
+	var idxs []mgo.Index
+
+	for {
+		db.Session.ResetIndexCache()
+		db.Session.Refresh()
+		idxs, err = db.C(complexIndexCol).Indexes()
+		if err != nil {
+			t.Errorf("Cannot get collection %q indexes: %s", complexIndexCol, err)
+		}
+		if len(idxs) > 1 {
+			break
+		}
+		waitCount++
+		if waitCount > 12 {
+			pretty.Println(idxs)
+			break
+		}
+		fmt.Println(waitCount)
+		time.Sleep(5 * time.Second)
+	}
+
+	if len(idxs) < 2 {
+		t.Errorf("Invalid number of indexes for collection %s: %d < 1", complexIndexCol, len(idxs))
+	} else if !reflect.DeepEqual(index, idxs[1]) {
+		t.Errorf("Invalid index generated by optlog apply: %s", pretty.Diff(index, idxs[1]))
+	}
+
+	// if err := cleanup(db, testColsPrefix); err != nil {
+	// 	t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	// }
+	// if err := cleanup(db, "new_index"); err != nil {
+	// 	t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	// }
+}
+
+func TestComplexIndex(t *testing.T) {
+	tmpfile, err := ioutil.TempFile("", "example.bson.")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if testing.Verbose() {
+		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
+	}
+
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+
+	dbname := "test"
+
+	db := session.DB(dbname)
+
+	if err := cleanup(db, ""); err != nil {
+		t.Fatalf("Cannot clean up database before starting: %s", err)
+	}
+
+	ot, err := Open(session)
+	if err != nil {
+		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
+	}
+	if err := ot.WaitUntilFirstDoc(); err != nil {
+		t.Fatalf("Cannot get first doc from oplog tailer: %s", err)
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	// Start tailing the oplog in background while some records are being generated
+	go func() {
+		if _, err := io.Copy(tmpfile, ot); err != nil {
+			t.Errorf("Error while tailing the oplog: %s", err)
+		}
+		wg.Done()
+	}()
+
+	if err := ot.WaitUntilFirstDoc(); err != nil {
+		t.Fatalf("Error while waiting for first doc: %s", err)
+	}
+
+	complexIndexCol := "complex_idx"
+	index := mgo.Index{
+		Key:         []string{"f1", "-f2"},
+		Unique:      true,
+		Background:  true, // See notes.
+		Sparse:      true,
+		ExpireAfter: 5 * time.Minute,
+		Name:        "this_is_my_index",
+		Collation: &mgo.Collation{
+			Locale:          "fr",
+			CaseFirst:       "off",
+			Strength:        3,
+			Alternate:       "non-ignorable",
+			MaxVariable:     "punct",
+			Normalization:   false,
+			CaseLevel:       false,
+			NumericOrdering: false,
+			Backwards:       false,
+		},
+	}
+	if err := db.C(complexIndexCol).EnsureIndex(index); err != nil {
+		t.Errorf("Cannot create index for testing")
+	}
+
+	ot.Close()
+	wg.Wait()
+	tmpfile.Close()
+
+	var idxs []mgo.Index
+
+	if err := db.C(complexIndexCol).DropCollection(); err != nil {
+		t.Fatalf("Cannot drop %s: %s", complexIndexCol, err)
+	}
+
+	if err := cleanup(db, ""); err != nil {
+		t.Fatalf("Cannot clean up %s database before applying the oplog: %s", dbname, err)
+	}
+	session.Refresh()
+	session.ResetIndexCache()
+
+	// Open the oplog file we just wrote and use it as a reader for the oplog apply
+	reader, err := bsonfile.OpenFile(tmpfile.Name())
+	if err != nil {
+		t.Errorf("Cannot open oplog dump file %q: %s", tmpfile.Name(), err)
+		return
+	}
+
+	// Replay the oplog
+	oa, err := NewOplogApply(session, reader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+
+	waitCount := 0
+
+	for {
+		db.Session.ResetIndexCache()
+		db.Session.Refresh()
+		idxs, err = db.C(complexIndexCol).Indexes()
+		if err != nil {
+			t.Errorf("Cannot get collection %q indexes: %s", complexIndexCol, err)
+		}
+		if len(idxs) > 1 {
+			break
+		}
+		waitCount++
+		if waitCount > 2 {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	if len(idxs) < 2 {
+		t.Errorf("Invalid number of indexes for collection %s: %d < 1", complexIndexCol, len(idxs))
+	} else if !reflect.DeepEqual(index, idxs[1]) {
+		t.Errorf("Invalid index generated by optlog apply: %s", pretty.Diff(index, idxs[1]))
+	}
+
+	if err := cleanup(db, ""); err != nil {
 		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	}
+}
+
+func TestIndexes(t *testing.T) {
+	tmpfile, err := ioutil.TempFile("", "example.bson.")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if testing.Verbose() {
+		fmt.Printf("Dumping the oplog into %q\n", tmpfile.Name())
+	}
+
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+
+	dbname := "test"
+	colName := "col001"
+	idxName := "idx001"
+
+	db := session.DB(dbname)
+
+	if err := cleanup(db, colName); err != nil {
+		t.Fatalf("Cannot clean up %s database before starting: %s", dbname, err)
+	}
+
+	ot, err := Open(session)
+	if err != nil {
+		t.Fatalf("Cannot instantiate the oplog tailer: %s", err)
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	// Start tailing the oplog in background while some records are being generated
+	go func() {
+		if _, err := io.Copy(tmpfile, ot); err != nil {
+			t.Errorf("Error while tailing the oplog: %s", err)
+		}
+		wg.Done()
+	}()
+
+	if err := ot.WaitUntilFirstDoc(); err != nil {
+		t.Fatalf("Error while waiting for first doc: %s", err)
+	}
+
+	info := &mgo.CollectionInfo{
+		DisableIdIndex: false,
+		ForceIdIndex:   true,
+		Capped:         false,
+	}
+
+	if err := db.C(colName).Create(info); err != nil {
+		t.Fatalf("Cannot create collection %s with info: %+v: %s", colName, info, err)
+	}
+
+	if err := db.C(colName).Insert(bson.M{"f1": 33, "f2": 34}); err != nil {
+		t.Errorf("Cannot create the new_index collection and insert a doc: %s", err)
+	}
+	if err := db.C(colName).DropCollection(); err != nil {
+		t.Errorf("Cannot drop the new_index collection")
+	}
+
+	index := mgo.Index{
+		Key:        []string{"f1", "-f2"},
+		Unique:     true,
+		DropDups:   true,
+		Background: true,
+		Sparse:     true,
+		Name:       idxName + "_1", // DropIndex will add "_1"
+	}
+
+	if err := db.C(colName).EnsureIndex(index); err != nil {
+		t.Errorf("Cannot create index for testing")
+	}
+
+	if err := db.C(colName).DropIndex(idxName); err != nil {
+		t.Errorf("Cannot remove index %q: %s", idxName, err)
+	}
+
+	ot.Close()
+
+	wg.Wait()
+	tmpfile.Close()
+
+	if err := cleanup(db, colName); err != nil {
+		t.Fatalf("Cannot clean up %s database before applying the oplog: %s", dbname, err)
+	}
+
+	n, _, err := count(db, colName)
+	if err != nil {
+		t.Errorf("Cannot verify collections have been dropped before applying the oplog: %s", err)
+	}
+
+	if n != 0 {
+		t.Fatalf("Collections %s* already exists. Cannot test oplog apply", colName)
+	}
+
+	// Open the oplog file we just wrote and use it as a reader for the oplog apply
+	reader, err := bsonfile.OpenFile(tmpfile.Name())
+	if err != nil {
+		t.Errorf("Cannot open oplog dump file %q: %s", tmpfile.Name(), err)
+		return
+	}
+
+	// Replay the oplog
+	oa, err := NewOplogApply(session, reader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+
+	if !colExists(db, colName) {
+		t.Errorf("Collection %s does not exists", colName)
+	}
+
+	idxs, err := db.C(colName).Indexes()
+	if err != nil {
+		t.Errorf("Cannot list indexes for collection %q: %s", colName, err)
+	}
+
+	for _, idx := range idxs {
+		if idx.Name == idxName {
+			t.Errorf("Index %q still exist", idx.Name)
+		}
+	}
+
+	if err := cleanup(db, colName); err != nil {
+		t.Fatalf("Cannot clean up %s database after testing: %s", dbname, err)
+	}
+
+}
+
+func TestSkipSystemCollections(t *testing.T) {
+	tests := []struct {
+		NS   string
+		Skip bool
+	}{
+		{NS: "config.system.sessions", Skip: true},
+		{NS: "config.cache.collections", Skip: true},
+		{NS: "some-other-col", Skip: false},
+	}
+
+	for i, test := range tests {
+		name := fmt.Sprintf("Test #%d: %s", i, test.NS)
+		ns := test.NS
+		want := test.Skip
+		t.Run(name, func(t *testing.T) {
+			if got := skip(ns); got != want {
+				t.Errorf("Invalid result for collection skip %q. Want %v, got %v", ns, want, got)
+			}
+		})
 	}
 }
 
@@ -321,6 +747,10 @@ func colExists(db *mgo.Database, name string) bool {
 
 func cleanup(db *mgo.Database, testColsPrefix string) error {
 	// Clean up before starting
+	if testColsPrefix == "" {
+		return db.DropDatabase()
+	}
+
 	colNames, err := db.CollectionNames()
 	if err != nil {
 		return fmt.Errorf("Cannot list collections in %q database", err)
@@ -328,7 +758,7 @@ func cleanup(db *mgo.Database, testColsPrefix string) error {
 	for _, cname := range colNames {
 		if strings.HasPrefix(cname, testColsPrefix) {
 			if err := db.C(cname).DropCollection(); err != nil {
-				return fmt.Errorf("Cannot drop %s collection: %s", cname, err)
+				fmt.Printf("Cannot drop %s collection: %s", cname, err)
 			}
 		}
 	}
