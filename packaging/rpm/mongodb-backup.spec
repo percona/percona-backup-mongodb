@@ -206,8 +206,8 @@ esac
 
 %files -n percona-backup-mongodb-agent
 %{_bindir}/pbm-agent
-%config(noreplace) /%{_sysconfdir}/pbm-agent.conf
-%config(noreplace) /%{_sysconfdir}/pbm-agent-storage.conf
+%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent.conf
+%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent-storage.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
@@ -217,7 +217,7 @@ esac
 
 %files -n percona-backup-mongodb-coordinator
 %{_bindir}/pbm-coordinator
-%config(noreplace) /%{_sysconfdir}/pbm-coordinator.conf
+%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-coordinator.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-coordinator.service
 %else
