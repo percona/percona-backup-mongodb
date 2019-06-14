@@ -207,7 +207,7 @@ esac
 %files -n percona-backup-mongodb-agent
 %{_bindir}/pbm-agent
 %config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent.conf
-%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent-storages.conf
+%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent-storage.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
