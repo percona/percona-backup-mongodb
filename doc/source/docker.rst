@@ -29,15 +29,16 @@ The working directory must be owned by the user passed to ``docker`` via the
    $ docker run --user=X
    $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
    $ docker run -d \
-      --restart=always \
-      --user=$(id -u) \
-      --name=mongodb-backup-coordinator \
-      -e PBM_COORDINATOR_GRPC_PORT=10000 \
-      -e PBM_COORDINATOR_API_PORT=10001 \
-      -e PBM_COORDINATOR_WORK_DIR=/data \
-      -p 10000-10001:10000-10001 \
-      -v /data/mongodb-backup-coordinator:/data \
-      mongodb-backup-coordinator
+   --restart=always \
+   --user=$(id -u) \
+   --name=mongodb-backup-coordinator \
+   -e PBM_COORDINATOR_GRPC_PORT=10000 \
+   -e PBM_COORDINATOR_API_PORT=10001 \
+   -e PBM_COORDINATOR_WORK_DIR=/data \
+   -p 10000-10001:10000-10001 \
+   -v /data/mongodb-backup-coordinator:/data \
+   perconalab/percona-backup-mongodb \
+   pbm-coordinator
 
 Viewing |bc| logs
 ================================================================================
@@ -63,16 +64,20 @@ the agent.
 
    $ mkdir -m 0700 -p /data/mongodb-backup-agent
    $ docker run -d \
-		--restart=always \
-		--user=$(id -u) \
-		--name=mongodb-backup-agent \
-		-e PBM_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
-		-e PBM_AGENT_BACKUP_DIR=/data \
-		-e PBM_AGENT_MONGODB_PORT=27017 \
-		-e PBM_AGENT_MONGODB_USER=pbmAgent \
-		-e PBM_AGENT_MONGODB_PASSWORD=securePassw0rd \
-		-v /data/mongodb-backup-agent:/data \
-		mongodb-backup-agent
+   --restart=always \
+   --user=$(id -u) \
+   --name=mongodb-backup-agent \
+   -e PBM_AGENT_SERVER_ADDRESS=172.16.0.2:10000 \
+   -e PBM_AGENT_BACKUP_DIR=/data \
+   -e PBM_AGENT_MONGODB_HOST=172.16.0.2 \
+   -e PBM_AGENT_MONGODB_PORT=27017 \
+   -e PBM_AGENT_MONGODB_USERNAME=backupUser \
+   -e PBM_AGENT_MONGODB_PASSWORD=$eQrP@sw8rD \
+   -e PBM_AGENT_STORAGE_CONFIG=/data/storage-config.yml \
+   -e PBM_AGENT_MONGODB_REPLICASET=rs1 \
+   -v /data/mongodb-backup-agent1:/data \
+   perconalab/percona-backup-mongodb \
+   pbm-agent
 
 Viewing the Agent Logs
 ================================================================================
