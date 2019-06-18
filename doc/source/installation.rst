@@ -103,6 +103,33 @@ To build the project (from the project dir):
    $ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
    $ make
 
+|pbm| services and location of configuration files
+--------------------------------------------------------------------------------
+
+After |pbm| is successfully installed on your system, you have `pbm-coordinator`
+and `pbm-agent` services running on your system.
+
+These services can be started or stopped like any other system service:
+
+
+.. code-block:: bash
+
+   $ systemctl start pbm-coordinator
+   $ systemctl stop pbm-coordinator
+   $ systemctl start pbm-agent
+   $ systemctl stop pbm-agent
+
+The |pbm| sample configuration files are placed to the :file:`/etc` directory:
+
+- :file:`/etc/pbm-coordinator.conf`
+- :file:`/etc/pbm-agent.conf`
+- :file:`/etc/pbm-agent-storage.conf`
+
+.. seealso::
+
+   |pbm| storages
+      :ref:`pbm.running.storage.setting-up`
+
 Unit tests
 --------------------------------------------------------------------------------
 
