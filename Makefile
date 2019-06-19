@@ -112,7 +112,7 @@ test-cluster: env
 	--force-recreate \
 	--always-recreate-deps \
 	--renew-anon-volumes \
-	init
+	init 
 	docker/test/init-cluster-wait.sh
 
 test-cluster-clean: env
@@ -169,7 +169,7 @@ release: vendor
 	docker rmi -f $(NAME)-release
 
 docker-build: pbmctl pbm-agent pbm-coordinator
-	docker build -t $(REPO):common -f docker/Dockerfile.common .
+	docker build -t $(REPO):latest -f docker/Dockerfile.common .
 
 clean:
 	rm -rf vendor 2>/dev/null || true

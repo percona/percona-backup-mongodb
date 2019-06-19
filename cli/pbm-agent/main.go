@@ -38,14 +38,17 @@ const (
 	defaultServerAddress  = "127.0.0.1:10000"
 	defaultMongoDBHost    = "127.0.0.1"
 	defaultMongoDBPort    = "27017"
+	sampleStorageFile     = "storage.sample.yml"
 )
 
 type dialerFn func(addr *mgo.ServerAddr) (net.Conn, error)
 
 type cliOptions struct {
-	app                  *kingpin.Application
-	configFile           string
-	generateSampleConfig bool
+	app                   *kingpin.Application
+	configFile            string
+	generateSampleConfig  bool
+	generateSampleStorage bool
+	dumpConfig            bool
 
 	Debug            bool   `yaml:"debug,omitempty" kingpin:"debug"`
 	LogFile          string `yaml:"log_file,omitempty" kingpin:"log-file"`
@@ -58,8 +61,7 @@ type cliOptions struct {
 	TLSCAFile        string `yaml:"tls_ca_file,omitempty" kingpin:"tls-ca-file"`
 	TLSCertFile      string `yaml:"tls_cert_file,omitempty" kingpin:"tls-cert-file"`
 	TLSKeyFile       string `yaml:"tls_key_file,omitempty" kingpin:"tls-key-file"`
-
-	UseSysLog bool `yaml:"use_syslog,omitempty" kingpin:"use-syslog"`
+	UseSysLog        bool   `yaml:"use_syslog,omitempty" kingpin:"use-syslog"`
 
 	// MongoDB connection options
 	MongodbConnOptions client.ConnectionOptions `yaml:"mongodb_conn_options,omitempty"`
@@ -106,6 +108,11 @@ func main() {
 		return
 	}
 
+	if opts.generateSampleStorage {
+		generateSampleStorage()
+		return
+	}
+
 	if opts.Quiet {
 		log.SetLevel(logrus.ErrorLevel)
 	}
@@ -148,6 +155,11 @@ func main() {
 	stg, err := storage.NewStorageBackendsFromYaml(utils.Expand(opts.StoragesConfig))
 	if err != nil {
 		log.Fatalf("Canot load storage config from file %s: %s", utils.Expand(opts.StoragesConfig), err)
+	}
+
+	if opts.dumpConfig {
+		dumpConfig(opts, stg)
+		return
 	}
 
 	input := client.InputOptions{
@@ -220,6 +232,11 @@ func processCliArgs(args []string) (*cliOptions, error) {
 	app.Flag("log-file", "Backup agent log file").
 		Short('l').
 		StringVar(&opts.LogFile)
+	app.Flag("generate-sample-storage", "Generate sample storage.yml file").
+		BoolVar(&opts.generateSampleStorage)
+	app.Flag("dump-config", "Dump agent and storage config").
+		BoolVar(&opts.dumpConfig)
+
 	app.Flag("pid-file", "Backup agent pid file").
 		StringVar(&opts.PIDFile)
 	app.Flag("quiet", "Quiet mode. Log only errors").
@@ -468,7 +485,11 @@ func buildDialInfo(opts *cliOptions) (*mgo.DialInfo, error) {
 			Password:       opts.MongodbConnOptions.Password,
 			ReplicaSetName: opts.MongodbConnOptions.ReplicasetName,
 			FailFast:       true,
+			Direct:         true,
 			Source:         "admin",
+			ReadPreference: &mgo.ReadPreference{
+				Mode: mgo.PrimaryPreferred,
+			},
 		}
 	} else {
 		di, err = mgo.ParseURL(opts.MongodbConnOptions.DSN)
@@ -495,6 +516,7 @@ func dbConnect(di *mgo.DialInfo, maxReconnects int, reconnectDelay int) (*mgo.Se
 	connectionAttempts := 0
 	var session *mgo.Session
 	var err error
+	di.Dial = nil
 
 	for {
 		connectionAttempts++
@@ -517,4 +539,53 @@ func dbConnect(di *mgo.DialInfo, maxReconnects int, reconnectDelay int) (*mgo.Se
 	}
 
 	return session, nil
+}
+
+func generateSampleStorage() {
+	stgss := map[string]storage.Storage{
+		"local-filesystem": storage.Storage{
+			Type: "filesystem",
+			Filesystem: storage.Filesystem{
+				Path: "/tmp/some-dir",
+			},
+		},
+		"s3-us-west": storage.Storage{
+			Type: "s3",
+			S3: storage.S3{
+				Region:      "us-west-2",
+				EndpointURL: "",
+				Bucket:      "bucket-name",
+				Credentials: storage.Credentials{
+					AccessKeyID:     "access-key-id",
+					SecretAccessKey: "secret-access-key",
+				},
+			},
+		},
+	}
+	buf, err := yaml.Marshal(stgss)
+	if err != nil {
+		log.Fatalf("Cannot generate sample storage's config: %s", err)
+	}
+	if err := ioutil.WriteFile(sampleStorageFile, buf, os.ModePerm); err != nil {
+		log.Fatalf("Cannot write sample storages file %s: %s", sampleStorageFile, err)
+	}
+	fmt.Printf("Generated sample storage file %q\n", sampleStorageFile)
+}
+
+func dumpConfig(opts *cliOptions, stg *storage.Storages) {
+	if buf, err := yaml.Marshal(stg); err != nil {
+		log.Errorf("Cannot marshal storages config: %s", err)
+	} else {
+		fmt.Println("Parsed storage config:")
+		fmt.Println("----------------------")
+		fmt.Println(string(buf))
+	}
+
+	if buf, err := yaml.Marshal(opts); err != nil {
+		log.Errorf("Cannot marshal command line options: %s", err)
+	} else {
+		fmt.Println("Parsed command line (or config file) options:")
+		fmt.Println("---------------------------------------------")
+		fmt.Println(string(buf))
+	}
 }
