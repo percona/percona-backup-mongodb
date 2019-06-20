@@ -17,9 +17,12 @@
 .. Commands
 
 .. |pbm-coordinator| replace:: :program:`pbm-coordinator`
-.. |pbm-agent| replace:: ``pbm-agent``
+.. |pbm-coordinator-help| replace:: :program:`pbm-coordinator --help`
+.. |pbm-agent| replace:: :program:`pbm-agent`
+.. |pbm-agent-help| replace:: :program:`pbm-agent --help`
 .. |pbmctl| replace:: ``pbmctl``
 .. |mongos| replace:: ``mongos``
+.. |mongod| replace:: ``mongod``
 .. |pbmctl-restore| replace:: ``pbmctl run restore``
 .. |pbmctl-backup| replace:: ``pbmctl run backup``
 
@@ -33,3 +36,4 @@
 .. |opt-work-dir| replace:: :option:`--work-dir`
 .. |opt-server-address| replace:: :option:`--server-address`
 .. |opt-storage| replace:: :option:`--storage`
+.. |opt-config-file| replace:: :option:`--config-file`
