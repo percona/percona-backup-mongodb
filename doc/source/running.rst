@@ -23,6 +23,8 @@ n
 If the |opt-work-dir| option is not specified, it will use the default
 |work-dir|.  By default, the |bc| listens for agents on port 10000.
 
+.. _pbm.running.storage.setting-up:
+
 Setting Up Storages for Backup and Restore Operations
 --------------------------------------------------------------------------------
 

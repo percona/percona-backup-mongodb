@@ -3,7 +3,9 @@
 |pbm| |release|
 ********************************************************************************
 
-|percona| is glad to announce the release of |pbm| 0.5.0 on |date|.
+|percona| is pleased to announce the early release of |pbm| |release| of our
+latest software product on |date|. The GA version of |pbm| is scheduled to
+be released later in 2019.
 
 |pbm| is a distributed, low-impact solution for consistent backups of |mongodb|
 sharded clusters and replica sets. This is a tool for creating consistent
@@ -13,31 +15,33 @@ uses a distributed client/server architecture to perform backup/restore
 actions.
 
 The project was inspired by (and intends to replace) the
-Percona-Lab/mongodb_consistent_backup tool.
+`Percona-Lab/mongodb_consistent_backup tool
+<https://github.com/Percona-Lab/mongodb_consistent_backup>`_.
 
 |pbm| supports |psmdb| or |mongodb| Community Server version 3.6 or higher with
 |mongodb| replication enabled. Binaries for the supported platforms as well as
-the tarball with source code are available from the GitHub repository
-(https://github.com/percona/percona-backup-mongodb/releases/tag/v0.5.0). For
-more information about |pbm| and the installation steps,
-see the `documentation <https://www.percona.com/doc/percona-backup-mongodb>`_.
+the tarball with source code are available from the Percona Backup for MongoDB
+download page
+<https://www.percona.com/downloads/percona-backup-mongodb/LATEST/>`_. For more
+information about |pbm| and the installation steps, see the `documentation
+<https://www.percona.com/doc/percona-backup-mongodb>`_.
 
 |pbm| |release| features the following:
 
 - Enables storing backup metadata on |amazon-s3| storages.
-- The API of |pbm| introduces HTTP basic authentication to prevent an unauthorized user from
-  running backups or restoring data if they manage to access the API port.
+- The API of |pbm| introduces HTTP basic authentication to prevent an
+  unauthorized user from running backups or restoring data if they manage to
+  access the API port.
 - To optimize the usage of network resources, the pbm-agent on ``mongos`` is not
   needed any more and |backup-coordinator| automatically establishes connection
   to the appropriate ``mongos`` instance.
 - The output of ``pbmctl list nodes`` now includes the replica set name and
   informs the backup status of the node.
 
-Note that |percona| doesn’t recommend this release for production, and its API
-and configuration fields are likely to change in the future. It only features
-a basic API level security. You are welcome to report any bugs you encounter in
+|percona| doesn’t recommend this release for production as its API
+and configuration fields are still likely to change. It only features
+a basic API level security. Please report any bugs you encounter in
 `our bug tracking system <https://jira.percona.com>`_.
-
 
 New Features and Improvements
 ================================================================================
@@ -45,9 +49,11 @@ New Features and Improvements
 - :jirabug:`93`: Support storage of backup metadata on AWS S3.
 - :jirabug:`99`: |pbm-agent| is deprecated on ``mongos``.
 - :jirabug:`105`: Log a warning if a Primary node-type is used for a backup
-- :jirabug:`122`: Include the replica set name to the output of ``pmbctl list nodes``
+- :jirabug:`122`: Include the replica set name to the output of ``pmbctl list
+  nodes``
 - :jirabug:`130`: Add HTTP Basic Authentication to gRPC servers (API and RPC)
-- :jirabug:`139`: Support listing backup status in the output of ``pmbctl list nodes``
+- :jirabug:`139`: Support listing backup status in the output of ``pmbctl list
+  nodes``
 - :jirabug:`170`: Enable setting the 'stopOnError' attribute in ``mongorestore``
   to ensure consistency of the data being restored.
 
