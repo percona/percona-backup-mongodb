@@ -21,8 +21,11 @@ import (
 )
 
 const (
+	// EventBackupFinish signals DB dump has finish
 	EventBackupFinish = iota
+	// EventOplogFinish signals Oplog dump has finish
 	EventOplogFinish
+	// EventRestoreFinish signals restore has finish
 	EventRestoreFinish
 
 	// If this list is updated, please also update the isValidEvent and eventName functions
@@ -41,7 +44,7 @@ const (
 type backupStatus struct {
 	// the balancer status before starting a backup/restore.
 	// After backup/restore has been completed, we must return the balancer status to its original state
-	balancerStatus     *pb.BalancerStatus
+	balancerStatus     pb.BalancerStatus
 	lastBackupMetadata *BackupMetadata
 	//	lastOplogTs        int64 // Timestamp in Unix format
 	// The name lastBackupErrors is plural because we are concatenating errors using the multierror pkg
@@ -271,11 +274,14 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 	s.clientsLock.Lock()
 	defer s.clientsLock.Unlock()
 
+	replicasets := map[string]bool{}
+
 	for _, client := range s.clients {
 		if _, ok := sources[client.ReplicasetName]; !ok {
 			if client.NodeType == pb.NodeType_NODE_TYPE_MONGOS {
 				continue
 			}
+			replicasets[client.ReplicasetName] = true
 			backupSource, err := client.GetBackupSource()
 			if err != nil {
 				s.logger.Errorf("Cannot get backup source for client %s: %s", client.NodeName, err)
@@ -287,8 +293,14 @@ func (s *MessagesServer) BackupSourceByReplicaset() (map[string]*Client, error) 
 			}
 		}
 	}
+
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("cannot get best client")
+	}
+	// We need to have a winner per replicaset.
+	if len(replicasets) != len(sources) {
+		return nil, fmt.Errorf("invalid number of sources. %d sources but %d replicasets",
+			len(sources), len(replicasets))
 	}
 	return sources, nil
 }
@@ -661,6 +673,10 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 		if err := s.getBalancerStatus(); err != nil {
 			return errors.Wrap(err, "cannot save the current balancer status")
 		}
+		if err := s.StopBalancer(); err != nil {
+			return errors.Wrap(err, "cannot stop the balancer")
+		}
+		s.waitToStartBalancer()
 	}
 
 	cmdLineOpts, err := s.AllServersCmdLineOpts()
@@ -747,6 +763,46 @@ func (s *MessagesServer) StartBackup(opts *pb.StartBackup) error {
 	return nil
 }
 
+/*
+If before starting the backup the balancer was running, we need to wait until the
+backup finishes and restart the balancer.
+This func is triggered by backup start only for sharded systems
+*/
+func (s *MessagesServer) waitToStartBalancer() {
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		if _, err := s.WaitForEvent(EventOplogFinish, WaitForever); err != nil {
+			s.logger.Errorf("error waiting for EventOplogFinish: %s", err)
+		}
+		wg.Done()
+	}()
+	wg.Add(1)
+	go func() {
+		if _, err := s.WaitForEvent(EventBackupFinish, WaitForever); err != nil {
+			s.logger.Errorf("error waiting for EventBackupFinish: %s", err)
+		}
+		wg.Done()
+	}()
+	go func() {
+		wg.Wait()
+		if s.balancerStatusMode() == "full" {
+			log.Info("Restarting the balancer")
+			if err := s.triggerEvent(BeforeBalancerStartEvent, time.Now()); err != nil {
+				s.logger.Warnf("Cannot trigger BeforeBalancerStartEvent: %s", err)
+			}
+			if err := s.StartBalancer(); err != nil {
+				s.logger.Errorf("Cannot restart the balancer: %s", err)
+				return
+			}
+			if err := s.triggerEvent(AfterBalancerStartEvent, time.Now()); err != nil {
+				s.logger.Warnf("Cannot trigger AfterBalancerStartEvent: %s", err)
+			}
+			s.logger.Info("Balancer restarted")
+		}
+	}()
+}
+
 func (s *MessagesServer) getMongoDBVersion() (string, error) {
 	for _, client := range s.clients {
 		if client.NodeType != pb.NodeType_NODE_TYPE_MONGOS {
@@ -758,14 +814,15 @@ func (s *MessagesServer) getMongoDBVersion() (string, error) {
 
 func (s *MessagesServer) getBalancerStatus() error {
 	c := s.getClientByType(pb.NodeType_NODE_TYPE_MONGOD_CONFIGSVR)
+	if c == nil { // this is not a sharded system
+		return nil
+	}
 	bs, err := c.getBalancerStatus()
 
 	// Update the status even if there is a nil in the response.
 	// If for some reason the mongoS instace has gone, we should clear s.backupStatus.balancerStatus so
 	// the balancer is not re-enabled based on an old value
-	s.backupStatusLock.Lock()
-	s.backupStatus.balancerStatus = bs
-	s.backupStatusLock.Unlock()
+	s.saveBalancerStatus(bs)
 
 	if err != nil {
 		return errors.Wrap(err, "cannot get balancer status. internal status was resetted")
@@ -808,6 +865,7 @@ func (s *MessagesServer) StartBalancer() error {
 	return nil
 }
 
+// Stop stops the server
 func (s *MessagesServer) Stop() {
 	close(s.stopChan)
 }
@@ -1148,6 +1206,10 @@ func (s *MessagesServer) OplogBackupFinished(ctx context.Context, msg *pb.OplogB
 
 	replicasets := s.ReplicasetsRunningOplogBackup()
 	if len(replicasets) == 0 {
+		if err := s.triggerEvent(EventOplogFinish, msg.GetClientId()); err != nil {
+			s.logger.Errorf("cannot trigger EventOplogFinish: %s", err)
+		}
+
 		if err := notify.Post(EventOplogFinish, msg.GetClientId()); err != nil {
 			return nil, errors.Wrapf(err, "cannot notify OplogBackupFinished for client %s", client.ID)
 		}
@@ -1182,6 +1244,9 @@ func (s *MessagesServer) RestoreCompleted(ctx context.Context, msg *pb.RestoreCo
 	if len(replicasets) == 0 {
 		s.setRestoreRunning(false)
 		s.logger.Debug("Sending EventRestoreFinish notification")
+		if err := s.triggerEvent(EventRestoreFinish, time.Now()); err != nil {
+			s.logger.Errorf("cannot trigger EventOplogFinish: %s", err)
+		}
 		if err := notify.Post(EventRestoreFinish, time.Now()); err != nil {
 			err := errors.Wrapf(err, "cannot notify RestoreCompleted for client %s", client.ID)
 			return nil, err
@@ -1483,10 +1548,17 @@ func (s *MessagesServer) WaitForEvent(event int, timeout time.Duration) (interfa
 	return re, err
 }
 
-func (s *MessagesServer) BalancerStatus() *pb.BalancerStatus {
+func (s *MessagesServer) balancerStatusMode() string {
 	s.backupStatusLock.Lock()
 	defer s.backupStatusLock.Unlock()
-	return s.backupStatus.balancerStatus
+	return s.backupStatus.balancerStatus.Mode
+}
+
+func (s *MessagesServer) saveBalancerStatus(bs *pb.BalancerStatus) {
+	s.backupStatusLock.Lock()
+	s.backupStatus.balancerStatus = *bs
+	s.backupStatusLock.Unlock()
+
 }
 
 func isValidEvent(e int) bool {

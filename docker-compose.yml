@@ -71,6 +71,36 @@ services:
     - ./docker/test/mongod.key:/mongod.key:ro
     - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
     - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
+  s3-mongo1:
+    network_mode: host
+    image: ${TEST_MONGODB_FLAVOR}:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_S3_RS} --port=${TEST_MONGODB_S3_PRIMARY_PORT}
+    volumes:
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/entrypoint-mongod.sh:/usr/local/bin/docker-entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
+  s3-mongo2:
+    network_mode: host
+    image: ${TEST_MONGODB_FLAVOR}:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_S3_RS} --port=${TEST_MONGODB_S3_SECONDARY1_PORT}
+    volumes:
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/entrypoint-mongod.sh:/usr/local/bin/docker-entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
+  s3-mongo3:
+    network_mode: host
+    image: ${TEST_MONGODB_FLAVOR}:${TEST_PSMDB_VERSION}
+    command: --replSet=${TEST_MONGODB_S3_RS} --port=${TEST_MONGODB_S3_SECONDARY2_PORT}
+    volumes:
+    - ./docker/test/entrypoint-mongod.sh:/entrypoint.sh:ro
+    - ./docker/test/entrypoint-mongod.sh:/usr/local/bin/docker-entrypoint.sh:ro
+    - ./docker/test/mongod.key:/mongod.key:ro
+    - ./docker/test/ssl/rootCA.crt:/rootCA.crt:ro
+    - ./docker/test/ssl/mongodb.pem:/mongod.pem:ro
   configsvr1:
     network_mode: host
     image: ${TEST_MONGODB_FLAVOR}:${TEST_PSMDB_VERSION}
@@ -132,7 +162,6 @@ services:
     env_file:
     - .env
     depends_on:
-    - standalone
     - mongos
     - s1-mongo1
     - s1-mongo2
@@ -140,6 +169,10 @@ services:
     - s2-mongo1
     - s2-mongo2
     - s2-mongo3
+    - s3-mongo1
+    - s3-mongo2
+    - s3-mongo3
+    - standalone
     - minio
   test:
     build:
