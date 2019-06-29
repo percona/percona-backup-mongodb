@@ -14,10 +14,12 @@ import (
 	"github.com/globalsign/mgo/bson"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/percona/percona-backup-mongodb/grpc/server"
+	"github.com/percona/percona-backup-mongodb/internal/cluster"
 	"github.com/percona/percona-backup-mongodb/internal/reader"
 	"github.com/percona/percona-backup-mongodb/internal/testutils"
 	"github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
 	testGrpc "github.com/percona/percona-backup-mongodb/internal/testutils/grpc"
+	"github.com/percona/percona-backup-mongodb/mdbstructs"
 	pbapi "github.com/percona/percona-backup-mongodb/proto/api"
 	pb "github.com/percona/percona-backup-mongodb/proto/messages"
 	"github.com/pkg/errors"
@@ -156,7 +158,68 @@ func TestGlobalWithDaemon(t *testing.T) {
 	}
 }
 
-func TestBackupUsingSSL(t *testing.T) {
+// In a non-sharded system, there is no balancer so, the BeforeBalancerStopEvent shouldn't
+// be triggered
+func TestBalancerStopStartNonShard(t *testing.T) {
+	tmpDir := getTempDir(t)
+	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
+	err := os.MkdirAll(tmpDir, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Cannot create temp dir %s: %s", tmpDir, err)
+	}
+	log.Printf("Using %s as the temporary directory", tmpDir)
+
+	d, err := testGrpc.NewDaemon(context.Background(), tmpDir, testutils.TestingStorages(), t, nil)
+	if err != nil {
+		t.Fatalf("cannot start a new gRPC daemon/clients group: %s", err)
+	}
+	defer d.Stop()
+
+	portRsList := []testGrpc.PortRs{
+		{Port: testutils.MongoDBShard3PrimaryPort, Rs: testutils.MongoDBShard3ReplsetName},
+		{Port: testutils.MongoDBShard3Secondary1Port, Rs: testutils.MongoDBShard3ReplsetName},
+		{Port: testutils.MongoDBShard3Secondary2Port, Rs: testutils.MongoDBShard3ReplsetName},
+	}
+
+	if err := d.StartAgents(portRsList, false); err != nil {
+		t.Fatalf("Cannot start config server: %s", err)
+	}
+
+	eventReceived := false
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		_, err := d.MessagesServer.WaitForEvent(server.BeforeBalancerStopEvent, 5*time.Second)
+		if err == nil {
+			eventReceived = true
+		}
+		wg.Done()
+	}()
+
+	stgName := localFileSystemStorage
+	compressionType := pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION
+
+	msg := &pb.StartBackup{
+		BackupType:      pb.BackupType_BACKUP_TYPE_LOGICAL,
+		CompressionType: compressionType,
+		Cypher:          pb.Cypher_CYPHER_NO_CYPHER,
+		OplogStartTime:  time.Now().UTC().Unix(),
+		NamePrefix:      time.Now().UTC().Format(time.RFC3339),
+		Description:     "test_backup_" + pb.CompressionType_name[int32(compressionType)] + "_" + stgName,
+		StorageName:     stgName,
+	}
+
+	t.Run("BalancerStopStartNonShard", func(t *testing.T) {
+		testBackups(t, 1, msg, d, true)
+	})
+
+	wg.Wait()
+	if eventReceived {
+		t.Errorf("There is no balancer but we received the BeforeBalancerStop event")
+	}
+}
+
+func TestBalancerStopStartShards(t *testing.T) {
 	tmpDir := getTempDir(t)
 	os.RemoveAll(tmpDir) // Cleanup before start. Don't check for errors. The path might not exist
 	err := os.MkdirAll(tmpDir, os.ModePerm)
@@ -174,6 +237,59 @@ func TestBackupUsingSSL(t *testing.T) {
 	if err := d.StartAllAgents(); err != nil {
 		t.Fatalf("Cannot start all agents: %s", err)
 	}
+	mongosSession, err := mgo.DialWithInfo(testutils.MongosDialInfo(t))
+	if err != nil {
+		t.Fatalf("cannot get a mongos session: %s", err)
+	}
+	balancer, err := cluster.NewBalancer(mongosSession)
+	if err != nil {
+		t.Fatalf("cannot get a new balancer from mongos: %s", err)
+	}
+	bs, err := balancer.GetStatus()
+	if err != nil {
+		t.Errorf("cannot get the balancer status: %s", err)
+	}
+	if bs.Mode != "full" {
+		t.Errorf("balancer mode should be full. got %q", bs.Mode)
+	}
+
+	bs01 := &mdbstructs.BalancerStatus{}
+	bs02 := &mdbstructs.BalancerStatus{}
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		_, err := d.MessagesServer.WaitForEvent(server.BackupStartedEvent, server.WaitForever)
+		if err != nil {
+			t.Errorf("error waiting for backup to start: %s", err)
+		} else {
+			bs01, err = balancer.GetStatus()
+			if err != nil {
+				t.Errorf("cannot get the balancer status: %s", err)
+			}
+		}
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		_, err := d.MessagesServer.WaitForEvent(server.BackupFinishedEvent, server.WaitForever)
+		if err != nil {
+			t.Errorf("error waiting for backup to start: %s", err)
+		} else {
+			for count := 0; count < 5 && bs02.Mode != "full"; count++ {
+				// Starting the balancer only starts the balancer thread in MongoDB but it can take
+				// some time to really start the balancer process
+				time.Sleep(1 * time.Second)
+				bs02, err = balancer.GetStatus()
+				if err != nil {
+					t.Errorf("cannot get the balancer status: %s", err)
+					break
+				}
+			}
+		}
+		wg.Done()
+	}()
 
 	stgName := localFileSystemStorage
 	compressionType := pb.CompressionType_COMPRESSION_TYPE_NO_COMPRESSION
@@ -188,9 +304,17 @@ func TestBackupUsingSSL(t *testing.T) {
 		StorageName:     stgName,
 	}
 
-	t.Run("params.Name", func(t *testing.T) {
-		testBackups(t, 1, msg, d)
+	t.Run("TestBalancerStopStartShards", func(t *testing.T) {
+		testBackups(t, 1, msg, d, true)
 	})
+
+	wg.Wait()
+	if bs01.Mode != "off" {
+		t.Errorf("Balancer status after backup started should be off. Got %s", bs01.Mode)
+	}
+	if bs02.Mode != "full" {
+		t.Errorf("Balancer status after backup finished should be full. Got %s", bs02.Mode)
+	}
 }
 
 func TestBackups(t *testing.T) {
@@ -244,13 +368,13 @@ func TestBackups(t *testing.T) {
 		params := msg
 		t.Run(params.Name, func(t *testing.T) {
 			testCount++
-			testBackups(t, testCount, params.Params, d)
+			testBackups(t, testCount, params.Params, d, false)
 		})
 	}
 	d.Stop()
 }
 
-func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daemon) {
+func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daemon, skipRestore bool) {
 	ndocs := int64(1000)
 	wg := &sync.WaitGroup{}
 
@@ -324,6 +448,14 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 			}
 		}
 	}
+
+	cleanupDB(t, rs1Session)
+	cleanupDB(t, rs2Session)
+
+	if skipRestore {
+		return
+	}
+
 	maxRs1NumBeforeRestore, err := getMaxNumberFromOplog(params, "_rs1.oplog")
 	if err != nil {
 		t.Errorf("Cannot get max number from oplog for rs1: %s", err)
@@ -332,9 +464,6 @@ func testBackups(t *testing.T, testNum int, params *pb.StartBackup, d *grpc.Daem
 	if err != nil {
 		t.Errorf("Cannot get max number from oplog for rs1: %s", err)
 	}
-
-	cleanupDB(t, rs1Session)
-	cleanupDB(t, rs2Session)
 
 	log.Info("Starting restore test")
 	md, err := d.APIServer.LastBackupMetadata(context.Background(), &pbapi.LastBackupMetadataParams{})
@@ -514,7 +643,6 @@ func TestBackupSourceByReplicaset(t *testing.T) {
 
 	// Lets's stop the "winner" client for rs1. That way, next call to BackupSourceByReplicaset should fail
 	// since there won't be an agent running on that MongoDB instance
-	time.Sleep(2 * time.Second)
 	for _, client := range d.Clients() {
 		if client.NodeName() == bs["rs1"].NodeName {
 			client.Stop()

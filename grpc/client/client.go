@@ -1267,8 +1267,7 @@ func (c *Client) processStartBalancer() (*pb.ClientMessage, error) {
 		}
 		return nil, errors.Wrap(err, "cannot process Stop Balancer")
 	}
-	//defer mongosSession.Close()
-
+	defer mongosSession.Close()
 	balancer, err := cluster.NewBalancer(mongosSession)
 	if err != nil {
 		return nil, errors.Wrap(err, "processStartBalancer -> cannot create a balancer instance")

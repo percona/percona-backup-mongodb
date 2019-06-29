@@ -19,6 +19,11 @@ const (
 	envMongoDBShard2Secondary1Port = "TEST_MONGODB_S2_SECONDARY1_PORT"
 	envMongoDBShard2Secondary2Port = "TEST_MONGODB_S2_SECONDARY2_PORT"
 	//
+	envMongoDBShard3ReplsetName    = "TEST_MONGODB_S3_RS"
+	envMongoDBShard3PrimaryPort    = "TEST_MONGODB_S3_PRIMARY_PORT"
+	envMongoDBShard3Secondary1Port = "TEST_MONGODB_S3_SECONDARY1_PORT"
+	envMongoDBShard3Secondary2Port = "TEST_MONGODB_S3_SECONDARY2_PORT"
+	//
 	envMongoDBConfigsvrReplsetName = "TEST_MONGODB_CONFIGSVR_RS"
 	envMongoDBConfigsvr1Port       = "TEST_MONGODB_CONFIGSVR1_PORT"
 	envMongoDBConfigsvr2Port       = "TEST_MONGODB_CONFIGSVR2_PORT"
@@ -43,6 +48,11 @@ var (
 	MongoDBShard2Secondary1Port = os.Getenv(envMongoDBShard2Secondary1Port)
 	MongoDBShard2Secondary2Port = os.Getenv(envMongoDBShard2Secondary2Port)
 	//
+	MongoDBShard3ReplsetName    = os.Getenv(envMongoDBShard3ReplsetName)
+	MongoDBShard3PrimaryPort    = os.Getenv(envMongoDBShard3PrimaryPort)
+	MongoDBShard3Secondary1Port = os.Getenv(envMongoDBShard3Secondary1Port)
+	MongoDBShard3Secondary2Port = os.Getenv(envMongoDBShard3Secondary2Port)
+	//
 	MongoDBConfigsvrReplsetName = os.Getenv(envMongoDBConfigsvrReplsetName)
 	MongoDBConfigsvr1Port       = os.Getenv(envMongoDBConfigsvr1Port)
 	MongoDBConfigsvr2Port       = os.Getenv(envMongoDBConfigsvr2Port)
@@ -64,6 +74,11 @@ var (
 			"primary":    MongoDBHost + ":" + MongoDBShard2PrimaryPort,
 			"secondary1": MongoDBHost + ":" + MongoDBShard2Secondary1Port,
 			"secondary2": MongoDBHost + ":" + MongoDBShard2Secondary2Port,
+		},
+		MongoDBShard3ReplsetName: {
+			"primary":    MongoDBHost + ":" + MongoDBShard3PrimaryPort,
+			"secondary1": MongoDBHost + ":" + MongoDBShard3Secondary1Port,
+			"secondary2": MongoDBHost + ":" + MongoDBShard3Secondary2Port,
 		},
 		MongoDBConfigsvrReplsetName: {
 			"primary": MongoDBHost + ":" + MongoDBConfigsvr1Port,
