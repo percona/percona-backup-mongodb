@@ -243,6 +243,7 @@ func processCliArgs(args []string) (*cliOptions, error) {
 		Short('q').
 		BoolVar(&opts.Quiet)
 	app.Flag("storage-config", "Storage config yaml file").
+		Required().
 		StringVar(&opts.StoragesConfig)
 	app.Flag("use-syslog", "Use syslog instead of Stderr or file").
 		BoolVar(&opts.UseSysLog)
