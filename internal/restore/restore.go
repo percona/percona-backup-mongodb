@@ -22,14 +22,15 @@ const (
 )
 
 type MongoRestoreInput struct {
-	Archive  string
-	Host     string
-	Port     string
-	Username string
-	Password string
-	AuthDB   string
-	Threads  int
-	DryRun   bool // Used only for testing
+	Archive   string
+	Host      string
+	Port      string
+	Username  string
+	Password  string
+	AuthDB    string
+	OplogFile string
+	Threads   int
+	DryRun    bool // Used only for testing
 	// There is an error in MongoDB/MongoRestore when trying to restore the config servers.
 	// Mongo Restore throws:  cannot drop config.version document while in --configsvr mode"
 	// See: https://jira.mongodb.org/browse/SERVER-28796
@@ -90,7 +91,8 @@ func Possible(i *MongoRestoreInput, logger *logrus.Logger) bool {
 		Archive:                i.Archive,
 		Objcheck:               false,
 		RestoreDBUsersAndRoles: false,
-		OplogReplay:            false,
+		OplogFile:              i.OplogFile,
+		OplogReplay:            true,
 	}
 
 	outputOpts := &mongorestore.OutputOptions{
@@ -160,6 +162,10 @@ func checkParseAndValidate(c chan struct{}, restore *mongorestore.MongoRestore) 
 func NewMongoRestore(i *MongoRestoreInput, logger *logrus.Logger) (*MongoRestore, error) {
 	if i.Reader == nil && i.Archive == "" {
 		return nil, fmt.Errorf("you need to specify an archive or a reader")
+	}
+
+	if logger == nil {
+		logger = logrus.New()
 	}
 
 	// TODO: SSL?
