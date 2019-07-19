@@ -12,7 +12,9 @@ import (
 
 type BSONReader interface {
 	ReadNext() ([]byte, error)
+	Read([]byte) (int, error)
 	UnmarshalNext(interface{}) error
+	Close() error
 }
 
 type BSONFile struct {

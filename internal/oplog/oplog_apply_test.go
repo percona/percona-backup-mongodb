@@ -25,6 +25,21 @@ type mockBSONReader struct {
 	docs  []bson.M
 }
 
+func (m *mockBSONReader) Close() error {
+	return nil
+}
+
+func (m *mockBSONReader) Read(dest []byte) (int, error) {
+	m.index++
+	if m.index >= len(m.docs) {
+		return 0, io.EOF
+	}
+
+	buf, err := bson.Marshal(m.docs[m.index])
+	copy(dest, buf)
+	return len(buf), err
+}
+
 func (m *mockBSONReader) ReadNext() ([]byte, error) {
 	m.index++
 	if m.index >= len(m.docs) {
@@ -229,7 +244,7 @@ func TestBasicApplyLog(t *testing.T) {
 
 	dbname := "test"
 	testColsPrefix := "testcol_"
-	maxDocs := 50
+	maxDocs := 10
 
 	db := session.DB(dbname)
 
