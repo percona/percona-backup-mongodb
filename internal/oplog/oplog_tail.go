@@ -56,6 +56,13 @@ func Open(session *mgo.Session) (*OplogTail, error) {
 	if err != nil {
 		return nil, err
 	}
+	cluster, err := cluster.NewIsMaster(session.Clone())
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot get IsMasterDoc")
+	}
+
+	ot.startOplogTimestamp = cluster.LastWrite()
+
 	go ot.tail()
 	return ot, nil
 }

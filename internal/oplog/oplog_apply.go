@@ -8,7 +8,6 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/hashicorp/go-multierror"
-	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/percona/percona-backup-mongodb/bsonfile"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -69,8 +68,6 @@ func (oa *Apply) Run() error {
 	oa.docsCount = 0
 	var merr error // multi-error
 
-	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(oa.bsonReader))
-	defer bsonSource.Close()
 	for {
 		/* dest:
 		bson.M{
@@ -102,9 +99,11 @@ func (oa *Apply) Run() error {
 			return fmt.Errorf("cannot unmarshal oplog document: %s", err)
 		}
 
-		// if oa.fcheck(bson.MongoTimestamp(dest.Timestamp), oa.stopAtTs) {
-		// 	return nil
-		// }
+		destMap := dest.Map()
+
+		if oa.fcheck(destMap["ts"].(bson.MongoTimestamp), oa.stopAtTs) {
+			return nil
+		}
 
 		if atomic.LoadUint32(&oa.debug) != 0 {
 			fmt.Printf("%#v\n", dest)
@@ -121,18 +120,18 @@ func (oa *Apply) Run() error {
 		//if _, ok = dest["ui"]; ok {
 		//	delete(dest, "ui")
 		//}
-		//for i, val := range dest {
-		//	if val.Name == "ui" {
-		//		dest = append(dest[:i], dest[i+1:]...)
-		//		break
-		//	}
-		//}
+		// for i, val := range dest {
+		// 	if val.Name == "ui" {
+		// 		dest = append(dest[:i], dest[i+1:]...)
+		// 		break
+		// 	}
+		// }
 
 		result := bson.M{}
 		//TODO: Improve this. Instead of applying ops one by one (the array has one element)
 		// collect several documents. What happens if there are errors? Will it fail only in
 		// one operation or all operations would fail?
-		if err := oa.dbSession.Run(bson.M{"applyOps": []interface{}{dest.Map()}}, result); err != nil {
+		if err := oa.dbSession.Run(bson.M{"applyOps": []interface{}{dest}}, &result); err != nil {
 			log.Errorf("cannot apply oplog: %s\n%+v\n", err, dest)
 			if !oa.ignoreErrors {
 				return errors.Wrap(err, "cannot apply oplog operation")
