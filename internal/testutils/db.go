@@ -162,7 +162,7 @@ func DialInfoForPort(rs, port string) (*mgo.DialInfo, error) {
 func PrimaryDialInfo(t *testing.T, rs string) *mgo.DialInfo {
 	di, err := dialInfo([]string{
 		GetMongoDBAddr(rs, "primary")},
-		rs,
+		"",
 	)
 	if err != nil {
 		t.Fatalf(".PrimaryDialInfo() failed: %v", err.Error())
@@ -207,6 +207,10 @@ func CleanupDatabases(session *mgo.Session, ignore map[string][]string) error {
 		ignore = map[string][]string{}
 	}
 
+	if ignore == nil {
+		ignore = make(map[string][]string)
+	}
+
 	// Ensure we don't delete the system.users collection otherwise authentication will be broken
 	if _, ok := ignore["admin"]; !ok {
 		ignore["admin"] = []string{"system.users"}
@@ -218,18 +222,10 @@ func CleanupDatabases(session *mgo.Session, ignore map[string][]string) error {
 		return errors.Wrap(err, "cannot get DBs list to clean up the config server")
 	}
 	for _, dbName := range databases {
-		collections, err := session.DB(dbName).CollectionNames()
-		if err != nil {
-			return errors.Wrapf(err, "cannot list %s database collections to clean up config server", dbName)
+		if dbName == "system" || dbName == "admin" || dbName == "config" || dbName == "local" {
+			continue
 		}
-		for _, collection := range collections {
-			if skipCollection(dbName, collection, ignore) {
-				continue
-			}
-			if _, err := session.DB(dbName).C(collection).RemoveAll(nil); err != nil {
-				return errors.Wrapf(err, "cannot empty %s.%s collection", dbName, collection)
-			}
-		}
+		session.DB(dbName).DropDatabase()
 	}
 
 	return nil
