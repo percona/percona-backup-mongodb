@@ -1,3 +1,0 @@
-pbm-coordinator /usr/bin/
-pbm-coordinator.conf /etc/
-pbm-coordinator.service /lib/systemd/system/
