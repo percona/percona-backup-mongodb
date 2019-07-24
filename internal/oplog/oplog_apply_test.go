@@ -261,6 +261,34 @@ func TestApplyLogFromFile(t *testing.T) {
 	}
 }
 
+func TestSkipSystemCollections(t *testing.T) {
+	session, err := mgo.DialWithInfo(testutils.PrimaryDialInfo(t, testutils.MongoDBShard1ReplsetName))
+	if err != nil {
+		t.Fatalf("Cannot connect to primary: %s", err)
+	}
+	defer session.Close()
+
+	testutils.CleanupDatabases(session, nil)
+
+	oplogFile := "testdata/collections_to_skip.oplog"
+	// Open the oplog file we just wrote and use it as a reader for the oplog apply
+	reader, err := bsonfile.OpenFile(oplogFile)
+	if err != nil {
+		t.Errorf("Cannot open oplog dump file %q: %s", oplogFile, err)
+		return
+	}
+
+	oa, err := NewOplogApply(session, reader)
+	if err != nil {
+		t.Errorf("Cannot instantiate the oplog applier: %s", err)
+	}
+	oa.ignoreErrors = true
+
+	if err := oa.Run(); err != nil {
+		t.Errorf("Error while running the oplog applier: %s", err)
+	}
+}
+
 func TestBasicApplyLog(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "example.bson.")
 	if err != nil {

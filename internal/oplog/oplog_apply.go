@@ -131,6 +131,10 @@ func (oa *Apply) Run() error {
 			return nil
 		}
 
+		if ns, ok := destMap["ns"].(string); ok && skip(ns) {
+			continue
+		}
+
 		if atomic.LoadUint32(&oa.debug) != 0 {
 			fmt.Printf("%#v\n", dest)
 		}
