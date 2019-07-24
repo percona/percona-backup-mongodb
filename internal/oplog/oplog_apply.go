@@ -234,6 +234,7 @@ func skip(ns string) bool {
 	systemNS := map[string]struct{}{
 		"config.system.sessions":   {},
 		"config.cache.collections": {},
+		"admin.system.version":     {},
 	}
 
 	_, ok := systemNS[ns]
