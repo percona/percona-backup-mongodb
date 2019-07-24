@@ -266,7 +266,7 @@ func TestBasicApplyLog(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if os.Getenv("KEEP_DATA") != "" {
+	if os.Getenv("KEEP_DATA") == "" {
 		defer os.Remove(tmpfile.Name())
 	}
 
@@ -438,6 +438,7 @@ func generateOplogData(t *testing.T, db *mgo.Database, testCases []oplogTestCase
 			db.Session.ResetIndexCache()
 			db.Session.Refresh()
 			for _, index := range tc.indexes {
+				pretty.Println(index)
 				if err := db.C(tc.collectionName).EnsureIndex(index); err != nil {
 					t.Errorf("Cannot create index for testing")
 				}
@@ -763,26 +764,171 @@ func TestIndexes(t *testing.T) {
 
 }
 
-func TestSkipSystemCollections(t *testing.T) {
-	tests := []struct {
-		NS   string
-		Skip bool
-	}{
-		{NS: "config.system.sessions", Skip: true},
-		{NS: "config.cache.collections", Skip: true},
-		{NS: "some-other-col", Skip: false},
+func TestConvertToInsert(t *testing.T) {
+	filename := "testdata/example.bson.316738284"
+	reader, err := bsonfile.OpenFile(filename)
+	if err != nil {
+		t.Errorf("Cannot open oplog dump file %q: %s", filename, err)
+		return
 	}
 
-	for i, test := range tests {
-		name := fmt.Sprintf("Test #%d: %s", i, test.NS)
-		ns := test.NS
-		want := test.Skip
-		t.Run(name, func(t *testing.T) {
-			if got := skip(ns); got != want {
-				t.Errorf("Invalid result for collection skip %q. Want %v, got %v", ns, want, got)
-			}
-		})
+	want := bson.D{
+		{
+			Name:  "ts",
+			Value: bson.MongoTimestamp(6716547643637497858),
+		},
+		{
+			Name:  "h",
+			Value: int64(-4724916785628486220),
+		},
+		{
+			Name:  "v",
+			Value: int(2),
+		},
+		{
+			Name:  "op",
+			Value: "i",
+		},
+		{
+			Name:  "ns",
+			Value: "test.system.indexes",
+		},
+		{
+			Name: "ui",
+			Value: bson.Binary{
+				Kind: 0x4,
+				Data: []byte{0xf1, 0x5e, 0x9c, 0xf0, 0x8e, 0xeb, 0x4d, 0x60, 0xaf, 0xe6, 0xc5, 0x4c, 0x98, 0xe8, 0xf, 0xb0},
+			},
+		},
+		{
+			Name:  "wall",
+			Value: time.Date(2019, 07, 22, 17, 55, 11, int(139*time.Millisecond), time.UTC),
+		},
+		{
+			Name: "o",
+			Value: bson.D{
+				{
+					Name:  "v",
+					Value: int(2),
+				},
+				{
+					Name:  "unique",
+					Value: bool(true),
+				},
+				{
+					Name: "key",
+					Value: bson.D{
+						{
+							Name:  "f1",
+							Value: int(1),
+						},
+						{
+							Name:  "f2",
+							Value: int(-1),
+						},
+					},
+				},
+				{
+					Name:  "ns",
+					Value: "test.test_complex_index",
+				},
+				{
+					Name:  "name",
+					Value: "this_is_my_index",
+				},
+				{
+					Name:  "background",
+					Value: bool(true),
+				},
+				{
+					Name:  "sparse",
+					Value: bool(true),
+				},
+				{
+					Name:  "expireAfterSeconds",
+					Value: int(300),
+				},
+				{
+					Name: "collation",
+					Value: bson.D{
+						{
+							Name:  "locale",
+							Value: "fr",
+						},
+						{
+							Name:  "caseLevel",
+							Value: bool(false),
+						},
+						{
+							Name:  "caseFirst",
+							Value: "off",
+						},
+						{
+							Name:  "strength",
+							Value: int(3),
+						},
+						{
+							Name:  "numericOrdering",
+							Value: bool(false),
+						},
+						{
+							Name:  "alternate",
+							Value: "non-ignorable",
+						},
+						{
+							Name:  "maxVariable",
+							Value: "punct",
+						},
+						{
+							Name:  "normalization",
+							Value: bool(false),
+						},
+						{
+							Name:  "backwards",
+							Value: bool(false),
+						},
+						{
+							Name:  "version",
+							Value: "57.1",
+						},
+					},
+				},
+			},
+		},
 	}
+
+	for {
+		buf, err := reader.ReadNext()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Errorf("cannot read the next document: %s", err)
+		}
+		oplog := bson.D{}
+
+		if err := bson.Unmarshal(buf, &oplog); err != nil {
+			t.Errorf("cannot marshal the test oplog document: %s", err)
+		}
+
+		oplogMap := oplog.Map()
+		o, ok := oplogMap["o"]
+		if !ok {
+			t.Errorf("there is no 'o' field")
+			continue
+		}
+
+		if o.(bson.D)[0].Name == "createIndexes" {
+			n, err := convertCreateIndexToIndexInsert(oplog)
+			if err != nil {
+				t.Errorf("cannot convert create index to an insert: %s", err)
+			}
+			if !reflect.DeepEqual(n, want) {
+				t.Errorf("invalid generated insert command")
+			}
+		}
+	}
+
 }
 
 func colExists(db *mgo.Database, name string) bool {
