@@ -24,18 +24,6 @@ const (
 	dropIndexOp
 )
 
-// Oplog represents a MongoDB oplog document.
-type Oplog struct {
-	Timestamp bson.MongoTimestamp `bson:"ts"`
-	HistoryID int64               `bson:"h"`
-	Version   int                 `bson:"v"`
-	Operation string              `bson:"op"`
-	Namespace string              `bson:"ns"`
-	Object    bson.D              `bson:"o"`
-	Query     bson.D              `bson:"o2"`
-	UI        *bson.Binary        `bson:"ui,omitempty"`
-}
-
 type checker func(bson.MongoTimestamp, bson.MongoTimestamp) bool
 
 type Apply struct {
