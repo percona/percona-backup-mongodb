@@ -1,7 +1,10 @@
 package backup
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -9,14 +12,28 @@ import (
 )
 
 func Backup(cn *pbm.PBM, node *pbm.Node) error {
-	data, err := OplogTail(cn, node).Run()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dst, err := Destination(pbm.Storage{}, "test.pbm.oplog", pbm.CompressionTypeNo)
+	if err != nil {
+		return errors.Wrap(err, "storage writer")
+	}
+
+	ot := OplogTail(cn, node)
+	err = ot.Run(ctx)
+	go func() {
+		<-time.Tick(time.Second * 5)
+		cancel()
+		fmt.Println("Buy buy!")
+	}()
 	if err != nil {
 		return errors.Wrap(err, "oplog tail")
 	}
 
-	for d := range data {
-		fmt.Printf("%s\n", d)
-	}
+	_, err = io.Copy(dst, ot)
+	fmt.Println("io.Copy finished")
+	dst.Close()
 
-	return nil
+	return errors.Wrap(err, "io copy from oplog reader to storage writer")
 }

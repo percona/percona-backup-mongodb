@@ -13,8 +13,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/agent"
 )
 
-func main() {
 
+func main() {
 	agentCmd := kingpin.New("agent", "PBM Agent")
 	mURL := agentCmd.Flag("mongodb-dsn", "MongoDB connection string").String()
 	nURL := agentCmd.Flag("node-dsn", "MongoDB Node connection string").String()
