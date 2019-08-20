@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -25,14 +24,12 @@ func Backup(cn *pbm.PBM, node *pbm.Node) error {
 	go func() {
 		<-time.Tick(time.Second * 5)
 		cancel()
-		fmt.Println("Buy buy!")
 	}()
 	if err != nil {
 		return errors.Wrap(err, "oplog tail")
 	}
 
 	_, err = io.Copy(dst, ot)
-	fmt.Println("io.Copy finished")
 	dst.Close()
 
 	return errors.Wrap(err, "io copy from oplog reader to storage writer")

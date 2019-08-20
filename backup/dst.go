@@ -2,13 +2,10 @@ package backup
 
 import (
 	"compress/gzip"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"path"
-
-	"github.com/pkg/errors"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -16,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/golang/snappy"
 	"github.com/pierrec/lz4"
+	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -33,7 +31,6 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 		}
 		wr = fw
 	case pbm.StorageS3:
-		// awsSession, err := awsutils.GetAWSSessionFromStorage(stg.S3)
 		awsSession, err := session.NewSession(&aws.Config{
 			Region:   aws.String(stg.S3.Region),
 			Endpoint: aws.String(stg.S3.EndpointURL),
@@ -51,7 +48,6 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 		// writers so, we need to create an io.Pipe and run uploader.Upload in a go-routine
 		pr, pw := io.Pipe()
 		go func() {
-			fmt.Println("Upload")
 			_, err := s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 				u.PartSize = 32 * 1024 * 1024 // 10MB part size
 				u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
