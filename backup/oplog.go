@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -72,11 +71,12 @@ func readInto(dst, src []byte) (rmd []byte, n int) {
 }
 
 // Run starts tailing the oplog data until the context beign canceled.
+// Returned chan is need to indicate
 // To read data use Read method.
 func (ot *OplogTailer) Run(ctx context.Context) error {
 	clName, err := ot.collectionName()
 	if err != nil {
-		return errors.Wrap(err, "determine collection name")
+		return errors.Wrap(err, "determine oplog collection name")
 	}
 	cl := ot.pbm.Conn.Database("local").Collection(clName)
 
@@ -100,7 +100,6 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 			select {
 			case ot.data <- []byte(cur.Current.String()):
 			case <-ctx.Done():
-				fmt.Println("Run done")
 				return
 			}
 		}
@@ -111,7 +110,7 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 
 // mongoTailFilter returns a bson.M query filter for the oplog tail
 // Criteria:
-//   1. If 'StopTS' is defined, tail all non-noop oplogs with 'ts' $gt that ts
+//   1. If 'lastTS' is defined, tail all non-noop oplogs with 'ts' $gt that ts
 //   2. Or, if 'startTS' is defined, tail all non-noop oplogs with 'ts' $gte that ts
 //   3. Or, tail all non-noop oplogs with 'ts' $gt 'lastWrite.OpTime.Ts' from the result of the "isMaster" mongodb server command
 //   4. Or, tail all non-noop oplogs with 'ts' $gte now.

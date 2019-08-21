@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/pkg/errors"
@@ -22,8 +21,8 @@ func New(pbmConn *mongo.Client) *Agent {
 	}
 }
 
-func (a *Agent) AddNode(cn *mongo.Client) {
-	a.node = pbm.NewNode("node0", cn)
+func (a *Agent) AddNode(cn *mongo.Client, curi string) {
+	a.node = pbm.NewNode("node0", cn, curi)
 }
 
 func (a *Agent) ListenCmd() error {
@@ -37,11 +36,12 @@ func (a *Agent) ListenCmd() error {
 		case cmd := <-c:
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
-				fmt.Println("->", cmd)
-				err := backup.Backup(a.pbm, a.node)
+				log.Println("Backup started:", cmd.Name)
+				err := backup.Backup(cmd.Name, a.pbm, a.node)
 				if err != nil {
 					log.Println("[ERROR] backup:", err)
 				}
+				log.Println("Backup finished:", cmd.Name)
 			case pbm.CmdRestore:
 			}
 		case err := <-cerr:

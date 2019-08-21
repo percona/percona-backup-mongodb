@@ -3,34 +3,83 @@ package backup
 import (
 	"context"
 	"io"
+	"os"
 	"time"
 
+	"github.com/mongodb/mongo-tools-common/db"
+	"github.com/mongodb/mongo-tools-common/options"
+	"github.com/mongodb/mongo-tools-common/progress"
+	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-func Backup(cn *pbm.PBM, node *pbm.Node) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func Backup(name string, cn *pbm.PBM, node *pbm.Node) error {
+	ctx, stopOplog := context.WithCancel(context.Background())
+	defer stopOplog()
 
-	dst, err := Destination(pbm.Storage{}, "test.pbm.oplog", pbm.CompressionTypeNo)
+	stg := pbm.Storage{}
+
+	oplogDst, err := Destination(stg, name+".oplog", pbm.CompressionTypeNo)
 	if err != nil {
 		return errors.Wrap(err, "storage writer")
 	}
 
 	ot := OplogTail(cn, node)
 	err = ot.Run(ctx)
-	go func() {
-		<-time.Tick(time.Second * 5)
-		cancel()
-	}()
 	if err != nil {
-		return errors.Wrap(err, "oplog tail")
+		return errors.Wrap(err, "run oplog tailer")
 	}
 
-	_, err = io.Copy(dst, ot)
-	dst.Close()
+	// writing an oplog into the target storage
+	go func() {
+		_, err = io.Copy(oplogDst, ot)
+		oplogDst.Close()
+	}()
 
-	return errors.Wrap(err, "io copy from oplog reader to storage writer")
+	// TODO we have to wait until the oplog wrinting process beign startd
+	time.Sleep(1)
+	if err != nil {
+		errors.Wrap(err, "io copy from the oplog reader to the storage writer")
+	}
+
+	bcpDst, err := Destination(stg, name+".dump", pbm.CompressionTypeNo)
+	if err != nil {
+		return errors.Wrap(err, "storage writer")
+	}
+	defer bcpDst.Close()
+
+	return errors.Wrap(mdump(bcpDst, node.ConnURI()), "mongodump")
+}
+
+func mdump(to io.WriteCloser, curi string) error {
+	opts := options.ToolOptions{
+		AppName:    "mongodump",
+		VersionStr: "0.0.1",
+		URI:        &options.URI{ConnectionString: curi},
+		Auth:       &options.Auth{},
+		Namespace:  &options.Namespace{},
+		Connection: &options.Connection{},
+	}
+
+	d := mongodump.MongoDump{
+		ToolOptions: &opts,
+		OutputOptions: &mongodump.OutputOptions{
+			// Archive = "-" means, for mongodump, use the provider Writer
+			// instead of creating a file. This is not clear at plain sight,
+			// you nee to look the code to discover it.
+			Archive:                "-",
+			NumParallelCollections: 1,
+		},
+		InputOptions:    &mongodump.InputOptions{},
+		SessionProvider: &db.SessionProvider{},
+		OutputWriter:    to,
+		ProgressManager: progress.NewBarWriter(os.Stdout, time.Second*3, 24, false),
+	}
+	err := d.Init()
+	if err != nil {
+		return errors.Wrap(err, "init")
+	}
+	return errors.Wrap(d.Dump(), "dump")
 }

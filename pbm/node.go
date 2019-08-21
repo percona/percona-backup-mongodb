@@ -9,24 +9,26 @@ import (
 type Node struct {
 	name string
 	cn   *mongo.Client
+	opts string
 }
 
-func NewNode(name string, conn *mongo.Client) *Node {
+func NewNode(name string, conn *mongo.Client, curi string) *Node {
 	return &Node{
 		name: name,
 		cn:   conn,
+		opts: curi,
 	}
 }
 
 func (n *Node) GetIsMaster() (*IsMaster, error) {
-	// im := struct {
-	// 	im IsMaster
-	// }{}
 	im := &IsMaster{}
 	err := n.cn.Database(DB).RunCommand(nil, bson.D{{"isMaster", 1}}).Decode(im)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")
 	}
-	// return &im.im, nil
 	return im, nil
+}
+
+func (n *Node) ConnURI() string {
+	return n.opts
 }

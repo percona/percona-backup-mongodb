@@ -13,7 +13,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/agent"
 )
 
-
 func main() {
 	agentCmd := kingpin.New("agent", "PBM Agent")
 	mURL := agentCmd.Flag("mongodb-dsn", "MongoDB connection string").String()
@@ -23,8 +22,8 @@ func main() {
 	agentCmd.DefaultEnvars().Parse(os.Args[1:])
 
 	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://" + strings.Replace(*mURL, "mongodb://", "", 1)))
-	node, err := mongo.NewClient(options.Client().ApplyURI("mongodb://" + strings.Replace(*nURL, "mongodb://", "", 1)))
-	// client, err := mongo.NewClient(&options.ClientOptions{Hosts: []string{"localhost"}, })
+	nodeURI := "mongodb://" + strings.Replace(*nURL, "mongodb://", "", 1)
+	node, err := mongo.NewClient(options.Client().ApplyURI(nodeURI))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new mongo client: %v", err)
 		return
@@ -57,7 +56,8 @@ func main() {
 	}
 
 	agnt := agent.New(client)
-	agnt.AddNode(node)
+	// TODO: pass only options and connect while createing a node?
+	agnt.AddNode(node, nodeURI)
 
 	fmt.Println("listen")
 	err = agnt.ListenCmd()
