@@ -1,53 +1,47 @@
 package pbm
 
 import (
-	"time"
+	"context"
+
+	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"gopkg.in/yaml.v2"
 )
-
-type Credentials struct {
-	AccessKeyID     string `yaml:"access-key-id"`
-	SecretAccessKey string `yaml:"secret-access-key"`
-	Vault           struct {
-		Server string `yaml:"server"`
-		Secret string `yaml:"secret"`
-		Token  string `yaml:"token"`
-	} `yaml:"vault"`
-}
-
-type S3 struct {
-	Region      string      `yaml:"region"`
-	EndpointURL string      `yaml:"endpointUrl"`
-	Bucket      string      `yaml:"bucket"`
-	Credentials Credentials `yaml:"credentials"`
-}
-
-type Filesystem struct {
-	Path string `yaml:"path"`
-}
 
 type StorageType string
 
 const (
-	StorageS3         StorageType = "s3"
+	StorageUndef      StorageType = ""
+	StorageS3                     = "s3"
 	StorageFilesystem             = "filesystem"
 )
 
 type Storage struct {
-	Type       StorageType `yaml:"type"`
-	S3         S3          `yaml:"s3,omitempty"`
-	Filesystem Filesystem  `yaml:"filesystem"`
+	Type       StorageType `bson:"type" yaml:"type"`
+	S3         S3          `bson:"s3,omitempty" yaml:"s3,omitempty"`
+	Filesystem Filesystem  `bson:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
-type StorageInfo struct {
-	Type       string
-	S3         S3
-	Filesystem Filesystem
+type S3 struct {
+	Region      string      `bson:"region" yaml:"region"`
+	EndpointURL string      `bson:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	Bucket      string      `bson:"bucket" yaml:"bucket"`
+	Credentials Credentials `bson:"credentials" yaml:"credentials"`
 }
 
-type Storages struct {
-	Storages   map[string]Storage
-	lastUpdate time.Time
-	filename   string
+type Filesystem struct {
+	Path string `bson:"path" yaml:"path"`
+}
+
+type Credentials struct {
+	AccessKeyID     string `bson:"access-key-id" yaml:"access-key-id,omitempty"`
+	SecretAccessKey string `bson:"secret-access-key" yaml:"secret-access-key,omitempty"`
+	Vault           struct {
+		Server string `bson:"server" yaml:"server"`
+		Secret string `bson:"secret" yaml:"secret"`
+		Token  string `bson:"token" yaml:"token"`
+	} `bson:"vault" yaml:"vault,omitempty"`
 }
 
 type CompressionType int
@@ -58,4 +52,57 @@ const (
 	CompressionTypeGZIP
 	CompressionTypeSNAPPY
 	CompressionTypeLZ4
+
+	defaultName = "default"
 )
+
+func (p *PBM) SetStorageByte(buf []byte) error {
+	var stg Storage
+	err := yaml.Unmarshal(buf, &stg)
+	if err != nil {
+		errors.Wrap(err, "unmarshal yaml")
+	}
+	return errors.Wrap(p.SetStorage(stg), "write to mongo")
+}
+
+func (p *PBM) SetStorage(stg Storage) error {
+	_, err := p.configC.UpdateOne(
+		context.Background(),
+		bson.D{{"item", "config"}},
+		bson.M{"$set": bson.M{"storage": map[string]Storage{defaultName: stg}}},
+		options.Update().SetUpsert(true))
+
+	return err
+}
+
+func (p *PBM) GetStorageYaml(safe bool) ([]byte, error) {
+	s, err := p.GetStorage()
+	if err != nil {
+		errors.Wrap(err, "get from mongo")
+	}
+
+	if safe {
+		if s.S3.Credentials.AccessKeyID != "" {
+			s.S3.Credentials.AccessKeyID = "***"
+		}
+		if s.S3.Credentials.SecretAccessKey != "" {
+			s.S3.Credentials.SecretAccessKey = "***"
+		}
+		if s.S3.Credentials.Vault.Secret != "" {
+			s.S3.Credentials.Vault.Secret = "***"
+		}
+		if s.S3.Credentials.Vault.Token != "" {
+			s.S3.Credentials.Vault.Token = "***"
+		}
+	}
+
+	b, err := yaml.Marshal(s)
+	return b, errors.Wrap(err, "marshal yaml")
+}
+
+func (p *PBM) GetStorage() (Storage, error) {
+	var c Conf
+	err := p.configC.FindOne(context.Background(), bson.D{{"item", "config"}}).Decode(&c)
+
+	return c.Storage[defaultName], errors.Wrap(err, "")
+}

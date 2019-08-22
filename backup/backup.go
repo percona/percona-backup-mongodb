@@ -19,7 +19,13 @@ func Backup(name string, cn *pbm.PBM, node *pbm.Node) error {
 	ctx, stopOplog := context.WithCancel(context.Background())
 	defer stopOplog()
 
-	stg := pbm.Storage{}
+	stg, err := cn.GetStorage()
+	if err != nil {
+		return errors.Wrap(err, "unable to get backup storage")
+	}
+	if stg.Type == pbm.StorageUndef {
+		return errors.Wrap(err, "storage doesn't set, you have to set storage to make backup")
+	}
 
 	oplogDst, err := Destination(stg, name+".oplog", pbm.CompressionTypeNo)
 	if err != nil {
@@ -66,7 +72,7 @@ func mdump(to io.WriteCloser, curi string) error {
 	d := mongodump.MongoDump{
 		ToolOptions: &opts,
 		OutputOptions: &mongodump.OutputOptions{
-			// Archive = "-" means, for mongodump, use the provider Writer
+			// Archive = "-" means, for mongodump, use the provided Writer
 			// instead of creating a file. This is not clear at plain sight,
 			// you nee to look the code to discover it.
 			Archive:                "-",
