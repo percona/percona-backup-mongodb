@@ -44,17 +44,16 @@ type Credentials struct {
 	} `bson:"vault" yaml:"vault,omitempty"`
 }
 
-type CompressionType int
+type CompressionType string
 
 const (
-	CompressionTypeUndef CompressionType = iota
-	CompressionTypeNo
-	CompressionTypeGZIP
-	CompressionTypeSNAPPY
-	CompressionTypeLZ4
-
-	defaultName = "default"
+	CompressionTypeNone   CompressionType = "none"
+	CompressionTypeGZIP                   = "gzip"
+	CompressionTypeSNAPPY                 = "snappy"
+	CompressionTypeLZ4                    = "lz4"
 )
+
+const defaultName = "default"
 
 func (p *PBM) SetStorageByte(buf []byte) error {
 	var stg Storage

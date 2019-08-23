@@ -36,12 +36,12 @@ func (a *Agent) ListenCmd() error {
 		case cmd := <-c:
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
-				log.Println("Backup started:", cmd.Name)
-				err := backup.Backup(cmd.Name, a.pbm, a.node)
+				log.Println("Backup started:", cmd.Backup.Name)
+				err := backup.Backup(cmd.Backup, a.pbm, a.node)
 				if err != nil {
 					log.Println("[ERROR] backup:", err)
 				}
-				log.Println("Backup finished:", cmd.Name)
+				log.Println("Backup finished:", cmd.Backup.Name)
 			case pbm.CmdRestore:
 			}
 		case err := <-cerr:

@@ -18,16 +18,21 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-// Destination returns io.WriterCloser for the given storage
-func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) (io.WriteCloser, error) {
-	var wr io.WriteCloser
+// Destination returns io.WriterCloser for the given storage.
+// In case compression are used it alse return io.Closer wich should be used
+// to close undelying Writer
+func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) (io.WriteCloser, io.Closer, error) {
+	var (
+		wr io.WriteCloser
+		wc io.Closer
+	)
 
 	switch stg.Type {
 	case pbm.StorageFilesystem:
 		filepath := path.Join(stg.Filesystem.Path, name)
 		fw, err := os.Create(filepath)
 		if err != nil {
-			return nil, errors.Wrapf(err, "cannot create destination file: %s", filepath)
+			return nil, nil, errors.Wrapf(err, "cannot create destination file: %s", filepath)
 		}
 		wr = fw
 	case pbm.StorageS3:
@@ -42,7 +47,7 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 			S3ForcePathStyle: aws.Bool(true),
 		})
 		if err != nil {
-			return nil, errors.Wrap(err, "cannot create AWS session")
+			return nil, nil, errors.Wrap(err, "cannot create AWS session")
 		}
 		// s3.Uploader runs synchronously and receives an io.Reader but here, we are implementing
 		// writers so, we need to create an io.Pipe and run uploader.Upload in a go-routine
@@ -67,10 +72,13 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 
 	switch compression {
 	case pbm.CompressionTypeGZIP:
+		wc = wr
 		wr = gzip.NewWriter(wr)
 	case pbm.CompressionTypeLZ4:
+		wc = wr
 		wr = lz4.NewWriter(wr)
 	case pbm.CompressionTypeSNAPPY:
+		wc = wr
 		wr = snappy.NewWriter(wr)
 	}
 
@@ -79,5 +87,5 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 	// 	//TODO: Add cyphers
 	// }
 
-	return wr, nil
+	return wr, wc, nil
 }

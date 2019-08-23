@@ -15,21 +15,22 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-func Backup(name string, cn *pbm.PBM, node *pbm.Node) error {
+func Backup(bcp pbm.Backup, cn *pbm.PBM, node *pbm.Node) error {
 	ctx, stopOplog := context.WithCancel(context.Background())
 	defer stopOplog()
 
 	stg, err := cn.GetStorage()
 	if err != nil {
-		return errors.Wrap(err, "unable to get backup storage")
+		return errors.Wrap(err, "unable to get backup store")
 	}
 	if stg.Type == pbm.StorageUndef {
-		return errors.Wrap(err, "storage doesn't set, you have to set storage to make backup")
+		return errors.Wrap(err, "store doesn't set, you have to set store to make backup")
 	}
 
-	oplogDst, err := Destination(stg, name+".oplog", pbm.CompressionTypeNo)
+	oplogName := getDstName("oplog", bcp, node)
+	oplogDst, oplogCloser, err := Destination(stg, oplogName, bcp.Compression)
 	if err != nil {
-		return errors.Wrap(err, "storage writer")
+		return errors.Wrap(err, "oplog store writer")
 	}
 
 	ot := OplogTail(cn, node)
@@ -38,23 +39,32 @@ func Backup(name string, cn *pbm.PBM, node *pbm.Node) error {
 		return errors.Wrap(err, "run oplog tailer")
 	}
 
-	// writing an oplog into the target storage
+	// writing an oplog into the target store
 	go func() {
 		_, err = io.Copy(oplogDst, ot)
 		oplogDst.Close()
+		if oplogCloser != nil {
+			oplogCloser.Close()
+		}
 	}()
 
 	// TODO we have to wait until the oplog wrinting process beign startd
 	time.Sleep(1)
 	if err != nil {
-		errors.Wrap(err, "io copy from the oplog reader to the storage writer")
+		errors.Wrap(err, "io copy from the oplog reader to the store writer")
 	}
 
-	bcpDst, err := Destination(stg, name+".dump", pbm.CompressionTypeNo)
+	bcpName := getDstName("dump", bcp, node)
+	bcpDst, bcpCloser, err := Destination(stg, bcpName, bcp.Compression)
 	if err != nil {
-		return errors.Wrap(err, "storage writer")
+		return errors.Wrap(err, "dump store writer")
 	}
-	defer bcpDst.Close()
+	defer func() {
+		bcpDst.Close()
+		if bcpCloser != nil {
+			bcpCloser.Close()
+		}
+	}()
 
 	return errors.Wrap(mdump(bcpDst, node.ConnURI()), "mongodump")
 }
@@ -87,5 +97,27 @@ func mdump(to io.WriteCloser, curi string) error {
 	if err != nil {
 		return errors.Wrap(err, "init")
 	}
-	return errors.Wrap(d.Dump(), "dump")
+	return errors.Wrap(d.Dump(), "make dump")
+}
+
+func getDstName(typ string, bcp pbm.Backup, node *pbm.Node) string {
+	name := bcp.Name
+
+	im, err := node.GetIsMaster()
+	if err == nil && im.SetName != "" {
+		name += "_" + im.SetName
+	}
+
+	name += "." + typ
+
+	switch bcp.Compression {
+	case pbm.CompressionTypeGZIP:
+		name += ".gz"
+	case pbm.CompressionTypeLZ4:
+		name += ".lz4"
+	case pbm.CompressionTypeSNAPPY:
+		name += ".snappy"
+	}
+
+	return name
 }

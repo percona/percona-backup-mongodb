@@ -23,10 +23,14 @@ var (
 	agentCmd = pbmCmd.Command("agent", "Run the agent mode")
 	nURL     = agentCmd.Flag("node-dsn", "MongoDB Node connection string").String()
 
-	storageCmd     = pbmCmd.Command("storage", "Target storage")
-	storageSetCmd  = storageCmd.Command("set", "Set storage")
-	storageConfig  = storageSetCmd.Flag("config", "Storage config file in yaml format").String()
+	storageCmd     = pbmCmd.Command("store", "Target store")
+	storageSetCmd  = storageCmd.Command("set", "Set store")
+	storageConfig  = storageSetCmd.Flag("config", "Store config file in yaml format").String()
 	storageShowCmd = storageCmd.Command("show", "Show current storage configuration")
+
+	backupCmd      = pbmCmd.Command("backup", "Make backup")
+	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").
+			Default(pbm.CompressionTypeGZIP).Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
 
 	client *mongo.Client
 )
@@ -78,6 +82,20 @@ func main() {
 			return
 		}
 		fmt.Printf("Storage\n-------\n%s\n", stg)
+	case backupCmd.FullCommand():
+		bcpName := time.Now().UTC().Format(time.RFC3339)
+		err := pbm.New(client).SendCmd(pbm.Cmd{
+			Cmd: pbm.CmdBackup,
+			Backup: pbm.Backup{
+				Name:        bcpName,
+				Compression: pbm.CompressionType(*bcpCompression),
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] Send backup command: %v\n", err)
+			return
+		}
+		fmt.Printf("Backup '%s' is scheduled", bcpName)
 	}
 }
 

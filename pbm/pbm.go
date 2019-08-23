@@ -1,11 +1,7 @@
 package pbm
 
 import (
-	"context"
-
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const (
@@ -31,8 +27,20 @@ const (
 )
 
 type Cmd struct {
-	Cmd  Command `bson:"cmd"`
-	Name string  `bson:"name"`
+	Cmd     Command `bson:"cmd"`
+	Backup  Backup  `bson:"backup,omitempty"`
+	Restore Restore `bson:"restore,omitempty"`
+}
+
+type Backup struct {
+	Name        string          `bson:"name"`
+	Compression CompressionType `bson:"compression"`
+	StoreName   string          `bson:"store,omitempty"`
+}
+
+type Restore struct {
+	MetaObj   string `bson:"meta"`
+	StoreName string `bson:"store,omitempty"`
 }
 
 type PBM struct {
@@ -49,41 +57,4 @@ func New(pbmConn *mongo.Client) *PBM {
 		logsC:   pbmConn.Database(DB).Collection(LogCollection),
 		cmdC:    pbmConn.Database(CmdStreamDB).Collection(CmdStreamCollection),
 	}
-}
-
-func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
-	cmd := make(chan Cmd)
-	errc := make(chan error)
-
-	ctx := context.Background()
-	var pipeline mongo.Pipeline
-	cur, err := p.cmdC.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "watch the cmd stream")
-	}
-
-	go func() {
-		defer close(cmd)
-		defer close(errc)
-		defer cur.Close(ctx)
-
-		for cur.Next(ctx) {
-			icmd := struct {
-				C Cmd `bson:"fullDocument"`
-			}{}
-
-			err := cur.Decode(&icmd)
-			if err != nil {
-				errc <- errors.Wrap(err, "message decode")
-				continue
-			}
-
-			cmd <- icmd.C
-		}
-		if cur.Err() != nil {
-			errc <- errors.Wrap(cur.Err(), "cursor")
-		}
-	}()
-
-	return cmd, errc, nil
 }
