@@ -11,6 +11,9 @@ const (
 	LogCollection = "pbmLog"
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
+	// OpCollection is the name of the mongo collection that is used
+	// by agents to coordinate operations (e.g. locks)
+	OpCollection = "pbmOp"
 
 	// CmdStreamDB is the cmd database
 	CmdStreamDB = "pbm"
@@ -36,6 +39,7 @@ type Backup struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
 	StoreName   string          `bson:"store,omitempty"`
+	FromMaster  bool            `bson:"fromMaster"`
 }
 
 type Restore struct {
@@ -47,6 +51,7 @@ type PBM struct {
 	Conn    *mongo.Client
 	configC *mongo.Collection
 	logsC   *mongo.Collection
+	opC     *mongo.Collection
 	cmdC    *mongo.Collection
 }
 
@@ -55,6 +60,7 @@ func New(pbmConn *mongo.Client) *PBM {
 		Conn:    pbmConn,
 		configC: pbmConn.Database(DB).Collection(ConfigCollection),
 		logsC:   pbmConn.Database(DB).Collection(LogCollection),
+		opC:     pbmConn.Database(CmdStreamDB).Collection(OpCollection),
 		cmdC:    pbmConn.Database(CmdStreamDB).Collection(CmdStreamCollection),
 	}
 }

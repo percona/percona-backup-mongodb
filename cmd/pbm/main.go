@@ -101,7 +101,7 @@ func main() {
 
 func runAgent() {
 	nodeURI := "mongodb://" + strings.Replace(*nURL, "mongodb://", "", 1)
-	node, err := mongo.NewClient(options.Client().ApplyURI(nodeURI))
+	node, err := mongo.NewClient(options.Client().ApplyURI(nodeURI).SetDirect(true))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new mongo client for node: %v", err)
 		return
@@ -125,8 +125,8 @@ func runAgent() {
 	// TODO: pass only options and connect while createing a node?
 	agnt.AddNode(node, nodeURI)
 
-	fmt.Println("listen")
-	err = agnt.ListenCmd()
+	fmt.Println("pbm agent is listening for the commands")
+	err = agnt.Start()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mongo listen cmd: %v", err)
 	}

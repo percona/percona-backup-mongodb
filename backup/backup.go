@@ -15,6 +15,27 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
+// NodeQualify checks if node qualify to perform backup
+func NodeQualify(bcp pbm.Backup, node *pbm.Node) (bool, error) {
+	im, err := node.GetIsMaster()
+	if err != nil {
+		return false, errors.Wrap(err, "get isMaster data for node")
+	}
+
+	if im.IsMaster && !bcp.FromMaster {
+		return false, nil
+	}
+
+	status, err := node.Status()
+	if err != nil {
+		return false, errors.Wrap(err, "get node status")
+	}
+
+	return status.Health == pbm.NodeHealthUp &&
+			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
+		nil
+}
+
 func Backup(bcp pbm.Backup, cn *pbm.PBM, node *pbm.Node) error {
 	ctx, stopOplog := context.WithCancel(context.Background())
 	defer stopOplog()
