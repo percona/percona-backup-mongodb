@@ -20,8 +20,8 @@ require (
 	github.com/karrick/godirwalk v1.10.12 // indirect
 	github.com/mdempsky/gocode v0.0.0-20190203001940-7fb65232883f // indirect
 	github.com/mongodb/mongo-go-driver v1.1.0 // indirect
-	github.com/mongodb/mongo-tools v0.0.0-20190816132659-47467ec5161f
-	github.com/mongodb/mongo-tools-common v0.0.0
+	github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6
+	github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10
 	github.com/pierrec/lz4 v2.2.6+incompatible
 	github.com/pkg/errors v0.8.1
 	github.com/ramya-rao-a/go-outline v0.0.0-20181122025142-7182a932836a // indirect
