@@ -86,7 +86,7 @@ func main() {
 		bcpName := time.Now().UTC().Format(time.RFC3339)
 		err := pbm.New(client).SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdBackup,
-			Backup: pbm.Backup{
+			Backup: pbm.BackupCmd{
 				Name:        bcpName,
 				Compression: pbm.CompressionType(*bcpCompression),
 			},

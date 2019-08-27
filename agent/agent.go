@@ -8,8 +8,8 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/backup"
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 )
 
 func init() {
@@ -53,7 +53,7 @@ func (a *Agent) Start() error {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(bcp pbm.Backup) {
+func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	q, err := backup.NodeQualify(bcp, a.node)
 	if err != nil {
 		log.Println("[ERROR] backup: unable to check node:", err)
@@ -92,7 +92,7 @@ func (a *Agent) Backup(bcp pbm.Backup) {
 	}
 
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
-	err = backup.Backup(bcp, a.pbm, a.node)
+	err = backup.Run(bcp, a.pbm, a.node)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
 	}

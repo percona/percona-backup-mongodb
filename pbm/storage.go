@@ -44,15 +44,6 @@ type Credentials struct {
 	} `bson:"vault" yaml:"vault,omitempty"`
 }
 
-type CompressionType string
-
-const (
-	CompressionTypeNone   CompressionType = "none"
-	CompressionTypeGZIP                   = "gzip"
-	CompressionTypeSNAPPY                 = "snappy"
-	CompressionTypeLZ4                    = "lz4"
-)
-
 const defaultName = "default"
 
 func (p *PBM) SetStorageByte(buf []byte) error {
