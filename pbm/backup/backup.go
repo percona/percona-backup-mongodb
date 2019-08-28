@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"time"
@@ -27,7 +28,6 @@ func Run(bcp pbm.BackupCmd, cn *pbm.PBM, node *pbm.Node) (err error) {
 		Status:      pbm.StatusRunnig,
 	}
 	defer func() {
-		meta.Status = pbm.StatusDone
 		if err != nil {
 			meta.Status = pbm.StatusError
 			meta.Error = err.Error()
@@ -89,13 +89,35 @@ func Run(bcp pbm.BackupCmd, cn *pbm.PBM, node *pbm.Node) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "dump store writer")
 	}
+	defer func() {
+		bcpDst.Close()
+		if bcpCloser != nil {
+			bcpCloser.Close()
+		}
+	}()
+
 	err = mdump(bcpDst, node.ConnURI())
-	bcpDst.Close()
-	if bcpCloser != nil {
-		bcpCloser.Close()
+	if err != nil {
+		return errors.Wrap(err, "mongodump")
 	}
 
-	return errors.Wrap(err, "mongodump")
+	mw, _, err := Destination(stg, bcp.Name+"_"+im.SetName+".pbm.json", pbm.CompressionTypeNone)
+	if err != nil {
+		return errors.Wrap(err, "create writer for metadata")
+	}
+	defer mw.Close()
+
+	menc := json.NewEncoder(mw)
+	menc.SetIndent("", "\t")
+
+	meta.Status = pbm.StatusDone
+	meta.EndTS = time.Now().UTC().Unix()
+	err = menc.Encode(meta)
+	if err != nil {
+		return errors.Wrap(err, "write to store")
+	}
+
+	return nil
 }
 
 // NodeQualify checks if node qualify to perform backup

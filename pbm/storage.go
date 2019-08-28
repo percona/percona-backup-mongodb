@@ -18,30 +18,30 @@ const (
 )
 
 type Storage struct {
-	Type       StorageType `bson:"type" yaml:"type"`
-	S3         S3          `bson:"s3,omitempty" yaml:"s3,omitempty"`
-	Filesystem Filesystem  `bson:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+	Type       StorageType `bson:"type" json:"type" yaml:"type"`
+	S3         S3          `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Filesystem Filesystem  `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
 type S3 struct {
-	Region      string      `bson:"region" yaml:"region"`
-	EndpointURL string      `bson:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	Bucket      string      `bson:"bucket" yaml:"bucket"`
-	Credentials Credentials `bson:"credentials" yaml:"credentials"`
+	Region      string      `bson:"region" json:"region" yaml:"region"`
+	EndpointURL string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Credentials Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
 }
 
 type Filesystem struct {
-	Path string `bson:"path" yaml:"path"`
+	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
 type Credentials struct {
-	AccessKeyID     string `bson:"access-key-id" yaml:"access-key-id,omitempty"`
-	SecretAccessKey string `bson:"secret-access-key" yaml:"secret-access-key,omitempty"`
+	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
 	Vault           struct {
-		Server string `bson:"server" yaml:"server"`
-		Secret string `bson:"secret" yaml:"secret"`
-		Token  string `bson:"token" yaml:"token"`
-	} `bson:"vault" yaml:"vault,omitempty"`
+		Server string `bson:"server" json:"server,omitempty" yaml:"server"`
+		Secret string `bson:"secret" json:"secret,omitempty" yaml:"secret"`
+		Token  string `bson:"token" json:"token,omitempty" yaml:"token"`
+	} `bson:"vault" json:"vault" yaml:"vault,omitempty"`
 }
 
 const defaultName = "default"

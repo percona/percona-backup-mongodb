@@ -84,13 +84,14 @@ func New(pbmConn *mongo.Client) *PBM {
 
 type BackupMeta struct {
 	Name         string          `bson:"name" json:"name"`
-	StartTS      int64           `bson:"start_ts" json:"start_ts"`
-	Store        Storage         `bson:"store" json:"store"`
-	Compression  CompressionType `bson:"compression" json:"compression"`
-	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version"`
-	RsName       string          `bson:"rs_name" json:"rs_name"`
 	DumpName     string          `bson:"dump_name" json:"backup_name" `
 	OplogName    string          `bson:"oplog_name" json:"oplog_name"`
+	Compression  CompressionType `bson:"compression" json:"compression"`
+	RsName       string          `bson:"rs_name" json:"rs_name"`
+	Store        Storage         `bson:"store" json:"store"`
+	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS      int64           `bson:"start_ts" json:"start_ts"`
+	EndTS        int64           `bson:"end_ts" json:"end_ts"`
 	Status       Status          `bson:"status" json:"status"`
 	Error        string          `bson:"error,omitempty" json:"error,omitempty"`
 }
