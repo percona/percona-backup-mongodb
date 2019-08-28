@@ -27,6 +27,12 @@ func Run(bcp pbm.BackupCmd, cn *pbm.PBM, node *pbm.Node) (err error) {
 		Compression: bcp.Compression,
 		Status:      pbm.StatusRunnig,
 	}
+
+	ver, err := node.GetMongoVersion()
+	if err == nil {
+		meta.MongoVersion = ver.VersionString
+	}
+
 	defer func() {
 		if err != nil {
 			meta.Status = pbm.StatusError

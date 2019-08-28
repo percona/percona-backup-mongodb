@@ -10,6 +10,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
 func init() {
@@ -45,6 +46,7 @@ func (a *Agent) Start() error {
 			case pbm.CmdBackup:
 				a.Backup(cmd.Backup)
 			case pbm.CmdRestore:
+				a.Restore(cmd.Restore)
 			}
 		case err := <-cerr:
 			log.Println(err)
@@ -60,8 +62,8 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
+	// node is not suitable for doing the backup
 	if !q {
-		log.Println("node not qualified for backup")
 		return
 	}
 
@@ -84,7 +86,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// TODO: check if lock from "another" backup and notify user
 	got, err := a.pbm.AcquireLock(lock)
 	if err != nil {
-		log.Println("[ERROR] backup: acquiring lock: ", err)
+		log.Println("[ERROR] backup: acquiring lock:", err)
 		return
 	}
 	if !got {
@@ -100,9 +102,44 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	// wait before release lock in case backup was super fast and
 	// other agents still trying to get lock
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(1e3 * time.Millisecond)
 	err = a.pbm.ReleaseLock(lock)
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+	}
+}
+
+func (a *Agent) Restore(r pbm.RestoreCmd) {
+	nodeInfo, err := a.node.GetIsMaster()
+	if err != nil {
+		log.Println("[ERROR] backup: get node isMaster data:", err)
+		return
+	}
+	if !nodeInfo.IsMaster {
+		return
+	}
+
+	lock := pbm.Lock{
+		Type:       "restore",
+		Replset:    nodeInfo.SetName,
+		Node:       nodeInfo.Me,
+		BackupName: r.BackupName,
+	}
+
+	got, err := a.pbm.AcquireLock(lock)
+	if err != nil {
+		log.Println("[ERROR] restore: acquiring lock:", err)
+		return
+	}
+	if !got {
+		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
+		return
+	}
+
+	restore.Run(r, a.pbm, a.node)
+
+	err = a.pbm.ReleaseLock(lock)
+	if err != nil {
+		log.Printf("[ERROR] restore: unable to release backup lock for %v:%v\n", lock, err)
 	}
 }

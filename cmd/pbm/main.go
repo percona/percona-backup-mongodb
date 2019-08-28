@@ -32,6 +32,9 @@ var (
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").
 			Default(pbm.CompressionTypeGZIP).Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
 
+	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
+	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
+
 	client *mongo.Client
 )
 
@@ -92,10 +95,22 @@ func main() {
 			},
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Send backup command: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[ERROR] Schedule backup: %v\n", err)
 			return
 		}
 		fmt.Printf("Backup '%s' is scheduled", bcpName)
+	case restoreCmd.FullCommand():
+		err := pbm.New(client).SendCmd(pbm.Cmd{
+			Cmd: pbm.CmdRestore,
+			Restore: pbm.RestoreCmd{
+				BackupName: *restoreBcpName,
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] Schedule restore: %v\n", err)
+			return
+		}
+		fmt.Printf("Beginning restore of the snapshot from %s", *restoreBcpName)
 	}
 }
 

@@ -37,6 +37,17 @@ func (n *Node) Name() (string, error) {
 	return im.Me, nil
 }
 
+type MongoVersion struct {
+	VersionString string `bson:version`
+	Version       []int  `bson:versionArray`
+}
+
+func (n *Node) GetMongoVersion() (*MongoVersion, error) {
+	ver := new(MongoVersion)
+	err := n.cn.Database(DB).RunCommand(nil, bson.D{{"buildInfo", 1}}).Decode(ver)
+	return ver, err
+}
+
 func (n *Node) GetReplsetStatus() (*ReplsetStatus, error) {
 	status := &ReplsetStatus{}
 	err := n.cn.Database(DB).RunCommand(nil, bson.D{{"replSetGetStatus", 1}}).Decode(status)

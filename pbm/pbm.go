@@ -49,8 +49,8 @@ type BackupCmd struct {
 }
 
 type RestoreCmd struct {
-	BackupName string
-	StoreName  string
+	BackupName string `bson:"backupName"`
+	StoreName  string `bson:"store,omitempty"`
 }
 
 type CompressionType string
