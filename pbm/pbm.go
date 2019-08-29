@@ -119,3 +119,9 @@ func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 
 	return err
 }
+
+func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
+	b := new(BackupMeta)
+	err := p.bcpC.FindOne(context.Background(), bson.D{{"name", name}}).Decode(b)
+	return b, err
+}

@@ -56,6 +56,8 @@ github.com/jessevdk/go-flags
 github.com/jmespath/go-jmespath
 # github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6
 github.com/mongodb/mongo-tools/mongodump
+github.com/mongodb/mongo-tools/mongorestore
+github.com/mongodb/mongo-tools/mongorestore/ns
 # github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10
 github.com/mongodb/mongo-tools-common/db
 github.com/mongodb/mongo-tools-common/options
@@ -69,6 +71,8 @@ github.com/mongodb/mongo-tools-common/text
 github.com/mongodb/mongo-tools-common/archive
 github.com/mongodb/mongo-tools-common/auth
 github.com/mongodb/mongo-tools-common/intents
+github.com/mongodb/mongo-tools-common/bsonutil
+github.com/mongodb/mongo-tools-common/txn
 # github.com/pierrec/lz4 v2.2.6+incompatible
 github.com/pierrec/lz4
 github.com/pierrec/lz4/internal/xxh32
@@ -80,9 +84,9 @@ github.com/xdg/scram
 github.com/xdg/stringprep
 # go.mongodb.org/mongo-driver v1.1.0
 go.mongodb.org/mongo-driver/mongo
+go.mongodb.org/mongo-driver/mongo/options
 go.mongodb.org/mongo-driver/bson
 go.mongodb.org/mongo-driver/bson/primitive
-go.mongodb.org/mongo-driver/mongo/options
 go.mongodb.org/mongo-driver/mongo/readconcern
 go.mongodb.org/mongo-driver/mongo/readpref
 go.mongodb.org/mongo-driver/mongo/writeconcern
