@@ -91,7 +91,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 
 	rdumpResult := mr.Restore()
 	if rdumpResult.Err != nil {
-		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (success: %d / fail: %d)", rdumpResult.Successes, rdumpResult.Failures)
+		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
 
 	return nil

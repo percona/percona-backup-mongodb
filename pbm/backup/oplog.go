@@ -98,7 +98,7 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 			}
 
 			select {
-			case ot.data <- []byte(cur.Current.String()):
+			case ot.data <- []byte(cur.Current):
 			case <-ctx.Done():
 				return
 			}

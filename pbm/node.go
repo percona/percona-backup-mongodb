@@ -80,3 +80,7 @@ func (n *Node) Status() (*NodeStatus, error) {
 func (n *Node) ConnURI() string {
 	return n.opts
 }
+
+func (n *Node) Session() *mongo.Client {
+	return n.cn
+}
