@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -22,14 +23,14 @@ type Agent struct {
 	node *pbm.Node
 }
 
-func New(pbmConn *mongo.Client) *Agent {
+func New(ctx context.Context, pbmConn *mongo.Client, curl string) *Agent {
 	return &Agent{
-		pbm: pbm.New(pbmConn),
+		pbm: pbm.New(ctx, pbmConn, curl),
 	}
 }
 
-func (a *Agent) AddNode(cn *mongo.Client, curi string) {
-	a.node = pbm.NewNode("node0", cn, curi)
+func (a *Agent) AddNode(ctx context.Context, cn *mongo.Client, curi string) {
+	a.node = pbm.NewNode(ctx, "node0", cn, curi)
 }
 
 // Start starts listening the commands stream.
@@ -120,7 +121,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 	}
 
 	lock := pbm.Lock{
-		Type:       "restore",
+		Type:       pbm.CmdRestore,
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
 		BackupName: r.BackupName,
@@ -136,10 +137,15 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 
-	restore.Run(r, a.pbm, a.node)
+	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
+	err = restore.Run(r, a.pbm, a.node)
+	if err != nil {
+		log.Println("[ERROR] restore:", err)
+	}
+	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
 
 	err = a.pbm.ReleaseLock(lock)
 	if err != nil {
-		log.Printf("[ERROR] restore: unable to release backup lock for %v:%v\n", lock, err)
+		log.Printf("[ERROR] restore: release backup lock for %v: %v\n", lock, err)
 	}
 }

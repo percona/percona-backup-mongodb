@@ -1,8 +1,6 @@
 package pbm
 
 import (
-	"context"
-
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -12,9 +10,8 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 	cmd := make(chan Cmd)
 	errc := make(chan error)
 
-	ctx := context.Background()
 	var pipeline mongo.Pipeline
-	cur, err := p.cmdC.Watch(ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
+	cur, err := p.Conn.Database(CmdStreamDB).Collection(CmdStreamCollection).Watch(p.ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "watch the cmd stream")
 	}
@@ -22,9 +19,9 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 	go func() {
 		defer close(cmd)
 		defer close(errc)
-		defer cur.Close(ctx)
+		defer cur.Close(p.ctx)
 
-		for cur.Next(ctx) {
+		for cur.Next(p.ctx) {
 			icmd := struct {
 				C Cmd `bson:"fullDocument"`
 			}{}
@@ -46,6 +43,6 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 }
 
 func (p *PBM) SendCmd(cmd Cmd) error {
-	_, err := p.cmdC.InsertOne(context.Background(), cmd)
+	_, err := p.Conn.Database(CmdStreamDB).Collection(CmdStreamCollection).InsertOne(p.ctx, cmd)
 	return err
 }

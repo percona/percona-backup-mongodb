@@ -1,8 +1,6 @@
 package pbm
 
 import (
-	"context"
-
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -56,8 +54,8 @@ func (p *PBM) SetStorageByte(buf []byte) error {
 }
 
 func (p *PBM) SetStorage(stg Storage) error {
-	_, err := p.configC.UpdateOne(
-		context.Background(),
+	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
 		bson.D{{"item", "config"}},
 		bson.M{"$set": bson.M{"storage": map[string]Storage{defaultName: stg}}},
 		options.Update().SetUpsert(true))
@@ -92,7 +90,7 @@ func (p *PBM) GetStorageYaml(safe bool) ([]byte, error) {
 
 func (p *PBM) GetStorage() (Storage, error) {
 	var c Conf
-	err := p.configC.FindOne(context.Background(), bson.D{{"item", "config"}}).Decode(&c)
+	err := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{{"item", "config"}}).Decode(&c)
 
 	return c.Storage[defaultName], errors.Wrap(err, "")
 }

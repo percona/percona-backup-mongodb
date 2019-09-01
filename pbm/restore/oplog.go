@@ -3,10 +3,12 @@ package restore
 import (
 	"fmt"
 	"io"
+	"log"
 	"reflect"
 	"strings"
 
 	"github.com/mongodb/mongo-tools-common/db"
+	"github.com/mongodb/mongo-tools-common/txn"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -18,15 +20,18 @@ var skipNs = map[string]struct{}{
 	"config.system.sessions":   {},
 	"config.cache.collections": {},
 	"admin.system.version":     {},
+	"pbm.cmd":                  {},
 }
 
 type Oplog struct {
 	dst               *pbm.Node
 	sv                *pbm.MongoVersion
+	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
 	preserveUUID      bool
 }
 
+// NewOplog creates an object for an oplog applying
 func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) *Oplog {
 	return &Oplog{
 		dst:               dst,
@@ -36,9 +41,15 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) *Oplog {
 	}
 }
 
-func (o *Oplog) ApplyOplog(src io.ReadCloser) error {
+// Apply applys an oplog from a given source
+func (o *Oplog) Apply(src io.ReadCloser) error {
+	log.Println("oplog started")
+
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
+
+	o.txnBuffer = txn.NewBuffer()
+	defer o.txnBuffer.Stop()
 
 	for rawOplogEntry := bsonSource.LoadNext(); rawOplogEntry != nil; {
 		oe := db.Oplog{}
@@ -51,10 +62,76 @@ func (o *Oplog) ApplyOplog(src io.ReadCloser) error {
 			continue
 		}
 
-		err = o.handleNonTxnOp(oe)
-		if err != nil {
-			return errors.Wrap(err, "applying oplog")
+		//skip no-ops
+		if oe.Operation == "n" {
+			continue
 		}
+
+		meta, err := txn.NewMeta(oe)
+		if err != nil {
+			return errors.Wrap(err, "getting op metadata")
+		}
+
+		if meta.IsTxn() {
+			err = o.handleTxnOp(meta, oe)
+			if err != nil {
+				return errors.Wrap(err, "applying a transaction entry")
+			}
+		} else {
+			err = o.handleNonTxnOp(oe)
+			if err != nil {
+				return errors.Wrap(err, "applying an entry")
+			}
+		}
+	}
+	fmt.Println("oplog finished")
+
+	return nil
+}
+
+func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
+	err := o.txnBuffer.AddOp(meta, op)
+	if err != nil {
+		return errors.Wrap(err, "buffering entry")
+	}
+
+	if meta.IsAbort() {
+		err := o.txnBuffer.PurgeTxn(meta)
+		if err != nil {
+			return errors.Wrap(err, "cleaning up transaction buffer on abort")
+		}
+		return nil
+	}
+
+	if !meta.IsCommit() {
+		return nil
+	}
+
+	// From here, we're applying transaction entries
+	ops, errs := o.txnBuffer.GetTxnStream(meta)
+
+Loop:
+	for {
+		select {
+		case op, ok := <-ops:
+			if !ok {
+				break Loop
+			}
+			err = o.handleNonTxnOp(op)
+			if err != nil {
+				return errors.Wrap(err, "applying transaction op")
+			}
+		case err := <-errs:
+			if err != nil {
+				return errors.Wrap(err, "replaying transaction")
+			}
+			break Loop
+		}
+	}
+
+	err = o.txnBuffer.PurgeTxn(meta)
+	if err != nil {
+		return errors.Wrap(err, "cleaning up transaction buffer")
 	}
 
 	return nil
@@ -63,7 +140,7 @@ func (o *Oplog) ApplyOplog(src io.ReadCloser) error {
 func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 	op, err := o.filterUUIDs(op)
 	if err != nil {
-		return fmt.Errorf("error filtering UUIDs from oplog: %v", err)
+		return errors.Wrap(err, "filtering UUIDs from oplog")
 	}
 
 	return o.applyOps([]interface{}{op})
@@ -74,12 +151,12 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 func (o *Oplog) applyOps(entries []interface{}) error {
 	singleRes := o.dst.Session().Database("admin").RunCommand(nil, bson.D{{"applyOps", entries}})
 	if err := singleRes.Err(); err != nil {
-		return fmt.Errorf("applyOps: %v", err)
+		return errors.Wrap(err, "applyOps")
 	}
 	res := bson.M{}
 	singleRes.Decode(&res)
 	if isFalsy(res["ok"]) {
-		return fmt.Errorf("applyOps command: %v", res["errmsg"])
+		return errors.Errorf("applyOps command: %v", res["errmsg"])
 	}
 
 	return nil
@@ -203,14 +280,14 @@ func unwrapNestedApplyOps(doc bson.D) ([]db.Oplog, error) {
 	// Doc to bytes
 	bs, err := bson.Marshal(doc)
 	if err != nil {
-		return nil, fmt.Errorf("cannot remarshal nested applyOps: %s", err)
+		return nil, errors.Wrap(err, "remarshal nested applyOps")
 	}
 
 	// Bytes to typed data
 	var cmd nestedApplyOps
 	err = bson.Unmarshal(bs, &cmd)
 	if err != nil {
-		return nil, fmt.Errorf("cannot unwrap nested applyOps: %s", err)
+		return nil, errors.Wrap(err, "unwrap nested applyOps")
 	}
 
 	return cmd.ApplyOps, nil
@@ -225,14 +302,14 @@ func wrapNestedApplyOps(ops []db.Oplog) (bson.D, error) {
 	// Typed data to bytes
 	raw, err := bson.Marshal(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("cannot rewrap nested applyOps op: %s", err)
+		return nil, errors.Wrap(err, "rewrap nested applyOps op")
 	}
 
 	// Bytes to doc
 	var doc bson.D
 	err = bson.Unmarshal(raw, &doc)
 	if err != nil {
-		return nil, fmt.Errorf("cannot reunmarshal nested applyOps op: %s", err)
+		return nil, errors.Wrap(err, "reunmarshal nested applyOps op")
 	}
 
 	return doc, nil

@@ -18,10 +18,9 @@ import (
 
 var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
-	mURL   = pbmCmd.Flag("mongodb-dsn", "MongoDB connection string").Required().String()
+	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").Required().String()
 
 	agentCmd = pbmCmd.Command("agent", "Run the agent mode")
-	nURL     = agentCmd.Flag("node-dsn", "MongoDB Node connection string").String()
 
 	storageCmd     = pbmCmd.Command("store", "Target store")
 	storageSetCmd  = storageCmd.Command("set", "Set store")
@@ -44,12 +43,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[ERROR] Parse command line parameters:", err)
 	}
 
-	client, err = mongo.NewClient(options.Client().ApplyURI("mongodb://" + strings.Replace(*mURL, "mongodb://", "", 1)))
+	*mURL = "mongodb://" + strings.Replace(*mURL, "mongodb://", "", 1)
+	client, err = mongo.NewClient(options.Client().ApplyURI(*mURL))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new mongo client: %v", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err = client.Connect(ctx)
 	if err != nil {
@@ -65,21 +65,21 @@ func main() {
 
 	switch cmd {
 	case agentCmd.FullCommand():
-		runAgent()
+		runAgent(ctx)
 	case storageSetCmd.FullCommand():
 		buf, err := ioutil.ReadFile(*storageConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] Unable to read storage file: %v", err)
 			return
 		}
-		err = pbm.New(client).SetStorageByte(buf)
+		err = pbm.New(ctx, client, *mURL).SetStorageByte(buf)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] Unable to set storage: %v", err)
 			return
 		}
 		fmt.Println("[Done]")
 	case storageShowCmd.FullCommand():
-		stg, err := pbm.New(client).GetStorageYaml(true)
+		stg, err := pbm.New(ctx, client, *mURL).GetStorageYaml(true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] Unable to get storage: %v", err)
 			return
@@ -87,7 +87,7 @@ func main() {
 		fmt.Printf("Storage\n-------\n%s\n", stg)
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
-		err := pbm.New(client).SendCmd(pbm.Cmd{
+		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdBackup,
 			Backup: pbm.BackupCmd{
 				Name:        bcpName,
@@ -100,7 +100,7 @@ func main() {
 		}
 		fmt.Printf("Backup '%s' is scheduled", bcpName)
 	case restoreCmd.FullCommand():
-		err := pbm.New(client).SendCmd(pbm.Cmd{
+		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdRestore,
 			Restore: pbm.RestoreCmd{
 				BackupName: *restoreBcpName,
@@ -114,16 +114,12 @@ func main() {
 	}
 }
 
-func runAgent() {
-	nodeURI := "mongodb://" + strings.Replace(*nURL, "mongodb://", "", 1)
-	node, err := mongo.NewClient(options.Client().ApplyURI(nodeURI).SetDirect(true))
+func runAgent(ctx context.Context) {
+	node, err := mongo.NewClient(options.Client().ApplyURI(*mURL).SetDirect(true))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new mongo client for node: %v", err)
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	err = node.Connect(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mongo node connect: %v", err)
@@ -136,9 +132,9 @@ func runAgent() {
 		return
 	}
 
-	agnt := agent.New(client)
+	agnt := agent.New(ctx, client, *mURL)
 	// TODO: pass only options and connect while createing a node?
-	agnt.AddNode(node, nodeURI)
+	agnt.AddNode(ctx, node, *mURL)
 
 	fmt.Println("pbm agent is listening for the commands")
 	err = agnt.Start()

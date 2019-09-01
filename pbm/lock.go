@@ -1,7 +1,7 @@
 package pbm
 
 import (
-	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -35,14 +35,14 @@ func (p *PBM) AcquireLock(l Lock) (bool, error) {
 	if err != nil {
 		return false, errors.Wrap(err, "start session")
 	}
-	defer sess.EndSession(context.Background())
+	defer sess.EndSession(p.ctx)
 
 	err = sess.StartTransaction()
 	if err != nil {
 		return false, errors.Wrap(err, "start transaction")
 	}
 
-	err = mongo.WithSession(context.Background(), sess, func(sc mongo.SessionContext) error {
+	err = mongo.WithSession(p.ctx, sess, func(sc mongo.SessionContext) error {
 		var err error
 		defer func() {
 			if err != nil {
@@ -51,14 +51,14 @@ func (p *PBM) AcquireLock(l Lock) (bool, error) {
 		}()
 
 		lc := Lock{}
-		err = p.opC.FindOne(sc, bson.D{{"replset", l.Replset}}).Decode(&lc)
+		err = p.Conn.Database(CmdStreamDB).Collection(OpCollection).FindOne(sc, bson.D{{"replset", l.Replset}}).Decode(&lc)
 		if err != nil && err != mongo.ErrNoDocuments {
 			return errors.Wrap(err, "find lock")
 		} else if err == nil {
 			return errLocked
 		}
 
-		_, err = p.opC.InsertOne(sc, l)
+		_, err = p.Conn.Database(CmdStreamDB).Collection(OpCollection).InsertOne(sc, l)
 		if err != nil {
 			return errors.Wrap(err, "insert lock")
 		}
@@ -77,6 +77,11 @@ func (p *PBM) AcquireLock(l Lock) (bool, error) {
 }
 
 func (p *PBM) ReleaseLock(l Lock) error {
-	_, err := p.opC.DeleteOne(nil, l)
-	return err
+	r, err := p.Conn.Database(CmdStreamDB).Collection(OpCollection).DeleteOne(nil, l)
+	if err != nil {
+		return errors.Wrap(err, "deleteOne")
+	}
+
+	fmt.Println("lock deleted count", r.DeletedCount)
+	return nil
 }

@@ -3,6 +3,8 @@ package pbm
 import (
 	"context"
 
+	"github.com/pkg/errors"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -63,22 +65,16 @@ const (
 )
 
 type PBM struct {
-	Conn    *mongo.Client
-	configC *mongo.Collection
-	logsC   *mongo.Collection
-	opC     *mongo.Collection
-	cmdC    *mongo.Collection
-	bcpC    *mongo.Collection
+	Conn *mongo.Client
+	ctx  context.Context
+	curl string
 }
 
-func New(pbmConn *mongo.Client) *PBM {
+func New(ctx context.Context, pbmConn *mongo.Client, curl string) *PBM {
 	return &PBM{
-		Conn:    pbmConn,
-		configC: pbmConn.Database(DB).Collection(ConfigCollection),
-		logsC:   pbmConn.Database(DB).Collection(LogCollection),
-		bcpC:    pbmConn.Database(DB).Collection(BcpCollection),
-		opC:     pbmConn.Database(CmdStreamDB).Collection(OpCollection),
-		cmdC:    pbmConn.Database(CmdStreamDB).Collection(CmdStreamCollection),
+		Conn: pbmConn,
+		curl: curl,
+		ctx:  ctx,
 	}
 }
 
@@ -105,9 +101,27 @@ const (
 	StatusError         = "error"
 )
 
+func (p *PBM) Reconnect() error {
+	err := p.Conn.Disconnect(p.ctx)
+	if err != nil {
+		return errors.Wrap(err, "disconnect")
+	}
+
+	p.Conn, err = mongo.NewClient(options.Client().ApplyURI(p.curl))
+	if err != nil {
+		return errors.Wrap(err, "new mongo client")
+	}
+	err = p.Conn.Connect(p.ctx)
+	if err != nil {
+		return errors.Wrap(err, "mongo connect")
+	}
+
+	return errors.Wrap(p.Conn.Ping(p.ctx, nil), "mongo ping")
+}
+
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
-	err := p.bcpC.FindOneAndReplace(
-		context.Background(),
+	err := p.Conn.Database(DB).Collection(BcpCollection).FindOneAndReplace(
+		p.ctx,
 		bson.D{{"name", m.Name}, {"rs_name", m.RsName}},
 		m,
 		options.FindOneAndReplace().SetUpsert(true),
@@ -122,6 +136,13 @@ func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 
 func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	b := new(BackupMeta)
-	err := p.bcpC.FindOne(context.Background(), bson.D{{"name", name}}).Decode(b)
-	return b, err
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, errors.New("no backup '" + name + "' found")
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+	err := res.Decode(b)
+	return b, errors.Wrap(err, "decode")
 }
