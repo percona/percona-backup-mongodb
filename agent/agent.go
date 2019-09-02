@@ -141,16 +141,18 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
 		return
 	}
+	defer func() {
+		err = a.pbm.ReleaseLock(lock)
+		if err != nil {
+			log.Printf("[ERROR] restore: release backup lock for %v: %v\n", lock, err)
+		}
+	}()
 
 	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
 	err = restore.Run(r, a.pbm, a.node)
 	if err != nil {
 		log.Println("[ERROR] restore:", err)
+		return
 	}
 	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
-
-	err = a.pbm.ReleaseLock(lock)
-	if err != nil {
-		log.Printf("[ERROR] restore: release backup lock for %v: %v\n", lock, err)
-	}
 }

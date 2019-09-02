@@ -19,9 +19,16 @@ var skipNs = map[string]struct{}{
 	"config.system.sessions":   {},
 	"config.cache.collections": {},
 	"admin.system.version":     {},
-	"pbm.cmd":                  {},
 }
 
+func init() {
+	// add to skip collections that would be skiped while dump restore
+	for _, v := range excludeFromDumpRestore {
+		skipNs[v] = struct{}{}
+	}
+}
+
+// Oplog is the oplog applyer
 type Oplog struct {
 	dst               *pbm.Node
 	sv                *pbm.MongoVersion

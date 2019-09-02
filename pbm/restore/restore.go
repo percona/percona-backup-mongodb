@@ -10,10 +10,11 @@ import (
 )
 
 var excludeFromDumpRestore = []string{
-	pbm.CmdStreamDB + ".*",
+	pbm.CmdStreamDB + "." + pbm.CmdStreamCollection,
 	pbm.DB + "." + pbm.LogCollection,
 	pbm.DB + "." + pbm.ConfigCollection,
 	pbm.DB + "." + pbm.BcpCollection,
+	pbm.DB + "." + pbm.OpCollection,
 }
 
 // Run runs the backup restore
@@ -86,25 +87,18 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		InputOptions: &mongorestore.InputOptions{
 			Gzip:    bcp.Compression == pbm.CompressionTypeGZIP,
 			Archive: "-",
-			// Objcheck:               false,
-			// RestoreDBUsersAndRoles: false,
-			// OplogReplay:            false,
 		},
 		OutputOptions: &mongorestore.OutputOptions{
 			BulkBufferSize:           2000,
 			BypassDocumentValidation: true,
 			Drop:                     dropCollections,
-			// DryRun:                   false,
-			// KeepIndexVersion:         false,
-			// NoIndexRestore:           false,
-			// NoOptionsRestore:         false,
-			NumInsertionWorkers:    20,
-			NumParallelCollections: 4,
-			PreserveUUID:           preserveUUID,
-			StopOnError:            !ignoreErrors,
-			TempRolesColl:          "temproles",
-			TempUsersColl:          "tempusers",
-			WriteConcern:           "majority",
+			NumInsertionWorkers:      20,
+			NumParallelCollections:   4,
+			PreserveUUID:             preserveUUID,
+			StopOnError:              !ignoreErrors,
+			TempRolesColl:            "temproles",
+			TempUsersColl:            "tempusers",
+			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromDumpRestore,
@@ -117,7 +111,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
 
-	oplogReader, oplogCloser, err := Source(stg, bcp.OplogName, bcp.Compression)
+	oplogReader, oplogCloser, err := Source(stg, bcp.OplogName, pbm.CompressionTypeNone)
 	if err != nil {
 		return errors.Wrap(err, "create source object for the oplog restore")
 	}

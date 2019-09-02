@@ -1,13 +1,12 @@
 package pbm
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 type Lock struct {
@@ -23,58 +22,35 @@ var errLocked = errors.New("locked")
 // It returns true in case of success and false if there is
 // lock already acquired by another process or some error happend.
 func (p *PBM) AcquireLock(l Lock) (bool, error) {
-	sess, err := p.Conn.StartSession(
-		options.Session().
-			SetDefaultReadPreference(readpref.Primary()).
-			SetCausalConsistency(true).
-			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.New(writeconcern.WMajority())),
+	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"create", OpCollection}}).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return false, errors.Wrap(err, "ensure lock collection")
+	}
+
+	c := p.Conn.Database(DB).Collection(OpCollection)
+	_, err = c.Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
 	)
-	if err != nil {
-		return false, errors.Wrap(err, "start session")
-	}
-	defer sess.EndSession(p.ctx)
-
-	err = sess.StartTransaction()
-	if err != nil {
-		return false, errors.Wrap(err, "start transaction")
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return false, errors.Wrap(err, "ensure lock index")
 	}
 
-	err = mongo.WithSession(p.ctx, sess, func(sc mongo.SessionContext) error {
-		var err error
-		defer func() {
-			if err != nil {
-				sess.AbortTransaction(sc)
-			}
-		}()
-
-		lc := Lock{}
-		err = p.Conn.Database(CmdStreamDB).Collection(OpCollection).FindOne(sc, bson.D{{"replset", l.Replset}}).Decode(&lc)
-		if err != nil && err != mongo.ErrNoDocuments {
-			return errors.Wrap(err, "find lock")
-		} else if err == nil {
-			return errLocked
-		}
-
-		_, err = p.Conn.Database(CmdStreamDB).Collection(OpCollection).InsertOne(sc, l)
-		if err != nil {
-			return errors.Wrap(err, "insert lock")
-		}
-
-		return sess.CommitTransaction(sc)
-	})
-
-	if err != nil {
-		if err == errLocked {
-			return false, nil
-		}
-		return false, err
+	_, err = c.InsertOne(p.ctx, l)
+	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
+		return false, errors.Wrap(err, "aquire lock")
 	}
 
-	return true, nil
+	// if there is no error so we got index
+	return err == nil, nil
 }
 
 func (p *PBM) ReleaseLock(l Lock) error {
-	_, err := p.Conn.Database(CmdStreamDB).Collection(OpCollection).DeleteOne(nil, l)
+	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteOne(nil, l)
 	return errors.Wrap(err, "deleteOne")
 }
