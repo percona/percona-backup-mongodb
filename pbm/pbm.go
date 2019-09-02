@@ -101,24 +101,6 @@ const (
 	StatusError         = "error"
 )
 
-func (p *PBM) Reconnect() error {
-	err := p.Conn.Disconnect(p.ctx)
-	if err != nil {
-		return errors.Wrap(err, "disconnect")
-	}
-
-	p.Conn, err = mongo.NewClient(options.Client().ApplyURI(p.curl))
-	if err != nil {
-		return errors.Wrap(err, "new mongo client")
-	}
-	err = p.Conn.Connect(p.ctx)
-	if err != nil {
-		return errors.Wrap(err, "mongo connect")
-	}
-
-	return errors.Wrap(p.Conn.Ping(p.ctx, nil), "mongo ping")
-}
-
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 	err := p.Conn.Database(DB).Collection(BcpCollection).FindOneAndReplace(
 		p.ctx,

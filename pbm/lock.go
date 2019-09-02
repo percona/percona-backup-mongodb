@@ -1,8 +1,6 @@
 package pbm
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -77,11 +75,6 @@ func (p *PBM) AcquireLock(l Lock) (bool, error) {
 }
 
 func (p *PBM) ReleaseLock(l Lock) error {
-	r, err := p.Conn.Database(CmdStreamDB).Collection(OpCollection).DeleteOne(nil, l)
-	if err != nil {
-		return errors.Wrap(err, "deleteOne")
-	}
-
-	fmt.Println("lock deleted count", r.DeletedCount)
-	return nil
+	_, err := p.Conn.Database(CmdStreamDB).Collection(OpCollection).DeleteOne(nil, l)
+	return errors.Wrap(err, "deleteOne")
 }

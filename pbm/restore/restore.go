@@ -1,8 +1,6 @@
 package restore
 
 import (
-	"log"
-
 	"github.com/mongodb/mongo-tools-common/db"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -10,6 +8,13 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
+
+var excludeFromDumpRestore = []string{
+	pbm.CmdStreamDB + ".*",
+	pbm.DB + "." + pbm.LogCollection,
+	pbm.DB + "." + pbm.ConfigCollection,
+	pbm.DB + "." + pbm.BcpCollection,
+}
 
 // Run runs the backup restore
 func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
@@ -101,7 +106,9 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 			TempUsersColl:          "tempusers",
 			WriteConcern:           "majority",
 		},
-		NSOptions:   &mongorestore.NSOptions{},
+		NSOptions: &mongorestore.NSOptions{
+			NSExclude: excludeFromDumpRestore,
+		},
 		InputReader: dumpReader,
 	}
 
@@ -109,15 +116,6 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	if rdumpResult.Err != nil {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
-	log.Println("dump restored")
-	// err = cn.Reconnect()
-	// if err != nil {
-	// 	return errors.Wrap(err, "pbm reconnect")
-	// }
-	// err = node.Reconnect()
-	// if err != nil {
-	// 	return errors.Wrap(err, "node reconnect")
-	// }
 
 	oplogReader, oplogCloser, err := Source(stg, bcp.OplogName, bcp.Compression)
 	if err != nil {

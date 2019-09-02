@@ -3,7 +3,6 @@ package restore
 import (
 	"fmt"
 	"io"
-	"log"
 	"reflect"
 	"strings"
 
@@ -43,8 +42,6 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) *Oplog {
 
 // Apply applys an oplog from a given source
 func (o *Oplog) Apply(src io.ReadCloser) error {
-	log.Println("oplog started")
-
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
@@ -84,7 +81,6 @@ func (o *Oplog) Apply(src io.ReadCloser) error {
 			}
 		}
 	}
-	fmt.Println("oplog finished")
 
 	return nil
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Node struct {
@@ -88,22 +87,4 @@ func (n *Node) ConnURI() string {
 
 func (n *Node) Session() *mongo.Client {
 	return n.cn
-}
-
-func (n *Node) Reconnect() error {
-	err := n.cn.Disconnect(n.ctx)
-	if err != nil {
-		return errors.Wrap(err, "disconnect")
-	}
-	n.cn = nil
-	n.cn, err = mongo.NewClient(options.Client().ApplyURI(n.curi))
-	if err != nil {
-		return errors.Wrap(err, "new mongo client")
-	}
-	err = n.cn.Connect(n.ctx)
-	if err != nil {
-		return errors.Wrap(err, "mongo connect")
-	}
-
-	return errors.Wrap(n.cn.Ping(n.ctx, nil), "mongo ping")
 }
