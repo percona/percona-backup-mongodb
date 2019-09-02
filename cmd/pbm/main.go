@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -20,7 +23,8 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").Required().String()
 
-	agentCmd = pbmCmd.Command("agent", "Run the agent mode")
+	agentCmd  = pbmCmd.Command("agent", "Run the agent mode")
+	pprofPort = agentCmd.Flag("pport", "").Hidden().String()
 
 	storageCmd     = pbmCmd.Command("store", "Target store")
 	storageSetCmd  = storageCmd.Command("set", "Set store")
@@ -49,7 +53,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "new mongo client: %v", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	err = client.Connect(ctx)
 	if err != nil {
@@ -115,6 +119,12 @@ func main() {
 }
 
 func runAgent(ctx context.Context) {
+	if *pprofPort != "" {
+		go func() {
+			log.Println(http.ListenAndServe("localhost:"+*pprofPort, nil))
+		}()
+	}
+
 	node, err := mongo.NewClient(options.Client().ApplyURI(*mURL).SetDirect(true))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new mongo client for node: %v", err)
@@ -139,6 +149,6 @@ func runAgent(ctx context.Context) {
 	fmt.Println("pbm agent is listening for the commands")
 	err = agnt.Start()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo listen cmd: %v", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] listen cmd: %v", err)
 	}
 }

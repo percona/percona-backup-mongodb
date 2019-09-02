@@ -50,7 +50,12 @@ func (a *Agent) Start() error {
 				a.Restore(cmd.Restore)
 			}
 		case err := <-cerr:
-			log.Println(err)
+			switch err.(type) {
+			case pbm.ErrorCursor:
+				return errors.Wrap(err, "stop listening")
+			default:
+				log.Println("[ERROR] listening commands:", err)
+			}
 		}
 	}
 }

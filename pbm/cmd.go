@@ -1,10 +1,20 @@
 package pbm
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+type ErrorCursor struct {
+	cerr error
+}
+
+func (c ErrorCursor) Error() string {
+	return fmt.Sprintln("cursor was closed with:", c.cerr)
+}
 
 func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 	cmd := make(chan Cmd)
@@ -22,6 +32,11 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 		defer cur.Close(p.ctx)
 
 		for cur.Next(p.ctx) {
+			if cur.Err() != nil {
+				errc <- ErrorCursor{cerr: cur.Err()}
+				return
+			}
+
 			icmd := struct {
 				C Cmd `bson:"fullDocument"`
 			}{}
@@ -34,9 +49,9 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 
 			cmd <- icmd.C
 		}
-		if cur.Err() != nil {
-			errc <- errors.Wrap(cur.Err(), "cursor")
-		}
+		// if cur.Err() != nil {
+		// 	errc <- ErrorCursor{cerr: cur.Err()}
+		// }
 	}()
 
 	return cmd, errc, nil
