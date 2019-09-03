@@ -54,6 +54,11 @@ func (a *Agent) Start() error {
 			case pbm.ErrorCursor:
 				return errors.Wrap(err, "stop listening")
 			default:
+				// channel closed / cursor is empty
+				if err == nil {
+					return errors.New("change stream was closed")
+				}
+
 				log.Println("[ERROR] listening commands:", err)
 			}
 		}
