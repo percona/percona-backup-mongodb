@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -15,16 +12,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/percona-backup-mongodb/agent"
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").Required().String()
-
-	agentCmd  = pbmCmd.Command("agent", "Run the agent mode")
-	pprofPort = agentCmd.Flag("pport", "").Hidden().String()
 
 	storageCmd     = pbmCmd.Command("store", "Target store")
 	storageSetCmd  = storageCmd.Command("set", "Set store")
@@ -68,8 +61,6 @@ func main() {
 	}
 
 	switch cmd {
-	case agentCmd.FullCommand():
-		runAgent(ctx)
 	case storageSetCmd.FullCommand():
 		buf, err := ioutil.ReadFile(*storageConfig)
 		if err != nil {
@@ -115,40 +106,5 @@ func main() {
 			return
 		}
 		fmt.Printf("Beginning restore of the snapshot from %s", *restoreBcpName)
-	}
-}
-
-func runAgent(ctx context.Context) {
-	if *pprofPort != "" {
-		go func() {
-			log.Println(http.ListenAndServe("localhost:"+*pprofPort, nil))
-		}()
-	}
-
-	node, err := mongo.NewClient(options.Client().ApplyURI(*mURL).SetDirect(true))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "new mongo client for node: %v", err)
-		return
-	}
-	err = node.Connect(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo node connect: %v", err)
-		return
-	}
-
-	err = node.Ping(ctx, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo node ping: %v", err)
-		return
-	}
-
-	agnt := agent.New(ctx, client, *mURL)
-	// TODO: pass only options and connect while createing a node?
-	agnt.AddNode(ctx, node, *mURL)
-
-	fmt.Println("pbm agent is listening for the commands")
-	err = agnt.Start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[ERROR] listen cmd: %v", err)
 	}
 }
