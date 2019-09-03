@@ -32,11 +32,6 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 		defer cur.Close(p.ctx)
 
 		for cur.Next(p.ctx) {
-			if cur.Err() != nil {
-				errc <- ErrorCursor{cerr: cur.Err()}
-				return
-			}
-
 			icmd := struct {
 				C Cmd `bson:"fullDocument"`
 			}{}
@@ -49,9 +44,10 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 
 			cmd <- icmd.C
 		}
-		// if cur.Err() != nil {
-		// 	errc <- ErrorCursor{cerr: cur.Err()}
-		// }
+		if cur.Err() != nil {
+			errc <- ErrorCursor{cerr: cur.Err()}
+			return
+		}
 	}()
 
 	return cmd, errc, nil

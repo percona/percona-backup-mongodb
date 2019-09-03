@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
-	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").Required().String()
+	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
 	storageCmd     = pbmCmd.Command("store", "Target store")
 	storageSetCmd  = storageCmd.Command("set", "Set store")
@@ -25,38 +26,51 @@ var (
 	storageShowCmd = storageCmd.Command("show", "Show current storage configuration")
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
-	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").
-			Default(pbm.CompressionTypeGZIP).Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
+	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
+			Default(pbm.CompressionTypeGZIP).
+			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
 
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
+
+	listCmd     = pbmCmd.Command("list", "Backup list")
+	listCmdSize = listCmd.Flag("size", "Show last N backups").Default("42").Int64()
 
 	client *mongo.Client
 )
 
 func main() {
+	log.SetFlags(0)
+
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "[ERROR] Parse command line parameters:", err)
+		log.Println("Error: parse command line parameters:", err)
+		return
+	}
+
+	if *mURL == "" {
+		log.Println("Error: no mongodb connection URI supplied\n")
+		pbmCmd.Usage(os.Args[1:])
+		return
 	}
 
 	*mURL = "mongodb://" + strings.Replace(*mURL, "mongodb://", "", 1)
 	client, err = mongo.NewClient(options.Client().ApplyURI(*mURL))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "new mongo client: %v", err)
+		log.Println("Error: new mongo client:", err)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	err = client.Connect(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo connect: %v", err)
+		log.Println("Error: mongo connect:", err)
 		return
 	}
 
 	err = client.Ping(ctx, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo ping: %v", err)
+		log.Println("Error: mongo ping:", err)
 		return
 	}
 
@@ -64,22 +78,22 @@ func main() {
 	case storageSetCmd.FullCommand():
 		buf, err := ioutil.ReadFile(*storageConfig)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Unable to read storage file: %v", err)
+			log.Println("Error: unable to read storage file:", err)
 			return
 		}
 		err = pbm.New(ctx, client, *mURL).SetStorageByte(buf)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Unable to set storage: %v", err)
+			log.Println("Error: unable to set storage:", err)
 			return
 		}
 		fmt.Println("[Done]")
 	case storageShowCmd.FullCommand():
 		stg, err := pbm.New(ctx, client, *mURL).GetStorageYaml(true)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Unable to get storage: %v", err)
+			log.Println("Error: unable to get store:", err)
 			return
 		}
-		fmt.Printf("Storage\n-------\n%s\n", stg)
+		fmt.Printf("Store\n-------\n%s\n", stg)
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
 		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
@@ -90,10 +104,16 @@ func main() {
 			},
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Schedule backup: %v\n", err)
+			log.Println("Error: backup:", err)
 			return
 		}
-		fmt.Printf("Backup '%s' is scheduled", bcpName)
+		stg, _ := pbm.New(ctx, client, *mURL).GetStorage()
+		storeString := "s3://"
+		if stg.S3.EndpointURL != "" {
+			storeString += stg.S3.EndpointURL + "/"
+		}
+		storeString += stg.S3.Bucket
+		fmt.Printf("Beginning backup '%s' to remote store %s\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
 		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdRestore,
@@ -102,9 +122,29 @@ func main() {
 			},
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Schedule restore: %v\n", err)
+			log.Println("Error: schedule restore:", err)
 			return
 		}
-		fmt.Printf("Beginning restore of the snapshot from %s", *restoreBcpName)
+		fmt.Printf("Beginning restore of the snapshot from %s\n", *restoreBcpName)
+	case listCmd.FullCommand():
+		bcps, err := pbm.New(ctx, client, *mURL).BackupsList(*listCmdSize)
+		if err != nil {
+			log.Println("Error: unable to get backups list:", err)
+			return
+		}
+		fmt.Println("Backup history:")
+		for _, b := range bcps {
+			var bcp string
+			switch b.Status {
+			case pbm.StatusDone:
+				bcp = b.Name
+			case pbm.StatusRunnig:
+				bcp = fmt.Sprintf("%s\tIn progress (Launched at %s)", b.Name, time.Unix(b.StartTS, 0).Format(time.RFC3339))
+			case pbm.StatusError:
+				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
+			}
+
+			fmt.Println(" ", bcp)
+		}
 	}
 }

@@ -128,3 +128,28 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }
+
+func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
+	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
+		p.ctx,
+		bson.M{},
+		options.Find().SetLimit(limit).SetSort(bson.D{{"start_ts", 1}}),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "query mongo")
+	}
+
+	defer cur.Close(p.ctx)
+
+	backups := []BackupMeta{}
+	for cur.Next(p.ctx) {
+		b := BackupMeta{}
+		err := cur.Decode(&b)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		backups = append(backups, b)
+	}
+
+	return backups, cur.Err()
+}
