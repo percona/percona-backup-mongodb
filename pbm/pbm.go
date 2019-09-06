@@ -27,6 +27,8 @@ const (
 	CmdStreamDB = "pbm"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "cmd"
+
+	NoReplset = "pbmnoreplicaset"
 )
 
 type Command string
@@ -79,32 +81,42 @@ func New(ctx context.Context, pbmConn *mongo.Client, curl string) *PBM {
 }
 
 type BackupMeta struct {
-	Name         string          `bson:"name" json:"name"`
-	DumpName     string          `bson:"dump_name" json:"backup_name" `
-	OplogName    string          `bson:"oplog_name" json:"oplog_name"`
-	Compression  CompressionType `bson:"compression" json:"compression"`
-	RsName       string          `bson:"rs_name" json:"rs_name"`
-	Store        Storage         `bson:"store" json:"store"`
-	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS      int64           `bson:"start_ts" json:"start_ts"`
-	EndTS        int64           `bson:"end_ts" json:"end_ts"`
-	Status       Status          `bson:"status" json:"status"`
-	Error        string          `bson:"error,omitempty" json:"error,omitempty"`
+	Name         string                   `bson:"name" json:"name"`
+	Replsets     map[string]BackupReplset `bson:"replsets" json:"replsets"`
+	Compression  CompressionType          `bson:"compression" json:"compression"`
+	Store        Storage                  `bson:"store" json:"store"`
+	MongoVersion string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS      int64                    `bson:"start_ts" json:"start_ts"`
+	DoneTS       int64                    `bson:"done_ts" json:"done_ts"`
+	Status       Status                   `bson:"status" json:"status"`
+	Error        string                   `bson:"error,omitempty" json:"error,omitempty"`
+}
+
+type BackupReplset struct {
+	Name        string `bson:"name" json:"name"`
+	DumpName    string `bson:"dump_name" json:"backup_name" `
+	OplogName   string `bson:"oplog_name" json:"oplog_name"`
+	Status      Status `bson:"status" json:"status"`
+	Error       string `bson:"error,omitempty" json:"error,omitempty"`
+	StartTS     int64  `bson:"start_ts" json:"start_ts"`
+	DumpDoneTS  int64  `bson:"dump_done_ts" json:"dump_done_ts"`
+	OplogDoneTS int64  `bson:"oplog_done_ts" json:"oplog_done_ts"`
 }
 
 // Status is backup current status
 type Status string
 
 const (
-	StatusRunnig Status = "runnig"
-	StatusDone          = "done"
-	StatusError         = "error"
+	StatusRunnig   Status = "runnig"
+	StatusDumpDone        = "dumpDone"
+	StatusDone            = "done"
+	StatusError           = "error"
 )
 
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 	err := p.Conn.Database(DB).Collection(BcpCollection).FindOneAndReplace(
 		p.ctx,
-		bson.D{{"name", m.Name}, {"rs_name", m.RsName}},
+		bson.D{{"name", m.Name}},
 		m,
 		options.FindOneAndReplace().SetUpsert(true),
 	).Err()

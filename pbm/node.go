@@ -15,6 +15,15 @@ type Node struct {
 	curi string
 }
 
+// ReplRole is a replicaset role in sharded cluster
+type ReplRole string
+
+const (
+	ReplRoleUnknown   = "unknown"
+	ReplRoleShard     = "shard"
+	ReplRoleConfigSrv = "configsrv"
+)
+
 func NewNode(ctx context.Context, name string, conn *mongo.Client, curi string) *Node {
 	return &Node{
 		name: name,
@@ -31,6 +40,16 @@ func (n *Node) GetIsMaster() (*IsMaster, error) {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
 	return im, nil
+}
+
+// IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).
+func (n *Node) IsSharded() (bool, error) {
+	im, err := n.GetIsMaster()
+	if err != nil {
+		return false, err
+	}
+
+	return im.IsSharded(), nil
 }
 
 func (n *Node) Name() (string, error) {

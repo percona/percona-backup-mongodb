@@ -67,7 +67,7 @@ func (a *Agent) Start() error {
 
 // Backup starts backup
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
-	q, err := backup.NodeQualify(bcp, a.node)
+	q, err := backup.NodeSuits(bcp, a.node)
 	if err != nil {
 		log.Println("[ERROR] backup: unable to check node:", err)
 		return
@@ -105,7 +105,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
-	err = backup.Run(bcp, a.pbm, a.node)
+	err = backup.New(a.pbm, a.node).Run(bcp)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
 	}

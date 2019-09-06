@@ -16,32 +16,61 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-// Run runs the backup
-func Run(bcp pbm.BackupCmd, cn *pbm.PBM, node *pbm.Node) (err error) {
-	ctx, stopOplog := context.WithCancel(context.Background())
-	defer stopOplog()
+type Backup struct {
+	cn   *pbm.PBM
+	node *pbm.Node
+}
 
+func New(cn *pbm.PBM, node *pbm.Node) *Backup {
+	return &Backup{
+		cn:   cn,
+		node: node,
+	}
+}
+
+// Run runs the backup
+func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	meta := &pbm.BackupMeta{
 		Name:        bcp.Name,
 		StartTS:     time.Now().UTC().Unix(),
 		Compression: bcp.Compression,
 		Status:      pbm.StatusRunnig,
+		Replsets:    make(map[string]pbm.BackupReplset),
 	}
 
-	ver, err := node.GetMongoVersion()
-	if err == nil {
-		meta.MongoVersion = ver.VersionString
+	im, err := b.node.GetIsMaster()
+	if err != nil {
+		return errors.Wrap(err, "get cluster info")
+	}
+
+	rsName := im.SetName
+	if rsName == "" {
+		rsName = pbm.NoReplset
+	}
+	rsMeta := pbm.BackupReplset{
+		Name:      rsName,
+		OplogName: getDstName("oplog", bcp, im.SetName),
+		DumpName:  getDstName("dump", bcp, im.SetName),
+		StartTS:   time.Now().UTC().Unix(),
+		Status:    pbm.StatusRunnig,
 	}
 
 	defer func() {
 		if err != nil {
-			meta.Status = pbm.StatusError
-			meta.Error = err.Error()
+			rsMeta.Status = pbm.StatusError
+			rsMeta.Error = err.Error()
 		}
-		cn.UpdateBackupMeta(meta)
+
+		meta.Replsets[rsName] = rsMeta
+		b.cn.UpdateBackupMeta(meta)
 	}()
 
-	stg, err := cn.GetStorage()
+	ver, err := b.node.GetMongoVersion()
+	if err == nil {
+		meta.MongoVersion = ver.VersionString
+	}
+
+	stg, err := b.cn.GetStorage()
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -52,82 +81,81 @@ func Run(bcp pbm.BackupCmd, cn *pbm.PBM, node *pbm.Node) (err error) {
 	// Erase credentials data
 	meta.Store.S3.Credentials = pbm.Credentials{}
 
-	im, err := node.GetIsMaster()
-	if err != nil {
-		return errors.Wrap(err, "get cluster info")
-	}
-	meta.RsName = im.SetName
-	meta.OplogName = getDstName("oplog", bcp, im.SetName)
-	meta.DumpName = getDstName("dump", bcp, im.SetName)
-
-	err = cn.UpdateBackupMeta(meta)
+	err = b.cn.UpdateBackupMeta(meta)
 	if err != nil {
 		return errors.Wrap(err, "write backup meta to db")
 	}
 
-	oplogDst, oplogCloser, err := Destination(stg, meta.OplogName, bcp.Compression)
+	stopOplog, err := b.oplog(stg, rsMeta.OplogName, bcp.Compression)
 	if err != nil {
-		return errors.Wrap(err, "oplog store writer")
+		return errors.Wrap(err, "oplog tailer")
+	}
+	defer stopOplog()
+
+	err = b.dump(stg, rsMeta.DumpName, bcp.Compression)
+	if err != nil {
+		return errors.Wrap(err, "data dump")
 	}
 
-	ot := OplogTail(cn, node)
+	rsMeta.Status = pbm.StatusDumpDone
+	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
+	meta.Replsets[rsName] = rsMeta
+	b.cn.UpdateBackupMeta(meta)
+
+	if !im.IsSharded() {
+		meta.Status = pbm.StatusDone
+		meta.DoneTS = time.Now().UTC().Unix()
+		return errors.Wrap(writeMeta(stg, meta), "save metadata to the store")
+	}
+
+	return nil
+}
+
+// Oplog tailing
+func (b *Backup) oplog(stg pbm.Storage, name string, compression pbm.CompressionType) (context.CancelFunc, error) {
+	oplogDst, oplogCloser, err := Destination(stg, name, compression)
+	if err != nil {
+		return nil, errors.Wrap(err, "oplog store writer")
+	}
+
+	ot := OplogTail(b.cn, b.node)
+
+	ctx, stopOplog := context.WithCancel(context.Background())
 	err = ot.Run(ctx)
 	if err != nil {
-		return errors.Wrap(err, "run oplog tailer")
+		return nil, errors.Wrap(err, "run oplog tailer")
 	}
 
 	// writing an oplog to the target store
+	// io.Copy is going to run until Oplog tailer being closed
 	go func() {
-		_, err = io.Copy(oplogDst, ot)
+		io.Copy(oplogDst, ot)
 		oplogDst.Close()
 		if oplogCloser != nil {
 			oplogCloser.Close()
 		}
 	}()
 
-	// TODO we have to wait until the oplog wrinting process being startd. Not sleep.
+	// TODO we have to wait until the oplog wrinting process being started. Not sleep.
 	time.Sleep(1)
-	if err != nil {
-		errors.Wrap(err, "io copy from the oplog reader to the store writer")
-	}
+	return stopOplog, nil
+}
 
-	bcpDst, bcpCloser, err := Destination(stg, meta.DumpName, bcp.Compression)
+func writeMeta(stg pbm.Storage, meta *pbm.BackupMeta) error {
+	mw, _, err := Destination(stg, meta.Name+".pbm.json", pbm.CompressionTypeNone)
 	if err != nil {
-		return errors.Wrap(err, "dump store writer")
-	}
-	defer func() {
-		bcpDst.Close()
-		if bcpCloser != nil {
-			bcpCloser.Close()
-		}
-	}()
-
-	err = mdump(bcpDst, node.ConnURI())
-	if err != nil {
-		return errors.Wrap(err, "mongodump")
-	}
-
-	mw, _, err := Destination(stg, bcp.Name+"_"+im.SetName+".pbm.json", pbm.CompressionTypeNone)
-	if err != nil {
-		return errors.Wrap(err, "create writer for metadata")
+		return errors.Wrap(err, "create writer")
 	}
 	defer mw.Close()
 
 	menc := json.NewEncoder(mw)
 	menc.SetIndent("", "\t")
 
-	meta.Status = pbm.StatusDone
-	meta.EndTS = time.Now().UTC().Unix()
-	err = menc.Encode(meta)
-	if err != nil {
-		return errors.Wrap(err, "write to store")
-	}
-
-	return nil
+	return errors.Wrap(menc.Encode(meta), "write to store")
 }
 
-// NodeQualify checks if node qualify to perform backup
-func NodeQualify(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
+// NodeSuits checks if node can perform backup
+func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	im, err := node.GetIsMaster()
 	if err != nil {
 		return false, errors.Wrap(err, "get isMaster data for node")
@@ -145,6 +173,21 @@ func NodeQualify(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	return status.Health == pbm.NodeHealthUp &&
 			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
 		nil
+}
+
+func (b *Backup) dump(stg pbm.Storage, name string, compression pbm.CompressionType) error {
+	bcpDst, bcpCloser, err := Destination(stg, name, compression)
+	if err != nil {
+		return errors.Wrap(err, "store writer")
+	}
+	defer func() {
+		bcpDst.Close()
+		if bcpCloser != nil {
+			bcpCloser.Close()
+		}
+	}()
+
+	return errors.Wrap(mdump(bcpDst, b.node.ConnURI()), "mongodump")
 }
 
 func mdump(to io.WriteCloser, curi string) error {

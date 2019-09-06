@@ -1,6 +1,6 @@
 module github.com/percona/percona-backup-mongodb
 
-go 1.12
+go 1.13
 
 require (
 	9fans.net/go v0.0.2 // indirect

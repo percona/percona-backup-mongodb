@@ -46,6 +46,23 @@ type IsMaster struct {
 	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
 }
 
+// IsSharded returns true is replset is part sharded cluster
+func (im *IsMaster) IsSharded() bool {
+	return im.SetName != "" && (im.ConfigServerState != nil || im.ConfigSvr == 2)
+}
+
+// ReplsetRole returns replset role in sharded clister
+func (im *IsMaster) ReplsetRole() ReplRole {
+	switch {
+	case im.ConfigSvr == 2:
+		return ReplRoleConfigSrv
+	case im.ConfigServerState != nil:
+		return ReplRoleShard
+	default:
+		return ReplRoleUnknown
+	}
+}
+
 type ClusterTime struct {
 	ClusterTime primitive.Timestamp `bson:"clusterTime"`
 	Signature   struct {
