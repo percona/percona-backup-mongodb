@@ -10,7 +10,7 @@ import (
 )
 
 var excludeFromDumpRestore = []string{
-	pbm.CmdStreamDB + "." + pbm.CmdStreamCollection,
+	pbm.DB + "." + pbm.CmdStreamCollection,
 	pbm.DB + "." + pbm.LogCollection,
 	pbm.DB + "." + pbm.ConfigCollection,
 	pbm.DB + "." + pbm.BcpCollection,

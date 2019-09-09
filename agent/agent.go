@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -23,9 +24,9 @@ type Agent struct {
 	node *pbm.Node
 }
 
-func New(ctx context.Context, pbmConn *mongo.Client, curl string) *Agent {
+func New(pbm *pbm.PBM) *Agent {
 	return &Agent{
-		pbm: pbm.New(ctx, pbmConn, curl),
+		pbm: pbm,
 	}
 }
 
@@ -37,12 +38,13 @@ func (a *Agent) AddNode(ctx context.Context, cn *mongo.Client, curi string) {
 func (a *Agent) Start() error {
 	c, cerr, err := a.pbm.ListenCmd()
 	if err != nil {
-		return errors.Wrap(err, "listen commands stream")
+		return err
 	}
 
 	for {
 		select {
 		case cmd := <-c:
+			fmt.Println("gotCmd", cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				a.Backup(cmd.Backup)
@@ -75,6 +77,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	// node is not suitable for doing the backup
 	if !q {
+		fmt.Println("doesn't suits")
 		return
 	}
 

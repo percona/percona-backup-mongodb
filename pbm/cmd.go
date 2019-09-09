@@ -2,9 +2,10 @@ package pbm
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -19,34 +20,40 @@ func (c ErrorCursor) Error() string {
 func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 	cmd := make(chan Cmd)
 	errc := make(chan error)
-
-	var pipeline mongo.Pipeline
-	cur, err := p.Conn.Database(CmdStreamDB).Collection(CmdStreamCollection).Watch(p.ctx, pipeline, options.ChangeStream().SetFullDocument(options.UpdateLookup))
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "watch the cmd stream")
-	}
-
 	go func() {
 		defer close(cmd)
 		defer close(errc)
-		defer cur.Close(p.ctx)
-
-		for cur.Next(p.ctx) {
-			icmd := struct {
-				C Cmd `bson:"fullDocument"`
-			}{}
-
-			err := cur.Decode(&icmd)
+		// defer cur.Close(p.ctx)
+		ts := time.Now().UTC().Unix()
+		for {
+			cur, err := p.Conn.Database(DB).Collection(CmdStreamCollection).Find(
+				p.ctx,
+				bson.M{"ts": bson.M{"$gte": ts}},
+				options.Find(),
+			)
 			if err != nil {
-				errc <- errors.Wrap(err, "message decode")
-				continue
+				errc <- errors.Wrap(err, "watch the cmd stream")
+				return
 			}
 
-			cmd <- icmd.C
-		}
-		if cur.Err() != nil {
-			errc <- ErrorCursor{cerr: cur.Err()}
-			return
+			for cur.Next(p.ctx) {
+				c := Cmd{}
+				err := cur.Decode(&c)
+				if err != nil {
+					errc <- errors.Wrap(err, "message decode")
+					continue
+				}
+
+				cmd <- c
+				ts = time.Now().UTC().Unix()
+			}
+			if cur.Err() != nil {
+				errc <- ErrorCursor{cerr: cur.Err()}
+				cur.Close(p.ctx)
+				return
+			}
+			cur.Close(p.ctx)
+			time.Sleep(time.Second * 1)
 		}
 	}()
 
@@ -54,6 +61,7 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 }
 
 func (p *PBM) SendCmd(cmd Cmd) error {
-	_, err := p.Conn.Database(CmdStreamDB).Collection(CmdStreamCollection).InsertOne(p.ctx, cmd)
+	cmd.TS = time.Now().UTC().Unix()
+	_, err := p.Conn.Database(DB).Collection(CmdStreamCollection).InsertOne(p.ctx, cmd)
 	return err
 }

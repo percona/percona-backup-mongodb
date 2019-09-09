@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"os"
 	"time"
 
@@ -97,9 +98,14 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "data dump")
 	}
 
+	log.Println("DUMPED")
+
 	rsMeta.Status = pbm.StatusDumpDone
 	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
-	b.cn.AddShardToBackupMeta(rsName, rsMeta)
+	err = b.cn.AddShardToBackupMeta(rsName, rsMeta)
+	if err != nil {
+		return errors.Wrap(err, "add shards metadata")
+	}
 
 	if !im.IsSharded() {
 		meta.Status = pbm.StatusDone

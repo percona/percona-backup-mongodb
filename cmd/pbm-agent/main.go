@@ -9,13 +9,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"github.com/alecthomas/kingpin"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/agent"
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func main() {
@@ -43,21 +43,9 @@ func main() {
 
 func runAgent(mongoURI string) error {
 	mongoURI = "mongodb://" + strings.Replace(mongoURI, "mongodb://", "", 1)
-	client, err := mongo.NewClient(options.Client().ApplyURI(mongoURI))
-	if err != nil {
-		return errors.Wrap(err, "create mongo client")
-	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err = client.Connect(ctx)
-	if err != nil {
-		return errors.Wrap(err, "mongo connect")
-	}
-
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		return errors.Wrap(err, "mongo ping")
-	}
 
 	node, err := mongo.NewClient(options.Client().ApplyURI(mongoURI).SetDirect(true))
 	if err != nil {
@@ -73,7 +61,12 @@ func runAgent(mongoURI string) error {
 		return errors.Wrap(err, "node ping")
 	}
 
-	agnt := agent.New(ctx, client, mongoURI)
+	pbmClient, err := pbm.New(ctx, mongoURI)
+	if err != nil {
+		return errors.Wrap(err, "connect to mongodb")
+	}
+
+	agnt := agent.New(pbmClient)
 	// TODO: pass only options and connect while createing a node?
 	agnt.AddNode(ctx, node, mongoURI)
 

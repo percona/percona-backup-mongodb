@@ -90,7 +90,10 @@ func (p *PBM) GetStorageYaml(safe bool) ([]byte, error) {
 
 func (p *PBM) GetStorage() (Storage, error) {
 	var c Conf
-	err := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{{"item", "config"}}).Decode(&c)
-
-	return c.Storage[defaultName], errors.Wrap(err, "")
+	res := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{{"item", "config"}})
+	if res.Err() != nil {
+		return Storage{}, res.Err()
+	}
+	err := res.Decode(&c)
+	return c.Storage[defaultName], err
 }

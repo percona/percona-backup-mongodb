@@ -22,13 +22,8 @@ var errLocked = errors.New("locked")
 // It returns true in case of success and false if there is
 // lock already acquired by another process or some error happend.
 func (p *PBM) AcquireLock(l Lock) (bool, error) {
-	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"create", OpCollection}}).Err()
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return false, errors.Wrap(err, "ensure lock collection")
-	}
-
 	c := p.Conn.Database(DB).Collection(OpCollection)
-	_, err = c.Indexes().CreateOne(
+	_, err := c.Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}},

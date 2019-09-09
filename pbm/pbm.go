@@ -2,6 +2,8 @@ package pbm
 
 import (
 	"context"
+	"net/url"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -21,12 +23,13 @@ const (
 	// by agents to coordinate operations (e.g. locks)
 	OpCollection = "pbmOp"
 	// BcpCollection is a collection for backups metadata
-	BcpCollection = "backups"
+	BcpCollection = "pbmBackups"
 
 	// CmdStreamDB is the cmd database
-	CmdStreamDB = "pbm"
+	// CmdStreamDB = "pbm"
+
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
-	CmdStreamCollection = "cmd"
+	CmdStreamCollection = "pbmCmd"
 
 	NoReplset = "pbmnoreplicaset"
 )
@@ -43,6 +46,7 @@ type Cmd struct {
 	Cmd     Command    `bson:"cmd"`
 	Backup  BackupCmd  `bson:"backup,omitempty"`
 	Restore RestoreCmd `bson:"restore,omitempty"`
+	TS      int64      `bson:"ts"`
 }
 
 type BackupCmd struct {
@@ -69,15 +73,96 @@ const (
 type PBM struct {
 	Conn *mongo.Client
 	ctx  context.Context
-	curl string
 }
 
-func New(ctx context.Context, pbmConn *mongo.Client, curl string) *PBM {
-	return &PBM{
-		Conn: pbmConn,
-		curl: curl,
+func New(ctx context.Context, uri string) (*PBM, error) {
+	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
+
+	client, err := connect(ctx, uri)
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo connection")
+	}
+	pbm := &PBM{
+		Conn: client,
 		ctx:  ctx,
 	}
+
+	im, err := pbm.GetIsMaster()
+	if err != nil {
+		return nil, errors.Wrap(err, "get topology")
+	}
+
+	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
+		return pbm, nil
+	}
+
+	csvr := struct {
+		URI string `bson:"configsvrConnectionString"`
+	}{}
+	err = client.Database("admin").Collection("system.version").
+		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
+	// no need in this connection anymore
+	client.Disconnect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "get config server connetion URI")
+	}
+
+	chost := strings.Split(csvr.URI, "/")
+	if len(chost) < 2 {
+		return nil, errors.Wrapf(err, "define config server connetion URI from %s", csvr.URI)
+	}
+
+	curi, err := url.Parse(uri)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse mongo-uri")
+	}
+
+	curi.Host = chost[1]
+	pbm.Conn, err = connect(ctx, curi.String())
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo connection to configsvr")
+	}
+
+	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
+}
+
+// setup a new DB for PBM
+func (p *PBM) setupNewDB() error {
+	err := p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", 1 << 10 * 2}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure cmd collection")
+	}
+
+	err = p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", OpCollection}}, //size 2kb ~ 10 commands
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure lock collection")
+	}
+
+	return nil
+}
+
+func connect(ctx context.Context, uri string) (*mongo.Client, error) {
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo client")
+	}
+	err = client.Connect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "mongo connect")
+	}
+
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "mongo ping")
+	}
+
+	return client, nil
 }
 
 type BackupMeta struct {
@@ -201,4 +286,13 @@ func (p *PBM) GetShards() ([]Shard, error) {
 // Context returns object context
 func (p *PBM) Context() context.Context {
 	return p.ctx
+}
+
+func (p *PBM) GetIsMaster() (*IsMaster, error) {
+	im := &IsMaster{}
+	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(im)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command isMaster")
+	}
+	return im, nil
 }

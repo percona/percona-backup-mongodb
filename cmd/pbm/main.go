@@ -6,12 +6,10 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -54,23 +52,12 @@ func main() {
 		return
 	}
 
-	*mURL = "mongodb://" + strings.Replace(*mURL, "mongodb://", "", 1)
-	client, err = mongo.NewClient(options.Client().ApplyURI(*mURL))
-	if err != nil {
-		log.Println("Error: new mongo client:", err)
-		return
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Println("Error: mongo connect:", err)
-		return
-	}
 
-	err = client.Ping(ctx, nil)
+	pbmClient, err := pbm.New(ctx, *mURL)
 	if err != nil {
-		log.Println("Error: mongo ping:", err)
+		log.Println("Error: connect to mongodb:", err)
 		return
 	}
 
@@ -81,22 +68,32 @@ func main() {
 			log.Println("Error: unable to read storage file:", err)
 			return
 		}
-		err = pbm.New(ctx, client, *mURL).SetStorageByte(buf)
+		err = pbmClient.SetStorageByte(buf)
 		if err != nil {
 			log.Println("Error: unable to set storage:", err)
 			return
 		}
 		fmt.Println("[Done]")
 	case storageShowCmd.FullCommand():
-		stg, err := pbm.New(ctx, client, *mURL).GetStorageYaml(true)
+		stg, err := pbmClient.GetStorageYaml(true)
 		if err != nil {
 			log.Println("Error: unable to get store:", err)
 			return
 		}
 		fmt.Printf("Store\n-------\n%s\n", stg)
 	case backupCmd.FullCommand():
+		stg, err := pbmClient.GetStorage()
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				log.Println("Error: no store set. Set remote store with <pbm store set>.")
+			} else {
+				log.Println("Error: backup: get remote-store", err)
+			}
+			return
+		}
+
 		bcpName := time.Now().UTC().Format(time.RFC3339)
-		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
+		err = pbmClient.SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdBackup,
 			Backup: pbm.BackupCmd{
 				Name:        bcpName,
@@ -107,7 +104,6 @@ func main() {
 			log.Println("Error: backup:", err)
 			return
 		}
-		stg, _ := pbm.New(ctx, client, *mURL).GetStorage()
 		storeString := "s3://"
 		if stg.S3.EndpointURL != "" {
 			storeString += stg.S3.EndpointURL + "/"
@@ -115,7 +111,7 @@ func main() {
 		storeString += stg.S3.Bucket
 		fmt.Printf("Beginning backup '%s' to remote store %s\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
-		err := pbm.New(ctx, client, *mURL).SendCmd(pbm.Cmd{
+		err := pbmClient.SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdRestore,
 			Restore: pbm.RestoreCmd{
 				BackupName: *restoreBcpName,
@@ -127,7 +123,7 @@ func main() {
 		}
 		fmt.Printf("Beginning restore of the snapshot from %s\n", *restoreBcpName)
 	case listCmd.FullCommand():
-		bcps, err := pbm.New(ctx, client, *mURL).BackupsList(*listCmdSize)
+		bcps, err := pbmClient.BackupsList(*listCmdSize)
 		if err != nil {
 			log.Println("Error: unable to get backups list:", err)
 			return
