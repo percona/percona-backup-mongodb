@@ -1,0 +1,10 @@
+Source: percona-backup-mongodb
+Section: utils
+Priority: optional
+Maintainer: Percona LLC
+Version: %{version}
+Homepage: https://percona.com
+
+Package: percona-backup-mongodb
+Architecture: amd64
+Description: Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets.
