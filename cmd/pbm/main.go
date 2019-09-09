@@ -34,7 +34,7 @@ var (
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
 
 	listCmd     = pbmCmd.Command("list", "Backup list")
-	listCmdSize = listCmd.Flag("size", "Show last N backups").Default("42").Int64()
+	listCmdSize = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	client *mongo.Client
 )

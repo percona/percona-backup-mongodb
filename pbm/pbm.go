@@ -128,6 +128,16 @@ func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 	return err
 }
 
+func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{{"$addToSet", bson.E{"replsets", shard}}},
+	)
+
+	return err
+}
+
 func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	b := new(BackupMeta)
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
@@ -164,4 +174,31 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 	}
 
 	return backups, cur.Err()
+}
+
+// GetShards gets list of shards
+func (p *PBM) GetShards() ([]Shard, error) {
+	cur, err := p.Conn.Database("config").Collection("shards").Find(p.ctx, bson.M{})
+	if err != nil {
+		return nil, errors.Wrap(err, "query mongo")
+	}
+
+	defer cur.Close(p.ctx)
+
+	shards := []Shard{}
+	for cur.Next(p.ctx) {
+		s := Shard{}
+		err := cur.Decode(&s)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		shards = append(shards, s)
+	}
+
+	return shards, cur.Err()
+}
+
+// Context returns object context
+func (p *PBM) Context() context.Context {
+	return p.ctx
 }

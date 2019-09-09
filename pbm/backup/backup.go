@@ -61,8 +61,8 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 			rsMeta.Error = err.Error()
 		}
 
-		meta.Replsets[rsName] = rsMeta
 		b.cn.UpdateBackupMeta(meta)
+		b.cn.AddShardToBackupMeta(rsName, rsMeta)
 	}()
 
 	ver, err := b.node.GetMongoVersion()
@@ -99,8 +99,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 
 	rsMeta.Status = pbm.StatusDumpDone
 	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
-	meta.Replsets[rsName] = rsMeta
-	b.cn.UpdateBackupMeta(meta)
+	b.cn.AddShardToBackupMeta(rsName, rsMeta)
 
 	if !im.IsSharded() {
 		meta.Status = pbm.StatusDone
@@ -108,7 +107,88 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(writeMeta(stg, meta), "save metadata to the store")
 	}
 
+	switch im.ReplsetRole() {
+	case pbm.ReplRoleConfigSrv:
+		err := b.checkCluster(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "unable to finish cluster backup")
+		}
+		return b.dumpClusterMeta(bcp.Name, stg)
+	case pbm.ReplRoleShard:
+		return b.waitForCluster(bcp.Name)
+	case pbm.ReplRoleUnknown:
+		return errors.Wrap(err, "unknow node role in sharded cluster")
+	}
+
 	return nil
+}
+
+func (b *Backup) checkCluster(bcpName string) error {
+	shards, err := b.cn.GetShards()
+	if err != nil {
+		return errors.Wrap(err, "get shards list")
+	}
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		backupsToFinish := len(shards)
+		select {
+		case <-tk.C:
+			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			if err != nil {
+				return errors.Wrap(err, "get backup metadata")
+			}
+			for _, sh := range shards {
+
+				if shard, ok := bmeta.Replsets[sh.ID]; ok {
+					switch shard.Status {
+					case pbm.StatusDone, pbm.StatusDumpDone:
+						backupsToFinish--
+					case pbm.StatusError:
+						return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
+					}
+				}
+			}
+			if backupsToFinish == 0 {
+				bmeta.Status = pbm.StatusDone
+				bmeta.DoneTS = time.Now().UTC().Unix()
+				return errors.Wrap(b.cn.UpdateBackupMeta(bmeta), "update backup meta with 'done'")
+			}
+		case <-b.cn.Context().Done():
+			return nil
+		}
+	}
+}
+
+func (b *Backup) waitForCluster(bcpName string) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			if err != nil {
+				return errors.Wrap(err, "get backup metadata")
+			}
+			switch bmeta.Status {
+			case pbm.StatusDone:
+				return nil
+			case pbm.StatusError:
+				return errors.Wrap(err, "backup failed")
+			}
+		case <-b.cn.Context().Done():
+			return nil
+		}
+	}
+}
+
+func (b *Backup) dumpClusterMeta(bcpName string, stg pbm.Storage) error {
+	meta, err := b.cn.GetBackupMeta(bcpName)
+	if err != nil {
+		return errors.Wrap(err, "get backup metadata")
+	}
+
+	return writeMeta(stg, meta)
 }
 
 // Oplog tailing

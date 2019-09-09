@@ -156,3 +156,9 @@ type ReplsetStatus struct {
 	GleStats                *GleStats            `bson:"$gleStats,omitempty" json:"$gleStats,omitempty"`
 	OperationTime           *primitive.Timestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
 }
+
+// Shard represent config.shard https://docs.mongodb.com/manual/reference/config-database/#config.shards
+type Shard struct {
+	ID   string `bson:"_id"`
+	Host string `bson:"host"`
+}

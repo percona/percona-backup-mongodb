@@ -24,6 +24,23 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		return errors.Wrap(err, "get backup metadata")
 	}
 
+	if bcp.Status != pbm.StatusDone {
+		return errors.Errorf("backup wasn't successfull: starus: %s, error: %s", bcp.Status, bcp.Error)
+	}
+
+	im, err := node.GetIsMaster()
+	if err != nil {
+		return errors.Wrap(err, "get isMaster data")
+	}
+	rsName := im.SetName
+	if rsName == "" {
+		rsName = pbm.NoReplset
+	}
+	rsMeta, ok := bcp.Replsets[rsName]
+	if !ok {
+		return errors.Errorf("metadata form replset/shard %s is not found", rsName)
+	}
+
 	stg, err := cn.GetStorage()
 	if err != nil {
 		return errors.Wrap(err, "get backup store")
@@ -34,12 +51,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		return errors.Wrap(err, "define mongo version")
 	}
 
-	im, err := node.GetIsMaster()
-	if err != nil {
-		return errors.Wrap(err, "get isMaster data")
-	}
-
-	dumpReader, dumpCloser, err := Source(stg, bcp.DumpName, pbm.CompressionTypeNone) //, bcp.Compression)
+	dumpReader, dumpCloser, err := Source(stg, rsMeta.DumpName, pbm.CompressionTypeNone) //, bcp.Compression)
 	if err != nil {
 		return errors.Wrap(err, "create source object for the dump restore")
 	}
@@ -111,7 +123,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
 
-	oplogReader, oplogCloser, err := Source(stg, bcp.OplogName, pbm.CompressionTypeNone)
+	oplogReader, oplogCloser, err := Source(stg, rsMeta.OplogName, pbm.CompressionTypeNone)
 	if err != nil {
 		return errors.Wrap(err, "create source object for the oplog restore")
 	}
