@@ -20,11 +20,14 @@ func (c ErrorCursor) Error() string {
 func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 	cmd := make(chan Cmd)
 	errc := make(chan error)
+
 	go func() {
 		defer close(cmd)
 		defer close(errc)
-		// defer cur.Close(p.ctx)
+
 		ts := time.Now().UTC().Unix()
+		var lastTs int64
+		var lastCmd Command
 		for {
 			cur, err := p.Conn.Database(DB).Collection(CmdStreamCollection).Find(
 				p.ctx,
@@ -44,6 +47,12 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 					continue
 				}
 
+				if c.Cmd == lastCmd && c.TS == lastTs {
+					continue
+				}
+
+				lastCmd = c.Cmd
+				lastTs = c.TS
 				cmd <- c
 				ts = time.Now().UTC().Unix()
 			}
