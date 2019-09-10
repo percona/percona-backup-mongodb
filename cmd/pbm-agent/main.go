@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 
@@ -16,26 +14,38 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/agent"
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func main() {
 	var (
-		pbmAgentCmd = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
-		mURI        = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
+		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
 
-		pprofPort = pbmAgentCmd.Flag("pport", "").Hidden().String()
+		mURI = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+
+		versionCmd    = pbmCmd.Command("version", "PBM version info")
+		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
+		versionCommit = versionCmd.Flag("commit", "Only git commit info").Default("false").Bool()
+		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
 	)
 
-	_, err := pbmAgentCmd.DefaultEnvars().Parse(os.Args[1:])
-	if err != nil {
-		log.Println("[ERROR] Parse command line parameters:", err)
+	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
+	if err != nil && cmd != versionCmd.FullCommand() {
+		log.Println("Error: Parse command line parameters:", err)
 		return
 	}
 
-	if *pprofPort != "" {
-		go func() {
-			log.Println(http.ListenAndServe("localhost:"+*pprofPort, nil))
-		}()
+	if cmd == versionCmd.FullCommand() {
+		switch {
+		case *versionCommit:
+			fmt.Println(version.DefaultInfo.GitCommit)
+		case *versionShort:
+			fmt.Println(version.DefaultInfo.Short())
+		default:
+			fmt.Println(version.DefaultInfo.All(*versionFormat))
+		}
+		return
 	}
 
 	log.Println(runAgent(*mURI))
