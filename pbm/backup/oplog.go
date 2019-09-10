@@ -80,7 +80,7 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 	}
 	cl := ot.pbm.Conn.Database("local").Collection(clName)
 
-	cur, err := cl.Find(ctx, ot.mongoTailFilter(), options.Find().SetCursorType(options.TailableAwait).SetMaxAwaitTime(time.Second*1))
+	cur, err := cl.Find(ctx, ot.mongoTailFilter(), options.Find().SetCursorType(options.Tailable))
 	if err != nil {
 		return errors.Wrap(err, "get the oplog cursor")
 	}
@@ -102,6 +102,8 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
+
+			time.Sleep(time.Second * 1)
 		}
 	}()
 
