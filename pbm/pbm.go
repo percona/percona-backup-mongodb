@@ -2,7 +2,6 @@ package pbm
 
 import (
 	"context"
-	"log"
 	"net/url"
 	"strings"
 
@@ -28,12 +27,10 @@ const (
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
 
-	// CmdStreamDB is the cmd database
-	// CmdStreamDB = "pbm"
-
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 
+	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
 )
 
@@ -173,6 +170,8 @@ func connect(ctx context.Context, uri string) (*mongo.Client, error) {
 	return client, nil
 }
 
+// BackupMeta is a backup's metadata
+// ! any changes should be reflected in *PBM.UpdateBackupMeta()
 type BackupMeta struct {
 	Name         string          `bson:"name" json:"name"`
 	Replsets     []BackupReplset `bson:"replsets" json:"replsets"`
@@ -207,6 +206,7 @@ const (
 )
 
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
+	// TODO: BackupMeta fileds changes depends on this code
 	set := bson.M{
 		"name":            m.Name,
 		"compression":     m.Compression,
@@ -218,14 +218,12 @@ func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 		"error":           m.Error,
 	}
 
-	c, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", m.Name}},
 		bson.M{"$set": set},
 		options.Update().SetUpsert(true),
 	)
-
-	log.Printf("FFF: %v ==> %#v\n", m.Status, c)
 
 	return err
 }
@@ -236,13 +234,6 @@ func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {
 		bson.D{{"name", bcpName}},
 		bson.D{{"$addToSet", bson.M{"replsets": shard}}},
 	)
-
-	// jzj, _ := json.Marshal(shard)
-
-	// fmt.Printf("SHARD:\n %s\n", jzj)
-
-	// fmt.Println("ERRRR", bcpName, err)
-	// fmt.Printf("FFF:\n%#v\n", c)
 
 	return err
 }

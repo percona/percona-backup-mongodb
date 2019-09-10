@@ -108,6 +108,10 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	if !im.IsSharded() {
 		meta.Status = pbm.StatusDone
 		meta.DoneTS = time.Now().UTC().Unix()
+		err = b.cn.UpdateBackupMeta(meta)
+		if err != nil {
+			errors.Wrap(err, "update backup metada after it's done")
+		}
 		return errors.Wrap(writeMeta(stg, meta), "save metadata to the store")
 	}
 
