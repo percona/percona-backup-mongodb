@@ -36,7 +36,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		StartTS:     time.Now().UTC().Unix(),
 		Compression: bcp.Compression,
 		Status:      pbm.StatusRunnig,
-		Replsets:    make(map[string]pbm.BackupReplset),
+		Replsets:    []pbm.BackupReplset{},
 	}
 
 	im, err := b.node.GetIsMaster()
@@ -60,10 +60,9 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			rsMeta.Status = pbm.StatusError
 			rsMeta.Error = err.Error()
+			b.cn.UpdateBackupMeta(meta)
+			b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
 		}
-
-		b.cn.UpdateBackupMeta(meta)
-		b.cn.AddShardToBackupMeta(rsName, rsMeta)
 	}()
 
 	ver, err := b.node.GetMongoVersion()
@@ -97,12 +96,11 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "data dump")
 	}
-
-	log.Println("DUMPED")
+	log.Println("mongodump finished, waiting to finish oplog")
 
 	rsMeta.Status = pbm.StatusDumpDone
 	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
-	err = b.cn.AddShardToBackupMeta(rsName, rsMeta)
+	err = b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shards metadata")
 	}
@@ -145,13 +143,14 @@ func (b *Backup) checkCluster(bcpName string) error {
 				return errors.Wrap(err, "get backup metadata")
 			}
 			for _, sh := range shards {
-
-				if shard, ok := bmeta.Replsets[sh.ID]; ok {
-					switch shard.Status {
-					case pbm.StatusDone, pbm.StatusDumpDone:
-						backupsToFinish--
-					case pbm.StatusError:
-						return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
+				for _, shard := range bmeta.Replsets {
+					if shard.Name == sh.ID {
+						switch shard.Status {
+						case pbm.StatusDone, pbm.StatusDumpDone:
+							backupsToFinish--
+						case pbm.StatusError:
+							return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
+						}
 					}
 				}
 			}

@@ -36,7 +36,17 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	if rsName == "" {
 		rsName = pbm.NoReplset
 	}
-	rsMeta, ok := bcp.Replsets[rsName]
+
+	var (
+		rsMeta pbm.BackupReplset
+		ok     bool
+	)
+	for _, v := range bcp.Replsets {
+		if v.Name == rsName {
+			rsMeta = v
+			ok = true
+		}
+	}
 	if !ok {
 		return errors.Errorf("metadata form replset/shard %s is not found", rsName)
 	}

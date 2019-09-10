@@ -44,11 +44,12 @@ func (a *Agent) Start() error {
 	for {
 		select {
 		case cmd := <-c:
-			fmt.Println("gotCmd", cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
+				log.Println("Got command", cmd.Cmd, cmd.Backup.Name)
 				a.Backup(cmd.Backup)
 			case pbm.CmdRestore:
+				log.Println("Got command", cmd.Cmd, cmd.Restore.BackupName)
 				a.Restore(cmd.Restore)
 			}
 		case err := <-cerr:
@@ -77,7 +78,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	// node is not suitable for doing the backup
 	if !q {
-		fmt.Println("doesn't suits")
+		fmt.Println("Node in not suitable for the backup")
 		return
 	}
 
@@ -104,6 +105,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 	if !got {
+		log.Println("Backup has been scheduled on another replset node")
 		return
 	}
 

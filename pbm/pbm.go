@@ -2,14 +2,17 @@ package pbm
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"strings"
 
 	"github.com/pkg/errors"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 const (
@@ -148,7 +151,12 @@ func (p *PBM) setupNewDB() error {
 }
 
 func connect(ctx context.Context, uri string) (*mongo.Client, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	client, err := mongo.NewClient(
+		options.Client().ApplyURI(uri).
+			SetReadPreference(readpref.Primary()).
+			SetReadConcern(readconcern.Majority()).
+			SetWriteConcern(writeconcern.New(writeconcern.WMajority())),
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo client")
 	}
@@ -166,15 +174,15 @@ func connect(ctx context.Context, uri string) (*mongo.Client, error) {
 }
 
 type BackupMeta struct {
-	Name         string                   `bson:"name" json:"name"`
-	Replsets     map[string]BackupReplset `bson:"replsets" json:"replsets"`
-	Compression  CompressionType          `bson:"compression" json:"compression"`
-	Store        Storage                  `bson:"store" json:"store"`
-	MongoVersion string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS      int64                    `bson:"start_ts" json:"start_ts"`
-	DoneTS       int64                    `bson:"done_ts" json:"done_ts"`
-	Status       Status                   `bson:"status" json:"status"`
-	Error        string                   `bson:"error,omitempty" json:"error,omitempty"`
+	Name         string          `bson:"name" json:"name"`
+	Replsets     []BackupReplset `bson:"replsets" json:"replsets"`
+	Compression  CompressionType `bson:"compression" json:"compression"`
+	Store        Storage         `bson:"store" json:"store"`
+	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS      int64           `bson:"start_ts" json:"start_ts"`
+	DoneTS       int64           `bson:"done_ts" json:"done_ts"`
+	Status       Status          `bson:"status" json:"status"`
+	Error        string          `bson:"error,omitempty" json:"error,omitempty"`
 }
 
 type BackupReplset struct {
@@ -199,16 +207,25 @@ const (
 )
 
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
-	err := p.Conn.Database(DB).Collection(BcpCollection).FindOneAndReplace(
+	set := bson.M{
+		"name":            m.Name,
+		"compression":     m.Compression,
+		"store":           m.Store,
+		"mongodb_version": m.MongoVersion,
+		"start_ts":        m.StartTS,
+		"done_ts":         m.DoneTS,
+		"status":          m.Status,
+		"error":           m.Error,
+	}
+
+	c, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", m.Name}},
-		m,
-		options.FindOneAndReplace().SetUpsert(true),
-	).Err()
+		bson.M{"$set": set},
+		options.Update().SetUpsert(true),
+	)
 
-	if err == mongo.ErrNoDocuments {
-		return nil
-	}
+	log.Printf("FFF: %v ==> %#v\n", m.Status, c)
 
 	return err
 }
@@ -217,8 +234,15 @@ func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
-		bson.D{{"$addToSet", bson.E{"replsets", shard}}},
+		bson.D{{"$addToSet", bson.M{"replsets": shard}}},
 	)
+
+	// jzj, _ := json.Marshal(shard)
+
+	// fmt.Printf("SHARD:\n %s\n", jzj)
+
+	// fmt.Println("ERRRR", bcpName, err)
+	// fmt.Printf("FFF:\n%#v\n", c)
 
 	return err
 }
