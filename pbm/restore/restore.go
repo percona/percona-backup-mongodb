@@ -1,10 +1,13 @@
 package restore
 
 import (
+	"encoding/json"
+
 	"github.com/mongodb/mongo-tools-common/db"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -19,7 +22,15 @@ var excludeFromDumpRestore = []string{
 
 // Run runs the backup restore
 func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
+	stg, err := cn.GetStorage()
+	if err != nil {
+		return errors.Wrap(err, "get backup store")
+	}
+
 	bcp, err := cn.GetBackupMeta(r.BackupName)
+	if errors.Cause(err) == mongo.ErrNoDocuments {
+		bcp, err = getMetaFromStore(r.BackupName, stg)
+	}
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
@@ -48,12 +59,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		}
 	}
 	if !ok {
-		return errors.Errorf("metadata form replset/shard %s is not found", rsName)
-	}
-
-	stg, err := cn.GetStorage()
-	if err != nil {
-		return errors.Wrap(err, "get backup store")
+		return errors.Errorf("metadata for replset/shard %s is not found", rsName)
 	}
 
 	ver, err := node.GetMongoVersion()
@@ -147,4 +153,16 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	err = NewOplog(node, ver, preserveUUID).Apply(oplogReader)
 
 	return errors.Wrap(err, "apply oplog")
+}
+
+func getMetaFromStore(bcpName string, stg pbm.Storage) (*pbm.BackupMeta, error) {
+	rr, _, err := Source(stg, bcpName+".pbm.json", pbm.CompressionTypeNone)
+	if err != nil {
+		return nil, errors.Wrap(err, "get from store")
+	}
+
+	b := &pbm.BackupMeta{}
+	err = json.NewDecoder(rr).Decode(b)
+
+	return b, errors.Wrap(err, "decode")
 }

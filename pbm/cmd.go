@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type ErrorCursor struct {
@@ -32,11 +31,10 @@ func (p *PBM) ListenCmd() (<-chan Cmd, <-chan error, error) {
 			cur, err := p.Conn.Database(DB).Collection(CmdStreamCollection).Find(
 				p.ctx,
 				bson.M{"ts": bson.M{"$gte": ts}},
-				options.Find(),
 			)
 			if err != nil {
 				errc <- errors.Wrap(err, "watch the cmd stream")
-				return
+				continue
 			}
 
 			for cur.Next(p.ctx) {

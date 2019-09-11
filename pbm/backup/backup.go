@@ -112,6 +112,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			errors.Wrap(err, "update backup metada after it's done")
 		}
+		meta.Replsets = append(meta.Replsets, rsMeta)
 		return errors.Wrap(writeMeta(stg, meta), "save metadata to the store")
 	}
 

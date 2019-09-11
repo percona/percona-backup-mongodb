@@ -242,9 +242,6 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	b := new(BackupMeta)
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
 	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
-			return nil, errors.New("no backup '" + name + "' found")
-		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
 	err := res.Decode(b)

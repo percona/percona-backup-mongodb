@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -76,9 +75,9 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
-	// node is not suitable for doing the backup
+	// node is not suitable for doing backup
 	if !q {
-		fmt.Println("Node in not suitable for the backup")
+		log.Println("Node in not suitable for backup")
 		return
 	}
 
@@ -132,6 +131,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 	if !nodeInfo.IsMaster {
+		log.Println("Node in not suitable for restore")
 		return
 	}
 
