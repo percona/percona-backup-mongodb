@@ -244,6 +244,8 @@ func writeMeta(stg pbm.Storage, meta *pbm.BackupMeta) error {
 	return errors.Wrap(menc.Encode(meta), "write to store")
 }
 
+const maxReplicationLagTimeSec = 21
+
 // NodeSuits checks if node can perform backup
 func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	im, err := node.GetIsMaster()
@@ -260,7 +262,12 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 		return false, errors.Wrap(err, "get node status")
 	}
 
-	return status.Health == pbm.NodeHealthUp &&
+	replLag, err := node.ReplicationLag()
+	if err != nil {
+		return false, errors.Wrap(err, "get node replication lag")
+	}
+
+	return replLag < maxReplicationLagTimeSec && status.Health == pbm.NodeHealthUp &&
 			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
 		nil
 }

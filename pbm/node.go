@@ -83,7 +83,7 @@ func (n *Node) GetReplsetStatus() (*ReplsetStatus, error) {
 func (n *Node) Status() (*NodeStatus, error) {
 	s, err := n.GetReplsetStatus()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get replset status")
 	}
 
 	name, err := n.Name()
@@ -98,6 +98,31 @@ func (n *Node) Status() (*NodeStatus, error) {
 	}
 
 	return nil, errors.New("not found")
+}
+
+// ReplicationLag returns node replication lag in seconds
+func (n *Node) ReplicationLag() (int, error) {
+	s, err := n.GetReplsetStatus()
+	if err != nil {
+		return -1, errors.Wrap(err, "get replset status")
+	}
+
+	name, err := n.Name()
+	if err != nil {
+		return -1, errors.Wrap(err, "get node name")
+	}
+
+	var primaryOptime, nodeOptime int
+	for _, m := range s.Members {
+		if m.Name == name {
+			nodeOptime = int(m.Optime.TS.T)
+		}
+		if m.StateStr == "PRIMARY" {
+			primaryOptime = int(m.Optime.TS.T)
+		}
+	}
+
+	return primaryOptime - nodeOptime, nil
 }
 
 func (n *Node) ConnURI() string {
