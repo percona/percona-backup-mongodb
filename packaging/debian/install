@@ -1,5 +1,5 @@
 pbm-agent /usr/bin/
 pbm /usr/bin/
-pbm-agent.conf /etc/
-pbm-agent-storage.conf /etc/
+default/pbm-agent /etc/default/
+pbm-storage.conf /etc/
 pbm-agent.service /lib/systemd/system/
