@@ -3,11 +3,12 @@ Description=pbm-agent
 After=time-sync.target network.target
 
 [Service]
+EnvironmentFile=-/etc/sysconfig/pbm-agent
 Type=simple
 User=pbm
 Group=pbm
 PermissionsStartOnly=true
-ExecStart=/usr/bin/pbm-agent --config-file=/etc/pbm-agent.conf
+ExecStart=/usr/bin/pbm-agent --mongodb-uri=${PBM_MONGODB_URI}
 
 [Install]
 WantedBy=multi-user.target

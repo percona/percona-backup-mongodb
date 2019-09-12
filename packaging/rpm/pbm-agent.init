@@ -4,13 +4,14 @@
 
 # chkconfig: 35 85 15
 # processname: pbm-agent
-# config: /etc/pbm-agent.conf
+# envfile: /etc/sysconfig/pbm-agent
 # pidfile: /run/pbm-agent/pbm-agent.pid
 
 . /etc/rc.d/init.d/functions
 
-CONFIGFILE="/etc/pbm-agent.conf"
-OPTIONS="--config-file=$CONFIGFILE"
+ENVFILE="/etc/sysconfig/pbm-agent"
+. ${ENVFILE}
+OPTIONS="--mongodb-uri='${PBM_MONGODB_URI}'"
 PIDFILEPATH=/run/pbm-agent/pbm-agent.pid
 PIDDIR=$(dirname $PIDFILEPATH)
 USER=pbm
