@@ -117,6 +117,9 @@ func New(ctx context.Context, uri string) (*PBM, error) {
 		return nil, errors.Wrap(err, "parse mongo-uri")
 	}
 
+	q := curi.Query()
+	q.Set("replicaSet", chost[0])
+	curi.RawQuery = q.Encode()
 	curi.Host = chost[1]
 	pbm.Conn, err = connect(ctx, curi.String())
 	if err != nil {
