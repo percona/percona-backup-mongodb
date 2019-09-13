@@ -371,6 +371,7 @@ build_source_deb(){
     cp -r packaging/debian ./
     sed -i "s:@@VERSION@@:${VERSION}:g" debian/rules
     sed -i "s:@@REVISION@@:${REVISION}:g" debian/rules
+    sed -i "s:sysconfig:default:" packaging/conf/pbm-agent.service
     dch -D unstable --force-distribution -v "${VERSION}-${RELEASE}" "Update to new MongoDB-Backup version ${VERSION}"
     dpkg-buildpackage -S
     cd ../
@@ -391,12 +392,12 @@ build_source_deb(){
 build_deb(){
     if [ $DEB = 0 ]
     then
-        echo "source deb package will not be created"
+        echo "Binary deb package will not be created"
         return;
     fi
     if [ "x$OS" = "xrmp" ]
     then
-        echo "It is not possible to build source deb here"
+        echo "It is not possible to build binary deb here"
         exit 1
     fi
     for file in 'dsc' 'orig.tar.gz' 'changes' 'diff.gz'

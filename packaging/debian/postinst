@@ -1,7 +1,6 @@
 #!/bin/sh
 
 #DEBHELPER#
-chown pbm:pbm /etc/pbm-agent.conf 
-chown pbm:pbm /etc/pbm-agent-storage.conf 
+chown pbm:pbm /etc/pbm-storage.conf
 exit 0
 

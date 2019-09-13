@@ -65,8 +65,9 @@ cd src/
 cp pbm-agent $RPM_BUILD_ROOT/%{_bindir}/
 cp pbm $RPM_BUILD_ROOT/%{_bindir}/
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
-install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent-storage.conf
-install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-agent.conf
+install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
+install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf
+install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.env $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig/pbm-agent
 %if 0%{?systemd}
   install -m 0755 -d $RPM_BUILD_ROOT/%{_unitdir}
   install -m 0644 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.service $RPM_BUILD_ROOT/%{_unitdir}/pbm-agent.service
@@ -120,8 +121,8 @@ esac
 %files -n percona-backup-mongodb
 %{_bindir}/pbm-agent
 %{_bindir}/pbm
-%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent.conf
-%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-agent-storage.conf
+%config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
+%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-storage.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
