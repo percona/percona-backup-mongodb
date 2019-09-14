@@ -44,6 +44,7 @@ github.com/mongodb/mongo-tools v0.0.0-20190816132659-47467ec5161f h1:wu6s1KS9gQx
 github.com/mongodb/mongo-tools v0.0.0-20190816132659-47467ec5161f/go.mod h1:hkFunXA3Gbksiojtxr/hjqPMckbYrey/EwEqjaHG2h8=
 github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6 h1:98lpprVItvowX55MLV9qb60yqGsQKe+xjEcwgA75/uA=
 github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6/go.mod h1:hkFunXA3Gbksiojtxr/hjqPMckbYrey/EwEqjaHG2h8=
+github.com/mongodb/mongo-tools v0.0.0-20190913124115-905baa55d9f1 h1:u7Es89NWOgW+XPDMmIfudld3AtiyiKQd2MJn7OZbSsc=
 github.com/mongodb/mongo-tools-common v0.0.0 h1:jq3E6DUsOi72hpjyMYOCqAZQ/iC4m6Gj+ARhEpmx/Sg=
 github.com/mongodb/mongo-tools-common v0.0.0/go.mod h1:T0AGIWI5PvxSzqt5zsR5zlcHl52KGeAzhoAnSvvpEtU=
 github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10 h1:MJizo0+LUH2Y7HqT3GOvLD2AjevL/raI2bgL5mKKcwg=

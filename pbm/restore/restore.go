@@ -121,7 +121,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 			BypassDocumentValidation: true,
 			Drop:                     dropCollections,
 			NumInsertionWorkers:      20,
-			NumParallelCollections:   4,
+			NumParallelCollections:   1,
 			PreserveUUID:             preserveUUID,
 			StopOnError:              !ignoreErrors,
 			TempRolesColl:            "temproles",
@@ -138,6 +138,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	if rdumpResult.Err != nil {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
+	mr.Close()
 
 	oplogReader, oplogCloser, err := Source(stg, rsMeta.OplogName, pbm.CompressionTypeNone)
 	if err != nil {
