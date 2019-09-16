@@ -27,6 +27,9 @@
 .. |mongod| replace:: ``mongod``
 .. |pbmctl-restore| replace:: ``pbm restore``
 .. |pbmctl-backup| replace:: ``pbm backup``
+.. |pbm-restore| replace:: ``pbm restore``
+.. |pbm-backup| replace:: ``pbm backup``
+
 
 .. Assets
 

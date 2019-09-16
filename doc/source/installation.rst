@@ -119,23 +119,24 @@ directory:
    |pbm| storages
       :ref:`pbm.running.storage.setting-up`
 
-Unit tests
---------------------------------------------------------------------------------
-
-The testing launches a |mongodb| cluster in |docker| containers. ``docker`` and
-``docker-compose`` are required.
-
-.. rubric:: To run the tests (may require 'sudo')
-
-.. code-block:: bash
-
-   $ make test-full
-
-.. rubric:: To tear-down the test (and containers, data, etc)
-
-.. code-block:: bash
-
-   $ make test-full-clean
+.. Unit tests
+.. --------------------------------------------------------------------------------
+.. 
+.. The testing launches a |mongodb| cluster in |docker| containers. ``docker`` and
+.. |docker-compose| are required.
+.. 
+.. .._rubric:: To run the tests (may require 'sudo')
+.. 
+.. .._code-block:: bash
+.. 
+..    $ make test-full
+.. 
+.. .._ rubric:: To tear-down the test (and containers, data, etc)
+.. 
+.. .._code-block:: bash
+.. 
+..    $ make test-full-clean
+.. 
 
 -----
 
