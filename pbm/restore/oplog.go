@@ -55,7 +55,11 @@ func (o *Oplog) Apply(src io.ReadCloser) error {
 	o.txnBuffer = txn.NewBuffer()
 	defer o.txnBuffer.Stop()
 
-	for rawOplogEntry := bsonSource.LoadNext(); rawOplogEntry != nil; {
+	for {
+		rawOplogEntry := bsonSource.LoadNext()
+		if rawOplogEntry == nil {
+			break
+		}
 		oe := db.Oplog{}
 		err := bson.Unmarshal(rawOplogEntry, &oe)
 		if err != nil {

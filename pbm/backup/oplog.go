@@ -102,8 +102,6 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
-
-			time.Sleep(time.Second * 1)
 		}
 	}()
 

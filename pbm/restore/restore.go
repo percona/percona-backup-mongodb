@@ -140,7 +140,7 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	}
 	mr.Close()
 
-	oplogReader, oplogCloser, err := Source(stg, rsMeta.OplogName, pbm.CompressionTypeNone)
+	oplogReader, oplogCloser, err := Source(stg, rsMeta.OplogName, bcp.Compression) //pbm.CompressionTypeNone)
 	if err != nil {
 		return errors.Wrap(err, "create source object for the oplog restore")
 	}
