@@ -27,18 +27,17 @@ The working directory must be owned by the user passed to ``docker`` via the
 .. code-block:: bash
 
    $ docker run --user=X
-   $ mkdir -m 0700 -p /data/mongodb-backup-coordinator
    $ docker run -d \
    --restart=always \
    --user=$(id -u) \
-   --name=mongodb-backup-coordinator \
+   --name=percona-backup-mongodb \
    -e PBM_COORDINATOR_GRPC_PORT=10000 \
    -e PBM_COORDINATOR_API_PORT=10001 \
    -e PBM_COORDINATOR_WORK_DIR=/data \
    -p 10000-10001:10000-10001 \
-   -v /data/mongodb-backup-coordinator:/data \
+   -v /data/mongodb-backup:/data \
    perconalab/percona-backup-mongodb \
-   pbm-coordinator
+   pbm
 
 
 Viewing |bc| logs
@@ -46,20 +45,17 @@ Viewing |bc| logs
 
 .. code-block:: bash
 
-   $ docker logs mongodb-backup-coordinator
+   $ docker logs percona-backup-mongodb
 
 Stopping |bc|
 ================================================================================
 
 .. code-block:: bash
 
-   $ docker stop mongodb-backup-coordinator
+   $ docker stop percona-backup-mongodb
 
 Starting the Agent
 ================================================================================
-
-The |bc| :ref:`must be started <pbm.docker.backup-coordinator.starting>` before
-the agent.
 
 .. code-block:: bash
 
@@ -97,7 +93,7 @@ Stopping the Agent
 Passing Environment Variables When Creating a Container
 ================================================================================
 
-By using the ``-e`` option, you can set any environment variable when creating
+By using the ``-e`` option, you can set any environment variables when creating
 your docker container. The following example sets a bunch of environment
 variables in ``docker run``. Make sure to repeat ``-e`` for each
 environment variable.
@@ -107,7 +103,7 @@ environment variable.
    $ docker run --user=X
    --restart=always \
    --user=$(id -u) \
-   --name=mongodb-backup-coordinator \
+   --name=percona-backup-mongodb \
    ...
    -e PBM_AGENT_SERVER_ADDRESS=192.168.88.3:10000 \
    -e PBM_AGENT_BACKUP_DIR=/data \
@@ -116,16 +112,16 @@ environment variable.
    -e PBM_AGENT_MONGODB_USERNAME=user \
    -e PBM_AGENT_MONGODB_PASSWORD=pass \
    -p 10000-10001:10000-10001 \
-   -v /data/mongodb-backup-coordinator:/data \
+   -v /data/percona-mongodb-backup:/data \
    perconalab/percona-backup-mongodb \
    pbm-coordinator
    
 In general, you can use ``-e`` to pass any supported options as environment
-variables and change the configuration either of |pbm-coordinator| or
+variables and change the configuration either of |pbm| or
 |pbm-agent|. Several rules are applied to the name of an environment variable
 bound to an option:
 
-- The name of the environment variable starts with the ``PBM_COORDINATOR`` or
+- The name of the environment variable starts with the ``PBM_`` or
   ``PBM_AGENT`` prefix.
 - Only long options (those start with two dashes ":code:`--`") can be used in
   environment variables.
@@ -139,7 +135,7 @@ run`` when creating a container for |pbm-agent|, use the following syntax:
    
    -e PBM_AGENT_CONFIG_FILE
 
-To see the full list of supported options run |pbm-coordinator-help| or
+To see the full list of supported options run |pbm-help| or
 |pbm-agent-help| accordingly.
 
 .. include:: .res/replace.txt

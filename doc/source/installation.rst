@@ -7,8 +7,12 @@ Installation
 *rpm* formats that you can install by using ``apt`` or ``yum`` or other
 interfaces to your package management system.
 
-For your convenience, we recommend that you install |percona-release| utility
+For your convenience, we recommend that you install the |percona-release| utility
 which makes it easy to install any |percona| product on your system.
+
+.. important::
+
+   Make sure to install the latest version of |percona-release|.
 
 You may also build and install |pbm| from source code in case you require a
 fully controlled installation method.
@@ -19,9 +23,8 @@ disposal after the installation completes:
 ===============  ===============================================================
 Tool             Purpose
 ===============  ===============================================================
-pbmctl           Command-line interface for controlling the backup system
-pbm-agent        Agent for running backup/restore actions on a database host
-pbm-coordinator  Server for coordinating backup system actions
+pbm              Command-line interface for controlling the backup system
+pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
 
 .. seealso::
@@ -66,9 +69,7 @@ Installing |pbm| Using ``apt``
 .. code-block:: bash
 
    $ apt update
-   $ apt install percona-backup-mongodb-agent
-   $ apt install percona-backup-mongodb-coordinator
-   $ apt install percona-backup-mongodb-pbmctl
+   $ apt install percona-backup-mongodb
 
 Installing |pbm| Using ``yum``
 ================================================================================
@@ -82,9 +83,7 @@ Installing |pbm| Using ``yum``
 .. code-block:: bash
 
    $ yum update
-   $ yum install percona-backup-mongodb-agent
-   $ yum install percona-backup-mongodb-coordinator
-   $ yum install percona-backup-mongodb-pbmctl
+   $ yum install percona-backup-mongodb
 
 Building from source code
 ================================================================================
@@ -106,22 +105,12 @@ To build the project (from the project dir):
 |pbm| services and location of configuration files
 --------------------------------------------------------------------------------
 
-After |pbm| is successfully installed on your system, you have `pbm-coordinator`
-and `pbm-agent` services running on your system.
+After |pbm| is successfully installed on your system, you have |pbm.app|
+and |pbm-agent| programs on your system.
 
-These services can be started or stopped like any other system service:
+The |pbm| sample configuration files are placed into the :file:`/etc`
+directory:
 
-
-.. code-block:: bash
-
-   $ systemctl start pbm-coordinator
-   $ systemctl stop pbm-coordinator
-   $ systemctl start pbm-agent
-   $ systemctl stop pbm-agent
-
-The |pbm| sample configuration files are placed to the :file:`/etc` directory:
-
-- :file:`/etc/pbm-coordinator.conf`
 - :file:`/etc/pbm-agent.conf`
 - :file:`/etc/pbm-agent-storage.conf`
 
@@ -147,5 +136,7 @@ The testing launches a |mongodb| cluster in |docker| containers. ``docker`` and
 .. code-block:: bash
 
    $ make test-full-clean
+
+-----
 
 .. include:: .res/replace.txt

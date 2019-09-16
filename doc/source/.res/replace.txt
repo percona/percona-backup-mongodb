@@ -16,15 +16,16 @@
 
 .. Commands
 
-.. |pbm-coordinator| replace:: :program:`pbm-coordinator`
-.. |pbm-coordinator-help| replace:: :program:`pbm-coordinator --help`
+.. |pbm-coordinator-help| replace:: :program:`pbm --help`
 .. |pbm-agent| replace:: :program:`pbm-agent`
 .. |pbm-agent-help| replace:: :program:`pbm-agent --help`
-.. |pbmctl| replace:: ``pbmctl``
+.. |pbm-storage-set| replace:: :program:`pbm storage set`
+.. |pbmctl| replace:: ``pbm``
+.. |pbm.app| replace:: ``pbm``
 .. |mongos| replace:: ``mongos``
 .. |mongod| replace:: ``mongod``
-.. |pbmctl-restore| replace:: ``pbmctl run restore``
-.. |pbmctl-backup| replace:: ``pbmctl run backup``
+.. |pbmctl-restore| replace:: ``pbm restore``
+.. |pbmctl-backup| replace:: ``pbm backup``
 
 .. Assets
 
@@ -37,3 +38,6 @@
 .. |opt-server-address| replace:: :option:`--server-address`
 .. |opt-storage| replace:: :option:`--storage`
 .. |opt-config-file| replace:: :option:`--config-file`
+.. |opt-mongodb-uri| replace:: :option:`--mongodb-uri`
+
+.. |env-pbm-mongodb-uri| replace:: ``PBM_MONGODB-URI``
