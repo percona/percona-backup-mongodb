@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"strings"
 
@@ -78,15 +79,17 @@ type PBM struct {
 func New(ctx context.Context, uri string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
+	log.Println("[INFO] local: Connecting to ", uri)
 	client, err := connect(ctx, uri)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
+	log.Println("[INFO] local: Connected to ", uri)
+
 	pbm := &PBM{
 		Conn: client,
 		ctx:  ctx,
 	}
-
 	im, err := pbm.GetIsMaster()
 	if err != nil {
 		return nil, errors.Wrap(err, "get topology")
@@ -119,16 +122,16 @@ func New(ctx context.Context, uri string) (*PBM, error) {
 
 	// q := curi.Query()
 	// q.Set("replicaSet", chost[0])
-	// url.Va
 	// curi.RawQuery = q.Encode()
-	// curi.ForceQuery
 	// curi.RawQuery = "replicaSet=" + chost[0]
 	curi.RawQuery = ""
 	curi.Host = chost[1]
+	log.Println("[INFO] shard: Connecting to ", curi.String())
 	pbm.Conn, err = connect(ctx, curi.String())
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
+	log.Println("[INFO] shard: Connected to ", curi.String())
 
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 }
