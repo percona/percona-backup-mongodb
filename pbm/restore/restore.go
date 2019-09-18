@@ -18,6 +18,8 @@ var excludeFromDumpRestore = []string{
 	pbm.DB + "." + pbm.ConfigCollection,
 	pbm.DB + "." + pbm.BcpCollection,
 	pbm.DB + "." + pbm.OpCollection,
+	"config.version",
+	"config.mongos",
 }
 
 // Run runs the backup restore
@@ -79,17 +81,6 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	}()
 
 	preserveUUID := true
-	dropCollections := true
-	ignoreErrors := false
-
-	if im.ConfigSvr == 2 && im.SetName != "" {
-		// For config servers. If dropCollections is true, we are going to receive error
-		// "cannot drop config.version document while in --configsvr mode"
-		// We must ignore the errors and we shouldn't drop the collections
-		dropCollections = false
-		ignoreErrors = true
-		preserveUUID = false // cannot be used with dropCollections=false
-	}
 	if ver.Version[0] < 4 {
 		preserveUUID = false
 	}
@@ -119,11 +110,11 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 		OutputOptions: &mongorestore.OutputOptions{
 			BulkBufferSize:           2000,
 			BypassDocumentValidation: true,
-			Drop:                     dropCollections,
+			Drop:                     true,
 			NumInsertionWorkers:      20,
 			NumParallelCollections:   1,
 			PreserveUUID:             preserveUUID,
-			StopOnError:              !ignoreErrors,
+			StopOnError:              true,
 			TempRolesColl:            "temproles",
 			TempUsersColl:            "tempusers",
 			WriteConcern:             "majority",

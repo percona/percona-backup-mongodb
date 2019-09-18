@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"io"
+	"log"
 	"time"
 
 	"github.com/pkg/errors"
@@ -78,7 +79,7 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "determine oplog collection name")
 	}
-	cl := ot.pbm.Conn.Database("local").Collection(clName)
+	cl := ot.node.Session().Database("local").Collection(clName)
 
 	cur, err := cl.Find(ctx, ot.mongoTailFilter(), options.Find().SetCursorType(options.Tailable))
 	if err != nil {
@@ -87,7 +88,7 @@ func (ot *OplogTailer) Run(ctx context.Context) error {
 	go func() {
 		defer close(ot.data)
 		defer cur.Close(ctx)
-
+		log.Println("Oplog started")
 		for cur.Next(ctx) {
 			ot.lastTS.T, ot.lastTS.I = cur.Current.Lookup("ts").Timestamp()
 			if ot.startTS.T == 0 {
@@ -127,6 +128,7 @@ func (ot *OplogTailer) mongoTailFilter() bson.M {
 
 	isMaster, err := ot.node.GetIsMaster()
 	if err != nil {
+		// TODO: what about a timezone?
 		query["ts"] = bson.M{"$gte": time.Now().Unix()}
 		return query
 	}
