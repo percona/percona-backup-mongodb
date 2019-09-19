@@ -1,47 +1,37 @@
 
-.. Products
-
-.. |percona| replace:: Percona
-.. |percona-release| replace:: ``percona-release``
-.. |pbm| replace:: Percona Backup for MongoDB
-.. |mongodb| replace:: MongoDB
+.. |amazon-s3| replace:: Amazon Simple Storage Service
 .. |backup-coordinator| replace:: ``backup coordinator``
 .. |bc| replace:: ``backup coordinator``
-.. |amazon-s3| replace:: Amazon Simple Storage Service
-.. |minio| replace:: MinIO
-.. |yaml| replace:: YAML
-.. |psmdb| replace:: Percona Server for MongoDB
-
+.. |docker-compose| replace:: Docker Compose
 .. |docker| replace:: Docker
-
-.. Commands
-
-.. |pbm-coordinator-help| replace:: :program:`pbm --help`
-.. |pbm-help| replace:: :program:`pbm --help`
-.. |pbm-agent| replace:: :program:`pbm-agent`
-.. |pbm-agent-help| replace:: :program:`pbm-agent --help`
-.. |pbm-storage-set| replace:: :program:`pbm storage set`
-.. |pbmctl| replace:: ``pbm``
-.. |pbm.app| replace:: ``pbm``
-.. |mongos| replace:: ``mongos``
+.. |env-pbm-mongodb-uri| replace:: ``PBM_MONGODB-URI``
+.. |minio| replace:: MinIO
+.. |mongodb-ce| replace:: MongoDB Community Server
+.. |mongodb| replace:: MongoDB
 .. |mongod| replace:: ``mongod``
-.. |pbmctl-restore| replace:: ``pbm restore``
-.. |pbmctl-backup| replace:: ``pbm backup``
-.. |pbm-restore| replace:: ``pbm restore``
-.. |pbm-backup| replace:: ``pbm backup``
-
-
-.. Assets
-
-.. |storages-yml| replace:: :file:`storages.yml`
-.. |work-dir| replace:: :dir:`${HOME}/percona-backup-mongodb`
-
-.. Options & Parameters (prefix: opt-)
-
-.. |opt-work-dir| replace:: :option:`--work-dir`
-.. |opt-server-address| replace:: :option:`--server-address`
-.. |opt-storage| replace:: :option:`--storage`
+.. |mongos| replace:: ``mongos``
 .. |opt-config-file| replace:: :option:`--config-file`
 .. |opt-mongodb-uri| replace:: :option:`--mongodb-uri`
-
-.. |env-pbm-mongodb-uri| replace:: ``PBM_MONGODB-URI``
+.. |opt-server-address| replace:: :option:`--server-address`
+.. |opt-storage| replace:: :option:`--storage`
+.. |opt-work-dir| replace:: :option:`--work-dir`
+.. |pbm-agent-help| replace:: :program:`pbm-agent --help`
+.. |pbm-agent| replace:: :program:`pbm-agent`
+.. |pbm-backup| replace:: ``pbm backup``
+.. |pbm-coordinator-help| replace:: :program:`pbm --help`
+.. |pbm-help| replace:: :program:`pbm --help`
+.. |pbm-list| replace:: ``pbm list``
+.. |pbm-restore| replace:: ``pbm restore``
+.. |pbm-storage-set| replace:: :program:`pbm store set`
+.. |pbm-store-set| replace:: :program:`pbm store set`
+.. |pbm.app| replace:: ``pbm``
+.. |pbmctl-backup| replace:: ``pbm backup``
+.. |pbmctl-restore| replace:: ``pbm restore``
+.. |pbmctl| replace:: ``pbm``
+.. |pbm| replace:: Percona Backup for MongoDB
+.. |percona-release| replace:: ``percona-release``
+.. |percona| replace:: Percona
+.. |psmdb| replace:: Percona Server for MongoDB
+.. |storages-yml| replace:: :file:`storages.yml`
+.. |work-dir| replace:: :dir:`${HOME}/percona-backup-mongodb`
+.. |yaml| replace:: YAML

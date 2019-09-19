@@ -16,20 +16,6 @@ and MongoDB Community v3.6 or higher with `MongoDB Replication
    The |pbm| project was inspired by (and intends to replace)
    `mongodb_consistent_backup`. This tool is not supported any longer.
 
-
-.. rubric:: Contents
-
-.. toctree::
-   :maxdepth: 2
-
-   architecture
-   installation
-   running
-   release-notes
-   contributing
-
-.. docker
-
 .. _pbm.feature:
 
 .. rubric:: Features
@@ -54,8 +40,7 @@ and MongoDB Community v3.6 or higher with `MongoDB Replication
    - Authorization of Agents and CLI
    - Restore from any Point-in-time
 
-How to use |pbm|: going back in time (``pbmctl run restore``)
-================================================================================
+.. rubric:: How to use |pbm|: going back in time (|pbm-restore|)
 
 In a highly-available architecture, such as |mongodb| replication, there is no
 need to make a backup in order to recover from a problem like a disk failure. If
@@ -96,13 +81,23 @@ manually just before:
    Typical use cases of |pbm|
       :ref:`pbm.running`
 
-Contact Us
-================================================================================
+.. rubric:: Contact Us
 
 Use our Percona email address (mongodb-backup@percona.com) or the contact
 form on the site (https://www.percona.com/about-percona/contact) to reach us.
 
 -----
+
+.. toctree::
+   :maxdepth: 2
+
+   architecture
+   installation
+   running
+   release-notes
+   contributing
+
+.. docker
 
 .. include:: .res/replace.txt
 .. include:: .res/url.txt

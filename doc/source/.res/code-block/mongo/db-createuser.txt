@@ -1,0 +1,13 @@
+
+.. code-block:: guess
+
+   > use admin;
+   > db.createUser({user: "pbmAgent",
+                    pwd: "securePassw0rd",
+		    "roles" : [
+		    { "db" : "admin", "role" : "readWrite", "collection": "" },
+		    { "db" : "admin", "role" : "backup" },
+		    { "db" : "admin", "role" : "clusterMonitor" },
+		    { "db" : "admin", "role" : "restore" }],
+                    authenticationRestrictions: [{ clientSource: ["127.0.0.1"]}]})
+

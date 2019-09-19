@@ -32,7 +32,7 @@ sys.path.append(os.path.abspath('ext'))
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-author = "Percona"
+author = "Percona LLC and/or its affiliates 2015-2019"
 extensions = ['sphinx.ext.intersphinx', 'sphinx.ext.todo', 
               'sphinx.ext.coverage', 'sphinx.ext.ifconfig', 
               'sphinx.ext.extlinks', 'psdom']
@@ -62,7 +62,7 @@ copyright = 'Percona LLC and/or its affiliates 2009-2019'
 # built documents.
 #
 # The short X.Y version.
-version = '0.5'
+version = '1.0'
 # The full version, including alpha/beta/rc tags.
 release = "0"
 release = ".".join([version, release])
@@ -291,7 +291,7 @@ latex_documents = [
 
 latex_documents = [
     (master_doc, 'PerconaBackupforMongoDB.tex', 'Percona Backup for MongoDB Documentation',
-     'Percona', 'manual'),
+     copyright, 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -358,7 +358,7 @@ man_pages = [('index', # source start file
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'PerconaBackupforMongoDB', 'Percona Backup for MongoDB Documentation',
-     author, 'PerconaBackupforMongoDB', 'One line description of project.',
+     copyright, 'PerconaBackupforMongoDB', 'One line description of project.',
      'Miscellaneous'),
 ]
 

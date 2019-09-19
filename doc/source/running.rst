@@ -19,41 +19,43 @@ By default, |pbm.app| listens for agents on port 10000.
 
 .. _pbm.running.storage.setting-up:
 
-Setting Up Storages for Backup and Restore Operations
+Setting Up Stores for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
 For running the backup (|pbm-backup|) and restore (|pbm-restore|) operations,
 you need to set up a place where the backups will be stored and retrieved. To
-configure the storage you need to use a |yaml| file with a predefined structure.
+configure the store you need to use a |yaml| file with a predefined structure.
 
 .. include:: .res/code-block/bash/pbm-store-set-config-mongodb-uri.txt
 
-In |version|, |pbm.app| supports the following types of storage:
+In |version|, |pbm.app| supports the following types of store:
 
 - |amazon-s3|
 - |minio|
 
-|pbm.app| is associated with a storage that you supply in the |yaml|
+|pbm.app| is associated with a store that you supply in the |yaml|
 format as the value of the |pbm-storage-set| command. You do not need
-to supply the storage information for any subsequent operations.
+to supply the store information for any subsequent operations.
 
 .. include:: .res/code-block/bash/pbm-agent-mongodb-uri.txt
+   
+.. include:: .res/text/note-env-pbm-mongodb-uri.txt
 
 .. _pbm.running.storages-yml-file:
 
-Storage Configuration File
+Store Configuration File
 --------------------------------------------------------------------------------
 
-The storage configuration file is a |yaml| file that contains all
-required options that pertain to one storage. In |version|, only
-|amazon-s3| compatible remote storages are supported.
+The store configuration file is a |yaml| file that contains all
+required options that pertain to one store. In |version|, only
+|amazon-s3| compatible remote stores are supported.
 
-The following example demonstrates the settings of an |amazon-s3| storage
+The following example demonstrates the settings of an |amazon-s3| store
 identified by `s3-us-west`.
 
-.. rubric:: |amazon-s3| Storage
+.. rubric:: |amazon-s3| Store
 
-To set up an |amazon-s3| storage in |storages-yml|, give it a name as the top
+To set up an |amazon-s3| store in |storages-yml|, give it a name as the top
 level element. Set the ``type`` sub element to `s3`. The ``s3`` element, which
 is a sibling to the ``type`` element, set the esential parameters: `region`,
 `bucket`, and `credentials`.
@@ -114,9 +116,7 @@ connection string to the |mongodb| instance.
 
 .. admonition:: Example
 
-   .. code-block:: bash
-
-      $ pbm-agent --mongodb-uri="mongodb://172.17.0.3:27018"
+   .. include:: .res/code-block/bash/pbm-agent-mongodb-uri.txt
 
 If you `MongoDB Authentication`_ is enabled you specify ``--mongodb-user`` and
 ``--mongodb-password`` options with |pbm-agent| to provide the
@@ -144,16 +144,7 @@ not be used by other applications.
 An example of the ``createUser`` command (must be run via the 'mongo' shell on a
 ``PRIMARY`` member):
 
-.. code-block:: guess
-
-   > use admin;
-   > db.createUser({user: "pbmAgent",
-                    pwd: "securePassw0rd",
-                    roles: [{db: "admin", role: "backup" },
-		            {db: "admin", role: "readWrite" },
-                            {db: "admin", role: "clusterMonitor" },
-                            { db: "admin", role: "restore" }],
-                    authenticationRestrictions: [{ clientSource: ["127.0.0.1"]}]})
+.. include:: .res/code-block/mongo/db-createuser.txt
 
 Running |pbm.app| Commands
 --------------------------------------------------------------------------------
@@ -162,6 +153,8 @@ Running |pbm.app| Commands
 can work with backups, make sure to set the remote store:
 
 .. include:: .res/code-block/bash/pbm-store-set-config-mongodb-uri.txt
+
+The connection string should point to the config server replica set.
 
 Command Examples
 ================================================================================
@@ -172,9 +165,7 @@ Command Examples
 Listing all backups
 --------------------------------------------------------------------------------
 
-.. code-block:: bash
-
-   $ pbm list
+.. include:: .res/code-block/bash/pbm-list-mongodb-uri.txt
 
 .. admonition:: Sample output
 
@@ -217,7 +208,17 @@ To restore a backup that you have made using |pbm-backup| you should use the
 |pbm-restore| command supplying the name of the backup that you intend to
 restore.
 
+.. important::
+
+   Before running |pbm-restore| it is important that the balancer be
+   stopped on |mongos|.
+
+   .. code-block:: guess
+
+      > sh.setBalancerState(false)
+
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
+
 
 The instance that you will restore your backup to may already
 have data. After running |pbm-restore|, the instance will
@@ -230,7 +231,5 @@ use an instance without data.
    The data may be inconsistent on the node where you restore the
    backup to (usually, a primary node) if this node steps down or a
    different primary is elected.
-
------
 
 .. include:: .res/replace.txt
