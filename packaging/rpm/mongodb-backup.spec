@@ -6,8 +6,8 @@
 
 
 Name:  percona-backup-mongodb
-Version: 1.0
-Release: 1%{?dist}
+Version: @@VERSION@@
+Release: @@RELEASE@@%{?dist}
 Summary: MongoDB backup tool
 
 Group:  Applications/Databases
@@ -39,6 +39,11 @@ Percona Backup for MongoDB is a distributed, low-impact solution for achieving c
 
 
 %build
+source ./VERSION
+export VERSION
+export GITBRANCH
+export GITCOMMIT
+
 cd ../
 export PATH=/usr/local/go/bin:${PATH}
 export GOROOT="/usr/local/go/"
@@ -48,7 +53,7 @@ export GOBINPATH="/usr/local/go/bin"
 mkdir -p src/github.com/percona/
 mv percona-backup-mongodb-%{version} src/github.com/percona/percona-backup-mongodb
 ln -s src/github.com/percona/percona-backup-mongodb percona-backup-mongodb-%{version}
-cd src/ && go build github.com/percona/percona-backup-mongodb/cmd/pbm && go build github.com/percona/percona-backup-mongodb/cmd/pbm-agent 
+cd src/github.com/percona/percona-backup-mongodb && make build
 cd %{_builddir}
 
 
@@ -62,8 +67,8 @@ export GOPATH=$(pwd)/
 export PATH="/usr/local/go/bin:$PATH:$GOPATH"
 export GOBINPATH="/usr/local/go/bin"
 cd src/
-cp pbm-agent $RPM_BUILD_ROOT/%{_bindir}/
-cp pbm $RPM_BUILD_ROOT/%{_bindir}/
+cp github.com/percona/percona-backup-mongodb/bin/pbm-agent $RPM_BUILD_ROOT/%{_bindir}/
+cp github.com/percona/percona-backup-mongodb/bin/pbm $RPM_BUILD_ROOT/%{_bindir}/
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf

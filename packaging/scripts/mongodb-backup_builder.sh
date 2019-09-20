@@ -131,8 +131,12 @@ get_sources(){
         git checkout "$BRANCH"
     fi
     REVISION=$(git rev-parse --short HEAD)
+    GITCOMMIT=$(git rev-parse HEAD 2>/dev/null)
+    GITBRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     echo "VERSION=${VERSION}" > VERSION
     echo "REVISION=${REVISION}" >> VERSION
+    echo "GITCOMMIT=${GITCOMMIT}" >> VERSION
+    echo "GITBRANCH=${GITBRANCH}" >> VERSION
     echo "REVISION=${REVISION}" >> ${WORKDIR}/percona-backup-mongodb.properties
     rm -fr debian rpm
     cd ${WORKDIR}
@@ -506,7 +510,7 @@ OS=
 INSTALL=0
 RPM_RELEASE=1
 DEB_RELEASE=1
-VERSION="1.0"
+VERSION="1.0.0"
 RELEASE="1"
 REVISION=0
 BRANCH="nocoord"
