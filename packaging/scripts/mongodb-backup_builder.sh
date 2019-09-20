@@ -131,8 +131,12 @@ get_sources(){
         git checkout "$BRANCH"
     fi
     REVISION=$(git rev-parse --short HEAD)
+    GITCOMMIT=$(git rev-parse HEAD 2>/dev/null)
+    GITBRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     echo "VERSION=${VERSION}" > VERSION
     echo "REVISION=${REVISION}" >> VERSION
+    echo "GITCOMMIT=${GITCOMMIT}" >> VERSION
+    echo "GITBRANCH=${GITBRANCH}" >> VERSION
     echo "REVISION=${REVISION}" >> ${WORKDIR}/percona-backup-mongodb.properties
     rm -fr debian rpm
     cd ${WORKDIR}
@@ -474,10 +478,15 @@ build_tarball(){
     export GOPATH=${PWD}/build
     export PATH="/usr/local/go/bin:${PATH}:${GOPATH}"
     export GOBINPATH="/usr/local/go/bin"
-    cd build/src/ && go build github.com/percona/percona-backup-mongodb/cmd/pbm-agent && \
-            go build github.com/percona/percona-backup-mongodb/cmd/pbm 
-    cp pbm ${WORKDIR}/${PSMDIR}/
-    cp pbm-agent ${WORKDIR}/${PSMDIR}/
+
+    cd build/src/github.com/percona/percona-backup-mongodb/
+    source VERSION
+    export VERSION
+    export GITBRANCH
+    export GITCOMMIT
+    make build
+    cp ./bin/pbm ${WORKDIR}/${PSMDIR}/
+    cp ./bin/pbm-agent ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
 
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}
@@ -506,7 +515,7 @@ OS=
 INSTALL=0
 RPM_RELEASE=1
 DEB_RELEASE=1
-VERSION="1.0"
+VERSION="1.0.0"
 RELEASE="1"
 REVISION=0
 BRANCH="nocoord"
