@@ -60,6 +60,8 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			rsMeta.Status = pbm.StatusError
 			rsMeta.Error = err.Error()
+			meta.Status = rsMeta.Status
+			meta.Error = rsMeta.Error
 			b.cn.UpdateBackupMeta(meta)
 			b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
 		}
@@ -154,6 +156,8 @@ func (b *Backup) checkCluster(bcpName string) error {
 						case pbm.StatusDone, pbm.StatusDumpDone:
 							backupsToFinish--
 						case pbm.StatusError:
+							bmeta.Status = pbm.StatusError
+							bmeta.Error = shard.Error
 							return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
 						}
 					}
@@ -226,7 +230,7 @@ func (b *Backup) oplog(stg pbm.Storage, name string, compression pbm.Compression
 		}
 	}()
 
-	// TODO we have to wait until the oplog wrinting process being started. Not sleep.
+	// TODO: we have to wait until the oplog wrinting process being started. Not sleep.
 	time.Sleep(1)
 	return stopOplog, nil
 }
