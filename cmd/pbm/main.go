@@ -111,6 +111,9 @@ func main() {
 		}
 
 		bcpName := time.Now().UTC().Format(time.RFC3339)
+		if stg.Filesystem.Path != "" {
+			bcpName = stg.Filesystem.Path + "/" + bcpName
+		}
 		err = pbmClient.SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdBackup,
 			Backup: pbm.BackupCmd{
@@ -127,6 +130,9 @@ func main() {
 			storeString += stg.S3.EndpointURL + "/"
 		}
 		storeString += stg.S3.Bucket
+		if stg.Filesystem.Path != "" {
+			storeString += "/" + stg.Filesystem.Path
+		}
 		fmt.Printf("Beginning backup '%s' to remote store %s\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
 		err := pbmClient.SendCmd(pbm.Cmd{
