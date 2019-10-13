@@ -3,7 +3,6 @@ package backup
 import (
 	"compress/gzip"
 	"io"
-	"log"
 	"os"
 	"path"
 
@@ -18,23 +17,36 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-// Destination returns io.WriterCloser for the given storage.
-// In case compression are used it alse return io.Closer wich should be used
-// to close undelying Writer
-func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) (io.WriteCloser, io.Closer, error) {
-	var (
-		wr io.WriteCloser
-		wc io.Closer
-	)
+type NopCloser struct {
+	io.Writer
+}
 
+func (NopCloser) Close() error { return nil }
+
+func Compress(w io.Writer, compression pbm.CompressionType) io.WriteCloser {
+	switch compression {
+	case pbm.CompressionTypeGZIP:
+		return gzip.NewWriter(w)
+	case pbm.CompressionTypeLZ4:
+		return lz4.NewWriter(w)
+	case pbm.CompressionTypeSNAPPY:
+		return snappy.NewWriter(w)
+	default:
+		return NopCloser{w}
+	}
+}
+
+// Save writes data to given store
+func Save(data io.Reader, stg pbm.Storage, name string) error {
 	switch stg.Type {
 	case pbm.StorageFilesystem:
 		filepath := path.Join(stg.Filesystem.Path, name)
 		fw, err := os.Create(filepath)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "cannot create destination file: %s", filepath)
+			return errors.Wrapf(err, "create destination file <%s>", filepath)
 		}
-		wr = fw
+		_, err = io.Copy(fw, data)
+		return errors.Wrap(err, "write to file")
 	case pbm.StorageS3:
 		awsSession, err := session.NewSession(&aws.Config{
 			Region:   aws.String(stg.S3.Region),
@@ -47,45 +59,20 @@ func Destination(stg pbm.Storage, name string, compression pbm.CompressionType) 
 			S3ForcePathStyle: aws.Bool(true),
 		})
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "cannot create AWS session")
+			return errors.Wrap(err, "create AWS session")
 		}
-		// s3.Uploader runs synchronously and receives an io.Reader but here, we are implementing
-		// writers so, we need to create an io.Pipe and run uploader.Upload in a go-routine
-		pr, pw := io.Pipe()
-		go func() {
-			_, err := s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-				u.PartSize = 32 * 1024 * 1024 // 10MB part size
-				u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
-				u.Concurrency = 10
-			}).Upload(&s3manager.UploadInput{
-				Bucket: aws.String(stg.S3.Bucket),
-				Key:    aws.String(name),
-				Body:   pr,
-			})
-			// TODO: "return" error and log it on the upward levels
-			if err != nil {
-				log.Println("[ERROR] s3 upload:", err)
-			}
-		}()
-		wr = pw
+		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
+			u.PartSize = 32 * 1024 * 1024 // 10MB part size
+			u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
+			u.Concurrency = 10
+		}).Upload(&s3manager.UploadInput{
+			Bucket: aws.String(stg.S3.Bucket),
+			Key:    aws.String(name),
+			Body:   data,
+		})
+
+		return errors.Wrap(err, "upload to S3")
+	default:
+		return errors.New("unknown storage type")
 	}
-
-	switch compression {
-	case pbm.CompressionTypeGZIP:
-		wc = wr
-		wr = gzip.NewWriter(wr)
-	case pbm.CompressionTypeLZ4:
-		wc = wr
-		wr = lz4.NewWriter(wr)
-	case pbm.CompressionTypeSNAPPY:
-		wc = wr
-		wr = snappy.NewWriter(wr)
-	}
-
-	// switch cypher {
-	// case pbm.Cypher_CYPHER_NO_CYPHER:
-	// 	//TODO: Add cyphers
-	// }
-
-	return wr, wc, nil
 }
