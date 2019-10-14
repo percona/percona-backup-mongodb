@@ -1,7 +1,7 @@
 package backup
 
 import (
-	"context"
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
@@ -60,6 +60,8 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			rsMeta.Status = pbm.StatusError
 			rsMeta.Error = err.Error()
+			meta.Status = rsMeta.Status
+			meta.Error = rsMeta.Error
 			b.cn.UpdateBackupMeta(meta)
 			b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
 		}
@@ -86,17 +88,17 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "write backup meta to db")
 	}
 
-	stopOplog, err := b.oplog(stg, rsMeta.OplogName, bcp.Compression)
+	oplog := NewOplog(b.node)
+	oplogTS, err := oplog.StartTS()
 	if err != nil {
-		return errors.Wrap(err, "oplog tailer")
+		return errors.Wrap(err, "define oplog start position")
 	}
-	defer stopOplog()
 
 	err = b.dump(stg, rsMeta.DumpName, bcp.Compression)
 	if err != nil {
-		return errors.Wrap(err, "data dump")
+		return errors.Wrap(err, "mongodump")
 	}
-	log.Println("mongodump finished, waiting to finish oplog")
+	log.Println("mongodump finished, waiting for the oplog")
 
 	rsMeta.Status = pbm.StatusDumpDone
 	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
@@ -110,10 +112,14 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		meta.DoneTS = time.Now().UTC().Unix()
 		err = b.cn.UpdateBackupMeta(meta)
 		if err != nil {
-			errors.Wrap(err, "update backup metada after it's done")
+			return errors.Wrap(err, "update backup metada after it's done")
 		}
 		meta.Replsets = append(meta.Replsets, rsMeta)
-		return errors.Wrap(writeMeta(stg, meta), "save metadata to the store")
+		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+		if err != nil {
+			return errors.Wrap(err, "oplog")
+		}
+		return errors.Wrap(writeMeta(stg, meta), "save metadata")
 	}
 
 	switch im.ReplsetRole() {
@@ -122,11 +128,93 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			return errors.Wrap(err, "unable to finish cluster backup")
 		}
+		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+		if err != nil {
+			return errors.Wrap(err, "oplog")
+		}
 		return b.dumpClusterMeta(bcp.Name, stg)
 	case pbm.ReplRoleShard:
-		return b.waitForCluster(bcp.Name)
+		err := b.waitForCluster(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "waiting for cluster")
+		}
+		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+		return errors.Wrap(err, "oplog")
 	case pbm.ReplRoleUnknown:
 		return errors.Wrap(err, "unknow node role in sharded cluster")
+	}
+
+	return nil
+}
+
+const maxReplicationLagTimeSec = 21
+
+// NodeSuits checks if node can perform backup
+func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
+	im, err := node.GetIsMaster()
+	if err != nil {
+		return false, errors.Wrap(err, "get isMaster data for node")
+	}
+
+	if im.IsMaster && !bcp.FromMaster {
+		return false, nil
+	}
+
+	status, err := node.Status()
+	if err != nil {
+		return false, errors.Wrap(err, "get node status")
+	}
+
+	replLag, err := node.ReplicationLag()
+	if err != nil {
+		return false, errors.Wrap(err, "get node replication lag")
+	}
+
+	return replLag < maxReplicationLagTimeSec && status.Health == pbm.NodeHealthUp &&
+			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
+		nil
+}
+
+// rwErr multierror for the read/compress/write-to-store operations set
+type rwErr struct {
+	read     error
+	compress error
+	write    error
+}
+
+func (rwe rwErr) Error() string {
+	var r string
+	if rwe.read != nil {
+		r += "read data: " + rwe.read.Error() + "."
+	}
+	if rwe.compress != nil {
+		r += "compress data: " + rwe.compress.Error() + "."
+	}
+	if rwe.write != nil {
+		r += "write data: " + rwe.write.Error() + "."
+	}
+
+	return r
+}
+func (rwe rwErr) nil() bool {
+	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
+}
+
+func (b *Backup) oplog(oplog *Oplog, oplogTS int64, stg pbm.Storage, name string, compression pbm.CompressionType) error {
+	r, pw := io.Pipe()
+	w := Compress(pw, compression)
+
+	var err rwErr
+	go func() {
+		err.read = oplog.SliceTo(b.cn.Context(), w, oplogTS)
+		err.compress = w.Close()
+		pw.Close()
+	}()
+
+	err.write = Save(r, stg, name)
+
+	if !err.nil() {
+		return err
 	}
 
 	return nil
@@ -154,6 +242,8 @@ func (b *Backup) checkCluster(bcpName string) error {
 						case pbm.StatusDone, pbm.StatusDumpDone:
 							backupsToFinish--
 						case pbm.StatusError:
+							bmeta.Status = pbm.StatusError
+							bmeta.Error = shard.Error
 							return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
 						}
 					}
@@ -201,93 +291,37 @@ func (b *Backup) dumpClusterMeta(bcpName string, stg pbm.Storage) error {
 	return writeMeta(stg, meta)
 }
 
-// Oplog tailing
-func (b *Backup) oplog(stg pbm.Storage, name string, compression pbm.CompressionType) (context.CancelFunc, error) {
-	oplogDst, oplogCloser, err := Destination(stg, name, compression)
-	if err != nil {
-		return nil, errors.Wrap(err, "oplog store writer")
-	}
-
-	ot := OplogTail(b.cn, b.node)
-
-	ctx, stopOplog := context.WithCancel(context.Background())
-	err = ot.Run(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "run oplog tailer")
-	}
-
-	// writing an oplog to the target store
-	// io.Copy is going to run until Oplog tailer being closed
-	go func() {
-		io.Copy(oplogDst, ot)
-		oplogDst.Close()
-		if oplogCloser != nil {
-			oplogCloser.Close()
-		}
-	}()
-
-	// TODO we have to wait until the oplog wrinting process being started. Not sleep.
-	time.Sleep(1)
-	return stopOplog, nil
-}
-
 func writeMeta(stg pbm.Storage, meta *pbm.BackupMeta) error {
-	mw, _, err := Destination(stg, meta.Name+".pbm.json", pbm.CompressionTypeNone)
+	b, err := json.MarshalIndent(meta, "", "\t")
 	if err != nil {
-		return errors.Wrap(err, "create writer")
-	}
-	defer mw.Close()
-
-	menc := json.NewEncoder(mw)
-	menc.SetIndent("", "\t")
-
-	return errors.Wrap(menc.Encode(meta), "write to store")
-}
-
-const maxReplicationLagTimeSec = 21
-
-// NodeSuits checks if node can perform backup
-func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
-	im, err := node.GetIsMaster()
-	if err != nil {
-		return false, errors.Wrap(err, "get isMaster data for node")
+		return errors.Wrap(err, "marshal data")
 	}
 
-	if im.IsMaster && !bcp.FromMaster {
-		return false, nil
-	}
-
-	status, err := node.Status()
-	if err != nil {
-		return false, errors.Wrap(err, "get node status")
-	}
-
-	replLag, err := node.ReplicationLag()
-	if err != nil {
-		return false, errors.Wrap(err, "get node replication lag")
-	}
-
-	return replLag < maxReplicationLagTimeSec && status.Health == pbm.NodeHealthUp &&
-			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
-		nil
+	err = Save(bytes.NewReader(b), stg, meta.Name+".pbm.json")
+	return errors.Wrap(err, "write to store")
 }
 
 func (b *Backup) dump(stg pbm.Storage, name string, compression pbm.CompressionType) error {
-	bcpDst, bcpCloser, err := Destination(stg, name, compression)
-	if err != nil {
-		return errors.Wrap(err, "store writer")
-	}
-	defer func() {
-		bcpDst.Close()
-		if bcpCloser != nil {
-			bcpCloser.Close()
-		}
+	r, pw := io.Pipe()
+	w := Compress(pw, compression)
+
+	var err rwErr
+	go func() {
+		err.read = mdump(w, b.node.ConnURI())
+		err.compress = w.Close()
+		pw.Close()
 	}()
 
-	return errors.Wrap(mdump(bcpDst, b.node.ConnURI()), "mongodump")
+	err.write = Save(r, stg, name)
+
+	if !err.nil() {
+		return err
+	}
+
+	return nil
 }
 
-func mdump(to io.WriteCloser, curi string) error {
+func mdump(to io.Writer, curi string) error {
 	opts := options.ToolOptions{
 		AppName:    "mongodump",
 		VersionStr: "0.0.1",
