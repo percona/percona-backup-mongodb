@@ -175,14 +175,14 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 		nil
 }
 
-// RWErr multierror for the read/compress/write-to-store operations set
-type RWErr struct {
+// rwErr multierror for the read/compress/write-to-store operations set
+type rwErr struct {
 	read     error
 	compress error
 	write    error
 }
 
-func (rwe RWErr) Error() string {
+func (rwe rwErr) Error() string {
 	var r string
 	if rwe.read != nil {
 		r += "read data: " + rwe.read.Error() + "."
@@ -196,7 +196,7 @@ func (rwe RWErr) Error() string {
 
 	return r
 }
-func (rwe RWErr) nil() bool {
+func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
@@ -204,7 +204,7 @@ func (b *Backup) oplog(oplog *Oplog, oplogTS int64, stg pbm.Storage, name string
 	r, pw := io.Pipe()
 	w := Compress(pw, compression)
 
-	var err RWErr
+	var err rwErr
 	go func() {
 		err.read = oplog.SliceTo(b.cn.Context(), w, oplogTS)
 		err.compress = w.Close()
@@ -305,7 +305,7 @@ func (b *Backup) dump(stg pbm.Storage, name string, compression pbm.CompressionT
 	r, pw := io.Pipe()
 	w := Compress(pw, compression)
 
-	var err RWErr
+	var err rwErr
 	go func() {
 		err.read = mdump(w, b.node.ConnURI())
 		err.compress = w.Close()
