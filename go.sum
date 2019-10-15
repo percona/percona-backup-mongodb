@@ -45,12 +45,17 @@ github.com/mongodb/mongo-tools v0.0.0-20190816132659-47467ec5161f/go.mod h1:hkFu
 github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6 h1:98lpprVItvowX55MLV9qb60yqGsQKe+xjEcwgA75/uA=
 github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6/go.mod h1:hkFunXA3Gbksiojtxr/hjqPMckbYrey/EwEqjaHG2h8=
 github.com/mongodb/mongo-tools v0.0.0-20190913124115-905baa55d9f1 h1:u7Es89NWOgW+XPDMmIfudld3AtiyiKQd2MJn7OZbSsc=
+github.com/mongodb/mongo-tools v0.0.0-20190927113621-7cb150c59a2a h1:3SFIN36wpCBWgUwfwW4Ze3w0MWVtvNZfGMZNpDVa17E=
+github.com/mongodb/mongo-tools v0.0.0-20191003161925-95eda3857a1a h1:GNSd3Riord+2O3j5QQeOASeuuQG6Tr4aEWqg8TT7GCc=
+github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370 h1:bjVYy+OxubSqBj8DfG+V5aI2H+Hx94s1yFsup+keHpg=
 github.com/mongodb/mongo-tools-common v0.0.0 h1:jq3E6DUsOi72hpjyMYOCqAZQ/iC4m6Gj+ARhEpmx/Sg=
 github.com/mongodb/mongo-tools-common v0.0.0/go.mod h1:T0AGIWI5PvxSzqt5zsR5zlcHl52KGeAzhoAnSvvpEtU=
 github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10 h1:MJizo0+LUH2Y7HqT3GOvLD2AjevL/raI2bgL5mKKcwg=
 github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10/go.mod h1:T0AGIWI5PvxSzqt5zsR5zlcHl52KGeAzhoAnSvvpEtU=
 github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135630-5088def36d90 h1:rVtD7BEMyYGi+QDsGQVqCN5wkYCHkl4qNGc9km6E93U=
 github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135630-5088def36d90/go.mod h1:T0AGIWI5PvxSzqt5zsR5zlcHl52KGeAzhoAnSvvpEtU=
+github.com/mongodb/mongo-tools-common v1.0.1 h1:0eOOVBSNfftagU/T6QfqbmFINkroM3SEWJn36Z9uf7Q=
+github.com/mongodb/mongo-tools-common v1.0.2 h1:EjE5HCXs2P1Nb8AXqcqtK/AJ2Ry93fdlIE3AyqdpwBo=
 github.com/pierrec/lz4 v2.2.6+incompatible h1:6aCX4/YZ9v8q69hTyiR7dNLnTA3fgtKHVVW5BCd5Znw=
 github.com/pierrec/lz4 v2.2.6+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
@@ -74,6 +79,7 @@ github.com/zmb3/gogetdoc v0.0.0-20190228002656-b37376c5da6a/go.mod h1:ofmGw6LrMy
 go.mongodb.org/mongo-driver v1.1.0 h1:aeOqSrhl9eDRAap/3T5pCfMBEBxZ0vuXBP+RMtp2KX8=
 go.mongodb.org/mongo-driver v1.1.0/go.mod h1:u7ryQJ+DOzQmeO7zB6MHyr8jkEQvC8vH7qLUO4lqsUM=
 go.mongodb.org/mongo-driver v1.1.1 h1:Sq1fR+0c58RME5EoqKdjkiQAmPjmfHlZOoRI6fTUOcs=
+go.mongodb.org/mongo-driver v1.1.2 h1:jxcFYjlkl8xaERsgLo+RNquI0epW6zuy/ZRQs6jnrFA=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 h1:HuIa8hRrWRSrqYzx1qI49NNxhdi2PrY7gxVSq1JjLDc=
 golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
