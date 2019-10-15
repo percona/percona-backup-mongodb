@@ -73,7 +73,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, *mURL)
+	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
 	if err != nil {
 		log.Println("Error: connect to mongodb:", err)
 		return

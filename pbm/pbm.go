@@ -75,10 +75,10 @@ type PBM struct {
 	ctx  context.Context
 }
 
-func New(ctx context.Context, uri string) (*PBM, error) {
+func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
-	client, err := connect(ctx, uri)
+	client, err := connect(ctx, uri, "pbm-discovery")
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -119,7 +119,7 @@ func New(ctx context.Context, uri string) (*PBM, error) {
 
 	curi.RawQuery = ""
 	curi.Host = chost[1]
-	pbm.Conn, err = connect(ctx, curi.String())
+	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
@@ -148,9 +148,10 @@ func (p *PBM) setupNewDB() error {
 	return nil
 }
 
-func connect(ctx context.Context, uri string) (*mongo.Client, error) {
+func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	client, err := mongo.NewClient(
 		options.Client().ApplyURI(uri).
+			SetAppName(appName).
 			SetReadPreference(readpref.Primary()).
 			SetReadConcern(readconcern.Majority()).
 			SetWriteConcern(writeconcern.New(writeconcern.WMajority())),
@@ -200,7 +201,8 @@ type BackupReplset struct {
 type Status string
 
 const (
-	StatusRunnig   Status = "runnig"
+	StatusStarting Status = "starting"
+	StatusRunnig          = "runnig"
 	StatusDumpDone        = "dumpDone"
 	StatusDone            = "done"
 	StatusError           = "error"
