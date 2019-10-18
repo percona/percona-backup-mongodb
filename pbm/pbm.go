@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -175,15 +176,21 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 // BackupMeta is a backup's metadata
 // ! any changes should be reflected in *PBM.UpdateBackupMeta()
 type BackupMeta struct {
-	Name         string          `bson:"name" json:"name"`
-	Replsets     []BackupReplset `bson:"replsets" json:"replsets"`
-	Compression  CompressionType `bson:"compression" json:"compression"`
-	Store        Storage         `bson:"store" json:"store"`
-	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS      int64           `bson:"start_ts" json:"start_ts"`
-	DoneTS       int64           `bson:"done_ts" json:"done_ts"`
-	Status       Status          `bson:"status" json:"status"`
-	Error        string          `bson:"error,omitempty" json:"error,omitempty"`
+	Name             string          `bson:"name" json:"name"`
+	Replsets         []BackupReplset `bson:"replsets" json:"replsets"`
+	Compression      CompressionType `bson:"compression" json:"compression"`
+	Store            Storage         `bson:"store" json:"store"`
+	MongoVersion     string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64           `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64           `bson:"last_transition_ts" json:"last_transition_ts"`
+	Status           Status          `bson:"status" json:"status"`
+	Conditions       []Condition     `bson:"conditions" json:"conditions"`
+	Error            string          `bson:"error,omitempty" json:"error,omitempty"`
+}
+type Condition struct {
+	Timestamp int64  `bson:"timestamp" json:"timestamp"`
+	Status    Status `bson:"status" json:"status"`
+	Error     string `bson:"error,omitempty" json:"error,omitempty"`
 }
 
 type BackupReplset struct {
@@ -201,24 +208,26 @@ type BackupReplset struct {
 type Status string
 
 const (
-	StatusStarting Status = "starting"
-	StatusRunnig          = "runnig"
-	StatusDumpDone        = "dumpDone"
-	StatusDone            = "done"
-	StatusError           = "error"
+	StatusPreparing Status = "preparing"
+	StatusStarting         = "starting"
+	StatusRunnig           = "runnig"
+	StatusDumpDone         = "dumpDone"
+	StatusDone             = "done"
+	StatusError            = "error"
 )
 
 func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 	// TODO: BackupMeta fileds changes depends on this code
+	// it needs to not erase `replsets` and `condisiotns` arrays
 	set := bson.M{
-		"name":            m.Name,
-		"compression":     m.Compression,
-		"store":           m.Store,
-		"mongodb_version": m.MongoVersion,
-		"start_ts":        m.StartTS,
-		"done_ts":         m.DoneTS,
-		"status":          m.Status,
-		"error":           m.Error,
+		"name":               m.Name,
+		"compression":        m.Compression,
+		"store":              m.Store,
+		"mongodb_version":    m.MongoVersion,
+		"start_ts":           m.StartTS,
+		"last_transition_ts": time.Now().UTC().Unix(),
+		"status":             m.Status,
+		"error":              m.Error,
 	}
 
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
@@ -227,8 +236,20 @@ func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
 		bson.M{"$set": set},
 		options.Update().SetUpsert(true),
 	)
+	if err != nil {
+		return errors.Wrap(err, "update meta")
+	}
 
-	return err
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", m.Name}},
+		bson.D{{"$addToSet", bson.M{"conditions": Condition{
+			Timestamp: time.Now().UTC().Unix(),
+			Status:    m.Status,
+			Error:     m.Error,
+		}}}},
+	)
+	return errors.Wrap(err, "set condition")
 }
 
 func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {

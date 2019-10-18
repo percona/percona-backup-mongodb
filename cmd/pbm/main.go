@@ -156,6 +156,8 @@ func main() {
 				bcp = fmt.Sprintf("%s\tIn progress (Launched at %s)", b.Name, time.Unix(b.StartTS, 0).Format(time.RFC3339))
 			case pbm.StatusError:
 				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
+			default:
+				bcp = fmt.Sprintf("%s\t[%s]", b.Name, b.Status)
 			}
 
 			fmt.Println(" ", bcp)
