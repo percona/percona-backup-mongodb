@@ -208,12 +208,11 @@ type BackupReplset struct {
 type Status string
 
 const (
-	StatusPreparing Status = "preparing"
-	StatusStarting         = "starting"
-	StatusRunnig           = "runnig"
-	StatusDumpDone         = "dumpDone"
-	StatusDone             = "done"
-	StatusError            = "error"
+	StatusStarting Status = "starting"
+	StatusRunnig          = "running"
+	StatusDumpDone        = "dumpDone"
+	StatusDone            = "done"
+	StatusError           = "error"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {
