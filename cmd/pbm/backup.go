@@ -35,7 +35,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	defer cancel()
 	err = waitForStatus(ctx, cn, bcpName, pbm.StatusRunning)
 	if err != nil {
-		return "", errors.Wrap(err, "get backup status")
+		return "", err
 	}
 
 	storeString := "s3://"
@@ -64,12 +64,22 @@ func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string, status pbm.
 			case status:
 				return nil
 			case pbm.StatusError:
-				return errors.Wrap(err, "backup failed")
+				rs := ""
+				for _, s := range bmeta.Replsets {
+					rs += fmt.Sprintf("\n- Backup on replicaset \"%s\" in state: %v", s.Name, s.Status)
+					if s.Error != "" {
+						rs += ": " + s.Error
+					}
+				}
+				return errors.New(bmeta.Error + rs)
 			}
 		case <-ctx.Done():
 			rs := ""
 			for _, s := range bmeta.Replsets {
-				rs += fmt.Sprintf("- \"%s\" state: %v\n", s.Name, s.Status)
+				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
+				if s.Error != "" {
+					rs += ": " + s.Error
+				}
 			}
 			if rs == "" {
 				rs = "<no replset has started backup>\n"

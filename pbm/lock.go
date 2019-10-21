@@ -46,6 +46,11 @@ func (p *PBM) AcquireLock(l Lock) (bool, error) {
 }
 
 func (p *PBM) ReleaseLock(l Lock) error {
-	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteOne(nil, l)
+	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteOne(p.ctx, l)
 	return errors.Wrap(err, "deleteOne")
+}
+
+func (p *PBM) Cleanup(bcpName string) error {
+	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteMany(p.ctx, bson.M{"backup": bcpName})
+	return errors.Wrap(err, "deleteMany")
 }
