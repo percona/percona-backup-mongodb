@@ -61,7 +61,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		OplogName:  getDstName("oplog", bcp, im.SetName),
 		DumpName:   getDstName("dump", bcp, im.SetName),
 		StartTS:    time.Now().UTC().Unix(),
-		Status:     pbm.StatusRunnig,
+		Status:     pbm.StatusRunning,
 		Conditions: []pbm.Condition{},
 	}
 
@@ -102,21 +102,21 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	rsMeta.Status = pbm.StatusRunnig
+	rsMeta.Status = pbm.StatusRunning
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunnig, im)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
 	}
 
-	// Waiting for cluster's StatusRunnig to move further.
-	err = b.waitForStatus(bcp.Name, pbm.StatusRunnig)
+	// Waiting for cluster's StatusRunning to move further.
+	err = b.waitForStatus(bcp.Name, pbm.StatusRunning)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}

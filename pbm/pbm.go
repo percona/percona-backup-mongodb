@@ -174,7 +174,6 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 }
 
 // BackupMeta is a backup's metadata
-// ! any changes should be reflected in *PBM.UpdateBackupMeta()
 type BackupMeta struct {
 	Name             string          `bson:"name" json:"name"`
 	Replsets         []BackupReplset `bson:"replsets" json:"replsets"`
@@ -209,7 +208,7 @@ type Status string
 
 const (
 	StatusStarting Status = "starting"
-	StatusRunnig          = "running"
+	StatusRunning         = "running"
 	StatusDumpDone        = "dumpDone"
 	StatusDone            = "done"
 	StatusError           = "error"
@@ -278,6 +277,9 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	b := new(BackupMeta)
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
 	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return b, nil
+		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
 	err := res.Decode(b)
@@ -336,6 +338,7 @@ func (p *PBM) Context() context.Context {
 	return p.ctx
 }
 
+// GetIsMaster returns IsMaster object encapsulating respective MongoDB structure
 func (p *PBM) GetIsMaster() (*IsMaster, error) {
 	im := &IsMaster{}
 	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(im)
