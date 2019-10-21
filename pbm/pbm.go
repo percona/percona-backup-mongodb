@@ -194,14 +194,14 @@ type Condition struct {
 }
 
 type BackupReplset struct {
-	Name        string `bson:"name" json:"name"`
-	DumpName    string `bson:"dump_name" json:"backup_name" `
-	OplogName   string `bson:"oplog_name" json:"oplog_name"`
-	Status      Status `bson:"status" json:"status"`
-	Error       string `bson:"error,omitempty" json:"error,omitempty"`
-	StartTS     int64  `bson:"start_ts" json:"start_ts"`
-	DumpDoneTS  int64  `bson:"dump_done_ts" json:"dump_done_ts"`
-	OplogDoneTS int64  `bson:"oplog_done_ts" json:"oplog_done_ts"`
+	Name             string      `bson:"name" json:"name"`
+	DumpName         string      `bson:"dump_name" json:"backup_name" `
+	OplogName        string      `bson:"oplog_name" json:"oplog_name"`
+	StartTS          int64       `bson:"start_ts" json:"start_ts"`
+	Status           Status      `bson:"status" json:"status"`
+	LastTransitionTS int64       `bson:"last_transition_ts" json:"last_transition_ts"`
+	Error            string      `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       []Condition `bson:"conditions" json:"conditions"`
 }
 
 // Status is backup current status
@@ -216,47 +216,60 @@ const (
 	StatusError            = "error"
 )
 
-func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
-	// TODO: BackupMeta fileds changes depends on this code
-	// it needs to not erase `replsets` and `condisiotns` arrays
-	set := bson.M{
-		"name":               m.Name,
-		"compression":        m.Compression,
-		"store":              m.Store,
-		"mongodb_version":    m.MongoVersion,
-		"start_ts":           m.StartTS,
-		"last_transition_ts": time.Now().UTC().Unix(),
-		"status":             m.Status,
-		"error":              m.Error,
-	}
+func (p *PBM) SetBackupMeta(m *BackupMeta) error {
+	m.LastTransitionTS = m.StartTS
+	m.Conditions = append(m.Conditions, Condition{
+		Timestamp: m.StartTS,
+		Status:    m.Status,
+	})
 
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", m.Name}},
-		bson.M{"$set": set},
-		options.Update().SetUpsert(true),
-	)
-	if err != nil {
-		return errors.Wrap(err, "update meta")
-	}
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).InsertOne(p.ctx, m)
 
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", m.Name}},
-		bson.D{{"$addToSet", bson.M{"conditions": Condition{
-			Timestamp: time.Now().UTC().Unix(),
-			Status:    m.Status,
-			Error:     m.Error,
-		}}}},
-	)
-	return errors.Wrap(err, "set condition")
+	return err
 }
 
-func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {
+func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
+	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
-		bson.D{{"$addToSet", bson.M{"replsets": shard}}},
+		bson.D{
+			{"$set", bson.M{"status": s}},
+			{"$set", bson.M{"last_transition_ts": ts}},
+			{"$set", bson.M{"error": msg}},
+			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
+	rs.LastTransitionTS = rs.StartTS
+	rs.Conditions = append(rs.Conditions, Condition{
+		Timestamp: rs.StartTS,
+		Status:    rs.Status,
+	})
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{{"$addToSet", bson.M{"replsets": rs}}},
+	)
+
+	return err
+}
+
+func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string) error {
+	ts := time.Now().UTC().Unix()
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.status": s}},
+			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
+			{"$set", bson.M{"replsets.$.error": msg}},
+			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
 	)
 
 	return err

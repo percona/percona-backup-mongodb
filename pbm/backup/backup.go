@@ -57,21 +57,18 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		rsName = pbm.NoReplset
 	}
 	rsMeta := pbm.BackupReplset{
-		Name:      rsName,
-		OplogName: getDstName("oplog", bcp, im.SetName),
-		DumpName:  getDstName("dump", bcp, im.SetName),
-		StartTS:   time.Now().UTC().Unix(),
-		Status:    pbm.StatusRunnig,
+		Name:       rsName,
+		OplogName:  getDstName("oplog", bcp, im.SetName),
+		DumpName:   getDstName("dump", bcp, im.SetName),
+		StartTS:    time.Now().UTC().Unix(),
+		Status:     pbm.StatusRunnig,
+		Conditions: []pbm.Condition{},
 	}
 
 	defer func() {
 		if err != nil {
-			rsMeta.Status = pbm.StatusError
-			rsMeta.Error = err.Error()
-			meta.Status = rsMeta.Status
-			meta.Error = rsMeta.Error
-			b.cn.UpdateBackupMeta(meta)
-			b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+			b.cn.ChangeBackupState(bcp.Name, pbm.StatusError, err.Error())
+			b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusError, err.Error())
 		}
 	}()
 
@@ -92,7 +89,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	meta.Store.S3.Credentials = pbm.Credentials{}
 
 	if im.IsLeader() {
-		err = b.cn.UpdateBackupMeta(meta)
+		err = b.cn.SetBackupMeta(meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
 		}
@@ -106,7 +103,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	rsMeta.Status = pbm.StatusRunnig
-	err = b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
@@ -136,11 +133,9 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 	log.Println("mongodump finished, waiting for the oplog")
 
-	rsMeta.Status = pbm.StatusDumpDone
-	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
-	err = b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDumpDone, "")
 	if err != nil {
-		return errors.Wrap(err, "update shard's metadata")
+		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
 	if im.IsLeader() {
@@ -159,11 +154,9 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
-	rsMeta.Status = pbm.StatusDone
-	rsMeta.OplogDoneTS = time.Now().UTC().Unix()
-	err = b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
 	if err != nil {
-		return errors.Wrap(err, "update shard's metadata")
+		return errors.Wrap(err, "set shard's StatusDone")
 	}
 
 	if im.IsLeader() {
@@ -300,8 +293,8 @@ func (b *Backup) convergeCluster(bcpName string, shards []pbm.Shard, status pbm.
 				}
 			}
 			if shardsToFinish == 0 {
-				bmeta.Status = status
-				return errors.Wrap(b.cn.UpdateBackupMeta(bmeta), "update backup meta with 'done'")
+				err := b.cn.ChangeBackupState(bcpName, status, "")
+				return errors.Wrap(err, "update backup meta with 'done'")
 			}
 		case <-b.cn.Context().Done():
 			return nil
