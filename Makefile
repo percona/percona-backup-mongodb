@@ -16,7 +16,7 @@ build-agent:
 build: build-pbm build-agent
 
 install-pbm:
-	GOOS=$(GOOS) go install -ldflags="$(LDFLAGS)" ./cmd/pbm
+	GOOS=$(GOOS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm
 install-agent:
-	GOOS=$(GOOS) go install -ldflags="$(LDFLAGS)" ./cmd/pbm-agent
+	GOOS=$(GOOS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
 install: install-pbm install-agent
