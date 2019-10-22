@@ -33,7 +33,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 	defer cancel()
-	err = waitForStatus(ctx, cn, bcpName, pbm.StatusRunning)
+	err = waitForStatus(ctx, cn, bcpName)
 	if err != nil {
 		return "", err
 	}
@@ -47,7 +47,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	return storeString, nil
 }
 
-func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string, status pbm.Status) error {
+func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	var err error
@@ -61,7 +61,7 @@ func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string, status pbm.
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case status:
+			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
 				return nil
 			case pbm.StatusError:
 				rs := ""
