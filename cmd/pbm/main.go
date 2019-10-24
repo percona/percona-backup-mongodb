@@ -25,6 +25,7 @@ var (
 	storageShowCmd = storageCmd.Command("show", "Show current storage configuration")
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
+	backupName     = backupCmd.Arg("backup_name", "Backup name").String()
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
 			Default(pbm.CompressionTypeGZIP).
 			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
@@ -110,7 +111,14 @@ func main() {
 			return
 		}
 
-		bcpName := time.Now().UTC().Format(time.RFC3339)
+		// Set backup name. It defauts to the current time stamp if not specified.
+		var bcpName string
+		if *backupName == "" {
+			bcpName = time.Now().UTC().Format(time.RFC3339)
+		} else {
+			bcpName = *backupName
+		}
+
 		err = pbmClient.SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdBackup,
 			Backup: pbm.BackupCmd{
