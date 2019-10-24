@@ -24,7 +24,7 @@ func NewOplog(node *pbm.Node) *Oplog {
 }
 
 // SliceTo slice oplog starting from given timestamp
-func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, fromTs int64) error {
+func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, fromTs primitive.Timestamp) error {
 	clName, err := ot.collectionName()
 	if err != nil {
 		return errors.Wrap(err, "determine oplog collection name")
@@ -33,7 +33,7 @@ func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, fromTs int64) error {
 
 	cur, err := cl.Find(ctx, bson.M{
 		"op": bson.M{"$ne": pbm.OperationNoop},
-		"ts": bson.M{"$gte": primitive.Timestamp{T: uint32(fromTs), I: 1}},
+		"ts": bson.M{"$gte": fromTs},
 	})
 	if err != nil {
 		return errors.Wrap(err, "get the oplog cursor")
@@ -41,20 +41,23 @@ func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, fromTs int64) error {
 	defer cur.Close(ctx)
 
 	for cur.Next(ctx) {
-		w.Write([]byte(cur.Current))
+		_, err = w.Write([]byte(cur.Current))
+		if err != nil {
+			return errors.Wrap(err, "write to pipe")
+		}
 	}
 
 	return cur.Err()
 }
 
 // StartTS returns timestamp the oplog should be read from later on
-func (ot *Oplog) StartTS() (int64, error) {
+func (ot *Oplog) StartTS() (primitive.Timestamp, error) {
 	isMaster, err := ot.node.GetIsMaster()
 	if err != nil {
-		return 0, errors.Wrap(err, "get isMaster data")
+		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
 	}
 
-	return int64(isMaster.LastWrite.OpTime.TS.T), nil
+	return isMaster.LastWrite.OpTime.TS, nil
 }
 
 func (ot *Oplog) collectionName() (string, error) {
