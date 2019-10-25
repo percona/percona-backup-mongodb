@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -75,10 +76,10 @@ type PBM struct {
 	ctx  context.Context
 }
 
-func New(ctx context.Context, uri string) (*PBM, error) {
+func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
-	client, err := connect(ctx, uri)
+	client, err := connect(ctx, uri, "pbm-discovery")
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -119,7 +120,7 @@ func New(ctx context.Context, uri string) (*PBM, error) {
 
 	curi.RawQuery = ""
 	curi.Host = chost[1]
-	pbm.Conn, err = connect(ctx, curi.String())
+	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
@@ -148,9 +149,10 @@ func (p *PBM) setupNewDB() error {
 	return nil
 }
 
-func connect(ctx context.Context, uri string) (*mongo.Client, error) {
+func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	client, err := mongo.NewClient(
 		options.Client().ApplyURI(uri).
+			SetAppName(appName).
 			SetReadPreference(readpref.Primary()).
 			SetReadConcern(readconcern.Majority()).
 			SetWriteConcern(writeconcern.New(writeconcern.WMajority())),
@@ -172,68 +174,100 @@ func connect(ctx context.Context, uri string) (*mongo.Client, error) {
 }
 
 // BackupMeta is a backup's metadata
-// ! any changes should be reflected in *PBM.UpdateBackupMeta()
 type BackupMeta struct {
-	Name         string          `bson:"name" json:"name"`
-	Replsets     []BackupReplset `bson:"replsets" json:"replsets"`
-	Compression  CompressionType `bson:"compression" json:"compression"`
-	Store        Storage         `bson:"store" json:"store"`
-	MongoVersion string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS      int64           `bson:"start_ts" json:"start_ts"`
-	DoneTS       int64           `bson:"done_ts" json:"done_ts"`
-	Status       Status          `bson:"status" json:"status"`
-	Error        string          `bson:"error,omitempty" json:"error,omitempty"`
+	Name             string          `bson:"name" json:"name"`
+	Replsets         []BackupReplset `bson:"replsets" json:"replsets"`
+	Compression      CompressionType `bson:"compression" json:"compression"`
+	Store            Storage         `bson:"store" json:"store"`
+	MongoVersion     string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64           `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64           `bson:"last_transition_ts" json:"last_transition_ts"`
+	Status           Status          `bson:"status" json:"status"`
+	Conditions       []Condition     `bson:"conditions" json:"conditions"`
+	Error            string          `bson:"error,omitempty" json:"error,omitempty"`
+}
+type Condition struct {
+	Timestamp int64  `bson:"timestamp" json:"timestamp"`
+	Status    Status `bson:"status" json:"status"`
+	Error     string `bson:"error,omitempty" json:"error,omitempty"`
 }
 
 type BackupReplset struct {
-	Name        string `bson:"name" json:"name"`
-	DumpName    string `bson:"dump_name" json:"backup_name" `
-	OplogName   string `bson:"oplog_name" json:"oplog_name"`
-	Status      Status `bson:"status" json:"status"`
-	Error       string `bson:"error,omitempty" json:"error,omitempty"`
-	StartTS     int64  `bson:"start_ts" json:"start_ts"`
-	DumpDoneTS  int64  `bson:"dump_done_ts" json:"dump_done_ts"`
-	OplogDoneTS int64  `bson:"oplog_done_ts" json:"oplog_done_ts"`
+	Name             string      `bson:"name" json:"name"`
+	DumpName         string      `bson:"dump_name" json:"backup_name" `
+	OplogName        string      `bson:"oplog_name" json:"oplog_name"`
+	StartTS          int64       `bson:"start_ts" json:"start_ts"`
+	Status           Status      `bson:"status" json:"status"`
+	LastTransitionTS int64       `bson:"last_transition_ts" json:"last_transition_ts"`
+	Error            string      `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       []Condition `bson:"conditions" json:"conditions"`
 }
 
 // Status is backup current status
 type Status string
 
 const (
-	StatusRunnig   Status = "runnig"
+	StatusStarting Status = "starting"
+	StatusRunning         = "running"
 	StatusDumpDone        = "dumpDone"
 	StatusDone            = "done"
 	StatusError           = "error"
 )
 
-func (p *PBM) UpdateBackupMeta(m *BackupMeta) error {
-	// TODO: BackupMeta fileds changes depends on this code
-	set := bson.M{
-		"name":            m.Name,
-		"compression":     m.Compression,
-		"store":           m.Store,
-		"mongodb_version": m.MongoVersion,
-		"start_ts":        m.StartTS,
-		"done_ts":         m.DoneTS,
-		"status":          m.Status,
-		"error":           m.Error,
-	}
+func (p *PBM) SetBackupMeta(m *BackupMeta) error {
+	m.LastTransitionTS = m.StartTS
+	m.Conditions = append(m.Conditions, Condition{
+		Timestamp: m.StartTS,
+		Status:    m.Status,
+	})
 
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).InsertOne(p.ctx, m)
+
+	return err
+}
+
+func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
+	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"name", m.Name}},
-		bson.M{"$set": set},
-		options.Update().SetUpsert(true),
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"status": s}},
+			{"$set", bson.M{"last_transition_ts": ts}},
+			{"$set", bson.M{"error": msg}},
+			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
 	)
 
 	return err
 }
 
-func (p *PBM) AddShardToBackupMeta(bcpName string, shard BackupReplset) error {
+func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
+	rs.LastTransitionTS = rs.StartTS
+	rs.Conditions = append(rs.Conditions, Condition{
+		Timestamp: rs.StartTS,
+		Status:    rs.Status,
+	})
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
-		bson.D{{"$addToSet", bson.M{"replsets": shard}}},
+		bson.D{{"$addToSet", bson.M{"replsets": rs}}},
+	)
+
+	return err
+}
+
+func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string) error {
+	ts := time.Now().UTC().Unix()
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.status": s}},
+			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
+			{"$set", bson.M{"replsets.$.error": msg}},
+			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
 	)
 
 	return err
@@ -243,6 +277,9 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	b := new(BackupMeta)
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
 	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return b, nil
+		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
 	err := res.Decode(b)
@@ -301,6 +338,7 @@ func (p *PBM) Context() context.Context {
 	return p.ctx
 }
 
+// GetIsMaster returns IsMaster object encapsulating respective MongoDB structure
 func (p *PBM) GetIsMaster() (*IsMaster, error) {
 	im := &IsMaster{}
 	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(im)

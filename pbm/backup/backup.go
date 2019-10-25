@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mongodb/mongo-tools-common/db"
@@ -20,6 +21,7 @@ import (
 type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
+	name string
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {
@@ -31,17 +33,25 @@ func New(cn *pbm.PBM, node *pbm.Node) *Backup {
 
 // Run runs the backup
 func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
+	return b.run(bcp)
+}
+
+const waitForRunSec = 15
+
+// run the backup.
+// TODO: describe flow
+func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
+	im, err := b.node.GetIsMaster()
+	if err != nil {
+		return errors.Wrap(err, "get cluster info")
+	}
+
 	meta := &pbm.BackupMeta{
 		Name:        bcp.Name,
 		StartTS:     time.Now().UTC().Unix(),
 		Compression: bcp.Compression,
-		Status:      pbm.StatusRunnig,
+		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
-	}
-
-	im, err := b.node.GetIsMaster()
-	if err != nil {
-		return errors.Wrap(err, "get cluster info")
 	}
 
 	rsName := im.SetName
@@ -49,21 +59,18 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 		rsName = pbm.NoReplset
 	}
 	rsMeta := pbm.BackupReplset{
-		Name:      rsName,
-		OplogName: getDstName("oplog", bcp, im.SetName),
-		DumpName:  getDstName("dump", bcp, im.SetName),
-		StartTS:   time.Now().UTC().Unix(),
-		Status:    pbm.StatusRunnig,
+		Name:       rsName,
+		OplogName:  getDstName("oplog", bcp, im.SetName),
+		DumpName:   getDstName("dump", bcp, im.SetName),
+		StartTS:    time.Now().UTC().Unix(),
+		Status:     pbm.StatusRunning,
+		Conditions: []pbm.Condition{},
 	}
 
 	defer func() {
 		if err != nil {
-			rsMeta.Status = pbm.StatusError
-			rsMeta.Error = err.Error()
-			meta.Status = rsMeta.Status
-			meta.Error = rsMeta.Error
-			b.cn.UpdateBackupMeta(meta)
-			b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+			b.cn.ChangeBackupState(bcp.Name, pbm.StatusError, err.Error())
+			b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusError, err.Error())
 		}
 	}()
 
@@ -83,9 +90,40 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	// Erase credentials data
 	meta.Store.S3.Credentials = pbm.Credentials{}
 
-	err = b.cn.UpdateBackupMeta(meta)
+	if im.IsLeader() {
+		err = b.cn.SetBackupMeta(meta)
+		if err != nil {
+			return errors.Wrap(err, "write backup meta to db")
+		}
+	}
+
+	// Waiting for StatusStarting to move further.
+	// In case some preparations has to be done before backup.
+	err = b.waitForStatus(bcp.Name, pbm.StatusStarting)
 	if err != nil {
-		return errors.Wrap(err, "write backup meta to db")
+		return errors.Wrap(err, "waiting for start")
+	}
+
+	rsMeta.Status = pbm.StatusRunning
+	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
+	if err != nil {
+		return errors.Wrap(err, "add shard's metadata")
+	}
+
+	if im.IsLeader() {
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, waitForRunSec)
+		if err != nil {
+			if errors.Cause(err) == errConvergeTimeOut {
+				return errors.Wrap(err, "couldn't get response from all shards")
+			}
+			return errors.Wrap(err, "check cluster for backup started")
+		}
+	}
+
+	// Waiting for cluster's StatusRunning to move further.
+	err = b.waitForStatus(bcp.Name, pbm.StatusRunning)
+	if err != nil {
+		return errors.Wrap(err, "waiting for start")
 	}
 
 	oplog := NewOplog(b.node)
@@ -100,48 +138,42 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	}
 	log.Println("mongodump finished, waiting for the oplog")
 
-	rsMeta.Status = pbm.StatusDumpDone
-	rsMeta.DumpDoneTS = time.Now().UTC().Unix()
-	err = b.cn.AddShardToBackupMeta(bcp.Name, rsMeta)
+	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDumpDone, "")
 	if err != nil {
-		return errors.Wrap(err, "add shards metadata")
+		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
-	if !im.IsSharded() {
-		meta.Status = pbm.StatusDone
-		meta.DoneTS = time.Now().UTC().Unix()
-		err = b.cn.UpdateBackupMeta(meta)
+	if im.IsLeader() {
+		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, im, -1)
 		if err != nil {
-			return errors.Wrap(err, "update backup metada after it's done")
+			return errors.Wrap(err, "check cluster for dump done")
 		}
-		meta.Replsets = append(meta.Replsets, rsMeta)
-		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
-		if err != nil {
-			return errors.Wrap(err, "oplog")
-		}
-		return errors.Wrap(writeMeta(stg, meta), "save metadata")
 	}
 
-	switch im.ReplsetRole() {
-	case pbm.ReplRoleConfigSrv:
-		err := b.checkCluster(bcp.Name)
-		if err != nil {
-			return errors.Wrap(err, "unable to finish cluster backup")
-		}
-		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
-		if err != nil {
-			return errors.Wrap(err, "oplog")
-		}
-		return b.dumpClusterMeta(bcp.Name, stg)
-	case pbm.ReplRoleShard:
-		err := b.waitForCluster(bcp.Name)
-		if err != nil {
-			return errors.Wrap(err, "waiting for cluster")
-		}
-		err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+	err = b.waitForStatus(bcp.Name, pbm.StatusDumpDone)
+	if err != nil {
+		return errors.Wrap(err, "waiting for dump done")
+	}
+
+	err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+	if err != nil {
 		return errors.Wrap(err, "oplog")
-	case pbm.ReplRoleUnknown:
-		return errors.Wrap(err, "unknow node role in sharded cluster")
+	}
+	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
+	if err != nil {
+		return errors.Wrap(err, "set shard's StatusDone")
+	}
+
+	if im.IsLeader() {
+		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, im, -1)
+		if err != nil {
+			return errors.Wrap(err, "check cluster for backup done")
+		}
+
+		err = b.dumpClusterMeta(bcp.Name, stg)
+		if err != nil {
+			return errors.Wrap(err, "dump metadata")
+		}
 	}
 
 	return nil
@@ -220,39 +252,41 @@ func (b *Backup) oplog(oplog *Oplog, oplogTS int64, stg pbm.Storage, name string
 	return nil
 }
 
-func (b *Backup) checkCluster(bcpName string) error {
-	shards, err := b.cn.GetShards()
-	if err != nil {
-		return errors.Wrap(err, "get shards list")
+func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, waitSec int) error {
+	shards := []pbm.Shard{
+		{
+			ID:   im.SetName,
+			Host: im.SetName + "/" + strings.Join(im.Hosts, ","),
+		},
 	}
+
+	if im.IsSharded() {
+		s, err := b.cn.GetShards()
+		if err != nil {
+			return errors.Wrap(err, "get shards list")
+		}
+		shards = append(shards, s...)
+	}
+
+	if waitSec > 0 {
+		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, shards, status, time.Second*time.Duration(waitSec)), "convergeCluster")
+	}
+	return errors.Wrap(b.convergeCluster(bcpName, shards, status), "convergeCluster")
+}
+
+// convergeCluster waits until all given shards reached `status` and updates a cluster status
+func (b *Backup) convergeCluster(bcpName string, shards []pbm.Shard, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
-		backupsToFinish := len(shards)
 		select {
 		case <-tk.C:
-			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			ok, err := b.converged(bcpName, shards, status)
 			if err != nil {
-				return errors.Wrap(err, "get backup metadata")
+				return err
 			}
-			for _, sh := range shards {
-				for _, shard := range bmeta.Replsets {
-					if shard.Name == sh.ID {
-						switch shard.Status {
-						case pbm.StatusDone, pbm.StatusDumpDone:
-							backupsToFinish--
-						case pbm.StatusError:
-							bmeta.Status = pbm.StatusError
-							bmeta.Error = shard.Error
-							return errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
-						}
-					}
-				}
-			}
-			if backupsToFinish == 0 {
-				bmeta.Status = pbm.StatusDone
-				bmeta.DoneTS = time.Now().UTC().Unix()
-				return errors.Wrap(b.cn.UpdateBackupMeta(bmeta), "update backup meta with 'done'")
+			if ok {
+				return nil
 			}
 		case <-b.cn.Context().Done():
 			return nil
@@ -260,7 +294,64 @@ func (b *Backup) checkCluster(bcpName string) error {
 	}
 }
 
-func (b *Backup) waitForCluster(bcpName string) error {
+var errConvergeTimeOut = errors.New("reached converge timeout")
+
+// convergeClusterWithTimeout waits up to geiven timeout until all given shards reached `status` and updates a cluster status
+func (b *Backup) convergeClusterWithTimeout(bcpName string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	tout := time.NewTicker(t)
+	defer tout.Stop()
+	for {
+		select {
+		case <-tk.C:
+			ok, err := b.converged(bcpName, shards, status)
+			if err != nil {
+				return err
+			}
+			if ok {
+				return nil
+			}
+		case <-tout.C:
+			return errConvergeTimeOut
+		case <-b.cn.Context().Done():
+			return nil
+		}
+	}
+}
+
+func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status) (bool, error) {
+	shardsToFinish := len(shards)
+	bmeta, err := b.cn.GetBackupMeta(bcpName)
+	if err != nil {
+		return false, errors.Wrap(err, "get backup metadata")
+	}
+	for _, sh := range shards {
+		for _, shard := range bmeta.Replsets {
+			if shard.Name == sh.ID {
+				switch shard.Status {
+				case status:
+					shardsToFinish--
+				case pbm.StatusError:
+					bmeta.Status = pbm.StatusError
+					bmeta.Error = shard.Error
+					return false, errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
+				}
+			}
+		}
+	}
+	if shardsToFinish == 0 {
+		err := b.cn.ChangeBackupState(bcpName, status, "")
+		if err != nil {
+			return false, errors.Wrapf(err, "update backup meta with %s", status)
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
@@ -271,7 +362,7 @@ func (b *Backup) waitForCluster(bcpName string) error {
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case pbm.StatusDone:
+			case status:
 				return nil
 			case pbm.StatusError:
 				return errors.Wrap(err, "backup failed")

@@ -57,7 +57,7 @@ func runAgent(mongoURI string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	node, err := mongo.NewClient(options.Client().ApplyURI(mongoURI).SetDirect(true))
+	node, err := mongo.NewClient(options.Client().ApplyURI(mongoURI).SetAppName("pbm-agent-exec").SetDirect(true))
 	if err != nil {
 		return errors.Wrap(err, "create node client")
 	}
@@ -71,7 +71,7 @@ func runAgent(mongoURI string) error {
 		return errors.Wrap(err, "node ping")
 	}
 
-	pbmClient, err := pbm.New(ctx, mongoURI)
+	pbmClient, err := pbm.New(ctx, mongoURI, "pbm-agent")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongodb")
 	}
