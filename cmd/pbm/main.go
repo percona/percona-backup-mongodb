@@ -74,7 +74,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, *mURL)
+	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
 	if err != nil {
 		log.Println("Error: connect to mongodb:", err)
 		return
@@ -101,41 +101,18 @@ func main() {
 		}
 		fmt.Printf("Store\n-------\n%s\n", stg)
 	case backupCmd.FullCommand():
-		stg, err := pbmClient.GetStorage()
-		if err != nil {
-			if err == mongo.ErrNoDocuments {
-				log.Println("Error: no store set. Set remote store with <pbm store set>.")
-			} else {
-				log.Println("Error: backup: get remote-store", err)
-			}
-			return
-		}
-
 		// Set backup name. It defauts to the current time stamp if not specified.
-		var bcpName string
-		if *backupName == "" {
-			bcpName = time.Now().UTC().Format(time.RFC3339)
-		} else {
+		bcpName := time.Now().UTC().Format(time.RFC3339)
+		if *backupName != "" {
 			bcpName = *backupName
 		}
-
-		err = pbmClient.SendCmd(pbm.Cmd{
-			Cmd: pbm.CmdBackup,
-			Backup: pbm.BackupCmd{
-				Name:        bcpName,
-				Compression: pbm.CompressionType(*bcpCompression),
-			},
-		})
+		fmt.Printf("Starting backup '%s'", bcpName)
+		storeString, err := backup(pbmClient, bcpName, *bcpCompression)
 		if err != nil {
-			log.Println("Error: backup:", err)
+			log.Println("\nError starting backup:", err)
 			return
 		}
-		storeString := "s3://"
-		if stg.S3.EndpointURL != "" {
-			storeString += stg.S3.EndpointURL + "/"
-		}
-		storeString += stg.S3.Bucket
-		fmt.Printf("Beginning backup '%s' to remote store %s\n", bcpName, storeString)
+		fmt.Printf("\nBackup '%s' to remote store '%s' has started\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
 		err := pbmClient.SendCmd(pbm.Cmd{
 			Cmd: pbm.CmdRestore,
@@ -160,10 +137,12 @@ func main() {
 			switch b.Status {
 			case pbm.StatusDone:
 				bcp = b.Name
-			case pbm.StatusRunnig:
+			case pbm.StatusRunning:
 				bcp = fmt.Sprintf("%s\tIn progress (Launched at %s)", b.Name, time.Unix(b.StartTS, 0).Format(time.RFC3339))
 			case pbm.StatusError:
 				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
+			default:
+				bcp = fmt.Sprintf("%s\t[%s]", b.Name, b.Status)
 			}
 
 			fmt.Println(" ", bcp)
