@@ -73,7 +73,7 @@ type Session struct {
 // func is called instead of waiting to receive an error until a request is made.
 func New(cfgs ...*aws.Config) *Session {
 	// load initial config from environment
-	envCfg := loadEnvConfig()
+	envCfg, envErr := loadEnvConfig()
 
 	if envCfg.EnableSharedConfig {
 		var cfg aws.Config
@@ -93,26 +93,27 @@ func New(cfgs ...*aws.Config) *Session {
 			// Session creation failed, need to report the error and prevent
 			// any requests from succeeding.
 			s = &Session{Config: defaults.Config()}
-			s.Config.MergeIn(cfgs...)
-			s.Config.Logger.Log("ERROR:", msg, "Error:", err)
-			s.Handlers.Validate.PushBack(func(r *request.Request) {
-				r.Error = err
-			})
+			s.logDeprecatedNewSessionError(msg, err, cfgs)
 		}
 
 		return s
 	}
 
 	s := deprecatedNewSession(cfgs...)
-	if envCfg.CSMEnabled {
-		err := enableCSM(&s.Handlers, envCfg.CSMClientID,
-			envCfg.CSMHost, envCfg.CSMPort, s.Config.Logger)
+	if envErr != nil {
+		msg := "failed to load env config"
+		s.logDeprecatedNewSessionError(msg, envErr, cfgs)
+	}
+
+	if csmCfg, err := loadCSMConfig(envCfg, []string{}); err != nil {
+		if l := s.Config.Logger; l != nil {
+			l.Log(fmt.Sprintf("ERROR: failed to load CSM configuration, %v", err))
+		}
+	} else if csmCfg.Enabled {
+		err := enableCSM(&s.Handlers, csmCfg, s.Config.Logger)
 		if err != nil {
-			err = fmt.Errorf("failed to enable CSM, %v", err)
-			s.Config.Logger.Log("ERROR:", err.Error())
-			s.Handlers.Validate.PushBack(func(r *request.Request) {
-				r.Error = err
-			})
+			msg := "failed to enable CSM"
+			s.logDeprecatedNewSessionError(msg, err, cfgs)
 		}
 	}
 
@@ -132,7 +133,7 @@ func New(cfgs ...*aws.Config) *Session {
 // to be built with retrieving credentials with AssumeRole set in the config.
 //
 // See the NewSessionWithOptions func for information on how to override or
-// control through code how the Session will be created. Such as specifying the
+// control through code how the Session will be created, such as specifying the
 // config profile, and controlling if shared config is enabled or not.
 func NewSession(cfgs ...*aws.Config) (*Session, error) {
 	opts := Options{}
@@ -275,10 +276,17 @@ type Options struct {
 //     }))
 func NewSessionWithOptions(opts Options) (*Session, error) {
 	var envCfg envConfig
+	var err error
 	if opts.SharedConfigState == SharedConfigEnable {
-		envCfg = loadSharedEnvConfig()
+		envCfg, err = loadSharedEnvConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load shared config, %v", err)
+		}
 	} else {
-		envCfg = loadEnvConfig()
+		envCfg, err = loadEnvConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load environment config, %v", err)
+		}
 	}
 
 	if len(opts.Profile) != 0 {
@@ -347,15 +355,12 @@ func deprecatedNewSession(cfgs ...*aws.Config) *Session {
 	return s
 }
 
-func enableCSM(handlers *request.Handlers,
-	clientID, host, port string,
-	logger aws.Logger,
-) error {
+func enableCSM(handlers *request.Handlers, cfg csmConfig, logger aws.Logger) error {
 	if logger != nil {
 		logger.Log("Enabling CSM")
 	}
 
-	r, err := csm.Start(clientID, csm.AddressWithDefaults(host, port))
+	r, err := csm.Start(cfg.ClientID, csm.AddressWithDefaults(cfg.Host, cfg.Port))
 	if err != nil {
 		return err
 	}
@@ -395,7 +400,13 @@ func newSession(opts Options, envCfg envConfig, cfgs ...*aws.Config) (*Session, 
 	// Load additional config from file(s)
 	sharedCfg, err := loadSharedConfig(envCfg.Profile, cfgFiles, envCfg.EnableSharedConfig)
 	if err != nil {
-		if _, ok := err.(SharedConfigProfileNotExistsError); !ok {
+		if len(envCfg.Profile) == 0 && !envCfg.EnableSharedConfig && (envCfg.Creds.HasKeys() || userCfg.Credentials != nil) {
+			// Special case where the user has not explicitly specified an AWS_PROFILE,
+			// or session.Options.profile, shared config is not enabled, and the
+			// environment has credentials, allow the shared config file to fail to
+			// load since the user has already provided credentials, and nothing else
+			// is required to be read file. Github(aws/aws-sdk-go#2455)
+		} else if _, ok := err.(SharedConfigProfileNotExistsError); !ok {
 			return nil, err
 		}
 	}
@@ -410,9 +421,13 @@ func newSession(opts Options, envCfg envConfig, cfgs ...*aws.Config) (*Session, 
 	}
 
 	initHandlers(s)
-	if envCfg.CSMEnabled {
-		err := enableCSM(&s.Handlers, envCfg.CSMClientID,
-			envCfg.CSMHost, envCfg.CSMPort, s.Config.Logger)
+
+	if csmCfg, err := loadCSMConfig(envCfg, cfgFiles); err != nil {
+		if l := s.Config.Logger; l != nil {
+			l.Log(fmt.Sprintf("ERROR: failed to load CSM configuration, %v", err))
+		}
+	} else if csmCfg.Enabled {
+		err = enableCSM(&s.Handlers, csmCfg, s.Config.Logger)
 		if err != nil {
 			return nil, err
 		}
@@ -426,6 +441,46 @@ func newSession(opts Options, envCfg envConfig, cfgs ...*aws.Config) (*Session, 
 	}
 
 	return s, nil
+}
+
+type csmConfig struct {
+	Enabled  bool
+	Host     string
+	Port     string
+	ClientID string
+}
+
+var csmProfileName = "aws_csm"
+
+func loadCSMConfig(envCfg envConfig, cfgFiles []string) (csmConfig, error) {
+	if envCfg.CSMEnabled != nil {
+		if *envCfg.CSMEnabled {
+			return csmConfig{
+				Enabled:  true,
+				ClientID: envCfg.CSMClientID,
+				Host:     envCfg.CSMHost,
+				Port:     envCfg.CSMPort,
+			}, nil
+		}
+		return csmConfig{}, nil
+	}
+
+	sharedCfg, err := loadSharedConfig(csmProfileName, cfgFiles, false)
+	if err != nil {
+		if _, ok := err.(SharedConfigProfileNotExistsError); !ok {
+			return csmConfig{}, err
+		}
+	}
+	if sharedCfg.CSMEnabled != nil && *sharedCfg.CSMEnabled == true {
+		return csmConfig{
+			Enabled:  true,
+			ClientID: sharedCfg.CSMClientID,
+			Host:     sharedCfg.CSMHost,
+			Port:     sharedCfg.CSMPort,
+		}, nil
+	}
+
+	return csmConfig{}, nil
 }
 
 func loadCustomCABundle(s *Session, bundle io.Reader) error {
@@ -499,6 +554,9 @@ func mergeConfigSrcs(cfg, userCfg *aws.Config,
 		}
 	}
 
+	// Regional Endpoint flag for STS endpoint resolving
+	mergeSTSRegionalEndpointConfig(cfg, envCfg, sharedCfg)
+
 	// Configure credentials if not already set by the user when creating the
 	// Session.
 	if cfg.Credentials == credentials.AnonymousCredentials && userCfg.Credentials == nil {
@@ -512,6 +570,22 @@ func mergeConfigSrcs(cfg, userCfg *aws.Config,
 	return nil
 }
 
+// mergeSTSRegionalEndpointConfig function merges the STSRegionalEndpoint into cfg from
+// envConfig and SharedConfig with envConfig being given precedence over SharedConfig
+func mergeSTSRegionalEndpointConfig(cfg *aws.Config, envCfg envConfig, sharedCfg sharedConfig) error {
+
+	cfg.STSRegionalEndpoint = envCfg.STSRegionalEndpoint
+
+	if cfg.STSRegionalEndpoint == endpoints.UnsetSTSEndpoint {
+		cfg.STSRegionalEndpoint = sharedCfg.STSRegionalEndpoint
+	}
+
+	if cfg.STSRegionalEndpoint == endpoints.UnsetSTSEndpoint {
+		cfg.STSRegionalEndpoint = endpoints.LegacySTSEndpoint
+	}
+	return nil
+}
+
 func initHandlers(s *Session) {
 	// Add the Validate parameter handler if it is not disabled.
 	s.Handlers.Validate.Remove(corehandlers.ValidateParametersHandler)
@@ -520,7 +594,7 @@ func initHandlers(s *Session) {
 	}
 }
 
-// Copy creates and returns a copy of the current Session, coping the config
+// Copy creates and returns a copy of the current Session, copying the config
 // and handlers. If any additional configs are provided they will be merged
 // on top of the Session's copied config.
 //
@@ -565,6 +639,9 @@ func (s *Session) clientConfigWithErr(serviceName string, cfgs ...*aws.Config) (
 			func(opt *endpoints.Options) {
 				opt.DisableSSL = aws.BoolValue(s.Config.DisableSSL)
 				opt.UseDualStack = aws.BoolValue(s.Config.UseDualStack)
+				// Support for STSRegionalEndpoint where the STSRegionalEndpoint is
+				// provided in envconfig or sharedconfig with envconfig getting precedence.
+				opt.STSRegionalEndpoint = s.Config.STSRegionalEndpoint
 
 				// Support the condition where the service is modeled but its
 				// endpoint metadata is not available.
@@ -606,4 +683,15 @@ func (s *Session) ClientConfigNoResolveEndpoint(cfgs ...*aws.Config) client.Conf
 		SigningNameDerived: resolved.SigningNameDerived,
 		SigningName:        resolved.SigningName,
 	}
+}
+
+// logDeprecatedNewSessionError function enables error handling for session
+func (s *Session) logDeprecatedNewSessionError(msg string, err error, cfgs []*aws.Config) {
+	// Session creation failed, need to report the error and prevent
+	// any requests from succeeding.
+	s.Config.MergeIn(cfgs...)
+	s.Config.Logger.Log("ERROR:", msg, "Error:", err)
+	s.Handlers.Validate.PushBack(func(r *request.Request) {
+		r.Error = err
+	})
 }
