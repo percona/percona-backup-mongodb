@@ -51,6 +51,11 @@ func (im *IsMaster) IsSharded() bool {
 	return im.SetName != "" && (im.ConfigServerState != nil || im.ConfigSvr == 2)
 }
 
+// IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
+func (im *IsMaster) IsLeader() bool {
+	return !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv
+}
+
 // ReplsetRole returns replset role in sharded clister
 func (im *IsMaster) ReplsetRole() ReplRole {
 	switch {
