@@ -14,6 +14,7 @@ import (
 	"github.com/mongodb/mongo-tools-common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -232,8 +233,10 @@ func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
-func (b *Backup) oplog(oplog *Oplog, oplogTS int64, stg pbm.Storage, name string, compression pbm.CompressionType) error {
+func (b *Backup) oplog(oplog *Oplog, oplogTS primitive.Timestamp, stg pbm.Storage, name string, compression pbm.CompressionType) error {
 	r, pw := io.Pipe()
+	defer r.Close()
+
 	w := Compress(pw, compression)
 
 	var err rwErr
