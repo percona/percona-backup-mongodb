@@ -13,9 +13,9 @@ type OpTime struct {
 
 // IsMasterLastWrite represents the last write to the MongoDB server
 type IsMasterLastWrite struct {
-	OpTime            *OpTime   `bson:"opTime"`
+	OpTime            OpTime    `bson:"opTime"`
 	LastWriteDate     time.Time `bson:"lastWriteDate"`
-	MajorityOpTime    *OpTime   `bson:"majorityTime"`
+	MajorityOpTime    OpTime    `bson:"majorityTime"`
 	MajorityWriteDate time.Time `bson:"majorityWriteDate"`
 }
 
