@@ -15,7 +15,7 @@ type OpTime struct {
 type IsMasterLastWrite struct {
 	OpTime            OpTime    `bson:"opTime"`
 	LastWriteDate     time.Time `bson:"lastWriteDate"`
-	MajorityOpTime    OpTime    `bson:"majorityTime"`
+	MajorityOpTime    OpTime    `bson:"majorityOpTime"`
 	MajorityWriteDate time.Time `bson:"majorityWriteDate"`
 }
 

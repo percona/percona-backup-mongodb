@@ -54,7 +54,7 @@ func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, from, to primitive.Ti
 		if !ok {
 			return errors.Errorf("get the timestamp of record %v", cur.Current)
 		}
-		if primitive.CompareTimestamp(to, opts) > 0 {
+		if primitive.CompareTimestamp(to, opts) == -1 {
 			return nil
 		}
 
@@ -72,14 +72,18 @@ func (ot *Oplog) SliceTo(ctx context.Context, w io.Writer, from, to primitive.Ti
 	return cur.Err()
 }
 
+var errMongoTimestampNil = errors.New("timestamp is nil")
+
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
 	isMaster, err := ot.node.GetIsMaster()
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
 	}
-
-	return isMaster.LastWrite.OpTime.TS, nil
+	if isMaster.LastWrite.MajorityOpTime.TS.T == 0 {
+		return primitive.Timestamp{}, errMongoTimestampNil
+	}
+	return isMaster.LastWrite.MajorityOpTime.TS, nil
 }
 
 func (ot *Oplog) collectionName() (string, error) {
