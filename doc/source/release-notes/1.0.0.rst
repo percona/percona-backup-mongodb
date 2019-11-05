@@ -1,0 +1,38 @@
+.. _release-notes-1.0.0:
+
+|pbm| |release|
+********************************************************************************
+
+|percona| is happy to announce the GA release of our latest software product
+|pbm| |version| on |date|.
+
+|pbm| is a distributed, low-impact solution for consistent backups of |mongodb|
+sharded clusters and replica sets. This is a tool for creating consistent
+backups across a |mongodb| sharded cluster (or a single replica set), and for
+restoring those backups to a specific point in time. The project was inspired by
+(and intends to replace) the Percona-Lab/mongodb_consistent_backup tool.
+
+|pbm| supports `Percona Server for MongoDB
+<https://www.percona.com/software/mongo-database/percona-server-for-mongodb>`_
+or `MongoDB Community Server
+<https://www.mongodb.com/download-center/community>`_ version 3.6 or higher with
+`MongoDB replication <https://docs.mongodb.com/manual/replication/>`_
+enabled. Binaries for the supported platforms as well as the tarball with source
+code are available from the `Percona Backup for MongoDB download page
+<https://www.percona.com/downloads/percona-backup-mongodb/>`_. For more
+information about |pbm| and the installation steps, see the :ref:`documentation
+<pbm.index>`.
+
+|pbm| |release| features the following:
+
+- The architecture and the authentication of |pbm| have been simplified compared
+  to the previous release.
+- Stores backup data on `Amazon Simple Storage Service
+  <https://aws.amazon.com/s3/>`_ or compatible storages, such as `MinIO
+  <https://min.io/>`_.
+- The output of |pbm-list| shows all backups created from the connected MongoDB
+  sharded cluster or replica set.
+
+.. |release| replace:: 1.0.0
+.. |date| replace:: September 19, 2019
+.. include:: ../.res/replace.txt
