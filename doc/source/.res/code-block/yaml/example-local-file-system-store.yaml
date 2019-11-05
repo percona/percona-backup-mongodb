@@ -1,0 +1,5 @@
+.. code-block:: yaml
+
+   type: filesystem
+   filesystem:
+     path: /data/local_backups
