@@ -42,8 +42,6 @@ type Credentials struct {
 	} `bson:"vault" json:"vault" yaml:"vault,omitempty"`
 }
 
-const defaultName = "default"
-
 func (p *PBM) SetStorageByte(buf []byte) error {
 	var stg Storage
 	err := yaml.Unmarshal(buf, &stg)
@@ -56,8 +54,8 @@ func (p *PBM) SetStorageByte(buf []byte) error {
 func (p *PBM) SetStorage(stg Storage) error {
 	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"item", "config"}},
-		bson.M{"$set": bson.M{"storage": map[string]Storage{defaultName: stg}}},
+		bson.D{},
+		bson.M{"$set": bson.M{"storage": stg}},
 		options.Update().SetUpsert(true))
 
 	return err
@@ -95,5 +93,5 @@ func (p *PBM) GetStorage() (Storage, error) {
 		return Storage{}, res.Err()
 	}
 	err := res.Decode(&c)
-	return c.Storage[defaultName], err
+	return c.Storage, err
 }

@@ -1,5 +1,6 @@
 package pbm
 
+// Conf is a pbm config
 type Conf struct {
-	Storage map[string]Storage `bson:"storage"`
+	Storage Storage `bson:"storage"`
 }
