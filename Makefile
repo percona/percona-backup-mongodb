@@ -15,14 +15,14 @@ endef
 versionpath?=github.com/percona/percona-backup-mongodb/version
 LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 
+build: build-pbm build-agent
 build-pbm:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
-build: build-pbm build-agent
 
+install: install-pbm install-agent
 install-pbm:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm
 install-agent:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
-install: install-pbm install-agent
