@@ -19,7 +19,7 @@ RUN curl -o /usr/bin/kubectl \
     && curl -o /licenses/LICENSE.kubectl \
         https://raw.githubusercontent.com/kubernetes/kubectl/master/LICENSE
 
-COPY pbm pbm-agent /usr/local/bin/
+COPY ./bin/pbm ./bin/pbm-agent /usr/local/bin/
 
 USER nobody
 
