@@ -11,10 +11,8 @@
 and MongoDB Community v3.6 or higher with `MongoDB Replication
 <https://docs.mongodb.com/manual/replication/>`_ enabled.
 
-.. note:: 
-
-   The |pbm| project was inspired by (and intends to replace)
-   `mongodb_consistent_backup`. This tool is not supported any longer.
+The |pbm| project inherited from and replaces `mongodb_consistent_backup`,
+which is no longer actively developed or supported.  older tool is not
 
 .. _pbm.feature:
 
@@ -23,78 +21,38 @@ and MongoDB Community v3.6 or higher with `MongoDB Replication
 .. hlist::
    :columns: 2
 
-   - Oplog tailer
-   - Oplog applier
-   - AWS S3 streamer
-   - AWS S3 streamer: Backup (upload)
-   - Mongodump Backup Method
-   - Mongodump Backup Method: Backup
-   - Mongodump Backup Method: Restore
-   - Agent selection algorithm
-   - SSL/TLS support
-   - Replica Set Backup
-   - Sharded Cluster Backup
-   - Command-line management utility
-   - Agent and CLI integrated with MongoDB's own authentication and authorization
-
-.. rubric:: How to use |pbm|: going back in time (|pbm-restore|)
-
-In a highly-available architecture, such as |mongodb| replication, there is no
-need to make a backup in order to recover from a problem like a disk failure. If
-you lose one node you can replace it by re-initializing from one of its replica
-set peers.
-
-*The only point of backups of a replica set is to go back in time*. For example,
-a web application update was released on *Sunday, June 9th 23:00 EST* but, by
-11:23 Monday, someone realizes that the update has wiped the historical data of
-any user who logged in due to a bug.
-
-Nobody likes to have downtime, but it's time to roll back: what's the best backup
-to use?
-
-.. include:: .res/code-block/bash/pbm-list-mongodb-uri.txt
-
-.. admonition:: Output
-
-   .. code-block:: text
-
-      2019-09-10T07:04:14Z
-      2019-09-09T07:03:50Z
-      2019-09-08T07:04:21Z
-      2019-09-07T07:04:18Z
-
-The most recent daily backup would include 4 hours of damage caused by the bug.
-Let's restore the one before that:
-
-.. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
-
-Next time there is an application release, it might be best to make an extra backup
-manually just before:
-
-.. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
-
-.. seealso::
-
-   Typical use cases of |pbm|
-      :ref:`pbm.running`
-
-.. rubric:: Contact Us
-
-Use our Percona email address (mongodb-backup@percona.com) or the contact
-form on the site (https://www.percona.com/about-percona/contact) to reach us.
-
------
+   - Backup and restore for both classic, non-sharded replicasets and clusters
+   - Simple command-line management utility
+   - Oplog capture that provides data consistency for any replica set
+   - Oplog capture synchronization in cluster backups provides cross-cluster
+     consistency.
+   - Simple, integrated-with-MongoDB authentication
+   - No need to install a coordination service on a separate server.
+   - Use any S3-compatible storage
+   - Users with classic, locally-mounted remote filesystem backup servers can
+     use 'filesystem' instead of 's3' storage type.
 
 .. toctree::
    :maxdepth: 2
 
+   intro
    architecture
    installation
    running
    release-notes
+   roadmap
    contributing
-
-.. docker
 
 .. include:: .res/replace.txt
 .. include:: .res/url.txt
+
+----
+
+.. rubric:: Contact Us
+
+Bugs and feature requests can be opened as JIRA tickets at
+https://jira.percona.com/projects/PBM/issues .
+
+Separate to using JIRA the email address for this project is
+(mongodb-backup@percona.com). Lastly you can also use the contact form on the
+site (https://www.percona.com/about-percona/contact).

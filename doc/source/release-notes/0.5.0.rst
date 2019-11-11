@@ -33,7 +33,7 @@ information about |pbm| and the installation steps, see the `documentation
   unauthorized user from running backups or restoring data if they manage to
   access the API port.
 - To optimize the usage of network resources, the pbm-agent on ``mongos`` is not
-  needed any more and |backup-coordinator| automatically establishes connection
+  needed any more and backup-coordinator automatically establishes connection
   to the appropriate ``mongos`` instance.
 - The output of ``pbmctl list nodes`` now includes the replica set name and
   informs the backup status of the node.

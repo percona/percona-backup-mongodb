@@ -17,15 +17,16 @@ to and operate on the cluster from any server that can access the |mongodb|
 cluster.
 
 On every server that has a mongod node, you must run a |pbm-agent| process
-connecting to that |mongod|.
+connecting to that |mongod|. This includes config server nodes if you have a
+cluster.
 
-After installing the binaries, there is one step before you can start using |pbm.app|
-CLI.
+After installing the binaries the following steps are needed before you can
+start using |pbm.app| CLI.
 
-#. Create a *mongodb* user for the |pbm.app| and |pbm-agent| instances to connect to the cluster
-   with. See :ref:`pbm.running.mongodb-authentication` section for more information. 
-#. Set the remote store compatible with S3-compatible object storage in the
-   configuration file. See :ref:`pbm.running.storages-yml-file` for more information.
+#. Create a *mongodb* user for the |pbm.app| and |pbm-agent| instances to
+   connect to the cluster with. See :ref:`pbm.running.mongodb-authentication`
+   section for more information.
+#. Set the location and credentials for the remote storage the backups will be stored in. See :ref:`pbm.running.storages-yml-file` for more information.
 #. Start |pbm-agent| processes for every |mongod| process.
 
 .. _pbm.running.storage.setting-up:
@@ -35,7 +36,7 @@ Configuring a Remote Store for Backup and Restore Operations
 
 For running the backup (|pbm-backup|) and restore (|pbm-restore|) operations,
 you need to set up a place where the backups will be stored and retrieved. To
-configure the store you need to use a |yaml| file with a predefined structure.
+configure the store you need to use a YAML file with a predefined structure.
 
 .. include:: .res/code-block/bash/pbm-store-set-config-mongodb-uri.txt
 
@@ -45,8 +46,8 @@ In |version|, |pbm.app| supports the following types of store:
 - |minio|
 - local file system
 
-|pbm.app| is associated with a store that you supply in the |yaml|
-format as the value of the |pbm-storage-set| command. You do not need
+|pbm.app| is associated with a store that you supply in the YAML
+format as the value of the |pbm-config-file-set| command. You do not need
 to supply the store information for any subsequent operations.
 
 .. include:: .res/code-block/bash/pbm-agent-mongodb-uri.txt
@@ -58,7 +59,7 @@ to supply the store information for any subsequent operations.
 Store Configuration File
 --------------------------------------------------------------------------------
 
-The store configuration file is a |yaml| file that contains all
+The store configuration file is a YAML file that contains all
 required options that pertain to one store. In |version|, 
 |amazon-s3| compatible remote stores and the local file system are supported.
 
@@ -67,12 +68,12 @@ identified by `s3-us-west`.
 
 .. rubric:: |amazon-s3| Store
 
-To set up an |amazon-s3| store in |storages-yml|, give it a name as the top
+To set up an |amazon-s3| store in |config-filename-example|, give it a name as the top
 level element. Set the ``type`` sub element to `s3`. The ``s3`` element, which
 is a sibling to the ``type`` element, set the essential parameters: `region`,
 `bucket`, and `credentials`.
 
-.. admonition:: Example of an |amazon-s3| storage in the |storages-yml| file
+.. admonition:: Example of an |amazon-s3| storage in the |config-filename-example| file
 
    .. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
 
@@ -99,7 +100,7 @@ To use the local file system for storing backups, set the ``type``
 element to *filesystem* and specify a local directory as the value of
 the `path`` element as follows:
 
-.. admonition:: Example of a local file system store in the |storages-yml| file.
+.. admonition:: Example of a local file system store in the |config-filename-example| file.
 
    .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
 
