@@ -19,10 +19,16 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
-	storageCmd     = pbmCmd.Command("store", "Target store")
+	storageCmd     = pbmCmd.Command("store", "Set, change or list the config")
 	storageSetCmd  = storageCmd.Command("set", "Set store")
 	storageConfig  = storageSetCmd.Flag("config", "Store config file in yaml format").String()
 	storageShowCmd = storageCmd.Command("show", "Show current storage configuration")
+
+	configCmd     = pbmCmd.Command("config", "Set, change or list the config")
+	configListF   = configCmd.Flag("list", "List current settings").Bool()
+	configFileF   = configCmd.Flag("file", "Upload config from YAML file").String()
+	configSetF    = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
+	configShowKey = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
@@ -48,8 +54,7 @@ func main() {
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil && cmd != versionCmd.FullCommand() {
-		log.Println("Error: parse command line parameters:", err)
-		return
+		log.Fatalln("Error: parse command line parameters:", err)
 	}
 
 	if cmd == versionCmd.FullCommand() {
@@ -67,7 +72,7 @@ func main() {
 	if *mURL == "" {
 		log.Println("Error: no mongodb connection URI supplied\n")
 		pbmCmd.Usage(os.Args[1:])
-		return
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,36 +80,51 @@ func main() {
 
 	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
 	if err != nil {
-		log.Println("Error: connect to mongodb:", err)
-		return
+		log.Fatalln("Error: connect to mongodb:", err)
 	}
 
 	switch cmd {
-	case storageSetCmd.FullCommand():
-		buf, err := ioutil.ReadFile(*storageConfig)
-		if err != nil {
-			log.Println("Error: unable to read storage file:", err)
-			return
+	case configCmd.FullCommand():
+		switch {
+		case len(*configSetF) > 0:
+			for k, v := range *configSetF {
+				err := pbmClient.SetConfigVar(k, v)
+				if err != nil {
+					log.Fatalln("Error: set config key:", err)
+				}
+				fmt.Printf("[%s=%s]\n", k, v)
+			}
+		case len(*configFileF) > 0:
+			buf, err := ioutil.ReadFile(*configFileF)
+			if err != nil {
+				log.Fatalln("Error: unable to read storage file:", err)
+			}
+			err = pbmClient.SetConfigByte(buf)
+			if err != nil {
+				log.Fatalln("Error: unable to set storage:", err)
+			}
+			fmt.Println("[Config set]")
+		case len(*configShowKey) > 0:
+			k, err := pbmClient.GetConfigVar(*configShowKey)
+			if err != nil {
+				log.Fatalln("Error: unable to get config key:", err)
+			}
+			fmt.Println(k)
+		case *configListF:
+			fallthrough
+		default:
+			cfg, err := pbmClient.GetConfigYaml(true)
+			if err != nil {
+				log.Fatalln("Error: unable to get config:", err)
+			}
+			fmt.Println(string(cfg))
 		}
-		err = pbmClient.SetStorageByte(buf)
-		if err != nil {
-			log.Println("Error: unable to set storage:", err)
-			return
-		}
-		fmt.Println("[Done]")
-	case storageShowCmd.FullCommand():
-		stg, err := pbmClient.GetStorageYaml(true)
-		if err != nil {
-			log.Println("Error: unable to get store:", err)
-			return
-		}
-		fmt.Printf("Store\n-------\n%s\n", stg)
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
 		fmt.Printf("Starting backup '%s'", bcpName)
 		storeString, err := backup(pbmClient, bcpName, *bcpCompression)
 		if err != nil {
-			log.Println("\nError starting backup:", err)
+			log.Fatalln("\nError starting backup:", err)
 			return
 		}
 		fmt.Printf("\nBackup '%s' to remote store '%s' has started\n", bcpName, storeString)
@@ -116,15 +136,13 @@ func main() {
 			},
 		})
 		if err != nil {
-			log.Println("Error: schedule restore:", err)
-			return
+			log.Fatalln("Error: schedule restore:", err)
 		}
 		fmt.Printf("Beginning restore of the snapshot from %s\n", *restoreBcpName)
 	case listCmd.FullCommand():
 		bcps, err := pbmClient.BackupsList(*listCmdSize)
 		if err != nil {
-			log.Println("Error: unable to get backups list:", err)
-			return
+			log.Fatalln("Error: unable to get backups list:", err)
 		}
 		fmt.Println("Backup history:")
 		for _, b := range bcps {
