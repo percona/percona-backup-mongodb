@@ -135,13 +135,13 @@ func ValidateConfigKey(k string) bool {
 	return false
 }
 
-func (p *PBM) GetConfigYaml(safe bool) ([]byte, error) {
+func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 	c, err := p.GetConfig()
 	if err != nil {
 		errors.Wrap(err, "get from db")
 	}
 
-	if safe {
+	if fieldRedaction {
 		if c.Storage.S3.Credentials.AccessKeyID != "" {
 			c.Storage.S3.Credentials.AccessKeyID = "***"
 		}
