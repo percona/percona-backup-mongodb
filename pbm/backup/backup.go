@@ -37,7 +37,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-const waitForRunSec = 15
+var statusRunTimeout = time.Second * 15
 
 // run the backup.
 // TODO: describe flow
@@ -53,6 +53,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		Compression: bcp.Compression,
 		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
+		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // (andrew) I dunno why, but the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 	}
 
 	rsName := im.SetName
@@ -112,7 +113,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, waitForRunSec)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &statusRunTimeout)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -128,7 +129,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	oplog := NewOplog(b.node)
-	oplogTS, err := oplog.StartTS()
+	oplogTS, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
 	}
@@ -144,10 +145,25 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
+	lwts, err := oplog.LastWrite()
+	if err != nil {
+		return errors.Wrap(err, "get shard's last write ts")
+	}
+
+	err = b.cn.SetRSLastWrite(bcp.Name, rsMeta.Name, lwts)
+	if err != nil {
+		return errors.Wrap(err, "set shard's last write ts")
+	}
+
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, im, -1)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, im, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
+		}
+
+		err = b.setClusterLastWrite(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "set cluster last write ts")
 		}
 	}
 
@@ -156,7 +172,12 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "waiting for dump done")
 	}
 
-	err = b.oplog(oplog, oplogTS, stg, rsMeta.OplogName, bcp.Compression)
+	lwTS, err := b.waitForLastWrite(bcp.Name)
+	if err != nil {
+		return errors.Wrap(err, "waiting and reading cluster last write ts")
+	}
+
+	err = b.oplog(oplog, oplogTS, lwTS, stg, rsMeta.OplogName, bcp.Compression)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -166,7 +187,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, im, -1)
+		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, im, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
@@ -233,7 +254,7 @@ func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
-func (b *Backup) oplog(oplog *Oplog, oplogTS primitive.Timestamp, stg pbm.Storage, name string, compression pbm.CompressionType) error {
+func (b *Backup) oplog(oplog *Oplog, startTS, endTS primitive.Timestamp, stg pbm.Storage, name string, compression pbm.CompressionType) error {
 	r, pw := io.Pipe()
 	defer r.Close()
 
@@ -241,7 +262,7 @@ func (b *Backup) oplog(oplog *Oplog, oplogTS primitive.Timestamp, stg pbm.Storag
 
 	var err rwErr
 	go func() {
-		err.read = oplog.SliceTo(b.cn.Context(), w, oplogTS)
+		err.read = oplog.SliceTo(b.cn.Context(), w, startTS, endTS)
 		err.compress = w.Close()
 		pw.Close()
 	}()
@@ -255,7 +276,7 @@ func (b *Backup) oplog(oplog *Oplog, oplogTS primitive.Timestamp, stg pbm.Storag
 	return nil
 }
 
-func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, waitSec int) error {
+func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
 			ID:   im.SetName,
@@ -271,8 +292,8 @@ func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMa
 		shards = append(shards, s...)
 	}
 
-	if waitSec > 0 {
-		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, shards, status, time.Second*time.Duration(waitSec)), "convergeCluster")
+	if timeout != nil {
+		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, shards, status, *timeout), "convergeClusterWithTimeout")
 	}
 	return errors.Wrap(b.convergeCluster(bcpName, shards, status), "convergeCluster")
 }
@@ -376,6 +397,25 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 	}
 }
 
+func (b *Backup) waitForLastWrite(bcpName string) (primitive.Timestamp, error) {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			if err != nil {
+				return primitive.Timestamp{}, errors.Wrap(err, "get backup metadata")
+			}
+			if bmeta.LastWriteTS.T > 0 {
+				return bmeta.LastWriteTS, nil
+			}
+		case <-b.cn.Context().Done():
+			return primitive.Timestamp{}, nil
+		}
+	}
+}
+
 func (b *Backup) dumpClusterMeta(bcpName string, stg pbm.Storage) error {
 	meta, err := b.cn.GetBackupMeta(bcpName)
 	if err != nil {
@@ -393,6 +433,23 @@ func writeMeta(stg pbm.Storage, meta *pbm.BackupMeta) error {
 
 	err = Save(bytes.NewReader(b), stg, meta.Name+".pbm.json")
 	return errors.Wrap(err, "write to store")
+}
+
+func (b *Backup) setClusterLastWrite(bcpName string) error {
+	bmeta, err := b.cn.GetBackupMeta(bcpName)
+	if err != nil {
+		return errors.Wrap(err, "get backup metadata")
+	}
+
+	lw := primitive.Timestamp{}
+	for _, rs := range bmeta.Replsets {
+		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
+			lw = rs.LastWriteTS
+		}
+	}
+
+	err = b.cn.SetLastWrite(bcpName, lw)
+	return errors.Wrap(err, "set timestamp")
 }
 
 func (b *Backup) dump(stg pbm.Storage, name string, compression pbm.CompressionType) error {

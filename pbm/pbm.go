@@ -8,6 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -175,16 +176,17 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
-	Name             string          `bson:"name" json:"name"`
-	Replsets         []BackupReplset `bson:"replsets" json:"replsets"`
-	Compression      CompressionType `bson:"compression" json:"compression"`
-	Store            Storage         `bson:"store" json:"store"`
-	MongoVersion     string          `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS          int64           `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64           `bson:"last_transition_ts" json:"last_transition_ts"`
-	Status           Status          `bson:"status" json:"status"`
-	Conditions       []Condition     `bson:"conditions" json:"conditions"`
-	Error            string          `bson:"error,omitempty" json:"error,omitempty"`
+	Name             string              `bson:"name" json:"name"`
+	Replsets         []BackupReplset     `bson:"replsets" json:"replsets"`
+	Compression      CompressionType     `bson:"compression" json:"compression"`
+	Store            Storage             `bson:"store" json:"store"`
+	MongoVersion     string              `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64               `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
+	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Status           Status              `bson:"status" json:"status"`
+	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 }
 type Condition struct {
 	Timestamp int64  `bson:"timestamp" json:"timestamp"`
@@ -193,14 +195,15 @@ type Condition struct {
 }
 
 type BackupReplset struct {
-	Name             string      `bson:"name" json:"name"`
-	DumpName         string      `bson:"dump_name" json:"backup_name" `
-	OplogName        string      `bson:"oplog_name" json:"oplog_name"`
-	StartTS          int64       `bson:"start_ts" json:"start_ts"`
-	Status           Status      `bson:"status" json:"status"`
-	LastTransitionTS int64       `bson:"last_transition_ts" json:"last_transition_ts"`
-	Error            string      `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition `bson:"conditions" json:"conditions"`
+	Name             string              `bson:"name" json:"name"`
+	DumpName         string              `bson:"dump_name" json:"backup_name" `
+	OplogName        string              `bson:"oplog_name" json:"oplog_name"`
+	StartTS          int64               `bson:"start_ts" json:"start_ts"`
+	Status           Status              `bson:"status" json:"status"`
+	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
+	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 }
 
 // Status is backup current status
@@ -242,6 +245,18 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 	return err
 }
 
+func (p *PBM) SetLastWrite(bcpName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"last_write_ts": ts}},
+		},
+	)
+
+	return err
+}
+
 func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
 	rs.LastTransitionTS = rs.StartTS
 	rs.Conditions = append(rs.Conditions, Condition{
@@ -267,6 +282,18 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
 			{"$set", bson.M{"replsets.$.error": msg}},
 			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.last_write_ts": ts}},
 		},
 	)
 

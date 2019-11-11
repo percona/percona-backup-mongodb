@@ -1,0 +1,10 @@
+
+.. note:: 
+
+   If you store the connection string in the |env-pbm-mongodb-uri| environment
+   variable, you can omit the |opt-mongodb-uri| parameter:
+
+   .. code-block:: bash
+
+      $ export PBM_MONGODB_URI="mongodb://172.17.0.3:27018"
+      $ pbm backup

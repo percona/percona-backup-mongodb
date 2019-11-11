@@ -1,0 +1,3 @@
+.. code-block:: bash
+
+   $ pbm restore 2019-06-09T07:03:50Z --mongodb-uri="mongodb://172.17.0.1:27018"
