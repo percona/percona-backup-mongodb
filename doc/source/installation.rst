@@ -27,6 +27,8 @@ pbm              Command-line interface for controlling the backup system
 pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
 
+You should install |pbm-agent| on every server that has mongod nodes in the MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed on any or all servers or desktop computers you wish to use it from, so long as those computers aren't network-blocked from accessing the MongoDB cluster.
+
 .. seealso::
 
    More information about |percona-release|
@@ -92,7 +94,6 @@ Building the project requires:
 
 - Go 1.11 or above
 - make
-- upx (optional)
 
 To build the project (from the project dir):
 
@@ -108,34 +109,10 @@ To build the project (from the project dir):
 After |pbm| is successfully installed on your system, you have |pbm.app|
 and |pbm-agent| programs on your system.
 
-The |pbm| sample configuration files are placed into the :file:`/etc`
-directory:
-
-- :file:`/etc/pbm-agent.conf`
-- :file:`/etc/pbm-agent-storage.conf`
-
 .. seealso::
 
    |pbm| stores
       :ref:`pbm.running.storage.setting-up`
 
-.. Unit tests
-.. --------------------------------------------------------------------------------
-.. 
-.. The testing launches a |mongodb| cluster in |docker| containers. ``docker`` and
-.. docker-compose are required.
-.. 
-.. rubric: To run the tests (may require 'sudo')
-.. 
-.. code-block: bash
-.. 
-..    $ make test-full
-.. 
-.. rubric: To tear-down the test (and containers, data, etc)
-.. 
-.. code-block: bash
-.. 
-..    $ make test-full-clean
-.. 
 
 .. include:: .res/replace.txt

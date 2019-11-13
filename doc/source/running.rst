@@ -1,108 +1,111 @@
 .. _pbm.running:
 
-Backing Up and Restoring Data
+Running |pbm|
 ********************************************************************************
 
 .. contents::
    :local:
 
+Please see pbm.auth_ if you have not already. This will explain the MongoDB user that needs to be created, and the connection method used by |pbm|.
+
+Initial Setup
+================================================================================
+
+0. Determine the right MongoDB connection string for the |pbm.app| CLI.
+   (See pbm.auth.mdb_conn_string_)
+1. Use the |pbm.app| CLI to insert the config (especially the Remote Storage location and credentials information).
+   See pbm.config.intialize_
+2. Start (or restart) the |pbm-agent| processes for all mongod nodes.
+
+
+Start the |pbm-agent| processes
+--------------------------------------------------------------------------------
+After installing |pbm-agent| on the all the servers that have mongod nodes make sure it is started one for each mongod node.
+
+E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same servers as the first shard's mongod nodes (listen port 27018, replica set name "sh1rs") to save some hardware costs. In this server you would start two |pbm-agent| processes, one connected to the shard ("mongodb://username:password@localhost:27018/") and one to the configsvr node ("mongodb://username:password@localhost:27019/").
+
+TODO: reference or include pbm-agent startup code block 
+
+TODO: describe how to confirm the connection was OK by checking the |pbm-agent| process's log file.
+
 Running |pbm|
 ================================================================================
 
-|pbm| uses the |mongodb| cluster (or non-sharded replica set) as the store for
-its own config.
-
-Once a user for PBM backups is created you can use the |pbm.app| CLI to connect
-to and operate on the cluster from any server that can access the |mongodb|
-cluster.
-
-On every server that has a mongod node, you must run a |pbm-agent| process
-connecting to that |mongod|. This includes config server nodes if you have a
-cluster.
-
-After installing the binaries the following steps are needed before you can
-start using |pbm.app| CLI.
-
-#. Create a *mongodb* user for the |pbm.app| and |pbm-agent| instances to
-   connect to the cluster with. See :ref:`pbm.running.mongodb-authentication`
-   section for more information.
-#. Set the location and credentials for the remote storage the backups will be stored in. See :ref:`pbm.running.storages-yml-file` for more information.
-#. Start |pbm-agent| processes for every |mongod| process.
-
-.. _pbm.running.storage.setting-up:
 
 Configuring a Remote Store for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
-For running the backup (|pbm-backup|) and restore (|pbm-restore|) operations,
-you need to set up a place where the backups will be stored and retrieved. To
-configure the store you need to use a YAML file with a predefined structure.
+Please see pbm.config_.
 
-.. include:: .res/code-block/bash/pbm-store-set-config-mongodb-uri.txt
-
-In |version|, |pbm.app| supports the following types of store:
-
-- |amazon-s3|
-- |minio|
-- local file system
-
-|pbm.app| is associated with a store that you supply in the YAML
-format as the value of the |pbm-config-file-set| command. You do not need
-to supply the store information for any subsequent operations.
-
-.. include:: .res/code-block/bash/pbm-agent-mongodb-uri.txt
-   
-.. include:: .res/text/note-env-pbm-mongodb-uri.txt
-
-.. _pbm.running.storages-yml-file:
-
-Store Configuration File
---------------------------------------------------------------------------------
-
-The store configuration file is a YAML file that contains all
-required options that pertain to one store. In |version|, 
-|amazon-s3| compatible remote stores and the local file system are supported.
-
-The following example demonstrates the settings of an |amazon-s3| store
-identified by `s3-us-west`.
-
-.. rubric:: |amazon-s3| Store
-
-To set up an |amazon-s3| store in |config-filename-example|, give it a name as the top
-level element. Set the ``type`` sub element to `s3`. The ``s3`` element, which
-is a sibling to the ``type`` element, set the essential parameters: `region`,
-`bucket`, and `credentials`.
-
-.. admonition:: Example of an |amazon-s3| storage in the |config-filename-example| file
-
-   .. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
-
-.. seealso::
-
-   More information about |amazon-s3|
-      https://aws.amazon.com/s3/
-
-.. rubric:: |minio| Storage
-
-|minio| is an |amazon-s3| compatible object storage. |minio| uses the same settings
-as the |amazon-s3| storage including the ``type`` element: ``type: s3``. What
-makes the |minio| type distinct is the ``EndpointURL`` element included into the
-``s3`` element.
-
-.. seealso::
-
-   More information about |minio|
-      https://min.io/
-
-.. rubric:: Local File System
-
-To use the local file system for storing backups, set the ``type``
-element to *filesystem* and specify a local directory as the value of
-the `path`` element as follows:
-
-.. admonition:: Example of a local file system store in the |config-filename-example| file.
-
-   .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
+.. For running the backup (|pbm-backup|) and restore (|pbm-restore|) operations,
+.. you need to set up a place where the backups will be stored and retrieved. To
+.. configure the store you need to use a YAML file with a predefined structure.
+.. 
+.. .. include:: .res/code-block/bash/pbm-config-file-set.txt
+.. 
+.. In |version|, |pbm.app| supports the following types of store:
+.. 
+.. - |amazon-s3|
+.. - |minio|
+.. - local file system
+.. 
+.. |pbm.app| is associated with a store that you supply in the YAML
+.. format as the value of the |pbm-config-file-set| command. You do not need
+.. to supply the store information for any subsequent operations.
+.. 
+.. .. include:: .res/code-block/bash/pbm-agent-mongodb-uri.txt
+..    
+.. .. include:: .res/text/note-env-pbm-mongodb-uri.txt
+.. 
+.. .. _pbm.running.storages-yml-file:
+.. 
+.. Store Configuration File
+.. --------------------------------------------------------------------------------
+.. 
+.. The store configuration file is a YAML file that contains all
+.. required options that pertain to one store. In |version|, 
+.. |amazon-s3| compatible remote stores and the local file system are supported.
+.. 
+.. The following example demonstrates the settings of an |amazon-s3| store
+.. identified by `s3-us-west`.
+.. 
+.. .. rubric:: |amazon-s3| Store
+.. 
+.. To set up an |amazon-s3| store in |config-filename-example|, give it a name as the top
+.. level element. Set the ``type`` sub element to `s3`. The ``s3`` element, which
+.. is a sibling to the ``type`` element, set the essential parameters: `region`,
+.. `bucket`, and `credentials`.
+.. 
+.. .. admonition:: Example of an |amazon-s3| storage in the |config-filename-example| file
+.. 
+..    .. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
+.. 
+.. .. seealso::
+.. 
+..    More information about |amazon-s3|
+..       https://aws.amazon.com/s3/
+.. 
+.. .. rubric:: |minio| Storage
+.. 
+.. |minio| is an |amazon-s3| compatible object storage. |minio| uses the same settings
+.. as the |amazon-s3| storage including the ``type`` element: ``type: s3``. What
+.. makes the |minio| type distinct is the ``EndpointURL`` element included into the
+.. ``s3`` element.
+.. 
+.. .. seealso::
+.. 
+..    More information about |minio|
+..       https://min.io/
+.. 
+.. .. rubric:: Local File System
+.. 
+.. To use the local file system for storing backups, set the ``type``
+.. element to *filesystem* and specify a local directory as the value of
+.. the `path`` element as follows:
+.. 
+.. .. admonition:: Example of a local file system store in the |config-filename-example| file.
+.. 
+..    .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
 
 
 Running |pbm-agent|
@@ -129,22 +132,6 @@ credentials:
 
 .. _pbm.running.mongodb-authentication:
 
-|mongodb| Authentication
-================================================================================
-
-If `MongoDB Authentication`_ is enabled the backup agent must be provided
-credentials for a |mongodb| user with the `backup
-<https://docs.mongodb.com/manual/reference/built-in-roles/#backup>`__, `restore
-<https://docs.mongodb.com/manual/reference/built-in-roles/#restore>`__ and
-`clusterMonitor
-<https://docs.mongodb.com/manual/reference/built-in-roles/#clusterMonitor>`__
-built-in auth roles. This user must exist on every database node and it should
-not be used by other applications.
-
-An example of the ``createUser`` command (must be run via the 'mongo' shell on a
-``PRIMARY`` member):
-
-.. include:: .res/code-block/mongo/db-createuser.txt
 
 Running |pbm.app| Commands
 ================================================================================
@@ -156,7 +143,7 @@ If ``pbm store show --mongodb-uri="...."`` returns an empty or incomplete remote
 store configuration please follow the instructions in the
 :ref:`pbm.running.storage.setting-up` section:
 
-.. include: .res/code-block/bash/pbm-store-set-config-mongodb-uri.txt
+.. include: .res/code-block/bash/pbm-config-file-set.txt
 
 The connection string should point to the config server replica set if a
 cluster. For a non-sharded replicaset, the connection string should be just to

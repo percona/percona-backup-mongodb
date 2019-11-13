@@ -5,6 +5,8 @@ Architecture
 
 |pbm| uses one |pbm-agent| process per |mongod| node. The PBM control collections in the |mongodb| cluster or non-sharded replicaset itself serve as the central configuration, authentication and coordination channel. Administrators observe and control the backups or restores with a |pbm.app| CLI command that they can run from any host with the access to the |mongodb| cluster.
 
+A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI command can connect to any cluster (or non-sharded replica set) it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. Different clusters will require the |pbm.app| user to use a different MongoDB connection for each though.
+
 .. contents::
    :local:
 
@@ -15,10 +17,10 @@ Architecture
 
 |pbm| requires one instance of |pbm-agent| to be attached locally to each |mongod| instance. This  includes replicaset nodes that are currently secondaries and config server replicaset nodes in a cluster.
 
-It does not have a config file, but typically you would ensure that is always running when it should be by using a system init script. To supply it with the authentication information it requires that init script should include a |opt-mongodb-uri| option value or set the |env-pbm-mongodb-uri| environment variable.
+It does not have a config file, but typically you would ensure that is always running when it should be by using a system init script. To supply it with the authentication information that init script should include the MongoDB connection string URI as the |opt-mongodb-uri| option value or set it in the |env-pbm-mongodb-uri| environment variable. |pbm-agent| processes attached to a shard node will also automatically construct an extra connection the configsvr replica set.
 
-The |pbm-agent| actions are initiated by updates made to the PBM control collections by the |pbm.app| command line utility.  The |pbm-agent| detects if it is a good candidate to do the backup or restore operation and coordinates with the other nodes in the same replicaset to choose one that will perform the requested actions on behalf of the replicaset.
- 
+The |pbm-agent| backup and restore operations are initiated by updates made to the PBM control collections by the |pbm.app| command line utility.  The |pbm-agent| detects if it is a good candidate to do the backup or restore operation and competes in an race/election with |pbm-agent| processes attached to the other nodes in the same replicaset to be the one to perform the requested actions on behalf of the replicaset.
+
 .. _pbm.architecture.pbmctl:
 
 PBM Command Line Utility (|pbm.app|)
@@ -31,6 +33,8 @@ PBM Command Line Utility (|pbm.app|)
 |pbm.app| modifies the PBM config by saving it in the PBM control collection for config values. Likewise it starts and monitors backup or restore operations by updating and reading other PBM control collections for operations, log, etc.
 
 |pbm.app| does not have its own config and/or cache files per se. Setting the |env-pbm-mongodb-uri| environment variable in your shell resource files or sourcing that value in the scripts you run it with is very practical though. (Without that the |opt-mongodb-uri| option will need to be specified each time.)
+
+.. _pbm.architecture.pbm_control_collections:
 
 PBM Control Collections
 ================================================================================

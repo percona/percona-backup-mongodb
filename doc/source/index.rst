@@ -38,9 +38,11 @@ which is no longer actively developed or supported.  older tool is not
    intro
    architecture
    installation
+   authentication
+   config
    running
    release-notes
-   roadmap
+   uninstalling
    contributing
 
 .. include:: .res/replace.txt

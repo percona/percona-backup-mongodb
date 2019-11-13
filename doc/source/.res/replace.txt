@@ -17,6 +17,7 @@
 .. |pbm-restore| replace:: ``pbm restore``
 .. |pbm-config-set| replace:: :program:`pbm config --set`
 .. |pbm-config-file-set| replace:: :program:`pbm config --file`
+.. |pbm-config-list| replace:: :program:`pbm config --list`
 .. |pbm.app| replace:: ``pbm``
 .. |pbm| replace:: Percona Backup for MongoDB
 .. |percona-release| replace:: ``percona-release``
