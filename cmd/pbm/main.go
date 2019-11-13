@@ -95,6 +95,12 @@ func main() {
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
 			}
+		case len(*configShowKey) > 0:
+			k, err := pbmClient.GetConfigVar(*configShowKey)
+			if err != nil {
+				log.Fatalln("Error: unable to get config key:", err)
+			}
+			fmt.Println(k)
 		case len(*configFileF) > 0:
 			buf, err := ioutil.ReadFile(*configFileF)
 			if err != nil {
@@ -104,13 +110,9 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to set storage:", err)
 			}
-			fmt.Println("[Config set]")
-		case len(*configShowKey) > 0:
-			k, err := pbmClient.GetConfigVar(*configShowKey)
-			if err != nil {
-				log.Fatalln("Error: unable to get config key:", err)
-			}
-			fmt.Println(k)
+			fmt.Println("[Config set]\n------")
+			// show config after it was set
+			fallthrough
 		case *configListF:
 			fallthrough
 		default:
