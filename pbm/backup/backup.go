@@ -71,8 +71,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 	defer func() {
 		if err != nil {
-			b.cn.ChangeBackupState(bcp.Name, pbm.StatusError, err.Error())
-			b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusError, err.Error())
+			ferr := b.MarkFailed(bcp.Name, rsMeta.Name, err.Error())
+			log.Printf("Mark backup as failed `%v`: %v\n", err, ferr)
 		}
 	}()
 
@@ -522,4 +522,14 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 	}
 
 	return name
+}
+
+// MarkFailed set state of backup and given rs as error with msg
+func (b *Backup) MarkFailed(bcpName, rsName, msg string) error {
+	err := b.cn.ChangeBackupState(bcpName, pbm.StatusError, msg)
+	if err != nil {
+		return errors.Wrap(err, "set backup state")
+	}
+	err = b.cn.ChangeRSState(bcpName, rsName, pbm.StatusError, msg)
+	return errors.Wrap(err, "set replset state")
 }

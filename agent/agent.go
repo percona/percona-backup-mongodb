@@ -97,27 +97,69 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// have wait random time (1 to 100 ms) before acquiring lock
 	// otherwise all angent could aquire own locks
 	time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
-	// TODO: check if lock from "another" backup and notify user
+	// TODO: check if the lock is from "another" backup and notify user
 	got, err := a.pbm.AcquireLock(lock)
 	if err != nil {
 		log.Println("[ERROR] backup: acquiring lock:", err)
 		return
 	}
 	if !got {
-		log.Println("Backup has been scheduled on another replset node")
-		return
+		log.Println("Lock exists")
+		stale, elock, err := a.pbm.LockIsStale(lock)
+		if err != nil {
+			log.Println("[ERROR] backup: check is lock stale", err)
+			return
+		}
+		if stale {
+			err := backup.New(a.pbm, a.node).MarkFailed(elock.BackupName, elock.Replset, "no response from node")
+			if err != nil {
+				log.Println("[ERROR] backup: mark stale backup as failed", err)
+				return
+			}
+
+			err = a.pbm.ReleaseLock(elock)
+			if err != nil {
+				log.Println("[ERROR] backup: release stale lock", err)
+				return
+			}
+
+			// TODO: retry on getting a lock
+			// TODO: or notify user that there was a running backup (via pbmBackup with error?)
+		} else {
+			log.Println("Backup has been scheduled on another replset node")
+			return
+		}
 	}
+
+	hbctx, hbCancel := context.WithCancel(context.Background())
+	go func() {
+		tk := time.NewTicker(time.Second * 5)
+		defer tk.Stop()
+		for {
+			select {
+			case <-tk.C:
+				err := a.pbm.LockBeat(lock)
+				if err != nil {
+					log.Println("[ERROR] lock heartbeat:", err)
+				}
+			case <-hbctx.Done():
+				return
+			}
+		}
+	}()
 
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
 	err = backup.New(a.pbm, a.node).Run(bcp)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
+	} else {
+		log.Printf("Backup %s finished", bcp.Name)
 	}
-	log.Printf("Backup %s finished", bcp.Name)
 
 	// wait before release lock in case backup was super fast and
 	// other agents still trying to get lock
 	time.Sleep(1e3 * time.Millisecond)
+	hbCancel()
 	err = a.pbm.ReleaseLock(lock)
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
@@ -155,6 +197,24 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		err = a.pbm.ReleaseLock(lock)
 		if err != nil {
 			log.Printf("[ERROR] restore: release backup lock for %v: %v\n", lock, err)
+		}
+	}()
+
+	hbctx, hbCancel := context.WithCancel(context.Background())
+	defer hbCancel()
+	go func() {
+		tk := time.NewTicker(time.Second * 5)
+		defer tk.Stop()
+		for {
+			select {
+			case <-tk.C:
+				err := a.pbm.LockBeat(lock)
+				if err != nil {
+					log.Println("[ERROR] lock heartbeat:", err)
+				}
+			case <-hbctx.Done():
+				return
+			}
 		}
 	}()
 
