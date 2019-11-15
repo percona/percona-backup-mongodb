@@ -1,5 +1,8 @@
 .. _pbm.installation:
 
+.. contents::
+   :local:
+
 Installation
 ********************************************************************************
 
@@ -10,15 +13,10 @@ interfaces to your package management system.
 For your convenience, we recommend that you install the |percona-release| utility
 which makes it easy to install any |percona| product on your system.
 
-.. important::
-
-   Make sure to install the latest version of |percona-release|.
-
 You may also build and install |pbm| from source code in case you require a
 fully controlled installation method.
 
-Regardless of the installation method you choose, the following tools are at your
-disposal after the installation completes:
+Regardless of the installation method you choose, the following tools are at your disposal after the installation completes:
 
 ===============  ===============================================================
 Tool             Purpose
@@ -51,9 +49,6 @@ enable the *tools* repository.
 
    Configuring |percona| repositories
       https://www.percona.com/doc/percona-repo-config/index.html
-
-.. contents::
-   :local:
 
 Installing |pbm| Using ``apt``
 ================================================================================
@@ -109,10 +104,20 @@ To build the project (from the project dir):
 After |pbm| is successfully installed on your system, you have |pbm.app|
 and |pbm-agent| programs on your system.
 
+.. _pbm.installation.service_init_scripts:
+
+Configuring service init scripts
+================================================================================
+
+Some configuration is required for the service script (e.g. systemd unit file) that will run the |pbm-agent| processes.
+
+- The MongoDB connection URI string to the local mongod node. (See pbm.auth_ for an explanation of standard MongoDB connection strings if you need.)
+- A filepath to save log output to. |pbm-agent|'s log output comes straight to stdout and the service script just redirects it (and stderr) to this path.
+
 .. seealso::
 
    |pbm| stores
-      :ref:`pbm.running.storage.setting-up`
+      :ref:`pbm.config.storage.setting-up`
 
 
 .. include:: .res/replace.txt

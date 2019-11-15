@@ -18,7 +18,7 @@ If you are initializing a cluster or non-sharded replicaset for the first time i
 
 .. include:: .res/code-block/bash/pbm-config-file-set.txt
 
-Execute whilst connecting to config server replicaset if it is cluster. Otherwise just connect to the non-sharded replica set as normal. (See pbm.running.mdb_conn_string_ if you are not familiar with MongoDB connection strings yet.)
+Execute whilst connecting to config server replicaset if it is cluster. Otherwise just connect to the non-sharded replica set as normal. (See pbm.auth.mdb_conn_string_ if you are not familiar with MongoDB connection strings yet.)
 
 Run |pbm-config-list| to see the whole config. (Sensitive fields such as keys will be redacted.)
 
@@ -27,7 +27,7 @@ Run |pbm-config-list| to see the whole config. (Sensitive fields such as keys wi
 Example config files
 --------------------------------------------------------------------------------
 
-S3-compatible 
+S3-compatible remote storage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Amazon Simple Storage Service
@@ -36,15 +36,14 @@ Amazon Simple Storage Service
 Minio
 .. include:: .res/code-block/yaml/example-minio-s3-storage.yaml
 
-Filesystem destination
+Locally-mounted Filesystem Storage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This storage is expected to be a remote fileserver mounted to a local directory. PBM uses the directory as if it was any normal directory, however, and does not attempt to confirm it is mounted from a remote server. It is the obligation of the server administrators to ensure that all the mongod-hosting servers have a remote backup server's directory mounted at that same directory path.
 
 .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
 
-.. note::
-   The same filesystem path will be used by all |pbm-agent|, regardless of which server they are on in the cluster or non-sharded replicaset. This obliges the server administrators to ensure that all these servers have a remote backup server's directory mounted at that spot.
-
-Accessing single config values
+Accessing or updating single config values
 --------------------------------------------------------------------------------
 
 You can set a single value at time. For nested values use dot-concatenated key names as shown in the following example:

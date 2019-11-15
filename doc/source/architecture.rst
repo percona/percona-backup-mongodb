@@ -5,7 +5,7 @@ Architecture
 
 |pbm| uses one |pbm-agent| process per |mongod| node. The PBM control collections in the |mongodb| cluster or non-sharded replicaset itself serve as the central configuration, authentication and coordination channel. Administrators observe and control the backups or restores with a |pbm.app| CLI command that they can run from any host with the access to the |mongodb| cluster.
 
-A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI command can connect to any cluster (or non-sharded replica set) it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. Different clusters will require the |pbm.app| user to use a different MongoDB connection for each though.
+A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI command can connect to any cluster it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. Different clusters will require the |pbm.app| user to use a different MongoDB connection for each though.
 
 .. contents::
    :local:
@@ -17,9 +17,9 @@ A single |pbm-agent| is only involved with one cluster (or non-sharded replica s
 
 |pbm| requires one instance of |pbm-agent| to be attached locally to each |mongod| instance. This  includes replicaset nodes that are currently secondaries and config server replicaset nodes in a cluster.
 
-It does not have a config file, but typically you would ensure that is always running when it should be by using a system init script. To supply it with the authentication information that init script should include the MongoDB connection string URI as the |opt-mongodb-uri| option value or set it in the |env-pbm-mongodb-uri| environment variable. |pbm-agent| processes attached to a shard node will also automatically construct an extra connection the configsvr replica set.
+There is no |pbm-agent| config file. Some configuration is required for the service script (e.g. systemd unit file) that will run it though: The MongoDB connection URI string (see pbm.auth_) to the local mongod node; and a filepath to save log output to. See pbm.installation.service_init_scripts_.
 
-The |pbm-agent| backup and restore operations are initiated by updates made to the PBM control collections by the |pbm.app| command line utility.  The |pbm-agent| detects if it is a good candidate to do the backup or restore operation and competes in an race/election with |pbm-agent| processes attached to the other nodes in the same replicaset to be the one to perform the requested actions on behalf of the replicaset.
+The |pbm-agent|'s backup and restore operations are triggered when it observes  updates made to the PBM control collections by the |pbm.app| command line utility. In a method similar to the way replica set members elect a new primary the |pbm-agent| processes in the same replica set 'elect' one to do the backup or restore for that replica set.
 
 .. _pbm.architecture.pbmctl:
 
@@ -32,14 +32,14 @@ PBM Command Line Utility (|pbm.app|)
 
 |pbm.app| modifies the PBM config by saving it in the PBM control collection for config values. Likewise it starts and monitors backup or restore operations by updating and reading other PBM control collections for operations, log, etc.
 
-|pbm.app| does not have its own config and/or cache files per se. Setting the |env-pbm-mongodb-uri| environment variable in your shell resource files or sourcing that value in the scripts you run it with is very practical though. (Without that the |opt-mongodb-uri| option will need to be specified each time.)
+|pbm.app| does not have its own config and/or cache files per se. Setting the |env-pbm-mongodb-uri| environment variable in your shell resource files or sourcing that value in the scripts is valuable shell configuration though. (Without |env-pbm-mongodb-uri| the |opt-mongodb-uri| command line argument will need to be specified each time.)
 
 .. _pbm.architecture.pbm_control_collections:
 
 PBM Control Collections
 ================================================================================
 
-The config and state (current and historical) for backups is stored in collections in the MongoDB cluster or non-sharded replica set itself. These are put in the system "admin" db to keep them cleanly separated from user db namespaces. (In a cluster only the "admin" db on the configsvr replicaset, not the shards.)
+The config and state (current and historical) for backups is stored in collections in the MongoDB cluster or non-sharded replica set itself. These are put in the system "admin" db to keep them cleanly separated from user db namespaces. In a cluster only in the "admin" db on the configsvr replicaset, not the shards.
 
 - *admin.pbmConfig*
 - *admin.pbmCmd* (Used to define and trigger operations)
@@ -48,25 +48,20 @@ The config and state (current and historical) for backups is stored in collectio
 
 The |pbm.app| command line tool creates them as needed. You do not have to maintain these collections, but you should not drop them unnecessarily either. Dropping them during a backup will cause an abort of the backup.
 
-A fresh mongod instance does not have any of these collections. They are not needed for |pbm.app| to begin new backups or restores *except* the PBM config one because it holds the config including the location and credential information to open the remote backup storage. See the documentation for setting up or doing restores for how to initialise or reinitialise the config.
+Filling the config collection is a prerequisite to using PBM for executing backups or restores. (See config page later.)
  
 Remote Backup Storage
 ================================================================================
 
-PBM saves your files to a directory &ndash; one in an S3-compatible store or on a filesystem. Using |pbm-list| a user can scan this directory to find existing backups even if they never used |pbm.app| on their computer before.
+Conceptually or actually PBM saves your files to a directory. Conceptually in the case of object store; actually if you are using filesystem-type remote storage. Using |pbm-list| a user can scan this directory to find existing backups even if they never used |pbm.app| on their computer before.
 
-The files are prefixed with the (UTC) starting time of the backup. For each backup there will be one metadata file, and for each of the replicasets in the backup there will be one mongodump-format compressed archive that is the dump of collections plus (compressed) BSON file dump of the oplog covering the timespan of the backup. In a cluster backup the end times of the oplog slices are synchronized. The end time of the ollog slice(s) is the data-consistent point in time of a backup snapshot.
+The files are prefixed with the (UTC) starting time of the backup. For each backup there will be:
 
-.. info:: 
-   N.b. compared to using a S3-compatible object store the "filesystem" type of store has more work for the server administrator to do. Setting the PBM config to use a filesystem location is trivial, but there is no point for disaster recovery if the filesystem is just the local disk of the mongod node's server. The filesystem should be a remote backup server that shares a normal filesystem. The server admins need to ensure that shared remoted directory is mounted at the same local path on all servers that have mongod nodes.
-
-Authentication
-================================================================================
-
-- The MongoDB cluster (or non-sharded replicaset) has MongoDB's own authentication. This can be whichever you have set, including use TLS options.
-- Remote Storage:
-  - S3-compatible object store server. Commonly this is authenticated to with an API key and a secret key. You are free to use whichever provider and whichever authenticaton methods it supports so long as they are supported by the golang API for AWS SDK (the S3 client library that PBM uses).
-  - Filesystem type remote storage has no authentication for |pbm.app| or |pbm-agent| per se. It requires the server administrators to make the filesystem directory to writable for the |pbm-agent|.
-- PBM has no authentication subsystem of its own &ndash; it uses MongoDB's. I.e. |pbm.app| and |pbm-agent| only require the valid MongoDB connection URI string for the PBM user. It accesses the authentication credentials to the remote storage in the PBM config collection in the MongoDB cluster (or non-sharded replicaset).
+- A metadata file
+- For each replicaset:
+  - A mongodump-format compressed archive that is the dump of collections
+  - A (compressed) BSON file dump of the oplog covering the timespan of the backup.
+    
+The end time of the oplog slice(s) is the data-consistent point in time of a backup snapshot.
 
 .. include:: .res/replace.txt

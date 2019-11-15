@@ -1,4 +1,3 @@
 .. code-block:: bash
 
-   $ pbm restore 2019-06-09T07:03:50Z --mongodb-uri="mongodb://pbmuser@secretpwd@localhost:27017/"
-   $ #N.b. for a cluster conn URI will be to the configsvr replicaset instead
+   $ pbm restore 2019-06-09T07:03:50Z --mongodb-uri="mongodb://pbmuser:secretpwd@mongocsvr1:27018,mongocsvr2:27018,mongocsvr3:27018/?replicaSet=configrs"

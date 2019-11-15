@@ -3,7 +3,8 @@
 Uninstalling |pbm|
 ********************************************************************************
 
-To uninstall |pbm| perform the follow steps on every cluster or non-shared replica set it was used on:
+To uninstall |pbm| perform the following steps:
+
 - Check no backups are currently in progress in the output of |pbm-list|.
 - Before the next 2 steps make sure you know where the remote backup storage is, so you can delete backups made by |pbm|. If it is S3-compatible object storage you will need to use another tool such as Amazon AWS's "aws s3", Minio's "mc", the web AWS Management Console, etc. to do that once |pbm| is uninstalled.
 - Uninstall the |pbm-agent| and |pbm.app| executables
