@@ -67,7 +67,7 @@ func Save(data io.Reader, stg pbm.Storage, name string) error {
 			u.Concurrency = 10
 		}).Upload(&s3manager.UploadInput{
 			Bucket: aws.String(stg.S3.Bucket),
-			Key:    aws.String(name),
+			Key:    aws.String(path.Join(stg.S3.Prefix, name)),
 			Body:   data,
 		})
 
