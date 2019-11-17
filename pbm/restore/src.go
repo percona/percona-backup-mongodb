@@ -52,7 +52,7 @@ func Source(stg pbm.Storage, name string, compression pbm.CompressionType) (io.R
 
 		s3obj, err := s3.New(awsSession).GetObject(&s3.GetObjectInput{
 			Bucket: aws.String(stg.S3.Bucket),
-			Key:    aws.String(name),
+			Key:    aws.String(path.Join(stg.S3.Prefix, name)),
 		})
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "read '%s/%s' file from S3", stg.S3.Bucket, name)
