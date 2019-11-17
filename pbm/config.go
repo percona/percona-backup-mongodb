@@ -34,6 +34,7 @@ type S3 struct {
 	Region      string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
 }
 
