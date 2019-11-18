@@ -1,10 +1,10 @@
 .. _pbm.installation:
 
-.. contents::
-   :local:
-
 Installation
 ********************************************************************************
+
+.. contents::
+   :local:
 
 |percona| provides and supports installation packages for |pbm| in the *deb* and
 *rpm* formats that you can install by using ``apt`` or ``yum`` or other
@@ -16,7 +16,8 @@ which makes it easy to install any |percona| product on your system.
 You may also build and install |pbm| from source code in case you require a
 fully controlled installation method.
 
-Regardless of the installation method you choose, the following tools are at your disposal after the installation completes:
+Regardless of the installation method you choose, the following tools are at
+your disposal after the installation completes:
 
 ===============  ===============================================================
 Tool             Purpose
@@ -25,7 +26,10 @@ pbm              Command-line interface for controlling the backup system
 pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
 
-You should install |pbm-agent| on every server that has mongod nodes in the MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed on any or all servers or desktop computers you wish to use it from, so long as those computers aren't network-blocked from accessing the MongoDB cluster.
+You should install |pbm-agent| on every server that has mongod nodes in the
+MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed
+on any or all servers or desktop computers you wish to use it from, so long as
+those computers aren't network-blocked from accessing the MongoDB cluster.
 
 .. seealso::
 
@@ -109,15 +113,19 @@ and |pbm-agent| programs on your system.
 Configuring service init scripts
 ================================================================================
 
-Some configuration is required for the service script (e.g. systemd unit file) that will run the |pbm-agent| processes.
+Some configuration is required for the service script (e.g. systemd unit file)
+that will run the |pbm-agent| processes.
 
-- The MongoDB connection URI string to the local mongod node. (See pbm.auth_ for an explanation of standard MongoDB connection strings if you need.)
-- A filepath to save log output to. |pbm-agent|'s log output comes straight to stdout and the service script just redirects it (and stderr) to this path.
+- The MongoDB connection URI string to the local mongod node. (See
+  :ref:`pbm.auth` for an explanation of standard MongoDB connection strings if
+  you need.)
+- A file path to save log output to. |pbm-agent|'s log output comes straight to
+  stdout and the service script just redirects it (and stderr) to this path.
 
-.. seealso::
-
-   |pbm| stores
-      :ref:`pbm.config.storage.setting-up`
-
+.. This section is not available any longer
+.. seealso:
+..
+..   pbm stores
+..     :ref:`pbm.config.storage.setting-up`
 
 .. include:: .res/replace.txt

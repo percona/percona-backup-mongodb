@@ -34,3 +34,5 @@ manually just before:
 Percona Backup for MongoDB is an uncomplicated command-line tool by design. The full set of commands:
 
 .. include:: .res/code-block/bash/pbm-help-output.txt
+
+.. include:: .res/replace.txt
