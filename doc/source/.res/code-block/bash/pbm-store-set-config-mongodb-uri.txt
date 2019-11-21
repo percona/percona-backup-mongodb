@@ -1,4 +1,0 @@
-
-.. code-block:: bash
-
-   $ pbm store set --config=storage-config.yaml --mongodb-uri="mongodb://localhost:27017/"
