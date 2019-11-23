@@ -1,118 +1,178 @@
 package pbm
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"strings"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"gopkg.in/mgo.v2/bson"
 )
 
-type Lock struct {
+// LockHeader describes the lock. This data will be serialased into the mongo document.
+type LockHeader struct {
 	Type       Command `bson:"type"`
 	Replset    string  `bson:"replset"`
 	Node       string  `bson:"node"`
 	BackupName string  `bson:"backup"`
-	// !!! ----
-	// TODO: move somevere else. All finds won't work becase hb always changes
-	Heartbeat primitive.Timestamp `bson:"hb"`
 }
 
-// AcquireLock tries to acquire lock on operation (e.g. backup, restore).
+type lock struct {
+	LockHeader
+	Heartbeat primitive.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
+}
+
+// Lock is a lock for the PBM operation (e.g. backup, restore)
+type Lock struct {
+	lock
+	p      *PBM
+	c      *mongo.Collection
+	cancel context.CancelFunc
+}
+
+// NewLock creates a new Lock object from geven header. Returned lock has no state.
+// So Acquire() and Release() methods should be called.
+func (p *PBM) NewLock(h LockHeader) *Lock {
+	return &Lock{
+		lock: lock{
+			LockHeader: h,
+		},
+		p: p,
+		c: p.Conn.Database(DB).Collection(OpCollection),
+	}
+}
+
+type ErrConcurrentOp struct {
+	Lock LockHeader
+}
+
+func (e ErrConcurrentOp) Error() string {
+	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.BackupName)
+}
+
+// Acquire tries to acquire the lock.
 // It returns true in case of success and false if there is
 // lock already acquired by another process or some error happend.
-func (p *PBM) AcquireLock(l Lock) (bool, error) {
-	c := p.Conn.Database(DB).Collection(OpCollection)
-	_, err := c.Indexes().CreateOne(
-		p.ctx,
-		mongo.IndexModel{
-			Keys: bson.D{{"replset", 1}},
-			Options: options.Index().
-				SetUnique(true).
-				SetSparse(true),
-		},
-	)
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return false, errors.Wrap(err, "ensure lock index")
+// In case there is already concurrent lock exists, it checks if the concurrent lock isn't stale
+// and clear the rot and tries again if it's happened to be so.
+func (l *Lock) Acquire() (bool, error) {
+	got, err := l.acquire()
+
+	if err != nil {
+		return false, err
 	}
 
-	l.Heartbeat, err = p.readClusterTime()
+	if got {
+		return true, nil
+	}
+
+	// there is some concurrent lock
+	peer, err := l.getPeer()
+	if err != nil {
+		return false, errors.Wrap(err, "check for the peer")
+	}
+
+	ts, err := l.p.ClusterTime()
 	if err != nil {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	_, err = c.InsertOne(p.ctx, l)
-	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
-		return false, errors.Wrap(err, "aquire lock")
+	// peer is alive
+	if peer.Heartbeat.T+staleFrameSec >= ts.T {
+		if l.BackupName != peer.BackupName {
+			return false, ErrConcurrentOp{Lock: peer.LockHeader}
+		}
+		return false, nil
 	}
 
-	// if there is no error so we got index
-	return err == nil, nil
+	_, err = l.c.DeleteOne(l.p.Context(), peer.LockHeader)
+	if err != nil {
+		return false, errors.Wrap(err, "delete stale lock")
+	}
+
+	return l.acquire()
 }
 
-func (p *PBM) LockBeat(l Lock) error {
-	ts, err := p.readClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
+// Release the lock
+func (l *Lock) Release() error {
+	if l.cancel != nil {
+		l.cancel()
 	}
 
-	_, err = p.Conn.Database(DB).Collection(OpCollection).UpdateOne(
-		p.ctx,
-		l,
-		bson.M{"$set": bson.M{"hb": ts}},
-	)
-	return errors.Wrap(err, "set timestamp")
+	_, err := l.c.DeleteOne(l.p.Context(), l.LockHeader)
+	return errors.Wrap(err, "deleteOne")
 }
 
 const staleFrameSec uint32 = 60
 
-// LockIsStale checks whether existed lock with from the same Replset is stale
-func (p *PBM) LockIsStale(l Lock) (bool, Lock, error) {
-	var lock Lock
+//
+func (l *Lock) getPeer() (lock, error) {
+	var peer lock
 
-	ts, err := p.readClusterTime()
+	err := l.c.FindOne(l.p.Context(), bson.M{"replset": l.Replset}).Decode(&peer)
 	if err != nil {
-		return false, lock, errors.Wrap(err, "read cluster time")
+		return peer, errors.Wrap(err, "get lock")
 	}
 
-	err = p.Conn.Database(DB).Collection(OpCollection).
-		FindOne(p.ctx, bson.M{"replset": l.Replset}).Decode(&lock)
-	if err != nil {
-		return false, lock, errors.Wrap(err, "get lock")
-	}
-
-	return lock.Heartbeat.T+staleFrameSec < ts.T, lock, nil
+	return peer, nil
 }
 
-func (p *PBM) readClusterTime() (primitive.Timestamp, error) {
-	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
-	err := p.Conn.Database(DB).Collection(OpCollection).FindOne(p.ctx, bson.D{}).Err()
-	if err != nil && err != mongo.ErrNoDocuments {
-		return primitive.Timestamp{}, errors.Wrap(err, "void read")
-	}
-
-	im, err := p.GetIsMaster()
+func (l *Lock) acquire() (bool, error) {
+	var err error
+	l.Heartbeat, err = l.p.ClusterTime()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	if im.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
+	_, err = l.c.InsertOne(l.p.Context(), l)
+	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
+		return false, errors.Wrap(err, "aquire lock")
 	}
 
-	return im.ClusterTime.ClusterTime, nil
+	// if there is no duplicate key error, we got the lock
+	if err == nil {
+		l.hb()
+		return true, nil
+	}
+
+	return false, nil
 }
 
-func (p *PBM) ReleaseLock(l Lock) error {
-	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteOne(p.ctx, l)
-	return errors.Wrap(err, "deleteOne")
+// heartbeats for the lock
+func (l *Lock) hb() {
+	var ctx context.Context
+	ctx, l.cancel = context.WithCancel(context.Background())
+	go func() {
+		tk := time.NewTicker(time.Second * 5)
+		defer tk.Stop()
+		for {
+			select {
+			case <-tk.C:
+				err := l.beat()
+				if err != nil {
+					log.Println("[ERROR] lock heartbeat:", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
-func (p *PBM) Cleanup(bcpName string) error {
-	_, err := p.Conn.Database(DB).Collection(OpCollection).DeleteMany(p.ctx, bson.M{"backup": bcpName})
-	return errors.Wrap(err, "deleteMany")
+func (l *Lock) beat() error {
+	ts, err := l.p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	_, err = l.c.UpdateOne(
+		l.p.Context(),
+		l.LockHeader,
+		bson.M{"$set": bson.M{"hb": ts}},
+	)
+	return errors.Wrap(err, "set timestamp")
 }

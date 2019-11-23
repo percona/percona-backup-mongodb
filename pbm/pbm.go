@@ -147,6 +147,21 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
+	// create index for Locks
+	c := p.Conn.Database(DB).Collection(OpCollection)
+	_, err = c.Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure lock index")
+	}
+
 	return nil
 }
 
@@ -373,4 +388,25 @@ func (p *PBM) GetIsMaster() (*IsMaster, error) {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
 	return im, nil
+}
+
+// ClusterTime returns mongo's current cluster time
+func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
+	// Make a read to force the cluster timestamp update.
+	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
+	err := p.Conn.Database(DB).Collection(OpCollection).FindOne(p.ctx, bson.D{}).Err()
+	if err != nil && err != mongo.ErrNoDocuments {
+		return primitive.Timestamp{}, errors.Wrap(err, "void read")
+	}
+
+	im, err := p.GetIsMaster()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+	}
+
+	if im.ClusterTime == nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
+	}
+
+	return im.ClusterTime.ClusterTime, nil
 }
