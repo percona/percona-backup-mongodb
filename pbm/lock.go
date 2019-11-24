@@ -22,12 +22,13 @@ type LockHeader struct {
 }
 
 type lock struct {
-	LockHeader
-	Heartbeat primitive.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
+	LockHeader `bson:",inline"`
+	Heartbeat  primitive.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
 }
 
 // Lock is a lock for the PBM operation (e.g. backup, restore)
 type Lock struct {
+	// mlock lock
 	lock
 	p      *PBM
 	c      *mongo.Collection
@@ -107,7 +108,7 @@ func (l *Lock) Release() error {
 	return errors.Wrap(err, "deleteOne")
 }
 
-const staleFrameSec uint32 = 60
+const staleFrameSec uint32 = 30
 
 //
 func (l *Lock) getPeer() (lock, error) {
@@ -128,7 +129,7 @@ func (l *Lock) acquire() (bool, error) {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	_, err = l.c.InsertOne(l.p.Context(), l)
+	_, err = l.c.InsertOne(l.p.Context(), l.lock)
 	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
 		return false, errors.Wrap(err, "aquire lock")
 	}
