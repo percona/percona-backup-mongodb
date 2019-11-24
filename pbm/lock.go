@@ -13,23 +13,24 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+const StaleFrameSec uint32 = 30
+
 // LockHeader describes the lock. This data will be serialased into the mongo document.
 type LockHeader struct {
-	Type       Command `bson:"type"`
-	Replset    string  `bson:"replset"`
-	Node       string  `bson:"node"`
-	BackupName string  `bson:"backup"`
+	Type       Command `bson:"type,omitempty"`
+	Replset    string  `bson:"replset,omitempty"`
+	Node       string  `bson:"node,omitempty"`
+	BackupName string  `bson:"backup,omitempty"`
 }
 
-type lock struct {
+type LockData struct {
 	LockHeader `bson:",inline"`
 	Heartbeat  primitive.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
 }
 
 // Lock is a lock for the PBM operation (e.g. backup, restore)
 type Lock struct {
-	// mlock lock
-	lock
+	LockData
 	p      *PBM
 	c      *mongo.Collection
 	cancel context.CancelFunc
@@ -39,7 +40,7 @@ type Lock struct {
 // So Acquire() and Release() methods should be called.
 func (p *PBM) NewLock(h LockHeader) *Lock {
 	return &Lock{
-		lock: lock{
+		LockData: LockData{
 			LockHeader: h,
 		},
 		p: p,
@@ -72,7 +73,7 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	// there is some concurrent lock
-	peer, err := l.getPeer()
+	peer, err := l.p.GetLockData(&LockHeader{Replset: l.Replset})
 	if err != nil {
 		return false, errors.Wrap(err, "check for the peer")
 	}
@@ -83,7 +84,7 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	// peer is alive
-	if peer.Heartbeat.T+staleFrameSec >= ts.T {
+	if peer.Heartbeat.T+StaleFrameSec >= ts.T {
 		if l.BackupName != peer.BackupName {
 			return false, ErrConcurrentOp{Lock: peer.LockHeader}
 		}
@@ -108,20 +109,6 @@ func (l *Lock) Release() error {
 	return errors.Wrap(err, "deleteOne")
 }
 
-const staleFrameSec uint32 = 30
-
-//
-func (l *Lock) getPeer() (lock, error) {
-	var peer lock
-
-	err := l.c.FindOne(l.p.Context(), bson.M{"replset": l.Replset}).Decode(&peer)
-	if err != nil {
-		return peer, errors.Wrap(err, "get lock")
-	}
-
-	return peer, nil
-}
-
 func (l *Lock) acquire() (bool, error) {
 	var err error
 	l.Heartbeat, err = l.p.ClusterTime()
@@ -129,7 +116,7 @@ func (l *Lock) acquire() (bool, error) {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	_, err = l.c.InsertOne(l.p.Context(), l.lock)
+	_, err = l.c.InsertOne(l.p.Context(), l.LockData)
 	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
 		return false, errors.Wrap(err, "aquire lock")
 	}
@@ -176,4 +163,15 @@ func (l *Lock) beat() error {
 		bson.M{"$set": bson.M{"hb": ts}},
 	)
 	return errors.Wrap(err, "set timestamp")
+}
+
+func (p *PBM) GetLockData(lh *LockHeader) (*LockData, error) {
+	var l LockData
+
+	err := p.Conn.Database(DB).Collection(OpCollection).FindOne(p.ctx, lh).Decode(&l)
+	if err != nil {
+		return nil, errors.Wrap(err, "get lock")
+	}
+
+	return &l, nil
 }

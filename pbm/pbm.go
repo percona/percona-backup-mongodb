@@ -199,6 +199,7 @@ type BackupMeta struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	Status           Status              `bson:"status" json:"status"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
@@ -254,6 +255,18 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 			{"$set", bson.M{"last_transition_ts": ts}},
 			{"$set", bson.M{"error": msg}},
 			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"hb": ts}},
 		},
 	)
 
