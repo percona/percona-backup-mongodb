@@ -96,7 +96,26 @@ func (l *Lock) Acquire() (bool, error) {
 		return false, errors.Wrap(err, "delete stale lock")
 	}
 
+	err = l.p.markBcpStale(peer.BackupName)
+	if err != nil {
+		log.Printf("Failed to mark stale backup '%s' as failed: %v", peer.BackupName, err)
+	}
+
 	return l.acquire()
+}
+
+func (p *PBM) markBcpStale(bcpName string) error {
+	bcp, err := p.GetBackupMeta(bcpName)
+	if err != nil {
+		return errors.Wrap(err, "get backup meta")
+	}
+
+	// not to rewrite an error emitted by the agent
+	if bcp.Status == StatusError {
+		return nil
+	}
+
+	return p.ChangeBackupState(bcpName, StatusError, "some pbm-agents were lost during the backup")
 }
 
 // Release the lock
@@ -174,4 +193,25 @@ func (p *PBM) GetLockData(lh *LockHeader) (*LockData, error) {
 	}
 
 	return &l, nil
+}
+
+func (p *PBM) GetLocks(lh *LockHeader) ([]*LockData, error) {
+	var locks []*LockData
+
+	cur, err := p.Conn.Database(DB).Collection(OpCollection).Find(p.ctx, lh)
+	if err != nil {
+		return nil, errors.Wrap(err, "get locks")
+	}
+
+	for cur.Next(p.ctx) {
+		var l LockData
+		err := cur.Decode(&l)
+		if err != nil {
+			return nil, errors.Wrap(err, "lock decode")
+		}
+
+		locks = append(locks, &l)
+	}
+
+	return locks, cur.Err()
 }
