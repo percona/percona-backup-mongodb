@@ -39,6 +39,8 @@ func (n *Node) GetIsMaster() (*IsMaster, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
+
+	im.Cast()
 	return im, nil
 }
 

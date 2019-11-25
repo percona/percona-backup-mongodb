@@ -34,7 +34,7 @@ const (
 
 const (
 	// NoReplset is the name of a virtual replica set of the standalone node
-	NoReplset = "pbmnoreplicaset"
+	NoReplset = "nors"
 )
 
 type Command string
@@ -56,7 +56,6 @@ type BackupCmd struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
 	StoreName   string          `bson:"store,omitempty"`
-	FromMaster  bool            `bson:"fromMaster"`
 }
 
 type RestoreCmd struct {
@@ -401,6 +400,8 @@ func (p *PBM) GetIsMaster() (*IsMaster, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
+
+	im.Cast()
 	return im, nil
 }
 

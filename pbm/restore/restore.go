@@ -45,23 +45,19 @@ func Run(r pbm.RestoreCmd, cn *pbm.PBM, node *pbm.Node) error {
 	if err != nil {
 		return errors.Wrap(err, "get isMaster data")
 	}
-	rsName := im.SetName
-	if rsName == "" {
-		rsName = pbm.NoReplset
-	}
 
 	var (
 		rsMeta pbm.BackupReplset
 		ok     bool
 	)
 	for _, v := range bcp.Replsets {
-		if v.Name == rsName {
+		if v.Name == im.SetName {
 			rsMeta = v
 			ok = true
 		}
 	}
 	if !ok {
-		return errors.Errorf("metadata for replset/shard %s is not found", rsName)
+		return errors.Errorf("metadata for replset/shard %s is not found", im.SetName)
 	}
 
 	ver, err := node.GetMongoVersion()

@@ -80,6 +80,11 @@ func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
 	}
+
+	if isMaster.IsStandalone() {
+		return primitive.Timestamp{T: uint32(isMaster.LocalTime.Unix()), I: 1}, nil
+	}
+
 	if isMaster.LastWrite.MajorityOpTime.TS.T == 0 {
 		return primitive.Timestamp{}, errMongoTimestampNil
 	}

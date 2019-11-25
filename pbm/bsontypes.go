@@ -44,6 +44,18 @@ type IsMaster struct {
 	ConfigServerState            *ConfigServerState `bson:"$configServerState,omitempty"`
 	// GleStats                     *GleStats            `bson:"$gleStats,omitempty"`
 	OperationTime *primitive.Timestamp `bson:"operationTime,omitempty"`
+
+	standalone bool
+}
+
+// Cast the internal sate
+func (im *IsMaster) Cast() {
+	// node is not a part of replica set
+	if im.SetName == "" {
+		im.standalone = true
+		// redefine SetName so it can be used by pbm
+		im.SetName = NoReplset
+	}
 }
 
 // IsSharded returns true is replset is part sharded cluster
@@ -54,6 +66,11 @@ func (im *IsMaster) IsSharded() bool {
 // IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
 func (im *IsMaster) IsLeader() bool {
 	return !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv
+}
+
+// IsStandalone returns true if node is not a part of replica set
+func (im *IsMaster) IsStandalone() bool {
+	return im.standalone
 }
 
 // ReplsetRole returns replset role in sharded clister

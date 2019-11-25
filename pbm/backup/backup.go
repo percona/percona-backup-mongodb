@@ -58,12 +58,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // (andrew) I dunno why, but the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 	}
 
-	rsName := im.SetName
-	if rsName == "" {
-		rsName = pbm.NoReplset
-	}
 	rsMeta := pbm.BackupReplset{
-		Name:       rsName,
+		Name:       im.SetName,
 		OplogName:  getDstName("oplog", bcp, im.SetName),
 		DumpName:   getDstName("dump", bcp, im.SetName),
 		StartTS:    time.Now().UTC().Unix(),
@@ -212,7 +208,11 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 		return false, errors.Wrap(err, "get isMaster data for node")
 	}
 
-	if im.IsMaster && !bcp.FromMaster {
+	if im.IsStandalone() {
+		return true, nil
+	}
+
+	if im.IsMaster {
 		return false, nil
 	}
 
