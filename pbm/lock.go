@@ -44,7 +44,7 @@ func (p *PBM) NewLock(h LockHeader) *Lock {
 			LockHeader: h,
 		},
 		p: p,
-		c: p.Conn.Database(DB).Collection(OpCollection),
+		c: p.Conn.Database(DB).Collection(LockCollection),
 	}
 }
 
@@ -184,21 +184,21 @@ func (l *Lock) beat() error {
 	return errors.Wrap(err, "set timestamp")
 }
 
-func (p *PBM) GetLockData(lh *LockHeader) (*LockData, error) {
+func (p *PBM) GetLockData(lh *LockHeader) (LockData, error) {
 	var l LockData
 
-	err := p.Conn.Database(DB).Collection(OpCollection).FindOne(p.ctx, lh).Decode(&l)
+	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, lh).Decode(&l)
 	if err != nil {
-		return nil, errors.Wrap(err, "get lock")
+		return l, errors.Wrap(err, "get lock")
 	}
 
-	return &l, nil
+	return l, nil
 }
 
-func (p *PBM) GetLocks(lh *LockHeader) ([]*LockData, error) {
-	var locks []*LockData
+func (p *PBM) GetLocks(lh *LockHeader) ([]LockData, error) {
+	var locks []LockData
 
-	cur, err := p.Conn.Database(DB).Collection(OpCollection).Find(p.ctx, lh)
+	cur, err := p.Conn.Database(DB).Collection(LockCollection).Find(p.ctx, lh)
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
 	}
@@ -210,7 +210,7 @@ func (p *PBM) GetLocks(lh *LockHeader) ([]*LockData, error) {
 			return nil, errors.Wrap(err, "lock decode")
 		}
 
-		locks = append(locks, &l)
+		locks = append(locks, l)
 	}
 
 	return locks, cur.Err()

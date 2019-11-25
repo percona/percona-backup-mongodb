@@ -195,5 +195,5 @@ func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
 	}
 
-	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)\n", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
+	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
 }

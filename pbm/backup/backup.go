@@ -367,13 +367,16 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 					BackupName: bcpName,
 					Replset:    shard.Name,
 				})
+
 				// nodes are cleaning its locks moving to the done status
-				// so no lock is ok
-				if err != nil && status != pbm.StatusDone && err != mongo.ErrNoDocuments {
-					return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
-				}
-				if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-					return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+				// so no lock is ok and not need to ckech the heartbeats
+				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
+					if err != nil {
+						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+					}
+					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+					}
 				}
 
 				// check status

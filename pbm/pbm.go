@@ -23,15 +23,16 @@ const (
 	LogCollection = "pbmLog"
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
-	// OpCollection is the name of the mongo collection that is used
+	// LockCollection is the name of the mongo collection that is used
 	// by agents to coordinate operations (e.g. locks)
-	OpCollection = "pbmOp"
+	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
-
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+)
 
+const (
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
 )
@@ -141,14 +142,14 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", OpCollection}}, //size 2kb ~ 10 commands
+		bson.D{{"create", LockCollection}}, //size 2kb ~ 10 commands
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
 	// create index for Locks
-	c := p.Conn.Database(DB).Collection(OpCollection)
+	c := p.Conn.Database(DB).Collection(LockCollection)
 	_, err = c.Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
@@ -407,7 +408,7 @@ func (p *PBM) GetIsMaster() (*IsMaster, error) {
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
-	err := p.Conn.Database(DB).Collection(OpCollection).FindOne(p.ctx, bson.D{}).Err()
+	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
 	if err != nil && err != mongo.ErrNoDocuments {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
