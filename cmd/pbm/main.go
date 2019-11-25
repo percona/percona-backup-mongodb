@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -152,15 +153,47 @@ func main() {
 			switch b.Status {
 			case pbm.StatusDone:
 				bcp = b.Name
-			case pbm.StatusRunning:
-				bcp = fmt.Sprintf("%s\tIn progress (Launched at %s)", b.Name, time.Unix(b.StartTS, 0).Format(time.RFC3339))
 			case pbm.StatusError:
 				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
 			default:
-				bcp = fmt.Sprintf("%s\t[%s]", b.Name, b.Status)
+				bcp, err = printProgress(b, pbmClient)
+				if err != nil {
+					log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
+				}
 			}
 
 			fmt.Println(" ", bcp)
 		}
 	}
+}
+
+func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
+	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
+		Type:       pbm.CmdBackup,
+		BackupName: b.Name,
+	})
+
+	if err != nil {
+		return "", errors.Wrap(err, "get locks")
+	}
+
+	ts, err := pbmClient.ClusterTime()
+	if err != nil {
+		return "", errors.Wrap(err, "read cluster time")
+	}
+
+	stale := false
+	staleMsg := "Stale: pbm-agents make no progress:"
+	for _, l := range locks {
+		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
+			stale = true
+			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).Format(time.RFC3339))
+		}
+	}
+
+	if stale {
+		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
+	}
+
+	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
 }

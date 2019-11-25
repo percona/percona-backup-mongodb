@@ -23,15 +23,16 @@ const (
 	LogCollection = "pbmLog"
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
-	// OpCollection is the name of the mongo collection that is used
+	// LockCollection is the name of the mongo collection that is used
 	// by agents to coordinate operations (e.g. locks)
-	OpCollection = "pbmOp"
+	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
-
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+)
 
+const (
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
 )
@@ -141,10 +142,25 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", OpCollection}}, //size 2kb ~ 10 commands
+		bson.D{{"create", LockCollection}}, //size 2kb ~ 10 commands
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock collection")
+	}
+
+	// create index for Locks
+	c := p.Conn.Database(DB).Collection(LockCollection)
+	_, err = c.Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure lock index")
 	}
 
 	return nil
@@ -184,6 +200,7 @@ type BackupMeta struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	Status           Status              `bson:"status" json:"status"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
@@ -239,6 +256,18 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 			{"$set", bson.M{"last_transition_ts": ts}},
 			{"$set", bson.M{"error": msg}},
 			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"hb": ts}},
 		},
 	)
 
@@ -373,4 +402,25 @@ func (p *PBM) GetIsMaster() (*IsMaster, error) {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
 	return im, nil
+}
+
+// ClusterTime returns mongo's current cluster time
+func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
+	// Make a read to force the cluster timestamp update.
+	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
+	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
+	if err != nil && err != mongo.ErrNoDocuments {
+		return primitive.Timestamp{}, errors.Wrap(err, "void read")
+	}
+
+	im, err := p.GetIsMaster()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+	}
+
+	if im.ClusterTime == nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
+	}
+
+	return im.ClusterTime.ClusterTime, nil
 }
