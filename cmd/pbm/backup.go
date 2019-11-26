@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -11,6 +12,24 @@ import (
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
+	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	if err != nil {
+		log.Println("get locks", err)
+	}
+
+	ts, err := cn.ClusterTime()
+	if err != nil {
+		return "", errors.Wrap(err, "read cluster time")
+	}
+
+	// Stop if there is some live operation.
+	// But if there is some stale lock leave it for agents to deal with.
+	for _, l := range locks {
+		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
+			return "", errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
+		}
+	}
+
 	stg, err := cn.GetStorage()
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
