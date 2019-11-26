@@ -39,7 +39,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-var statusRunTimeout = time.Second * 15
+var wiatBackupStart = time.Second * 15
 
 // run the backup.
 // TODO: describe flow
@@ -115,7 +115,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &statusRunTimeout)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &wiatBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -212,8 +212,19 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 		return false, errors.Wrap(err, "get isMaster data for node")
 	}
 
-	if im.IsMaster && !bcp.FromMaster {
-		return false, nil
+	if im.IsStandalone() {
+		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+	}
+
+	if im.IsMaster {
+		// for the cases when no secondary was good enough for backup or there are no secondaries alive
+		// wait for 90% of wiatBackupStart and then try to acquire a lock.
+		// by that time healthy secondaries should have already acquired a lock.
+		// TODO there are caveats:
+		// 1. there is still a chance that the lock gonna be stolen from the healthy node
+		// (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
+		// 2. the single-node-replica-set will always have a delay before the backup start.
+		time.Sleep(wiatBackupStart * 9 / 10)
 	}
 
 	status, err := node.Status()
