@@ -68,6 +68,11 @@ func (im *IsMaster) ReplsetRole() ReplRole {
 	}
 }
 
+// IsStandalone returns true if node is not a part of replica set
+func (im *IsMaster) IsStandalone() bool {
+	return im.SetName == ""
+}
+
 type ClusterTime struct {
 	ClusterTime primitive.Timestamp `bson:"clusterTime"`
 	Signature   struct {

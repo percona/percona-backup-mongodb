@@ -71,7 +71,7 @@ func (a *Agent) Start() error {
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	q, err := backup.NodeSuits(bcp, a.node)
 	if err != nil {
-		log.Println("[ERROR] backup: unable to check node:", err)
+		log.Println("[ERROR] backup: node check:", err)
 		return
 	}
 
