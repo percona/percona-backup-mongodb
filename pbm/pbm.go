@@ -77,6 +77,9 @@ type PBM struct {
 	ctx  context.Context
 }
 
+// New creates a new PBM object.
+// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
+// If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -103,7 +106,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	}{}
 	err = client.Database("admin").Collection("system.version").
 		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
-	// no need in this connection anymore
+	// no need in this connection anymore, we need a new one with the ConfigServer
 	client.Disconnect(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config server connetion URI")
@@ -119,7 +122,10 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrap(err, "parse mongo-uri")
 	}
 
-	curi.RawQuery = ""
+	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
+	query := curi.Query()
+	query.Del("replicaSet")
+	curi.RawQuery = query.Encode()
 	curi.Host = chost[1]
 	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
