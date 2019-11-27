@@ -39,7 +39,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-var wiatBackupStart = time.Second * 15
+var waitBackupStart = time.Second * 15
 
 // run the backup.
 // TODO: describe flow
