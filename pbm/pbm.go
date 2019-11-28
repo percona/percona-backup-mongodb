@@ -80,10 +80,19 @@ type PBM struct {
 // New creates a new PBM object.
 // In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
 // If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
-func New(ctx context.Context, uri, appName string) (*PBM, error) {
-	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
-
-	client, err := connect(ctx, uri, "pbm-discovery")
+func New(ctx context.Context, lh_uri_str, appName string) (*PBM, error) {
+	lh_uri, err := url.Parse(lh_uri_str)
+	if err != nil or lh_uri.Scheme() != "mongodb" {
+		return nil, errors.Wrap(err, "The mongo-uri value was not a valid mongodb://..../ connection URI.")
+	}
+	if _, k_found := lh_uri.Query()["replicaSet"]; k_found {
+		err_str := "The mongo-uri value for this pbm-agent specified a replicaSet connection argument. " +
+		"A pbm-agent should connect with a 'standalone' connection to the local mongod process. E.g. " +
+		"'mongodb://usernm:pwdsecret@localhost:27018/?[optional parameters but excluding replicaSet]'"
+		return nil, errors.Wrap(err, err_str)
+	}
+	
+	client, err := connect(ctx, lh_uri, "pbm-discovery")
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -112,21 +121,21 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrap(err, "get config server connetion URI")
 	}
 
-	chost := strings.Split(csvr.URI, "/")
+	a := strings.Split(csvr.URI, "/")
+	cfg_rs_nm := a[0]
+	cfg_hostport_list := a[1]
 	if len(chost) < 2 {
 		return nil, errors.Wrapf(err, "define config server connetion URI from %s", csvr.URI)
 	}
 
-	curi, err := url.Parse(uri)
-	if err != nil {
-		return nil, errors.Wrap(err, "parse mongo-uri")
-	}
+	//Make a new URI to connect to the configsvr replicaset. Set the hosts in the Host
+	//  part, add replicaSet in the Query part. Reuse all other parts of the URI as-is.
+	cfgrs_uri := lh_uri
+	query := cfgrs_uri.Query()
+	cfgrs_uri.Host = cfg_hostport_list
+	query.Set("replicaSet", cfg_rs_nm)
+	cfgrs_uri.RawQuery = query.Encode()
 
-	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
-	query := curi.Query()
-	query.Del("replicaSet")
-	curi.RawQuery = query.Encode()
-	curi.Host = chost[1]
 	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
