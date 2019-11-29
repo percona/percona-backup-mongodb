@@ -80,13 +80,10 @@ type PBM struct {
 // New creates a new PBM object.
 // In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
 // If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
-func New(ctx context.Context, lh_uri_str, appName string) (*PBM, error) {
-	lh_uri, err := url.Parse(lh_uri_str)
-	if err != nil || lh_uri.Scheme != "mongodb" {
-		return nil, errors.Wrap(err, "The mongo-uri value was not a valid mongodb://..../ connection URI.")
-	}
+func New(ctx context.Context, uri, appName string) (*PBM, error) {
+	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
-	client, err := connect(ctx, lh_uri.String(), "pbm-discovery")
+	client, err := connect(ctx, uri, "pbm-discovery")
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -101,41 +98,38 @@ func New(ctx context.Context, lh_uri_str, appName string) (*PBM, error) {
 	}
 
 	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
-
-		//If the "replicaSet" was (unexpectedly) set in lh_uri we already
-		//  have an rs-style connection, so return now
-		if _, k_found := lh_uri.Query()["replicaSet"]; k_found {
-			return pbm, nil
-		}
-
-		//Recreate connection as rs-style one, to read from primary
-		client.Disconnect(ctx)
-		rs_uri := lh_uri
-		SetReplicaSet(rs_uri, im.SetName)
-		pbm.Conn, err = connect(ctx, rs_uri.String(), appName)
-		if err != nil {
-			return nil, errors.Wrap(err, "could not create mongo connection to " + rs_uri.String())
-		}
 		return pbm, nil
 	}
 
-	cfg_rs_nm, cfg_hostport_list, err := ConfigServerRsNameAndHostList(client, ctx)
+	csvr := struct {
+		URI string `bson:"configsvrConnectionString"`
+	}{}
+	err = client.Database("admin").Collection("system.version").
+		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
+	// no need in this connection anymore, we need a new one with the ConfigServer
+	client.Disconnect(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config server connetion URI")
 	}
-	// no need in this connection anymore, we need a new one with the ConfigServer
-	client.Disconnect(ctx)
 
-	//Make a new URI to connect to the configsvr replicaset. Set the hosts in the Host
-	//  part, add replicaSet in the Query part. Reuse all other parts of the URI as-is.
-	cfgrs_uri := lh_uri
-	cfgrs_uri.Host = cfg_hostport_list
-	SetReplicaSet(cfgrs_uri, cfg_rs_nm)
+	chost := strings.Split(csvr.URI, "/")
+	if len(chost) < 2 {
+		return nil, errors.Wrapf(err, "define config server connetion URI from %s", csvr.URI)
+	}
 
-	pbm.Conn, err = connect(ctx, cfgrs_uri.String(), appName)
+	curi, err := url.Parse(uri)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create mongo connection to configsvr replicaset. " +
-					"Calculated connection string was: " + cfgrs_uri.String())
+		return nil, errors.Wrap(err, "parse mongo-uri")
+	}
+
+	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
+	query := curi.Query()
+	query.Del("replicaSet")
+	curi.RawQuery = query.Encode()
+	curi.Host = chost[1]
+	pbm.Conn, err = connect(ctx, curi.String(), appName)
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
 
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
@@ -434,33 +428,4 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	}
 
 	return im.ClusterTime.ClusterTime, nil
-}
-
-// Replace (or set for the first time) the "replicaSet" query value in a URI
-func SetReplicaSet(uri *url.URL, new_rs string) {
-        query := uri.Query()
-        query.Set("replicaSet", new_rs)
-        uri.RawQuery = query.Encode()
-}
-
-//Return configsvr replicaset name and host:port list from
-//  admin.system.version.findOne({"_id", "shardIdentity"}).configsvrConnectionString
-func ConfigServerRsNameAndHostList(client *mongo.Client, ctx context.Context) (string, string, error) {
-        csvr := struct {
-                //string will have "rsname/host:port[,host:port]*" format
-                rsHostlistStr string `bson:"configsvrConnectionString"`
-        }{}
-        err := client.Database("admin").Collection("system.version").
-                FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
-        if err != nil {
-                err_str := "system.version.findOne({\"_id\", \"shardIdentity\"}) not found in \"admin\" db."
-                return "", "", errors.Wrapf(err, err_str)
-        }
-        a := strings.Split(csvr.rsHostlistStr, "/")
-        if len(a) != 2 {
-                err_str := "configsvrConnectionString did not have \"rsname/host:port[,host:port]*\" format. " +
-                        "Found value was " + csvr.rsHostlistStr
-                return "", "", errors.New(err_str)
-        }
-        return a[0], a[1], nil
 }
