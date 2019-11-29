@@ -119,7 +119,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 
 	curi, err := url.Parse(uri)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse mongo-uri")
+		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
 	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
@@ -129,7 +129,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	curi.Host = chost[1]
 	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
-		return nil, errors.Wrap(err, "create mongo connection to configsvr")
+		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
 
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
