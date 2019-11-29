@@ -71,7 +71,7 @@ func (a *Agent) Start() error {
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	q, err := backup.NodeSuits(bcp, a.node)
 	if err != nil {
-		log.Println("[ERROR] backup: unable to check node:", err)
+		log.Println("[ERROR] backup: node check:", err)
 		return
 	}
 
@@ -87,20 +87,25 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
-	lock := pbm.Lock{
-		Type:       "backup",
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: bcp.Name,
-	}
-
 	// have wait random time (1 to 100 ms) before acquiring lock
 	// otherwise all angent could aquire own locks
 	time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
-	// TODO: check if lock from "another" backup and notify user
-	got, err := a.pbm.AcquireLock(lock)
+
+	lock := a.pbm.NewLock(pbm.LockHeader{
+		Type:       pbm.CmdBackup,
+		Replset:    nodeInfo.SetName,
+		Node:       nodeInfo.Me,
+		BackupName: bcp.Name,
+	})
+
+	got, err := lock.Acquire()
 	if err != nil {
-		log.Println("[ERROR] backup: acquiring lock:", err)
+		switch err.(type) {
+		case pbm.ErrConcurrentOp:
+			log.Println("[INFO] backup: acquiring lock:", err)
+		default:
+			log.Println("[ERROR] backup: acquiring lock:", err)
+		}
 		return
 	}
 	if !got {
@@ -112,13 +117,14 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	err = backup.New(a.pbm, a.node).Run(bcp)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
+	} else {
+		log.Printf("Backup %s finished", bcp.Name)
 	}
-	log.Printf("Backup %s finished", bcp.Name)
 
 	// wait before release lock in case backup was super fast and
 	// other agents still trying to get lock
 	time.Sleep(1e3 * time.Millisecond)
-	err = a.pbm.ReleaseLock(lock)
+	err = lock.Release()
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
 	}
@@ -135,14 +141,15 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 
-	lock := pbm.Lock{
+	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:       pbm.CmdRestore,
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
 		BackupName: r.BackupName,
-	}
+	})
 
-	got, err := a.pbm.AcquireLock(lock)
+	got, err := lock.Acquire()
+
 	if err != nil {
 		log.Println("[ERROR] restore: acquiring lock:", err)
 		return
@@ -151,12 +158,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
 		return
 	}
-	defer func() {
-		err = a.pbm.ReleaseLock(lock)
-		if err != nil {
-			log.Printf("[ERROR] restore: release backup lock for %v: %v\n", lock, err)
-		}
-	}()
+	defer lock.Release()
 
 	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
 	err = restore.Run(r, a.pbm, a.node)

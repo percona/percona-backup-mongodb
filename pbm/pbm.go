@@ -23,15 +23,16 @@ const (
 	LogCollection = "pbmLog"
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
-	// OpCollection is the name of the mongo collection that is used
+	// LockCollection is the name of the mongo collection that is used
 	// by agents to coordinate operations (e.g. locks)
-	OpCollection = "pbmOp"
+	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
-
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+)
 
+const (
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
 )
@@ -55,7 +56,6 @@ type BackupCmd struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
 	StoreName   string          `bson:"store,omitempty"`
-	FromMaster  bool            `bson:"fromMaster"`
 }
 
 type RestoreCmd struct {
@@ -77,6 +77,9 @@ type PBM struct {
 	ctx  context.Context
 }
 
+// New creates a new PBM object.
+// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
+// If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -103,7 +106,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	}{}
 	err = client.Database("admin").Collection("system.version").
 		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
-	// no need in this connection anymore
+	// no need in this connection anymore, we need a new one with the ConfigServer
 	client.Disconnect(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config server connetion URI")
@@ -116,14 +119,17 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 
 	curi, err := url.Parse(uri)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse mongo-uri")
+		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
-	curi.RawQuery = ""
+	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
+	query := curi.Query()
+	query.Del("replicaSet")
+	curi.RawQuery = query.Encode()
 	curi.Host = chost[1]
 	pbm.Conn, err = connect(ctx, curi.String(), appName)
 	if err != nil {
-		return nil, errors.Wrap(err, "create mongo connection to configsvr")
+		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
 
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
@@ -141,10 +147,25 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", OpCollection}}, //size 2kb ~ 10 commands
+		bson.D{{"create", LockCollection}}, //size 2kb ~ 10 commands
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock collection")
+	}
+
+	// create index for Locks
+	c := p.Conn.Database(DB).Collection(LockCollection)
+	_, err = c.Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure lock index")
 	}
 
 	return nil
@@ -184,6 +205,7 @@ type BackupMeta struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	Status           Status              `bson:"status" json:"status"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
@@ -239,6 +261,18 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 			{"$set", bson.M{"last_transition_ts": ts}},
 			{"$set", bson.M{"error": msg}},
 			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"hb": ts}},
 		},
 	)
 
@@ -373,4 +407,25 @@ func (p *PBM) GetIsMaster() (*IsMaster, error) {
 		return nil, errors.Wrap(err, "run mongo command isMaster")
 	}
 	return im, nil
+}
+
+// ClusterTime returns mongo's current cluster time
+func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
+	// Make a read to force the cluster timestamp update.
+	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
+	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
+	if err != nil && err != mongo.ErrNoDocuments {
+		return primitive.Timestamp{}, errors.Wrap(err, "void read")
+	}
+
+	im, err := p.GetIsMaster()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+	}
+
+	if im.ClusterTime == nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
+	}
+
+	return im.ClusterTime.ClusterTime, nil
 }

@@ -1,0 +1,6 @@
+.. code-block:: bash
+
+   $ pbm list --mongodb-uri "mongodb://pbmuser:secretpwd@mongocsvr1:27018,mongocsvr2:27018,mongocsvr3:27018/?replicaSet=configrs"
+   $ #Alternatively:
+   $ export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@mongocsvr1:27018,mongocsvr2:27018,mongocsvr3:27018/?replicaSet=configrs"
+   $ pbm list

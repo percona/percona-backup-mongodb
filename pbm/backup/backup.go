@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/mongodb/mongo-tools-common/db"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools-common/progress"
@@ -37,7 +39,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-var statusRunTimeout = time.Second * 15
+var waitBackupStart = time.Second * 15
 
 // run the backup.
 // TODO: describe flow
@@ -71,8 +73,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 	defer func() {
 		if err != nil {
-			b.cn.ChangeBackupState(bcp.Name, pbm.StatusError, err.Error())
-			b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusError, err.Error())
+			ferr := b.MarkFailed(bcp.Name, rsMeta.Name, err.Error())
+			log.Printf("Mark backup as failed `%v`: %v\n", err, ferr)
 		}
 	}()
 
@@ -113,7 +115,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &statusRunTimeout)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &waitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -210,8 +212,20 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 		return false, errors.Wrap(err, "get isMaster data for node")
 	}
 
-	if im.IsMaster && !bcp.FromMaster {
-		return false, nil
+	if im.IsStandalone() {
+		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+	}
+
+	// for the cases when no secondary was good enough for backup or there are no secondaries alive
+	// wait for 90% of waitBackupStart and then try to acquire a lock.
+	// by that time healthy secondaries should have already acquired a lock.
+	//
+	// but no need to wait if this is the only node (the single-node replica set).
+	//
+	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
+	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
+	if im.IsMaster && im.Me == im.Primary && len(im.Hosts) > 1 {
+		time.Sleep(waitBackupStart * 9 / 10)
 	}
 
 	status, err := node.Status()
@@ -320,7 +334,7 @@ func (b *Backup) convergeCluster(bcpName string, shards []pbm.Shard, status pbm.
 
 var errConvergeTimeOut = errors.New("reached converge timeout")
 
-// convergeClusterWithTimeout waits up to geiven timeout until all given shards reached `status` and updates a cluster status
+// convergeClusterWithTimeout waits up to the geiven timeout until all given shards reached `status` and then updates the cluster status
 func (b *Backup) convergeClusterWithTimeout(bcpName string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
@@ -350,9 +364,34 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 	if err != nil {
 		return false, errors.Wrap(err, "get backup metadata")
 	}
+
+	clusterTime, err := b.cn.ClusterTime()
+	if err != nil {
+		return false, errors.Wrap(err, "read cluster time")
+	}
+
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.ID {
+				// check if node alive
+				lock, err := b.cn.GetLockData(&pbm.LockHeader{
+					Type:       pbm.CmdBackup,
+					BackupName: bcpName,
+					Replset:    shard.Name,
+				})
+
+				// nodes are cleaning its locks moving to the done status
+				// so no lock is ok and not need to ckech the heartbeats
+				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
+					if err != nil {
+						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+					}
+					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+					}
+				}
+
+				// check status
 				switch shard.Status {
 				case status:
 					shardsToFinish--
@@ -364,6 +403,12 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 			}
 		}
 	}
+
+	err = b.cn.SetBackupHB(bcpName, clusterTime)
+	if err != nil {
+		return false, errors.Wrap(err, "send pbm heartbeat")
+	}
+
 	if shardsToFinish == 0 {
 		err := b.cn.ChangeBackupState(bcpName, status, "")
 		if err != nil {
@@ -385,6 +430,16 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
+
+			clusterTime, err := b.cn.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+
+			if bmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
+			}
+
 			switch bmeta.Status {
 			case status:
 				return nil
@@ -522,4 +577,14 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 	}
 
 	return name
+}
+
+// MarkFailed set state of backup and given rs as error with msg
+func (b *Backup) MarkFailed(bcpName, rsName, msg string) error {
+	err := b.cn.ChangeBackupState(bcpName, pbm.StatusError, msg)
+	if err != nil {
+		return errors.Wrap(err, "set backup state")
+	}
+	err = b.cn.ChangeRSState(bcpName, rsName, pbm.StatusError, msg)
+	return errors.Wrap(err, "set replset state")
 }

@@ -3,6 +3,9 @@
 Installation
 ********************************************************************************
 
+.. contents::
+   :local:
+
 |percona| provides and supports installation packages for |pbm| in the *deb* and
 *rpm* formats that you can install by using ``apt`` or ``yum`` or other
 interfaces to your package management system.
@@ -10,15 +13,11 @@ interfaces to your package management system.
 For your convenience, we recommend that you install the |percona-release| utility
 which makes it easy to install any |percona| product on your system.
 
-.. important::
-
-   Make sure to install the latest version of |percona-release|.
-
 You may also build and install |pbm| from source code in case you require a
 fully controlled installation method.
 
-Regardless of the installation method you choose, the following tools are at your
-disposal after the installation completes:
+Regardless of the installation method you choose, the following tools are at
+your disposal after the installation completes:
 
 ===============  ===============================================================
 Tool             Purpose
@@ -26,6 +25,11 @@ Tool             Purpose
 pbm              Command-line interface for controlling the backup system
 pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
+
+You should install |pbm-agent| on every server that has mongod nodes in the
+MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed
+on any or all servers or desktop computers you wish to use it from, so long as
+those computers aren't network-blocked from accessing the MongoDB cluster.
 
 .. seealso::
 
@@ -49,9 +53,6 @@ enable the *tools* repository.
 
    Configuring |percona| repositories
       https://www.percona.com/doc/percona-repo-config/index.html
-
-.. contents::
-   :local:
 
 Installing |pbm| Using ``apt``
 ================================================================================
@@ -92,7 +93,6 @@ Building the project requires:
 
 - Go 1.11 or above
 - make
-- upx (optional)
 
 To build the project (from the project dir):
 
@@ -108,34 +108,24 @@ To build the project (from the project dir):
 After |pbm| is successfully installed on your system, you have |pbm.app|
 and |pbm-agent| programs on your system.
 
-The |pbm| sample configuration files are placed into the :file:`/etc`
-directory:
+.. _pbm.installation.service_init_scripts:
 
-- :file:`/etc/pbm-agent.conf`
-- :file:`/etc/pbm-agent-storage.conf`
+Configuring service init scripts
+================================================================================
 
-.. seealso::
+Some configuration is required for the service script (e.g. systemd unit file)
+that will run the |pbm-agent| processes.
 
-   |pbm| stores
-      :ref:`pbm.running.storage.setting-up`
+- The MongoDB connection URI string to the local mongod node. (See
+  :ref:`pbm.auth` for an explanation of standard MongoDB connection strings if
+  you need.)
+- A file path to save log output to. |pbm-agent|'s log output comes straight to
+  stdout and the service script just redirects it (and stderr) to this path.
 
-.. Unit tests
-.. --------------------------------------------------------------------------------
-.. 
-.. The testing launches a |mongodb| cluster in |docker| containers. ``docker`` and
-.. docker-compose are required.
-.. 
-.. rubric: To run the tests (may require 'sudo')
-.. 
-.. code-block: bash
-.. 
-..    $ make test-full
-.. 
-.. rubric: To tear-down the test (and containers, data, etc)
-.. 
-.. code-block: bash
-.. 
-..    $ make test-full-clean
-.. 
+.. This section is not available any longer
+.. seealso:
+..
+..   pbm stores
+..     :ref:`pbm.config.storage.setting-up`
 
 .. include:: .res/replace.txt

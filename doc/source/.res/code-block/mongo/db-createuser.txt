@@ -1,14 +1,22 @@
 
 .. code-block:: guess
 
-   > use admin;
-   > db.createUser({user: "pbmAgent",
-                    pwd: "securePassw0rd",
-		    "roles" : [
-		    { "db" : "admin", "role" : "readWrite", "collection": "" },
-		    { "db" : "admin", "role" : "backup" },
-		    { "db" : "admin", "role" : "clusterMonitor" },
-		    { "db" : "admin", "role" : "restore" }],
-		      "role" : "pbmAnyAction", "db" : "admin",
-                    authenticationRestrictions: [{ clientSource: ["127.0.0.1"]}]})
+   db.getSiblingDB("admin").createRole({ "role": "pbmAnyAction",
+         "privileges": [
+            { "resource": { "anyResource": true },
+              "actions": [ "anyAction" ]
+            }
+         ],
+         "roles": []
+      });
+   db.getSiblingDB("admin").createUser({user: "pbmuser",
+          "pwd": "secretpwd",
+          "roles" : [
+             { "db" : "admin", "role" : "readWrite", "collection": "" },
+             { "db" : "admin", "role" : "backup" },
+             { "db" : "admin", "role" : "clusterMonitor" },
+             { "db" : "admin", "role" : "restore" },
+             { "db" : "admin", "role" : "pbmAnyAction" }
+          ]
+       });
 
