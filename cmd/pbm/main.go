@@ -20,11 +20,6 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
-	storageCmd     = pbmCmd.Command("store", "Set, change or list the config")
-	storageSetCmd  = storageCmd.Command("set", "Set store")
-	storageConfig  = storageSetCmd.Flag("config", "Store config file in yaml format").String()
-	storageShowCmd = storageCmd.Command("show", "Show current storage configuration")
-
 	configCmd     = pbmCmd.Command("config", "Set, change or list the config")
 	configListF   = configCmd.Flag("list", "List current settings").Bool()
 	configFileF   = configCmd.Flag("file", "Upload config from YAML file").String()
@@ -104,11 +99,11 @@ func main() {
 		case len(*configFileF) > 0:
 			buf, err := ioutil.ReadFile(*configFileF)
 			if err != nil {
-				log.Fatalln("Error: unable to read storage file:", err)
+				log.Fatalln("Error: unable to read config file:", err)
 			}
 			err = pbmClient.SetConfigByte(buf)
 			if err != nil {
-				log.Fatalln("Error: unable to set storage:", err)
+				log.Fatalln("Error: unable to set config:", err)
 			}
 			fmt.Println("[Config set]\n------")
 			// show config after it was set
