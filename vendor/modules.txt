@@ -3,77 +3,76 @@ github.com/alecthomas/kingpin
 # github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
 github.com/alecthomas/template
 github.com/alecthomas/template/parse
-# github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4
+# github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 github.com/alecthomas/units
-# github.com/aws/aws-sdk-go v1.23.5
+# github.com/aws/aws-sdk-go v1.25.19
 github.com/aws/aws-sdk-go/aws
-github.com/aws/aws-sdk-go/aws/credentials
-github.com/aws/aws-sdk-go/aws/session
-github.com/aws/aws-sdk-go/service/s3/s3manager
-github.com/aws/aws-sdk-go/service/s3
 github.com/aws/aws-sdk-go/aws/awserr
-github.com/aws/aws-sdk-go/aws/endpoints
-github.com/aws/aws-sdk-go/internal/sdkio
-github.com/aws/aws-sdk-go/internal/ini
-github.com/aws/aws-sdk-go/internal/shareddefaults
+github.com/aws/aws-sdk-go/aws/awsutil
 github.com/aws/aws-sdk-go/aws/client
+github.com/aws/aws-sdk-go/aws/client/metadata
 github.com/aws/aws-sdk-go/aws/corehandlers
+github.com/aws/aws-sdk-go/aws/credentials
+github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds
+github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
 github.com/aws/aws-sdk-go/aws/credentials/processcreds
 github.com/aws/aws-sdk-go/aws/credentials/stscreds
 github.com/aws/aws-sdk-go/aws/csm
 github.com/aws/aws-sdk-go/aws/defaults
+github.com/aws/aws-sdk-go/aws/ec2metadata
+github.com/aws/aws-sdk-go/aws/endpoints
 github.com/aws/aws-sdk-go/aws/request
-github.com/aws/aws-sdk-go/aws/awsutil
-github.com/aws/aws-sdk-go/service/s3/s3iface
-github.com/aws/aws-sdk-go/aws/client/metadata
+github.com/aws/aws-sdk-go/aws/session
 github.com/aws/aws-sdk-go/aws/signer/v4
+github.com/aws/aws-sdk-go/internal/ini
 github.com/aws/aws-sdk-go/internal/s3err
+github.com/aws/aws-sdk-go/internal/sdkio
+github.com/aws/aws-sdk-go/internal/sdkmath
+github.com/aws/aws-sdk-go/internal/sdkrand
+github.com/aws/aws-sdk-go/internal/sdkuri
+github.com/aws/aws-sdk-go/internal/shareddefaults
 github.com/aws/aws-sdk-go/private/protocol
 github.com/aws/aws-sdk-go/private/protocol/eventstream
 github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi
+github.com/aws/aws-sdk-go/private/protocol/json/jsonutil
+github.com/aws/aws-sdk-go/private/protocol/query
+github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 github.com/aws/aws-sdk-go/private/protocol/rest
 github.com/aws/aws-sdk-go/private/protocol/restxml
 github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil
-github.com/aws/aws-sdk-go/internal/sdkrand
+github.com/aws/aws-sdk-go/service/s3
+github.com/aws/aws-sdk-go/service/s3/s3iface
+github.com/aws/aws-sdk-go/service/s3/s3manager
 github.com/aws/aws-sdk-go/service/sts
 github.com/aws/aws-sdk-go/service/sts/stsiface
-github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds
-github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
-github.com/aws/aws-sdk-go/aws/ec2metadata
-github.com/aws/aws-sdk-go/private/protocol/query
-github.com/aws/aws-sdk-go/internal/sdkuri
-github.com/aws/aws-sdk-go/private/protocol/json/jsonutil
-github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 # github.com/go-stack/stack v1.8.0
 github.com/go-stack/stack
 # github.com/golang/snappy v0.0.1
 github.com/golang/snappy
-# github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c
-github.com/howeyc/gopass
 # github.com/jessevdk/go-flags v1.4.0
 github.com/jessevdk/go-flags
 # github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 github.com/jmespath/go-jmespath
-# github.com/mongodb/mongo-tools v0.0.0-20190823134821-850798f303d6
+# github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370
 github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
 github.com/mongodb/mongo-tools/mongorestore/ns
-# github.com/mongodb/mongo-tools-common v0.0.1-0.20190823135426-6379cde3ec10
-github.com/mongodb/mongo-tools-common/db
-github.com/mongodb/mongo-tools-common/options
-github.com/mongodb/mongo-tools-common/progress
-github.com/mongodb/mongo-tools-common/txn
-github.com/mongodb/mongo-tools-common/json
-github.com/mongodb/mongo-tools-common/log
-github.com/mongodb/mongo-tools-common/password
-github.com/mongodb/mongo-tools-common/util
-github.com/mongodb/mongo-tools-common/failpoint
-github.com/mongodb/mongo-tools-common/text
+# github.com/mongodb/mongo-tools-common v1.2.1
 github.com/mongodb/mongo-tools-common/archive
 github.com/mongodb/mongo-tools-common/auth
-github.com/mongodb/mongo-tools-common/intents
 github.com/mongodb/mongo-tools-common/bsonutil
-# github.com/pierrec/lz4 v2.2.6+incompatible
+github.com/mongodb/mongo-tools-common/db
+github.com/mongodb/mongo-tools-common/failpoint
+github.com/mongodb/mongo-tools-common/intents
+github.com/mongodb/mongo-tools-common/json
+github.com/mongodb/mongo-tools-common/log
+github.com/mongodb/mongo-tools-common/options
+github.com/mongodb/mongo-tools-common/password
+github.com/mongodb/mongo-tools-common/progress
+github.com/mongodb/mongo-tools-common/text
+github.com/mongodb/mongo-tools-common/txn
+github.com/mongodb/mongo-tools-common/util
+# github.com/pierrec/lz4 v2.3.0+incompatible
 github.com/pierrec/lz4
 github.com/pierrec/lz4/internal/xxh32
 # github.com/pkg/errors v0.8.1
@@ -82,45 +81,45 @@ github.com/pkg/errors
 github.com/xdg/scram
 # github.com/xdg/stringprep v1.0.0
 github.com/xdg/stringprep
-# go.mongodb.org/mongo-driver v1.1.0
+# go.mongodb.org/mongo-driver v1.1.2
+go.mongodb.org/mongo-driver/bson
+go.mongodb.org/mongo-driver/bson/bsoncodec
+go.mongodb.org/mongo-driver/bson/bsonrw
+go.mongodb.org/mongo-driver/bson/bsontype
+go.mongodb.org/mongo-driver/bson/primitive
+go.mongodb.org/mongo-driver/event
+go.mongodb.org/mongo-driver/internal
 go.mongodb.org/mongo-driver/mongo
 go.mongodb.org/mongo-driver/mongo/options
-go.mongodb.org/mongo-driver/bson
-go.mongodb.org/mongo-driver/bson/primitive
-go.mongodb.org/mongo-driver/bson/bsoncodec
-go.mongodb.org/mongo-driver/bson/bsontype
-go.mongodb.org/mongo-driver/event
 go.mongodb.org/mongo-driver/mongo/readconcern
 go.mongodb.org/mongo-driver/mongo/readpref
 go.mongodb.org/mongo-driver/mongo/writeconcern
+go.mongodb.org/mongo-driver/tag
+go.mongodb.org/mongo-driver/version
 go.mongodb.org/mongo-driver/x/bsonx
 go.mongodb.org/mongo-driver/x/bsonx/bsoncore
 go.mongodb.org/mongo-driver/x/mongo/driver
+go.mongodb.org/mongo-driver/x/mongo/driver/address
 go.mongodb.org/mongo-driver/x/mongo/driver/auth
+go.mongodb.org/mongo-driver/x/mongo/driver/auth/internal/gssapi
 go.mongodb.org/mongo-driver/x/mongo/driver/connstring
 go.mongodb.org/mongo-driver/x/mongo/driver/description
+go.mongodb.org/mongo-driver/x/mongo/driver/dns
 go.mongodb.org/mongo-driver/x/mongo/driver/operation
 go.mongodb.org/mongo-driver/x/mongo/driver/session
 go.mongodb.org/mongo-driver/x/mongo/driver/topology
 go.mongodb.org/mongo-driver/x/mongo/driver/uuid
-go.mongodb.org/mongo-driver/tag
-go.mongodb.org/mongo-driver/bson/bsonrw
-go.mongodb.org/mongo-driver/x/mongo/driver/address
 go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage
-go.mongodb.org/mongo-driver/x/mongo/driver/auth/internal/gssapi
-go.mongodb.org/mongo-driver/internal
-go.mongodb.org/mongo-driver/x/mongo/driver/dns
-go.mongodb.org/mongo-driver/version
-# golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
-golang.org/x/crypto/ssh/terminal
+# golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
 golang.org/x/crypto/pbkdf2
-# golang.org/x/sync v0.0.0-20190423024810-112230192c58
+golang.org/x/crypto/ssh/terminal
+# golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
+# golang.org/x/sys v0.0.0-20190412213103-97732733099d
 golang.org/x/sys/unix
 golang.org/x/sys/windows
-# golang.org/x/text v0.3.2
-golang.org/x/text/unicode/norm
+# golang.org/x/text v0.3.0
 golang.org/x/text/transform
-# gopkg.in/yaml.v2 v2.2.2
+golang.org/x/text/unicode/norm
+# gopkg.in/yaml.v2 v2.2.4
 gopkg.in/yaml.v2
