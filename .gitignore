@@ -5,4 +5,4 @@
 test-out
 /dist
 /bin
-
+e2e-tests/docker/keyFile
