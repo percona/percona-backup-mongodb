@@ -74,9 +74,9 @@ func keys(t reflect.Type) []string {
 
 func (p *PBM) SetConfigByte(buf []byte) error {
 	var cfg Config
-	err := yaml.Unmarshal(buf, &cfg)
+	err := yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
-		errors.Wrap(err, "unmarshal yaml")
+		return errors.Wrap(err, "unmarshal yaml")
 	}
 	return errors.Wrap(p.SetConfig(cfg), "write to db")
 }
