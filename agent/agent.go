@@ -114,6 +114,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
+	tstart := time.Now()
 	err = backup.New(a.pbm, a.node).Run(bcp)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
@@ -121,9 +122,21 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		log.Printf("Backup %s finished", bcp.Name)
 	}
 
-	// wait before release lock in case backup was super fast and
-	// other agents still trying to get lock
-	time.Sleep(1e3 * time.Millisecond)
+	// In the case of fast backup (small db) we have to wait before releasing the lock.
+	// Otherwise, since the primary node waits for `WaitBackupStart*0.9` before trying to acquire the lock
+	// it might happen that the backup will be made twice:
+	//
+	// secondary1 >---------*!lock(fail - acuired by s1)---------------------------
+	// secondary2 >------*lock====backup====*unlock--------------------------------
+	// primary    >--------*wait--------------------*lock====backup====*unlock-----
+	//
+	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
+	// TODO: we cannot relay on the nodes wall clock.
+	// TODO: ? pbmBackups should have unique index by name ?
+	needToWait := backup.WaitBackupStart - time.Since(tstart)
+	if needToWait > 0 {
+		time.Sleep(needToWait)
+	}
 	err = lock.Release()
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)

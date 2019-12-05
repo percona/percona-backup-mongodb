@@ -98,7 +98,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	}
 
 	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
-		return pbm, nil
+		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
 	csvr := struct {
