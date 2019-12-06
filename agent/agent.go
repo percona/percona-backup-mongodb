@@ -131,7 +131,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// primary    >--------*wait--------------------*lock====backup====*unlock-----
 	//
 	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
-	// TODO: we cannot relay on the nodes wall clock.
+	// TODO: we cannot rely on the nodes wall clock.
 	// TODO: ? pbmBackups should have unique index by name ?
 	needToWait := backup.WaitBackupStart - time.Since(tstart)
 	if needToWait > 0 {
