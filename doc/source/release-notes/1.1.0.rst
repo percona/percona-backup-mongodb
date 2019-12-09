@@ -1,0 +1,16 @@
+|pbm| |release| adds the following features:
+
+PBM-344 New |pbm config| command
+
+Bugs fixed in v1.1:
+
+- PBM-321, PBM-322, PBM-365 Prevent deadlock on PBM operations
+- PBM-362 Backup from primary if no healthy secondaries.
+- PBM-319 Config validation
+- PBM-369 Make successful connections when TLS is used in cluster.
+- PBM-328 Don't list failed or unsuccessful backups
+- PBM-325 Failed backups in `pbm list` output
+
+Compatibility notes:
+
+The `pbm store` sub-command is replaced by `pbm config`.
