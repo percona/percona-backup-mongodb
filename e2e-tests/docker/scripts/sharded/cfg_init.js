@@ -6,7 +6,7 @@ rs.initiate(
         members: [
             { _id: 0, host: "cfg01:27017" },
             { _id: 1, host: "cfg02:27017" },
-            { _id: 2, host: "cfg02:27017" }
+            { _id: 2, host: "cfg03:27017" }
         ]
     }
 )

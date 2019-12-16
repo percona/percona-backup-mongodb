@@ -1,0 +1,160 @@
+version: "3"
+services:
+  cfg01:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg01
+    environment:
+      - REPLSET_NAME=cfg
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./scripts/02_config_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
+      - ./keyFile:/opt/keyFile
+  cfg02:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg02
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  cfg03:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg03
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  agent-cfg01:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg01:27017'
+    depends_on:
+      - cfg01
+  agent-cfg02:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg02:27017'
+    depends_on:
+      - cfg02
+  agent-cfg03:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg03:27017'
+    depends_on:
+      - cfg03
+
+  rs101:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs101
+    environment:
+      - REPLSET_NAME=rs1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./scripts/02_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
+      - ./keyFile:/opt/keyFile
+  rs102:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs102
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  rs103:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs103
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  agent-rs101:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs101:27017'
+    depends_on:
+      - rs101
+  agent-rs102:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs102:27017'
+    depends_on:
+      - rs102
+  agent-rs103:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs103:27017'
+    depends_on:
+      - rs103
+    
+  rs201:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs201
+    environment:
+      - REPLSET_NAME=rs2
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./scripts/02_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
+      - ./keyFile:/opt/keyFile
+  rs202:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs202
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  rs203:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs203
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
+      - ./keyFile:/opt/keyFile
+  agent-rs201:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs201:27017'
+    depends_on:
+      - rs201
+  agent-rs202:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs202:27017'
+    depends_on:
+      - rs202
+  agent-rs203:
+    build: 
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs203:27017'
+    depends_on:
+      - rs203
+
+  mongos:
+    image: percona/percona-server-mongodb:3.6
+    hostname: mongos
+    command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/01_users.sh
+      - ./scripts/sharded/mongos_init.js:/docker-entrypoint-initdb.d/02_init.js
+      - ./keyFile:/opt/keyFile
+    depends_on:
+      - cfg01
+      - cfg02
+      - cfg03
+      - rs101
+      - rs102
+      - rs103
+      - rs201
+      - rs202
+      - rs203
