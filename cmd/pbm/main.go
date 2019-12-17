@@ -20,11 +20,12 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
-	configCmd     = pbmCmd.Command("config", "Set, change or list the config")
-	configListF   = configCmd.Flag("list", "List current settings").Bool()
-	configFileF   = configCmd.Flag("file", "Upload config from YAML file").String()
-	configSetF    = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
-	configShowKey = configCmd.Arg("key", "Show the value of a specified key").String()
+	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
+	configRsyncBcpListF = configCmd.Flag("resync", "Resync backup list with the current store").Bool()
+	configListF         = configCmd.Flag("list", "List current settings").Bool()
+	configFileF         = configCmd.Flag("file", "Upload config from YAML file").String()
+	configSetF          = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
+	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
@@ -108,6 +109,13 @@ func main() {
 			fmt.Println("[Config set]\n------")
 			// show config after it was set
 			fallthrough
+		case *configRsyncBcpListF:
+			err := pbmClient.SendCmd(pbm.Cmd{
+				Cmd: pbm.CmdResyncBackupList,
+			})
+			if err != nil {
+				log.Fatalln("Error: schedule resync:", err)
+			}
 		case *configListF:
 			fallthrough
 		default:

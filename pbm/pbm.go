@@ -40,9 +40,10 @@ const (
 type Command string
 
 const (
-	CmdUndefined Command = ""
-	CmdBackup            = "backup"
-	CmdRestore           = "restore"
+	CmdUndefined        Command = ""
+	CmdBackup                   = "backup"
+	CmdRestore                  = "restore"
+	CmdResyncBackupList         = "resyncBcpList"
 )
 
 type Cmd struct {
