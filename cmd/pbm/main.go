@@ -20,11 +20,12 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
-	configCmd     = pbmCmd.Command("config", "Set, change or list the config")
-	configListF   = configCmd.Flag("list", "List current settings").Bool()
-	configFileF   = configCmd.Flag("file", "Upload config from YAML file").String()
-	configSetF    = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
-	configShowKey = configCmd.Arg("key", "Show the value of a specified key").String()
+	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
+	configRsyncBcpListF = configCmd.Flag("force-resync", "Resync backup list with the current store").Bool()
+	configListF         = configCmd.Flag("list", "List current settings").Bool()
+	configFileF         = configCmd.Flag("file", "Upload config from YAML file").String()
+	configSetF          = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
+	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
@@ -90,12 +91,15 @@ func main() {
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
 			}
+			rsync(pbmClient)
 		case len(*configShowKey) > 0:
 			k, err := pbmClient.GetConfigVar(*configShowKey)
 			if err != nil {
 				log.Fatalln("Error: unable to get config key:", err)
 			}
 			fmt.Println(k)
+		case *configRsyncBcpListF:
+			rsync(pbmClient)
 		case len(*configFileF) > 0:
 			buf, err := ioutil.ReadFile(*configFileF)
 			if err != nil {
@@ -105,17 +109,14 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to set config:", err)
 			}
+
 			fmt.Println("[Config set]\n------")
-			// show config after it was set
-			fallthrough
+			getConfig(pbmClient)
+			rsync(pbmClient)
 		case *configListF:
 			fallthrough
 		default:
-			cfg, err := pbmClient.GetConfigYaml(true)
-			if err != nil {
-				log.Fatalln("Error: unable to get config:", err)
-			}
-			fmt.Println(string(cfg))
+			getConfig(pbmClient)
 		}
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
@@ -160,6 +161,24 @@ func main() {
 			fmt.Println(" ", bcp)
 		}
 	}
+}
+
+func rsync(pbmClient *pbm.PBM) {
+	err := pbmClient.SendCmd(pbm.Cmd{
+		Cmd: pbm.CmdResyncBackupList,
+	})
+	if err != nil {
+		log.Fatalln("Error: schedule resync:", err)
+	}
+	fmt.Printf("Backup list resync from the store has started\n")
+}
+
+func getConfig(pbmClient *pbm.PBM) {
+	cfg, err := pbmClient.GetConfigYaml(true)
+	if err != nil {
+		log.Fatalln("Error: unable to get config:", err)
+	}
+	fmt.Println(string(cfg))
 }
 
 func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
