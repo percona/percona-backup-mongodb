@@ -21,7 +21,7 @@ var (
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
 	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
-	configRsyncBcpListF = configCmd.Flag("resync", "Resync backup list with the current store").Bool()
+	configRsyncBcpListF = configCmd.Flag("force-resync", "Resync backup list with the current store").Bool()
 	configListF         = configCmd.Flag("list", "List current settings").Bool()
 	configFileF         = configCmd.Flag("file", "Upload config from YAML file").String()
 	configSetF          = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()

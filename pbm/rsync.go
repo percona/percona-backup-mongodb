@@ -36,7 +36,7 @@ func (p *PBM) ResyncBackupList() error {
 		}
 	}
 
-	err = p.copyBackupsMeta(bcps)
+	err = p.archiveBackupsMeta(bcps)
 	if err != nil {
 		return errors.Wrap(err, "copy current backups meta")
 	}
@@ -62,7 +62,7 @@ func (p *PBM) ResyncBackupList() error {
 	return nil
 }
 
-func (p *PBM) copyBackupsMeta(bm []BackupMeta) error {
+func (p *PBM) archiveBackupsMeta(bm []BackupMeta) error {
 	if len(bm) == 0 {
 		return nil
 	}
