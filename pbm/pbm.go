@@ -28,6 +28,8 @@ const (
 	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
+	// BcpOldCollection contains a backup of backups metadata
+	BcpOldCollection = "pbmBackups.old"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 )

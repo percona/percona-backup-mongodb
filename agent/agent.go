@@ -198,10 +198,6 @@ func (a *Agent) ResyncBackupList() {
 		return
 	}
 
-	// wait for a random time (1 to 100 ms) before acquiring a lock
-	// TODO: do we need this? check
-	// time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
-
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdResyncBackupList,
 		Replset: nodeInfo.SetName,
@@ -222,8 +218,8 @@ func (a *Agent) ResyncBackupList() {
 		log.Println("[INFO] resync_list: operation has been scheduled on another replset node")
 		return
 	}
-	tstart := time.Now()
 
+	tstart := time.Now()
 	log.Println("[INFO] resync_list: started")
 	err = a.pbm.ResyncBackupList()
 	if err != nil {
@@ -232,7 +228,7 @@ func (a *Agent) ResyncBackupList() {
 		log.Println("[INFO] resync_list: succeed")
 	}
 
-	needToWait := backup.WaitBackupStart - time.Since(tstart)
+	needToWait := time.Second*1 - time.Since(tstart)
 	if needToWait > 0 {
 		time.Sleep(needToWait)
 	}

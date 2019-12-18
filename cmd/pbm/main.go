@@ -91,12 +91,15 @@ func main() {
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
 			}
+			rsync(pbmClient)
 		case len(*configShowKey) > 0:
 			k, err := pbmClient.GetConfigVar(*configShowKey)
 			if err != nil {
 				log.Fatalln("Error: unable to get config key:", err)
 			}
 			fmt.Println(k)
+		case *configRsyncBcpListF:
+			rsync(pbmClient)
 		case len(*configFileF) > 0:
 			buf, err := ioutil.ReadFile(*configFileF)
 			if err != nil {
@@ -106,24 +109,14 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to set config:", err)
 			}
+
 			fmt.Println("[Config set]\n------")
-			// show config after it was set
-			fallthrough
-		case *configRsyncBcpListF:
-			err := pbmClient.SendCmd(pbm.Cmd{
-				Cmd: pbm.CmdResyncBackupList,
-			})
-			if err != nil {
-				log.Fatalln("Error: schedule resync:", err)
-			}
+			getConfig(pbmClient)
+			rsync(pbmClient)
 		case *configListF:
 			fallthrough
 		default:
-			cfg, err := pbmClient.GetConfigYaml(true)
-			if err != nil {
-				log.Fatalln("Error: unable to get config:", err)
-			}
-			fmt.Println(string(cfg))
+			getConfig(pbmClient)
 		}
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
@@ -168,6 +161,24 @@ func main() {
 			fmt.Println(" ", bcp)
 		}
 	}
+}
+
+func rsync(pbmClient *pbm.PBM) {
+	err := pbmClient.SendCmd(pbm.Cmd{
+		Cmd: pbm.CmdResyncBackupList,
+	})
+	if err != nil {
+		log.Fatalln("Error: schedule resync:", err)
+	}
+	fmt.Printf("Backup list resync from the store has started\n")
+}
+
+func getConfig(pbmClient *pbm.PBM) {
+	cfg, err := pbmClient.GetConfigYaml(true)
+	if err != nil {
+		log.Fatalln("Error: unable to get config:", err)
+	}
+	fmt.Println(string(cfg))
 }
 
 func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {

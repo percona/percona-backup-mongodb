@@ -2,15 +2,17 @@ package pbm
 
 import (
 	"encoding/json"
-	"log"
+	"io/ioutil"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 func (p *PBM) ResyncBackupList() error {
@@ -23,25 +25,100 @@ func (p *PBM) ResyncBackupList() error {
 	default:
 		return errors.New("store is doesn't set, you have to set store to make backup")
 	case StorageS3:
-		bcps, err = getBackupListS3(stg)
+		bcps, err = getBackupListS3(stg.S3)
 		if err != nil {
-			return errors.Wrap(err, "")
+			return errors.Wrap(err, "get backups from S3")
 		}
+	case StorageFilesystem:
+		bcps, err = getBackupListFS(stg.Filesystem)
+		if err != nil {
+			return errors.Wrap(err, "get backups from FS")
+		}
+	}
 
-		// COPY ALL FROM pbmBcp
-		// INSETR bcps
+	err = p.copyBackupsMeta(bcps)
+	if err != nil {
+		return errors.Wrap(err, "copy current backups meta")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteMany(p.ctx, bson.M{})
+	if err != nil {
+		return errors.Wrap(err, "remove current backups meta")
+	}
+
+	if len(bcps) == 0 {
+		return nil
+	}
+
+	var ins []interface{}
+	for _, v := range bcps {
+		ins = append(ins, v)
+	}
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).InsertMany(p.ctx, ins)
+	if err != nil {
+		return errors.Wrap(err, "insert retrieved backups meta")
 	}
 
 	return nil
 }
 
-func getBackupListS3(stg Storage) ([]BackupMeta, error) {
+func (p *PBM) copyBackupsMeta(bm []BackupMeta) error {
+	if len(bm) == 0 {
+		return nil
+	}
+	_, err := p.Conn.Database(DB).Collection(BcpOldCollection).InsertOne(
+		p.ctx,
+		struct {
+			CopiedAt time.Time    `bson:"copied_at"`
+			Backups  []BackupMeta `bson:"backups"`
+		}{
+			CopiedAt: time.Now().UTC(),
+			Backups:  bm,
+		},
+	)
+
+	return err
+}
+
+func getBackupListFS(stg Filesystem) ([]BackupMeta, error) {
+	files, err := ioutil.ReadDir(stg.Path)
+	if err != nil {
+		return nil, errors.Wrap(err, "read dir")
+	}
+
+	var bcps []BackupMeta
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+
+		fpath := path.Join(stg.Path, f.Name())
+		data, err := ioutil.ReadFile(fpath)
+		if err != nil {
+			return nil, errors.Wrapf(err, "read file '%s'", fpath)
+		}
+
+		m := BackupMeta{}
+		err = json.Unmarshal(data, &m)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal file '%s'", fpath)
+		}
+
+		if m.Name != "" {
+			bcps = append(bcps, m)
+		}
+	}
+
+	return bcps, nil
+}
+
+func getBackupListS3(stg S3) ([]BackupMeta, error) {
 	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(stg.S3.Region),
-		Endpoint: aws.String(stg.S3.EndpointURL),
+		Region:   aws.String(stg.Region),
+		Endpoint: aws.String(stg.EndpointURL),
 		Credentials: credentials.NewStaticCredentials(
-			stg.S3.Credentials.AccessKeyID,
-			stg.S3.Credentials.SecretAccessKey,
+			stg.Credentials.AccessKeyID,
+			stg.Credentials.SecretAccessKey,
 			"",
 		),
 		S3ForcePathStyle: aws.Bool(true),
@@ -51,14 +128,14 @@ func getBackupListS3(stg Storage) ([]BackupMeta, error) {
 	}
 
 	lparams := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(stg.S3.Bucket),
+		Bucket:    aws.String(stg.Bucket),
 		Delimiter: aws.String("/"),
 	}
-	if stg.S3.Prefix != "" {
-		lparams.Prefix = aws.String(stg.S3.Prefix)
+	if stg.Prefix != "" {
+		lparams.Prefix = aws.String(stg.Prefix)
 	}
 
-	bcps := []BackupMeta{}
+	var bcps []BackupMeta
 	awscli := s3.New(awsSession)
 	var berr error
 	err = awscli.ListObjectsV2Pages(lparams,
@@ -66,10 +143,9 @@ func getBackupListS3(stg Storage) ([]BackupMeta, error) {
 			for _, o := range page.Contents {
 				name := aws.StringValue(o.Key)
 				if strings.HasSuffix(name, ".pbm.json") {
-					log.Println(name)
 					s3obj, err := awscli.GetObject(&s3.GetObjectInput{
-						Bucket: aws.String(stg.S3.Bucket),
-						Key:    aws.String(path.Join(stg.S3.Prefix, name)),
+						Bucket: aws.String(stg.Bucket),
+						Key:    aws.String(path.Join(stg.Prefix, name)),
 					})
 					if err != nil {
 						berr = errors.Wrapf(err, "get object '%s'", name)
