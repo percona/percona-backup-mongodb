@@ -89,7 +89,9 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	// have wait random time (1 to 100 ms) before acquiring lock
 	// otherwise all angent could aquire own locks
-	time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
+	// it's no need to wait because all agents are not started at the same time, 
+	// and the processing speed of each machine is different
+	//time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:       pbm.CmdBackup,
