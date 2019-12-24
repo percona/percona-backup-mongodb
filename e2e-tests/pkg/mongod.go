@@ -104,8 +104,8 @@ func (m *Mongo) GenerateData(ctx context.Context, each time.Duration, count int)
 
 func (m *Mongo) Fill(ln int) error {
 	var data []interface{}
-	for i := 0; i < ln; i++ {
-		data = append(data, *genBallast(rand.Intn(1<<4) + 1<<5))
+	for i := 0; i < ln/100; i++ {
+		data = append(data, *genBallast(100))
 		if i%100 == 0 {
 			_, err := m.cn.Database(testDB).Collection("ballast").InsertMany(m.ctx, data)
 			if err != nil {
@@ -146,15 +146,16 @@ func (m *Mongo) DeleteData() (int, error) {
 }
 
 func (m *Mongo) Hashes() (map[string]string, error) {
-	r := m.cn.Database(testDB).RunCommand(m.ctx, bson.D{{"dbHash", 1}})
+	r := m.cn.Database(testDB).RunCommand(m.ctx, bson.M{"dbHash": 1})
 	if r.Err() != nil {
 		return nil, errors.Wrap(r.Err(), "run command")
-
 	}
 	h := struct {
 		C map[string]string `bson:"collections"`
+		M string            `bson:"md5"`
 	}{}
 	err := r.Decode(&h)
+	h.C["_all_"] = h.M
 
 	return h.C, errors.Wrap(err, "decode")
 }

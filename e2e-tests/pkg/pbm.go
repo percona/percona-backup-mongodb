@@ -2,6 +2,10 @@ package pkg
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -13,7 +17,10 @@ type Ctl struct {
 	cn        *docker.Client
 	ctx       context.Context
 	container string
+	env       []string
 }
+
+var backupNameRE = regexp.MustCompile(`Backup '([0-9\-\:TZ]+)' to remote store`)
 
 func NewPBM(ctx context.Context, host string) (*Ctl, error) {
 	cn, err := docker.NewClient(host, "1.40", nil, nil)
@@ -25,37 +32,131 @@ func NewPBM(ctx context.Context, host string) (*Ctl, error) {
 		cn:        cn,
 		ctx:       ctx,
 		container: "docker_agent-rs103_1",
+		env:       []string{"PBM_MONGODB_URI=mongodb://dba:test1234@rs103:27017"},
 	}, nil
 }
 
-func (c *Ctl) BackupStart() error {
-	id, err := c.cn.ContainerExecCreate(c.ctx, c.container, types.ExecConfig{
-		Env: []string{"PBM_MONGODB_URI=mongodb://dba:test1234@rs103:27017"},
-		Cmd: []string{"pbm", "backup"},
-	})
+func (c *Ctl) ApplyConfig() error {
+	out, err := c.RunCmd("pbm", "config", "--file", "/etc/pbm/store.yaml")
 	if err != nil {
-		return errors.Wrap(err, "ContainerExecCreate")
+		return err
 	}
 
-	err = c.cn.ContainerExecStart(c.ctx, id.ID, types.ExecStartCheck{})
+	fmt.Println("done", out)
+	return nil
+}
+
+func (c *Ctl) Backup() (string, error) {
+	out, err := c.RunCmd("pbm", "backup")
 	if err != nil {
-		return errors.Wrap(err, "ContainerExecStart")
+		return "", err
 	}
+
+	fmt.Println("done", out)
+	name := backupNameRE.FindStringSubmatch(out)
+	if name == nil {
+		return "", errors.Errorf("no backup name found in output:\n%s", out)
+	}
+	return name[1], nil
+}
+
+func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
+	tmr := time.NewTimer(waitFor)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			list, err := c.RunCmd("pbm", "list")
+			if err != nil {
+				return errors.Wrap(err, "timeout reached. get backups list")
+			}
+			return errors.Errorf("timeout reached. backups list:\n%s", list)
+		case <-tkr.C:
+			out, err := c.RunCmd("pbm", "list")
+			if err != nil {
+				return err
+			}
+			for _, s := range strings.Split(out, "\n") {
+				s := strings.TrimSpace(s)
+				if s == bcpName {
+					return nil
+				}
+				if strings.HasPrefix(s, bcpName) {
+					status := strings.TrimSpace(strings.Split(s, bcpName)[1])
+					if strings.HasPrefix(s, "Failed with") {
+						return errors.New(status)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (c *Ctl) Restore(bcpName string) error {
+	_, err := c.RunCmd("pbm", "restore", bcpName)
+	return err
+}
+
+func (c *Ctl) RunCmd(cmds ...string) (string, error) {
+	execConf := types.ExecConfig{
+		Env:          c.env,
+		Cmd:          cmds,
+		AttachStderr: true,
+		AttachStdout: true,
+	}
+	id, err := c.cn.ContainerExecCreate(c.ctx, c.container, execConf)
+	if err != nil {
+		return "", errors.Wrap(err, "ContainerExecCreate")
+	}
+
+	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, execConf)
+	if err != nil {
+		return "", errors.Wrap(err, "attach to failed container")
+	}
+	defer container.Close()
 
 	tmr := time.NewTimer(17 * time.Second)
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
 		case <-tmr.C:
-			return errors.New("timeout reached")
+			return "", errors.New("timeout reached")
 		case <-tkr.C:
 			insp, err := c.cn.ContainerExecInspect(c.ctx, id.ID)
 			if err != nil {
-				return errors.Wrap(err, "ContainerExecInspect")
+				return "", errors.Wrap(err, "ContainerExecInspect")
 			}
-			if !insp.Running && insp.ExitCode == 0 {
-				return nil
+			if !insp.Running {
+				logs, err := ioutil.ReadAll(container.Reader)
+				if err != nil {
+					return "", errors.Wrap(err, "read logs of failed container")
+				}
+
+				switch insp.ExitCode {
+				case 0:
+					return string(logs), nil
+				default:
+					return "", errors.Errorf("container exited with %d code. Logs: %s", insp.ExitCode, logs)
+				}
 			}
 		}
 	}
+}
+
+func (c *Ctl) ContainerLogs() (string, error) {
+	r, err := c.cn.ContainerLogs(
+		c.ctx, c.container,
+		types.ContainerLogsOptions{
+			ShowStderr: true,
+		})
+	if err != nil {
+		return "", errors.Wrap(err, "get logs of failed container")
+	}
+	defer r.Close()
+	logs, err := ioutil.ReadAll(r)
+	if err != nil {
+		return "", errors.Wrap(err, "read logs of failed container")
+	}
+
+	return string(logs), nil
 }

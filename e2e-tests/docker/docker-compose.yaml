@@ -1,5 +1,15 @@
 version: "3"
 services:
+  tests:
+    build: 
+      dockerfile: ./e2e-tests/Dockerfile
+      context: ../..
+    command: pbm-test
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mongos
+
   cfg01:
     image: percona/percona-server-mongodb:3.6
     hostname: cfg01
@@ -10,6 +20,8 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./scripts/02_config_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
       - ./keyFile:/opt/keyFile
+    ports:
+      - "37017:27017"
   cfg02:
     image: percona/percona-server-mongodb:3.6
     hostname: cfg02
@@ -28,21 +40,21 @@ services:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg01:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg01:27017'
     depends_on:
       - cfg01
   agent-cfg02:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg02:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg02:27017'
     depends_on:
       - cfg02
   agent-cfg03:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@cfg03:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg03:27017'
     depends_on:
       - cfg03
 
@@ -56,6 +68,8 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./scripts/02_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
       - ./keyFile:/opt/keyFile
+    ports:
+      - "47017:27017"
   rs102:
     image: percona/percona-server-mongodb:3.6
     hostname: rs102
@@ -74,21 +88,23 @@ services:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs101:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs101:27017'
     depends_on:
       - rs101
   agent-rs102:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs102:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs102:27017'
     depends_on:
       - rs102
   agent-rs103:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs103:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs103:27017'
+    volumes: 
+      - ./pbm.conf.yaml:/etc/pbm/store.yaml
     depends_on:
       - rs103
     
@@ -102,6 +118,8 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./scripts/02_rs.sh:/docker-entrypoint-initdb.d/02_rs.sh
       - ./keyFile:/opt/keyFile
+    ports:
+      - "57017:27017"
   rs202:
     image: percona/percona-server-mongodb:3.6
     hostname: rs202
@@ -120,21 +138,21 @@ services:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs201:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs201:27017'
     depends_on:
       - rs201
   agent-rs202:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs202:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs202:27017'
     depends_on:
       - rs202
   agent-rs203:
     build: 
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://backupUser:test1234@rs203:27017'
+    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs203:27017'
     depends_on:
       - rs203
 

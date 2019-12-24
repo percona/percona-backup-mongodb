@@ -186,13 +186,12 @@ func (l *Lock) beat() error {
 
 func (p *PBM) GetLockData(lh *LockHeader) (LockData, error) {
 	var l LockData
-
-	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, lh).Decode(&l)
-	if err != nil {
-		return l, errors.Wrap(err, "get lock")
+	r := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, lh)
+	if r.Err() != nil {
+		return l, r.Err()
 	}
-
-	return l, nil
+	err := r.Decode(&l)
+	return l, err
 }
 
 func (p *PBM) GetLocks(lh *LockHeader) ([]LockData, error) {
