@@ -141,8 +141,11 @@ func genBallast(ln int) *bson.M {
 }
 
 func (m *Mongo) DeleteData() (int, error) {
-	r, err := m.cn.Database(testDB).Collection(testCollection).DeleteMany(m.ctx, bson.D{})
-	return int(r.DeletedCount), err
+	r, err := m.cn.Database(testDB).Collection(testCollection).DeleteMany(m.ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return int(r.DeletedCount), nil
 }
 
 func (m *Mongo) Hashes() (map[string]string, error) {
