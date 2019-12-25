@@ -1,4 +1,4 @@
-package pkg
+package pbm
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type Ctl struct {
 
 var backupNameRE = regexp.MustCompile(`Backup '([0-9\-\:TZ]+)' to remote store`)
 
-func NewPBM(ctx context.Context, host string) (*Ctl, error) {
+func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 	cn, err := docker.NewClient(host, "1.40", nil, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")

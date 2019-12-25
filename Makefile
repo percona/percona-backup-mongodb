@@ -23,7 +23,6 @@ LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITC
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 
 build: build-pbm build-agent
-
 build-pbm:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent:
@@ -35,9 +34,21 @@ install-pbm:
 install-agent:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
 
+# RACE DETECTOR ON
+build-race: build-pbm-race build-agent-race
+build-pbm-race:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm ./cmd/pbm
+build-agent-race:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
+
+install-race: install-pbm-race install-agent-race
+install-pbm-race:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm
+install-agent-race:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
+
 # STATIC BUILDS
 build-static: build-pbm-static build-agent-static
-
 build-pbm-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent-static:

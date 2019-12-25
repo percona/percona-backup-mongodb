@@ -3,7 +3,7 @@ WORKDIR /opt/pbm
 
 COPY . .
 
-RUN make install
+RUN make install-race
 
 USER nobody
 
