@@ -21,10 +21,10 @@ To run |pbm| a user must be created in the ``admin`` db that has the role
 .. include:: .res/code-block/mongo/db-createuser.txt
 
 User name and password values and other options of the createUser command can be
-chosen as you like so long as the roles shown above are granted.
+set as you require so long as the roles shown above are granted.
 
-This user must created on every replicaset, i.e. it must be created on the shard
-replicasets as well as the config server replicaset.
+This user must be created on every replicaset, i.e. it must be created on the
+shard replicasets as well as the config server replicaset.
 
 .. note::
 
@@ -43,7 +43,7 @@ MongoDB connection strings - A Reminder (or Primer)
 <https://docs.mongodb.com/manual/reference/connection-string/>`_ strings to open
 MongoDB connections. Neither |pbm.app| or |pbm-agent| accept legacy-style
 command-line arguments for host, port, replicaset, user, password, etc. as, say,
-the ``mongo`` shell or ``mongodump`` does.
+the ``mongo`` shell or ``mongodump`` command does.
 
 .. include:: .res/code-block/bash/pbm-agent-mongodb-conn-string-examples.txt
 
@@ -53,8 +53,8 @@ The connection URI above is the format that MongoDB drivers accept universally
 since approximately the release time of MongoDB server v3.6. The ``mongo`` shell
 `accepts it too since v4.0
 <https://docs.mongodb.com/v4.0/mongo/#mongodb-instance-on-a-remote-host>`_. Using
-a v4.0+ mongo shell is a recommended way to debug from the command line if your
-connection URI is valid or not.
+a v4.0+ mongo shell is a recommended way to debug connection URI validity from
+the command line.
 
 The `MongoDB Connection URI
 <https://docs.mongodb.com/manual/reference/connection-string/>`_ specification
@@ -62,7 +62,7 @@ includes several non-default options you may need to use. For example the TLS
 certificates/keys needed to connect to a cluster or non-sharded replicaset with
 network encryption enabled are "tls=true" plus "tlsCAFile" and/or
 "tlsCertificateKeyFile" (see `tls options
-<https://docs.mongodb.com/manual/reference/connection-string/#tls-options>`_.
+<https://docs.mongodb.com/manual/reference/connection-string/#tls-options>`_).
 
 .. admonition:: Technical note
 

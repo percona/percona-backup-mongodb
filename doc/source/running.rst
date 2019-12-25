@@ -22,7 +22,7 @@ Initial Setup
 Start the |pbm-agent| processes
 --------------------------------------------------------------------------------
 After installing |pbm-agent| on the all the servers that have mongod nodes make
-sure it is started one for each mongod node.
+sure one instance of it is started for each mongod node.
 
 E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
 servers as the first shard's mongod nodes (listen port 27018, replica set name
@@ -33,8 +33,8 @@ node (e.g. "mongodb://username:password@localhost:27019/").
 
 It is best to use the packaged service scripts to run |pbm-agent|. But for
 reference an example of how to do it manually is shown below. The output is
-redirected to a file and the process is backgrounded. You can run it an shell
-terminal temporarily if you want to observer and/or debug the startup from the
+redirected to a file and the process is backgrounded. You can run it on a shell
+terminal temporarily if you want to observe and/or debug the startup from the
 log messages.
 
 .. code-block:: bash
@@ -43,10 +43,8 @@ log messages.
 
 .. tip::
    
-   Running as the mongod user and saving the log file in the same parent
-   directory as the mongod node's data directory would be the most intuitive and
-   convenient way. But if you want it can be another user, and the log file can
-   be at location that files can be written to, or piped to logging service.
+   Running as the mongod user would be the most intuitive and convenient way.
+   But if you want it can be another user.
 
 You can confirm the |pbm-agent| connected to its mongod and started OK by
 confirming *"pbm agent is listening for the commands"* is printed to the log
@@ -63,12 +61,12 @@ Running |pbm.app| Commands
 Configuring a Remote Store for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
-This must done once, at installation time, before backups can be listed, made,
-or restored. Please see :ref:`pbm.config`.
+This must done once, at installation or re-installaton time, before backups can
+be listed, made, or restored. Please see :ref:`pbm.config`.
 
 .. _pbm.running.backup.listing:
 
-Example: Listing all backups
+Listing all backups
 --------------------------------------------------------------------------------
 
 .. include:: .res/code-block/bash/pbm-list-mongodb-uri.txt
@@ -84,14 +82,27 @@ Example: Listing all backups
 
 .. _pbm.running.backup.starting: 
 
-Example: Starting a backup
+Starting a backup
 --------------------------------------------------------------------------------
 
 .. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
 
 .. _pbm.running.backup.restoring: 
 
-Example: Restoring a Backup
+.. important::
+
+   For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
+   balancer.
+
+Checking an in-progress backup
+--------------------------------------------------------------------------------
+
+Run the |pbm-list| command and you will see the running backup listed with a
+'In progress' label. When that is absent the backup is complete.
+
+.. _pbm.running.backup.restoring: 
+
+Restoring a Backup
 --------------------------------------------------------------------------------
 
 To restore a backup that you have made using |pbm-backup| you should use the
