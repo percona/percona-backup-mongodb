@@ -6,6 +6,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -24,6 +25,13 @@ func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
 		p:   cn,
 		ctx: ctx,
 	}, nil
+}
+
+func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
+	return m.p.GetBackupMeta(bcpName)
+}
+func (m *MongoPBM) GetClusterTime() (primitive.Timestamp, error) {
+	return m.p.ClusterTime()
 }
 
 func (m *MongoPBM) CheckRestore(bcpName string, waitFor time.Duration) error {

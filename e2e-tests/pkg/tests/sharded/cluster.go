@@ -58,7 +58,7 @@ func New() *Cluster {
 
 func (c *Cluster) DeleteData() {
 	log.Println("deleteing data")
-	deleted, err := c.mongos.DeleteData()
+	deleted, err := c.mongos.ResetBallast()
 	if err != nil {
 		log.Fatalln("deleting data:", err)
 	}
@@ -77,6 +77,8 @@ func (c *Cluster) Restore(bcpName string) {
 	if err != nil {
 		log.Fatalln("check backup restore:", err)
 	}
+	// just wait so the all data gonna be written (aknowleged) before the next steps
+	time.Sleep(time.Second * 1)
 	log.Printf("restore finished '%s'\n", bcpName)
 }
 
@@ -89,13 +91,16 @@ func (c *Cluster) Backup() string {
 	}
 	log.Printf("backup started '%s'\n", bcpName)
 
+	return bcpName
+}
+
+func (c *Cluster) BackupWaitDone(bcpName string) {
 	log.Println("waiting for the backup")
-	err = c.pbm.CheckBackup(bcpName, time.Second*240)
+	err := c.pbm.CheckBackup(bcpName, time.Second*240)
 	if err != nil {
 		log.Fatalln("check backup state:", err)
 	}
 	log.Printf("backup finished '%s'\n", bcpName)
-	return bcpName
 }
 
 func (c *Cluster) GenerateBallastData(amount int) {
