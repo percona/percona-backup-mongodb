@@ -171,7 +171,7 @@ func (p *PBM) GetConfig() (Config, error) {
 	return c, errors.Wrap(err, "decode")
 }
 
-const defaulS3Region = "us-east-1"
+const defaultS3Region = "us-east-1"
 
 func (p *PBM) GetStorage() (Storage, error) {
 	c, err := p.GetConfig()
