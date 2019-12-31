@@ -181,7 +181,7 @@ func (p *PBM) GetStorage() (Storage, error) {
 	switch c.Storage.Type {
 	case StorageS3:
 		if c.Storage.S3.Region == "" {
-			c.Storage.S3.Region = defaulS3Region
+			c.Storage.S3.Region = defaultS3Region
 		}
 	}
 	return c.Storage, err
