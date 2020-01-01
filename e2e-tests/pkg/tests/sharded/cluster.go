@@ -8,38 +8,36 @@ import (
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
-const (
-	cnMongos    = "mongodb://dba:test1234@mongos:27017/"
-	cnConfigsrv = "mongodb://dba:test1234@cfg01:27017/"
-	cnRS01      = "mongodb://dba:test1234@rs101:27017/"
-	cnRS02      = "mongodb://dba:test1234@rs201:27017/"
-
-	dockerSocket = "unix:///var/run/docker.sock"
-)
-
 type Cluster struct {
+	ctx context.Context
+
 	pbm *pbm.Ctl
 
-	mongos  *pbm.Mongo
-	mongo01 *pbm.Mongo
-	mongo02 *pbm.Mongo
-
+	mongos   *pbm.Mongo
+	shards   map[string]*pbm.Mongo
 	mongopbm *pbm.MongoPBM
-
-	ctx context.Context
 }
 
-func New() *Cluster {
+type ClusterConf struct {
+	Configsrv    string
+	Mongos       string
+	Shards       map[string]string
+	DockerSocket string
+}
+
+func New(cfg ClusterConf) *Cluster {
 	ctx := context.Background()
 	c := &Cluster{
 		ctx:      ctx,
-		mongos:   mgoConn(ctx, cnMongos),
-		mongo01:  mgoConn(ctx, cnRS01),
-		mongo02:  mgoConn(ctx, cnRS02),
-		mongopbm: pbmConn(ctx, cnConfigsrv),
+		mongos:   mgoConn(ctx, cfg.Mongos),
+		mongopbm: pbmConn(ctx, cfg.Configsrv),
+		shards:   make(map[string]*pbm.Mongo),
+	}
+	for name, uri := range cfg.Shards {
+		c.shards[name] = mgoConn(ctx, uri)
 	}
 
-	pbmObj, err := pbm.NewCtl(c.ctx, dockerSocket)
+	pbmObj, err := pbm.NewCtl(c.ctx, cfg.DockerSocket)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}
@@ -113,43 +111,29 @@ func (c *Cluster) GenerateBallastData(amount int) {
 }
 
 func (c *Cluster) DataChecker() (check func()) {
-	dbhash01, err := c.mongo01.DBhashes()
-	if err != nil {
-		log.Fatalln("get db hashes rs01:", err)
+	hashes1 := make(map[string]map[string]string)
+	for name, s := range c.shards {
+		h, err := s.DBhashes()
+		if err != nil {
+			log.Fatalf("get db hashes %s: %v\n", name, err)
+		}
+		log.Printf("current %s db hash %s\n", name, h["_all_"])
+		hashes1[name] = h
 	}
-	log.Println("current rs01 db hash", dbhash01["_all_"])
 
-	dbhash02, err := c.mongo02.DBhashes()
-	if err != nil {
-		log.Fatalln("get db hashes rs02:", err)
-	}
-	log.Println("current rs02 db hash", dbhash02["_all_"])
-
-	fnc := func() {
+	return func() {
 		log.Println("Checking restored backup")
 
-		dbrhash01, err := c.mongo01.DBhashes()
-		if err != nil {
-			log.Fatalln("get db hashes rs01:", err)
-		}
-		log.Println("current rs01 db hash", dbhash01["_all_"])
-
-		dbrhash02, err := c.mongo02.DBhashes()
-		if err != nil {
-			log.Fatalln("get db hashes rs02:", err)
-		}
-		log.Println("current rs02 db hash", dbhash02["_all_"])
-
-		if rh, ok := dbrhash01["_all_"]; !ok || rh != dbhash01["_all_"] {
-			log.Fatalf("rs01 hashes not equal: %s != %s\n", rh, dbhash01["_all_"])
-		}
-
-		if rh, ok := dbrhash02["_all_"]; !ok || rh != dbhash02["_all_"] {
-			log.Fatalf("rs02 hashes not equal: %s != %s\n", rh, dbhash02["_all_"])
+		for name, s := range c.shards {
+			h, err := s.DBhashes()
+			if err != nil {
+				log.Fatalf("get db hashes %s: %v\n", name, err)
+			}
+			if hashes1[name]["_all_"] != h["_all_"] {
+				log.Fatalf("%s: hashes doesn't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
+			}
 		}
 	}
-
-	return fnc
 }
 
 func mgoConn(ctx context.Context, uri string) *pbm.Mongo {
@@ -160,6 +144,7 @@ func mgoConn(ctx context.Context, uri string) *pbm.Mongo {
 	log.Println("connected to", uri)
 	return m
 }
+
 func pbmConn(ctx context.Context, uri string) *pbm.MongoPBM {
 	m, err := pbm.NewMongoPBM(ctx, uri)
 	if err != nil {
