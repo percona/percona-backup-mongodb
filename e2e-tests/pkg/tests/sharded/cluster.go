@@ -56,7 +56,7 @@ func New() *Cluster {
 	return c
 }
 
-func (c *Cluster) DeleteData() {
+func (c *Cluster) DeleteBallast() {
 	log.Println("deleteing data")
 	deleted, err := c.mongos.ResetBallast()
 	if err != nil {
@@ -105,7 +105,7 @@ func (c *Cluster) BackupWaitDone(bcpName string) {
 
 func (c *Cluster) GenerateBallastData(amount int) {
 	log.Println("genrating ballast data")
-	err := c.mongos.Fill(amount)
+	err := c.mongos.GenBallast(amount)
 	if err != nil {
 		log.Fatalln("genrating ballast:", err)
 	}
@@ -113,13 +113,13 @@ func (c *Cluster) GenerateBallastData(amount int) {
 }
 
 func (c *Cluster) DataChecker() (check func()) {
-	dbhash01, err := c.mongo01.Hashes()
+	dbhash01, err := c.mongo01.DBhashes()
 	if err != nil {
 		log.Fatalln("get db hashes rs01:", err)
 	}
 	log.Println("current rs01 db hash", dbhash01["_all_"])
 
-	dbhash02, err := c.mongo02.Hashes()
+	dbhash02, err := c.mongo02.DBhashes()
 	if err != nil {
 		log.Fatalln("get db hashes rs02:", err)
 	}
@@ -128,13 +128,13 @@ func (c *Cluster) DataChecker() (check func()) {
 	fnc := func() {
 		log.Println("Checking restored backup")
 
-		dbrhash01, err := c.mongo01.Hashes()
+		dbrhash01, err := c.mongo01.DBhashes()
 		if err != nil {
 			log.Fatalln("get db hashes rs01:", err)
 		}
 		log.Println("current rs01 db hash", dbhash01["_all_"])
 
-		dbrhash02, err := c.mongo02.Hashes()
+		dbrhash02, err := c.mongo02.DBhashes()
 		if err != nil {
 			log.Fatalln("get db hashes rs02:", err)
 		}

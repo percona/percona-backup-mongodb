@@ -9,14 +9,21 @@ import (
 func main() {
 	tests := sharded.New()
 
-	// tests.DeleteData()
-	// tests.GenerateBallastData(1e5)
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
 
-	// log.Println("====== Basic Backup & Restore START ======")
-	// tests.BackupAndRestore()
-	// log.Println("====== Basic Backup & Restore DONE ======")
+	printStart("Basic Backup & Restore")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore")
 
-	log.Println("====== Check Backup Data Bounds START ======")
-	tests.BackupCheckBounds()
-	log.Println("====== Check Backup Data Bounds DONE ======")
+	printStart("Backup Data Bounds Check")
+	tests.BackupBoundsCheck()
+	printDone("Backup Data Bounds Check")
+}
+
+func printStart(name string) {
+	log.Printf("====== %s START ======\n", name)
+}
+func printDone(name string) {
+	log.Printf("====== %s DONE ======\n", name)
 }

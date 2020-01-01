@@ -6,12 +6,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"gopkg.in/mgo.v2/bson"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type Mongo struct {
@@ -57,118 +60,9 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 
 const (
 	testDB = "test"
-	// testCollection = "test"
 )
 
-// // GenerateData inserts data each duration until the ctx cancelation recieved
-// // or count achieved. count < 0 means no count takes into account
-// func (m *Mongo) GenerateData(ctx context.Context, each time.Duration, count int) *Generator {
-// 	tk := time.NewTicker(each)
-// 	g := &Generator{}
-// 	go func() {
-// 		ins := struct {
-// 			IDX  int       `bson:"idx"`
-// 			Time time.Time `bson:"time"`
-// 			TS   int64     `bson:"ts"`
-// 		}{}
-// 		for i := 0; i != count; i++ {
-// 			select {
-// 			case <-tk.C:
-// 				ins.IDX = i
-// 				ins.Time = time.Now()
-// 				ins.TS = ins.Time.Unix()
-// 				r, err := m.cn.Database(testDB).Collection(testCollection).InsertOne(m.ctx, ins)
-// 				if err != nil {
-// 					g.Err <- err
-// 					return
-// 				}
-// 				g.Data <- &GeneratorData{
-// 					LastID: r.InsertedID,
-// 					LastTS: ins.Time,
-// 					Count:  i,
-// 				}
-// 			case <-ctx.Done():
-// 				tk.Stop()
-// 				return
-// 			}
-// 		}
-// 	}()
-
-// 	return g
-// }
-
-type InBcpStatus int
-
-const (
-	InBcpUndef InBcpStatus = 0
-	InBcpYES               = 1
-	InBcpNO                = 2
-)
-
-// type Generator struct {
-// 	Err  chan error
-// 	Data chan []GeneratorData
-// }
-
-// type GeneratorData struct {
-// 	Count  int
-// 	TS     time.Time
-// 	ID     interface{}
-// 	Status InBcpStatus
-// }
-
-// // GenerateData inserts data each duration until the ctx cancelation recieved
-// // or count achieved. count < 0 means no count takes into account
-// func (m *Mongo) GenerateData(ctx context.Context, each time.Duration) *Generator {
-// 	tk := time.NewTicker(each)
-// 	g := &Generator{
-// 		Err:  make(chan error),
-// 		Data: make(chan []GeneratorData, 1),
-// 	}
-// 	var data []GeneratorData
-// 	go func() {
-// 		ins := struct {
-// 			IDX  int       `bson:"idx"`
-// 			Time time.Time `bson:"time"`
-// 			TS   int64     `bson:"ts"`
-// 		}{}
-// 		for i := 0; ; i++ {
-// 			select {
-// 			case <-tk.C:
-// 				ins.IDX = i
-// 				ins.Time = time.Now()
-// 				ins.TS = ins.Time.Unix()
-
-// 				r, err := m.cn.Database(testDB).Collection(testCollection).InsertOne(m.ctx, ins)
-// 				if err != nil {
-// 					g.Err <- err
-// 					return
-// 				}
-// 				data = append(data, GeneratorData{
-// 					ID:    r.InsertedID,
-// 					TS:    ins.Time,
-// 					Count: i,
-// 				})
-// 			case <-ctx.Done():
-// 				tk.Stop()
-// 				g.Data <- data
-// 				return
-// 			}
-// 		}
-// 	}()
-
-// 	return g
-// }
-
-func (m *Mongo) ResetData() (int, error) {
-	r, err := m.cn.Database(testDB).Collection("counter").DeleteMany(m.ctx, bson.M{})
-	if err != nil {
-		return 0, err
-	}
-	return int(r.DeletedCount), nil
-}
-
-func (m *Mongo) Fill(ln int) error {
+func (m *Mongo) GenBallast(ln int) error {
 	var data []interface{}
 	for i := 0; i < ln; i++ {
 		data = append(data, *genBallast(50))
@@ -188,14 +82,6 @@ func (m *Mongo) Fill(ln int) error {
 	return nil
 }
 
-func (m *Mongo) ResetBallast() (int, error) {
-	r, err := m.cn.Database(testDB).Collection("ballast").DeleteMany(m.ctx, bson.M{})
-	if err != nil {
-		return 0, err
-	}
-	return int(r.DeletedCount), nil
-}
-
 func genBallast(strLen int) *bson.M {
 	l1 := make([]byte, strLen)
 	l2 := make([]byte, strLen)
@@ -210,11 +96,18 @@ func genBallast(strLen int) *bson.M {
 	return &bson.M{
 		"letters1": l1,
 		"letters2": l2,
-		// "digits":   d,
 	}
 }
 
-func (m *Mongo) Hashes() (map[string]string, error) {
+func (m *Mongo) ResetBallast() (int, error) {
+	r, err := m.cn.Database(testDB).Collection("ballast").DeleteMany(m.ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return int(r.DeletedCount), nil
+}
+
+func (m *Mongo) DBhashes() (map[string]string, error) {
 	r := m.cn.Database(testDB).RunCommand(m.ctx, bson.M{"dbHash": 1})
 	if r.Err() != nil {
 		return nil, errors.Wrap(r.Err(), "run command")
@@ -229,14 +122,22 @@ func (m *Mongo) Hashes() (map[string]string, error) {
 	return h.C, errors.Wrap(err, "decode")
 }
 
-type TestData struct {
-	Count  int
-	TS     time.Time
-	ID     interface{}
-	Status InBcpStatus
+type Counter struct {
+	Count     int
+	WallTime  time.Time
+	ID        interface{}
+	WriteTime primitive.Timestamp
 }
 
-func (m *Mongo) WriteData(i int) (*TestData, error) {
+func (m *Mongo) ResetCounters() (int, error) {
+	r, err := m.cn.Database(testDB).Collection("counter").DeleteMany(m.ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return int(r.DeletedCount), nil
+}
+
+func (m *Mongo) WriteCounter(i int) (*Counter, error) {
 	ins := struct {
 		IDX  int       `bson:"idx"`
 		Time time.Time `bson:"time"`
@@ -252,14 +153,14 @@ func (m *Mongo) WriteData(i int) (*TestData, error) {
 		return nil, err
 	}
 
-	return &TestData{
-		Count: i,
-		ID:    r.InsertedID,
-		TS:    ins.Time,
+	return &Counter{
+		Count:    i,
+		ID:       r.InsertedID,
+		WallTime: ins.Time,
 	}, nil
 }
 
-func (m *Mongo) GetData() ([]TestData, error) {
+func (m *Mongo) GetCounters() ([]Counter, error) {
 	cur, err := m.cn.Database(testDB).Collection("counter").Find(
 		m.ctx,
 		bson.M{},
@@ -270,7 +171,7 @@ func (m *Mongo) GetData() ([]TestData, error) {
 	}
 	defer cur.Close(m.ctx)
 
-	var data []TestData
+	var data []Counter
 	for cur.Next(m.ctx) {
 		t := struct {
 			ID   interface{} `bson:"_id"`
@@ -282,12 +183,32 @@ func (m *Mongo) GetData() ([]TestData, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "decode data")
 		}
-		data = append(data, TestData{
-			Count: t.IDX,
-			ID:    t.ID,
-			TS:    time.Unix(t.TS, 0), //ins.Time,
+		data = append(data, Counter{
+			Count:    t.IDX,
+			ID:       t.ID,
+			WallTime: time.Unix(t.TS, 0),
 		})
 	}
 
 	return data, nil
+}
+
+func (m *Mongo) GetIsMaster() (*pbm.IsMaster, error) {
+	im := &pbm.IsMaster{}
+	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"isMaster": 1}).Decode(im)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command isMaster")
+	}
+	return im, nil
+}
+
+func (m *Mongo) GetLastWrite() (primitive.Timestamp, error) {
+	isMaster, err := m.GetIsMaster()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
+	}
+	if isMaster.LastWrite.MajorityOpTime.TS.T == 0 {
+		return primitive.Timestamp{}, errors.New("timestamp is nil")
+	}
+	return isMaster.LastWrite.OpTime.TS, nil
 }
