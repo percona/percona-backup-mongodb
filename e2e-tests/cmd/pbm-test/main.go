@@ -24,14 +24,18 @@ func main() {
 	// tests.BackupAndRestore()
 	// printDone("Basic Backup & Restore")
 
-	printStart("Backup Data Bounds Check")
-	tests.BackupBoundsCheck()
-	printDone("Backup Data Bounds Check")
+	// printStart("Backup Data Bounds Check")
+	// tests.BackupBoundsCheck()
+	// printDone("Backup Data Bounds Check")
+
+	printStart("Clock Skew Tests")
+	tests.ClockSkew()
+	printDone("Clock Skew Tests")
 }
 
 func printStart(name string) {
-	log.Printf("====== %s START ======\n", name)
+	log.Printf("[START] ======== %s ========\n", name)
 }
 func printDone(name string) {
-	log.Printf("====== %s DONE ======\n", name)
+	log.Printf("[DONE] ======== %s ========\n", name)
 }

@@ -31,8 +31,7 @@ func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 	return &Ctl{
 		cn:        cn,
 		ctx:       ctx,
-		container: "docker_agent-rs103_1",
-		env:       []string{"PBM_MONGODB_URI=mongodb://dba:test1234@rs103:27017"},
+		container: "pbmagent_rs101",
 	}, nil
 }
 

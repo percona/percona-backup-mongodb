@@ -1,4 +1,4 @@
-version: "3"
+version: "3.4"
 services:
   tests:
     build: 
@@ -37,24 +37,48 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./keyFile:/opt/keyFile
   agent-cfg01:
+    container_name: "pbmagent_cfg01"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg01:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg01:27017'
+    command: pbm-agent
     depends_on:
       - cfg01
   agent-cfg02:
+    container_name: "pbmagent_cfg02"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg02:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg02:27017'
+    command: pbm-agent
     depends_on:
       - cfg02
   agent-cfg03:
+    container_name: "pbmagent_cfg03"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg03:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@cfg03:27017'
+    command: pbm-agent
     depends_on:
       - cfg03
 
@@ -85,26 +109,50 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./keyFile:/opt/keyFile
   agent-rs101:
+    container_name: "pbmagent_rs101"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs101:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs101:27017'
+    volumes: 
+      - ./pbm.conf.yaml:/etc/pbm/store.yaml
+    command: pbm-agent
     depends_on:
       - rs101
   agent-rs102:
+    container_name: "pbmagent_rs102"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs102:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs102:27017'
+    command: pbm-agent
     depends_on:
       - rs102
   agent-rs103:
+    container_name: "pbmagent_rs103"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs103:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs103:27017'
-    volumes: 
-      - ./pbm.conf.yaml:/etc/pbm/store.yaml
+    command: pbm-agent
     depends_on:
       - rs103
     
@@ -135,24 +183,48 @@ services:
       - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/03_usrs.sh
       - ./keyFile:/opt/keyFile
   agent-rs201:
+    container_name: "pbmagent_rs201"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs201:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs201:27017'
+    command: pbm-agent
     depends_on:
       - rs201
   agent-rs202:
+    container_name: "pbmagent_rs202"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs202:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs202:27017'
+    command: pbm-agent
     depends_on:
       - rs202
   agent-rs203:
+    container_name: "pbmagent_rs203"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs203:27017"
     build: 
+      labels:
+        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    command: pbm-agent --mongodb-uri='mongodb://dba:test1234@rs203:27017'
+    command: pbm-agent
     depends_on:
       - rs203
 
