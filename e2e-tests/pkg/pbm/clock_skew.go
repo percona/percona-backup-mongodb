@@ -2,31 +2,24 @@ package pbm
 
 import (
 	"context"
+	"log"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	"github.com/pkg/errors"
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {
+	log.Printf("== Skew the clock for %s the replicaset %s ", ts, rsName)
+
 	cn, err := docker.NewClient(dockerHost, "1.40", nil, nil)
 	if err != nil {
 		return errors.Wrap(err, "docker client")
 	}
-
-	// fltrImg := filters.NewArgs()
-	// fltrImg.Add("label", "com.percona.pbm.app=agent")
-	// imgs, err := cn.ImageList(context.Background(), types.ImageListOptions{
-	// 	Filters: fltrImg,
-	// })
-	// if err != nil {
-	// 	return errors.Wrap(err, "images list")
-	// }
-	// if len(imgs) == 0 {
-	// 	return errors.New("no images found")
-	// }
+	defer cn.Close()
 
 	fltr := filters.NewArgs()
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
@@ -43,20 +36,28 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			return errors.Wrapf(err, "ContainerInspect for %s", c.ID)
 		}
 
+		log.Printf("Removing container %s/%s\n", containerOld.ID, containerOld.Name)
 		err = cn.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{Force: true})
 		if err != nil {
 			return errors.Wrapf(err, "remove container %s", c.ID)
 		}
 
 		envs := append(containerOld.Config.Env, []string{
-			`LD_PRELOAD=/usr/local/lib/libfaketime.so.1`,
-			`FAKETIME="` + ts + `"`,
+			`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1`,
+			`FAKETIME=` + ts,
 		}...)
+
+		log.Printf("Creating container %s/%s with the clock skew\n", containerOld.ID, containerOld.Name)
 		containerNew, err := cn.ContainerCreate(context.Background(), &container.Config{
 			Image: containerOld.Image,
 			Env:   envs,
 			Cmd:   []string{"pbm-agent"},
-		}, nil, nil, "")
+		},
+			nil,
+			&network.NetworkingConfig{
+				EndpointsConfig: containerOld.NetworkSettings.Networks,
+			},
+			containerOld.Name)
 		if err != nil {
 			return errors.Wrap(err, "ContainerCreate")
 		}
@@ -65,30 +66,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 		if err != nil {
 			return errors.Wrap(err, "ContainerStart")
 		}
-
-		// statusCh, errCh := cn.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-		// select {
-		// case err := <-errCh:
-		// 	if err != nil {
-		// 		return errors.Wrap(err, "container failed")
-		// 	}
-		// case <-statusCh:
-		// }
-
-		// cexec, err := cn.ContainerExecCreate(context.Background(), c.ID, types.ExecConfig{
-		// 	Env: []string{
-		// 		`LD_PRELOAD=/usr/local/lib/libfaketime.so.1`,
-		// 		`FAKETIME="` + ts + `"`,
-		// 	},
-		// 	Cmd: []string{"pbm-agent"},
-		// })
-		// if err != nil {
-		// 	return errors.Wrapf(err, "ContainerExecCreate in container %s", c.ID)
-		// }
-		// err = cn.ContainerExecStart(context.Background(), cexec.ID, types.ExecStartCheck{})
-		// if err != nil {
-		// 	return errors.Wrapf(err, "ContainerExecStart in container %s", c.ID)
-		// }
+		log.Printf("New container %s/%s has started\n", containerOld.ID, containerOld.Name)
 	}
 
 	return nil
