@@ -128,16 +128,11 @@ func main() {
 		}
 		fmt.Printf("\nBackup '%s' to remote store '%s' has started\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
-		err := pbmClient.SendCmd(pbm.Cmd{
-			Cmd: pbm.CmdRestore,
-			Restore: pbm.RestoreCmd{
-				BackupName: *restoreBcpName,
-			},
-		})
+		err := restore(pbmClient, *restoreBcpName)
 		if err != nil {
-			log.Fatalln("Error: schedule restore:", err)
+			log.Fatalln("Error:", err)
 		}
-		fmt.Printf("Beginning restore of the snapshot from %s\n", *restoreBcpName)
+		fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 	case listCmd.FullCommand():
 		bcps, err := pbmClient.BackupsList(*listCmdSize)
 		if err != nil {
