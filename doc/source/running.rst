@@ -124,7 +124,7 @@ restore.
 
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
 
-After a cluster's restore complete a cluster all mongos nodes will need to be
+After a cluster's restore is complete all mongos nodes will need to be
 restarted to reload the sharding metadata.
 
 Deleting backups

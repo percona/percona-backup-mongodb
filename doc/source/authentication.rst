@@ -30,9 +30,9 @@ shard replicasets as well as the config server replicaset.
 
    In a cluster run `db.getSiblingDB("config").shards.find({}, {"host": true,
    "_id": false})` to list all the host+port lists for the shard
-   replicasets. The replicaset name at the front of these strings will have to
-   placed as a "/?replicaSet=xxxx" argument at the end to be used in a normal
-   connection though (see below).
+   replicasets. The replicaset name at the *front* of these "host" strings will
+   have to be placed as a "/?replicaSet=xxxx" argument in the parameters part
+   of the connection URI (see below).
 
 .. _pbm.auth.mdb_conn_string:
 

@@ -113,19 +113,17 @@ and |pbm-agent| programs on your system.
 Configuring service init scripts
 ================================================================================
 
-Some configuration is required for the service script (e.g. systemd unit file)
-that will run the |pbm-agent| processes.
+The MongoDB connection URI string to the local mongod node should be set in
+environment file that the `pbm-agent.service` systemd unit file includes.
 
-- The MongoDB connection URI string to the local mongod node. (See
-  :ref:`pbm.auth` for an explanation of standard MongoDB connection strings if
-  you need.)
-- A file path to save log output to. |pbm-agent|'s log output comes straight to
-  stdout and the service script just redirects it (and stderr) to this path.
+With the current systemd unit file (see below) this means setting the 
+"PBM_MONGODB_URI" environment variable in /etc/default/pbm-agent.
 
-.. This section is not available any longer
-.. seealso:
-..
-..   pbm stores
-..     :ref:`pbm.config.storage.setting-up`
+`.../systemd/system/pbm-agent.service`
+
+.. include:: .res/code-block/bash/systemd-unit-file.txt
+
+(See :ref:`pbm.auth` for an explanation of standard MongoDB connection strings
+if you need.)
 
 .. include:: .res/replace.txt
