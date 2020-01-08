@@ -9,6 +9,17 @@ import (
 )
 
 func restore(cn *pbm.PBM, bcpName string) error {
+	bcp, err := cn.GetBackupMeta(bcpName)
+	if err != nil {
+		return errors.Wrap(err, "get backup data")
+	}
+	if bcp.Name != bcpName {
+		return errors.Errorf("backup '%s' not found", bcpName)
+	}
+	if bcp.Status != pbm.StatusDone {
+		return errors.Errorf("backup '%s' isn't finished successfully", bcpName)
+	}
+
 	locks, err := cn.GetLocks(&pbm.LockHeader{})
 	if err != nil {
 		log.Println("get locks", err)
@@ -25,17 +36,6 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
 			return errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
 		}
-	}
-
-	bcp, err := cn.GetBackupMeta(bcpName)
-	if err != nil {
-		return errors.Wrap(err, "get backup data")
-	}
-	if bcp.Name != bcpName {
-		return errors.Errorf("backup '%s' not found", bcpName)
-	}
-	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup '%s' isn't finished successfully", bcpName)
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
