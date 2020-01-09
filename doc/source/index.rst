@@ -12,7 +12,7 @@ and MongoDB Community v3.6 or higher with `MongoDB Replication
 <https://docs.mongodb.com/manual/replication/>`_ enabled.
 
 The |pbm| project inherited from and replaces `mongodb_consistent_backup`,
-which is no longer actively developed or supported.  older tool is not
+which is no longer actively developed or supported.
 
 .. _pbm.feature:
 

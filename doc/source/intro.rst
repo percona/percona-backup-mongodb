@@ -5,7 +5,7 @@
 
 .. rubric:: How to use |pbm|: going back in time (|pbm-restore|)
 
-Even in a highly-available architecture, such as with |mongodb| replication, backups are still required even though losing one server suddenly is not fatal. Whether for a complete or partial data disaster you can use PBM (Percona Backup for MongoDB) to go back in time to the best available backup snapshot.
+Even in a highly-available architecture, such as with |mongodb| replication, backups are still required even though losing one server is not fatal. Whether for a complete or partial data disaster you can use PBM (Percona Backup for MongoDB) to go back in time to the best available backup snapshot.
 
 For example, imagine your web application's update was released on Sunday, June 9th 23:00 EDT but, by 11:23 Monday, someone realizes that the update has a bug that is wiping the historical data of any user who logged in. Nobody likes to have downtime, but it's time to roll back: what's the best backup to use?
 
