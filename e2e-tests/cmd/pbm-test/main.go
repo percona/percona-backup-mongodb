@@ -11,8 +11,8 @@ func main() {
 		Mongos:    "mongodb://dba:test1234@mongos:27017/",
 		Configsrv: "mongodb://dba:test1234@cfg01:27017/",
 		Shards: map[string]string{
-			"rs01": "mongodb://dba:test1234@rs101:27017/",
-			"rs02": "mongodb://dba:test1234@rs201:27017/",
+			"rs1": "mongodb://dba:test1234@rs101:27017/",
+			"rs2": "mongodb://dba:test1234@rs201:27017/",
 		},
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
@@ -31,6 +31,10 @@ func main() {
 	printStart("Clock Skew Tests")
 	tests.ClockSkew()
 	printDone("Clock Skew Tests")
+
+	printStart("Restart agents during the backup")
+	tests.RestartAgents()
+	printDone("Restart agents during the backup")
 }
 
 func printStart(name string) {

@@ -11,7 +11,8 @@ import (
 type Cluster struct {
 	ctx context.Context
 
-	pbm *pbm.Ctl
+	pbm    *pbm.Ctl
+	docker *pbm.Docker
 
 	mongos   *pbm.Mongo
 	shards   map[string]*pbm.Mongo
@@ -51,6 +52,13 @@ func New(cfg ClusterConf) *Cluster {
 	}
 
 	c.pbm = pbmObj
+
+	c.docker, err = pbm.NewDocker(c.ctx, cfg.DockerSocket)
+	if err != nil {
+		log.Fatalln("connect to docker:", err)
+	}
+	log.Println("connected to docker")
+
 	return c
 }
 

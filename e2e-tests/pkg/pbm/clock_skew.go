@@ -49,9 +49,10 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 
 		log.Printf("Creating container %s/%s with the clock skew\n", containerOld.ID, containerOld.Name)
 		containerNew, err := cn.ContainerCreate(context.Background(), &container.Config{
-			Image: containerOld.Image,
-			Env:   envs,
-			Cmd:   []string{"pbm-agent"},
+			Image:  containerOld.Image,
+			Env:    envs,
+			Cmd:    []string{"pbm-agent"},
+			Labels: containerOld.Config.Labels,
 		},
 			nil,
 			&network.NetworkingConfig{
