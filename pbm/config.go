@@ -171,7 +171,18 @@ func (p *PBM) GetConfig() (Config, error) {
 	return c, errors.Wrap(err, "decode")
 }
 
+const defaultS3Region = "us-east-1"
+
 func (p *PBM) GetStorage() (Storage, error) {
 	c, err := p.GetConfig()
+	if err != nil {
+		return c.Storage, err
+	}
+	switch c.Storage.Type {
+	case StorageS3:
+		if c.Storage.S3.Region == "" {
+			c.Storage.S3.Region = defaultS3Region
+		}
+	}
 	return c.Storage, err
 }
