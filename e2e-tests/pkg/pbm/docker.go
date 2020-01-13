@@ -2,7 +2,10 @@ package pbm
 
 import (
 	"context"
+	"io/ioutil"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
@@ -98,4 +101,84 @@ func (d *Docker) RestartAgents(rsName string) error {
 	}
 
 	return nil
+}
+
+func (d *Docker) RunOnReplSet(rsName string, wait time.Duration, cmd ...string) error {
+	fltr := filters.NewArgs()
+	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+		Filters: fltr,
+	})
+	if err != nil {
+		return errors.Wrap(err, "container list")
+	}
+	if len(containers) == 0 {
+		return errors.Errorf("no containers found for replset %s", rsName)
+	}
+
+	var wg sync.WaitGroup
+	for _, c := range containers {
+		log.Printf("run %v on conainer %s%v\n", cmd, c.ID, c.Names)
+		wg.Add(1)
+		go func(container types.Container) {
+			out, err := d.RunCmd(container.ID, wait, cmd...)
+			if err != nil {
+				log.Fatalf("ERROR: run cmd %v on container %s%v: %v", cmd, container.ID, container.Names, err)
+			}
+			if out != "" {
+				log.Println(out)
+			}
+			wg.Done()
+		}(c)
+	}
+
+	wg.Wait()
+	return nil
+}
+
+func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (string, error) {
+	execConf := types.ExecConfig{
+		User:         "root",
+		Cmd:          cmd,
+		Privileged:   true,
+		AttachStderr: true,
+		AttachStdout: true,
+	}
+	id, err := d.cn.ContainerExecCreate(d.ctx, containerID, execConf)
+	if err != nil {
+		return "", errors.Wrap(err, "ContainerExecCreate")
+	}
+
+	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, execConf)
+	if err != nil {
+		return "", errors.Wrap(err, "attach to failed container")
+	}
+	defer container.Close()
+
+	tmr := time.NewTimer(wait)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			return "", errors.New("timeout reached")
+		case <-tkr.C:
+			insp, err := d.cn.ContainerExecInspect(d.ctx, id.ID)
+			if err != nil {
+				return "", errors.Wrap(err, "ContainerExecInspect")
+			}
+			if !insp.Running {
+				logs, err := ioutil.ReadAll(container.Reader)
+				if err != nil {
+					return "", errors.Wrap(err, "read logs of failed container")
+				}
+
+				switch insp.ExitCode {
+				case 0:
+					return string(logs), nil
+				default:
+					return "", errors.Errorf("container exited with %d code. Logs: %s", insp.ExitCode, logs)
+				}
+			}
+		}
+	}
 }

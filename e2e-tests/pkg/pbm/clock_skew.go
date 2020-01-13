@@ -54,7 +54,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			Cmd:    []string{"pbm-agent"},
 			Labels: containerOld.Config.Labels,
 		},
-			nil,
+			containerOld.HostConfig,
 			&network.NetworkingConfig{
 				EndpointsConfig: containerOld.NetworkSettings.Networks,
 			},

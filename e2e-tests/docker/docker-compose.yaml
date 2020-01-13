@@ -49,6 +49,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - cfg01
   agent-cfg02:
@@ -64,6 +66,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - cfg02
   agent-cfg03:
@@ -79,6 +83,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - cfg03
 
@@ -123,6 +129,8 @@ services:
     volumes: 
       - ./pbm.conf.yaml:/etc/pbm/store.yaml
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs101
   agent-rs102:
@@ -138,6 +146,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs102
   agent-rs103:
@@ -153,6 +163,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs103
     
@@ -195,6 +207,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs201
   agent-rs202:
@@ -210,6 +224,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs202
   agent-rs203:
@@ -225,6 +241,8 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     command: pbm-agent
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - rs203
 

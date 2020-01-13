@@ -35,6 +35,10 @@ func main() {
 	printStart("Restart agents during the backup")
 	tests.RestartAgents()
 	printDone("Restart agents during the backup")
+
+	printStart("Cut network during the backup")
+	tests.NetworkCut()
+	printDone("Cut network during the backup")
 }
 
 func printStart(name string) {
