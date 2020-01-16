@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 
+set -o xtrace
+
+sleep 25
+
+MONGO_USER="dba"
+MONGO_PASS="test1234"
+CONFIGSVR=${CONFIGSVR:-"false"}
 
 mongo <<EOF
 rs.initiate(
     {
         _id: '$REPLSET_NAME',
-        configsvr: true,
+        configsvr: $CONFIGSVR,
         version: 1,
         members: [
             { _id: 0, host: "${REPLSET_NAME}01:27017" },
@@ -14,4 +21,10 @@ rs.initiate(
         ]
     }
 )
+EOF
+
+sleep 5
+
+mongo <<EOF
+db.getSiblingDB("admin").createUser({ user: "${MONGO_USER}", pwd: "${MONGO_PASS}", roles: [ "root", "userAdminAnyDatabase", "clusterAdmin" ] })
 EOF

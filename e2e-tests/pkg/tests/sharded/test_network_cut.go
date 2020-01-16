@@ -29,7 +29,7 @@ func (c *Cluster) NetworkCut() {
 		log.Fatalf("ERROR: run tc netem on %s: %v", rs, err)
 	}
 
-	waitfor := time.Duration(pbm.StaleFrameSec+5) * time.Second
+	waitfor := time.Duration(pbm.StaleFrameSec+10) * time.Second
 	log.Println("Sleeping for", waitfor)
 	time.Sleep(waitfor)
 

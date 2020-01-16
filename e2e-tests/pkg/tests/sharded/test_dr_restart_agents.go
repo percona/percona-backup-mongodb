@@ -28,7 +28,7 @@ func (c *Cluster) RestartAgents() {
 	}
 	log.Println("Agents has stopped", rs)
 
-	waitfor := time.Duration(pbm.StaleFrameSec+5) * time.Second
+	waitfor := time.Duration(pbm.StaleFrameSec+10) * time.Second
 	log.Println("Sleeping for", waitfor)
 	time.Sleep(waitfor)
 	meta, err := c.mongopbm.GetBackupMeta(bcpName)

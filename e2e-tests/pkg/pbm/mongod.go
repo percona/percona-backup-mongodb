@@ -212,3 +212,7 @@ func (m *Mongo) GetLastWrite() (primitive.Timestamp, error) {
 	}
 	return isMaster.LastWrite.OpTime.TS, nil
 }
+
+func (m *Mongo) Conn() *mongo.Client {
+	return m.cn
+}

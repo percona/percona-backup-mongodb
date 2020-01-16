@@ -36,7 +36,6 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 			return "", errors.New("no store set. Set remote store with <pbm store set>")
 		}
 		return "", errors.Wrap(err, "get remote-store")
-
 	}
 
 	err = cn.SendCmd(pbm.Cmd{

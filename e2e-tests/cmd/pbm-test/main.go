@@ -17,28 +17,32 @@ func main() {
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e5)
+	// tests.DeleteBallast()
+	// tests.GenerateBallastData(1e5)
 
-	printStart("Basic Backup & Restore")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore")
+	// printStart("Basic Backup & Restore")
+	// tests.BackupAndRestore()
+	// printDone("Basic Backup & Restore")
 
-	printStart("Backup Data Bounds Check")
-	tests.BackupBoundsCheck()
-	printDone("Backup Data Bounds Check")
+	// printStart("Backup Data Bounds Check")
+	// tests.BackupBoundsCheck()
+	// printDone("Backup Data Bounds Check")
 
-	printStart("Clock Skew Tests")
-	tests.ClockSkew()
-	printDone("Clock Skew Tests")
+	// printStart("Clock Skew Tests")
+	// tests.ClockSkew()
+	// printDone("Clock Skew Tests")
 
-	printStart("Restart agents during the backup")
-	tests.RestartAgents()
-	printDone("Restart agents during the backup")
+	// printStart("Restart agents during the backup")
+	// tests.RestartAgents()
+	// printDone("Restart agents during the backup")
 
-	printStart("Cut network during the backup")
-	tests.NetworkCut()
-	printDone("Cut network during the backup")
+	// printStart("Cut network during the backup")
+	// tests.NetworkCut()
+	// printDone("Cut network during the backup")
+
+	printStart("Distributed Transactions backup")
+	tests.DistributedTransactions()
+	printDone("Distributed Transactions backup")
 }
 
 func printStart(name string) {
