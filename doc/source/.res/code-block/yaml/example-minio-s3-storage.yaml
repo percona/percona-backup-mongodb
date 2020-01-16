@@ -3,8 +3,8 @@
    type: s3
    s3:
       endpointUrl: "http://localhost:9000"
-      region: us-west-2
-      bucket: pbm-test
+      region: my-region
+      bucket: pbm-example
       credentials:
          access-key-id: <your-access-key-id-here>
          secret-access-key: <your-secret-key-here>

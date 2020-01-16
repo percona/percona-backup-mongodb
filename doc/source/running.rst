@@ -61,7 +61,7 @@ Running |pbm.app| Commands
 Configuring a Remote Store for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
-This must done once, at installation or re-installaton time, before backups can
+This must be done once, at installation or re-installaton time, before backups can
 be listed, made, or restored. Please see :ref:`pbm.config`.
 
 .. _pbm.running.backup.listing:
