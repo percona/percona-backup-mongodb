@@ -125,7 +125,7 @@ rst_prolog = '''
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
 
-extlinks = {'jirabug': ('https://jira.percona.com/browse/PBM-%s', 'PBM-')
+extlinks = {'jirabug': ('https://jira.percona.com/browse/%s', '')
 }
 
 # -- Options for HTML output ----------------------------------------------
