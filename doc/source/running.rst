@@ -87,8 +87,6 @@ Starting a backup
 
 .. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
 
-.. _pbm.running.backup.restoring: 
-
 .. important::
 
    For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
@@ -116,7 +114,7 @@ restore.
 
 .. important::
 
-   Whilst the restore is running clients should be stopped from accessing the
+   Whilst the restore is running, clients should be stopped from accessing the
    database. The data will naturally be incomplete whilst the restore is in
    progress, and writes they make will cause the final restored data to differ
    from the backed-up data. In a cluster's restore the simplest way would be to
