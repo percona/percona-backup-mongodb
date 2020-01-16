@@ -113,17 +113,31 @@ and |pbm-agent| programs on your system.
 Configuring service init scripts
 ================================================================================
 
-The MongoDB connection URI string to the local mongod node should be set in
+The MongoDB connection URI string to the local mongod node should be set in the
 environment file that the `pbm-agent.service` systemd unit file includes.
 
-With the current systemd unit file (see below) this means setting the 
-"PBM_MONGODB_URI" environment variable in /etc/default/pbm-agent.
+With the current systemd unit file (see below), this means setting the
+"PBM_MONGODB_URI" environment variable in :file:`/etc/default/pbm-agent` (for
+Debian and Ubuntu) or :file:`/etc/sysconfig/pbm-agent` (for Red Hat or CentOS).
 
-`.../systemd/system/pbm-agent.service`
+-----
+
+The :ref:`pbm.running` section, explains in detail how to start |pbm-agent| and
+provides examples how to use |pbm.app| commands.
+
+.. hint::
+
+   In Ubuntu and Debian :file:`pbm-agent.service` is located in the
+   :file:`/lib/systemd/system/` directory. In Red Hat and CentOS, this
+   file is found in :file:`/usr/lib/systemd/system/pbm-agent.service`.
 
 .. include:: .res/code-block/bash/systemd-unit-file.txt
 
-(See :ref:`pbm.auth` for an explanation of standard MongoDB connection strings
-if you need.)
+.. seealso::
+
+   More information about standard MongoDB connection strings
+      :ref:`pbm.auth`
+
+
 
 .. include:: .res/replace.txt
