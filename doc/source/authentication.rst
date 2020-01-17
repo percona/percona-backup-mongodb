@@ -4,7 +4,7 @@ Authentication
 ********************************************************************************
 
 |pbm| has no authentication and authorization subsystem of its own - it uses
-MongoDB's. I.e. |pbm.app| and |pbm-agent| only require the valid MongoDB
+MongoDB's, i.e. |pbm.app| and |pbm-agent| only require a valid MongoDB
 connection URI string for the PBM user.
 
 For the S3-compatible remote storage authentication config, see

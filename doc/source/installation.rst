@@ -94,13 +94,39 @@ Building the project requires:
 - Go 1.11 or above
 - make
 
+.. seealso::
+
+   Installing and setting up Go tools
+      https://golang.org/doc/install
+
 To build the project (from the project dir):
 
 .. code-block:: bash
 
    $ go get -d github.com/percona/percona-backup-mongodb
-   $ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
+   $ cd "$(go env GOPATH)/src/github.com/percona/percona-backup-mongodb"
    $ make
+
+After :program:`make` returns, |pbm.app| and |pbm-agent| binaries are
+available in the :dir:`./bin` directory:
+
+.. code-block:: bash
+
+   $ cd bin
+   $ pbm version
+
+By running :program:`pbm version`, you can verify if |pbm| has been built correctly is ready for use.
+
+.. admonition:: Output
+
+   .. code-block:: guess
+
+      Version:   [pbm version number]
+      Platform:  linux/amd64
+      GitCommit: [commit hash]
+      GitBranch: master
+      BuildTime: [time when this version was produced in UTC format]
+      GoVersion: [Go version number]
 
 |pbm| services and location of configuration files
 --------------------------------------------------------------------------------
