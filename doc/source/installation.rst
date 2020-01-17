@@ -107,15 +107,15 @@ To build the project (from the project dir):
    $ cd "$(go env GOPATH)/src/github.com/percona/percona-backup-mongodb"
    $ make
 
-After :program:`make` returns, |pbm.app| and |pbm-agent| binaries are
-available in the :dir:`./bin` directory:
+After :program:`make` completes, you can find |pbm.app| and |pbm-agent| binaries
+in the :dir:`./bin` directory:
 
 .. code-block:: bash
 
    $ cd bin
    $ pbm version
 
-By running :program:`pbm version`, you can verify if |pbm| has been built correctly is ready for use.
+By running :program:`pbm version`, you can verify if |pbm| has been built correctly and is ready for use.
 
 .. admonition:: Output
 
