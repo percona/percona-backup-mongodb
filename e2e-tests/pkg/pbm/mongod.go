@@ -63,11 +63,23 @@ const (
 )
 
 func (m *Mongo) GenBallast(ln int) error {
+	return m.GenData("test", "ballast", ln)
+}
+
+type testData struct {
+	IDX   int     `bson:"idx"`
+	Num   []int64 `bson:"num"`
+	Data1 []byte  `bson:"data1"`
+	Data2 []byte  `bson:"data2"`
+	C     int     `bson:"changed"`
+}
+
+func (m *Mongo) GenData(db, collection string, ln int) error {
 	var data []interface{}
 	for i := 0; i < ln; i++ {
-		data = append(data, *genBallast(50))
+		data = append(data, genData(i, 64))
 		if i%100 == 0 {
-			_, err := m.cn.Database(testDB).Collection("ballast").InsertMany(m.ctx, data)
+			_, err := m.cn.Database(db).Collection(collection).InsertMany(m.ctx, data)
 			if err != nil {
 				return err
 			}
@@ -75,14 +87,14 @@ func (m *Mongo) GenBallast(ln int) error {
 		}
 	}
 	if len(data) > 0 {
-		_, err := m.cn.Database(testDB).Collection("ballast").InsertMany(m.ctx, data)
+		_, err := m.cn.Database(db).Collection(collection).InsertMany(m.ctx, data)
 		return err
 	}
 
 	return nil
 }
 
-func genBallast(strLen int) *bson.M {
+func genData(idx, strLen int) testData {
 	l1 := make([]byte, strLen)
 	l2 := make([]byte, strLen)
 	d := make([]int64, strLen)
@@ -93,9 +105,11 @@ func genBallast(strLen int) *bson.M {
 		l2[i] = byte(d[i]&25 + 'A')
 	}
 
-	return &bson.M{
-		"letters1": l1,
-		"letters2": l2,
+	return testData{
+		IDX:   idx,
+		Num:   d,
+		Data1: l1,
+		Data2: l2,
 	}
 }
 

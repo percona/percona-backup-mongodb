@@ -19,32 +19,95 @@ type shard struct {
 	cn   *pbm.Mongo
 }
 
+type trxData struct {
+	Country string
+	UID     int
+}
+
 func (c *Cluster) DistributedTransactions() {
-	log.Println("peek a random replsets")
-	var rs [2]shard
-	i := 0
-	for name, cn := range c.shards {
-		rs[i] = shard{name: name, cn: cn}
-		if i == 1 {
-			break
-		}
-		i++
-	}
-	if rs[0].name == "" || rs[1].name == "" {
-		log.Fatalln("no shards in cluster")
-	}
+	// log.Println("peek a random replsets")
+	// var rs [2]shard
+	// i := 0
+	// for name, cn := range c.shards {
+	// 	rs[i] = shard{name: name, cn: cn}
+	// 	if i == 1 {
+	// 		break
+	// 	}
+	// 	i++
+	// }
+	// if rs[0].name == "" || rs[1].name == "" {
+	// 	log.Fatalln("no shards in cluster")
+	// }
 
 	ctx := context.Background()
-	_, err := rs[0].cn.Conn().Database("test").Collection("trx0").InsertOne(ctx, bson.M{"x": 0})
-	if err != nil {
-		log.Fatalln("ERROR: prepare collections for trx0:", err)
-	}
-	_, err = rs[1].cn.Conn().Database("test").Collection("trx1").InsertOne(ctx, bson.M{"y": 0})
-	if err != nil {
-		log.Fatalln("ERROR: prepare collections for trx1:", err)
-	}
+	// _, err := rs[0].cn.Conn().Database("test").Collection("trx0").InsertOne(ctx, bson.M{"x": 0})
+	// if err != nil {
+	// 	log.Fatalln("ERROR: prepare collections for trx0:", err)
+	// }
+	// _, err = rs[1].cn.Conn().Database("test").Collection("trx1").InsertOne(ctx, bson.M{"y": 0})
+	// if err != nil {
+	// 	log.Fatalln("ERROR: prepare collections for trx1:", err)
+	// }
 
 	conn := c.mongos.Conn()
+
+	err := conn.Database("trx").RunCommand(
+		ctx,
+		bson.D{{"create", "test"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: create trx.test collections:", err)
+	}
+
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"enableSharding", "trx"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: enableSharding on trx db:", err)
+	}
+
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"shardCollection", "trx.test"}, {"key", bson.M{"idx": 1}}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: shardCollection trx.test:", err)
+	}
+
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"addShardToZone", "rs1"}, {"zone", "R1"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: addShardToZone rs1:", err)
+	}
+
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"addShardToZone", "rs2"}, {"zone", "R2"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: addShardToZone rs2:", err)
+	}
+
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"updateZoneKeyRange", "trx.test"}, {"min", bson.M{"idx": 0}}, {"max", bson.M{"idx": 51}}, {"zone", "R1"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: updateZoneKeyRange trx.test/R1:", err)
+	}
+	err = conn.Database("admin").RunCommand(
+		ctx,
+		bson.D{{"updateZoneKeyRange", "trx.test"}, {"min", bson.M{"idx": 51}}, {"max", bson.M{"idx": 100}}, {"zone", "R2"}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: updateZoneKeyRange trx.test/R2:", err)
+	}
+
+	err = c.mongos.GenData("trx", "test", 100)
+
 	sess, err := conn.StartSession(
 		options.Session().
 			SetDefaultReadPreference(readpref.Primary()).
@@ -73,9 +136,9 @@ func (c *Cluster) DistributedTransactions() {
 
 		// !!! wait for bcp
 
-		_, err = conn.Database("test").Collection("trx1").UpdateOne(sc, bson.D{}, bson.D{{"$set", bson.M{"y": 1}}})
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx0:", err)
+			log.Fatalln("ERROR: update in transaction trx:", err)
 		}
 
 		return sess.CommitTransaction(sc)
