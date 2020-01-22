@@ -58,6 +58,26 @@ You can confirm the |pbm-agent| connected to its mongod and started OK by
 confirming *"pbm agent is listening for the commands"* is printed to the log
 file.
 
+How to see the pbm-agent log
+--------------------------------------------------------------------------------
+
+With the packaged systemd service the log output to stdout is captured by
+systemd's default redirection to systemd-journald. You can view it with the
+command below. See `man journalctl` for useful options such as '--lines',
+'--follow', etc.
+
+.. code-block:: bash
+
+   ~$ journalctl -u pbm-agent.service
+   -- Logs begin at Tue 2019-10-22 09:31:34 JST. --
+   Jan 22 15:59:14 akira-x1 systemd[1]: Started pbm-agent.
+   Jan 22 15:59:14 akira-x1 pbm-agent[3579]: pbm agent is listening for the commands
+   ...
+   ...
+
+If you started pbm-agent manually see the file you redirected stdout and stderr
+to.
+
 Running |pbm|
 ================================================================================
 
