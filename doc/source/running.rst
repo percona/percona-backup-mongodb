@@ -32,18 +32,19 @@ servers as the first shard's mongod nodes (listen port 27018, replica set name
 node (e.g. "mongodb://username:password@localhost:27019/").
 
 It is best to use the packaged service scripts to run |pbm-agent|. After
-adding the database connection configuration for them (see pbm.installation.service_init_scripts_) 
-you can start the |pbm-agent| service as below:
+adding the database connection configuration for them (see
+:ref: pbm.installation.service_init_scripts) you can start the |pbm-agent|
+service as below:
 
 .. code-block:: bash
 
-   sudo systemctl start pbm-agent
-   sudo systemctl status pbm-agent
+   $ sudo systemctl start pbm-agent
+   $ sudo systemctl status pbm-agent
 
-For reference an example of how to do it manually is shown below. The output is
-redirected to a file and the process is backgrounded. You can run it on a shell
-terminal temporarily if you want to observe and/or debug the startup from the
-log messages.
+For reference an example of starting pbm-agent manually is shown below. The
+output is redirected to a file and the process is backgrounded. Alternatively
+you can run it on a shell terminal temporarily if you want to observe and/or
+debug the startup from the log messages.
 
 .. code-block:: bash
 
