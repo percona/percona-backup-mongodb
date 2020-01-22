@@ -23,7 +23,7 @@ rs.initiate(
 )
 EOF
 
-sleep 5
+sleep 15
 
 mongo <<EOF
 db.getSiblingDB("admin").createUser({ user: "${MONGO_USER}", pwd: "${MONGO_PASS}", roles: [ "root", "userAdminAnyDatabase", "clusterAdmin" ] })

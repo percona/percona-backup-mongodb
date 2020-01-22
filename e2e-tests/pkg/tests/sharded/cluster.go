@@ -79,7 +79,7 @@ func (c *Cluster) Restore(bcpName string) {
 	}
 
 	log.Println("waiting for the restore")
-	err = c.mongopbm.CheckRestore(bcpName, time.Minute*15)
+	err = c.mongopbm.CheckRestore(bcpName, time.Minute*25)
 	if err != nil {
 		log.Fatalln("check backup restore:", err)
 	}
@@ -102,7 +102,7 @@ func (c *Cluster) Backup() string {
 
 func (c *Cluster) BackupWaitDone(bcpName string) {
 	log.Println("waiting for the backup")
-	err := c.pbm.CheckBackup(bcpName, time.Second*240)
+	err := c.pbm.CheckBackup(bcpName, time.Minute*25)
 	if err != nil {
 		log.Fatalln("check backup state:", err)
 	}

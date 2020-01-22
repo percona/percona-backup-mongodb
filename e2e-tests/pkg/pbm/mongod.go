@@ -66,7 +66,7 @@ func (m *Mongo) GenBallast(ln int) error {
 	return m.GenData("test", "ballast", ln)
 }
 
-type testData struct {
+type TestData struct {
 	IDX   int     `bson:"idx"`
 	Num   []int64 `bson:"num"`
 	Data1 []byte  `bson:"data1"`
@@ -94,7 +94,7 @@ func (m *Mongo) GenData(db, collection string, ln int) error {
 	return nil
 }
 
-func genData(idx, strLen int) testData {
+func genData(idx, strLen int) TestData {
 	l1 := make([]byte, strLen)
 	l2 := make([]byte, strLen)
 	d := make([]int64, strLen)
@@ -105,11 +105,12 @@ func genData(idx, strLen int) testData {
 		l2[i] = byte(d[i]&25 + 'A')
 	}
 
-	return testData{
+	return TestData{
 		IDX:   idx,
 		Num:   d,
 		Data1: l1,
 		Data2: l2,
+		C:     -1,
 	}
 }
 

@@ -17,8 +17,8 @@ func main() {
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
 
-	// tests.DeleteBallast()
-	// tests.GenerateBallastData(1e5)
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
 
 	// printStart("Basic Backup & Restore")
 	// tests.BackupAndRestore()
