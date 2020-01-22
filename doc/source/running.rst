@@ -26,13 +26,21 @@ sure one instance of it is started for each mongod node.
 
 E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
 servers as the first shard's mongod nodes (listen port 27018, replica set name
-"sh1rs") to save some hardware costs. In this server you would start two
+"sh1rs"). In this server there should be two 
 |pbm-agent| processes, one connected to the shard
 (e.g. "mongodb://username:password@localhost:27018/") and one to the configsvr
 node (e.g. "mongodb://username:password@localhost:27019/").
 
-It is best to use the packaged service scripts to run |pbm-agent|. But for
-reference an example of how to do it manually is shown below. The output is
+It is best to use the packaged service scripts to run |pbm-agent|. After
+adding the database connection configuration for them (see pbm.installation.service_init_scripts_) 
+you can start the |pbm-agent| service as below:
+
+.. code-block:: bash
+
+   sudo systemctl start pbm-agent
+   sudo systemctl status pbm-agent
+
+For reference an example of how to do it manually is shown below. The output is
 redirected to a file and the process is backgrounded. You can run it on a shell
 terminal temporarily if you want to observe and/or debug the startup from the
 log messages.
