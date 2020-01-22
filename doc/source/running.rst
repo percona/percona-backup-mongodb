@@ -26,16 +26,25 @@ sure one instance of it is started for each mongod node.
 
 E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
 servers as the first shard's mongod nodes (listen port 27018, replica set name
-"sh1rs") to save some hardware costs. In this server you would start two
+"sh1rs"). In this server there should be two 
 |pbm-agent| processes, one connected to the shard
 (e.g. "mongodb://username:password@localhost:27018/") and one to the configsvr
 node (e.g. "mongodb://username:password@localhost:27019/").
 
-It is best to use the packaged service scripts to run |pbm-agent|. But for
-reference an example of how to do it manually is shown below. The output is
-redirected to a file and the process is backgrounded. You can run it on a shell
-terminal temporarily if you want to observe and/or debug the startup from the
-log messages.
+It is best to use the packaged service scripts to run |pbm-agent|. After
+adding the database connection configuration for them (see
+:ref: pbm.installation.service_init_scripts) you can start the |pbm-agent|
+service as below:
+
+.. code-block:: bash
+
+   $ sudo systemctl start pbm-agent
+   $ sudo systemctl status pbm-agent
+
+For reference an example of starting pbm-agent manually is shown below. The
+output is redirected to a file and the process is backgrounded. Alternatively
+you can run it on a shell terminal temporarily if you want to observe and/or
+debug the startup from the log messages.
 
 .. code-block:: bash
 
@@ -49,6 +58,26 @@ log messages.
 You can confirm the |pbm-agent| connected to its mongod and started OK by
 confirming *"pbm agent is listening for the commands"* is printed to the log
 file.
+
+How to see the pbm-agent log
+--------------------------------------------------------------------------------
+
+With the packaged systemd service the log output to stdout is captured by
+systemd's default redirection to systemd-journald. You can view it with the
+command below. See `man journalctl` for useful options such as '--lines',
+'--follow', etc.
+
+.. code-block:: bash
+
+   ~$ journalctl -u pbm-agent.service
+   -- Logs begin at Tue 2019-10-22 09:31:34 JST. --
+   Jan 22 15:59:14 akira-x1 systemd[1]: Started pbm-agent.
+   Jan 22 15:59:14 akira-x1 pbm-agent[3579]: pbm agent is listening for the commands
+   ...
+   ...
+
+If you started pbm-agent manually see the file you redirected stdout and stderr
+to.
 
 Running |pbm|
 ================================================================================
