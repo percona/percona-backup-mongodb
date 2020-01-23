@@ -13,7 +13,7 @@ import (
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {
-	log.Printf("== Skew the clock for %s the replicaset %s ", ts, rsName)
+	log.Printf("== Skew the clock for %s on the replicaset %s ", ts, rsName)
 
 	cn, err := docker.NewClient(dockerHost, "1.40", nil, nil)
 	if err != nil {
@@ -47,7 +47,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			`FAKETIME=` + ts,
 		}...)
 
-		log.Printf("Creating container %s/%s with the clock skew\n", containerOld.ID, containerOld.Name)
+		log.Printf("Creating container %s/%s with the clock skew %s\n", containerOld.ID, containerOld.Name, ts)
 		containerNew, err := cn.ContainerCreate(context.Background(), &container.Config{
 			Image:  containerOld.Image,
 			Env:    envs,

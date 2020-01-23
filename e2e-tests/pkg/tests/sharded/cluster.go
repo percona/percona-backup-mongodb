@@ -20,10 +20,11 @@ type Cluster struct {
 }
 
 type ClusterConf struct {
-	Configsrv    string
-	Mongos       string
-	Shards       map[string]string
-	DockerSocket string
+	Configsrv       string
+	Mongos          string
+	Shards          map[string]string
+	DockerSocket    string
+	ConfigsrvRsName string
 }
 
 func New(cfg ClusterConf) *Cluster {
@@ -60,6 +61,14 @@ func New(cfg ClusterConf) *Cluster {
 	log.Println("connected to docker")
 
 	return c
+}
+
+func (c *Cluster) ServerVersion() string {
+	v, err := c.mongos.ServerVersion()
+	if err != nil {
+		log.Fatalln("Get server version:", err)
+	}
+	return v
 }
 
 func (c *Cluster) DeleteBallast() {

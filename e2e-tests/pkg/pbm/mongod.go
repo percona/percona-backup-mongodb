@@ -74,6 +74,18 @@ type TestData struct {
 	C     int     `bson:"changed"`
 }
 
+func (m *Mongo) ServerVersion() (string, error) {
+	v := struct {
+		V string `bson:"version"`
+	}{}
+	err := m.cn.Database("admin").RunCommand(
+		m.ctx,
+		bson.D{{"buildinfo", 1}},
+	).Decode(&v)
+
+	return v.V, err
+}
+
 func (m *Mongo) GenData(db, collection string, ln int) error {
 	var data []interface{}
 	for i := 0; i < ln; i++ {
