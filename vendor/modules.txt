@@ -78,6 +78,8 @@ github.com/docker/go-units
 github.com/go-stack/stack
 # github.com/golang/snappy v0.0.1
 github.com/golang/snappy
+# github.com/hashicorp/go-version v1.2.0
+github.com/hashicorp/go-version
 # github.com/jessevdk/go-flags v1.4.0
 github.com/jessevdk/go-flags
 # github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
