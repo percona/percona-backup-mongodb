@@ -56,13 +56,19 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		return "", err
 	}
 
-	storeString := "s3://"
-	if stg.S3.EndpointURL != "" {
-		storeString += stg.S3.EndpointURL + "/"
-	}
-	storeString += stg.S3.Bucket
-	if stg.S3.Prefix != "" {
-		storeString += "/" + stg.S3.Prefix
+	storeString := ""
+	switch stg.Type {
+	case pbm.StorageS3:
+		storeString = "s3://"
+		if stg.S3.EndpointURL != "" {
+			storeString += stg.S3.EndpointURL + "/"
+		}
+		storeString += stg.S3.Bucket
+		if stg.S3.Prefix != "" {
+			storeString += "/" + stg.S3.Prefix
+		}
+	case pbm.StorageFilesystem:
+		storeString = stg.Filesystem.Path
 	}
 	return storeString, nil
 }

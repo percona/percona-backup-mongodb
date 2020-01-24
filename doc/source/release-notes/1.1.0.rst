@@ -1,0 +1,60 @@
+.. _release-notes-1.1.0:
+
+|pbm| |release|
+********************************************************************************
+
+|percona| is happy to announce the release of |pbm| |release| on |date|.
+
+|pbm| is a distributed, low-impact solution for consistent backups of |mongodb|
+sharded clusters and replica sets. This is a tool for creating consistent
+backups across a |mongodb| sharded cluster (or a single replica set), and for
+restoring those backups to a specific point in time. The project was inspired by
+(and intends to replace) the Percona-Lab/mongodb_consistent_backup tool.
+
+|pbm| supports `Percona Server for MongoDB
+<https://www.percona.com/software/mongo-database/percona-server-for-mongodb>`_
+or `MongoDB Community Server
+<https://www.mongodb.com/download-center/community>`_ version 3.6 or higher with
+`MongoDB replication <https://docs.mongodb.com/manual/replication/>`_
+enabled. Binaries for the supported platforms as well as the tarball with source
+code are available from the `Percona Backup for MongoDB download page
+<https://www.percona.com/downloads/percona-backup-mongodb/>`_. For more
+information about |pbm| and the installation steps, see the :ref:`documentation
+<pbm.index>`.
+
+|pbm| |release| introduces the new ``pbm config`` command to enable configuring
+the store from the command line in addition to the configuration file. This
+command effectively replaces `pbm store` which was only able to read store
+configuration from the configuration file.
+
+.. code-block:: bash
+
+   $ pbm config --set storage.s3.bucket="operator-testing"
+
+New Features
+================================================================================
+
+- :jirabug:`PBM-344`: New `pbm config` command to support configuring the store
+  from the command line. 
+
+Improvements
+================================================================================
+
+- :jirabug:`PBM-361`: Improved the processing of timestamps when using oplog.
+
+Bugs Fixed
+================================================================================
+
+- :jirabug:`PBM-214`: ``pbm-agent`` could crash with restore command running
+  forever, if the primary node became unavailable during the `restore` operation.
+- :jirabug:`PBM-279`: ``pbm-agent`` could be started with an invalid config file.
+- :jirabug:`PBM-338`: Backups that failed could appear in the output of the `pbm
+  list` command.
+- :jirabug:`PBM-362`: The ``pbm backup`` could fail when called from the primary
+  node if there were no healthy secondaries.
+- :jirabug:`PBM-369`: ReplicaSets could not establish connections when TLS was
+  used in the cluster.
+
+.. |release| replace:: 1.1.0
+.. |date| replace:: January 16, 2020
+.. include:: ../.res/replace.txt

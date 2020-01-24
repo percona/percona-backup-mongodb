@@ -54,8 +54,8 @@ This storage is expected to be a remote fileserver mounted to a local
 directory. PBM uses the directory as if it was any normal directory, however,
 and does not attempt to confirm it is mounted from a remote server. It is the
 obligation of the server administrators to ensure that all the mongod-hosting
-servers have a remote backup server's directory mounted at that same directory
-path.
+servers have the remote backup server's directory mounted at the same local
+directory path.
 
 .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
 

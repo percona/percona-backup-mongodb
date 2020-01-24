@@ -28,6 +28,8 @@ const (
 	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
+	// BcpOldCollection contains a backup of backups metadata
+	BcpOldCollection = "pbmBackups.old"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 )
@@ -40,9 +42,10 @@ const (
 type Command string
 
 const (
-	CmdUndefined Command = ""
-	CmdBackup            = "backup"
-	CmdRestore           = "restore"
+	CmdUndefined        Command = ""
+	CmdBackup                   = "backup"
+	CmdRestore                  = "restore"
+	CmdResyncBackupList         = "resyncBcpList"
 )
 
 type Cmd struct {
@@ -98,7 +101,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	}
 
 	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
-		return pbm, nil
+		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
 	csvr := struct {

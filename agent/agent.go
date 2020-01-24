@@ -50,6 +50,9 @@ func (a *Agent) Start() error {
 			case pbm.CmdRestore:
 				log.Println("Got command", cmd.Cmd, cmd.Restore.BackupName)
 				a.Restore(cmd.Restore)
+			case pbm.CmdResyncBackupList:
+				log.Println("Got command", cmd.Cmd)
+				a.ResyncBackupList()
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -87,8 +90,8 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
-	// have wait random time (1 to 100 ms) before acquiring lock
-	// otherwise all angent could aquire own locks
+	// wait for a random time (1 to 100 ms) before acquiring a lock
+	// TODO: do we need this? check
 	time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
@@ -114,6 +117,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
+	tstart := time.Now()
 	err = backup.New(a.pbm, a.node).Run(bcp)
 	if err != nil {
 		log.Println("[ERROR] backup:", err)
@@ -121,9 +125,21 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		log.Printf("Backup %s finished", bcp.Name)
 	}
 
-	// wait before release lock in case backup was super fast and
-	// other agents still trying to get lock
-	time.Sleep(1e3 * time.Millisecond)
+	// In the case of fast backup (small db) we have to wait before releasing the lock.
+	// Otherwise, since the primary node waits for `WaitBackupStart*0.9` before trying to acquire the lock
+	// it might happen that the backup will be made twice:
+	//
+	// secondary1 >---------*!lock(fail - acuired by s1)---------------------------
+	// secondary2 >------*lock====backup====*unlock--------------------------------
+	// primary    >--------*wait--------------------*lock====backup====*unlock-----
+	//
+	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
+	// TODO: we cannot rely on the nodes wall clock.
+	// TODO: ? pbmBackups should have unique index by name ?
+	needToWait := backup.WaitBackupStart - time.Since(tstart)
+	if needToWait > 0 {
+		time.Sleep(needToWait)
+	}
 	err = lock.Release()
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
@@ -167,4 +183,57 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
+}
+
+// ResyncBackupList uploads a backup list from the remote store
+func (a *Agent) ResyncBackupList() {
+	nodeInfo, err := a.node.GetIsMaster()
+	if err != nil {
+		log.Println("[ERROR] resync_list: get node isMaster data:", err)
+		return
+	}
+
+	if !nodeInfo.IsLeader() {
+		log.Println("[INFO] resync_list: not a memeber of the leader rs")
+		return
+	}
+
+	lock := a.pbm.NewLock(pbm.LockHeader{
+		Type:    pbm.CmdResyncBackupList,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+	})
+
+	got, err := lock.Acquire()
+	if err != nil {
+		switch err.(type) {
+		case pbm.ErrConcurrentOp:
+			log.Println("[INFO] resync_list: acquiring lock:", err)
+		default:
+			log.Println("[ERROR] resync_list: acquiring lock:", err)
+		}
+		return
+	}
+	if !got {
+		log.Println("[INFO] resync_list: operation has been scheduled on another replset node")
+		return
+	}
+
+	tstart := time.Now()
+	log.Println("[INFO] resync_list: started")
+	err = a.pbm.ResyncBackupList()
+	if err != nil {
+		log.Println("[ERROR] resync_list:", err)
+	} else {
+		log.Println("[INFO] resync_list: succeed")
+	}
+
+	needToWait := time.Second*1 - time.Since(tstart)
+	if needToWait > 0 {
+		time.Sleep(needToWait)
+	}
+	err = lock.Release()
+	if err != nil {
+		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+	}
 }

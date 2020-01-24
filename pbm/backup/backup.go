@@ -38,7 +38,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-var waitBackupStart = time.Second * 15
+var WaitBackupStart = time.Second * 15
 
 // run the backup.
 // TODO: describe flow
@@ -87,7 +87,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 	if stg.Type == pbm.StorageUndef {
-		return errors.Wrap(err, "store doesn't set, you have to set store to make backup")
+		return errors.New("store is doesn't set, you have to set store to make backup")
 	}
 	meta.Store = stg
 	// Erase credentials data
@@ -114,7 +114,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &waitBackupStart)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -216,7 +216,7 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	}
 
 	// for the cases when no secondary was good enough for backup or there are no secondaries alive
-	// wait for 90% of waitBackupStart and then try to acquire a lock.
+	// wait for 90% of WaitBackupStart and then try to acquire a lock.
 	// by that time healthy secondaries should have already acquired a lock.
 	//
 	// but no need to wait if this is the only node (the single-node replica set).
@@ -224,7 +224,7 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
 	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
 	if im.IsMaster && im.Me == im.Primary && len(im.Hosts) > 1 {
-		time.Sleep(waitBackupStart * 9 / 10)
+		time.Sleep(WaitBackupStart * 9 / 10)
 	}
 
 	status, err := node.Status()
