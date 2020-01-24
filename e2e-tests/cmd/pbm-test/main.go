@@ -23,8 +23,16 @@ func main() {
 	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
 	v42 := version.Must(version.NewVersion("4.2"))
 
+	tests.ApplyConfig("/etc/pbm/store.yaml")
+
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
+
+	printStart("Basic Backup & Restore AWS S3")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore AWS S3")
+
+	tests.ApplyConfig("/etc/pbm/minio.yaml")
 
 	printStart("Basic Backup & Restore")
 	tests.BackupAndRestore()

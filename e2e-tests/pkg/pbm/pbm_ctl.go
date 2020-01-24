@@ -35,8 +35,8 @@ func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 	}, nil
 }
 
-func (c *Ctl) ApplyConfig() error {
-	out, err := c.RunCmd("pbm", "config", "--file", "/etc/pbm/store.yaml")
+func (c *Ctl) ApplyConfig(file string) error {
+	out, err := c.RunCmd("pbm", "config", "--file", file)
 	if err != nil {
 		return err
 	}

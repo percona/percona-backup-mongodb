@@ -45,13 +45,6 @@ func New(cfg ClusterConf) *Cluster {
 	}
 	log.Println("connected to pbm")
 
-	log.Println("apply config")
-	err = pbmObj.ApplyConfig()
-	if err != nil {
-		l, _ := pbmObj.ContainerLogs()
-		log.Fatalf("apply config: %v\nconatiner logs: %s\n", err, l)
-	}
-
 	c.pbm = pbmObj
 
 	c.docker, err = pbm.NewDocker(c.ctx, cfg.DockerSocket)
@@ -61,6 +54,15 @@ func New(cfg ClusterConf) *Cluster {
 	log.Println("connected to docker")
 
 	return c
+}
+
+func (c *Cluster) ApplyConfig(file string) {
+	log.Println("apply config")
+	err := c.pbm.ApplyConfig(file)
+	if err != nil {
+		l, _ := c.pbm.ContainerLogs()
+		log.Fatalf("apply config: %v\nconatiner logs: %s\n", err, l)
+	}
 }
 
 func (c *Cluster) ServerVersion() string {

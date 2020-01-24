@@ -80,7 +80,7 @@ func (m *Mongo) ServerVersion() (string, error) {
 	}{}
 	err := m.cn.Database("admin").RunCommand(
 		m.ctx,
-		bson.D{{"buildinfo", 1}},
+		bson.M{"buildInfo": 1},
 	).Decode(&v)
 
 	return v.V, err

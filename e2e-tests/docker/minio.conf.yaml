@@ -1,0 +1,10 @@
+storage:
+    type: s3
+    s3:
+      endpointUrl: http://minio:9000
+    #   region: us-west-13
+      bucket: bcp
+      credentials:
+        access-key-id: "minio1234"
+        secret-access-key: "minio1234"
+  
