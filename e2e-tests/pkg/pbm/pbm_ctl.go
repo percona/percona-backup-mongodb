@@ -82,7 +82,7 @@ func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
 				}
 				if strings.HasPrefix(s, bcpName) {
 					status := strings.TrimSpace(strings.Split(s, bcpName)[1])
-					if strings.HasPrefix(s, "Failed with") {
+					if strings.Contains(status, "Failed with") {
 						return errors.New(status)
 					}
 				}
