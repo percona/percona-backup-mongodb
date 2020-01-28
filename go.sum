@@ -46,6 +46,7 @@ github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370 h1:bjVYy+OxubSqBj8DfG+V5aI2H+Hx94s1yFsup+keHpg=
 github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370/go.mod h1:hkFunXA3Gbksiojtxr/hjqPMckbYrey/EwEqjaHG2h8=
+github.com/mongodb/mongo-tools v0.0.0-20200116192421-48835fcaccec h1:lufYT/MEi8rdNAvfY1ohEvfmwCbMs+6MPyOoFUJw1lk=
 github.com/mongodb/mongo-tools-common v1.2.1 h1:V8AvkoR6YlJq+hKey71ygQnzZ2W9/iECQFNBeulhOCk=
 github.com/mongodb/mongo-tools-common v1.2.1/go.mod h1:T0AGIWI5PvxSzqt5zsR5zlcHl52KGeAzhoAnSvvpEtU=
 github.com/opencontainers/go-digest v1.0.0-rc1 h1:WzifXhOVOEOuFYOJAW6aQqW0TooG2iki3E3Ii+WN7gQ=

@@ -31,7 +31,8 @@ func restore(cn *pbm.PBM, bcpName string) error {
 	}
 
 	// Stop if there is some live operation.
-	// But if there is some stale lock leave it for agents to deal with.
+	// But in case of stale lock just move on
+	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
 			return errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)

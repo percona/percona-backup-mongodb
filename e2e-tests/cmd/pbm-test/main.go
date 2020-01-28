@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/hashicorp/go-version"
 
@@ -20,9 +21,6 @@ func main() {
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
 
-	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
-	v42 := version.Must(version.NewVersion("4.2"))
-
 	tests.ApplyConfig("/etc/pbm/store.yaml")
 
 	tests.DeleteBallast()
@@ -33,6 +31,8 @@ func main() {
 	printDone("Basic Backup & Restore AWS S3")
 
 	tests.ApplyConfig("/etc/pbm/minio.yaml")
+	log.Println("Waiting for the new storage to resync")
+	time.Sleep(time.Second * 5)
 
 	printStart("Basic Backup & Restore")
 	tests.BackupAndRestore()
@@ -42,10 +42,6 @@ func main() {
 	tests.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")
 
-	printStart("Clock Skew Tests")
-	tests.ClockSkew()
-	printDone("Clock Skew Tests")
-
 	printStart("Restart agents during the backup")
 	tests.RestartAgents()
 	printDone("Restart agents during the backup")
@@ -54,11 +50,18 @@ func main() {
 	tests.NetworkCut()
 	printDone("Cut network during the backup")
 
+	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
+	v42 := version.Must(version.NewVersion("4.2"))
+
 	if cVersion.GreaterThanOrEqual(v42) {
 		printStart("Distributed Transactions backup")
 		tests.DistributedTransactions()
 		printDone("Distributed Transactions backup")
 	}
+
+	printStart("Clock Skew Tests")
+	tests.ClockSkew()
+	printDone("Clock Skew Tests")
 }
 
 func printStart(name string) {
