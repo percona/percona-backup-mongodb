@@ -20,7 +20,6 @@ var skipNs = map[string]struct{}{
 	"config.cache.collections": {},
 	"config.mongos":            {},
 	"config.lockpings":         {},
-	"admin.system.version":     {},
 }
 
 func init() {
