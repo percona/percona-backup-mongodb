@@ -21,14 +21,14 @@ func main() {
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
 
-	// tests.ApplyConfig("/etc/pbm/store.yaml")
+	tests.ApplyConfig("/etc/pbm/store.yaml")
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
-	// printStart("Basic Backup & Restore AWS S3")
-	// tests.BackupAndRestore()
-	// printDone("Basic Backup & Restore AWS S3")
+	printStart("Basic Backup & Restore AWS S3")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore AWS S3")
 
 	tests.ApplyConfig("/etc/pbm/minio.yaml")
 	log.Println("Waiting for the new storage to resync")
