@@ -17,8 +17,8 @@ require (
 	github.com/golang/snappy v0.0.1
 	github.com/hashicorp/go-version v1.2.0
 	github.com/jessevdk/go-flags v1.4.0 // indirect
-	github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370
-	github.com/mongodb/mongo-tools-common v1.2.1
+	github.com/mongodb/mongo-tools v0.0.0-20200115210417-786081105685
+	github.com/mongodb/mongo-tools-common v2.0.1+incompatible
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pierrec/lz4 v2.3.0+incompatible
 	github.com/pkg/errors v0.8.1

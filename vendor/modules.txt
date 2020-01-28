@@ -84,11 +84,11 @@ github.com/hashicorp/go-version
 github.com/jessevdk/go-flags
 # github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 github.com/jmespath/go-jmespath
-# github.com/mongodb/mongo-tools v0.0.0-20191010123856-e877b4869370
+# github.com/mongodb/mongo-tools v0.0.0-20200115210417-786081105685
 github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
 github.com/mongodb/mongo-tools/mongorestore/ns
-# github.com/mongodb/mongo-tools-common v1.2.1
+# github.com/mongodb/mongo-tools-common v2.0.1+incompatible
 github.com/mongodb/mongo-tools-common/archive
 github.com/mongodb/mongo-tools-common/auth
 github.com/mongodb/mongo-tools-common/bsonutil
