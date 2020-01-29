@@ -1,0 +1,282 @@
+version: "3.4"
+services:
+  tests:
+    build: 
+      dockerfile: ./e2e-tests/Dockerfile
+      context: ../..
+    command: pbm-test
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mongos
+
+  cfg01:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg01
+    environment:
+      - REPLSET_NAME=cfg
+      - CONFIGSVR=true
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
+    volumes:
+      # - ./scripts/start.sh:/docker-entrypoint-initdb.d/start.sh
+      - ./scripts/start.sh:/opt/start.sh
+      - ./keyFile:/opt/keyFile
+  cfg02:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg02
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  cfg03:
+    image: percona/percona-server-mongodb:3.6
+    hostname: cfg03
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  agent-cfg01:
+    container_name: "pbmagent_cfg01"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg01:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - cfg01
+  agent-cfg02:
+    container_name: "pbmagent_cfg02"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg02:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - cfg02
+  agent-cfg03:
+    container_name: "pbmagent_cfg03"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=cfg"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@cfg03:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - cfg03
+
+  rs101:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs101
+    environment:
+      - REPLSET_NAME=rs1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      # - ./scripts/start.sh:/docker-entrypoint-initdb.d/start.sh
+      - ./scripts/start.sh:/opt/start.sh
+      - ./keyFile:/opt/keyFile
+  rs102:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs102
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  rs103:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs103
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  agent-rs101:
+    container_name: "pbmagent_rs101"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs101:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    volumes: 
+      - ./pbm.conf.yaml:/etc/pbm/store.yaml
+      - ./minio.conf.yaml:/etc/pbm/minio.yaml
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs101
+  agent-rs102:
+    container_name: "pbmagent_rs102"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs102:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs102
+  agent-rs103:
+    container_name: "pbmagent_rs103"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs103:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs103
+    
+  rs201:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs201
+    environment:
+      - REPLSET_NAME=rs2
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/start.sh:/opt/start.sh
+      # - ./scripts/start.sh:/docker-entrypoint-initdb.d/start.sh
+      - ./keyFile:/opt/keyFile
+  rs202:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs202
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  rs203:
+    image: percona/percona-server-mongodb:3.6
+    hostname: rs203
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./keyFile:/opt/keyFile
+  agent-rs201:
+    container_name: "pbmagent_rs201"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs201:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs201
+  agent-rs202:
+    container_name: "pbmagent_rs202"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs202:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs202
+  agent-rs203:
+    container_name: "pbmagent_rs203"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs2"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://dba:test1234@rs203:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs203
+
+  mongos:
+    image: percona/percona-server-mongodb:3.6
+    hostname: mongos
+    command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./scripts/01_usrs.sh:/docker-entrypoint-initdb.d/01_users.sh
+      - ./scripts/sharded/mongos_init.js:/docker-entrypoint-initdb.d/02_init.js
+      - ./keyFile:/opt/keyFile
+    depends_on:
+      - cfg01
+      - cfg02
+      - cfg03
+      - rs101
+      - rs102
+      - rs103
+      - rs201
+      - rs202
+      - rs203
+
+  minio:
+    image: minio/minio:RELEASE.2020-01-16T22-40-29Z
+    hostname: minio
+    ports:
+      - "9000:9000"
+    volumes:
+      - backups:/backups
+    environment:
+      - "MINIO_ACCESS_KEY=minio1234"
+      - "MINIO_SECRET_KEY=minio1234"
+    command: server /backups
+  createbucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
+      /usr/bin/mc mb myminio/bcp;
+      exit 0;
+      "
+volumes: 
+  backups:

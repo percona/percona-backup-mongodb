@@ -20,7 +20,6 @@ var excludeFromDumpRestore = []string{
 	pbm.DB + "." + pbm.LockCollection,
 	"config.version",
 	"config.mongos",
-	"admin.system.version",
 }
 
 // Run runs the backup restore
