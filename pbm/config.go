@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"net/url"
 	"reflect"
 	"strings"
 
@@ -30,7 +31,16 @@ type Storage struct {
 	Filesystem Filesystem  `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
+type S3Provider string
+
+const (
+	S3ProviderUndef S3Provider = ""
+	S3ProviderAWS              = "aws"
+	S3ProviderGCS              = "gcs"
+)
+
 type S3 struct {
+	Provider    S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region      string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
@@ -82,13 +92,18 @@ func (p *PBM) SetConfigByte(buf []byte) error {
 }
 
 func (p *PBM) SetConfig(cfg Config) error {
-	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+	err := cfg.Storage.Cast()
+	if err != nil {
+		return errors.Wrap(err, "cast storage")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
 		bson.M{"$set": cfg},
-		options.Update().SetUpsert(true))
-
-	return err
+		options.Update().SetUpsert(true),
+	)
+	return errors.Wrap(err, "mongo ConfigCollection UpdateOne")
 }
 
 func (p *PBM) SetConfigVar(key, val string) error {
@@ -171,18 +186,44 @@ func (p *PBM) GetConfig() (Config, error) {
 	return c, errors.Wrap(err, "decode")
 }
 
-const defaultS3Region = "us-east-1"
+const (
+	defaultS3Region = "us-east-1"
+	GCSEndpointURL  = "storage.googleapis.com"
+)
 
 func (p *PBM) GetStorage() (Storage, error) {
 	c, err := p.GetConfig()
 	if err != nil {
-		return c.Storage, err
+		return c.Storage, errors.Wrap(err, "get config")
 	}
-	switch c.Storage.Type {
+
+	err = c.Storage.Cast()
+	if err != nil {
+		return c.Storage, errors.Wrap(err, "case storage")
+	}
+
+	return c.Storage, err
+}
+
+func (s *Storage) Cast() error {
+	switch s.Type {
 	case StorageS3:
-		if c.Storage.S3.Region == "" {
-			c.Storage.S3.Region = defaultS3Region
+		if s.S3.Region == "" {
+			s.S3.Region = defaultS3Region
+		}
+		if s.S3.Provider == S3ProviderUndef {
+			s.S3.Provider = S3ProviderAWS
+			if s.S3.EndpointURL != "" {
+				eu, err := url.Parse(s.S3.EndpointURL)
+				if err != nil {
+					return errors.Wrap(err, "parse EndpointURL")
+				}
+				if eu.Host == GCSEndpointURL {
+					s.S3.Provider = S3ProviderGCS
+				}
+			}
 		}
 	}
-	return c.Storage, err
+
+	return nil
 }
