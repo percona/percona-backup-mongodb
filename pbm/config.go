@@ -103,7 +103,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 		bson.M{"$set": cfg},
 		options.Update().SetUpsert(true),
 	)
-	return errors.Wrap(err, "mongo UpdateOne")
+	return errors.Wrap(err, "mongo ConfigCollection UpdateOne")
 }
 
 func (p *PBM) SetConfigVar(key, val string) error {
