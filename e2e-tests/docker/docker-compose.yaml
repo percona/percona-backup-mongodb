@@ -7,6 +7,9 @@ services:
     command: pbm-test
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./conf/aws.yaml:/etc/pbm/aws.yaml
+      - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
+      - ./conf/minio.yaml:/etc/pbm/minio.yaml
     depends_on:
       - mongos
 
@@ -120,8 +123,9 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     volumes: 
-      - ./pbm.conf.yaml:/etc/pbm/store.yaml
-      - ./minio.conf.yaml:/etc/pbm/minio.yaml
+      - ./conf/aws.yaml:/etc/pbm/aws.yaml
+      - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
+      - ./conf/minio.yaml:/etc/pbm/minio.yaml
     command: pbm-agent
     cap_add:
       - NET_ADMIN
