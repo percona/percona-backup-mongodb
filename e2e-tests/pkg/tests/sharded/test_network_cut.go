@@ -50,4 +50,26 @@ func (c *Cluster) NetworkCut() {
 	if err != nil {
 		log.Fatalf("ERROR: run tc netem on %s: %v", rs, err)
 	}
+
+	// TODO: currently needed not to stuck on huge replica. Should be removed
+	// after fixing https://jira.percona.com/browse/PBM-406?focusedCommentId=248029&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-248029
+	for rs := range c.shards {
+		log.Println("Stopping agents on the replset", rs)
+		err := c.docker.StopAgents(rs)
+		if err != nil {
+			log.Fatalln("ERROR: stopping agents on the replset", err)
+		}
+		log.Println("Agents has stopped", rs)
+	}
+	for rs := range c.shards {
+		log.Println("Starting agents on the replset", rs)
+		err = c.docker.StartAgents(rs)
+		if err != nil {
+			log.Fatalln("ERROR: starting agents on the replset", err)
+		}
+		log.Println("Agents started", rs)
+	}
+
+	log.Println("Sleeping for", waitfor)
+	time.Sleep(waitfor)
 }
