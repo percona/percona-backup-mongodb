@@ -4,8 +4,8 @@
 ********************************************************************************
 
 :Date: |date|
-:Installation Instructions: :ref:`pbm.installation`
-​
+:Installation: :ref:`Installing Percona Backup for MongoDB <pbm.installation>`
+
 |pbm| is a distributed, low-impact solution for consistent backups of |mongodb|
 sharded clusters and replica sets. This is a tool for creating consistent
 backups across a |mongodb| sharded cluster (or a single replica set), and for
@@ -28,8 +28,8 @@ Bugs Fixed
 
 - :jirabug:`PBM-407`: Very large collections experienced timeout due to
   full-collection scan for a preliminary count
-- :jirabug:`PBM-414`: Upload on GCS was broken with "InvalidArgument: Invalid
-  argument. status code: 400"
+- :jirabug:`PBM-414`: The upload on Google cloud storage was broken with
+  "InvalidArgument: Invalid argument. status code: 400"
 - :jirabug:`PBM-409`: Restore failed with "incompatible auth version with target
   server"
 
