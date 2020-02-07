@@ -30,6 +30,7 @@ func main() {
 	flushStore("/etc/pbm/aws.yaml")
 	tests.ApplyConfig("/etc/pbm/aws.yaml")
 
+        tests.GenerateBallastData(1)
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
