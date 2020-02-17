@@ -8,7 +8,7 @@ Type=simple
 User=pbm
 Group=pbm
 PermissionsStartOnly=true
-ExecStart=/usr/bin/pbm-agent --mongodb-uri=${PBM_MONGODB_URI}
+ExecStart=/usr/bin/pbm-agent
 
 [Install]
 WantedBy=multi-user.target
