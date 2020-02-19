@@ -153,7 +153,7 @@ func getBackupListS3(stg S3) ([]BackupMeta, error) {
 					}
 
 					m := BackupMeta{}
-					berr = json.NewDecoder(s3obj.Body).Decode(&m)
+					err = json.NewDecoder(s3obj.Body).Decode(&m)
 					if err != nil {
 						berr = errors.Wrapf(err, "decode object '%s'", name)
 						return false
