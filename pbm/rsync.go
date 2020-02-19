@@ -127,7 +127,7 @@ func getBackupListS3(stg S3) ([]BackupMeta, error) {
 		return nil, errors.Wrap(err, "create AWS session")
 	}
 
-	lparams := &s3.ListObjectsV2Input{
+	lparams := &s3.ListObjectsInput{
 		Bucket:    aws.String(stg.Bucket),
 		Delimiter: aws.String("/"),
 	}
@@ -138,8 +138,8 @@ func getBackupListS3(stg S3) ([]BackupMeta, error) {
 	var bcps []BackupMeta
 	awscli := s3.New(awsSession)
 	var berr error
-	err = awscli.ListObjectsV2Pages(lparams,
-		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+	err = awscli.ListObjectsPages(lparams,
+		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
 				name := aws.StringValue(o.Key)
 				if strings.HasSuffix(name, ".pbm.json") {
