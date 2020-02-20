@@ -30,10 +30,6 @@ func main() {
 	flushStore("/etc/pbm/aws.yaml")
 	tests.ApplyConfig("/etc/pbm/aws.yaml")
 
-	// In order to create shareded database in case of the fresh setup.
-	// Otherwise, it's going to be "ShardNotFound" error on delete.
-	// TODO: create a database in a proper way in `shareded.New`
-	tests.GenerateBallastData(1)
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
