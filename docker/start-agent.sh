@@ -6,10 +6,10 @@ OUT="$(mktemp)"
 timeout=5
 
 for i in {1..10}; do
-    mongo ${PBM_MONGODB_URI} --eval="db.isMaster().ok" --quiet | egrep "^(0|1)$" 1>"$OUT"
+    mongo ${PBM_MONGODB_URI} --eval="db.isMaster().ok" --quiet | tee "$OUT"
     exit_status=$?
-    ok=$(cat $OUT)
-    if [[ ${exit_status} != 0 ]] || [ $ok != 1 ]; then
+    ok=$(egrep "^(0|1)$" "$OUT")
+    if [[ "${exit_status}" != 0 ]] || [[ $ok != 1 ]]; then
         sleep "$((timeout * i))"
     else
         break
