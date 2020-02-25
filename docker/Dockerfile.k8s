@@ -7,21 +7,22 @@ FROM registry.access.redhat.com/ubi7/ubi-minimal
 RUN microdnf update && microdnf clean all
 
 MAINTAINER Percona Development <info@percona.com>
-LABEL name="Percona Backup for MongoDB" \
-      vendor="Percona" \
-      summary="Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets." \
-      description=" This is a tool for creating consistent backups across a MongoDB sharded cluster (or a single replica set), and for restoring those backups to a specific point in time. Percona Backup for MongoDB uses a distributed client/server architecture to perform backup/restore actions."
+LABEL org.opencontainers.image.title="Percona Backup for MongoDB"
+LABEL org.opencontainers.image.vendor="Percona"
+LABEL org.opencontainers.image.description="Percona Backup for MongoDB is a distributed, \
+low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
+LABEL org.opencontainers.image.authors="info@percona.com"
 
 COPY LICENSE /licenses/
 
 # kubectl needed for Percona Operator for PSMDB
 ENV KUBECTL_VERSION=v1.14.1
 ENV KUBECTL_MD5SUM=223668b6d47121a9011645b04f5ef349
-RUN curl -o /usr/bin/kubectl \
+RUN curl -Lf -o /usr/bin/kubectl \
         https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
     && chmod +x /usr/bin/kubectl \
     && echo "${KUBECTL_MD5SUM} /usr/bin/kubectl" | md5sum -c - \
-    && curl -o /licenses/LICENSE.kubectl \
+    && curl -Lf  -o /licenses/LICENSE.kubectl \
         https://raw.githubusercontent.com/kubernetes/kubectl/master/LICENSE
 
 # check repository package signature in secure way
@@ -36,7 +37,7 @@ RUN set -ex; \
     gpg --batch --export --armor 91E97D7C4A5E96F17F3E888F6A2FAEA2352C64E5 > ${GNUPGHOME}/RPM-GPG-KEY-EPEL-7; \
     rpmkeys --import ${GNUPGHOME}/RPM-GPG-KEY-Percona ${GNUPGHOME}/RPM-GPG-KEY-CentOS-7 ${GNUPGHOME}/RPM-GPG-KEY-EPEL-7; \
     \
-    curl -L -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
+    curl -Lf -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
     rpmkeys --checksig /tmp/percona-release.rpm; \
     rpm -i /tmp/percona-release.rpm; \
     rm -rf "$GNUPGHOME" /tmp/percona-release.rpm; \
