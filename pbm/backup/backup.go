@@ -96,6 +96,24 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
 		}
+
+		hbstop := make(chan struct{})
+		defer close(hbstop)
+		go func() {
+			tk := time.NewTicker(time.Second * 5)
+			defer tk.Stop()
+			for {
+				select {
+				case <-tk.C:
+					err = b.cn.BackupHB(bcp.Name)
+					if err != nil {
+						log.Println("[ERROR] send pbm heartbeat:", err)
+					}
+				case <-hbstop:
+					return
+				}
+			}
+		}()
 	}
 
 	// Waiting for StatusStarting to move further.
@@ -399,11 +417,6 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				}
 			}
 		}
-	}
-
-	err = b.cn.SetBackupHB(bcpName, clusterTime)
-	if err != nil {
-		return false, errors.Wrap(err, "send pbm heartbeat")
 	}
 
 	if shardsToFinish == 0 {

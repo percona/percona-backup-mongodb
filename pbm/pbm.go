@@ -274,8 +274,13 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 	return err
 }
 
-func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+func (p *PBM) BackupHB(bcpName string) error {
+	ts, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{
@@ -283,7 +288,7 @@ func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
 		},
 	)
 
-	return err
+	return errors.Wrap(err, "write into db")
 }
 
 func (p *PBM) SetLastWrite(bcpName string, ts primitive.Timestamp) error {
