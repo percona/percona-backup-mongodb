@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -35,8 +34,10 @@ var (
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
 
-	listCmd     = pbmCmd.Command("list", "Backup list")
-	listCmdSize = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+	listCmd            = pbmCmd.Command("list", "Backup list")
+	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
+	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
+	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -134,26 +135,10 @@ func main() {
 		}
 		fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 	case listCmd.FullCommand():
-		bcps, err := pbmClient.BackupsList(*listCmdSize)
-		if err != nil {
-			log.Fatalln("Error: unable to get backups list:", err)
-		}
-		fmt.Println("Backup history:")
-		for _, b := range bcps {
-			var bcp string
-			switch b.Status {
-			case pbm.StatusDone:
-				bcp = b.Name
-			case pbm.StatusError:
-				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
-			default:
-				bcp, err = printProgress(b, pbmClient)
-				if err != nil {
-					log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
-				}
-			}
-
-			fmt.Println(" ", bcp)
+		if *listCmdRestore {
+			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
+		} else {
+			printBackupList(pbmClient, *listCmdSize)
 		}
 	}
 }
@@ -174,35 +159,4 @@ func getConfig(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: unable to get config:", err)
 	}
 	fmt.Println(string(cfg))
-}
-
-func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
-	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
-		Type:       pbm.CmdBackup,
-		BackupName: b.Name,
-	})
-
-	if err != nil {
-		return "", errors.Wrap(err, "get locks")
-	}
-
-	ts, err := pbmClient.ClusterTime()
-	if err != nil {
-		return "", errors.Wrap(err, "read cluster time")
-	}
-
-	stale := false
-	staleMsg := "Stale: pbm-agents make no progress:"
-	for _, l := range locks {
-		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
-			stale = true
-			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).Format(time.RFC3339))
-		}
-	}
-
-	if stale {
-		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
-	}
-
-	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
 }

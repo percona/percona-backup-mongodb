@@ -30,6 +30,8 @@ const (
 	BcpCollection = "pbmBackups"
 	// BcpOldCollection contains a backup of backups metadata
 	BcpOldCollection = "pbmBackups.old"
+	// RestoresCollection is a collection for restores metadata
+	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 )
@@ -62,8 +64,8 @@ type BackupCmd struct {
 }
 
 type RestoreCmd struct {
+	Name       string `bson:"name"`
 	BackupName string `bson:"backupName"`
-	StoreName  string `bson:"store,omitempty"`
 }
 
 type CompressionType string
@@ -74,6 +76,8 @@ const (
 	CompressionTypeSNAPPY                 = "snappy"
 	CompressionTypeLZ4                    = "lz4"
 )
+
+var WaitActionStart = time.Second * 15
 
 type PBM struct {
 	Conn *mongo.Client

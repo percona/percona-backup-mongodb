@@ -136,7 +136,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
 	// TODO: we cannot rely on the nodes wall clock.
 	// TODO: ? pbmBackups should have unique index by name ?
-	needToWait := backup.WaitBackupStart - time.Since(tstart)
+	needToWait := pbm.WaitActionStart - time.Since(tstart)
 	if needToWait > 0 {
 		time.Sleep(needToWait)
 	}
@@ -161,7 +161,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		Type:       pbm.CmdRestore,
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
-		BackupName: r.BackupName,
+		BackupName: r.Name,
 	})
 
 	got, err := lock.Acquire()
@@ -177,7 +177,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 	defer lock.Release()
 
 	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
-	err = restore.Run(r, a.pbm, a.node)
+	err = restore.New(a.pbm, a.node).Run(r)
 	if err != nil {
 		log.Println("[ERROR] restore:", err)
 		return

@@ -38,8 +38,6 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 	return b.run(bcp)
 }
 
-var WaitBackupStart = time.Second * 15
-
 // run the backup.
 // TODO: describe flow
 func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
@@ -50,7 +48,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 	meta := &pbm.BackupMeta{
 		Name:        bcp.Name,
-		StartTS:     time.Now().UTC().Unix(),
+		StartTS:     time.Now().Unix(),
 		Compression: bcp.Compression,
 		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
@@ -114,7 +112,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &pbm.WaitActionStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -224,7 +222,7 @@ func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
 	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
 	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
 	if im.IsMaster && im.Me == im.Primary && len(im.Hosts) > 1 {
-		time.Sleep(WaitBackupStart * 9 / 10)
+		time.Sleep(pbm.WaitActionStart * 9 / 10)
 	}
 
 	status, err := node.Status()
@@ -380,7 +378,7 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				})
 
 				// nodes are cleaning its locks moving to the done status
-				// so no lock is ok and not need to ckech the heartbeats
+				// so no lock is ok and no need to ckech the heartbeats
 				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
@@ -397,7 +395,7 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				case pbm.StatusError:
 					bmeta.Status = pbm.StatusError
 					bmeta.Error = shard.Error
-					return false, errors.Wrapf(err, "backup on the shard %s failed with", shard.Name)
+					return false, errors.Errorf("backup on the shard %s failed with: %s", shard.Name, bmeta.Error)
 				}
 			}
 		}
