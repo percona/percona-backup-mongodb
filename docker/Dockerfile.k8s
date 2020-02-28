@@ -1,0 +1,62 @@
+FROM golang:1.12
+WORKDIR /opt/pbm
+COPY . .
+RUN make install
+
+FROM registry.access.redhat.com/ubi7/ubi-minimal
+RUN microdnf update && microdnf clean all
+
+MAINTAINER Percona Development <info@percona.com>
+LABEL org.opencontainers.image.title="Percona Backup for MongoDB"
+LABEL org.opencontainers.image.vendor="Percona"
+LABEL org.opencontainers.image.description="Percona Backup for MongoDB is a distributed, \
+low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
+LABEL org.opencontainers.image.authors="info@percona.com"
+
+COPY LICENSE /licenses/
+
+# kubectl needed for Percona Operator for PSMDB
+ENV KUBECTL_VERSION=v1.14.1
+ENV KUBECTL_MD5SUM=223668b6d47121a9011645b04f5ef349
+RUN curl -Lf -o /usr/bin/kubectl \
+        https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
+    && chmod +x /usr/bin/kubectl \
+    && echo "${KUBECTL_MD5SUM} /usr/bin/kubectl" | md5sum -c - \
+    && curl -Lf  -o /licenses/LICENSE.kubectl \
+        https://raw.githubusercontent.com/kubernetes/kubectl/master/LICENSE
+
+# check repository package signature in secure way
+RUN set -ex; \
+    export GNUPGHOME="$(mktemp -d)"; \
+    gpg --batch --keyserver pool.sks-keyservers.net --recv-keys 430BDF5C56E7C94E848EE60C1C4CBDCDCD2EFD2A; \
+    gpg --batch --keyserver pool.sks-keyservers.net --recv-keys 6341AB2753D78A78A7C27BB124C6A8A7F4A80EB5; \
+    gpg --batch --keyserver pool.sks-keyservers.net --recv-keys 91E97D7C4A5E96F17F3E888F6A2FAEA2352C64E5; \
+    \
+    gpg --batch --export --armor 430BDF5C56E7C94E848EE60C1C4CBDCDCD2EFD2A > ${GNUPGHOME}/RPM-GPG-KEY-Percona; \
+    gpg --batch --export --armor 6341AB2753D78A78A7C27BB124C6A8A7F4A80EB5 > ${GNUPGHOME}/RPM-GPG-KEY-CentOS-7; \
+    gpg --batch --export --armor 91E97D7C4A5E96F17F3E888F6A2FAEA2352C64E5 > ${GNUPGHOME}/RPM-GPG-KEY-EPEL-7; \
+    rpmkeys --import ${GNUPGHOME}/RPM-GPG-KEY-Percona ${GNUPGHOME}/RPM-GPG-KEY-CentOS-7 ${GNUPGHOME}/RPM-GPG-KEY-EPEL-7; \
+    \
+    curl -Lf -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
+    rpmkeys --checksig /tmp/percona-release.rpm; \
+    rpm -i /tmp/percona-release.rpm; \
+    rm -rf "$GNUPGHOME" /tmp/percona-release.rpm; \
+    rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY; \
+    percona-release enable psmdb-42 release
+
+RUN set -ex; \
+    curl -Lf -o /tmp/jq.rpm https://download.fedoraproject.org/pub/epel/7/x86_64/Packages/j/jq-1.6-1.el7.x86_64.rpm; \
+    curl -Lf -o /tmp/oniguruma.rpm https://download.fedoraproject.org/pub/epel/7/x86_64/Packages/o/oniguruma-5.9.5-3.el7.x86_64.rpm; \
+    rpmkeys --checksig /tmp/jq.rpm /tmp/oniguruma.rpm; \
+    \
+    rpm -i /tmp/jq.rpm /tmp/oniguruma.rpm; \
+    rm -rf /tmp/jq.rpm /tmp/oniguruma.rpm
+
+RUN microdnf install percona-server-mongodb-shell
+
+COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /usr/local/bin/
+COPY ./docker/start-agent.sh /start-agent.sh
+
+USER nobody
+
+ENTRYPOINT ["/start-agent.sh"]
