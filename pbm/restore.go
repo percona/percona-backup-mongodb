@@ -57,7 +57,7 @@ func (p *PBM) GetRestoreMeta(name string) (*RestoreMeta, error) {
 	return r, errors.Wrap(err, "decode")
 }
 
-func (p *PBM) AddRestoreRSMeta(bcpName string, rs RestoreReplset) error {
+func (p *PBM) AddRestoreRSMeta(name string, rs RestoreReplset) error {
 	rs.LastTransitionTS = rs.StartTS
 	rs.Conditions = append(rs.Conditions, Condition{
 		Timestamp: rs.StartTS,
@@ -65,7 +65,7 @@ func (p *PBM) AddRestoreRSMeta(bcpName string, rs RestoreReplset) error {
 	})
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"name", bcpName}},
+		bson.D{{"name", name}},
 		bson.D{{"$addToSet", bson.M{"replsets": rs}}},
 	)
 

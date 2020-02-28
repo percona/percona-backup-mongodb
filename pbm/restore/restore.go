@@ -20,6 +20,7 @@ var excludeFromDumpRestore = []string{
 	pbm.DB + "." + pbm.LogCollection,
 	pbm.DB + "." + pbm.ConfigCollection,
 	pbm.DB + "." + pbm.BcpCollection,
+	pbm.DB + "." + pbm.RestoresCollection,
 	pbm.DB + "." + pbm.LockCollection,
 	"config.version",
 	"config.mongos",
