@@ -91,6 +91,38 @@ func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
 	}
 }
 
+func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
+	tmr := time.NewTimer(waitFor)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			list, err := c.RunCmd("pbm", "list", "--restore")
+			if err != nil {
+				return errors.Wrap(err, "timeout reached. get backups list")
+			}
+			return errors.Errorf("timeout reached. backups list:\n%s", list)
+		case <-tkr.C:
+			out, err := c.RunCmd("pbm", "list", "--restore")
+			if err != nil {
+				return err
+			}
+			for _, s := range strings.Split(out, "\n") {
+				s := strings.TrimSpace(s)
+				if s == bcpName {
+					return nil
+				}
+				if strings.HasPrefix(s, bcpName) {
+					status := strings.TrimSpace(strings.Split(s, bcpName)[1])
+					if strings.Contains(status, "Failed with") {
+						return errors.New(status)
+					}
+				}
+			}
+		}
+	}
+}
+
 func (c *Ctl) Restore(bcpName string) error {
 	_, err := c.RunCmd("pbm", "restore", bcpName)
 	return err
