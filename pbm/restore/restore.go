@@ -102,7 +102,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 			for {
 				select {
 				case <-tk.C:
-					err = r.cn.RestoreHB(cmd.Name)
+					err := r.cn.RestoreHB(cmd.Name)
 					if err != nil {
 						log.Println("[ERROR] send pbm heartbeat:", err)
 					}

@@ -105,7 +105,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 			for {
 				select {
 				case <-tk.C:
-					err = b.cn.BackupHB(bcp.Name)
+					err := b.cn.BackupHB(bcp.Name)
 					if err != nil {
 						log.Println("[ERROR] send pbm heartbeat:", err)
 					}
