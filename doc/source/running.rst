@@ -149,6 +149,19 @@ restore.
    from the backed-up data. In a cluster's restore the simplest way would be to
    shutdown all mongos nodes.
 
+.. important::
+
+   |pbm| is designed to be a full-database restore tool. As of version <=1.x it
+   will perform a full all-databases, all collections restore and does not
+   offer an option to restore only a subset of collections in the backup, as
+   MongoDB's mongodump tool does. But to avoid surprising mongodump users |pbm|
+   as of now (versions 1.x) replicates mongodump's behaviour to only drop
+   collections in the backup. It does not drop collections that are created new
+   after the time of the backup and before the restore. Run a db.dropDatabase()
+   manually in all non-system databases (i.e. all databases except "local",
+   "config" and "admin") before running |pbm-restore| if you want to guarantee
+   the post-restore database only includes collections that are in the backup.
+
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
 
 After a cluster's restore is complete all mongos nodes will need to be
