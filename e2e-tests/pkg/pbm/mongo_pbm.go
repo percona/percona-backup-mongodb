@@ -27,3 +27,7 @@ func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
 func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 	return m.p.GetBackupMeta(bcpName)
 }
+
+func (m *MongoPBM) StoreResync() error {
+	return m.p.ResyncBackupList()
+}
