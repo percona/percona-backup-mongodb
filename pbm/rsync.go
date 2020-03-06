@@ -133,6 +133,9 @@ func getBackupListS3(stg S3) ([]BackupMeta, error) {
 	}
 	if stg.Prefix != "" {
 		lparams.Prefix = aws.String(stg.Prefix)
+		if stg.Prefix[len(stg.Prefix)-1] != '/' {
+			*lparams.Prefix += "/"
+		}
 	}
 
 	var bcps []BackupMeta
@@ -145,7 +148,7 @@ func getBackupListS3(stg S3) ([]BackupMeta, error) {
 				if strings.HasSuffix(name, ".pbm.json") {
 					s3obj, err := awscli.GetObject(&s3.GetObjectInput{
 						Bucket: aws.String(stg.Bucket),
-						Key:    aws.String(path.Join(stg.Prefix, name)),
+						Key:    aws.String(name),
 					})
 					if err != nil {
 						berr = errors.Wrapf(err, "get object '%s'", name)
