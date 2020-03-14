@@ -60,3 +60,4 @@ COPY ./docker/start-agent.sh /start-agent.sh
 USER nobody
 
 ENTRYPOINT ["/start-agent.sh"]
+CMD ["pbm-agent"]
