@@ -11,6 +11,10 @@ import (
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+	mopts "go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -91,6 +95,49 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 		Replsets: []pbm.RestoreReplset{},
 	}
 	if im.IsLeader() {
+		r.cn.CopyCollection(r.cn.Context(), pbm.DB, "system.version", "system.version.og")
+		defer func() {
+			ctx := r.cn.Context()
+			sess, err := r.cn.StartSession(
+				mopts.Session().
+					SetDefaultReadPreference(readpref.Primary()).
+					SetCausalConsistency(true).
+					SetDefaultReadConcern(readconcern.Majority()).
+					SetDefaultWriteConcern(writeconcern.New(writeconcern.WMajority())),
+			)
+			if err != nil {
+				log.Println("ERROR: start session:", err)
+				return
+			}
+			defer sess.EndSession(ctx)
+			err = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+				var err error
+
+				err = sess.StartTransaction()
+
+				defer func() {
+					if err != nil {
+						sess.AbortTransaction(sc)
+						log.Println("ERROR: replace system.version:", err)
+					}
+				}()
+
+				err = r.cn.Conn.Database(pbm.DB).Collection("system.version").Drop(sc)
+				if err != nil {
+					log.Println("drop system.version.og:", err)
+				}
+				err = r.cn.CopyCollection(sc, pbm.DB, "system.version.og", "system.version")
+				if err != nil {
+					return errors.Wrap(err, "copy original system version into restored")
+				}
+				return sess.CommitTransaction(sc)
+			})
+			err = r.cn.Conn.Database(pbm.DB).Collection("system.version.og").Drop(ctx)
+			if err != nil {
+				log.Println("drop system.version.og:", err)
+			}
+		}()
+
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
