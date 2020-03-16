@@ -5,6 +5,8 @@ import (
 	"log"
 	"time"
 
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
@@ -62,6 +64,16 @@ func (c *Cluster) ApplyConfig(file string) {
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
 		log.Fatalf("apply config: %v\nconatiner logs: %s\n", err, l)
+	}
+
+	log.Println("waiting for the new storage to resync")
+	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
+		Type: pbmt.CmdResyncBackupList,
+	},
+		time.Minute*5,
+	)
+	if err != nil {
+		log.Fatalf("waiting for the store resync: %v", err)
 	}
 }
 
