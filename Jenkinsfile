@@ -45,6 +45,8 @@ pipeline {
 
                                 cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
                                 cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
+                                sed -i s:pbme2etest:pbme2etest-36:g ./e2e-tests/docker/conf/aws.yaml
+                                sed -i s:pbme2etest:pbme2etest-36:g ./e2e-tests/docker/conf/gcs.yaml
 
                                 chmod 664 ./e2e-tests/docker/conf/aws.yaml
                                 chmod 664 ./e2e-tests/docker/conf/gcs.yaml
@@ -98,6 +100,8 @@ pipeline {
 
                                 cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
                                 cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
+                                sed -i s:pbme2etest:pbme2etest-40:g ./e2e-tests/docker/conf/aws.yaml
+                                sed -i s:pbme2etest:pbme2etest-40:g ./e2e-tests/docker/conf/gcs.yaml
 
                                 chmod 664 ./e2e-tests/docker/conf/aws.yaml
                                 chmod 664 ./e2e-tests/docker/conf/gcs.yaml
@@ -151,6 +155,8 @@ pipeline {
 
                                 cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
                                 cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
+                                sed -i s:pbme2etest:pbme2etest-42:g ./e2e-tests/docker/conf/aws.yaml
+                                sed -i s:pbme2etest:pbme2etest-42:g ./e2e-tests/docker/conf/gcs.yaml
 
                                 chmod 664 ./e2e-tests/docker/conf/aws.yaml
                                 chmod 664 ./e2e-tests/docker/conf/gcs.yaml
