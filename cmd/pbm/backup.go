@@ -36,7 +36,6 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 			return "", errors.New("no store set. Set remote store with <pbm store set>")
 		}
 		return "", errors.Wrap(err, "get remote-store")
-
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
@@ -57,13 +56,19 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		return "", err
 	}
 
-	storeString := "s3://"
-	if stg.S3.EndpointURL != "" {
-		storeString += stg.S3.EndpointURL + "/"
-	}
-	storeString += stg.S3.Bucket
-	if stg.S3.Prefix != "" {
-		storeString += "/" + stg.S3.Prefix
+	storeString := ""
+	switch stg.Type {
+	case pbm.StorageS3:
+		storeString = "s3://"
+		if stg.S3.EndpointURL != "" {
+			storeString += stg.S3.EndpointURL + "/"
+		}
+		storeString += stg.S3.Bucket
+		if stg.S3.Prefix != "" {
+			storeString += "/" + stg.S3.Prefix
+		}
+	case pbm.StorageFilesystem:
+		storeString = stg.Filesystem.Path
 	}
 	return storeString, nil
 }
@@ -109,4 +114,59 @@ func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
 		}
 	}
+}
+
+func printBackupList(cn *pbm.PBM, size int64) {
+	bcps, err := cn.BackupsList(size)
+	if err != nil {
+		log.Fatalln("Error: unable to get backups list:", err)
+	}
+	fmt.Println("Backup history:")
+	for _, b := range bcps {
+		var bcp string
+		switch b.Status {
+		case pbm.StatusDone:
+			bcp = b.Name
+		case pbm.StatusError:
+			bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
+		default:
+			bcp, err = printBackupProgress(b, cn)
+			if err != nil {
+				log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
+			}
+		}
+
+		fmt.Println(" ", bcp)
+	}
+}
+
+func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
+	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
+		Type:       pbm.CmdBackup,
+		BackupName: b.Name,
+	})
+
+	if err != nil {
+		return "", errors.Wrap(err, "get locks")
+	}
+
+	ts, err := pbmClient.ClusterTime()
+	if err != nil {
+		return "", errors.Wrap(err, "read cluster time")
+	}
+
+	stale := false
+	staleMsg := "Stale: pbm-agents make no progress:"
+	for _, l := range locks {
+		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
+			stale = true
+			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).Format(time.RFC3339))
+		}
+	}
+
+	if stale {
+		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
+	}
+
+	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
 }

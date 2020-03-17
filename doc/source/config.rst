@@ -48,16 +48,31 @@ Minio
 
 .. include:: .res/code-block/yaml/example-minio-s3-storage.yaml
 
-.. rubric:: Locally-mounted Filesystem Storage
+.. rubric:: Remote Filesystem Server Storage
 
-This storage is expected to be a remote fileserver mounted to a local
-directory. PBM uses the directory as if it was any normal directory, however,
-and does not attempt to confirm it is mounted from a remote server. It is the
-obligation of the server administrators to ensure that all the mongod-hosting
-servers have a remote backup server's directory mounted at that same directory
-path.
+This storage must be a remote fileserver mounted to a local directory. It is the
+responsibility of the server administrators to guarantee that the same remote
+directory is mounted at exactly the same local path on all servers in the
+MongoDB cluster or non-sharded replicaset.
 
+.. warning::
+   PBM uses the directory as if it was any normal directory, and does not
+   attempt to confirm it is mounted from a remote server.
+   If the path is accidentally a normal, local directory errors will eventually
+   occur, most likely during a restore attempt. This will happen because
+   |pbm-agent| processes of other nodes in the same replicaset can't access
+   backup archive files in a normal local directory on another server.
+   
 .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
+
+.. rubric:: Local Filesystem Storage
+
+This cannot be used except if you have a single-node replicaset. (See warning
+note above as to why). We recommend using any object store you might be already
+familiar with for testing. If you don't have an object store yet we recommend
+using Minio for testing as it has simple setup. If you plan to use a remote
+filesytem-type backup server please see "Remote Filesystem Server Storage"
+above.
 
 .. rubric:: Accessing or updating single config values
 

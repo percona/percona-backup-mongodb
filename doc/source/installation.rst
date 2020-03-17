@@ -94,13 +94,39 @@ Building the project requires:
 - Go 1.11 or above
 - make
 
+.. seealso::
+
+   Installing and setting up Go tools
+      https://golang.org/doc/install
+
 To build the project (from the project dir):
 
 .. code-block:: bash
 
    $ go get -d github.com/percona/percona-backup-mongodb
-   $ cd $GOPATH/src/github.com/percona/percona-backup-mongodb
+   $ cd "$(go env GOPATH)/src/github.com/percona/percona-backup-mongodb"
    $ make
+
+After :program:`make` completes, you can find |pbm.app| and |pbm-agent| binaries
+in the :dir:`./bin` directory:
+
+.. code-block:: bash
+
+   $ cd bin
+   $ pbm version
+
+By running :program:`pbm version`, you can verify if |pbm| has been built correctly and is ready for use.
+
+.. admonition:: Output
+
+   .. code-block:: guess
+
+      Version:   [pbm version number]
+      Platform:  linux/amd64
+      GitCommit: [commit hash]
+      GitBranch: master
+      BuildTime: [time when this version was produced in UTC format]
+      GoVersion: [Go version number]
 
 |pbm| services and location of configuration files
 --------------------------------------------------------------------------------
@@ -113,19 +139,31 @@ and |pbm-agent| programs on your system.
 Configuring service init scripts
 ================================================================================
 
-Some configuration is required for the service script (e.g. systemd unit file)
-that will run the |pbm-agent| processes.
+The MongoDB connection URI string to the local mongod node should be set in the
+environment file that the `pbm-agent.service` systemd unit file includes.
 
-- The MongoDB connection URI string to the local mongod node. (See
-  :ref:`pbm.auth` for an explanation of standard MongoDB connection strings if
-  you need.)
-- A file path to save log output to. |pbm-agent|'s log output comes straight to
-  stdout and the service script just redirects it (and stderr) to this path.
+With the current systemd unit file (see below), this means setting the
+"PBM_MONGODB_URI" environment variable in :file:`/etc/default/pbm-agent` (for
+Debian and Ubuntu) or :file:`/etc/sysconfig/pbm-agent` (for Red Hat or CentOS).
 
-.. This section is not available any longer
-.. seealso:
-..
-..   pbm stores
-..     :ref:`pbm.config.storage.setting-up`
+-----
+
+The :ref:`pbm.running` section, explains in detail how to start |pbm-agent| and
+provides examples how to use |pbm.app| commands.
+
+.. hint::
+
+   In Ubuntu and Debian :file:`pbm-agent.service` is located in the
+   :file:`/lib/systemd/system/` directory. In Red Hat and CentOS, this
+   file is found in :file:`/usr/lib/systemd/system/pbm-agent.service`.
+
+.. include:: .res/code-block/bash/systemd-unit-file.txt
+
+.. seealso::
+
+   More information about standard MongoDB connection strings
+      :ref:`pbm.auth`
+
+
 
 .. include:: .res/replace.txt

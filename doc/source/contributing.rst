@@ -15,8 +15,9 @@ If there is no existing report, submit a report following these steps:
 1. Sign in to `JIRA issue tracker`_. You will need to create an account if you
    do not have one.
 #. In the *Summary*, *Description*, *Steps To Reproduce*, *Affects Version* fields
-   describe the problem you have detected. If the bug corresponds to a crash,
-   attach the stack trace from the logs.
+   describe the problem you have detected. For PBM the important diagnostic
+   information is: log files from the pbm-agents; a dump of the
+   PBM control collections.
   
 As a general rule of thumb, try to create bug reports that are:
 

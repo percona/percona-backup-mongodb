@@ -28,6 +28,10 @@ const (
 	LockCollection = "pbmLock"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
+	// BcpOldCollection contains a backup of backups metadata
+	BcpOldCollection = "pbmBackups.old"
+	// RestoresCollection is a collection for restores metadata
+	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 )
@@ -40,9 +44,10 @@ const (
 type Command string
 
 const (
-	CmdUndefined Command = ""
-	CmdBackup            = "backup"
-	CmdRestore           = "restore"
+	CmdUndefined        Command = ""
+	CmdBackup                   = "backup"
+	CmdRestore                  = "restore"
+	CmdResyncBackupList         = "resyncBcpList"
 )
 
 type Cmd struct {
@@ -59,8 +64,8 @@ type BackupCmd struct {
 }
 
 type RestoreCmd struct {
+	Name       string `bson:"name"`
 	BackupName string `bson:"backupName"`
-	StoreName  string `bson:"store,omitempty"`
 }
 
 type CompressionType string
@@ -71,6 +76,8 @@ const (
 	CompressionTypeSNAPPY                 = "snappy"
 	CompressionTypeLZ4                    = "lz4"
 )
+
+var WaitActionStart = time.Second * 15
 
 type PBM struct {
 	Conn *mongo.Client
@@ -267,8 +274,13 @@ func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 	return err
 }
 
-func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+func (p *PBM) BackupHB(bcpName string) error {
+	ts, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{
@@ -276,7 +288,7 @@ func (p *PBM) SetBackupHB(bcpName string, ts primitive.Timestamp) error {
 		},
 	)
 
-	return err
+	return errors.Wrap(err, "write into db")
 }
 
 func (p *PBM) SetLastWrite(bcpName string, ts primitive.Timestamp) error {

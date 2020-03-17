@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -20,11 +19,12 @@ var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
 	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
 
-	configCmd     = pbmCmd.Command("config", "Set, change or list the config")
-	configListF   = configCmd.Flag("list", "List current settings").Bool()
-	configFileF   = configCmd.Flag("file", "Upload config from YAML file").String()
-	configSetF    = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
-	configShowKey = configCmd.Arg("key", "Show the value of a specified key").String()
+	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
+	configRsyncBcpListF = configCmd.Flag("force-resync", "Resync backup list with the current store").Bool()
+	configListF         = configCmd.Flag("list", "List current settings").Bool()
+	configFileF         = configCmd.Flag("file", "Upload config from YAML file").String()
+	configSetF          = configCmd.Flag("set", "Set the option value <key.name=value>").StringMap()
+	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
@@ -34,8 +34,10 @@ var (
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
 
-	listCmd     = pbmCmd.Command("list", "Backup list")
-	listCmdSize = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+	listCmd            = pbmCmd.Command("list", "Backup list")
+	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
+	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
+	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -90,12 +92,15 @@ func main() {
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
 			}
+			rsync(pbmClient)
 		case len(*configShowKey) > 0:
 			k, err := pbmClient.GetConfigVar(*configShowKey)
 			if err != nil {
 				log.Fatalln("Error: unable to get config key:", err)
 			}
 			fmt.Println(k)
+		case *configRsyncBcpListF:
+			rsync(pbmClient)
 		case len(*configFileF) > 0:
 			buf, err := ioutil.ReadFile(*configFileF)
 			if err != nil {
@@ -105,17 +110,14 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to set config:", err)
 			}
+
 			fmt.Println("[Config set]\n------")
-			// show config after it was set
-			fallthrough
+			getConfig(pbmClient)
+			rsync(pbmClient)
 		case *configListF:
 			fallthrough
 		default:
-			cfg, err := pbmClient.GetConfigYaml(true)
-			if err != nil {
-				log.Fatalln("Error: unable to get config:", err)
-			}
-			fmt.Println(string(cfg))
+			getConfig(pbmClient)
 		}
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
@@ -127,68 +129,34 @@ func main() {
 		}
 		fmt.Printf("\nBackup '%s' to remote store '%s' has started\n", bcpName, storeString)
 	case restoreCmd.FullCommand():
-		err := pbmClient.SendCmd(pbm.Cmd{
-			Cmd: pbm.CmdRestore,
-			Restore: pbm.RestoreCmd{
-				BackupName: *restoreBcpName,
-			},
-		})
+		err := restore(pbmClient, *restoreBcpName)
 		if err != nil {
-			log.Fatalln("Error: schedule restore:", err)
+			log.Fatalln("Error:", err)
 		}
-		fmt.Printf("Beginning restore of the snapshot from %s\n", *restoreBcpName)
+		fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 	case listCmd.FullCommand():
-		bcps, err := pbmClient.BackupsList(*listCmdSize)
-		if err != nil {
-			log.Fatalln("Error: unable to get backups list:", err)
-		}
-		fmt.Println("Backup history:")
-		for _, b := range bcps {
-			var bcp string
-			switch b.Status {
-			case pbm.StatusDone:
-				bcp = b.Name
-			case pbm.StatusError:
-				bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
-			default:
-				bcp, err = printProgress(b, pbmClient)
-				if err != nil {
-					log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
-				}
-			}
-
-			fmt.Println(" ", bcp)
+		if *listCmdRestore {
+			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
+		} else {
+			printBackupList(pbmClient, *listCmdSize)
 		}
 	}
 }
 
-func printProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
-	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
-		Type:       pbm.CmdBackup,
-		BackupName: b.Name,
+func rsync(pbmClient *pbm.PBM) {
+	err := pbmClient.SendCmd(pbm.Cmd{
+		Cmd: pbm.CmdResyncBackupList,
 	})
-
 	if err != nil {
-		return "", errors.Wrap(err, "get locks")
+		log.Fatalln("Error: schedule resync:", err)
 	}
+	fmt.Printf("Backup list resync from the store has started\n")
+}
 
-	ts, err := pbmClient.ClusterTime()
+func getConfig(pbmClient *pbm.PBM) {
+	cfg, err := pbmClient.GetConfigYaml(true)
 	if err != nil {
-		return "", errors.Wrap(err, "read cluster time")
+		log.Fatalln("Error: unable to get config:", err)
 	}
-
-	stale := false
-	staleMsg := "Stale: pbm-agents make no progress:"
-	for _, l := range locks {
-		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
-			stale = true
-			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).Format(time.RFC3339))
-		}
-	}
-
-	if stale {
-		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
-	}
-
-	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
+	fmt.Println(string(cfg))
 }

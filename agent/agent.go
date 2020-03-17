@@ -50,6 +50,9 @@ func (a *Agent) Start() error {
 			case pbm.CmdRestore:
 				log.Println("Got command", cmd.Cmd, cmd.Restore.BackupName)
 				a.Restore(cmd.Restore)
+			case pbm.CmdResyncBackupList:
+				log.Println("Got command", cmd.Cmd)
+				a.ResyncBackupList()
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -133,7 +136,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
 	// TODO: we cannot rely on the nodes wall clock.
 	// TODO: ? pbmBackups should have unique index by name ?
-	needToWait := backup.WaitBackupStart - time.Since(tstart)
+	needToWait := pbm.WaitActionStart - time.Since(tstart)
 	if needToWait > 0 {
 		time.Sleep(needToWait)
 	}
@@ -158,7 +161,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		Type:       pbm.CmdRestore,
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
-		BackupName: r.BackupName,
+		BackupName: r.Name,
 	})
 
 	got, err := lock.Acquire()
@@ -174,10 +177,63 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 	defer lock.Release()
 
 	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
-	err = restore.Run(r, a.pbm, a.node)
+	err = restore.New(a.pbm, a.node).Run(r)
 	if err != nil {
 		log.Println("[ERROR] restore:", err)
 		return
 	}
 	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
+}
+
+// ResyncBackupList uploads a backup list from the remote store
+func (a *Agent) ResyncBackupList() {
+	nodeInfo, err := a.node.GetIsMaster()
+	if err != nil {
+		log.Println("[ERROR] resync_list: get node isMaster data:", err)
+		return
+	}
+
+	if !nodeInfo.IsLeader() {
+		log.Println("[INFO] resync_list: not a memeber of the leader rs")
+		return
+	}
+
+	lock := a.pbm.NewLock(pbm.LockHeader{
+		Type:    pbm.CmdResyncBackupList,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+	})
+
+	got, err := lock.Acquire()
+	if err != nil {
+		switch err.(type) {
+		case pbm.ErrConcurrentOp:
+			log.Println("[INFO] resync_list: acquiring lock:", err)
+		default:
+			log.Println("[ERROR] resync_list: acquiring lock:", err)
+		}
+		return
+	}
+	if !got {
+		log.Println("[INFO] resync_list: operation has been scheduled on another replset node")
+		return
+	}
+
+	tstart := time.Now()
+	log.Println("[INFO] resync_list: started")
+	err = a.pbm.ResyncBackupList()
+	if err != nil {
+		log.Println("[ERROR] resync_list:", err)
+	} else {
+		log.Println("[INFO] resync_list: succeed")
+	}
+
+	needToWait := time.Second*1 - time.Since(tstart)
+	if needToWait > 0 {
+		time.Sleep(needToWait)
+	}
+	err = lock.Release()
+	if err != nil {
+		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+	}
 }

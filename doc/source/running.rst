@@ -22,20 +22,29 @@ Initial Setup
 Start the |pbm-agent| processes
 --------------------------------------------------------------------------------
 After installing |pbm-agent| on the all the servers that have mongod nodes make
-sure it is started one for each mongod node.
+sure one instance of it is started for each mongod node.
 
 E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
 servers as the first shard's mongod nodes (listen port 27018, replica set name
-"sh1rs") to save some hardware costs. In this server you would start two
+"sh1rs"). In this server there should be two 
 |pbm-agent| processes, one connected to the shard
 (e.g. "mongodb://username:password@localhost:27018/") and one to the configsvr
 node (e.g. "mongodb://username:password@localhost:27019/").
 
-It is best to use the packaged service scripts to run |pbm-agent|. But for
-reference an example of how to do it manually is shown below. The output is
-redirected to a file and the process is backgrounded. You can run it an shell
-terminal temporarily if you want to observer and/or debug the startup from the
-log messages.
+It is best to use the packaged service scripts to run |pbm-agent|. After
+adding the database connection configuration for them (see
+:ref: pbm.installation.service_init_scripts) you can start the |pbm-agent|
+service as below:
+
+.. code-block:: bash
+
+   $ sudo systemctl start pbm-agent
+   $ sudo systemctl status pbm-agent
+
+For reference an example of starting pbm-agent manually is shown below. The
+output is redirected to a file and the process is backgrounded. Alternatively
+you can run it on a shell terminal temporarily if you want to observe and/or
+debug the startup from the log messages.
 
 .. code-block:: bash
 
@@ -43,14 +52,32 @@ log messages.
 
 .. tip::
    
-   Running as the mongod user and saving the log file in the same parent
-   directory as the mongod node's data directory would be the most intuitive and
-   convenient way. But if you want it can be another user, and the log file can
-   be at location that files can be written to, or piped to logging service.
+   Running as the mongod user would be the most intuitive and convenient way.
+   But if you want it can be another user.
 
 You can confirm the |pbm-agent| connected to its mongod and started OK by
 confirming *"pbm agent is listening for the commands"* is printed to the log
 file.
+
+How to see the pbm-agent log
+--------------------------------------------------------------------------------
+
+With the packaged systemd service the log output to stdout is captured by
+systemd's default redirection to systemd-journald. You can view it with the
+command below. See `man journalctl` for useful options such as '--lines',
+'--follow', etc.
+
+.. code-block:: bash
+
+   ~$ journalctl -u pbm-agent.service
+   -- Logs begin at Tue 2019-10-22 09:31:34 JST. --
+   Jan 22 15:59:14 akira-x1 systemd[1]: Started pbm-agent.
+   Jan 22 15:59:14 akira-x1 pbm-agent[3579]: pbm agent is listening for the commands
+   ...
+   ...
+
+If you started pbm-agent manually see the file you redirected stdout and stderr
+to.
 
 Running |pbm|
 ================================================================================
@@ -63,12 +90,12 @@ Running |pbm.app| Commands
 Configuring a Remote Store for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
-This must done once, at installation time, before backups can be listed, made,
-or restored. Please see :ref:`pbm.config`.
+This must be done once, at installation or re-installaton time, before backups can
+be listed, made, or restored. Please see :ref:`pbm.config`.
 
 .. _pbm.running.backup.listing:
 
-Example: Listing all backups
+Listing all backups
 --------------------------------------------------------------------------------
 
 .. include:: .res/code-block/bash/pbm-list-mongodb-uri.txt
@@ -84,14 +111,25 @@ Example: Listing all backups
 
 .. _pbm.running.backup.starting: 
 
-Example: Starting a backup
+Starting a backup
 --------------------------------------------------------------------------------
 
 .. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
 
+.. important::
+
+   For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
+   balancer.
+
+Checking an in-progress backup
+--------------------------------------------------------------------------------
+
+Run the |pbm-list| command and you will see the running backup listed with a
+'In progress' label. When that is absent the backup is complete.
+
 .. _pbm.running.backup.restoring: 
 
-Example: Restoring a Backup
+Restoring a Backup
 --------------------------------------------------------------------------------
 
 To restore a backup that you have made using |pbm-backup| you should use the
@@ -105,15 +143,28 @@ restore.
 
 .. important::
 
-   Whilst the restore is running clients should be stopped from accessing the
+   Whilst the restore is running, clients should be stopped from accessing the
    database. The data will naturally be incomplete whilst the restore is in
    progress, and writes they make will cause the final restored data to differ
    from the backed-up data. In a cluster's restore the simplest way would be to
    shutdown all mongos nodes.
 
+.. important::
+
+   |pbm| is designed to be a full-database restore tool. As of version <=1.x it
+   will perform a full all-databases, all collections restore and does not
+   offer an option to restore only a subset of collections in the backup, as
+   MongoDB's mongodump tool does. But to avoid surprising mongodump users |pbm|
+   as of now (versions 1.x) replicates mongodump's behaviour to only drop
+   collections in the backup. It does not drop collections that are created new
+   after the time of the backup and before the restore. Run a db.dropDatabase()
+   manually in all non-system databases (i.e. all databases except "local",
+   "config" and "admin") before running |pbm-restore| if you want to guarantee
+   the post-restore database only includes collections that are in the backup.
+
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
 
-After a cluster's restore complete a cluster all mongos nodes will need to be
+After a cluster's restore is complete all mongos nodes will need to be
 restarted to reload the sharding metadata.
 
 Deleting backups
