@@ -9,8 +9,6 @@ import (
 
 	"github.com/alecthomas/kingpin"
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/agent"
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -57,28 +55,16 @@ func runAgent(mongoURI string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	node, err := mongo.NewClient(options.Client().ApplyURI(mongoURI).SetAppName("pbm-agent-exec").SetDirect(true))
-	if err != nil {
-		return errors.Wrap(err, "create node client")
-	}
-	err = node.Connect(ctx)
-	if err != nil {
-		return errors.Wrap(err, "node connect")
-	}
-
-	err = node.Ping(ctx, nil)
-	if err != nil {
-		return errors.Wrap(err, "node ping")
-	}
-
 	pbmClient, err := pbm.New(ctx, mongoURI, "pbm-agent")
 	if err != nil {
-		return errors.Wrap(err, "connect to mongodb")
+		return errors.Wrap(err, "connect to PBM")
 	}
 
 	agnt := agent.New(pbmClient)
-	// TODO: pass only options and connect while createing a node?
-	agnt.AddNode(ctx, node, mongoURI)
+	err = agnt.AddNode(ctx, mongoURI)
+	if err != nil {
+		return errors.Wrap(err, "connect to the node")
+	}
 
 	fmt.Println("pbm agent is listening for the commands")
 	return errors.Wrap(agnt.Start(), "listen the commands stream")

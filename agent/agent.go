@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -29,8 +28,9 @@ func New(pbm *pbm.PBM) *Agent {
 	}
 }
 
-func (a *Agent) AddNode(ctx context.Context, cn *mongo.Client, curi string) {
-	a.node = pbm.NewNode(ctx, "node0", cn, curi)
+func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
+	a.node, err = pbm.NewNode(ctx, "node0", curi)
+	return err
 }
 
 // Start starts listening the commands stream.

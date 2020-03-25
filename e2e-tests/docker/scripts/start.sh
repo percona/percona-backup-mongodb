@@ -2,9 +2,8 @@
 
 set -o xtrace
 
-sleep 25
-
 MONGO_USER="dba"
+BACKUP_USER="bcp"
 MONGO_PASS="test1234"
 CONFIGSVR=${CONFIGSVR:-"false"}
 
@@ -27,4 +26,31 @@ sleep 15
 
 mongo <<EOF
 db.getSiblingDB("admin").createUser({ user: "${MONGO_USER}", pwd: "${MONGO_PASS}", roles: [ "root", "userAdminAnyDatabase", "clusterAdmin" ] })
+EOF
+
+
+mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
+db.getSiblingDB("admin").createRole({ "role": "pbmAnyAction",
+"privileges": [
+   { "resource": { "anyResource": true },
+	 "actions": [ "anyAction" ]
+   }
+],
+"roles": []
+});
+
+db.getSiblingDB("admin").createUser(
+	{
+		user: "${BACKUP_USER}",
+		pwd: "${MONGO_PASS}",
+		"roles" : [
+			{ "db" : "admin", "role" : "readWrite", "collection": "" },
+			{ "db" : "admin", "role" : "backup" },
+			{ "db" : "admin", "role" : "clusterMonitor" },
+			{ "db" : "admin", "role" : "restore" },
+			{ "db" : "admin", "role" : "pbmAnyAction" }
+		 ]
+	}
+);
+
 EOF
