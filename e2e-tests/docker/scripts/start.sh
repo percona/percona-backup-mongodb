@@ -2,9 +2,9 @@
 
 set -o xtrace
 
-MONGO_USER="dba"
-BACKUP_USER="bcp"
-MONGO_PASS="test1234"
+MONGO_USER=${MONGO_USER:-"dba"}
+BACKUP_USER=${BACKUP_USER:-"bcp"}
+MONGO_PASS=${MONGO_PASS:-"test1234"}
 CONFIGSVR=${CONFIGSVR:-"false"}
 
 mongo <<EOF

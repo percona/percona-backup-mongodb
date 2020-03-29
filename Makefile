@@ -1,4 +1,4 @@
-.PHONY: build-pbm build-agent build install install-pbm install-agent
+.PHONY: build-pbm build-agent build install install-pbm install-agent test
 
 GOOS?=linux
 GOMOD?=on
@@ -7,6 +7,7 @@ VERSION ?=$(shell git describe --tags --abbrev=0)
 GITCOMMIT?=$(shell git rev-parse HEAD 2>/dev/null)
 GITBRANCH?=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 BUILDTIME?=$(shell TZ=UTC date "+%Y-%m-%d_%H:%M_UTC")
+MONGO_TEST_VERSION?=3.6
 
 define ENVS
 	GO111MODULE=$(GOMOD) \
@@ -21,6 +22,10 @@ endef
 versionpath?=github.com/percona/percona-backup-mongodb/version
 LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
+
+
+test:
+	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
 build: build-pbm build-agent
 build-pbm:

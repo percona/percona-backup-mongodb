@@ -56,27 +56,8 @@ pipeline {
                             '''
                         }
                         sh '''
-                            export MONGODB_VERSION='3.6'
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml up --quiet-pull --no-color -d
-
-                            export COMPOSE_INTERACTIVE_NO_CLI=1
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T cfg01 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs101 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs201 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T mongos mongo mongodb://dba:test1234@localhost /opt/mongos_init.js
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml stop \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start tests
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml logs -f --no-color tests
-                            EXIT_CODE=$(docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml down
-                            
-                            exit $EXIT_CODE
+                            export MONGODB_VERSION=3.6
+                            ./e2e-tests/run-all
                         '''
                         script {
                             testsReportMap['mongodb 3.6'] = 'passed'
@@ -109,27 +90,8 @@ pipeline {
                             '''
                         }
                         sh '''
-                            export MONGODB_VERSION='4.0'
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml up --quiet-pull --no-color -d
-
-                            export COMPOSE_INTERACTIVE_NO_CLI=1
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T cfg01 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs101 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs201 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T mongos mongo mongodb://dba:test1234@localhost /opt/mongos_init.js
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml stop \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start tests
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml logs -f --no-color tests
-                            EXIT_CODE=$(docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml down
-                            
-                            exit $EXIT_CODE
+                            export MONGODB_VERSION=4.0
+                            ./e2e-tests/run-all
                         '''
                         script {
                             testsReportMap['mongodb 4.0'] = 'passed'
@@ -162,27 +124,8 @@ pipeline {
                             '''
                         }
                         sh '''
-                            export MONGODB_VERSION='4.2'
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml up --quiet-pull --no-color -d
-
-                            export COMPOSE_INTERACTIVE_NO_CLI=1
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T cfg01 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs101 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T rs201 /opt/start.sh
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml exec -T mongos mongo mongodb://dba:test1234@localhost /opt/mongos_init.js
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml stop \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start \
-                                 agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
-
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml start tests
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml logs -f --no-color tests
-                            EXIT_CODE=$(docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml ps
-                            docker-compose -f ./e2e-tests/docker/docker-compose.yaml down
- 
-                            exit $EXIT_CODE
+                            export MONGODB_VERSION=4.2
+                            ./e2e-tests/run-all
                         '''
                         script {
                             testsReportMap['mongodb 4.2'] = 'passed'

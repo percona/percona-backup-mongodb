@@ -5,6 +5,9 @@ services:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
     command: pbm-test
+    environment:
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./conf/aws.yaml:/etc/pbm/aws.yaml
@@ -19,6 +22,9 @@ services:
     environment:
       - REPLSET_NAME=cfg
       - CONFIGSVR=true
+      - MONGO_USER=dba
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
@@ -41,7 +47,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@cfg01:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg01:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -58,7 +64,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@cfg02:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg02:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -75,7 +81,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@cfg03:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg03:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -92,6 +98,9 @@ services:
     hostname: rs101
     environment:
       - REPLSET_NAME=rs1
+      - MONGO_USER=dba
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
@@ -114,7 +123,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs101:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -135,7 +144,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs102:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -152,7 +161,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs103:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -169,6 +178,9 @@ services:
     hostname: rs201
     environment:
       - REPLSET_NAME=rs2
+      - MONGO_USER=dba
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
@@ -191,7 +203,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs201:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs201:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -208,7 +220,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs202:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs202:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"
@@ -225,7 +237,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment: 
-      - "PBM_MONGODB_URI=mongodb://bcp:test1234@rs203:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs203:27017"
     build: 
       labels:
         - "com.percona.pbm.app=agent"

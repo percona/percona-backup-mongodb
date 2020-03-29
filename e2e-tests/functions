@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+BACKUP_USER="bcp"
+MONGO_PASS="test1234"
+BCP_NAME=""
+COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
+
+pbm_run() {
+    local cmd="$@"
+
+    docker-compose -f $COMPOSE_PATH exec -T agent-rs101 pbm $cmd
+}
+
+mongo_run() {
+    local cmd=$1
+    local rs=$2
+
+    docker-compose -f $COMPOSE_PATH exec -T "${rs}01" mongo "mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost/?replicaSet=${rs}" --quiet --eval="${cmd}"
+}
+
+wait_backup() {
+    set +o xtrace
+
+    BCP_NAME=$(mongo_run "db.getSiblingDB(\"admin\").pbmBackups.find({}, {name: 1, _id: 0}).sort({start_ts: -1}).limit(1)" "cfg" | tail -n 1 | awk -F\" '{print$4}')
+
+    retry=0
+    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmBackups.findOne({name: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r' )" == "done" ]; do
+        sleep 1
+        echo -n .
+        let retry+=1
+        if [ $retry -ge 120 ]; then
+            mongo_run "db.getSiblingDB(\"admin\").pbmBackups.findOne({name: \"${BCP_NAME}\"})" "cfg"
+            exit 1
+        fi
+    done
+    set -o xtrace
+}
+
+wait_restore() {
+    set +o xtrace
+
+    retry=0
+    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmRestores.findOne({backup: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r' )" == "done" ]; do
+        sleep 1
+        echo -n .
+        let retry+=1
+        if [ $retry -ge 120 ]; then
+            mongo_run "db.getSiblingDB(\"admin\").pbmRestores.findOne({backup: \"${BCP_NAME}\"})" "cfg"
+            exit 1
+        fi
+    done
+    set -o xtrace
+}
+
+wait_rsync() {
+    set +o xtrace
+
+    retry=0
+    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmLock.find().count()" cfg | tail -n 1 | tr -d '\r' )" == 0 ]; do
+        sleep 1
+        echo -n .
+        let retry+=1
+        if [ $retry -ge 120 ]; then
+            mongo_run "db.getSiblingDB(\"admin\").pbmLock.find()" "cfg"
+            exit 1
+        fi
+    done
+    set -o xtrace
+}
+
+compare() {
+    if [ $1 != $2 ]; then
+        echo "$1 doesn't march $2"
+        exit 1
+    fi
+}
+
+compare_arrays() {
+    local arr1=$1
+    local arr2=$2
+    diff=$(diff <(printf "%s\n" "${arr1[@]}") <(printf "%s\n" "${arr2[@]}"))
+    if [[ -z "$diff" ]]; then
+        echo "OK"
+    else
+        exit 1
+    fi
+}
+
+desc() {
+    set +o xtrace
+    local msg="$@"
+    printf "\n\n-----------------------------------------------------------------------------------\n"
+    printf "== $msg"
+    printf "\n-----------------------------------------------------------------------------------\n\n"
+    set -o xtrace
+}
+
+start_cluster() {
+    local mongo_version=$1
+
+    export MONGODB_VERSION=${mongo_version:-"3.6"}
+    docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
+    sleep 25
+    export COMPOSE_INTERACTIVE_NO_CLI=1
+    docker-compose -f $COMPOSE_PATH exec -T cfg01 /opt/start.sh
+    docker-compose -f $COMPOSE_PATH exec -T rs101 /opt/start.sh
+    docker-compose -f $COMPOSE_PATH exec -T rs201 /opt/start.sh
+    docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
+
+    docker-compose -f $COMPOSE_PATH stop \
+            agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
+    docker-compose -f $COMPOSE_PATH up -d --build \
+            agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
+
+}
+
+destroy_cluster() {
+    docker-compose -f $COMPOSE_PATH ps
+    docker-compose -f $COMPOSE_PATH down
+}
