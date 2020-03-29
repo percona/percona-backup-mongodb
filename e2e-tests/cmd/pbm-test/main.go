@@ -55,8 +55,6 @@ func main() {
 
 	flushStore("/etc/pbm/gcs.yaml")
 	tests.ApplyConfig("/etc/pbm/gcs.yaml")
-	log.Println("Waiting for the new storage to resync")
-	time.Sleep(time.Second * 5)
 
 	printStart("Basic Backup & Restore GCS")
 	tests.BackupAndRestore()
@@ -65,8 +63,6 @@ func main() {
 
 	flushStore("/etc/pbm/minio.yaml")
 	tests.ApplyConfig("/etc/pbm/minio.yaml")
-	log.Println("Waiting for the new storage to resync")
-	time.Sleep(time.Second * 5)
 
 	printStart("Basic Backup & Restore Minio")
 	tests.BackupAndRestore()
