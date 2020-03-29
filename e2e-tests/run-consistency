@@ -11,7 +11,7 @@ MONGO_VERSION=${MONGODB_VERSION:-"3.6"}
 desc 'RUN CONSISTENCY TESTS'
 
 desc 'Start cluster'
-start_cluster
+start_cluster "$MONGO_VERSION"
 
 docker-compose -f $COMPOSE_PATH start tests
 docker-compose -f $COMPOSE_PATH logs -f --no-color tests

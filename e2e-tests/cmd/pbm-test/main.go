@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/minio/minio-go"
