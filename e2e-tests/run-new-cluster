@@ -34,8 +34,7 @@ pbm_run backup
 wait_backup
 
 desc 'Destroy cluster'
-docker-compose -f ./docker/docker-compose.yaml rm -fs
-
+docker-compose -f ${test_dir}/docker/docker-compose.yaml rm -fs
 desc 'Start a new cluster'
 start_cluster "$MONGO_VERSION"
 
