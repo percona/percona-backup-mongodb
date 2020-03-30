@@ -60,3 +60,6 @@ desc 'Check the data'
 compare "$testdb_hash_og" "$testdb_hash_re"
 compare_arrays "$roles_og" "$roles_re"
 compare_arrays "$users_og" "$users_re"
+
+desc 'Destroy cluster'
+destroy_cluster

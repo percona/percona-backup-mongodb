@@ -17,6 +17,7 @@ docker-compose -f $COMPOSE_PATH start tests
 docker-compose -f $COMPOSE_PATH logs -f --no-color tests
 EXIT_CODE=$(docker-compose -f $COMPOSE_PATH ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
+desc 'Destroy cluster'
 destroy_cluster
 
 exit $EXIT_CODE
