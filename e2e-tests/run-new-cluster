@@ -28,6 +28,7 @@ desc 'Configure PBM'
 pbm_run config --file=/etc/pbm/aws.yaml
 sleep 1
 wait_rsync
+pbm_run list
 
 desc 'Backup'
 pbm_run backup
@@ -47,6 +48,7 @@ desc 'Configure PBM'
 pbm_run config --file=/etc/pbm/aws.yaml
 sleep 1
 wait_rsync
+pbm_run list
 
 desc 'Restore'
 pbm_run restore $BCP_NAME
