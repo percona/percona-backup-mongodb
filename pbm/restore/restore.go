@@ -179,10 +179,8 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 	if err != nil || len(ver.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
-	preserveUUID := true
-	if ver.Version[0] < 4 {
-		preserveUUID = false
-	}
+
+	preserveUUID := false
 
 	topts := options.ToolOptions{
 		AppName:    "mongodump",
