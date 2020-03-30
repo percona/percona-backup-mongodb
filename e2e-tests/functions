@@ -70,7 +70,7 @@ wait_rsync() {
 
 compare() {
     if [ $1 != $2 ]; then
-        echo "$1 doesn't march $2"
+        echo "$1 doesn't match $2"
         exit 1
     fi
 }
