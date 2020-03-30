@@ -13,9 +13,6 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	mopts "go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -278,7 +275,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 	log.Println("oplog replay finished")
 
 	log.Println("restoring users and roles")
-	err = r.restoreUsers(cusr, ver.Version[0] >= 4)
+	err = r.restoreUsers(cusr)
 	if err != nil {
 		return errors.Wrap(err, "restore users 'n' roles")
 	}
@@ -368,26 +365,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	return nil
 }
 
-func (r *Restore) restoreUsers(exclude *pbm.AuthInfo, trx bool) error {
-	if !trx {
-		return r.swapUsers(r.cn.Context(), exclude)
-	}
-
-	sess, err := r.node.Session().StartSession(
-		mopts.Session().
-			SetDefaultReadPreference(readpref.Primary()).
-			SetCausalConsistency(true).
-			SetDefaultReadConcern(readconcern.Majority()),
-	)
-	if err != nil {
-		return errors.Wrap(err, "create session")
-	}
-
-	_, err = sess.WithTransaction(r.cn.Context(), func(sessCtx mongo.SessionContext) (interface{}, error) {
-		return nil, r.swapUsers(sessCtx, exclude)
-	})
-
-	return err
+func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
+	return r.swapUsers(r.cn.Context(), exclude)
 }
 
 func (r *Restore) reconcileStatus(name string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
