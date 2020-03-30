@@ -14,20 +14,17 @@ rs.initiate(
         configsvr: $CONFIGSVR,
         version: 1,
         members: [
-            { _id: 0, host: "${REPLSET_NAME}01:27017" },
-            { _id: 1, host: "${REPLSET_NAME}02:27017" },
-            { _id: 2, host: "${REPLSET_NAME}03:27017" }
+            { _id: 0, host: "${REPLSET_NAME}01:27017" }
         ]
     }
 )
 EOF
 
-sleep 15
+sleep 5
 
 mongo <<EOF
 db.getSiblingDB("admin").createUser({ user: "${MONGO_USER}", pwd: "${MONGO_PASS}", roles: [ "root", "userAdminAnyDatabase", "clusterAdmin" ] })
 EOF
-
 
 mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
 db.getSiblingDB("admin").createRole({ "role": "pbmAnyAction",
@@ -53,4 +50,20 @@ db.getSiblingDB("admin").createUser(
 	}
 );
 
+EOF
+
+mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
+rs.reconfig(
+    {
+        _id: '$REPLSET_NAME',
+        configsvr: $CONFIGSVR,
+        protocolVersion: NumberLong(1),
+        version: 2,
+        members: [
+            { _id: 0, host: "${REPLSET_NAME}01:27017" },
+            { _id: 1, host: "${REPLSET_NAME}02:27017" },
+            { _id: 2, host: "${REPLSET_NAME}03:27017" }
+        ]
+    }
+)
 EOF

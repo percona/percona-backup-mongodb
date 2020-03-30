@@ -105,6 +105,7 @@ start_cluster() {
     docker-compose -f $COMPOSE_PATH exec -T cfg01 /opt/start.sh
     docker-compose -f $COMPOSE_PATH exec -T rs101 /opt/start.sh
     docker-compose -f $COMPOSE_PATH exec -T rs201 /opt/start.sh
+    sleep 15
     docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
     docker-compose -f $COMPOSE_PATH stop \
