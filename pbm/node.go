@@ -55,7 +55,10 @@ func (n *Node) Connect() error {
 	}
 
 	if n.cn != nil {
-		n.cn.Disconnect(n.ctx)
+		err = n.cn.Disconnect(n.ctx)
+		if err != nil {
+			return errors.Wrap(err, "close existing connection")
+		}
 	}
 
 	n.cn = conn
