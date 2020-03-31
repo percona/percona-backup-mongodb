@@ -26,6 +26,7 @@ var excludeFromDumpRestore = []string{
 	pbm.DB + "." + pbm.LockCollection,
 	"config.version",
 	"config.mongos",
+	"config.lockpings",
 }
 
 type Restore struct {

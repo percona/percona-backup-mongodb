@@ -90,6 +90,8 @@ func main() {
 	printStart("Clock Skew Tests")
 	tests.ClockSkew()
 	printDone("Clock Skew Tests")
+
+	flushStore("/etc/pbm/minio.yaml")
 }
 
 func printStart(name string) {
@@ -137,7 +139,8 @@ func flushStore(conf string) {
 		defer close(objectsCh)
 		for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
 			if object.Err != nil {
-				log.Fatalln(object.Err)
+				fmt.Println("Error: ListObjects: ", object.Err)
+				continue
 			}
 			objectsCh <- object.Key
 		}

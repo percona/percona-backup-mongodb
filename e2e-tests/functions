@@ -98,6 +98,14 @@ desc() {
 start_cluster() {
     local mongo_version=$1
 
+    local no_build=${PBM_TESTS_NO_BUILD:-false}
+    if $no_build ; then
+        echo 'Skip builds'
+    else 
+        echo 'Build agents and tests'
+        docker-compose -f $COMPOSE_PATH build
+    fi
+
     export MONGODB_VERSION=${mongo_version:-"3.6"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
     sleep 25
@@ -108,6 +116,7 @@ start_cluster() {
     sleep 15
     docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
+    # sleep 2
     docker-compose -f $COMPOSE_PATH stop \
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
     docker-compose -f $COMPOSE_PATH start \

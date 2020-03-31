@@ -59,6 +59,7 @@ pipeline {
                         }
                         sh '''
                             export MONGODB_VERSION=3.6
+                            export PBM_TESTS_NO_BUILD=true
                             ./e2e-tests/run-all
                         '''
                         script {
@@ -95,6 +96,7 @@ pipeline {
                         }
                         sh '''
                             export MONGODB_VERSION=4.0
+                            export PBM_TESTS_NO_BUILD=true
                             ./e2e-tests/run-all
                         '''
                         script {
@@ -131,6 +133,7 @@ pipeline {
                         }
                         sh '''
                             export MONGODB_VERSION=4.2
+                            export PBM_TESTS_NO_BUILD=true
                             ./e2e-tests/run-all
                         '''
                         script {
