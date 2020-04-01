@@ -34,6 +34,7 @@ func (p *PBM) ResyncBackupList() error {
 		if err != nil {
 			return errors.Wrap(err, "get backups from FS")
 		}
+	case StorageBlackHole:
 	}
 
 	err = p.archiveBackupsMeta(bcps)
