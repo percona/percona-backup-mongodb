@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -24,6 +26,7 @@ var excludeFromDumpRestore = []string{
 	pbm.DB + "." + pbm.LockCollection,
 	"config.version",
 	"config.mongos",
+	"config.lockpings",
 }
 
 type Restore struct {
@@ -41,7 +44,13 @@ func New(cn *pbm.PBM, node *pbm.Node) *Restore {
 	}
 }
 
-func (r *Restore) Run(cmd pbm.RestoreCmd) error {
+const (
+	adminSysVersionCopy = "pbmSysver"
+	tmpUsers            = `pbmRUsers`
+	tmpRoles            = `pbmRRoles`
+)
+
+func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 	stg, err := r.cn.GetStorage()
 	if err != nil {
 		return errors.Wrap(err, "get backup store")
@@ -171,10 +180,8 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 	if err != nil || len(ver.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
-	preserveUUID := true
-	if ver.Version[0] < 4 {
-		preserveUUID = false
-	}
+
+	preserveUUID := false
 
 	topts := options.ToolOptions{
 		AppName:    "mongodump",
@@ -212,6 +219,8 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromDumpRestore,
+			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
+			NSTo:      []string{pbm.DB + `.` + tmpUsers, pbm.DB + `.` + tmpRoles},
 		},
 		InputReader: dumpReader,
 	}
@@ -254,6 +263,21 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 	}()
 
 	err = NewOplog(r.node, ver, preserveUUID).Apply(oplogReader)
+	if err != nil {
+		return errors.Wrap(err, "oplog apply")
+	}
+
+	cusr, err := r.node.CurrentUser()
+	if err != nil {
+		return errors.Wrap(err, "get current user")
+	}
+	log.Println("oplog replay finished")
+
+	log.Println("restoring users and roles")
+	err = r.restoreUsers(cusr)
+	if err != nil {
+		return errors.Wrap(err, "restore users 'n' roles")
+	}
 
 	err = r.cn.ChangeRestoreRSState(cmd.Name, rsMeta.Name, pbm.StatusDone, "")
 	if err != nil {
@@ -268,6 +292,80 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) error {
 	}
 
 	return nil
+}
+
+func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
+	rolesC := r.node.Session().Database("admin").Collection("system.roles")
+
+	var eroles []string
+	for _, r := range exclude.UserRoles {
+		eroles = append(eroles, r.DB+"."+r.Role)
+	}
+
+	curr, err := r.node.Session().Database(pbm.DB).Collection(tmpRoles).Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	if err != nil {
+		return errors.Wrap(err, "create cursor for tmpRoles")
+	}
+	defer curr.Close(ctx)
+	_, err = rolesC.DeleteMany(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	if err != nil {
+		return errors.Wrap(err, "delete current roles")
+	}
+
+	for curr.Next(ctx) {
+		rl := new(interface{})
+		err := curr.Decode(rl)
+		if err != nil {
+			return errors.Wrap(err, "decode role")
+		}
+		_, err = rolesC.InsertOne(ctx, rl)
+		if err != nil {
+			return errors.Wrap(err, "insert role")
+		}
+	}
+
+	user := exclude.Users[0].DB + "." + exclude.Users[0].User
+	cur, err := r.node.Session().Database(pbm.DB).Collection(tmpUsers).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	if err != nil {
+		return errors.Wrap(err, "create cursor for tmpUsers")
+	}
+	defer cur.Close(ctx)
+
+	log.Println("deleting users")
+	usersC := r.node.Session().Database("admin").Collection("system.users")
+	_, err = usersC.DeleteMany(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	if err != nil {
+		return errors.Wrap(err, "delete current users")
+	}
+
+	log.Println("inserting users")
+	for cur.Next(ctx) {
+		u := new(interface{})
+		err := cur.Decode(u)
+		if err != nil {
+			return errors.Wrap(err, "decode user")
+		}
+		_, err = usersC.InsertOne(ctx, u)
+		if err != nil {
+			return errors.Wrap(err, "insert user")
+		}
+		log.Println("inserted user")
+	}
+
+	err = r.node.Session().Database(pbm.DB).Collection(tmpRoles).Drop(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "drop tmp roles collection %s", tmpRoles)
+	}
+	err = r.node.Session().Database(pbm.DB).Collection(tmpUsers).Drop(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "drop tmp users collection %s", tmpUsers)
+	}
+
+	return nil
+}
+
+func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
+	return r.swapUsers(r.cn.Context(), exclude)
 }
 
 func (r *Restore) reconcileStatus(name string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {

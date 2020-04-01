@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 
 	"github.com/hashicorp/go-version"
 	"github.com/minio/minio-go"
@@ -14,14 +15,28 @@ import (
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 )
 
+const (
+	defaultMongoUser = "bcp"
+	defaultMongoPass = "test1234"
+)
+
 func main() {
+	mUser := os.Getenv("BACKUP_USER")
+	if mUser == "" {
+		mUser = defaultMongoUser
+	}
+	mPass := os.Getenv("MONGO_PASS")
+	if mPass == "" {
+		mPass = defaultMongoPass
+	}
+
 	tests := sharded.New(sharded.ClusterConf{
-		Mongos:          "mongodb://dba:test1234@mongos:27017/",
-		Configsrv:       "mongodb://dba:test1234@cfg01:27017/",
+		Mongos:          "mongodb://" + mUser + ":" + mPass + "@mongos:27017/",
+		Configsrv:       "mongodb://" + mUser + ":" + mPass + "@cfg01:27017/",
 		ConfigsrvRsName: "cfg",
 		Shards: map[string]string{
-			"rs1": "mongodb://dba:test1234@rs101:27017/",
-			"rs2": "mongodb://dba:test1234@rs201:27017/",
+			"rs1": "mongodb://" + mUser + ":" + mPass + "@rs101:27017/",
+			"rs2": "mongodb://" + mUser + ":" + mPass + "@rs201:27017/",
 		},
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
@@ -35,6 +50,7 @@ func main() {
 	printStart("Basic Backup & Restore AWS S3")
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore AWS S3")
+	flushStore("/etc/pbm/aws.yaml")
 
 	flushStore("/etc/pbm/gcs.yaml")
 	tests.ApplyConfig("/etc/pbm/gcs.yaml")
@@ -42,6 +58,7 @@ func main() {
 	printStart("Basic Backup & Restore GCS")
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore GCS")
+	flushStore("/etc/pbm/gcs.yaml")
 
 	flushStore("/etc/pbm/minio.yaml")
 	tests.ApplyConfig("/etc/pbm/minio.yaml")
@@ -73,6 +90,8 @@ func main() {
 	printStart("Clock Skew Tests")
 	tests.ClockSkew()
 	printDone("Clock Skew Tests")
+
+	flushStore("/etc/pbm/minio.yaml")
 }
 
 func printStart(name string) {
@@ -120,7 +139,8 @@ func flushStore(conf string) {
 		defer close(objectsCh)
 		for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
 			if object.Err != nil {
-				log.Fatalln(object.Err)
+				fmt.Println("Error: ListObjects: ", object.Err)
+				continue
 			}
 			objectsCh <- object.Key
 		}

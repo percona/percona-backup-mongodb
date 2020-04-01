@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -o xtrace
+set -o errexit
+
+dir=$(realpath $(dirname $0))
+
+fail() {
+    local test=$1
+    echo "test $test failed"
+    exit 1
+}
+
+$dir/run-new-cluster || fail "restore-on-new-cluster"
+$dir/run-consistency || fail "consistency-tests"

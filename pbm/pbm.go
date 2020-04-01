@@ -90,7 +90,7 @@ type PBM struct {
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
-	client, err := connect(ctx, uri, "pbm-discovery")
+	client, err := connect(ctx, uri, appName)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -129,7 +129,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
-	// Preserving `replicaSet` parameter will causes an error while connecting to the ConfigServer (mismatched replicaset names)
+	// Preserving the `replicaSet` parameter will cause an error while connecting to the ConfigServer (mismatched replicaset names)
 	query := curi.Query()
 	query.Del("replicaSet")
 	curi.RawQuery = query.Encode()
