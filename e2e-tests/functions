@@ -116,7 +116,6 @@ start_cluster() {
     sleep 15
     docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
-    # sleep 2
     docker-compose -f $COMPOSE_PATH stop \
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
     docker-compose -f $COMPOSE_PATH start \
