@@ -3,6 +3,7 @@ package backup
 import (
 	"compress/gzip"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 
@@ -84,6 +85,9 @@ func Save(data io.Reader, stg pbm.Storage, name string) error {
 			_, err = mc.PutObject(stg.S3.Bucket, path.Join(stg.S3.Prefix, name), data, -1, minio.PutObjectOptions{})
 			return errors.Wrap(err, "upload to GCS")
 		}
+	case pbm.StorageBlackHole:
+		io.Copy(ioutil.Discard, data)
+		return nil
 	default:
 		return errors.New("unknown storage type")
 	}

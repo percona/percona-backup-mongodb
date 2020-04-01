@@ -27,9 +27,11 @@ var (
 	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
-	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>").Hidden().
+	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>").
 			Default(pbm.CompressionTypeGZIP).
-			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP))
+			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
+			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
+		)
 
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()

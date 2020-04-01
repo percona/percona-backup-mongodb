@@ -21,8 +21,9 @@ type StorageType string
 
 const (
 	StorageUndef      StorageType = ""
-	StorageS3                     = "s3"
-	StorageFilesystem             = "filesystem"
+	StorageS3         StorageType = "s3"
+	StorageFilesystem StorageType = "filesystem"
+	StorageBlackHole  StorageType = "blackhole"
 )
 
 type Storage struct {
@@ -35,8 +36,8 @@ type S3Provider string
 
 const (
 	S3ProviderUndef S3Provider = ""
-	S3ProviderAWS              = "aws"
-	S3ProviderGCS              = "gcs"
+	S3ProviderAWS   S3Provider = "aws"
+	S3ProviderGCS   S3Provider = "gcs"
 )
 
 type S3 struct {
