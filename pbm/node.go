@@ -172,9 +172,5 @@ func (n *Node) CurrentUser() (*AuthInfo, error) {
 		return nil, errors.Wrap(err, "run mongo command connectionStatus")
 	}
 
-	if len(c.AuthInfo.Users) == 0 {
-		return nil, errors.New("user list is empty")
-	}
-
 	return &c.AuthInfo, nil
 }
