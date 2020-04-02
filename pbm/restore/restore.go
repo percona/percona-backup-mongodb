@@ -324,7 +324,10 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		}
 	}
 
-	user := exclude.Users[0].DB + "." + exclude.Users[0].User
+	user := ""
+	if len(exclude.Users) > 0 {
+		user = exclude.Users[0].DB + "." + exclude.Users[0].User
+	}
 	cur, err := r.node.Session().Database(pbm.DB).Collection(tmpUsers).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpUsers")
