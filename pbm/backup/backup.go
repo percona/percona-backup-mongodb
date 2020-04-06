@@ -578,12 +578,14 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 	name += "." + typ
 
 	switch bcp.Compression {
-	case pbm.CompressionTypeGZIP:
+	case pbm.CompressionTypeGZIP, pbm.CompressionTypePGZIP:
 		name += ".gz"
 	case pbm.CompressionTypeLZ4:
 		name += ".lz4"
 	case pbm.CompressionTypeSNAPPY:
 		name += ".snappy"
+	case pbm.CompressionTypeS2:
+		name += ".s2"
 	}
 
 	return name

@@ -6,12 +6,15 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"runtime"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/golang/snappy"
+	"github.com/klauspost/compress/s2"
+	"github.com/klauspost/pgzip"
 	"github.com/minio/minio-go"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
@@ -29,10 +32,14 @@ func Compress(w io.Writer, compression pbm.CompressionType) io.WriteCloser {
 	switch compression {
 	case pbm.CompressionTypeGZIP:
 		return gzip.NewWriter(w)
+	case pbm.CompressionTypePGZIP:
+		return pgzip.NewWriter(w)
 	case pbm.CompressionTypeLZ4:
 		return lz4.NewWriter(w)
 	case pbm.CompressionTypeSNAPPY:
 		return snappy.NewWriter(w)
+	case pbm.CompressionTypeS2:
+		return s2.NewWriter(w)
 	default:
 		return NopCloser{w}
 	}
@@ -66,9 +73,9 @@ func Save(data io.Reader, stg pbm.Storage, name string) error {
 				return errors.Wrap(err, "create AWS session")
 			}
 			_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-				u.PartSize = 32 * 1024 * 1024 // 32MB part size
+				u.PartSize = 10 * 1024 * 1024 // 10MB part size
 				u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
-				u.Concurrency = 1
+				u.Concurrency = runtime.GOMAXPROCS(0)
 			}).Upload(&s3manager.UploadInput{
 				Bucket: aws.String(stg.S3.Bucket),
 				Key:    aws.String(path.Join(stg.S3.Prefix, name)),

@@ -89,6 +89,11 @@ github.com/hashicorp/go-version
 github.com/jessevdk/go-flags
 # github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
 github.com/jmespath/go-jmespath
+# github.com/klauspost/compress v1.10.3
+github.com/klauspost/compress/flate
+github.com/klauspost/compress/s2
+# github.com/klauspost/pgzip v1.2.3
+github.com/klauspost/pgzip
 # github.com/minio/minio-go v6.0.14+incompatible
 github.com/minio/minio-go
 github.com/minio/minio-go/pkg/credentials
@@ -98,6 +103,20 @@ github.com/minio/minio-go/pkg/s3utils
 github.com/minio/minio-go/pkg/set
 # github.com/mitchellh/go-homedir v1.1.0
 github.com/mitchellh/go-homedir
+# github.com/mmcloughlin/avo v0.0.0-20200303042253-6df701fe672f
+github.com/mmcloughlin/avo/attr
+github.com/mmcloughlin/avo/build
+github.com/mmcloughlin/avo/buildtags
+github.com/mmcloughlin/avo/gotypes
+github.com/mmcloughlin/avo/internal/prnt
+github.com/mmcloughlin/avo/internal/stack
+github.com/mmcloughlin/avo/ir
+github.com/mmcloughlin/avo/operand
+github.com/mmcloughlin/avo/pass
+github.com/mmcloughlin/avo/printer
+github.com/mmcloughlin/avo/reg
+github.com/mmcloughlin/avo/src
+github.com/mmcloughlin/avo/x86
 # github.com/mongodb/mongo-tools v0.0.0-20200115210417-786081105685
 github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
@@ -181,6 +200,14 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
+# golang.org/x/tools v0.0.0-20190914235951-31e00f45c22e
+golang.org/x/tools/go/gcexportdata
+golang.org/x/tools/go/internal/gcimporter
+golang.org/x/tools/go/internal/packagesdriver
+golang.org/x/tools/go/packages
+golang.org/x/tools/internal/fastwalk
+golang.org/x/tools/internal/gopathwalk
+golang.org/x/tools/internal/semver
 # gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 gopkg.in/mgo.v2/bson
 gopkg.in/mgo.v2/internal/json

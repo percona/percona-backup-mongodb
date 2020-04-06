@@ -18,8 +18,11 @@ require (
 	github.com/golang/snappy v0.0.1
 	github.com/hashicorp/go-version v1.2.0
 	github.com/jessevdk/go-flags v1.4.0 // indirect
+	github.com/klauspost/compress v1.10.3
+	github.com/klauspost/pgzip v1.2.3
 	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mmcloughlin/avo v0.0.0-20200303042253-6df701fe672f // indirect
 	github.com/mongodb/mongo-tools v0.0.0-20200115210417-786081105685
 	github.com/mongodb/mongo-tools-common v2.0.1+incompatible
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect

@@ -1,7 +1,6 @@
 package restore
 
 import (
-	"compress/gzip"
 	"io"
 	"io/ioutil"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/golang/snappy"
+	"github.com/klauspost/compress/s2"
+	gzip "github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
 
@@ -74,6 +75,9 @@ func Source(stg pbm.Storage, name string, compression pbm.CompressionType) (io.R
 	case pbm.CompressionTypeSNAPPY:
 		rc = rr
 		rr = ioutil.NopCloser(snappy.NewReader(rr))
+	case pbm.CompressionTypeS2:
+		rc = rr
+		rr = ioutil.NopCloser(s2.NewReader(rr))
 	}
 
 	return rr, rc, nil
