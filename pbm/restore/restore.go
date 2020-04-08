@@ -27,6 +27,10 @@ var excludeFromDumpRestore = []string{
 	"config.version",
 	"config.mongos",
 	"config.lockpings",
+<<<<<<< HEAD
+=======
+	"config.locks",
+>>>>>>> Exclude some system collections from the restore
 	"config.system.sessions",
 	"config.cache.collections",
 }
