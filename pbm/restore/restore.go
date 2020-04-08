@@ -27,6 +27,9 @@ var excludeFromDumpRestore = []string{
 	"config.version",
 	"config.mongos",
 	"config.lockpings",
+	"config.locks",
+	"config.system.sessions",
+	"config.cache.collections",
 }
 
 type Restore struct {
