@@ -15,10 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-var skipNs = map[string]struct{}{
-	"config.system.sessions":   {},
-	"config.cache.collections": {},
-}
+var skipNs = map[string]struct{}{}
 
 func init() {
 	// add to skip collections that would be skiped while dump restore
