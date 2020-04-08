@@ -61,7 +61,9 @@ func printRestoreList(cn *pbm.PBM, size int64, full bool) {
 		log.Fatalln("Error: unable to get restore list:", err)
 	}
 	fmt.Println("Restores history:")
-	for _, r := range rs {
+	for i := len(rs) - 1; i >= 0; i-- {
+		r := rs[i]
+
 		var rprint string
 
 		name := r.Backup
