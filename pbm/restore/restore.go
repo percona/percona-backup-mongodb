@@ -300,7 +300,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	rolesC := r.node.Session().Database("admin").Collection("system.roles")
 
-	var eroles []string
+	eroles := []string{}
 	for _, r := range exclude.UserRoles {
 		eroles = append(eroles, r.DB+"."+r.Role)
 	}
