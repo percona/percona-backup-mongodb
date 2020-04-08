@@ -1,0 +1,25 @@
+.. _PBM-1.1.3:
+
+|pbm| |release|
+********************************************************************************
+
+:Date: |date|
+:Installation: :ref:`Installing Percona Backup for MongoDB <install>`_
+
+Improvements
+================================================================================
+
+* :jirabug:`PBM-424`: Remove the ``--mongodb-uri`` arg from ``pbm-agent.service`` unit file
+* :jirabug:`PBM-419`: Resolve restore-blocking issues related to admin.system.version
+* :jirabug:`PBM-417`: Improve pbm control collection etc. metadata for restores
+
+Bugs Fixed
+================================================================================
+
+* :jirabug:`PBM-425`: pbm-agent could fail when restoring
+* :jirabug:`PBM-430`: S3 store resync didn't work if the store had a prefix
+* :jirabug:`PBM-438`: ``pbm list --size=5`` worked in reverse
+
+.. |release| replace:: 1.1.3
+.. |date| replace:: April 9, 2020
+.. include:: ../.res/replace.txt
