@@ -138,7 +138,7 @@ restore.
 
 .. important::
 
-   For PBM v1.0 (only) before running |pbm-restore| on a cluster stop the
+   Before running |pbm-restore| on a cluster stop the
    balancer.
 
 .. important::
