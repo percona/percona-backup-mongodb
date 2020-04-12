@@ -305,6 +305,34 @@ func (b *Backup) oplog(oplog *Oplog, startTS, endTS primitive.Timestamp, stg pbm
 	return nil
 }
 
+type Source interface {
+	Write(to io.Writer) (int, error)
+}
+
+// Upload writes data to dst from given src and returns an amount of written bytes
+func Upload(src Source, dst pbm.Storage, compression pbm.CompressionType, fname string) (int, error) {
+	r, pw := io.Pipe()
+	defer r.Close()
+
+	w := Compress(pw, compression)
+
+	var err rwErr
+	var n int
+	go func() {
+		n, err.read = src.Write(w)
+		err.compress = w.Close()
+		pw.Close()
+	}()
+
+	err.write = Save(r, dst, fname)
+
+	if !err.nil() {
+		return 0, err
+	}
+
+	return n, nil
+}
+
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
