@@ -2,6 +2,7 @@ package speedt
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math/rand"
 	"strings"
@@ -15,27 +16,47 @@ import (
 )
 
 type Results struct {
-	Size int
+	Size Byte
 	Time time.Duration
 }
 
+func (r Results) String() string {
+	return fmt.Sprintf("%v sent in %s.\nAvg upload rate = %.2fMB/s.", r.Size, r.Time.Round(time.Second), float64(r.Size/MB)/r.Time.Seconds())
+}
+
+type Byte float64
+
+func (b Byte) String() string {
+	switch {
+	case b >= TB:
+		return fmt.Sprintf("%.2fTB", b/TB)
+	case b >= GB:
+		return fmt.Sprintf("%.2fGB", b/GB)
+	case b >= MB:
+		return fmt.Sprintf("%.2fMB", b/MB)
+	case b >= KB:
+		return fmt.Sprintf("%.2fKB", b/KB)
+	}
+	return fmt.Sprintf("%.2fB", b)
+}
+
 const (
-	_  = iota
-	KB = 1 << (10 * iota)
+	_       = iota
+	KB Byte = 1 << (10 * iota)
 	MB
 	GB
 	TB
 )
 
 type Rand struct {
-	size int
+	size Byte
 }
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func NewRand(size int) *Rand {
+func NewRand(size Byte) *Rand {
 	return &Rand{
 		size: size,
 	}
@@ -43,8 +64,9 @@ func NewRand(size int) *Rand {
 
 func (r *Rand) Write(to io.Writer) (int, error) {
 	written := 0
-	b := make([]byte, 1*KB)
-	for written < r.size {
+	b := make([]byte, 1*int(MB))
+
+	for written < int(r.size) {
 		genData(b)
 		n, err := to.Write(b)
 		if err != nil {
@@ -56,11 +78,11 @@ func (r *Rand) Write(to io.Writer) (int, error) {
 }
 
 type Collection struct {
-	size int
+	size Byte
 	c    *mongo.Collection
 }
 
-func NewCollection(size int, cn *mongo.Client, namespace string) (*Collection, error) {
+func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, error) {
 	ns := strings.SplitN(namespace, ".", 2)
 	if len(ns) != 2 {
 		return nil, errors.New("namespace should be in the format `database.collection`")
@@ -70,7 +92,6 @@ func NewCollection(size int, cn *mongo.Client, namespace string) (*Collection, e
 		size: size,
 		c:    cn.Database(ns[0]).Collection(ns[1]),
 	}, nil
-
 }
 
 func (c *Collection) Write(to io.Writer) (int, error) {
@@ -89,7 +110,7 @@ func (c *Collection) Write(to io.Writer) (int, error) {
 			return written, errors.Wrap(err, "write")
 		}
 		written += n
-		if written >= c.size {
+		if written >= int(c.size) {
 			return written, nil
 		}
 	}
@@ -108,14 +129,28 @@ func genData(b []byte) {
 	}
 }
 
-func Compression(pbmObj *pbm.PBM, nodeCN *mongo.Client, sizeGb int, collection *string) {
+const fileName = "pbmSpeedTest"
+
+func Run(nodeCN *mongo.Client, stg pbm.Storage, compression pbm.CompressionType, sizeGb float64, collection string) (*Results, error) {
 	var src backup.Source
 	var err error
-	if collection != nil {
-		src, err = NewCollection(sizeGb*GB, nodeCN, *collection)
+	if collection != "" {
+		src, err = NewCollection(Byte(sizeGb)*GB, nodeCN, collection)
+		if err != nil {
+			return nil, errors.Wrap(err, "create source")
+		}
 	} else {
-		src = NewRand(sizeGb * GB)
+		src = NewRand(Byte(sizeGb) * GB)
 	}
 
-	// backup.Upload(src, )
+	r := &Results{}
+	ts := time.Now()
+	size, err := backup.Upload(src, stg, compression, fileName)
+	r.Size = Byte(size)
+	if err != nil {
+		return nil, errors.Wrap(err, "upload")
+	}
+	r.Time = time.Since(ts)
+
+	return r, nil
 }
