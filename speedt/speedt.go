@@ -74,14 +74,14 @@ func (r *Rand) pregen() {
 	}
 }
 
-func (r *Rand) Write(to io.Writer) (int, error) {
-	written := 0
-	for i := 0; written < int(r.size); i++ {
-		n, err := to.Write(r.data[i%len(r.data)])
+func (r *Rand) WriteTo(w io.Writer) (int64, error) {
+	var written int64
+	for i := 0; written < int64(r.size); i++ {
+		n, err := w.Write(r.data[i%len(r.data)])
 		if err != nil {
 			return written, err
 		}
-		written += n
+		written += int64(n)
 	}
 	return written, nil
 }
@@ -103,7 +103,7 @@ func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, 
 	}, nil
 }
 
-func (c *Collection) Write(to io.Writer) (int, error) {
+func (c *Collection) WriteTo(w io.Writer) (int64, error) {
 	ctx := context.Background()
 
 	cur, err := c.c.Find(ctx, bson.M{})
@@ -112,14 +112,14 @@ func (c *Collection) Write(to io.Writer) (int, error) {
 	}
 	defer cur.Close(ctx)
 
-	written := 0
+	var written int64
 	for cur.Next(ctx) {
-		n, err := to.Write([]byte(cur.Current))
+		n, err := w.Write([]byte(cur.Current))
 		if err != nil {
 			return written, errors.Wrap(err, "write")
 		}
-		written += n
-		if written >= int(c.size) {
+		written += int64(n)
+		if written >= int64(c.size) {
 			return written, nil
 		}
 	}
