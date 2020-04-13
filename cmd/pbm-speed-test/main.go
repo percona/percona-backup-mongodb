@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/speedt"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -17,20 +18,20 @@ import (
 
 func main() {
 	var (
-		tCmd = kingpin.New("pbm-speed-test", "Percona Backup for MongoDB compression and upload speed test")
-		mURL = tCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		tCmd        = kingpin.New("pbm-speed-test", "Percona Backup for MongoDB compression and upload speed test")
+		mURL        = tCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		sampleColF  = tCmd.Flag("sample-collection", "Set collection as the data source").Short('c').String()
+		sampleSizeF = tCmd.Flag("size-gb", "Set data size in GB. Default 1").Short('s').Float64()
 
-		compressionCmd = tCmd.Command("compression", "Run compression test")
-		compressType   = compressionCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
 				Default(string(pbm.CompressionTypeGZIP)).
 				Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 				string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 				string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
 			)
-		compressSampleCol = compressionCmd.Flag("sample-collection", "Set collection as the data source").Short('c').String()
 
-		storageCmd  = tCmd.Command("storage", "Run storage test")
-		storageSize = storageCmd.Flag("size-gb", "Set data size in GB. Default 1").Short('s').Float64()
+		compressionCmd = tCmd.Command("compression", "Run compression test")
+		storageCmd     = tCmd.Command("storage", "Run storage test")
 
 		versionCmd    = tCmd.Command("version", "PBM version info")
 		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -44,11 +45,11 @@ func main() {
 		return
 	}
 
-	if *storageSize == 0 {
-		*storageSize = 1
+	if *sampleSizeF == 0 {
+		*sampleSizeF = 1
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	node, err := pbm.NewNode(ctx, "node", *mURL)
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-node:", err)
@@ -57,11 +58,12 @@ func main() {
 
 	switch cmd {
 	case compressionCmd.FullCommand():
-		fmt.Println("Test started")
-		compression(node.Session(), pbm.CompressionType(*compressType), *storageSize, *compressSampleCol)
+		fmt.Print("Test started ")
+		compression(node.Session(), pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
+		cancel()
 	case storageCmd.FullCommand():
-		fmt.Println("Test started")
-		storage(node, pbm.CompressionType(*compressType), *storageSize, *compressSampleCol)
+		fmt.Print("Test started ")
+		storage(node, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -78,12 +80,16 @@ func compression(cn *mongo.Client, compression pbm.CompressionType, sizeGb float
 	stg := pbm.Storage{
 		Type: pbm.StorageBlackHole,
 	}
+	done := make(chan struct{})
+	go printw(done)
 
 	r, err := speedt.Run(cn, stg, compression, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}
 
+	done <- struct{}{}
+	fmt.Println()
 	fmt.Println(r)
 }
 
@@ -100,11 +106,27 @@ func storage(node *pbm.Node, compression pbm.CompressionType, sizeGb float64, co
 	if err != nil {
 		log.Fatalln("Error: get storage:", err)
 	}
-
+	done := make(chan struct{})
+	go printw(done)
 	r, err := speedt.Run(node.Session(), stg, compression, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}
 
+	done <- struct{}{}
+	fmt.Println()
 	fmt.Println(r)
+}
+
+func printw(done <-chan struct{}) {
+	tk := time.NewTicker(time.Second * 2)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			fmt.Print(".")
+		case <-done:
+			return
+		}
+	}
 }

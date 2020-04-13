@@ -8,12 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 type Results struct {
 	Size Byte
@@ -25,6 +30,14 @@ func (r Results) String() string {
 }
 
 type Byte float64
+
+const (
+	_       = iota
+	KB Byte = 1 << (10 * iota)
+	MB
+	GB
+	TB
+)
 
 func (b Byte) String() string {
 	switch {
@@ -40,35 +53,31 @@ func (b Byte) String() string {
 	return fmt.Sprintf("%.2fB", b)
 }
 
-const (
-	_       = iota
-	KB Byte = 1 << (10 * iota)
-	MB
-	GB
-	TB
-)
-
 type Rand struct {
 	size Byte
-}
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
+	data [1024][]byte
 }
 
 func NewRand(size Byte) *Rand {
-	return &Rand{
+	r := &Rand{
 		size: size,
+	}
+	r.pregen()
+	return r
+}
+
+func (r *Rand) pregen() {
+	for i := 0; i < len(r.data); i++ {
+		b := make([]byte, 96)
+		genData(b)
+		r.data[i] = b
 	}
 }
 
 func (r *Rand) Write(to io.Writer) (int, error) {
 	written := 0
-	b := make([]byte, 1*int(MB))
-
-	for written < int(r.size) {
-		genData(b)
-		n, err := to.Write(b)
+	for i := 0; written < int(r.size); i++ {
+		n, err := to.Write(r.data[i%len(r.data)])
 		if err != nil {
 			return written, err
 		}
@@ -85,7 +94,7 @@ type Collection struct {
 func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, error) {
 	ns := strings.SplitN(namespace, ".", 2)
 	if len(ns) != 2 {
-		return nil, errors.New("namespace should be in the format `database.collection`")
+		return nil, errors.New("namespace should be in format `database.collection`")
 	}
 
 	return &Collection{
@@ -119,13 +128,8 @@ func (c *Collection) Write(to io.Writer) (int, error) {
 }
 
 func genData(b []byte) {
-	var base rune
 	for i := 0; i < len(b); i++ {
-		base = 'a'
-		if i%5 == 0 {
-			base = 'A'
-		}
-		b[i] = byte(rand.Int63()&25 + int64(base))
+		b[i] = byte(rand.Int63()&25 + 'a')
 	}
 }
 
