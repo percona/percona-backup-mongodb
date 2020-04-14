@@ -152,7 +152,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "define oplog start position")
 	}
 
-	dump := newDump(b.node.ConnURI(), runtime.NumCPU())
+	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
 	_, err = Upload(dump, stg, bcp.Compression, rsMeta.DumpName)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -55,29 +57,19 @@ func (b Byte) String() string {
 
 type Rand struct {
 	size Byte
-	data [1024][]byte
 }
 
 func NewRand(size Byte) *Rand {
 	r := &Rand{
 		size: size,
 	}
-	r.pregen()
 	return r
-}
-
-func (r *Rand) pregen() {
-	for i := 0; i < len(r.data); i++ {
-		b := make([]byte, 96)
-		genData(b)
-		r.data[i] = b
-	}
 }
 
 func (r *Rand) WriteTo(w io.Writer) (int64, error) {
 	var written int64
 	for i := 0; written < int64(r.size); i++ {
-		n, err := w.Write(r.data[i%len(r.data)])
+		n, err := w.Write(StringToBytes(dataset[i%len(dataset)]))
 		if err != nil {
 			return written, err
 		}
@@ -157,4 +149,12 @@ func Run(nodeCN *mongo.Client, stg pbm.Storage, compression pbm.CompressionType,
 	r.Time = time.Since(ts)
 
 	return r, nil
+}
+
+// StringToBytes converts given string to the slice of bytes
+// without allocations
+func StringToBytes(s string) []byte {
+	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	bh := reflect.SliceHeader{sh.Data, sh.Len, sh.Len}
+	return *(*[]byte)(unsafe.Pointer(&bh))
 }
