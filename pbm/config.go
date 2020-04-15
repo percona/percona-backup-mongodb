@@ -155,7 +155,7 @@ func ValidateConfigKey(k string) bool {
 func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 	c, err := p.GetConfig()
 	if err != nil {
-		errors.Wrap(err, "get from db")
+		return nil, errors.Wrap(err, "get from db")
 	}
 
 	if fieldRedaction {

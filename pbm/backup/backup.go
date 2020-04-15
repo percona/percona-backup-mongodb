@@ -24,7 +24,6 @@ import (
 type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
-	name string
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {

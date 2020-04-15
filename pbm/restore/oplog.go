@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"reflect"
@@ -18,7 +19,7 @@ import (
 var skipNs = map[string]struct{}{}
 
 func init() {
-	// add to skip collections that would be skiped while dump restore
+	// add to skip collections that would be skipped while dump restore
 	for _, v := range excludeFromDumpRestore {
 		skipNs[v] = struct{}{}
 	}
@@ -49,7 +50,7 @@ func (o *Oplog) Apply(src io.ReadCloser) error {
 	defer bsonSource.Close()
 
 	o.txnBuffer = txn.NewBuffer()
-	defer o.txnBuffer.Stop()
+	defer o.txnBuffer.Stop() // it basically never returns an error
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -152,12 +153,15 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 // applyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (o *Oplog) applyOps(entries []interface{}) error {
-	singleRes := o.dst.Session().Database("admin").RunCommand(nil, bson.D{{"applyOps", entries}})
+	singleRes := o.dst.Session().Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
 	if err := singleRes.Err(); err != nil {
 		return errors.Wrap(err, "applyOps")
 	}
 	res := bson.M{}
-	singleRes.Decode(&res)
+	err := singleRes.Decode(&res)
+	if err != nil {
+		return errors.Wrap(err, "decode singleRes")
+	}
 	if isFalsy(res["ok"]) {
 		return errors.Errorf("applyOps command: %v", res["errmsg"])
 	}
