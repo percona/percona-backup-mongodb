@@ -45,9 +45,9 @@ type Command string
 
 const (
 	CmdUndefined        Command = ""
-	CmdBackup                   = "backup"
-	CmdRestore                  = "restore"
-	CmdResyncBackupList         = "resyncBcpList"
+	CmdBackup           Command = "backup"
+	CmdRestore          Command = "restore"
+	CmdResyncBackupList Command = "resyncBcpList"
 )
 
 type Cmd struct {
@@ -115,10 +115,13 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	}{}
 	err = client.Database("admin").Collection("system.version").
 		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
-	// no need in this connection anymore, we need a new one with the ConfigServer
-	client.Disconnect(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config server connetion URI")
+	}
+	// no need in this connection anymore, we need a new one with the ConfigServer
+	err = client.Disconnect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "diconnect old client")
 	}
 
 	chost := strings.Split(csvr.URI, "/")
@@ -237,15 +240,15 @@ type BackupReplset struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 }
 
-// Status is backup current status
+// Status is a backup current status
 type Status string
 
 const (
 	StatusStarting Status = "starting"
-	StatusRunning         = "running"
-	StatusDumpDone        = "dumpDone"
-	StatusDone            = "done"
-	StatusError           = "error"
+	StatusRunning  Status = "running"
+	StatusDumpDone Status = "dumpDone"
+	StatusDone     Status = "done"
+	StatusError    Status = "error"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {

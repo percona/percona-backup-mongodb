@@ -131,9 +131,6 @@ services:
       context: ../..
     volumes: 
       - ./conf:/etc/pbm
-      # - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
-      # - ./conf/minio.yaml:/etc/pbm/minio.yaml
-      # - ./conf/bh.yaml:/etc/pbm/bh.yaml
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -273,8 +270,8 @@ services:
   minio:
     image: minio/minio:RELEASE.2020-01-16T22-40-29Z
     hostname: minio
-    ports:
-      - "9000:9000"
+    # ports:
+    #   - "9000:9000"
     volumes:
       - backups:/backups
     environment:

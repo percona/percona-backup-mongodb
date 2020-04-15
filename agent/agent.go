@@ -90,10 +90,6 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
-	// wait for a random time (1 to 100 ms) before acquiring a lock
-	// TODO: do we need this? check
-	time.Sleep(time.Duration(rand.Int63n(1e2)) * time.Millisecond)
-
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:       pbm.CmdBackup,
 		Replset:    nodeInfo.SetName,
@@ -146,6 +142,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 }
 
+// Restore starts the restore
 func (a *Agent) Restore(r pbm.RestoreCmd) {
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
@@ -174,7 +171,12 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
 		return
 	}
-	defer lock.Release()
+	defer func() {
+		err := lock.Release()
+		if err != nil {
+			log.Println("[ERROR] release lock:", err)
+		}
+	}()
 
 	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
 	err = restore.New(a.pbm, a.node).Run(r)
@@ -194,7 +196,7 @@ func (a *Agent) ResyncBackupList() {
 	}
 
 	if !nodeInfo.IsLeader() {
-		log.Println("[INFO] resync_list: not a memeber of the leader rs")
+		log.Println("[INFO] resync_list: not a member of the leader rs")
 		return
 	}
 

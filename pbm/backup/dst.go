@@ -111,8 +111,8 @@ func Save(data io.Reader, stg pbm.Storage, name string) error {
 			return errors.Wrap(err, "upload to GCS")
 		}
 	case pbm.StorageBlackHole:
-		io.Copy(ioutil.Discard, data)
-		return nil
+		_, err := io.Copy(ioutil.Discard, data)
+		return errors.Wrap(err, "upload to blackhole")
 	default:
 		return errors.New("unknown storage type")
 	}

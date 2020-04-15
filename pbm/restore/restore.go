@@ -33,10 +33,8 @@ var excludeFromDumpRestore = []string{
 }
 
 type Restore struct {
-	cn     *pbm.PBM
-	node   *pbm.Node
-	name   string
-	backup string
+	cn   *pbm.PBM
+	node *pbm.Node
 }
 
 // New creates a new restore object
@@ -48,9 +46,8 @@ func New(cn *pbm.PBM, node *pbm.Node) *Restore {
 }
 
 const (
-	adminSysVersionCopy = "pbmSysver"
-	tmpUsers            = `pbmRUsers`
-	tmpRoles            = `pbmRRoles`
+	tmpUsers = `pbmRUsers`
+	tmpRoles = `pbmRRoles`
 )
 
 func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
@@ -68,7 +65,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 	}
 
 	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successfull: status: %s, error: %s", bcp.Status, bcp.Error)
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error)
 	}
 
 	im, err := r.node.GetIsMaster()

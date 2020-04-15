@@ -22,7 +22,6 @@ type IsMasterLastWrite struct {
 // IsMaster represents the document returned by db.runCommand( { isMaster: 1 } )
 type IsMaster struct {
 	Hosts                        []string           `bson:"hosts,omitempty"`
-	IsMaster                     bool               `bson:"ismaster"`
 	Msg                          string             `bson:"msg"`
 	MaxBsonObjectSise            int64              `bson:"maxBsonObjectSize"`
 	MaxMessageSizeBytes          int64              `bson:"maxMessageSizeBytes"`
@@ -33,8 +32,9 @@ type IsMaster struct {
 	MinWireVersion               int64              `bson:"minWireVersion"`
 	OK                           int                `bson:"ok"`
 	SetName                      string             `bson:"setName,omitempty"`
-	SetVersion                   int32              `bson:"setVersion,omitempty"`
 	Primary                      string             `bson:"primary,omitempty"`
+	SetVersion                   int32              `bson:"setVersion,omitempty"`
+	IsMaster                     bool               `bson:"ismaster"`
 	Secondary                    bool               `bson:"secondary,omitempty"`
 	Hidden                       bool               `bson:"hidden,omitempty"`
 	ConfigSvr                    int                `bson:"configsvr,omitempty"`
@@ -84,44 +84,6 @@ type ClusterTime struct {
 type ConfigServerState struct {
 	OpTime *OpTime `bson:"opTime"`
 }
-
-/*
-renders differently on different ocasions:
-	"$gleStats": {
-		"lastOpTime": {
-			"$timestamp": {
-				"t": "0",
-				"i": "0"
-			}
-		},
-		"electionId": {
-			"$oid": "7fffffff0000000000000a64"
-		}
-	},
-
-	or
-
-	"$gleStats": {
-		"lastOpTime": {
-			"ts": {
-				"$timestamp": {
-					"t": "1574591567",
-					"i": "1"
-				}
-			},
-			"t": {
-				"$numberLong": "2660"
-			}
-		},
-		"electionId": {
-			"$oid": "7fffffff0000000000000a64"
-		}
-	},
-*/
-// type GleStats struct {
-// 	LastOpTime primitive.Timestamp `bson:"lastOpTime"`
-// 	ElectionId primitive.ObjectID  `bson:"electionId"`
-// }
 
 type Operation string
 
