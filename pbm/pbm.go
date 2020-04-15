@@ -72,9 +72,11 @@ type CompressionType string
 
 const (
 	CompressionTypeNone   CompressionType = "none"
-	CompressionTypeGZIP                   = "gzip"
-	CompressionTypeSNAPPY                 = "snappy"
-	CompressionTypeLZ4                    = "lz4"
+	CompressionTypeGZIP   CompressionType = "gzip"
+	CompressionTypePGZIP  CompressionType = "pgzip"
+	CompressionTypeSNAPPY CompressionType = "snappy"
+	CompressionTypeLZ4    CompressionType = "lz4"
+	CompressionTypeS2     CompressionType = "s2"
 )
 
 var WaitActionStart = time.Second * 15

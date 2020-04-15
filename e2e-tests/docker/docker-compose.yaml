@@ -130,9 +130,10 @@ services:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
     volumes: 
-      - ./conf/aws.yaml:/etc/pbm/aws.yaml
-      - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
-      - ./conf/minio.yaml:/etc/pbm/minio.yaml
+      - ./conf:/etc/pbm
+      # - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
+      # - ./conf/minio.yaml:/etc/pbm/minio.yaml
+      # - ./conf/bh.yaml:/etc/pbm/bh.yaml
     command: pbm-agent
     cap_add:
       - NET_ADMIN

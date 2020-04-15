@@ -168,7 +168,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	dumpReader, dumpCloser, err := Source(stg, rsBackup.DumpName, pbm.CompressionTypeNone) //, bcp.Compression)
+	dumpReader, dumpCloser, err := Source(stg, rsBackup.DumpName, bcp.Compression)
 	if err != nil {
 		return errors.Wrap(err, "create source object for the dump restore")
 	}
@@ -205,7 +205,6 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 		SessionProvider: rsession,
 		ToolOptions:     &topts,
 		InputOptions: &mongorestore.InputOptions{
-			Gzip:    bcp.Compression == pbm.CompressionTypeGZIP,
 			Archive: "-",
 		},
 		OutputOptions: &mongorestore.OutputOptions{

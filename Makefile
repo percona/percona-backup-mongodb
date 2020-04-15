@@ -27,40 +27,52 @@ LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
-build: build-pbm build-agent
+build: build-pbm build-agent build-stest
 build-pbm:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
+build-stest:
+	$(ENVS) go build -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
-install: install-pbm install-agent
+install: install-pbm install-agent install-stest
 install-pbm:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm
 install-agent:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
+install-stest:
+	$(ENVS) go install -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-speed-test
 
 # RACE DETECTOR ON
-build-race: build-pbm-race build-agent-race
+build-race: build-pbm-race build-agent-race build-stest-race
 build-pbm-race:
 	$(ENVS) go build -race -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent-race:
 	$(ENVS) go build -race -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
+build-stest-race:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS)" -mod=vendor -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
-install-race: install-pbm-race install-agent-race
+install-race: install-pbm-race install-agent-race install-stest-race
 install-pbm-race:
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm
 install-agent-race:
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
+install-stest-race:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-speed-test
 
 # STATIC BUILDS
-build-static: build-pbm-static build-agent-static
+build-static: build-pbm-static build-agent-static build-stest-static
 build-pbm-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" -mod=vendor -o ./bin/pbm ./cmd/pbm
 build-agent-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
+build-stest-static:
+	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" -mod=vendor -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
-install-static: install-pbm-static install-agent-static
+install-static: install-pbm-static install-agent-static install-stest-static
 install-pbm-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" -mod=vendor ./cmd/pbm
 install-agent-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" -mod=vendor ./cmd/pbm-agent
+install-stest-static:
+	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" -mod=vendor ./cmd/pbm-speed-test

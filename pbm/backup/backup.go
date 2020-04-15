@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -151,7 +152,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "define oplog start position")
 	}
 
-	err = b.dump(stg, rsMeta.DumpName, bcp.Compression)
+	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
+	_, err = Upload(dump, stg, bcp.Compression, rsMeta.DumpName)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -194,7 +196,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "waiting and reading cluster last write ts")
 	}
 
-	err = b.oplog(oplog, oplogTS, lwTS, stg, rsMeta.OplogName, bcp.Compression)
+	oplog.SetTailingSpan(oplogTS, lwTS)
+	_, err = Upload(oplog, stg, bcp.Compression, rsMeta.OplogName)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -283,26 +286,33 @@ func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
-func (b *Backup) oplog(oplog *Oplog, startTS, endTS primitive.Timestamp, stg pbm.Storage, name string, compression pbm.CompressionType) error {
+type Source interface {
+	io.WriterTo
+	// WriteTo(w io.Writer) (int64, error)
+}
+
+// Upload writes data to dst from given src and returns an amount of written bytes
+func Upload(src Source, dst pbm.Storage, compression pbm.CompressionType, fname string) (int64, error) {
 	r, pw := io.Pipe()
 	defer r.Close()
 
 	w := Compress(pw, compression)
 
 	var err rwErr
+	var n int64
 	go func() {
-		err.read = oplog.SliceTo(b.cn.Context(), w, startTS, endTS)
+		n, err.read = src.WriteTo(w)
 		err.compress = w.Close()
 		pw.Close()
 	}()
 
-	err.write = Save(r, stg, name)
+	err.write = Save(r, dst, fname)
 
 	if !err.nil() {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return n, nil
 }
 
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
@@ -517,55 +527,49 @@ func (b *Backup) setClusterLastWrite(bcpName string) error {
 	return errors.Wrap(err, "set timestamp")
 }
 
-func (b *Backup) dump(stg pbm.Storage, name string, compression pbm.CompressionType) error {
-	r, pw := io.Pipe()
-	w := Compress(pw, compression)
-
-	var err rwErr
-	go func() {
-		err.read = mdump(w, b.node.ConnURI())
-		err.compress = w.Close()
-		pw.Close()
-	}()
-
-	err.write = Save(r, stg, name)
-
-	if !err.nil() {
-		return err
-	}
-
-	return nil
+type mdump struct {
+	opts  *options.ToolOptions
+	conns int
 }
 
-func mdump(to io.Writer, curi string) error {
-	opts := options.ToolOptions{
-		AppName:    "mongodump",
-		VersionStr: "0.0.1",
-		URI:        &options.URI{ConnectionString: curi},
-		Auth:       &options.Auth{},
-		Namespace:  &options.Namespace{},
-		Connection: &options.Connection{},
+func newDump(curi string, conns int) *mdump {
+	if conns <= 0 {
+		conns = 1
 	}
+	return &mdump{
+		opts: &options.ToolOptions{
+			AppName:    "mongodump",
+			VersionStr: "0.0.1",
+			URI:        &options.URI{ConnectionString: curi},
+			Auth:       &options.Auth{},
+			Namespace:  &options.Namespace{},
+			Connection: &options.Connection{},
+		},
+		conns: conns,
+	}
+}
 
-	d := mongodump.MongoDump{
-		ToolOptions: &opts,
+// Write always return 0 as written bytes. Needed to satisfy interface
+func (d *mdump) WriteTo(w io.Writer) (int64, error) {
+	mdump := mongodump.MongoDump{
+		ToolOptions: d.opts,
 		OutputOptions: &mongodump.OutputOptions{
 			// Archive = "-" means, for mongodump, use the provided Writer
 			// instead of creating a file. This is not clear at plain sight,
 			// you nee to look the code to discover it.
 			Archive:                "-",
-			NumParallelCollections: 1,
+			NumParallelCollections: d.conns,
 		},
 		InputOptions:    &mongodump.InputOptions{},
 		SessionProvider: &db.SessionProvider{},
-		OutputWriter:    to,
+		OutputWriter:    w,
 		ProgressManager: progress.NewBarWriter(os.Stdout, time.Second*3, 24, false),
 	}
-	err := d.Init()
+	err := mdump.Init()
 	if err != nil {
-		return errors.Wrap(err, "init")
+		return 0, errors.Wrap(err, "init")
 	}
-	return errors.Wrap(d.Dump(), "make dump")
+	return 0, errors.Wrap(mdump.Dump(), "make dump")
 }
 
 func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
@@ -578,12 +582,14 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 	name += "." + typ
 
 	switch bcp.Compression {
-	case pbm.CompressionTypeGZIP:
+	case pbm.CompressionTypeGZIP, pbm.CompressionTypePGZIP:
 		name += ".gz"
 	case pbm.CompressionTypeLZ4:
 		name += ".lz4"
 	case pbm.CompressionTypeSNAPPY:
 		name += ".snappy"
+	case pbm.CompressionTypeS2:
+		name += ".s2"
 	}
 
 	return name
