@@ -1,7 +1,7 @@
 .. _pbm.installation:
 .. _install:
 
-Installation
+Installing |pbm|
 ********************************************************************************
 
 .. contents::
