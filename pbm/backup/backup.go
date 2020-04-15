@@ -533,6 +533,9 @@ type mdump struct {
 }
 
 func newDump(curi string, conns int) *mdump {
+	if conns <= 0 {
+		conns = 1
+	}
 	return &mdump{
 		opts: &options.ToolOptions{
 			AppName:    "mongodump",

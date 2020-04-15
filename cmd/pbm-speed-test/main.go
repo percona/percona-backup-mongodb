@@ -19,7 +19,7 @@ import (
 func main() {
 	var (
 		tCmd        = kingpin.New("pbm-speed-test", "Percona Backup for MongoDB compression and upload speed test")
-		mURL        = tCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		mURL        = tCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").String()
 		sampleColF  = tCmd.Flag("sample-collection", "Set collection as the data source").Short('c').String()
 		sampleSizeF = tCmd.Flag("size-gb", "Set data size in GB. Default 1").Short('s').Float64()
 
@@ -49,21 +49,13 @@ func main() {
 		*sampleSizeF = 1
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	node, err := pbm.NewNode(ctx, "node", *mURL)
-	if err != nil {
-		log.Fatalln("Error: connect to mongodb-node:", err)
-	}
-	defer node.Session().Disconnect(ctx)
-
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
-		compression(node.Session(), pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
-		cancel()
+		compression(*mURL, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
 	case storageCmd.FullCommand():
 		fmt.Print("Test started ")
-		storage(node, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
+		storage(*mURL, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -76,7 +68,21 @@ func main() {
 	}
 }
 
-func compression(cn *mongo.Client, compression pbm.CompressionType, sizeGb float64, collection string) {
+func compression(mURL string, compression pbm.CompressionType, sizeGb float64, collection string) {
+	ctx := context.Background()
+
+	var cn *mongo.Client
+
+	if collection != "" {
+		node, err := pbm.NewNode(ctx, "node", mURL)
+		if err != nil {
+			log.Fatalln("Error: connect to mongodb-node:", err)
+		}
+		defer node.Session().Disconnect(ctx)
+
+		cn = node.Session()
+	}
+
 	stg := pbm.Storage{
 		Type: pbm.StorageBlackHole,
 	}
@@ -93,10 +99,16 @@ func compression(cn *mongo.Client, compression pbm.CompressionType, sizeGb float
 	fmt.Println(r)
 }
 
-func storage(node *pbm.Node, compression pbm.CompressionType, sizeGb float64, collection string) {
+func storage(mURL string, compression pbm.CompressionType, sizeGb float64, collection string) {
 	ctx := context.Background()
 
-	pbmClient, err := pbm.New(ctx, node.ConnURI(), "pbm-speed-test")
+	node, err := pbm.NewNode(ctx, "node", mURL)
+	if err != nil {
+		log.Fatalln("Error: connect to mongodb-node:", err)
+	}
+	defer node.Session().Disconnect(ctx)
+
+	pbmClient, err := pbm.New(ctx, mURL, "pbm-speed-test")
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-pbm:", err)
 	}
