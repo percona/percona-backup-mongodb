@@ -212,7 +212,7 @@ type BackupMeta struct {
 	Name             string              `bson:"name" json:"name"`
 	Replsets         []BackupReplset     `bson:"replsets" json:"replsets"`
 	Compression      CompressionType     `bson:"compression" json:"compression"`
-	Store            Storage             `bson:"store" json:"store"`
+	Store            StorageConf         `bson:"store" json:"store"`
 	MongoVersion     string              `bson:"mongodb_version" json:"mongodb_version,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`

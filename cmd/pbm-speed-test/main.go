@@ -7,12 +7,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/alecthomas/kingpin"
 	"github.com/percona/percona-backup-mongodb/speedt"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/alecthomas/kingpin"
-
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -83,9 +83,7 @@ func compression(mURL string, compression pbm.CompressionType, sizeGb float64, c
 		cn = node.Session()
 	}
 
-	stg := pbm.Storage{
-		Type: pbm.StorageBlackHole,
-	}
+	stg := blackhole.New()
 	done := make(chan struct{})
 	go printw(done)
 

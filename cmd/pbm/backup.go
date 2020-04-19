@@ -6,9 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
@@ -30,7 +31,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		}
 	}
 
-	stg, err := cn.GetStorage()
+	cfg, err := cn.GetConfig()
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return "", errors.New("no store set. Set remote store with <pbm store set>")
@@ -57,18 +58,18 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	}
 
 	storeString := ""
-	switch stg.Type {
+	switch cfg.Storage.Type {
 	case pbm.StorageS3:
 		storeString = "s3://"
-		if stg.S3.EndpointURL != "" {
-			storeString += stg.S3.EndpointURL + "/"
+		if cfg.Storage.S3.EndpointURL != "" {
+			storeString += cfg.Storage.S3.EndpointURL + "/"
 		}
-		storeString += stg.S3.Bucket
-		if stg.S3.Prefix != "" {
-			storeString += "/" + stg.S3.Prefix
+		storeString += cfg.Storage.S3.Bucket
+		if cfg.Storage.S3.Prefix != "" {
+			storeString += "/" + cfg.Storage.S3.Prefix
 		}
 	case pbm.StorageFilesystem:
-		storeString = stg.Filesystem.Path
+		storeString = cfg.Storage.Filesystem.Path
 	}
 	return storeString, nil
 }

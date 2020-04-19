@@ -3,13 +3,7 @@ package restore
 import (
 	"io"
 	"io/ioutil"
-	"os"
-	"path"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/golang/snappy"
 	"github.com/klauspost/compress/s2"
 	gzip "github.com/klauspost/pgzip"
@@ -19,66 +13,19 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-// Source returns io.ReadCloser for the given storage.
-// In case the compression is used it also returns io.Closer
-// which should be used to close underlying Reader
-func Source(stg pbm.Storage, name string, compression pbm.CompressionType) (io.ReadCloser, io.Closer, error) {
-	var (
-		rr io.ReadCloser
-		rc io.Closer
-	)
-
-	switch stg.Type {
-	case pbm.StorageFilesystem:
-		filepath := path.Join(stg.Filesystem.Path, name)
-		fr, err := os.Open(filepath)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "open file '%s'", filepath)
-		}
-		rr = fr
-	case pbm.StorageS3:
-		awsSession, err := session.NewSession(&aws.Config{
-			Region:   aws.String(stg.S3.Region),
-			Endpoint: aws.String(stg.S3.EndpointURL),
-			Credentials: credentials.NewStaticCredentials(
-				stg.S3.Credentials.AccessKeyID,
-				stg.S3.Credentials.SecretAccessKey,
-				"",
-			),
-			S3ForcePathStyle: aws.Bool(true),
-		})
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "cannot create AWS session")
-		}
-
-		s3obj, err := s3.New(awsSession).GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(stg.S3.Bucket),
-			Key:    aws.String(path.Join(stg.S3.Prefix, name)),
-		})
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "read '%s/%s' file from S3", stg.S3.Bucket, name)
-		}
-		rr = ioutil.NopCloser(s3obj.Body)
-	}
-
-	switch compression {
+// Decompress wraps given reader by the decompressing io.ReadCloser
+func Decompress(r io.Reader, c pbm.CompressionType) (io.ReadCloser, error) {
+	switch c {
 	case pbm.CompressionTypeGZIP:
-		rc = rr
-		var err error
-		rr, err = gzip.NewReader(rr)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "gzip reader")
-		}
+		rr, err := gzip.NewReader(r)
+		return rr, errors.Wrap(err, "gzip reader")
 	case pbm.CompressionTypeLZ4:
-		rc = rr
-		rr = ioutil.NopCloser(lz4.NewReader(rr))
+		return ioutil.NopCloser(lz4.NewReader(r)), nil
 	case pbm.CompressionTypeSNAPPY:
-		rc = rr
-		rr = ioutil.NopCloser(snappy.NewReader(rr))
+		return ioutil.NopCloser(snappy.NewReader(r)), nil
 	case pbm.CompressionTypeS2:
-		rc = rr
-		rr = ioutil.NopCloser(s2.NewReader(rr))
+		return ioutil.NopCloser(s2.NewReader(r)), nil
+	default:
+		return ioutil.NopCloser(r), nil
 	}
-
-	return rr, rc, nil
 }
