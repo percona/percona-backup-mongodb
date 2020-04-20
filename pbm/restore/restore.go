@@ -541,7 +541,7 @@ func (r *Restore) MarkFailed(name, rsName, msg string) error {
 }
 
 func getMetaFromStore(bcpName string, stg storage.Storage) (*pbm.BackupMeta, error) {
-	r, err := stg.SourceReader(bcpName + ".pbm.json")
+	r, err := stg.SourceReader(bcpName + pbm.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get from store")
 	}

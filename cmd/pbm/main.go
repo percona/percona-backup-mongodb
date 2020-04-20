@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
@@ -41,6 +43,10 @@ var (
 	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
 	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
 	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+
+	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
+	deleteBcpName   = deleteBcpCmd.Arg("name", "backup name").String()
+	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", "Delete backups older than").String()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -143,6 +149,29 @@ func main() {
 		} else {
 			printBackupList(pbmClient, *listCmdSize)
 		}
+	case deleteBcpCmd.FullCommand():
+		fmt.Print("Are you shure you want delete backup(s)?\n [yes/NO] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		switch strings.TrimSpace(scanner.Text()) {
+		case "yes", "Yes", "YES", "Y", "y":
+		default:
+			return
+		}
+
+		var err error
+		if len(*deleteBcpCmdOtF) > 0 {
+			err = pbmClient.DeleteOlderThan(*deleteBcpCmdOtF)
+		} else {
+			if len(*deleteBcpName) == 0 {
+				log.Fatalln("Error: backup name should be specified")
+			}
+			err = pbmClient.DeleteBackup(*deleteBcpName)
+		}
+		if err != nil {
+			log.Fatalln("Error:", err)
+		}
+		printBackupList(pbmClient, 0)
 	}
 }
 

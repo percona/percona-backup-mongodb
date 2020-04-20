@@ -512,7 +512,7 @@ func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = stg.Save(meta.Name+".pbm.json", bytes.NewReader(b))
+	err = stg.Save(meta.Name+pbm.MetadataFileSuffix, bytes.NewReader(b))
 	return errors.Wrap(err, "write to store")
 }
 

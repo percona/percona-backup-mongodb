@@ -13,7 +13,7 @@ func (p *PBM) ResyncBackupList() error {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	bcps, err := stg.FilesList(".pbm.json")
+	bcps, err := stg.FilesList(MetadataFileSuffix)
 	if err != nil {
 		return errors.Wrap(err, "get a backups list from the storage")
 	}

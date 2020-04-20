@@ -34,11 +34,12 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
-)
 
-const (
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
+
+	// MetadataFileSuffix is a suffix for the metadata file on storage
+	MetadataFileSuffix = ".pbm.json"
 )
 
 type Command string
