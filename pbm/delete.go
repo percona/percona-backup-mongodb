@@ -6,7 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// DeleteBackup deletes backup with given name from the current storage
+// DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
 func (p *PBM) DeleteBackup(name string) error {
 	meta, err := p.GetBackupMeta(name)
@@ -26,7 +26,7 @@ func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
 	switch meta.Status {
 	case StatusDone, StatusError:
 	default:
-		return errors.Errorf("Undable delete backup in %s state", meta.Status)
+		return errors.Errorf("Unable to delete backup in %s state", meta.Status)
 	}
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
@@ -53,7 +53,7 @@ func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
 }
 
 // DeleteOlderThan deletes backups which older than backup
-// with given name from the current storage and pbm database
+// with the given name from the current storage and pbm database
 func (p *PBM) DeleteOlderThan(name string) error {
 	meta, err := p.GetBackupMeta(name)
 	if err != nil {

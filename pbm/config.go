@@ -162,8 +162,8 @@ func (p *PBM) GetConfig() (Config, error) {
 	return c, errors.Wrap(err, "decode")
 }
 
-// GetStorage readrs current storage sonfig and creates and
-// returns a respective storage.Storage object
+// GetStorage reads current storage config and creates and
+// returns respective storage.Storage object
 func (p *PBM) GetStorage() (storage.Storage, error) {
 	c, err := p.GetConfig()
 	if err != nil {

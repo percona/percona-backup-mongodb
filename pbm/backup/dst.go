@@ -22,7 +22,7 @@ type NopCloser struct {
 // Close to satisfy io.WriteCloser interface
 func (NopCloser) Close() error { return nil }
 
-// Compress makes a compressed writer from given one
+// Compress makes a compressed writer from the given one
 func Compress(w io.Writer, compression pbm.CompressionType) io.WriteCloser {
 	switch compression {
 	case pbm.CompressionTypeGZIP:

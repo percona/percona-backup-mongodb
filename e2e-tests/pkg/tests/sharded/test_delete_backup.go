@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go"
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -21,6 +22,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Println("doing backup:", bcpName)
 		c.BackupWaitDone(bcpName)
 		backups[i] = bcpName
+		time.Sleep(1)
 	}
 
 	c.printBcpList()
@@ -107,7 +109,7 @@ func (c *Cluster) BackupNotDeleteRunning() {
 
 	log.Println("deleting backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
-	if err == nil || !strings.Contains(err.Error(), "Error: Undable delete backup in running state") {
+	if err == nil || !strings.Contains(err.Error(), "Error: Unable to delete backup in running state") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
 		log.Fatalf("Error: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%s\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
 	}

@@ -38,7 +38,7 @@ const (
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
 
-	// MetadataFileSuffix is a suffix for the metadata file on storage
+	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
 )
 
