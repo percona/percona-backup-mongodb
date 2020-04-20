@@ -67,6 +67,21 @@ func main() {
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore Minio")
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e3)
+	flushStore("/etc/pbm/minio.yaml")
+
+	printStart("Check Backups deletion")
+	tests.BackupDelete("/etc/pbm/minio.yaml")
+	printDone("Check Backups deletion")
+
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
+
+	printStart("Check the Running Backup can't be deleted")
+	tests.BackupNotDeleteRunning()
+	printDone("Check the Running Backup can't be deleted")
+
 	printStart("Backup Data Bounds Check")
 	tests.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")

@@ -47,6 +47,7 @@ var (
 	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcpName   = deleteBcpCmd.Arg("name", "backup name").String()
 	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", "Delete backups older than").String()
+	deleteBcpForceF = deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -150,13 +151,15 @@ func main() {
 			printBackupList(pbmClient, *listCmdSize)
 		}
 	case deleteBcpCmd.FullCommand():
-		fmt.Print("Are you shure you want delete backup(s)?\n [yes/NO] ")
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		switch strings.TrimSpace(scanner.Text()) {
-		case "yes", "Yes", "YES", "Y", "y":
-		default:
-			return
+		if !*deleteBcpForceF {
+			fmt.Print("Are you shure you want delete backup(s)? [y/N] ")
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			switch strings.TrimSpace(scanner.Text()) {
+			case "yes", "Yes", "YES", "Y", "y":
+			default:
+				return
+			}
 		}
 
 		var err error

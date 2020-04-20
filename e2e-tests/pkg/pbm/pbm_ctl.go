@@ -46,7 +46,7 @@ func (c *Ctl) ApplyConfig(file string) error {
 }
 
 func (c *Ctl) Backup() (string, error) {
-	out, err := c.RunCmd("pbm", "backup")
+	out, err := c.RunCmd("pbm", "backup", "--compression", "s2")
 	if err != nil {
 		return "", err
 	}

@@ -1,6 +1,8 @@
 package sharded
 
-import "log"
+import (
+	"log"
+)
 
 func (c *Cluster) BackupAndRestore() {
 	checkData := c.DataChecker()
@@ -14,7 +16,7 @@ func (c *Cluster) BackupAndRestore() {
 	log.Println("resync backup list")
 	err := c.mongopbm.StoreResync()
 	if err != nil {
-		log.Fatalln("resync backup lists:", err)
+		log.Fatalln("Error: resync backup lists:", err)
 	}
 
 	c.Restore(bcpName)
