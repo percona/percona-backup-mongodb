@@ -97,8 +97,8 @@ func checkNoFiles(exceptPrefix, conf string) {
 			continue
 		}
 
-		if !strings.HasPrefix(object.Key, exceptPrefix) {
-			log.Fatalln("Error: delete lefover", object.Key)
+		if !strings.Contains(object.Key, exceptPrefix) {
+			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
 }
