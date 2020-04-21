@@ -88,11 +88,10 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	cfg, err := b.cn.GetConfig()
-	if err != nil {
+	if err == pbm.ErrStorageUndefined {
+		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
+	} else if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-	if cfg.Storage.Type == pbm.StorageUndef {
-		return errors.New("store is doesn't set, you have to set store to make backup")
 	}
 	meta.Store = cfg.Storage
 	// Erase credentials data

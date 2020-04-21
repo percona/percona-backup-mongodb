@@ -75,10 +75,15 @@ type S3 struct {
 	opts Conf
 }
 
-func New(opts Conf) *S3 {
+func New(opts Conf) (*S3, error) {
+	err := opts.Cast()
+	if err != nil {
+		return nil, errors.Wrap(err, "cast options")
+	}
+
 	return &S3{
 		opts: opts,
-	}
+	}, nil
 }
 
 func (s *S3) Save(name string, data io.Reader) error {

@@ -45,11 +45,7 @@ func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
 	}
 
 	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": meta.Name})
-	if err != nil {
-		return errors.Wrap(err, "delete metadata from db")
-	}
-
-	return nil
+	return errors.Wrap(err, "delete metadata from db")
 }
 
 // DeleteOlderThan deletes backups which older than backup

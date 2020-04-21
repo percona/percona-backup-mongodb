@@ -162,6 +162,9 @@ func (p *PBM) GetConfig() (Config, error) {
 	return c, errors.Wrap(err, "decode")
 }
 
+// ErrStorageUndefined is an error for undefined storage
+var ErrStorageUndefined = errors.New("storage undefined")
+
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object
 func (p *PBM) GetStorage() (storage.Storage, error) {
@@ -172,15 +175,13 @@ func (p *PBM) GetStorage() (storage.Storage, error) {
 
 	switch c.Storage.Type {
 	case StorageS3:
-		err := c.Storage.S3.Cast()
-		if err != nil {
-			return nil, errors.Wrap(err, "cast options")
-		}
-		return s3.New(c.Storage.S3), nil
+		return s3.New(c.Storage.S3)
 	case StorageFilesystem:
 		return fs.New(c.Storage.Filesystem), nil
 	case StorageBlackHole:
 		return blackhole.New(), nil
+	case StorageUndef:
+		return nil, ErrStorageUndefined
 	default:
 		return nil, errors.Errorf("unknown storage type %s", c.Storage.Type)
 	}

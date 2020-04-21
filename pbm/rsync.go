@@ -52,7 +52,7 @@ func (p *PBM) ResyncBackupList() error {
 func (p *PBM) archiveBackupsMeta() error {
 	err := p.Conn.Database(DB).Collection(BcpOldCollection).Drop(p.ctx)
 	if err != nil {
-		return errors.Wrap(err, "remove old archive")
+		return errors.Wrap(err, "failed to remove old archive from backups metadata")
 	}
 
 	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(p.ctx, bson.M{})
