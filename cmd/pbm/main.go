@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -46,7 +47,7 @@ var (
 
 	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcpName   = deleteBcpCmd.Arg("name", "Backup name").String()
-	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", "Delete backups older than").String()
+	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).String()
 	deleteBcpForceF = deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
@@ -164,7 +165,11 @@ func main() {
 
 		var err error
 		if len(*deleteBcpCmdOtF) > 0 {
-			err = pbmClient.DeleteOlderThan(*deleteBcpCmdOtF)
+			t, err := parseDateT(*deleteBcpCmdOtF)
+			if err != nil {
+				log.Fatalln("Error: parse date:", err)
+			}
+			err = pbmClient.DeleteOlderThan(t)
 		} else {
 			if len(*deleteBcpName) == 0 {
 				log.Fatalln("Error: backup name should be specified")
@@ -199,4 +204,20 @@ func getConfig(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: unable to get config:", err)
 	}
 	fmt.Println(string(cfg))
+}
+
+const (
+	datetimeFormat = "2006-01-02T15:04:05"
+	dateFormat     = "2006-01-02"
+)
+
+func parseDateT(v string) (time.Time, error) {
+	switch {
+	case len(v) == len(datetimeFormat):
+		return time.Parse(datetimeFormat, v)
+	case len(v) == len(datetimeFormat):
+		return time.Parse(dateFormat, v)
+	}
+
+	return time.Time{}, errors.New("invalid format")
 }

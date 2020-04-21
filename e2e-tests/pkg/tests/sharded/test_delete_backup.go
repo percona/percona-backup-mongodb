@@ -13,51 +13,61 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type backupDelete struct {
+	name string
+	ts   time.Time
+}
+
 func (c *Cluster) BackupDelete(storage string) {
 	checkData := c.DataChecker()
 
-	backups := make([]string, 5)
+	backups := make([]backupDelete, 5)
 	for i := 0; i < len(backups); i++ {
+		ts := time.Now()
+		time.Sleep(1 * time.Second)
 		bcpName := c.Backup()
+		backups[i] = backupDelete{
+			name: bcpName,
+			ts:   ts,
+		}
 		log.Println("doing backup:", bcpName)
 		c.BackupWaitDone(bcpName)
-		backups[i] = bcpName
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 
 	c.printBcpList()
 
-	log.Println("delete backup", backups[4])
-	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4])
+	log.Println("delete backup", backups[4].name)
+	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
 	if err != nil {
-		log.Fatalf("Error: delete backup %s: %v", backups[4], err)
+		log.Fatalf("Error: delete backup %s: %v", backups[4].name, err)
 	}
 
 	c.printBcpList()
 
-	log.Println("delete backups older than", backups[3])
-	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", "--older-than", backups[3])
+	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[3].ts.Format("2006-01-02T15:04:05"))
+	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
 	if err != nil {
-		log.Fatalf("Error: delete backups older than %s: %v", backups[3], err)
+		log.Fatalf("Error: delete backups older than %s: %v", backups[3].name, err)
 	}
 
 	c.printBcpList()
 
 	log.Println("should be only backup", backups[3])
-	checkNoFiles(backups[3], storage)
+	checkNoFiles(backups[3].name, storage)
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
 		log.Fatalln("Error: get backups list", err)
 	}
 
-	if len(blist) != 1 || blist[0].Name != backups[3] {
-		log.Fatalf("Error: wrong backups list. Should has been left only backup %s. But have:\n%v", backups[3], blist)
+	if len(blist) != 1 || blist[0].Name != backups[3].name {
+		log.Fatalf("Error: wrong backups list. Should has been left only backup %s. But have:\n%v", backups[3].name, blist)
 	}
 
 	log.Println("trying to restore from", backups[3])
 	c.DeleteBallast()
-	c.Restore(backups[3])
+	c.Restore(backups[3].name)
 	checkData()
 }
 

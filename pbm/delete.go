@@ -1,6 +1,8 @@
 package pbm
 
 import (
+	"time"
+
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -48,14 +50,8 @@ func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
 	return errors.Wrap(err, "delete metadata from db")
 }
 
-// DeleteOlderThan deletes backups which older than backup
-// with the given name from the current storage and pbm database
-func (p *PBM) DeleteOlderThan(name string) error {
-	meta, err := p.GetBackupMeta(name)
-	if err != nil {
-		return errors.Wrap(err, "get backup meta")
-	}
-
+// DeleteOlderThan deletes backups which older than Time
+func (p *PBM) DeleteOlderThan(t time.Time) error {
 	stg, err := p.GetStorage()
 	if err != nil {
 		return errors.Wrap(err, "get storage")
@@ -64,7 +60,7 @@ func (p *PBM) DeleteOlderThan(name string) error {
 	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
 		p.ctx,
 		bson.M{
-			"start_ts": bson.M{"$lt": meta.StartTS},
+			"start_ts": bson.M{"$lt": t.Unix()},
 		},
 	)
 	if err != nil {
