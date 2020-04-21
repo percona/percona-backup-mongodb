@@ -45,7 +45,7 @@ var (
 	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
-	deleteBcpName   = deleteBcpCmd.Arg("name", "backup name").String()
+	deleteBcpName   = deleteBcpCmd.Arg("name", "Backup name").String()
 	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", "Delete backups older than").String()
 	deleteBcpForceF = deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool()
 
@@ -151,7 +151,7 @@ func main() {
 			printBackupList(pbmClient, *listCmdSize)
 		}
 	case deleteBcpCmd.FullCommand():
-		if !*deleteBcpForceF {
+		if !*deleteBcpForceF && isTTY() {
 			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
@@ -176,6 +176,11 @@ func main() {
 		}
 		printBackupList(pbmClient, 0)
 	}
+}
+
+func isTTY() bool {
+	fi, err := os.Stdin.Stat()
+	return (fi.Mode()&os.ModeCharDevice) != 0 && err == nil
 }
 
 func rsync(pbmClient *pbm.PBM) {
