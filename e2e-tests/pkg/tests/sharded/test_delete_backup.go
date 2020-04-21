@@ -22,7 +22,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Println("doing backup:", bcpName)
 		c.BackupWaitDone(bcpName)
 		backups[i] = bcpName
-		time.Sleep(1)
+		time.Sleep(1 * time.Second)
 	}
 
 	c.printBcpList()
