@@ -57,7 +57,7 @@ func (p *PBM) archiveBackupsMeta() error {
 
 	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(p.ctx, bson.M{})
 	if err != nil {
-		return errors.Wrap(err, "get current meta")
+		return errors.Wrap(err, "get current backups meta")
 	}
 	for cur.Next(p.ctx) {
 		_, err = p.Conn.Database(DB).Collection(BcpOldCollection).InsertOne(p.ctx, cur.Current)

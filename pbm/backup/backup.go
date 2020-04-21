@@ -79,7 +79,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 	stg, err := b.cn.GetStorage()
 	if err != nil {
-		return errors.Wrap(err, "unable to get storage")
+		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
 
 	ver, err := b.node.GetMongoVersion()
@@ -89,7 +89,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 	cfg, err := b.cn.GetConfig()
 	if err != nil {
-		return errors.Wrap(err, "unable to get config")
+		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 	if cfg.Storage.Type == pbm.StorageUndef {
 		return errors.New("store is doesn't set, you have to set store to make backup")

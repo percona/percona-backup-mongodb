@@ -152,7 +152,7 @@ func main() {
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF {
-			fmt.Print("Are you shure you want delete backup(s)? [y/N] ")
+			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
 			switch strings.TrimSpace(scanner.Text()) {
