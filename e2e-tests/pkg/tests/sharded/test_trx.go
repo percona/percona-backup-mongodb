@@ -74,7 +74,10 @@ func (c *Cluster) DistributedTransactions() {
 	}()
 
 	err = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
-		var err error
+		err := sess.StartTransaction()
+		if err != nil {
+			log.Fatalln("ERROR: start transaction:", err)
+		}
 		defer func() {
 			if err != nil {
 				sess.AbortTransaction(sc)
@@ -95,12 +98,12 @@ func (c *Cluster) DistributedTransactions() {
 
 		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx:", err)
+			log.Fatalln("ERROR: update in transaction trx199:", err)
 		}
 
 		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 2001}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx:", err)
+			log.Fatalln("ERROR: update in transaction trx2001:", err)
 		}
 
 		log.Println("Commiting the transaction")
