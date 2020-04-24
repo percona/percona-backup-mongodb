@@ -108,8 +108,9 @@ start_cluster() {
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
-    sleep 30
+    sleep 25
     docker-compose -f $COMPOSE_PATH ps
+    docker-compose -f $COMPOSE_PATH logs cfg101
     export COMPOSE_INTERACTIVE_NO_CLI=1
     docker-compose -f $COMPOSE_PATH exec -T cfg01 /opt/start.sh
     docker-compose -f $COMPOSE_PATH exec -T rs101 /opt/start.sh
