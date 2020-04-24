@@ -74,9 +74,31 @@ func (c *Cluster) DistributedTransactions() {
 		bcpDone <- struct{}{}
 	}()
 
+	// distributed transaction that commits before backup ends
+	// results should be visible after restore
+	_, err = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 30}, bson.D{{"$set", bson.M{"changed": 1}}})
+		if err != nil {
+			log.Fatalln("ERROR: update in transaction trx30:", err)
+		}
+
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 130}, bson.D{{"$set", bson.M{"changed": 1}}})
+		if err != nil {
+			log.Fatalln("ERROR: update in transaction trx130:", err)
+		}
+
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 3000}, bson.D{{"$set", bson.M{"changed": 1}}})
+		if err != nil {
+			log.Fatalln("ERROR: update in transaction trx3000:", err)
+		}
+
+		return nil, nil
+	})
+
+	// distributed transaction that commits after backup ends
+	// results should NOT be visible after restore
 	err = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
-		var err error
-		err = sess.StartTransaction()
+		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
 		}
@@ -93,12 +115,22 @@ func (c *Cluster) DistributedTransactions() {
 			log.Fatalln("ERROR: update in transaction trx0:", err)
 		}
 
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 180}, bson.D{{"$set", bson.M{"changed": 1}}})
+		if err != nil {
+			log.Fatalln("ERROR: update in transaction trx180:", err)
+		}
+
 		log.Println("Waiting for the backup to done")
 		<-bcpDone
 		log.Println("Backup done")
 
 		c.printBalancerStatus(ctx)
 		c.flushRouterConfig(ctx)
+
+		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
+		if err != nil {
+			log.Fatalln("ERROR: update in transaction trx99:", err)
+		}
 
 		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
@@ -238,15 +270,33 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
 	c.DeleteBallast()
 	if ok := c.deleteTrxData(ctx, time.Minute*1); !ok {
 		c.zeroTrxDoc(ctx, 0)
+		c.zeroTrxDoc(ctx, 30)
+		c.zeroTrxDoc(ctx, 99)
+		c.zeroTrxDoc(ctx, 130)
+		c.zeroTrxDoc(ctx, 180)
 		c.zeroTrxDoc(ctx, 199)
 		c.zeroTrxDoc(ctx, 2001)
+		c.zeroTrxDoc(ctx, 3000)
 	}
 
 	c.Restore(bcpName)
 
+	// check commited transaction
+	c.checkTrxDoc(ctx, 30, 1)
+	c.checkTrxDoc(ctx, 130, 1)
+	c.checkTrxDoc(ctx, 3000, 1)
+
+	// check uncommited (commit wasn't dropped to backup) transaction
 	c.checkTrxDoc(ctx, 0, -1)
+	c.checkTrxDoc(ctx, 99, -1)
+	c.checkTrxDoc(ctx, 180, -1)
 	c.checkTrxDoc(ctx, 199, -1)
 	c.checkTrxDoc(ctx, 2001, -1)
+
+	// check data that wasn't touched by transactions
+	c.checkTrxDoc(ctx, 10, -1)
+	c.checkTrxDoc(ctx, 2000, -1)
+
 }
 
 func (c *Cluster) zeroTrxDoc(ctx context.Context, id int) {

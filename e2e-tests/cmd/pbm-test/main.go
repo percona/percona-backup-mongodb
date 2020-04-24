@@ -90,6 +90,9 @@ func main() {
 	tests.RestartAgents()
 	printDone("Restart agents during the backup")
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e6)
+
 	printStart("Cut network during the backup")
 	tests.NetworkCut()
 	printDone("Cut network during the backup")
