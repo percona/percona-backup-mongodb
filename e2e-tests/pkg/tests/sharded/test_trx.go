@@ -69,12 +69,14 @@ func (c *Cluster) DistributedTransactions() {
 	go func() {
 		bcpName = c.Backup()
 		c.BackupWaitDone(bcpName)
+		log.Println("Backup done")
 		time.Sleep(time.Second * 1)
 		bcpDone <- struct{}{}
 	}()
 
 	err = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
-		err := sess.StartTransaction()
+		var err error
+		err = sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
 		}
@@ -94,7 +96,9 @@ func (c *Cluster) DistributedTransactions() {
 		log.Println("Waiting for the backup to done")
 		<-bcpDone
 		log.Println("Backup done")
+
 		c.printBalancerStatus(ctx)
+		c.flushRouterConfig(ctx)
 
 		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
@@ -107,7 +111,12 @@ func (c *Cluster) DistributedTransactions() {
 		}
 
 		log.Println("Commiting the transaction")
-		return sess.CommitTransaction(sc)
+		err = sess.CommitTransaction(sc)
+		if err != nil {
+			log.Fatalln("ERROR: commit in transaction:", err)
+		}
+
+		return nil
 	})
 	sess.EndSession(ctx)
 
@@ -127,6 +136,16 @@ func (c *Cluster) printBalancerStatus(ctx context.Context) {
 		log.Fatalln("ERROR: balancerStatus:", err)
 	}
 	log.Println("Ballancer status:", state)
+}
+
+func (c *Cluster) flushRouterConfig(ctx context.Context) {
+	err := c.mongos.Conn().Database("admin").RunCommand(
+		ctx,
+		bson.D{{"flushRouterConfig", 1}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: flushRouterConfig:", err)
+	}
 }
 
 func (c *Cluster) deleteTrxData(ctx context.Context, tout time.Duration) bool {
@@ -213,7 +232,6 @@ func (c *Cluster) setupTrxCollection(ctx context.Context) {
 	if err != nil {
 		log.Fatalln("ERROR: updateZoneKeyRange trx.test/R2:", err)
 	}
-
 }
 
 func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
@@ -226,7 +244,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
 
 	c.Restore(bcpName)
 
-	c.checkTrxDoc(ctx, 0, 1)
+	c.checkTrxDoc(ctx, 0, -1)
 	c.checkTrxDoc(ctx, 199, -1)
 	c.checkTrxDoc(ctx, 2001, -1)
 }
