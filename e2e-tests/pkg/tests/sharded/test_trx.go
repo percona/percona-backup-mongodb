@@ -29,9 +29,18 @@ type trxData struct {
 func (c *Cluster) DistributedTransactions() {
 	ctx := context.Background()
 
+	log.Println("Updating transactionLifetimeLimitSeconds to", 300)
+	err := c.mongopbm.Conn().Database("admin").RunCommand(
+		ctx,
+		bson.D{{"setParameter", 1}, {"transactionLifetimeLimitSeconds", 300}},
+	).Err()
+	if err != nil {
+		log.Fatalln("ERROR: update transactionLifetimeLimitSeconds:", err)
+	}
+
 	c.setupTrxCollection(ctx)
 
-	err := c.mongos.GenData("trx", "test", 5000)
+	err = c.mongos.GenData("trx", "test", 5000)
 	if err != nil {
 		log.Fatalln("ERROR: GenData:", err)
 	}
@@ -125,6 +134,8 @@ func (c *Cluster) DistributedTransactions() {
 		log.Println("Backup done")
 
 		c.printBalancerStatus(ctx)
+
+		// to prevent StaleConfig after the balancer moved chunks
 		c.flushRouterConfig(ctx)
 
 		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})

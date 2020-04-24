@@ -25,20 +25,20 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   cfg02:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: cfg02
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   cfg03:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: cfg03
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   agent-cfg01:
@@ -101,20 +101,20 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   rs102:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: rs102
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   rs103:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: rs103
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   agent-rs101:
@@ -179,20 +179,20 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   rs202:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: rs202
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   rs203:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
     hostname: rs203
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1 --setParameter "transactionLifetimeLimitSeconds=300"
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   agent-rs201:

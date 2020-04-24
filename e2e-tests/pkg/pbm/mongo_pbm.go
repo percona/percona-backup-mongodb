@@ -38,6 +38,10 @@ func (m *MongoPBM) StoreResync() error {
 	return m.p.ResyncBackupList()
 }
 
+func (m *MongoPBM) Conn() *mongo.Client {
+	return m.p.Conn
+}
+
 // WaitOp waits up to waitFor duration until operations witch acquires a given lock are finished
 func (m *MongoPBM) WaitOp(lock *pbm.LockHeader, waitFor time.Duration) error {
 	// just to be sure the check hasn't started before the lock were created
