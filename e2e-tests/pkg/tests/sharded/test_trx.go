@@ -340,6 +340,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
 	c.checkTrxDoc(ctx, 10, -1)
 	c.checkTrxDoc(ctx, 2000, -1)
 
+	log.Println("delete trx.test data:", c.deleteTrxData(ctx, time.Minute*1))
 }
 
 func (c *Cluster) zeroTrxDoc(ctx context.Context, id int) {
