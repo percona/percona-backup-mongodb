@@ -97,6 +97,9 @@ func main() {
 	tests.NetworkCut()
 	printDone("Cut network during the backup")
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
+
 	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
 	v42 := version.Must(version.NewVersion("4.2"))
 	if cVersion.GreaterThanOrEqual(v42) {

@@ -28,6 +28,7 @@ type trxData struct {
 
 func (c *Cluster) DistributedTransactions() {
 	ctx := context.Background()
+	conn := c.mongos.Conn()
 
 	log.Println("Updating transactionLifetimeLimitSeconds to", 300)
 	err := c.mongopbm.Conn().Database("admin").RunCommand(
@@ -40,12 +41,16 @@ func (c *Cluster) DistributedTransactions() {
 
 	c.setupTrxCollection(ctx)
 
+	_, err = conn.Database("trx").Collection("test").DeleteMany(ctx, bson.M{})
+	if err != nil {
+		log.Fatalln("ERROR: delete data from trx.test:", err)
+	}
+
 	err = c.mongos.GenData("trx", "test", 5000)
 	if err != nil {
 		log.Fatalln("ERROR: GenData:", err)
 	}
 
-	conn := c.mongos.Conn()
 	sess, err := conn.StartSession(
 		options.Session().
 			SetDefaultReadPreference(readpref.Primary()).
@@ -78,25 +83,28 @@ func (c *Cluster) DistributedTransactions() {
 	go func() {
 		bcpName = c.Backup()
 		c.BackupWaitDone(bcpName)
-		log.Println("Backup done")
 		time.Sleep(time.Second * 1)
 		bcpDone <- struct{}{}
 	}()
 
 	// distributed transaction that commits before backup ends
 	// results should be visible after restore
-	_, err = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 30}, bson.D{{"$set", bson.M{"changed": 1}}})
+	log.Println("Run trx1")
+	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		log.Println("trx1 30")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 30}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx30:", err)
 		}
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 130}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx1 130")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 130}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx130:", err)
 		}
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 3000}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx1 3000")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 3000}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx3000:", err)
 		}
@@ -106,7 +114,7 @@ func (c *Cluster) DistributedTransactions() {
 
 	// distributed transaction that commits after backup ends
 	// results should NOT be visible after restore
-	err = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+	mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
 		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
@@ -118,13 +126,14 @@ func (c *Cluster) DistributedTransactions() {
 			}
 		}()
 
-		log.Println("Starting a transaction")
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 0}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx2 0")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 0}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx0:", err)
 		}
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 180}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx2 180")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 180}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx180:", err)
 		}
@@ -135,20 +144,23 @@ func (c *Cluster) DistributedTransactions() {
 
 		c.printBalancerStatus(ctx)
 
-		// to prevent StaleConfig after the balancer moved chunks
-		c.flushRouterConfig(ctx)
+		// // to prevent StaleConfig after the balancer moved chunks
+		// c.flushRouterConfig(ctx)
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx2 99")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx99:", err)
 		}
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx2 199")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx199:", err)
 		}
 
-		_, err = conn.Database("trx").Collection("test").UpdateOne(sc, bson.M{"idx": 2001}, bson.D{{"$set", bson.M{"changed": 1}}})
+		log.Println("trx2 2001")
+		err = c.updateTrxRetry(sc, bson.M{"idx": 2001}, bson.D{{"$set", bson.M{"changed": 1}}})
 		if err != nil {
 			log.Fatalln("ERROR: update in transaction trx2001:", err)
 		}
@@ -168,6 +180,24 @@ func (c *Cluster) DistributedTransactions() {
 	c.checkTrxCollection(ctx, bcpName)
 }
 
+// updateTrxRetry tries to run an update operation and in case of the StaleConfig error
+// it run flushRouterConfig and tries again
+func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, filter interface{}, update interface{}) error {
+	var err error
+	conn := c.mongos.Conn()
+	for i := 0; i < 3; i++ {
+		c.flushRouterConfig(context.Background())
+		_, err = conn.Database("trx").Collection("test").UpdateOne(ctx, filter, update)
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "StaleConfig") {
+			return err
+		}
+	}
+	return err
+}
+
 func (c *Cluster) printBalancerStatus(ctx context.Context) {
 	br := c.mongos.Conn().Database("admin").RunCommand(
 		ctx,
@@ -182,6 +212,7 @@ func (c *Cluster) printBalancerStatus(ctx context.Context) {
 }
 
 func (c *Cluster) flushRouterConfig(ctx context.Context) {
+	log.Println("flushRouterConfig")
 	err := c.mongos.Conn().Database("admin").RunCommand(
 		ctx,
 		bson.D{{"flushRouterConfig", 1}},
@@ -289,6 +320,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
 		c.zeroTrxDoc(ctx, 2001)
 		c.zeroTrxDoc(ctx, 3000)
 	}
+	c.flushRouterConfig(ctx)
 
 	c.Restore(bcpName)
 
