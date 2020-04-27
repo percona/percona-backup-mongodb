@@ -26,12 +26,20 @@ func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
 	}, nil
 }
 
+func (m *MongoPBM) BackupsList(limit int64) ([]pbm.BackupMeta, error) {
+	return m.p.BackupsList(limit)
+}
+
 func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 	return m.p.GetBackupMeta(bcpName)
 }
 
 func (m *MongoPBM) StoreResync() error {
 	return m.p.ResyncBackupList()
+}
+
+func (m *MongoPBM) Conn() *mongo.Client {
+	return m.p.Conn
 }
 
 // WaitOp waits up to waitFor duration until operations witch acquires a given lock are finished

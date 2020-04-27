@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 var excludeFromDumpRestore = []string{
@@ -29,7 +30,7 @@ var excludeFromDumpRestore = []string{
 	"config.lockpings",
 	"config.locks",
 	"config.system.sessions",
-	"config.cache.collections",
+	"config.cache.*",
 }
 
 type Restore struct {
@@ -53,7 +54,7 @@ const (
 func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 	stg, err := r.cn.GetStorage()
 	if err != nil {
-		return errors.Wrap(err, "get backup store")
+		return errors.Wrap(err, "get backup storage")
 	}
 
 	bcp, err := r.cn.GetBackupMeta(cmd.BackupName)
@@ -165,16 +166,17 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	dumpReader, dumpCloser, err := Source(stg, rsBackup.DumpName, bcp.Compression)
+	sr, err := stg.SourceReader(rsBackup.DumpName)
 	if err != nil {
-		return errors.Wrap(err, "create source object for the dump restore")
+		return errors.Wrapf(err, "get object %s for the storage", rsBackup.DumpName)
 	}
-	defer func() {
-		dumpReader.Close()
-		if dumpCloser != nil {
-			dumpCloser.Close()
-		}
-	}()
+	defer sr.Close()
+
+	dumpReader, err := Decompress(sr, bcp.Compression)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", rsBackup.DumpName)
+	}
+	defer dumpReader.Close()
 
 	ver, err := r.node.GetMongoVersion()
 	if err != nil || len(ver.Version) < 1 {
@@ -250,16 +252,17 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 
 	log.Println("starting the oplog replay")
 
-	oplogReader, oplogCloser, err := Source(stg, rsBackup.OplogName, bcp.Compression)
+	or, err := stg.SourceReader(rsBackup.OplogName)
 	if err != nil {
-		return errors.Wrap(err, "create source object for the oplog restore")
+		return errors.Wrapf(err, "get object %s for the storage", rsBackup.DumpName)
 	}
-	defer func() {
-		oplogReader.Close()
-		if oplogCloser != nil {
-			oplogCloser.Close()
-		}
-	}()
+	defer or.Close()
+
+	oplogReader, err := Decompress(or, bcp.Compression)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", rsBackup.DumpName)
+	}
+	defer oplogReader.Close()
 
 	err = NewOplog(r.node, ver, preserveUUID).Apply(oplogReader)
 	if err != nil {
@@ -537,14 +540,15 @@ func (r *Restore) MarkFailed(name, rsName, msg string) error {
 	return errors.Wrap(err, "set replset state")
 }
 
-func getMetaFromStore(bcpName string, stg pbm.Storage) (*pbm.BackupMeta, error) {
-	rr, _, err := Source(stg, bcpName+".pbm.json", pbm.CompressionTypeNone)
+func getMetaFromStore(bcpName string, stg storage.Storage) (*pbm.BackupMeta, error) {
+	r, err := stg.SourceReader(bcpName + pbm.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get from store")
 	}
+	defer r.Close()
 
 	b := &pbm.BackupMeta{}
-	err = json.NewDecoder(rr).Decode(b)
+	err = json.NewDecoder(r).Decode(b)
 
 	return b, errors.Wrap(err, "decode")
 }

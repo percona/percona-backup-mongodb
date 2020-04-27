@@ -16,6 +16,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 func init() {
@@ -127,7 +128,7 @@ func genData(b []byte) {
 
 const fileName = "pbmSpeedTest"
 
-func Run(nodeCN *mongo.Client, stg pbm.Storage, compression pbm.CompressionType, sizeGb float64, collection string) (*Results, error) {
+func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionType, sizeGb float64, collection string) (*Results, error) {
 	var src backup.Source
 	var err error
 	if collection != "" {

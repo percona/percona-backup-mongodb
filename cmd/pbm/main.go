@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -41,6 +44,11 @@ var (
 	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
 	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
 	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+
+	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
+	deleteBcpName   = deleteBcpCmd.Arg("name", "Backup name").String()
+	deleteBcpCmdOtF = deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).String()
+	deleteBcpForceF = deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool()
 
 	versionCmd    = pbmCmd.Command("version", "PBM version info")
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -143,7 +151,41 @@ func main() {
 		} else {
 			printBackupList(pbmClient, *listCmdSize)
 		}
+	case deleteBcpCmd.FullCommand():
+		if !*deleteBcpForceF && isTTY() {
+			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			switch strings.TrimSpace(scanner.Text()) {
+			case "yes", "Yes", "YES", "Y", "y":
+			default:
+				return
+			}
+		}
+
+		var err error
+		if len(*deleteBcpCmdOtF) > 0 {
+			t, err := parseDateT(*deleteBcpCmdOtF)
+			if err != nil {
+				log.Fatalln("Error: parse date:", err)
+			}
+			err = pbmClient.DeleteOlderThan(t)
+		} else {
+			if len(*deleteBcpName) == 0 {
+				log.Fatalln("Error: backup name should be specified")
+			}
+			err = pbmClient.DeleteBackup(*deleteBcpName)
+		}
+		if err != nil {
+			log.Fatalln("Error:", err)
+		}
+		printBackupList(pbmClient, 0)
 	}
+}
+
+func isTTY() bool {
+	fi, err := os.Stdin.Stat()
+	return (fi.Mode()&os.ModeCharDevice) != 0 && err == nil
 }
 
 func rsync(pbmClient *pbm.PBM) {
@@ -162,4 +204,20 @@ func getConfig(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: unable to get config:", err)
 	}
 	fmt.Println(string(cfg))
+}
+
+const (
+	datetimeFormat = "2006-01-02T15:04:05"
+	dateFormat     = "2006-01-02"
+)
+
+func parseDateT(v string) (time.Time, error) {
+	switch {
+	case len(v) == len(datetimeFormat):
+		return time.Parse(datetimeFormat, v)
+	case len(v) == len(datetimeFormat):
+		return time.Parse(dateFormat, v)
+	}
+
+	return time.Time{}, errors.New("invalid format")
 }

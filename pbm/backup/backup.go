@@ -19,6 +19,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 type Backup struct {
@@ -75,21 +77,25 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		}
 	}()
 
+	stg, err := b.cn.GetStorage()
+	if err != nil {
+		return errors.Wrap(err, "unable to get PBM storage configuration settings")
+	}
+
 	ver, err := b.node.GetMongoVersion()
 	if err == nil {
 		meta.MongoVersion = ver.VersionString
 	}
 
-	stg, err := b.cn.GetStorage()
-	if err != nil {
-		return errors.Wrap(err, "unable to get backup store")
+	cfg, err := b.cn.GetConfig()
+	if err == pbm.ErrStorageUndefined {
+		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
+	} else if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
 	}
-	if stg.Type == pbm.StorageUndef {
-		return errors.New("store is doesn't set, you have to set store to make backup")
-	}
-	meta.Store = stg
+	meta.Store = cfg.Storage
 	// Erase credentials data
-	meta.Store.S3.Credentials = pbm.Credentials{}
+	meta.Store.S3.Credentials = s3.Credentials{}
 
 	if im.IsLeader() {
 		err = b.cn.SetBackupMeta(meta)
@@ -291,7 +297,7 @@ type Source interface {
 }
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(src Source, dst pbm.Storage, compression pbm.CompressionType, fname string) (int64, error) {
+func Upload(src Source, dst storage.Storage, compression pbm.CompressionType, fname string) (int64, error) {
 	r, pw := io.Pipe()
 	defer r.Close()
 
@@ -305,7 +311,7 @@ func Upload(src Source, dst pbm.Storage, compression pbm.CompressionType, fname 
 		pw.Close()
 	}()
 
-	err.write = Save(r, dst, fname)
+	err.write = dst.Save(fname, r)
 
 	if !err.nil() {
 		return 0, err
@@ -490,7 +496,7 @@ func (b *Backup) waitForLastWrite(bcpName string) (primitive.Timestamp, error) {
 	}
 }
 
-func (b *Backup) dumpClusterMeta(bcpName string, stg pbm.Storage) error {
+func (b *Backup) dumpClusterMeta(bcpName string, stg storage.Storage) error {
 	meta, err := b.cn.GetBackupMeta(bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
@@ -499,13 +505,13 @@ func (b *Backup) dumpClusterMeta(bcpName string, stg pbm.Storage) error {
 	return writeMeta(stg, meta)
 }
 
-func writeMeta(stg pbm.Storage, meta *pbm.BackupMeta) error {
+func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
 	b, err := json.MarshalIndent(meta, "", "\t")
 	if err != nil {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = Save(bytes.NewReader(b), stg, meta.Name+".pbm.json")
+	err = stg.Save(meta.Name+pbm.MetadataFileSuffix, bytes.NewReader(b))
 	return errors.Wrap(err, "write to store")
 }
 

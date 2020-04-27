@@ -67,6 +67,21 @@ func main() {
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore Minio")
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e3)
+	flushStore("/etc/pbm/minio.yaml")
+
+	printStart("Check Backups deletion")
+	tests.BackupDelete("/etc/pbm/minio.yaml")
+	printDone("Check Backups deletion")
+
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
+
+	printStart("Check the Running Backup can't be deleted")
+	tests.BackupNotDeleteRunning()
+	printDone("Check the Running Backup can't be deleted")
+
 	printStart("Backup Data Bounds Check")
 	tests.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")
@@ -75,9 +90,15 @@ func main() {
 	tests.RestartAgents()
 	printDone("Restart agents during the backup")
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e6)
+
 	printStart("Cut network during the backup")
 	tests.NetworkCut()
 	printDone("Cut network during the backup")
+
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
 
 	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
 	v42 := version.Must(version.NewVersion("4.2"))

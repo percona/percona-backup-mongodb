@@ -125,9 +125,18 @@ func (c *Cluster) Backup() string {
 
 func (c *Cluster) BackupWaitDone(bcpName string) {
 	log.Println("waiting for the backup")
+	ts := time.Now()
 	err := c.pbm.CheckBackup(bcpName, time.Minute*25)
 	if err != nil {
 		log.Fatalln("check backup state:", err)
+	}
+
+	// locks being released NOT immediately after the backup succeed
+	// see https://github.com/percona/percona-backup-mongodb/blob/v1.1.3/agent/agent.go#L128-L143
+	needToWait := pbmt.WaitActionStart + time.Second - time.Since(ts)
+	if needToWait > 0 {
+		log.Printf("waiting for the lock to be released for %s", needToWait)
+		time.Sleep(needToWait)
 	}
 	log.Printf("backup finished '%s'\n", bcpName)
 }

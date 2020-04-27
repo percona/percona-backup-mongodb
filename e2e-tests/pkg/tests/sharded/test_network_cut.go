@@ -19,7 +19,6 @@ func (c *Cluster) NetworkCut() {
 	}
 
 	bcpName := c.Backup()
-	time.Sleep(time.Second * 2)
 
 	log.Println("Cut network on agents", rs)
 	err := c.docker.RunOnReplSet(rs, time.Second*5,
