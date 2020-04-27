@@ -138,14 +138,13 @@ func (c *Cluster) DistributedTransactions() {
 			log.Fatalln("ERROR: update in transaction trx180:", err)
 		}
 
+		c.printBalancerStatus(ctx)
+
 		log.Println("Waiting for the backup to done")
 		<-bcpDone
 		log.Println("Backup done")
 
 		c.printBalancerStatus(ctx)
-
-		// // to prevent StaleConfig after the balancer moved chunks
-		// c.flushRouterConfig(ctx)
 
 		log.Println("trx2 99")
 		err = c.updateTrxRetry(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
@@ -339,8 +338,6 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcpName string) {
 	// check data that wasn't touched by transactions
 	c.checkTrxDoc(ctx, 10, -1)
 	c.checkTrxDoc(ctx, 2000, -1)
-
-	log.Println("delete trx.test data:", c.deleteTrxData(ctx, time.Minute*1))
 }
 
 func (c *Cluster) zeroTrxDoc(ctx context.Context, id int) {

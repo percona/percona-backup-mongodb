@@ -30,7 +30,7 @@ var excludeFromDumpRestore = []string{
 	"config.lockpings",
 	"config.locks",
 	"config.system.sessions",
-	"config.cache.collections",
+	"config.cache.*",
 }
 
 type Restore struct {
