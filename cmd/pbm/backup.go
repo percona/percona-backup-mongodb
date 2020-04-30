@@ -129,8 +129,8 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		switch b.Status {
 		case pbm.StatusDone:
 			bcp = b.Name
-		case pbm.StatusCanceled:
-			bcp = fmt.Sprintf("%s\tCanceled at %s", b.Name, time.Unix(b.LastTransitionTS, 0).UTC().Format(time.RFC3339))
+		case pbm.StatusCancelled:
+			bcp = fmt.Sprintf("%s\tCancelled at %s", b.Name, time.Unix(b.LastTransitionTS, 0).UTC().Format(time.RFC3339))
 		case pbm.StatusError:
 			bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
 		default:

@@ -77,8 +77,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	defer func() {
 		if err != nil {
 			status := pbm.StatusError
-			if errors.Is(err, ErrCanceled) {
-				status = pbm.StatusCanceled
+			if errors.Is(err, ErrCancelled) {
+				status = pbm.StatusCancelled
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
@@ -308,8 +308,8 @@ type Source interface {
 	io.WriterTo
 }
 
-// ErrCanceled means backup was canceled
-var ErrCanceled = errors.New("backup canceled")
+// ErrCancelled means backup was canceled
+var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
 func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string) (int64, error) {
@@ -338,7 +338,7 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 		if err != nil {
 			return 0, errors.Wrap(err, "cancel backup: close reader")
 		}
-		return 0, ErrCanceled
+		return 0, ErrCancelled
 	case <-saveDone:
 	}
 
@@ -454,8 +454,8 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				switch shard.Status {
 				case status:
 					shardsToFinish--
-				case pbm.StatusCanceled:
-					return false, ErrCanceled
+				case pbm.StatusCancelled:
+					return false, ErrCancelled
 				case pbm.StatusError:
 					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error)
 				}
@@ -497,8 +497,8 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 			switch bmeta.Status {
 			case status:
 				return nil
-			case pbm.StatusCanceled:
-				return ErrCanceled
+			case pbm.StatusCancelled:
+				return ErrCancelled
 			case pbm.StatusError:
 				return errors.Wrap(err, "backup failed")
 			}

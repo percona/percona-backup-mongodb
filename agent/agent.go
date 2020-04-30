@@ -153,7 +153,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	err = backup.New(ctx, a.pbm, a.node).Run(bcp)
 	a.unsetBcp()
 	if err != nil {
-		if errors.Is(err, backup.ErrCanceled) {
+		if errors.Is(err, backup.ErrCancelled) {
 			log.Println("[INFO] backup was canceled")
 		} else {
 			log.Println("[ERROR] backup:", err)

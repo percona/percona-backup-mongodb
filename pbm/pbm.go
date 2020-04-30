@@ -249,7 +249,7 @@ const (
 	StatusRunning  Status = "running"
 	StatusDumpDone Status = "dumpDone"
 	StatusDone     Status = "done"
-	StatusCanceled Status = "canceled"
+	StatusCancelled Status = "canceled"
 	StatusError    Status = "error"
 )
 
