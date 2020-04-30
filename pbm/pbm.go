@@ -48,6 +48,7 @@ const (
 	CmdUndefined        Command = ""
 	CmdBackup           Command = "backup"
 	CmdRestore          Command = "restore"
+	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
 )
 
@@ -61,7 +62,6 @@ type Cmd struct {
 type BackupCmd struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
-	StoreName   string          `bson:"store,omitempty"`
 }
 
 type RestoreCmd struct {
@@ -249,6 +249,7 @@ const (
 	StatusRunning  Status = "running"
 	StatusDumpDone Status = "dumpDone"
 	StatusDone     Status = "done"
+	StatusCanceled Status = "canceled"
 	StatusError    Status = "error"
 )
 

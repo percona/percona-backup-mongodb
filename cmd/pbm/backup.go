@@ -129,6 +129,8 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		switch b.Status {
 		case pbm.StatusDone:
 			bcp = b.Name
+		case pbm.StatusCanceled:
+			bcp = fmt.Sprintf("%s\tCanceled at %s", b.Name, time.Unix(b.LastTransitionTS, 0).UTC().Format(time.RFC3339))
 		case pbm.StatusError:
 			bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
 		default:
@@ -162,7 +164,7 @@ func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
 			stale = true
-			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).Format(time.RFC3339))
+			staleMsg += fmt.Sprintf(" %s/%s [%s],", l.Replset, l.Node, time.Unix(int64(l.Heartbeat.T), 0).UTC().Format(time.RFC3339))
 		}
 	}
 
@@ -170,5 +172,5 @@ func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 		return fmt.Sprintf("%s\t%s", b.Name, staleMsg[:len(staleMsg)-1]), nil
 	}
 
-	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).Format(time.RFC3339)), nil
+	return fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", b.Name, b.Status, time.Unix(b.StartTS, 0).UTC().Format(time.RFC3339)), nil
 }

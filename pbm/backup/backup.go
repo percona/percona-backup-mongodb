@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -26,12 +27,14 @@ import (
 type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
+	ctx  context.Context
 }
 
-func New(cn *pbm.PBM, node *pbm.Node) *Backup {
+func New(ctx context.Context, cn *pbm.PBM, node *pbm.Node) *Backup {
 	return &Backup{
 		cn:   cn,
 		node: node,
+		ctx:  ctx,
 	}
 }
 
@@ -70,10 +73,20 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		Conditions: []pbm.Condition{},
 	}
 
+	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
-			ferr := b.MarkFailed(bcp.Name, rsMeta.Name, err.Error())
-			log.Printf("Mark backup as failed `%v`: %v\n", err, ferr)
+			status := pbm.StatusError
+			if errors.Is(err, ErrCanceled) {
+				status = pbm.StatusCanceled
+			}
+
+			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
+			log.Printf("Mark RS as %s `%v`: %v\n", status, err, ferr)
+			if im.IsLeader() {
+				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
+				log.Printf("Mark backup as %s `%v`: %v\n", status, err, ferr)
+			}
 		}
 	}()
 
@@ -158,7 +171,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
-	_, err = Upload(dump, stg, bcp.Compression, rsMeta.DumpName)
+	_, err = Upload(b.ctx, dump, stg, bcp.Compression, rsMeta.DumpName)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -202,7 +215,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	oplog.SetTailingSpan(oplogTS, lwTS)
-	_, err = Upload(oplog, stg, bcp.Compression, rsMeta.OplogName)
+	_, err = Upload(b.ctx, oplog, stg, bcp.Compression, rsMeta.OplogName)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -293,13 +306,14 @@ func (rwe rwErr) nil() bool {
 
 type Source interface {
 	io.WriterTo
-	// WriteTo(w io.Writer) (int64, error)
 }
 
+// ErrCanceled means backup was canceled
+var ErrCanceled = errors.New("backup canceled")
+
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(src Source, dst storage.Storage, compression pbm.CompressionType, fname string) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string) (int64, error) {
 	r, pw := io.Pipe()
-	defer r.Close()
 
 	w := Compress(pw, compression)
 
@@ -311,13 +325,28 @@ func Upload(src Source, dst storage.Storage, compression pbm.CompressionType, fn
 		pw.Close()
 	}()
 
-	err.write = dst.Save(fname, r)
+	saveDone := make(chan struct{})
+	go func() {
+		err.write = dst.Save(fname, r)
+		saveDone <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("Backup has been canceled")
+		err := r.Close()
+		if err != nil {
+			return 0, errors.Wrap(err, "cancel backup: close reader")
+		}
+		return 0, ErrCanceled
+	case <-saveDone:
+	}
 
 	if !err.nil() {
 		return 0, err
 	}
 
-	return n, nil
+	return n, r.Close()
 }
 
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
@@ -425,10 +454,10 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				switch shard.Status {
 				case status:
 					shardsToFinish--
+				case pbm.StatusCanceled:
+					return false, ErrCanceled
 				case pbm.StatusError:
-					bmeta.Status = pbm.StatusError
-					bmeta.Error = shard.Error
-					return false, errors.Errorf("backup on the shard %s failed with: %s", shard.Name, bmeta.Error)
+					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error)
 				}
 			}
 		}
@@ -468,6 +497,8 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 			switch bmeta.Status {
 			case status:
 				return nil
+			case pbm.StatusCanceled:
+				return ErrCanceled
 			case pbm.StatusError:
 				return errors.Wrap(err, "backup failed")
 			}
@@ -598,14 +629,4 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 	}
 
 	return name
-}
-
-// MarkFailed set state of backup and given rs as error with msg
-func (b *Backup) MarkFailed(bcpName, rsName, msg string) error {
-	err := b.cn.ChangeBackupState(bcpName, pbm.StatusError, msg)
-	if err != nil {
-		return errors.Wrap(err, "set backup state")
-	}
-	err = b.cn.ChangeRSState(bcpName, rsName, pbm.StatusError, msg)
-	return errors.Wrap(err, "set replset state")
 }
