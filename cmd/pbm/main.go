@@ -148,7 +148,7 @@ func main() {
 		if err != nil {
 			log.Fatalln("Error: send backup canceling:", err)
 		}
-		fmt.Printf("Backup cancelation has started\n")
+		fmt.Printf("Backup cancellation has started\n")
 	case restoreCmd.FullCommand():
 		err := restore(pbmClient, *restoreBcpName)
 		if err != nil {
