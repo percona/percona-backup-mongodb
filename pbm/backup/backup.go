@@ -73,12 +73,21 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		Conditions: []pbm.Condition{},
 	}
 
+	stg, err := b.cn.GetStorage()
+	if err != nil {
+		return errors.Wrap(err, "unable to get PBM storage configuration settings")
+	}
+
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
 			status := pbm.StatusError
 			if errors.Is(err, ErrCancelled) {
 				status = pbm.StatusCancelled
+
+				meta.Status = pbm.StatusCancelled
+				meta.Replsets = append(meta.Replsets, rsMeta)
+				log.Println("Delete artefacts from storage:", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
@@ -89,11 +98,6 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 			}
 		}
 	}()
-
-	stg, err := b.cn.GetStorage()
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM storage configuration settings")
-	}
 
 	ver, err := b.node.GetMongoVersion()
 	if err == nil {

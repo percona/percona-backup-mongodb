@@ -21,15 +21,23 @@ func (p *PBM) DeleteBackup(name string) error {
 		return errors.Wrap(err, "get storage")
 	}
 
-	return p.deleteBackup(meta, stg)
+	err = p.DeleteBackupFiles(meta, stg)
+	if err != nil {
+		errors.Wrap(err, "delete files from storage")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": meta.Name})
+	return errors.Wrap(err, "delete metadata from db")
 }
 
-func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
+// DeleteBackupFiles removes backup's artefacts from storage
+func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	switch meta.Status {
-	case StatusDone, StatusError:
 	default:
-		return errors.Errorf("Unable to delete backup in %s state", meta.Status)
+		return errors.Errorf("unable to delete backup in %s state", meta.Status)
+	case StatusDone, StatusCancelled, StatusError:
 	}
+
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
 		if err != nil {
@@ -42,12 +50,7 @@ func (p *PBM) deleteBackup(meta *BackupMeta, stg storage.Storage) (err error) {
 	}
 
 	err = stg.Delete(meta.Name + MetadataFileSuffix)
-	if err != nil {
-		return errors.Wrap(err, "delete metadata file from storage")
-	}
-
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": meta.Name})
-	return errors.Wrap(err, "delete metadata from db")
+	return errors.Wrap(err, "delete metadata file from storage")
 }
 
 // DeleteOlderThan deletes backups which older than Time
@@ -74,9 +77,14 @@ func (p *PBM) DeleteOlderThan(t time.Time) error {
 			return errors.Wrap(err, "decode backup meta")
 		}
 
-		err = p.deleteBackup(m, stg)
+		err = p.DeleteBackupFiles(m, stg)
 		if err != nil {
-			return errors.Wrap(err, "delete backup")
+			return errors.Wrap(err, "delete backup files from storage")
+		}
+
+		_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": m.Name})
+		if err != nil {
+			return errors.Wrap(err, "delete backup meta from db")
 		}
 	}
 
