@@ -1,8 +1,15 @@
 package sharded
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
+	"net/url"
+	"strings"
 	"time"
+
+	"github.com/minio/minio-go"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -19,7 +26,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 	time.Sleep(3 * time.Second)
 
-	checkNoFiles(bcpName, storage)
+	checkNoBackupFiles(bcpName, storage)
 
 	log.Println("check backup state")
 	m, err := c.mongopbm.GetBackupMeta(bcpName)
@@ -29,5 +36,46 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 	if m.Status != pbm.StatusCancelled {
 		log.Fatalf("Error: wrong backup status, expect %s, got %v", pbm.StatusCancelled, m.Status)
+	}
+}
+
+func checkNoBackupFiles(backupName, conf string) {
+	log.Println("check no artefacts left for backup", backupName)
+	buf, err := ioutil.ReadFile(conf)
+	if err != nil {
+		log.Fatalln("Error: unable to read config file:", err)
+	}
+
+	var cfg pbm.Config
+	err = yaml.UnmarshalStrict(buf, &cfg)
+	if err != nil {
+		log.Fatalln("Error: unmarshal yaml:", err)
+	}
+
+	stg := cfg.Storage
+
+	endopintURL := awsurl
+	if stg.S3.EndpointURL != "" {
+		eu, err := url.Parse(stg.S3.EndpointURL)
+		if err != nil {
+			log.Fatalln("Error: parse EndpointURL:", err)
+		}
+		endopintURL = eu.Host
+	}
+
+	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	if err != nil {
+		log.Fatalln("Error: NewWithRegion:", err)
+	}
+
+	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
+		if object.Err != nil {
+			fmt.Println("Error: ListObjects: ", object.Err)
+			continue
+		}
+
+		if strings.Contains(object.Key, backupName) {
+			log.Fatalln("Error: failed to delete lefover", object.Key)
+		}
 	}
 }

@@ -53,7 +53,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Println("should be only backup", backups[3])
-	checkNoFiles(backups[3].name, storage)
+	checkArtefacts(backups[3].name, storage)
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
@@ -72,8 +72,10 @@ func (c *Cluster) BackupDelete(storage string) {
 
 const awsurl = "s3.amazonaws.com"
 
-func checkNoFiles(exceptPrefix, conf string) {
-	log.Println("check no artifacts left for backup", exceptPrefix)
+// checkArtefacts checks if all backups artefacts removed
+// except for the shouldStay
+func checkArtefacts(shouldStay, conf string) {
+	log.Println("check all artefacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("Error: unable to read config file:", err)
@@ -107,7 +109,7 @@ func checkNoFiles(exceptPrefix, conf string) {
 			continue
 		}
 
-		if !strings.Contains(object.Key, exceptPrefix) {
+		if !strings.Contains(object.Key, shouldStay) {
 			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
