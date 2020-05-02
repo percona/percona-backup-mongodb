@@ -112,7 +112,7 @@ func (c *Cluster) Restore(bcpName string) {
 }
 
 func (c *Cluster) Backup() string {
-	log.Println("starting the backup")
+	log.Println("starting backup")
 	bcpName, err := c.pbm.Backup()
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()

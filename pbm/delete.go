@@ -15,6 +15,10 @@ func (p *PBM) DeleteBackup(name string) error {
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
+	err = probeDelete(meta)
+	if err != nil {
+		return err
+	}
 
 	stg, err := p.GetStorage()
 	if err != nil {
@@ -23,21 +27,24 @@ func (p *PBM) DeleteBackup(name string) error {
 
 	err = p.DeleteBackupFiles(meta, stg)
 	if err != nil {
-		errors.Wrap(err, "delete files from storage")
+		return errors.Wrap(err, "delete files from storage")
 	}
 
 	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": meta.Name})
 	return errors.Wrap(err, "delete metadata from db")
 }
 
+func probeDelete(backup *BackupMeta) error {
+	switch backup.Status {
+	case StatusDone, StatusCancelled, StatusError:
+		return nil
+	default:
+		return errors.Errorf("unable to delete backup in %s state", backup.Status)
+	}
+}
+
 // DeleteBackupFiles removes backup's artefacts from storage
 func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
-	switch meta.Status {
-	default:
-		return errors.Errorf("unable to delete backup in %s state", meta.Status)
-	case StatusDone, StatusCancelled, StatusError:
-	}
-
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
 		if err != nil {
@@ -75,6 +82,11 @@ func (p *PBM) DeleteOlderThan(t time.Time) error {
 		err := cur.Decode(m)
 		if err != nil {
 			return errors.Wrap(err, "decode backup meta")
+		}
+
+		err = probeDelete(m)
+		if err != nil {
+			return err
 		}
 
 		err = p.DeleteBackupFiles(m, stg)
