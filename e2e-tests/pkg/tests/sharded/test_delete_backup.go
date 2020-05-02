@@ -73,6 +73,7 @@ func (c *Cluster) BackupDelete(storage string) {
 const awsurl = "s3.amazonaws.com"
 
 func checkNoFiles(exceptPrefix, conf string) {
+	log.Println("check no artifacts left for backup", exceptPrefix)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("Error: unable to read config file:", err)

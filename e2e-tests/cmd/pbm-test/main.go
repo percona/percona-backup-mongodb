@@ -41,8 +41,10 @@ func main() {
 		DockerSocket: "unix:///var/run/docker.sock",
 	})
 
-	flushStore("/etc/pbm/aws.yaml")
-	tests.ApplyConfig("/etc/pbm/aws.yaml")
+	storage := "/etc/pbm/aws.yaml"
+
+	flushStore(storage)
+	tests.ApplyConfig(storage)
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
@@ -50,18 +52,22 @@ func main() {
 	printStart("Basic Backup & Restore AWS S3")
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore AWS S3")
-	flushStore("/etc/pbm/aws.yaml")
+	flushStore(storage)
 
-	flushStore("/etc/pbm/gcs.yaml")
-	tests.ApplyConfig("/etc/pbm/gcs.yaml")
+	storage = "/etc/pbm/gcs.yaml"
+
+	flushStore(storage)
+	tests.ApplyConfig(storage)
 
 	printStart("Basic Backup & Restore GCS")
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore GCS")
-	flushStore("/etc/pbm/gcs.yaml")
+	flushStore(storage)
 
-	flushStore("/etc/pbm/minio.yaml")
-	tests.ApplyConfig("/etc/pbm/minio.yaml")
+	storage = "/etc/pbm/minio.yaml"
+
+	flushStore(storage)
+	tests.ApplyConfig(storage)
 
 	printStart("Basic Backup & Restore Minio")
 	tests.BackupAndRestore()
@@ -69,10 +75,10 @@ func main() {
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e3)
-	flushStore("/etc/pbm/minio.yaml")
+	flushStore(storage)
 
 	printStart("Check Backups deletion")
-	tests.BackupDelete("/etc/pbm/minio.yaml")
+	tests.BackupDelete(storage)
 	printDone("Check Backups deletion")
 
 	tests.DeleteBallast()
@@ -81,6 +87,10 @@ func main() {
 	printStart("Check the Running Backup can't be deleted")
 	tests.BackupNotDeleteRunning()
 	printDone("Check the Running Backup can't be deleted")
+
+	printStart("Check Backup Cancellation")
+	tests.BackupCancellation(storage)
+	printDone("Check Backup Cancellation")
 
 	printStart("Backup Data Bounds Check")
 	tests.BackupBoundsCheck()
@@ -112,7 +122,7 @@ func main() {
 	tests.ClockSkew()
 	printDone("Clock Skew Tests")
 
-	flushStore("/etc/pbm/minio.yaml")
+	flushStore(storage)
 }
 
 func printStart(name string) {
