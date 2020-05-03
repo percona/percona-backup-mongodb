@@ -12,10 +12,12 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
 	bcpName := c.Backup()
+	ts := time.Now()
 	time.Sleep(1 * time.Second)
 	c.printBcpList()
 	log.Println("canceling backup", bcpName)
@@ -36,6 +38,12 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 	if m.Status != pbm.StatusCancelled {
 		log.Fatalf("Error: wrong backup status, expect %s, got %v", pbm.StatusCancelled, m.Status)
+	}
+
+	needToWait := pbmt.WaitActionStart + time.Second - time.Since(ts)
+	if needToWait > 0 {
+		log.Printf("waiting for the lock to be released for %s", needToWait)
+		time.Sleep(needToWait)
 	}
 }
 
