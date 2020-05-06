@@ -23,6 +23,12 @@
    
      restore <backup_name>
        Restore backup
+
+     delete-backup <backup_name> [<flags>]
+       Delete backup(s) 
+
+     cancel-backup
+       Cancel backup
    
      list [<flags>]
        Backup list

@@ -1,0 +1,11 @@
+.. code-block:: bash
+
+  #Get the backup name
+  $ pbm list
+  Backup history:
+    2020-04-20T10:55:42Z
+    2020-04-20T13:07:34Z
+    2020-04-20T13:13:20Z
+    2020-04-20T13:45:59Z
+  #Delete a backup
+  $ pbm delete-backup 2020-04-20T13:45:59Z
