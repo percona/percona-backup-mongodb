@@ -18,7 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-var excludeFromDumpRestore = []string{
+var excludeFromRestore = []string{
 	pbm.DB + "." + pbm.CmdStreamCollection,
 	pbm.DB + "." + pbm.LogCollection,
 	pbm.DB + "." + pbm.ConfigCollection,
@@ -219,7 +219,7 @@ func (r *Restore) Run(cmd pbm.RestoreCmd) (err error) {
 			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
-			NSExclude: excludeFromDumpRestore,
+			NSExclude: excludeFromRestore,
 			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
 			NSTo:      []string{pbm.DB + `.` + tmpUsers, pbm.DB + `.` + tmpRoles},
 		},

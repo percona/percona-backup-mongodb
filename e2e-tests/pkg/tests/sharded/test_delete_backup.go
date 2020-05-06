@@ -53,7 +53,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Println("should be only backup", backups[3])
-	checkNoFiles(backups[3].name, storage)
+	checkArtefacts(backups[3].name, storage)
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
@@ -72,7 +72,10 @@ func (c *Cluster) BackupDelete(storage string) {
 
 const awsurl = "s3.amazonaws.com"
 
-func checkNoFiles(exceptPrefix, conf string) {
+// checkArtefacts checks if all backups artefacts removed
+// except for the shouldStay
+func checkArtefacts(shouldStay, conf string) {
+	log.Println("check all artefacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("Error: unable to read config file:", err)
@@ -106,21 +109,20 @@ func checkNoFiles(exceptPrefix, conf string) {
 			continue
 		}
 
-		if !strings.Contains(object.Key, exceptPrefix) {
+		if !strings.Contains(object.Key, shouldStay) {
 			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
 }
 
 func (c *Cluster) BackupNotDeleteRunning() {
-	log.Println("starting backup")
 	bcpName := c.Backup()
-
+	c.printBcpList()
 	log.Println("deleting backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
-	if err == nil || !strings.Contains(err.Error(), "Error: Unable to delete backup in running state") {
+	if err == nil || !strings.Contains(err.Error(), "unable to delete backup in running state") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
-		log.Fatalf("Error: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%s\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
+		log.Fatalf("Error: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%v\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
 	}
 	c.BackupWaitDone(bcpName)
 }

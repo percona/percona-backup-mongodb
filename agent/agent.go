@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"log"
-	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -13,13 +13,16 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 type Agent struct {
 	pbm  *pbm.PBM
 	node *pbm.Node
+	bcp  *currentBackup
+	mx   sync.Mutex
+}
+
+type currentBackup struct {
+	header *pbm.BackupCmd
+	cancel context.CancelFunc
 }
 
 func New(pbm *pbm.PBM) *Agent {
@@ -33,6 +36,34 @@ func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 	return err
 }
 
+func (a *Agent) setBcp(b *currentBackup) (changed bool) {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	if a.bcp != nil {
+		return false
+	}
+
+	a.bcp = b
+	return true
+}
+
+func (a *Agent) unsetBcp() {
+	a.mx.Lock()
+	a.bcp = nil
+	a.mx.Unlock()
+}
+
+// CancelBackup cancels current backup
+func (a *Agent) CancelBackup() {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	if a.bcp == nil {
+		return
+	}
+
+	a.bcp.cancel()
+}
+
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
 	c, cerr, err := a.pbm.ListenCmd()
@@ -43,15 +74,15 @@ func (a *Agent) Start() error {
 	for {
 		select {
 		case cmd := <-c:
+			log.Printf("Got command %s [%v]", cmd.Cmd, cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
-				log.Println("Got command", cmd.Cmd, cmd.Backup.Name)
-				a.Backup(cmd.Backup)
+				go a.Backup(cmd.Backup)
+			case pbm.CmdCancelBackup:
+				a.CancelBackup()
 			case pbm.CmdRestore:
-				log.Println("Got command", cmd.Cmd, cmd.Restore.BackupName)
 				a.Restore(cmd.Restore)
 			case pbm.CmdResyncBackupList:
-				log.Println("Got command", cmd.Cmd)
 				a.ResyncBackupList()
 			}
 		case err := <-cerr:
@@ -112,11 +143,21 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	a.setBcp(&currentBackup{
+		header: &bcp,
+		cancel: cancel,
+	})
 	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
 	tstart := time.Now()
-	err = backup.New(a.pbm, a.node).Run(bcp)
+	err = backup.New(ctx, a.pbm, a.node).Run(bcp)
+	a.unsetBcp()
 	if err != nil {
-		log.Println("[ERROR] backup:", err)
+		if errors.Is(err, backup.ErrCancelled) {
+			log.Println("[INFO] backup was canceled")
+		} else {
+			log.Println("[ERROR] backup:", err)
+		}
 	} else {
 		log.Printf("Backup %s finished", bcp.Name)
 	}

@@ -40,6 +40,8 @@ var (
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
 
+	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Restore backup")
+
 	listCmd            = pbmCmd.Command("list", "Backup list")
 	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
 	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
@@ -139,6 +141,14 @@ func main() {
 			return
 		}
 		fmt.Printf("\nBackup '%s' to remote store '%s' has started\n", bcpName, storeString)
+	case cancelBcpCmd.FullCommand():
+		err := pbmClient.SendCmd(pbm.Cmd{
+			Cmd: pbm.CmdCancelBackup,
+		})
+		if err != nil {
+			log.Fatalln("Error: send backup canceling:", err)
+		}
+		fmt.Printf("Backup cancellation has started\n")
 	case restoreCmd.FullCommand():
 		err := restore(pbmClient, *restoreBcpName)
 		if err != nil {

@@ -9,21 +9,13 @@ import (
 
 	"github.com/mongodb/mongo-tools-common/db"
 	"github.com/mongodb/mongo-tools-common/txn"
+	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
-
-var skipNs = map[string]struct{}{}
-
-func init() {
-	// add to skip collections that would be skipped while dump restore
-	for _, v := range excludeFromDumpRestore {
-		skipNs[v] = struct{}{}
-	}
-}
 
 // Oplog is the oplog applyer
 type Oplog struct {
@@ -46,6 +38,12 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) *Oplog {
 
 // Apply applys an oplog from a given source
 func (o *Oplog) Apply(src io.ReadCloser) error {
+	// TODO: matcher should be created once since the exclude list always remains the same
+	matcher, err := ns.NewMatcher(excludeFromRestore)
+	if err != nil {
+		return errors.Wrap(err, "create matcher for the collections exclude")
+	}
+
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
@@ -63,7 +61,7 @@ func (o *Oplog) Apply(src io.ReadCloser) error {
 			return errors.Wrap(err, "reading oplog")
 		}
 
-		if _, ok := skipNs[oe.Namespace]; ok {
+		if matcher.Has(oe.Namespace) {
 			continue
 		}
 

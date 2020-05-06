@@ -27,7 +27,7 @@ require (
 	github.com/mongodb/mongo-tools-common v2.0.1+incompatible
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pierrec/lz4 v2.3.0+incompatible
-	github.com/pkg/errors v0.8.1
+	github.com/pkg/errors v0.9.1
 	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337 // indirect
 	github.com/tidwall/pretty v1.0.0 // indirect
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c // indirect
