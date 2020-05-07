@@ -619,8 +619,10 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 		return 0, errors.Wrap(err, "init")
 	}
 	pm.Start()
+	defer pm.Stop()
+
 	err = mdump.Dump()
-	pm.Stop()
+
 	return 0, errors.Wrap(err, "make dump")
 }
 
