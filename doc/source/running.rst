@@ -172,8 +172,9 @@ restarted to reload the sharding metadata.
 Deleting backups
 --------------------------------------------------------------------------------
 
-Use the |pbm-delete-backup| command to delete a specified backup or all backup
+Use the |pbm-delete-backup| command to delete a specified backup or all backups
 older than the specified time.
+
 The command deletes the backup regardless of the remote storage used:
 either S3-compatible or a filesystem-type remote storage.
 
@@ -194,14 +195,12 @@ to proceed with the deletion. To bypass it, add the ``-f`` or
 
   $ pbm delete-backup --force 2020-04-20T13:45:59Z
 
-To delete the set of backups that precede the specified backup, pass the ``--older-than`` flag to the |pbm-delete-backup|
-command. The specified backup is not deleted in this case.
+To delete backups that were created before the specified time, pass the ``--older-than`` flag to the |pbm-delete-backup|
+command. Specify the timestamp as an argument
+for the |pbm-delete-backup| command in the following format:
 
-.. include:: .res/code-block/bash/pbm-delete-backup-older-than-backup.txt
-
-To delete all backups that were created before the specified
-timestamp, enter the timestamp in the ISO 8601 format as an argument
-for the |pbm-delete-backup| command.
+* ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or
+* ``%Y-%M-%D`` (e.g. 2020-04-20).
 
 .. include:: .res/code-block/bash/pbm-delete-backup-older-than-timestamp.txt
 
