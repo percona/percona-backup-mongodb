@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"log"
-	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -589,8 +588,18 @@ func newDump(curi string, conns int) *mdump {
 	}
 }
 
+// "logger" for the mongodup's ProgressManager.
+// need it to be able to write new progress data in a new line
+type progressWriter struct{}
+
+func (*progressWriter) Write(m []byte) (int, error) {
+	log.Printf("%s", m)
+	return len(m), nil
+}
+
 // Write always return 0 as written bytes. Needed to satisfy interface
 func (d *mdump) WriteTo(w io.Writer) (int64, error) {
+	pm := progress.NewBarWriter(&progressWriter{}, time.Second*60, 24, false)
 	mdump := mongodump.MongoDump{
 		ToolOptions: d.opts,
 		OutputOptions: &mongodump.OutputOptions{
@@ -603,13 +612,18 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 		InputOptions:    &mongodump.InputOptions{},
 		SessionProvider: &db.SessionProvider{},
 		OutputWriter:    w,
-		ProgressManager: progress.NewBarWriter(os.Stdout, time.Second*3, 24, false),
+		ProgressManager: pm,
 	}
 	err := mdump.Init()
 	if err != nil {
 		return 0, errors.Wrap(err, "init")
 	}
-	return 0, errors.Wrap(mdump.Dump(), "make dump")
+	pm.Start()
+	defer pm.Stop()
+
+	err = mdump.Dump()
+
+	return 0, errors.Wrap(err, "make dump")
 }
 
 func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
