@@ -31,7 +31,7 @@ var (
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
 	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
-			Default(string(pbm.CompressionTypeGZIP)).
+			Default(string(pbm.CompressionTypeS2)).
 			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
