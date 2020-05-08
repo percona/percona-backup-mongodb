@@ -188,15 +188,14 @@ To cancel the backup, use the |pbm-cancel-backup| command.
   $ pbm cancel-backup
   Backup cancelation has started
 
-After the command execution, the backup is marked as cancelled in
-the |pbm-list| output:
+After the command execution, the backup is marked as cancelled in the |pbm-list| output:
 
 .. code-block:: bash
 
   $ pbm list
   ...
-  2020-04-30T18:05:26Z	Cancelled at 2020-04-30T18:05:37Z  
-
+  2020-04-30T18:05:26Z	Cancelled at 2020-04-30T18:05:37Z
+  
 .. _pbm.backup.delete:
 
 Deleting backups
