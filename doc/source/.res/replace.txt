@@ -24,3 +24,4 @@
 .. |percona| replace:: Percona
 .. |psmdb| replace:: Percona Server for MongoDB
 .. |config-filename-example| replace:: :file:`config.yaml`
+.. |pbm-delete-backup| replace:: ``pbm delete-backup``

@@ -167,11 +167,41 @@ restore.
 After a cluster's restore is complete all mongos nodes will need to be
 restarted to reload the sharding metadata.
 
+.. _pbm.backup.delete:
+
 Deleting backups
 --------------------------------------------------------------------------------
 
-Use the relevant native ``rm`` command for the storage. E.g. for S3-compatible
-object stores use ``aws s3 rm <file name>``. For a filesystem-type storage, use
-normal shell command ``rm``.
+Use the |pbm-delete-backup| command to delete a specified backup or all backups
+older than the specified time.
+
+The command deletes the backup regardless of the remote storage used:
+either S3-compatible or a filesystem-type remote storage.
+
+.. note::
+
+  You can only delete a backup that is not running (has the "done" or the "error" state). 
+
+To delete a backup, specify the ``<backup_name>`` from the the |pbm-list|
+output as an argument. 
+
+.. include:: .res/code-block/bash/pbm-delete-backup.txt
+
+By default, the |pbm-delete-backup| command asks for your confirmation
+to proceed with the deletion. To bypass it, add the ``-f`` or
+``--force`` flag.
+
+.. code-block:: bash
+
+  $ pbm delete-backup --force 2020-04-20T13:45:59Z
+
+To delete backups that were created before the specified time, pass the ``--older-than`` flag to the |pbm-delete-backup|
+command. Specify the timestamp as an argument
+for the |pbm-delete-backup| command in the following format:
+
+* ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or
+* ``%Y-%M-%D`` (e.g. 2020-04-20).
+
+.. include:: .res/code-block/bash/pbm-delete-backup-older-than-timestamp.txt
 
 .. include:: .res/replace.txt
