@@ -56,6 +56,13 @@ data size.
 Run |pbm-speed-test-storage-help| for the full set of available flags:
 
 .. include:: .res/code-block/bash/pbm-speed-test-storage-help.txt
-	     
+
+Backup progress logs
+============================================================================
+
+Track backup progress in |pbm-agent| logs. Log messages are written
+every minute.
+
+.. include:: .res/code-block/bash/pbm-agent-backup-progress-log.txt
 
 .. include:: .res/replace.txt
