@@ -487,6 +487,7 @@ build_tarball(){
     make build
     cp ./bin/pbm ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-agent ${WORKDIR}/${PSMDIR}/
+    cp ./bin/pbm-speed-test ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
 
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}
