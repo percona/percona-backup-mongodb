@@ -1,5 +1,6 @@
 pbm-agent /usr/bin/
 pbm /usr/bin/
+pbm-speed-test /usr/bin/
 default/pbm-agent /etc/default/
 pbm-storage.conf /etc/
 pbm-agent.service /lib/systemd/system/
