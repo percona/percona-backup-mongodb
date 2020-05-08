@@ -167,6 +167,36 @@ restore.
 After a cluster's restore is complete all mongos nodes will need to be
 restarted to reload the sharding metadata.
 
+.. _pbm.cancel.backup:
+
+Cancelling a backup
+--------------------------------------------------------------------------------
+
+If an error occurs during the backup process, the |pbm-agent| processes on
+the mongod nodes must detect it and self-abort. If the |pbm-agent| processes
+cannot handle this error (e.g the error is unknown) or they are inactive on all mongod nodes,
+the backup process gets stuck in an erroneous state. Such backups must be
+cancelled manually.
+
+You can also cancel a normal backup if you want. For example, if you want to do
+another maintenance and don't want to wait for the large backup to finish first.
+
+To cancel the backup, use the |pbm-cancel-backup| command.
+
+.. code-block:: bash
+
+  $ pbm cancel-backup
+  Backup cancelation has started
+
+After the command execution, the backup is marked as cancelled in
+the |pbm-list| output:
+
+.. code-block:: bash
+
+  $ pbm list
+  ...
+  2020-04-30T18:05:26Z	Cancelled at 2020-04-30T18:05:37Z  
+
 .. _pbm.backup.delete:
 
 Deleting backups
