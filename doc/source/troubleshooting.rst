@@ -52,6 +52,9 @@ Upload speed test
 remote storage defined in the config file. Pass the ``--size-gb`` flag to change the
 data size. 
 
+To run the test with the real collection's data instead of the semi random data,
+pass the ``--sample-collection`` flag with the <my_db.my_collection> value.
+
 Run |pbm-speed-test-storage-help| for the full set of available flags:
 
 .. include:: .res/code-block/bash/pbm-speed-test-storage-help.txt
@@ -59,8 +62,9 @@ Run |pbm-speed-test-storage-help| for the full set of available flags:
 Backup progress logs
 ============================================================================
 
-Track backup progress in |pbm-agent| logs. Log messages are written
-every minute.
+If you have a large backup you can track backup progress in |pbm-agent| logs. A line is appended every 
+minute showing bytes copied vs. total size for the current collection.
+``
 
 .. include:: .res/code-block/bash/pbm-agent-backup-progress-log.txt
 
