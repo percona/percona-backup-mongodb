@@ -116,6 +116,14 @@ Starting a backup
 
 .. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
 
+.. rubric:: Starting a backup with compression
+
+.. include:: .res/code-block/bash/pbm-backup-compression.txt
+
+``s2`` is the default compression type. Other supported compression types are: ``gzip``,
+``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
+backup.
+
 .. important::
 
    For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
