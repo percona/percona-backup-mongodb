@@ -35,7 +35,6 @@ Compression test
 |pbm-speed-test-compression| uses the compression library from the config
 file and sends a fake semi random data document (1 GB by default) to the
 black hole storage. (Use the ``pbm config`` command to change the compression library). 
-After the test, the data is removed.
 
 To test compression on a real collection, pass the
 ``--sample-collection`` flag with the <my_db.my_collection> value.
