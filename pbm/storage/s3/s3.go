@@ -215,7 +215,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
 	}
-	return ioutil.NopCloser(s3obj.Body), nil
+	return s3obj.Body, nil
 }
 
 func (s *S3) Delete(name string) error {
