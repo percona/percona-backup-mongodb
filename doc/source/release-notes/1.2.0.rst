@@ -24,16 +24,17 @@ New Features
 Improvements
 ================================================================================
 
-* :jirabug:`PBM-461`: s2 is set as the default compression mechanism
-* :jirabug:`PBM-140`: Add ability to cancel a backup
 * :jirabug:`PBM-431`: Raise dump output speed through compression tuning, parallelization
+* :jirabug:`PBM-461`: s2 is set as the default compression mechanism
 * :jirabug:`PBM-429`: Periodic backup progress messages added to pbm-agent logs
+* :jirabug:`PBM-140`: Added ability to cancel a backup
 
 
 
 Bugs Fixed
 ================================================================================
 
-* :jirabug:`PBM-453`: Fixed linter warnings
+* :jirabug:`PBM-451`: Resync doesn't work if storage type is set to filesystem
+
 
 

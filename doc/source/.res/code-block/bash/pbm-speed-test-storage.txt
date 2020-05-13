@@ -1,0 +1,6 @@
+.. code-block:: bash
+
+   /usr/bin/pbm-speed-test storage --compression=s2
+   Test started 
+   1.00GB sent in 1s.
+   Avg upload rate = 1744.43MB/s.
