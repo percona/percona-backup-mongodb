@@ -63,10 +63,10 @@ Installing |pbm| Using ``apt``
 
 * Debian 8 ("jessie")
 * Debian 9 ("stretch")
-* Ubuntu 14.04 LTS (Trusty Tahr)
+* Debian 10 ("buster")
 * Ubuntu 16.04 LTS (Xenial Xerus)
-* Ubuntu 17.10 (Artful Aardvark)
 * Ubuntu 18.04 LTS (Bionic Beaver)
+* Ubuntu 20.04 LTS (Focal Fossa)
 
 .. code-block:: bash
 
@@ -81,6 +81,7 @@ Installing |pbm| Using ``yum``
 
 * Red Hat Enterprise Linux / CentOS 6 (current stable release)
 * Red Hat Enterprise Linux / CentOS 7 (current stable release)
+* Red Hat Enterprise Linux / CentOS 8 (current stable release)  
 
 .. code-block:: bash
 
