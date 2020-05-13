@@ -64,7 +64,6 @@ Backup progress logs
 
 If you have a large backup you can track backup progress in |pbm-agent| logs. A line is appended every 
 minute showing bytes copied vs. total size for the current collection.
-``
 
 .. include:: .res/code-block/bash/pbm-agent-backup-progress-log.txt
 
