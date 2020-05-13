@@ -8,10 +8,9 @@
 :Installation: `Installing Percona Backup for MongoDB <https://www.percona.com/doc/percona-backup-mongodb/installation.html>`_
 
 Percona Backup for MongoDB is a distributed, low-impact solution for consistent backups of MongoDB
-sharded clusters and replica sets. This is a tool for creating consistent backups
-across a MongoDB sharded cluster (or a single replica set), and for restoring
-those backups to a specific point in time. The project was
-inspired by (and intends to replace) the Percona-Lab/mongodb_consistent_backup tool.
+sharded clusters and replica sets. This is a tool for creating consistent backups 
+across a MongoDB sharded cluster (or a single replica set).
+
 
 New Features
 ================================================================================
@@ -34,7 +33,6 @@ Improvements
 Bugs Fixed
 ================================================================================
 
-* :jirabug:`PBM-453`: Fixed linter warnings
-* :jirabug:`PBM-451`: Resync doesn't work if storage type is set to filesystem
+* :jirabug:`PBM-451`: Resync didn't work if storage type was set to filesystem
 
 
