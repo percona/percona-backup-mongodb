@@ -222,10 +222,10 @@ const (
 )
 
 func parseDateT(v string) (time.Time, error) {
-	switch {
-	case len(v) == len(datetimeFormat):
+	switch len(v) {
+	case len(datetimeFormat):
 		return time.Parse(datetimeFormat, v)
-	case len(v) == len(datetimeFormat):
+	case len(dateFormat):
 		return time.Parse(dateFormat, v)
 	}
 

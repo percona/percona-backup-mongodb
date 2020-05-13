@@ -16,7 +16,7 @@ import (
 // Decompress wraps given reader by the decompressing io.ReadCloser
 func Decompress(r io.Reader, c pbm.CompressionType) (io.ReadCloser, error) {
 	switch c {
-	case pbm.CompressionTypeGZIP:
+	case pbm.CompressionTypeGZIP, pbm.CompressionTypePGZIP:
 		rr, err := gzip.NewReader(r)
 		return rr, errors.Wrap(err, "gzip reader")
 	case pbm.CompressionTypeLZ4:

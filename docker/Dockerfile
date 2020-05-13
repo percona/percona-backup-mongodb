@@ -13,7 +13,7 @@ LABEL org.opencontainers.image.authors="info@percona.com"
 
 COPY LICENSE /licenses/
 
-COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /usr/local/bin/
+COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /go/bin/pbm-speed-test /usr/local/bin/
 
 USER nobody
 

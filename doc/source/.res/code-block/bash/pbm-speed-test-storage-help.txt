@@ -1,0 +1,14 @@
+.. code-block:: bash
+
+   /usr/bin/pbm-speed-test storage --help
+   usage: pbm-speed-test storage
+
+   Run storage test
+
+   Flags:
+         --help                     Show context-sensitive help (also try --help-long and --help-man).
+         --mongodb-uri=MONGODB-URI  MongoDB connection string
+     -c, --sample-collection=SAMPLE-COLLECTION  
+                                    Set collection as the data source
+     -s, --size-gb=SIZE-GB          Set data size in GB. Default 1
+         --compression=s2           Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>
