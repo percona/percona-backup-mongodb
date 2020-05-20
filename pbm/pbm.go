@@ -34,6 +34,11 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+	// PITRLockCollection is a collection to hold replicasets lock on incremental backups
+	// we need different lock collections for PITR and restore/backup since pitr may overlap with the backup
+	PITRLockCollection = "pbmPITRLock"
+	// PITRStateCollection represents current incremental backups state
+	PITRStateCollection = "pbmPITRState"
 
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
@@ -42,6 +47,7 @@ const (
 	MetadataFileSuffix = ".pbm.json"
 )
 
+// Command represents actions that could be done on behalf of the client by the agents
 type Command string
 
 const (
@@ -166,9 +172,22 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
-	// create index for Locks
-	c := p.Conn.Database(DB).Collection(LockCollection)
-	_, err = c.Indexes().CreateOne(
+	err = p.setupLockCol(LockCollection)
+	if err != nil {
+		return errors.Wrapf(err, "ensure %s collection", LockCollection)
+	}
+
+	err = p.setupLockCol(PITRLockCollection)
+	if err != nil {
+		return errors.Wrapf(err, "ensure %s collection", PITRLockCollection)
+	}
+
+	return nil
+}
+
+func (p *PBM) setupLockCol(name string) error {
+	c := p.Conn.Database(DB).Collection(name)
+	_, err := c.Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}},
@@ -245,12 +264,12 @@ type BackupReplset struct {
 type Status string
 
 const (
-	StatusStarting Status = "starting"
-	StatusRunning  Status = "running"
-	StatusDumpDone Status = "dumpDone"
-	StatusDone     Status = "done"
+	StatusStarting  Status = "starting"
+	StatusRunning   Status = "running"
+	StatusDumpDone  Status = "dumpDone"
+	StatusDone      Status = "done"
 	StatusCancelled Status = "canceled"
-	StatusError    Status = "error"
+	StatusError     Status = "error"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {

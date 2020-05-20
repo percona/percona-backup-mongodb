@@ -13,7 +13,7 @@ import (
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
-	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	locks, err := cn.GetLocks(&pbm.LockHeader{}, pbm.LockCollection)
 	if err != nil {
 		log.Println("get locks", err)
 	}
@@ -148,7 +148,7 @@ func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
 		Type:       pbm.CmdBackup,
 		BackupName: b.Name,
-	})
+	}, pbm.LockCollection)
 
 	if err != nil {
 		return "", errors.Wrap(err, "get locks")

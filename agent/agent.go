@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -62,6 +63,56 @@ func (a *Agent) CancelBackup() {
 	}
 
 	a.bcp.cancel()
+}
+
+func (a *Agent) PITR() {
+	tk := time.NewTicker(time.Second * 15)
+	defer tk.Stop()
+	for range tk.C {
+		a.pitr()
+	}
+}
+
+func (a *Agent) pitr() {
+	on, err := a.pbm.IsPITR()
+	if err != nil {
+		log.Println("[ERROR] PITR: check config:", err)
+		return
+	}
+	if !on {
+		return
+	}
+
+	nodeInfo, err := a.node.GetIsMaster()
+	if err != nil {
+		log.Println("[ERROR] PITR: get node isMaster data:", err)
+		return
+	}
+
+	// extra check before real locking
+	// just trying to avoid redundant heavy operations
+	_, err = a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.PITRLockCollection)
+	// ErrNoDocuments the only reason to continue
+	if err != mongo.ErrNoDocuments {
+		if err != nil {
+			log.Println("[ERROR] PITR: check is run:", err)
+		}
+		return
+	}
+
+	lock := a.pbm.NewPITRLock(pbm.LockHeader{
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+	})
+
+	got, err := a.aquireLock(lock, nil)
+	if err != nil {
+		log.Println("[ERROR] PITR: acquiring lock:", err)
+		return
+	}
+	if !got {
+		return
+	}
 }
 
 // Start starts listening the commands stream.
@@ -128,14 +179,9 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		BackupName: bcp.Name,
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
 	if err != nil {
-		switch err.(type) {
-		case pbm.ErrConcurrentOp:
-			log.Println("[INFO] backup: acquiring lock:", err)
-		default:
-			log.Println("[ERROR] backup: acquiring lock:", err)
-		}
+		log.Println("[ERROR] backup: acquiring lock:", err)
 		return
 	}
 	if !got {
@@ -203,7 +249,6 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 	})
 
 	got, err := lock.Acquire()
-
 	if err != nil {
 		log.Println("[ERROR] restore: acquiring lock:", err)
 		return
@@ -212,6 +257,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
 		return
 	}
+
 	defer func() {
 		err := lock.Release()
 		if err != nil {
@@ -278,5 +324,29 @@ func (a *Agent) ResyncBackupList() {
 	err = lock.Release()
 	if err != nil {
 		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+	}
+}
+
+func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, err error) {
+	got, err = l.Acquire()
+	if err == nil {
+		return got, nil
+	}
+
+	switch err.(type) {
+	case pbm.ErrConcurrentOp:
+		log.Println("[INFO] backup: acquiring lock:", err)
+		return false, nil
+	case pbm.ErrWasStaleLock:
+		if m != nil {
+			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
+			merr := m(name)
+			if merr != nil {
+				log.Printf("[Warning] Failed to mark stale backup '%s' as failed: %v", name, merr)
+			}
+		}
+		return l.Acquire()
+	default:
+		return false, err
 	}
 }

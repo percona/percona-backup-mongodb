@@ -18,9 +18,16 @@ import (
 
 // Config is a pbm config
 type Config struct {
+	PITR    PITRConf    `bson:"pitr" json:"pitr" yaml:"pitr"`
 	Storage StorageConf `bson:"storage" json:"storage" yaml:"storage"`
 }
 
+// PITRConf is a Point-In-Time Recovery options
+type PITRConf struct {
+	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
+}
+
+// StorageType represents a type of the destination storage for backups
 type StorageType string
 
 const (
@@ -30,13 +37,14 @@ const (
 	StorageBlackHole  StorageType = "blackhole"
 )
 
+// StorageConf is a configuration of the backup storage
 type StorageConf struct {
 	Type       StorageType `bson:"type" json:"type" yaml:"type"`
 	S3         s3.Conf     `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Filesystem fs.Conf     `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
-// ConfKeys returns valid config keys (option names)
+// ConfKeys returns valid (existing) config keys (option names)
 func ConfKeys() []string {
 	return keys(reflect.TypeOf(Config{}))
 }

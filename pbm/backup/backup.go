@@ -440,7 +440,7 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 					Type:       pbm.CmdBackup,
 					BackupName: bcpName,
 					Replset:    shard.Name,
-				})
+				}, pbm.LockCollection)
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and no need to ckech the heartbeats

@@ -22,7 +22,7 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		return errors.Errorf("backup '%s' isn't finished successfully", bcpName)
 	}
 
-	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	locks, err := cn.GetLocks(&pbm.LockHeader{}, pbm.LockCollection)
 	if err != nil {
 		log.Println("get locks", err)
 	}
@@ -90,7 +90,7 @@ func printRestoreProgress(r pbm.RestoreMeta, pbmClient *pbm.PBM, full bool) (str
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
 		Type:       pbm.CmdRestore,
 		BackupName: r.Name,
-	})
+	}, pbm.LockCollection)
 
 	if err != nil {
 		return "", errors.Wrap(err, "get locks")

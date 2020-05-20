@@ -54,7 +54,7 @@ func (m *MongoPBM) WaitOp(lock *pbm.LockHeader, waitFor time.Duration) error {
 		case <-tmr.C:
 			return errors.Errorf("timeout reached")
 		case <-tkr.C:
-			lock, err := m.p.GetLockData(lock)
+			lock, err := m.p.GetLockData(lock, pbm.LockCollection)
 			if err != nil {
 				// No lock, so operation has finished
 				if err == mongo.ErrNoDocuments {
