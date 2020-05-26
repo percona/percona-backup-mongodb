@@ -52,20 +52,6 @@ func (p *PBM) NewLock(h LockHeader) *Lock {
 	}
 }
 
-// NewPITRLock creates a new PITR Lock object from geven header. Returned lock has no state.
-// So Acquire() and Release() methods should be called.
-func (p *PBM) NewPITRLock(h LockHeader) *Lock {
-	return &Lock{
-		LockData: LockData{
-			LockHeader: h,
-		},
-		p:        p,
-		c:        p.Conn.Database(DB).Collection(PITRLockCollection),
-		hbRate:   time.Second * 5,
-		staleSec: StaleFrameSec,
-	}
-}
-
 // ErrConcurrentOp means lock was already aquired by another node
 type ErrConcurrentOp struct {
 	Lock LockHeader

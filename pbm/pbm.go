@@ -34,11 +34,8 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
-	// PITRLockCollection is a collection to hold replicasets lock on incremental backups
-	// we need different lock collections for PITR and restore/backup since pitr may overlap with the backup
-	PITRLockCollection = "pbmPITRLock"
-	// PITRStateCollection represents current incremental backups state
-	PITRStateCollection = "pbmPITRState"
+	// PITRCollection represents current incremental backups state
+	PITRCollection = "pbmPITRState"
 
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
@@ -175,11 +172,6 @@ func (p *PBM) setupNewDB() error {
 	err = p.setupLockCol(LockCollection)
 	if err != nil {
 		return errors.Wrapf(err, "ensure %s collection", LockCollection)
-	}
-
-	err = p.setupLockCol(PITRLockCollection)
-	if err != nil {
-		return errors.Wrapf(err, "ensure %s collection", PITRLockCollection)
 	}
 
 	return nil
@@ -378,6 +370,25 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
 			return b, nil
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+	err := res.Decode(b)
+	return b, errors.Wrap(err, "decode")
+}
+
+// GetLastBackup returns last successfully finished backup
+// and nil if there is no such backup yet
+func (p *PBM) GetLastBackup() (*BackupMeta, error) {
+	b := new(BackupMeta)
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
+		p.ctx,
+		bson.D{{"status", StatusDone}},
+		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
+	)
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, nil
 		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}

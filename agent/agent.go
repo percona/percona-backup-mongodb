@@ -91,7 +91,7 @@ func (a *Agent) pitr() {
 
 	// extra check before real locking
 	// just trying to avoid redundant heavy operations
-	_, err = a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.PITRLockCollection)
+	_, err = a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
 	// ErrNoDocuments the only reason to continue
 	if err != mongo.ErrNoDocuments {
 		if err != nil {
@@ -100,7 +100,7 @@ func (a *Agent) pitr() {
 		return
 	}
 
-	lock := a.pbm.NewPITRLock(pbm.LockHeader{
+	lock := a.pbm.NewLock(pbm.LockHeader{
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 	})
