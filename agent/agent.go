@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/pitr"
+
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -83,6 +85,18 @@ func (a *Agent) pitr() {
 		return
 	}
 
+	q, err := backup.NodeSuits(a.node)
+	if err != nil {
+		log.Println("[ERROR] PITR: node check:", err)
+		return
+	}
+
+	// node is not suitable for doing backup
+	if !q {
+		log.Println("PITR: Node in not suitable for backup")
+		return
+	}
+
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
 		log.Println("[ERROR] PITR: get node isMaster data:", err)
@@ -91,9 +105,14 @@ func (a *Agent) pitr() {
 
 	// extra check before real locking
 	// just trying to avoid redundant heavy operations
-	_, err = a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
-	// ErrNoDocuments the only reason to continue
-	if err != mongo.ErrNoDocuments {
+	ts, err := a.pbm.ClusterTime()
+	if err != nil {
+		log.Println("[ERROR] PITR: read cluster time:", err)
+		return
+	}
+	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
+	// ErrNoDocuments or stale lock the only reasons to continue
+	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
 		if err != nil {
 			log.Println("[ERROR] PITR: check is run:", err)
 		}
@@ -103,6 +122,7 @@ func (a *Agent) pitr() {
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
+		Type:    pbm.CmdPITR,
 	})
 
 	got, err := a.aquireLock(lock, nil)
@@ -113,10 +133,46 @@ func (a *Agent) pitr() {
 	if !got {
 		return
 	}
+	defer func() {
+		err := lock.Release()
+		if err != nil {
+			log.Println("[ERROR] PITR: release lock:", err)
+		}
+	}()
+
+	ibcp, err := pitr.NewBackup(nodeInfo.SetName, a.pbm, a.node)
+	if err != nil {
+		log.Println("[ERROR] PITR: create backup object:", err)
+		return
+	}
+
+	err = ibcp.Catchup()
+	if err != nil {
+		log.Println("[ERROR] PITR: defining starting point for the backup:", err)
+		return
+	}
+
+	stg, err := a.pbm.GetStorage()
+	if err != nil {
+		log.Println("[ERROR] PITR: unable to get storage configuration:", err)
+		return
+	}
+
+	err = ibcp.Stream(context.Background(), stg, pbm.CompressionTypeS2)
+	if err != nil {
+		log.Println("[ERROR] PITR: streaming oplog:", err)
+		return
+	}
 }
 
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
+	nodeInfo, err := a.node.GetIsMaster()
+	if err != nil {
+		log.Println("[Warning] get node isMaster data:", err)
+	}
+	log.Println("node:", nodeInfo.Me)
+
 	c, cerr, err := a.pbm.ListenCmd()
 	if err != nil {
 		return err
@@ -154,7 +210,7 @@ func (a *Agent) Start() error {
 
 // Backup starts backup
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
-	q, err := backup.NodeSuits(bcp, a.node)
+	q, err := backup.NodeSuits(a.node)
 	if err != nil {
 		log.Println("[ERROR] backup: node check:", err)
 		return

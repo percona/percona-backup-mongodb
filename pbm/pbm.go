@@ -36,6 +36,8 @@ const (
 	CmdStreamCollection = "pbmCmd"
 	// PITRCollection represents current incremental backups state
 	PITRCollection = "pbmPITRState"
+	//PITRChunksCollection contains index metadata of PITR chunks
+	PITRChunksCollection = "pbmPITRChunks"
 
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
@@ -53,6 +55,7 @@ const (
 	CmdRestore          Command = "restore"
 	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
+	CmdPITR             Command = "pitr"
 )
 
 type Cmd struct {
@@ -169,17 +172,8 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
-	err = p.setupLockCol(LockCollection)
-	if err != nil {
-		return errors.Wrapf(err, "ensure %s collection", LockCollection)
-	}
-
-	return nil
-}
-
-func (p *PBM) setupLockCol(name string) error {
-	c := p.Conn.Database(DB).Collection(name)
-	_, err := c.Indexes().CreateOne(
+	// create indexes for the lock collection
+	_, err = p.Conn.Database(DB).Collection(LockCollection).Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}},
@@ -190,6 +184,20 @@ func (p *PBM) setupLockCol(name string) error {
 	)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock index")
+	}
+
+	// create indexs for the pitr cunks
+	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"rs", 1}, {"start_ts", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure pitr chunks index")
 	}
 
 	return nil

@@ -17,27 +17,16 @@ const (
 	PITRfsPrefix = "pbmPITR"
 )
 
-// PITRMeta is an index for the faster search of chunks needed for PITR
-type PITRMeta struct {
-	Status   Status        `bson:"status"`
-	Replsets []PITRReplset `bson:"replsets"`
-}
-
-type PITRReplset struct {
-	Name    string              `bson:"name"`
-	FirstTS primitive.Timestamp `bson:"first_ts"`
-	LastTS  primitive.Timestamp `bson:"last_ts"`
-	Chunks  []PITRChunk         `bson:"chunks"`
-}
-
-// PITRChunk is index metadata for the oplog chunk
+// PITRChunk is index metadata for the oplog chunks
 type PITRChunk struct {
-	FName       string              `bson:"file_name"`
+	RS          string              `bson:"rs"`
+	FName       string              `bson:"fname"`
 	Compression CompressionType     `bson:"compression"`
 	StartTS     primitive.Timestamp `bson:"start_ts"`
 	EndTS       primitive.Timestamp `bson:"end_ts"`
 }
 
+// IsPITR checks if PITR is enabled
 func (p *PBM) IsPITR() (bool, error) {
 	cfg, err := p.GetConfig()
 	if err != nil {
@@ -47,11 +36,12 @@ func (p *PBM) IsPITR() (bool, error) {
 	return cfg.PITR.Enabled, nil
 }
 
-func (p *PBM) PITRLastChunkMeta() (*PITRChunk, error) {
-	res := p.Conn.Database(DB).Collection(PITRCollection).FindOne(
+// PITRLastChunkMeta returns the most recent PITR chunk for the given Replset
+func (p *PBM) PITRLastChunkMeta(rs string) (*PITRChunk, error) {
+	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
 		p.ctx,
-		bson.D{{"status", StatusDone}},
-		options.FindOne().SetSort(bson.D{{"end_ts", -1}}),
+		bson.D{{"rs", rs}},
+		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
 	)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
@@ -63,4 +53,11 @@ func (p *PBM) PITRLastChunkMeta() (*PITRChunk, error) {
 	chnk := new(PITRChunk)
 	err := res.Decode(chnk)
 	return chnk, errors.Wrap(err, "decode")
+}
+
+// PITRAddChunk stores PITR chunk metadata
+func (p *PBM) PITRAddChunk(c PITRChunk) error {
+	_, err := p.Conn.Database(DB).Collection(PITRChunksCollection).InsertOne(p.ctx, c)
+
+	return err
 }

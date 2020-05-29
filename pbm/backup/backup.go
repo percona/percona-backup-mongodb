@@ -245,7 +245,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
-func NodeSuits(bcp pbm.BackupCmd, node *pbm.Node) (bool, error) {
+func NodeSuits(node *pbm.Node) (bool, error) {
 	im, err := node.GetIsMaster()
 	if err != nil {
 		return false, errors.Wrap(err, "get isMaster data for node")
