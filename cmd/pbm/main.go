@@ -7,12 +7,14 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -98,14 +100,22 @@ func main() {
 	case configCmd.FullCommand():
 		switch {
 		case len(*configSetF) > 0:
+			rsnc := false
 			for k, v := range *configSetF {
 				err := pbmClient.SetConfigVar(k, v)
 				if err != nil {
 					log.Fatalln("Error: set config key:", err)
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
+
+				path := strings.Split(k, ".")
+				if !rsnc && len(path) > 0 && path[0] == "storage" {
+					rsnc = true
+				}
 			}
-			rsync(pbmClient)
+			if rsnc {
+				rsync(pbmClient)
+			}
 		case len(*configShowKey) > 0:
 			k, err := pbmClient.GetConfigVar(*configShowKey)
 			if err != nil {
@@ -119,6 +129,18 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to read config file:", err)
 			}
+
+			var cfg pbm.Config
+			err = yaml.UnmarshalStrict(buf, &cfg)
+			if err != nil {
+				log.Fatalln("Error: unable to  unmarshal config file:", err)
+			}
+
+			cCfg, err := pbmClient.GetConfig()
+			if err != nil {
+				log.Fatalln("Error: unable to get current config:", err)
+			}
+
 			err = pbmClient.SetConfigByte(buf)
 			if err != nil {
 				log.Fatalln("Error: unable to set config:", err)
@@ -126,7 +148,13 @@ func main() {
 
 			fmt.Println("[Config set]\n------")
 			getConfig(pbmClient)
-			rsync(pbmClient)
+
+			// provider value may differ as it set automatically after config parsing
+			cCfg.Storage.S3.Provider = cfg.Storage.S3.Provider
+			// resync storage only if Storage options have changed
+			if !reflect.DeepEqual(cfg.Storage, cCfg.Storage) {
+				rsync(pbmClient)
+			}
 		case *configListF:
 			fallthrough
 		default:

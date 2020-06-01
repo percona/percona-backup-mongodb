@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -103,10 +104,22 @@ func (p *PBM) SetConfigVar(key, val string) error {
 		}
 		return err
 	}
+
+	// TODO: generalised parsing of non string types
+	var v interface{}
+	switch key {
+	case "pitr.enabled":
+		v, err = strconv.ParseBool(val)
+		if err != nil {
+			return errors.Wrap(err, "casting value bool")
+		}
+	default:
+		v = val
+	}
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
-		bson.M{"$set": bson.M{key: val}},
+		bson.M{"$set": bson.M{key: v}},
 	)
 
 	return errors.Wrap(err, "write to db")
