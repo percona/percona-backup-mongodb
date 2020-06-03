@@ -89,7 +89,9 @@ a connection to any live node (shard, configsvr, or non-sharded replicaset
 member), it will automatically determine the right hosts and establish a new
 connection to those insted.
 
-Tip: when running |pbm.app| from an unsupervised script we recommend using a
+.. tip:: 
+   
+   When running |pbm.app| from an unsupervised script, we recommend using a
 replica set connection string. A standalone-style connection string will fail
 if that mongod host happens to be down temporarily.
 
