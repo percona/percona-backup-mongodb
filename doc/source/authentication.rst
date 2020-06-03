@@ -92,7 +92,6 @@ connection to those instead.
 .. tip:: 
    
    When running |pbm.app| from an unsupervised script, we recommend using a
-replica set connection string. A standalone-style connection string will fail
-if that mongod host happens to be down temporarily.
+   replica set connection string. A standalone-style connection string will fail if that ``mongod`` host happens to be down temporarily.
 
 .. include:: .res/replace.txt
