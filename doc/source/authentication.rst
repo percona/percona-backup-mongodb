@@ -42,8 +42,8 @@ MongoDB connection strings - A Reminder (or Primer)
 |pbm| uses `MongoDB Connection URI
 <https://docs.mongodb.com/manual/reference/connection-string/>`_ strings to open
 MongoDB connections. Neither |pbm.app| or |pbm-agent| accept legacy-style
-command-line arguments for host, port, replicaset, user, password, etc. as, say,
-the ``mongo`` shell or ``mongodump`` command does.
+command-line arguments for ``--host``, ``--port``, ``--user``, ``--password``,
+etc. as the ``mongo`` shell or ``mongodump`` command does.
 
 .. include:: .res/code-block/bash/pbm-agent-mongodb-conn-string-examples.txt
 
@@ -78,14 +78,21 @@ type of connection.
 The |pbm.app| connection string
 -------------------------------
 
-The |pbm.app| CLI should connect to the replica set with the :ref:`PBM control
-collections <pbm.architecture.pbm_control_collections>`.
+The |pbm.app| CLI will ultimately connect to the replica set with the
+:ref:`PBM control collections <pbm.architecture.pbm_control_collections>`.
 
 - In a non-sharded replica set it is simply that replica set.
 - In a cluster it is the config server replica set.
 
-To make sure |pbm.app| always automatically connects to the current primary node
-use a replica set connection string. (A standalone-style connection string will
-only work successfully if it happens to be to the current primary.)
+You do not necessarily have to provide that connection string. If you provide
+a connection to any live node (shard, configsvr, or non-sharded replicaset
+member), it will automatically determine the right hosts and establish a new
+connection to those instead.
+
+.. tip:: 
+   
+   When running |pbm.app| from an unsupervised script, we recommend using a
+replica set connection string. A standalone-style connection string will fail
+if that mongod host happens to be down temporarily.
 
 .. include:: .res/replace.txt
