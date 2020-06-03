@@ -86,7 +86,7 @@ The |pbm.app| CLI will ultimately connect to the replica set with the
 
 You do not necessarily have to provide that connection string. If you provide
 a connection to any live node (shard, configsvr, or non-sharded replicaset
-member) it will automatically determine the right hosts and establish a new
+member), it will automatically determine the right hosts and establish a new
 connection to those insted.
 
 Tip: when running |pbm.app| from an unsupervised script we recommend using a
