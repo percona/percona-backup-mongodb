@@ -64,12 +64,13 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		rsName = pbm.NoReplset
 	}
 	rsMeta := pbm.BackupReplset{
-		Name:       rsName,
-		OplogName:  getDstName("oplog", bcp, im.SetName),
-		DumpName:   getDstName("dump", bcp, im.SetName),
-		StartTS:    time.Now().UTC().Unix(),
-		Status:     pbm.StatusRunning,
-		Conditions: []pbm.Condition{},
+		Name:         rsName,
+		OplogName:    getDstName("oplog", bcp, im.SetName),
+		DumpName:     getDstName("dump", bcp, im.SetName),
+		StartTS:      time.Now().UTC().Unix(),
+		Status:       pbm.StatusRunning,
+		Conditions:   []pbm.Condition{},
+		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
 
 	stg, err := b.cn.GetStorage()
@@ -171,6 +172,11 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	oplogTS, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
+	}
+
+	err = b.cn.SetRSFirstWrite(bcp.Name, rsMeta.Name, oplogTS)
+	if err != nil {
+		return errors.Wrap(err, "set shard's first write ts")
 	}
 
 	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)

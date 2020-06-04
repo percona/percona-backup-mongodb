@@ -21,7 +21,13 @@ type Agent struct {
 	node *pbm.Node
 	bcp  *currentBackup
 	mx   sync.Mutex
+	op   uint32
 }
+
+const (
+	opPitr uint32 = 1 << iota
+	opBackup
+)
 
 type currentBackup struct {
 	header *pbm.BackupCmd
@@ -78,7 +84,7 @@ func (a *Agent) PITR() {
 func (a *Agent) pitr() {
 	on, err := a.pbm.IsPITR()
 	if err != nil {
-		log.Println("[ERROR] PITR: check config:", err)
+		log.Println("[ERROR] PITR: check if on:", err)
 		return
 	}
 	if !on {
@@ -226,6 +232,14 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	if err != nil {
 		log.Println("[ERROR] backup: get node isMaster data:", err)
 		return
+	}
+
+	err = a.pbm.NewLock(pbm.LockHeader{
+		Type:    pbm.CmdPITR,
+		Replset: nodeInfo.SetName,
+	}).Release()
+	if err != nil {
+		log.Println("[Warning] backup: clearing pitr locks:", err)
 	}
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
