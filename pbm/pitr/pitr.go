@@ -101,6 +101,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
+			log.Println("[INFO] got wake_up signal")
 		case <-tk.C:
 		}
 

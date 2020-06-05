@@ -34,6 +34,7 @@ type currentBackup struct {
 	header *pbm.BackupCmd
 	cancel context.CancelFunc
 }
+
 type currentPitr struct {
 	wakeup chan struct{} // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
@@ -78,6 +79,43 @@ func (a *Agent) CancelBackup() {
 	a.bcp.cancel()
 }
 
+func (a *Agent) setPitr(p *currentPitr) (changed bool) {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	if a.pitrjob != nil {
+		return false
+	}
+
+	a.pitrjob = p
+	return true
+}
+
+func (a *Agent) unsetPitr() {
+	a.mx.Lock()
+	a.pitrjob = nil
+	a.mx.Unlock()
+}
+
+func (a *Agent) cancelPitr() {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	if a.pitrjob == nil {
+		return
+	}
+
+	a.pitrjob.cancel()
+}
+
+func (a *Agent) wakeupPitr() {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	if a.pitrjob == nil {
+		return
+	}
+
+	a.pitrjob.wakeup <- struct{}{}
+}
+
 func (a *Agent) PITR() {
 	tk := time.NewTicker(time.Second * 15)
 	defer tk.Stop()
@@ -97,7 +135,7 @@ func (a *Agent) pitr() (err error) {
 	}
 	if !on {
 		if a.pitrjob != nil {
-			a.pitrjob.cancel()
+			a.cancelPitr()
 		}
 		return nil
 	}
@@ -179,17 +217,19 @@ func (a *Agent) pitr() (err error) {
 
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
-		a.pitrjob = &currentPitr{
-			cancel: cancel,
-			wakeup: make(chan struct{}),
-		}
+		w := make(chan struct{})
 
-		err := ibcp.Stream(ctx, a.pitrjob.wakeup, stg, pbm.CompressionTypeS2)
+		a.setPitr(&currentPitr{
+			cancel: cancel,
+			wakeup: w,
+		})
+
+		err := ibcp.Stream(ctx, w, stg, pbm.CompressionTypeS2)
 		if err != nil {
 			log.Println("[ERROR] PITR: streaming oplog:", err)
 		}
 
-		a.pitrjob = nil
+		a.unsetPitr()
 		releasLock()
 	}()
 
@@ -267,7 +307,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		log.Println("[Warning] backup: clearing pitr locks:", err)
 	}
 	// wakeup slicer not to wait for the tick
-	a.pitrjob.wakeup <- struct{}{}
+	a.wakeupPitr()
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:       pbm.CmdBackup,
