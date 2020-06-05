@@ -52,6 +52,8 @@ func (i *IBackup) Catchup() error {
 
 	i.lastTS = bcp.LastWriteTS
 
+	log.Println("BCP lts", i.lastTS)
+
 	chnk, err := i.pbm.PITRLastChunkMeta(i.rs)
 	if err != nil {
 		return errors.Wrap(err, "get last backup")
@@ -64,12 +66,13 @@ func (i *IBackup) Catchup() error {
 	if chnk.EndTS.T > i.lastTS.T {
 		i.lastTS = chnk.EndTS
 	}
+	log.Println("CHNK lts", i.lastTS)
 
 	return nil
 }
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (i *IBackup) Stream(ctx context.Context, to storage.Storage, compression pbm.CompressionType) error {
+func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -83,74 +86,80 @@ func (i *IBackup) Stream(ctx context.Context, to storage.Storage, compression pb
 	nodeInfo, err := i.node.GetIsMaster()
 	if err != nil {
 		return errors.Wrap(err, "get node isMaster data")
-
 	}
+
 	lastSlice := false
+
+	var sliceTo primitive.Timestamp
 	oplog := backup.NewOplog(i.node)
 	for {
+		// waiting for a trigger
 		select {
-		case <-tk.C:
-			ld, err := i.pbm.GetLockData(llock, pbm.LockCollection)
-			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-				return errors.Wrap(err, "check lock")
-			}
-
-			var sliceTo primitive.Timestamp
-			// before any action check if we still got a lock. if no:
-			//
-			// - if there another lock and it is backup op - wait for the backup to start,
-			//   make the last slice up unlit backup StartTS and return
-			// - if there is no other lock, we have to wait for backup - see above
-			// 	 (backup cmd can delete pitr lock but might not yet acquire own one)
-			// - if there another lock and that is pitr - return, probably split happened
-			//   and a new worker was elected
-			// - any other case is undefined bechavior - return
-			switch ld.Type {
-			case pbm.CmdPITR:
-				if ld.Node != nodeInfo.Me {
-					return errors.Errorf("pitr lock was stolen by node %s", ld.Node)
-				}
-				sliceTo, err = oplog.LastWrite()
-				if err != nil {
-					return errors.Wrap(err, "define last write timestamp")
-				}
-			case pbm.CmdBackup, pbm.CmdUndefined:
-				sliceTo, err = i.backupStartTS(ld.BackupName)
-				if err != nil {
-					return errors.Wrap(err, "get backup start TS")
-				}
-				lastSlice = true
-			default:
-				return errors.Errorf("another operation is running: %#v", ld)
-			}
-
-			oplog.SetTailingSpan(i.lastTS, sliceTo)
-			fname := i.chunkPath(i.lastTS.T, sliceTo.T, compression)
-			_, err = backup.Upload(ctx, oplog, to, compression, fname)
-			if err != nil {
-				return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
-			}
-
-			meta := pbm.PITRChunk{
-				RS:          i.rs,
-				FName:       fname,
-				Compression: compression,
-				StartTS:     i.lastTS,
-				EndTS:       sliceTo,
-			}
-			err = i.pbm.PITRAddChunk(meta)
-			if err != nil {
-				return errors.Wrapf(err, "unable to save chunk meta %v", meta)
-			}
-
-			if lastSlice {
-				return nil
-			}
-
-			i.lastTS = sliceTo
 		case <-ctx.Done():
+			log.Println("[INFO] got done signal, stopping")
+			return nil
+
+		// on wakeup or tick whatever comes first do the job
+		case <-wakeupSig:
+		case <-tk.C:
+		}
+
+		// before any action check if we still got a lock. if no:
+		//
+		// - if there another lock and it is backup op - wait for the backup to start,
+		//   make the last slice up unlit backup StartTS and return
+		// - if there is no other lock, we have to wait for backup - see above
+		// 	 (backup cmd can delete pitr lock but might not yet acquire own one)
+		// - if there another lock and that is pitr - return, probably split happened
+		//   and a new worker was elected
+		// - any other case is undefined bechavior - return
+		ld, err := i.pbm.GetLockData(llock, pbm.LockCollection)
+		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.Wrap(err, "check lock")
+		}
+		switch ld.Type {
+		case pbm.CmdPITR:
+			if ld.Node != nodeInfo.Me {
+				return errors.Errorf("pitr lock was stolen by node %s", ld.Node)
+			}
+			sliceTo, err = oplog.LastWrite()
+			if err != nil {
+				return errors.Wrap(err, "define last write timestamp")
+			}
+		case pbm.CmdBackup, pbm.CmdUndefined:
+			sliceTo, err = i.backupStartTS(ld.BackupName)
+			if err != nil {
+				return errors.Wrap(err, "get backup start TS")
+			}
+			lastSlice = true
+		default:
+			return errors.Errorf("another operation is running: %#v", ld)
+		}
+
+		oplog.SetTailingSpan(i.lastTS, sliceTo)
+		fname := i.chunkPath(i.lastTS.T, sliceTo.T, compression)
+		_, err = backup.Upload(ctx, oplog, to, compression, fname)
+		if err != nil {
+			return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
+		}
+
+		meta := pbm.PITRChunk{
+			RS:          i.rs,
+			FName:       fname,
+			Compression: compression,
+			StartTS:     i.lastTS,
+			EndTS:       sliceTo,
+		}
+		err = i.pbm.PITRAddChunk(meta)
+		if err != nil {
+			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+		}
+
+		if lastSlice {
 			return nil
 		}
+
+		i.lastTS = sliceTo
 	}
 }
 
