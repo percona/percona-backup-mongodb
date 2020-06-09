@@ -113,7 +113,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		// 	 (backup cmd can delete pitr lock but might not yet acquire own one)
 		// - if there another lock and that is pitr - return, probably split happened
 		//   and a new worker was elected
-		// - any other case is undefined bechavior - return
+		// - any other case (including no lock) is undefined bechavior - return
 		ld, err := i.pbm.GetLockData(llock, pbm.LockCollection)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 			return errors.Wrap(err, "check lock")

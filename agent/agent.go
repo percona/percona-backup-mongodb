@@ -116,14 +116,15 @@ func (a *Agent) wakeupPitr() {
 	a.pitrjob.wakeup <- struct{}{}
 }
 
+const pitrCheckPeriod = time.Second * 15
+
 func (a *Agent) PITR() {
-	tk := time.NewTicker(time.Second * 15)
+	tk := time.NewTicker(pitrCheckPeriod)
 	defer tk.Stop()
 	for range tk.C {
 		err := a.pitr()
 		if err != nil {
 			log.Println("[ERROR] PITR: ", err)
-
 		}
 	}
 }
@@ -193,7 +194,7 @@ func (a *Agent) pitr() (err error) {
 
 	defer func() {
 		// release lock only on error.
-		// no error means streaming go-routine was started
+		// no error means the streaming go-routine was started
 		// and it will release the lock when it finishes
 		if err != nil {
 			releasLock()
@@ -299,6 +300,36 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
+	// workaround for pitr
+	// if pitr is on - remove the pitr's lock and aquire the backup's lock
+	// and wakeup pitr routine to make the slice right up to the bcp start.
+	// but before remove/aquire lock we should switch it off the pitr in the config
+	// and wait for pitrCheckPeriod * 1.2
+	// to prevent another node from aquiring a new pitr's lock before we got a backup's one.
+	// after a backup's lock was aquired (or not) the pitr state should be restored
+	pitrON, err := a.pbm.IsPITR()
+	if err != nil {
+		log.Println("[ERROR] backup: check if pitr is on:", err)
+		return
+	}
+	restorePitr := func() {}
+	if pitrON {
+		restorePitr = func() {
+			err := a.pbm.SetConfigVar("pitr.enabled", "true")
+			if err != nil {
+				log.Println("[ERROR] backup: unpause pitr:", err)
+			}
+		}
+	}
+
+	err = a.pbm.SetConfigVar("pitr.enabled", "false")
+	if err != nil {
+		log.Println("[ERROR] backup: pause pitr:", err)
+		return
+	}
+
+	time.Sleep(pitrCheckPeriod * 12 / 10)
+
 	err = a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITR,
 		Replset: nodeInfo.SetName,
@@ -306,7 +337,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	if err != nil {
 		log.Println("[Warning] backup: clearing pitr locks:", err)
 	}
-	// wakeup slicer not to wait for the tick
+	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
@@ -317,6 +348,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	})
 
 	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
+	restorePitr()
 	if err != nil {
 		log.Println("[ERROR] backup: acquiring lock:", err)
 		return
