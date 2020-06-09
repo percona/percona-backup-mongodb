@@ -86,7 +86,12 @@ const (
 	CompressionTypeS2     CompressionType = "s2"
 )
 
-var WaitActionStart = time.Second * 15
+const PITRcheckPeriod = time.Second * 15
+
+var (
+	WaitActionStart = time.Second * 15
+	WaitBackupStart = WaitActionStart + PITRcheckPeriod*12/10
+)
 
 type PBM struct {
 	Conn *mongo.Client

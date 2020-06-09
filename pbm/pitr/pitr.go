@@ -165,9 +165,9 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 }
 
 func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) {
-	tk := time.NewTicker(time.Second * 2)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-	for j := 0; j < int(pbm.WaitActionStart.Seconds()); j++ {
+	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
 		b, err := i.pbm.GetBackupMeta(bcp)
 		if err != nil {
 			return ts, errors.Wrap(err, "get backup meta")

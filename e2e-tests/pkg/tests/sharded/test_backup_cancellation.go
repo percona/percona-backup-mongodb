@@ -40,7 +40,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 		log.Fatalf("Error: wrong backup status, expect %s, got %v", pbm.StatusCancelled, m.Status)
 	}
 
-	needToWait := pbmt.WaitActionStart + time.Second - time.Since(ts)
+	needToWait := pbmt.WaitBackupStart + time.Second - time.Since(ts)
 	if needToWait > 0 {
 		log.Printf("waiting for the lock to be released for %s", needToWait)
 		time.Sleep(needToWait)

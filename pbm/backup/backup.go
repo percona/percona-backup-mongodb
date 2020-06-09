@@ -153,7 +153,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &pbm.WaitActionStart)
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -270,7 +270,7 @@ func NodeSuits(node *pbm.Node) (bool, error) {
 	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
 	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
 	if im.IsMaster && im.Me == im.Primary && len(im.Hosts) > 1 {
-		time.Sleep(pbm.WaitActionStart * 9 / 10)
+		time.Sleep(pbm.WaitBackupStart * 9 / 10)
 	}
 
 	status, err := node.Status()
