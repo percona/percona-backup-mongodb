@@ -55,9 +55,8 @@ debug the startup from the log messages.
    Running as the ``mongod`` user would be the most intuitive and convenient way.
    But if you want it can be another user.
 
-The |pbm-agent| is connected to its mongod and started OK is
-confirmed by the *"pbm agent is listening for the commands"* message printed to the log
-file.
+When a message *"pbm agent is listening for the commands"* is printed to the
+|pbm-agent| log file it confirms it connected to its mongod successfully.
 
 How to see the pbm-agent log
 --------------------------------------------------------------------------------
