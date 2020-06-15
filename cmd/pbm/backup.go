@@ -144,6 +144,42 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	}
 }
 
+func printPITR(cn *pbm.PBM) {
+	on, err := cn.IsPITR()
+	if err != nil {
+		log.Fatalf("Error: check if PITR is on: %v", err)
+		return
+	}
+	if !on {
+		return
+	}
+
+	im, err := cn.GetIsMaster()
+	if err != nil {
+		log.Fatalf("Error: define cluster state: %v", err)
+		return
+	}
+
+	var shards []pbm.Shard
+	if im.IsSharded() {
+		shards, err = cn.GetShards()
+		if err != nil {
+			log.Fatalf("Error: get shards: %v", err)
+			return
+		}
+	} else {
+		shards = []pbm.Shard{{ID: im.SetName}}
+	}
+
+	for _, s := range shards {
+		chnk, err := cn.PITRLastChunkMeta(s.ID)
+		if err != nil {
+			log.Fatalf("Error: get PITR data for %s replset: %v", s.ID, err)
+		}
+		fmt.Printf("  %s: %s\n", s.ID, time.Unix(int64(chnk.EndTS.T), 0).Format(time.RFC3339))
+	}
+}
+
 func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
 		Type:       pbm.CmdBackup,

@@ -25,11 +25,6 @@ type Agent struct {
 	op      uint32
 }
 
-const (
-	opPitr uint32 = 1 << iota
-	opBackup
-)
-
 type currentBackup struct {
 	header *pbm.BackupCmd
 	cancel context.CancelFunc
