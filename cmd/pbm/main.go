@@ -20,7 +20,7 @@ import (
 
 var (
 	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
-	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string").String()
+	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").String()
 
 	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
 	configRsyncBcpListF = configCmd.Flag("force-resync", "Resync backup list with the current store").Bool()
@@ -82,6 +82,7 @@ func main() {
 
 	if *mURL == "" {
 		log.Println("Error: no mongodb connection URI supplied\n")
+		log.Println("       Usual practice is the set it by the PBM_MONGODB_URI environment variable. It can also be set with commandline argument --mongodb-uri.\n")
 		pbmCmd.Usage(os.Args[1:])
 		os.Exit(1)
 	}
