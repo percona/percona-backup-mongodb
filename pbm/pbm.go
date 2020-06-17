@@ -247,6 +247,7 @@ type BackupMeta struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 }
+
 type Condition struct {
 	Timestamp int64  `bson:"timestamp" json:"timestamp"`
 	Status    Status `bson:"status" json:"status"`
@@ -288,6 +289,17 @@ func (p *PBM) SetBackupMeta(m *BackupMeta) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).InsertOne(p.ctx, m)
 
 	return err
+}
+
+// RS returns the metada of the replset with given name.
+// It returns nil if no replsent found.
+func (b *BackupMeta) RS(name string) *BackupReplset {
+	for _, rs := range b.Replsets {
+		if rs.Name == name {
+			return &rs
+		}
+	}
+	return nil
 }
 
 func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {

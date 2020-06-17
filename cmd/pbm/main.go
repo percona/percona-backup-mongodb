@@ -188,6 +188,7 @@ func main() {
 			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
 		} else {
 			printBackupList(pbmClient, *listCmdSize)
+			printPITR(pbmClient)
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF && isTTY() {

@@ -50,7 +50,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		return "", errors.Wrap(err, "send command")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitBackupStart)
 	defer cancel()
 	err = waitForStatus(ctx, cn, bcpName)
 	if err != nil {
@@ -160,24 +160,33 @@ func printPITR(cn *pbm.PBM) {
 		return
 	}
 
-	var shards []pbm.Shard
+	shards := []pbm.Shard{{ID: im.SetName}}
 	if im.IsSharded() {
-		shards, err = cn.GetShards()
+		s, err := cn.GetShards()
 		if err != nil {
 			log.Fatalf("Error: get shards: %v", err)
 			return
 		}
-	} else {
-		shards = []pbm.Shard{{ID: im.SetName}}
+		shards = append(shards, s...)
 	}
 
+	fmt.Println("PITR:")
 	for _, s := range shards {
-		chnk, err := cn.PITRLastChunkMeta(s.ID)
+		chnkf, err := cn.PITRFirstChunkMeta(s.ID)
 		if err != nil {
-			log.Fatalf("Error: get PITR data for %s replset: %v", s.ID, err)
+			log.Fatalf("Error: get the first PITR slice for %s replset: %v", s.ID, err)
 		}
-		fmt.Printf("  %s: %s\n", s.ID, time.Unix(int64(chnk.EndTS.T), 0).Format(time.RFC3339))
+		chnkl, err := cn.PITRLastChunkMeta(s.ID)
+		if err != nil {
+			log.Fatalf("Error: get the last PITR slice for %s replset: %v", s.ID, err)
+		}
+
+		fmt.Printf("  %s: %s - %s\n", s.ID, formatts(chnkf.StartTS.T), formatts(chnkl.EndTS.T))
 	}
+}
+
+func formatts(t uint32) string {
+	return time.Unix(int64(t), 0).UTC().Format(time.RFC3339)
 }
 
 func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {

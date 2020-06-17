@@ -38,10 +38,19 @@ func (p *PBM) IsPITR() (bool, error) {
 
 // PITRLastChunkMeta returns the most recent PITR chunk for the given Replset
 func (p *PBM) PITRLastChunkMeta(rs string) (*PITRChunk, error) {
+	return p.pitrChunk(rs, -1)
+}
+
+// PITRFirstChunkMeta returns the oldest PITR chunk for the given Replset
+func (p *PBM) PITRFirstChunkMeta(rs string) (*PITRChunk, error) {
+	return p.pitrChunk(rs, 1)
+}
+
+func (p *PBM) pitrChunk(rs string, sort int) (*PITRChunk, error) {
 	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
 		p.ctx,
 		bson.D{{"rs", rs}},
-		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
+		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
