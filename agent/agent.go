@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
@@ -22,8 +23,13 @@ type Agent struct {
 	bcp     *currentBackup
 	pitrjob *currentPitr
 	mx      sync.Mutex
-	op      uint32
+	intent  uint32
 }
+
+const (
+	intentNone uint32 = iota
+	intentBackup
+)
 
 type currentBackup struct {
 	header *pbm.BackupCmd
@@ -125,6 +131,10 @@ func (a *Agent) PITR() {
 }
 
 func (a *Agent) pitr() (err error) {
+	if atomic.LoadUint32(&a.intent) == intentBackup {
+		return nil
+	}
+
 	on, err := a.pbm.IsPITR()
 	if err != nil {
 		return errors.Wrap(err, "check if on")
@@ -238,7 +248,7 @@ func (a *Agent) Start() error {
 	if err != nil {
 		log.Println("[Warning] get node isMaster data:", err)
 	}
-	log.Println("node:", nodeInfo.Me)
+	log.Printf("node: %s/%s", nodeInfo.SetName, nodeInfo.Me)
 
 	c, cerr, err := a.pbm.ListenCmd()
 	if err != nil {
@@ -296,34 +306,17 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 
 	// workaround for pitr
-	// if pitr is on - remove the pitr's lock and aquire the backup's lock
-	// and wakeup pitr routine to make the slice right up to the bcp start.
-	// but before remove/aquire lock we should switch it off the pitr in the config
-	// and wait for pitrCheckPeriod * 1.2
-	// to prevent another node from aquiring a new pitr's lock before we got a backup's one.
-	// after a backup's lock was aquired (or not) the pitr state should be restored
-	pitrON, err := a.pbm.IsPITR()
-	if err != nil {
-		log.Println("[ERROR] backup: check if pitr is on:", err)
-		return
-	}
-	restorePitr := func() {}
-	if pitrON {
-		restorePitr = func() {
-			err := a.pbm.SetConfigVar("pitr.enabled", "true")
-			if err != nil {
-				log.Println("[ERROR] backup: unpause pitr:", err)
-			}
-		}
-	}
+	//
+	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
+	// 2. wait for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
+	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
+	//    (nothing gonna be done if no PITR process run by current agent)
+	// 4. try to acquire a backup's lock and move further with the backup
+	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
+	atomic.StoreUint32(&a.intent, intentBackup)
+	defer atomic.StoreUint32(&a.intent, intentNone)
 
-	err = a.pbm.SetConfigVar("pitr.enabled", "false")
-	if err != nil {
-		log.Println("[ERROR] backup: pause pitr:", err)
-		return
-	}
-
-	time.Sleep(pitrCheckPeriod * 12 / 10)
+	time.Sleep(pitrCheckPeriod * 11 / 10)
 
 	err = a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITR,
@@ -343,7 +336,6 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	})
 
 	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
-	restorePitr()
 	if err != nil {
 		log.Println("[ERROR] backup: acquiring lock:", err)
 		return

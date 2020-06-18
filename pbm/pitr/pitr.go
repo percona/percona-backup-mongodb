@@ -77,7 +77,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		return errors.New("no starting point defined")
 	}
 
-	log.Println("[INFO] PITR streaming started from", i.lastTS.T)
+	log.Println("[INFO] PITR: streaming started from", time.Unix(int64(i.lastTS.T), 0).UTC())
 
 	tk := time.NewTicker(i.span)
 	defer tk.Stop()
@@ -96,13 +96,22 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		// waiting for a trigger
 		select {
 		case <-ctx.Done():
-			log.Println("[INFO] got done signal, stopping")
+			log.Println("[INFO] PITR: got done signal, stopping")
 			return nil
 
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
-			log.Println("[INFO] got wake_up signal")
+			log.Println("[INFO] PITR: got wake_up signal")
 		case <-tk.C:
+		}
+
+		// check if the node is still any good to make backups
+		q, err := backup.NodeSuits(i.node)
+		if err != nil {
+			return errors.Wrap(err, "node check")
+		}
+		if !q {
+			return nil
 		}
 
 		// before any action check if we still got a lock. if no:
@@ -114,10 +123,17 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		// - if there another lock and that is pitr - return, probably split happened
 		//   and a new worker was elected
 		// - any other case (including no lock) is undefined bechavior - return
-		ld, err := i.pbm.GetLockData(llock, pbm.LockCollection)
-		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+		//
+		// if there is no lock, we should wait a bit for a backup lock
+		// because this routine is run concurently with the snapshot
+		// we don't mind to wait here and there, since in during normal (usual) flow
+		// no extra waits won't occure
+		//
+		ld, err := i.getOpLock(llock)
+		if err != nil {
 			return errors.Wrap(err, "check lock")
 		}
+
 		switch ld.Type {
 		case pbm.CmdPITR:
 			if ld.Node != nodeInfo.Me {
@@ -127,12 +143,14 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
-		case pbm.CmdBackup, pbm.CmdUndefined:
+		case pbm.CmdBackup:
 			sliceTo, err = i.backupStartTS(ld.BackupName)
 			if err != nil {
 				return errors.Wrap(err, "get backup start TS")
 			}
 			lastSlice = true
+		case pbm.CmdUndefined:
+			return errors.New("undefinded behaviour operation is running")
 		default:
 			return errors.Errorf("another operation is running: %#v", ld)
 		}
@@ -157,11 +175,29 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		}
 
 		if lastSlice {
+			log.Println("[INFO] PITR: pausing with last_ts", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
 		}
 
 		i.lastTS = sliceTo
 	}
+}
+
+func (i *IBackup) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
+		ld, err = i.pbm.GetLockData(l, pbm.LockCollection)
+		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+			return ld, errors.Wrap(err, "get")
+		}
+		if ld.Type != pbm.CmdUndefined {
+			return ld, nil
+		}
+		<-tk.C
+	}
+
+	return ld, nil
 }
 
 func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) {
