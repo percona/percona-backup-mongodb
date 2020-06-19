@@ -26,6 +26,12 @@ func New(opts Conf) *FS {
 
 func (fs *FS) Save(name string, data io.Reader) error {
 	filepath := path.Join(fs.opts.Path, name)
+
+	err := os.MkdirAll(path.Dir(filepath), os.ModeDir)
+	if err != nil {
+		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
+	}
+
 	fw, err := os.Create(filepath)
 	if err != nil {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)

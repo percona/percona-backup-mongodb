@@ -3,7 +3,6 @@ package pitr
 import (
 	"context"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -219,24 +218,22 @@ func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) 
 	return ts, errors.New("run out of tries")
 }
 
-const (
-	dayDiv   uint32 = 3600 * 24
-	monthDiv uint32 = dayDiv * 30
-)
-
 func (i *IBackup) chunkPath(first, last uint32, c pbm.CompressionType) string {
+	ft := time.Unix(int64(first), 0).UTC()
+	lt := time.Unix(int64(last), 0).UTC()
+
 	name := strings.Builder{}
-	name.WriteString(fsPrefix)
-	name.WriteString("/")
+	if len(fsPrefix) > 0 {
+		name.WriteString(fsPrefix)
+		name.WriteString("/")
+	}
 	name.WriteString(i.rs)
 	name.WriteString("/")
-	name.WriteString(strconv.Itoa(int(first / monthDiv)))
+	name.WriteString(ft.Format("20060102"))
 	name.WriteString("/")
-	name.WriteString(strconv.Itoa(int(first / dayDiv)))
-	name.WriteString("/")
-	name.WriteString(strconv.Itoa(int(first)))
+	name.WriteString(ft.Format("20060102150405"))
 	name.WriteString(".")
-	name.WriteString(strconv.Itoa(int(last)))
+	name.WriteString(lt.Format("20060102150405"))
 	name.WriteString(".oplog")
 	name.WriteString(csuffix(c))
 
