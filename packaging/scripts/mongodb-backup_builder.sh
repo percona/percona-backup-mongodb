@@ -201,14 +201,15 @@ install_deps() {
       fi
       install_golang
     else
-      export DEBIAN=$(lsb_release -sc)
-      export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-      INSTALL_LIST="devscripts debhelper debconf pkg-config curl make golang git"
       until apt-get update; do
         sleep 1
         echo "waiting"
       done
-      until apt-get -y install ${INSTALL_LIST}; do
+      apt-get -y install lsb_release
+      export DEBIAN=$(lsb_release -sc)
+      export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
+      INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git"
+      until DEBIAN_FRONTEND=noninteractive apt-get -y install ${INSTALL_LIST}; do
         sleep 1
         echo "waiting"
       done
