@@ -70,20 +70,34 @@ Upgrade to the latest version
 Upgrade to a specific version
 --------------------------------------------------------------------------------
 
-1. List available options: :command:`$ sudo apt-cache madison percona-backup-mongodb`
+1. List available options: 
+
+
+   .. code-block:: bash
+   
+      $ sudo apt-cache madison percona-backup-mongodb
    
    .. admonition:: Sample output
    
       .. include:: .res/text/apt-versions-list.txt
 
-#. Stop |pbm-agent|: :bash:`$ sudo systemctl stop pbm-agent`   
+#. Stop |pbm-agent|: 
+
+   .. code-block:: bash
+   
+      $ sudo systemctl stop pbm-agent  
+
 #. Install a specific version packages. For example, to upgrade to |PBM| 1.1.3, run the following command:   
 
    .. code-block:: bash
    
       $ sudo apt-get install percona-backup-mongodb=1.1.3-1.stretch
 
-#. Start |pbm-agent|: :bash:`$ sudo systemctl start pbm-agent`
+#. Start |pbm-agent|: 
+
+   .. code-block:: bash
+   
+      $ sudo systemctl start pbm-agent
 
 Upgrade |PBM| using ``yum``
 ================================================================================ 
@@ -124,9 +138,13 @@ Upgrade to a specific version
 
    .. admonition:: Sample output
 
-      .. include:: .res/text/yum-available-versions.txt
+      .. include:: .res/text/yum-versions-list.txt
 
-#. Stop |pbm-agent|: :bash:`$ sudo systemctl stop pbm-agent`
+#. Stop |pbm-agent|: 
+ 
+   .. code-block:: bash
+   
+      $ sudo systemctl stop pbm-agent
 
 #. Install a specific version packages. For example, to upgrade |PBM| to version 1.1.3, use the following command: 
    
@@ -134,7 +152,11 @@ Upgrade to a specific version
    
       $ sudo yum install percona-backup-mongodb-1.1.3-1.el7
 
-#. Start |pbm-agent|: :bash:`$ sudo systemctl start pbm-agent    `
+#. Start |pbm-agent|: 
+
+   .. code-block:: bash
+   
+      $ sudo systemctl start pbm-agent
 
 
       

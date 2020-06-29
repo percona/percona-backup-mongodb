@@ -1,4 +1,4 @@
-.. code-block: text
+.. code-block:: text 
 
    Available Packages
    percona-backup-mongodb.x86_64    1.0-1.el7            tools-release-x86_64
