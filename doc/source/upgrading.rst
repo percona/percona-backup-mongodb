@@ -21,7 +21,7 @@ You can upgrade |PBM| to the **latest version** or to a **specific version**. Si
 
 .. rubric:: Important notes
  
-1. Backward compatibility between data backup and restore is supported for upgrades within one major version only (e.g. from 1.1.0 to 1.2.0). When you upgrade |PBM| over several major versions (e.g. from 1.0.0 to 1.2.0), we recommend to make a backup right after the upgrade.
+1. Backward compatibility between data backup and restore is supported for upgrades within one major version only (e.g. from 1.1.x to 1.2.y). When you upgrade |PBM| over several major versions (e.g. from 1.0.x to 1.2.y), we recommend to make a backup right after the upgrade.
 2. Upgrade |PBM| on all nodes where it is installed.
       
 Enable |percona| repository
