@@ -31,3 +31,4 @@
 .. |pbm-speed-test-storage-help| replace:: ``pbm-speed-test storage --help``
 .. |pbm-cancel-backup| replace:: ``pbm cancel-backup``
 .. |pbm-delete-backup| replace:: ``pbm delete-backup``
+.. |sudo| replace:: :program:`sudo`

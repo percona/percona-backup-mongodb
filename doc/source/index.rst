@@ -38,6 +38,7 @@ which is no longer actively developed or supported.
    intro
    architecture
    installation
+   upgrading
    authentication
    config
    running
