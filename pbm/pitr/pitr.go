@@ -41,7 +41,7 @@ func NewBackup(rs string, pbm *pbm.PBM, node *pbm.Node) (*IBackup, error) {
 // if the timeline was lost (e.g. on (re)start or another node's fail).
 // The starting point sets to the last backup's or last PITR chunk's TS whichever is more recent
 func (i *IBackup) Catchup() error {
-	bcp, err := i.pbm.GetLastBackup()
+	bcp, err := i.pbm.GetLastBackup(nil)
 	if err != nil {
 		return errors.Wrap(err, "get last backup")
 	}

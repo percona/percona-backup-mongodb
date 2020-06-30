@@ -56,13 +56,15 @@ const (
 	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
 	CmdPITR             Command = "pitr"
+	CmdPITRestore       Command = "pitrestore"
 )
 
 type Cmd struct {
-	Cmd     Command    `bson:"cmd"`
-	Backup  BackupCmd  `bson:"backup,omitempty"`
-	Restore RestoreCmd `bson:"restore,omitempty"`
-	TS      int64      `bson:"ts"`
+	Cmd        Command       `bson:"cmd"`
+	Backup     BackupCmd     `bson:"backup,omitempty"`
+	Restore    RestoreCmd    `bson:"restore,omitempty"`
+	PITRestore PITRestoreCmd `bson:"pitrestore,omitempty"`
+	TS         int64         `bson:"ts"`
 }
 
 type BackupCmd struct {
@@ -73,6 +75,10 @@ type BackupCmd struct {
 type RestoreCmd struct {
 	Name       string `bson:"name"`
 	BackupName string `bson:"backupName"`
+}
+
+type PITRestoreCmd struct {
+	TS int64 `bson:"ts"`
 }
 
 type CompressionType string
@@ -416,12 +422,19 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 }
 
 // GetLastBackup returns last successfully finished backup
-// and nil if there is no such backup yet
-func (p *PBM) GetLastBackup() (*BackupMeta, error) {
+// and nil if there is no such backup yet. If ts isn't nil it will
+// search for the most recent backup that finished before specified timestamp
+func (p *PBM) GetLastBackup(ts *primitive.Timestamp) (*BackupMeta, error) {
 	b := new(BackupMeta)
+
+	q := bson.D{{"status", StatusDone}}
+	if ts != nil {
+		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": ts}})
+	}
+
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
-		bson.D{{"status", StatusDone}},
+		q,
 		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
 	)
 	if res.Err() != nil {

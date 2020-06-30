@@ -64,6 +64,45 @@ func (p *PBM) pitrChunk(rs string, sort int) (*PITRChunk, error) {
 	return chnk, errors.Wrap(err, "decode")
 }
 
+// PITRGetChunk returns a pitr slice chunk that blongs to the
+// given replica set and contains the given timestamp
+func (p *PBM) PITRGetChunk(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
+	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
+		p.ctx,
+		bson.D{
+			{"rs", rs},
+			{"start_ts", bson.M{"$gte": ts}},
+			{"end_ts", bson.M{"$lte": ts}},
+		},
+	)
+	if res.Err() != nil {
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+
+	chnk := new(PITRChunk)
+	err := res.Decode(chnk)
+	return chnk, errors.Wrap(err, "decode")
+}
+
+// PITRGetChunkFrom returns a pitr slice chunk that blongs to the
+// given replica set and start from the given timestamp
+func (p *PBM) PITRGetChunkFrom(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
+	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
+		p.ctx,
+		bson.D{
+			{"rs", rs},
+			{"start_ts", ts},
+		},
+	)
+	if res.Err() != nil {
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+
+	chnk := new(PITRChunk)
+	err := res.Decode(chnk)
+	return chnk, errors.Wrap(err, "decode")
+}
+
 // PITRAddChunk stores PITR chunk metadata
 func (p *PBM) PITRAddChunk(c PITRChunk) error {
 	_, err := p.Conn.Database(DB).Collection(PITRChunksCollection).InsertOne(p.ctx, c)

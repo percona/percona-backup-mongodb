@@ -40,7 +40,8 @@ var (
 		)
 
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
-	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
+	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").String()
+	restorePITRF   = restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String()
 
 	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Restore backup")
 
@@ -178,11 +179,35 @@ func main() {
 		}
 		fmt.Printf("Backup cancellation has started\n")
 	case restoreCmd.FullCommand():
-		err := restore(pbmClient, *restoreBcpName)
-		if err != nil {
-			log.Fatalln("Error:", err)
+		if *restorePITRF != "" && *restoreBcpName != "" {
+			log.Fatalln("Error: either a backup name or point in time should be set, non both together!")
 		}
-		fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
+		switch {
+		case *restoreBcpName != "":
+			err := restore(pbmClient, *restoreBcpName)
+			if err != nil {
+				log.Fatalln("Error:", err)
+			}
+			fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
+		case *restorePITRF != "":
+			ts, err := parseDateT(*restorePITRF)
+			if err != nil {
+				log.Fatalln("Error: parse date:", err)
+			}
+
+			err = pbmClient.SendCmd(pbm.Cmd{
+				Cmd: pbm.CmdPITRestore,
+				PITRestore: pbm.PITRestoreCmd{
+					TS: ts.Unix(),
+				},
+			})
+			if err != nil {
+				log.Fatalln("Error: send command:", err)
+			}
+			fmt.Printf("Restore to the point in time '%s' has started\n", *restorePITRF)
+		default:
+			log.Fatalln("Error: undefined restore state")
+		}
 	case listCmd.FullCommand():
 		if *listCmdRestore {
 			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
