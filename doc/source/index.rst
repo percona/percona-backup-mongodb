@@ -57,6 +57,5 @@ which is no longer actively developed or supported.
 Bugs and feature requests can be opened as JIRA tickets at
 https://jira.percona.com/projects/PBM/issues .
 
-Separate to using JIRA the email address for this project is
-(mongodb-backup@percona.com). Lastly you can also use the contact form on the
+Contact us using the form on the
 site (https://www.percona.com/about-percona/contact).
