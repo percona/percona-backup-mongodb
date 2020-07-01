@@ -11,6 +11,8 @@ Installing |pbm|
 *rpm* formats that you can install by using ``apt`` or ``yum`` or other
 interfaces to your package management system.
 
+The `Percona Software and Platform Lifecycle <https://www.percona.com/services/policies/percona-software-platform-lifecycle#mongodb>`_ page lists Linux distributions for which |pbm| installation packages are available.
+
 For your convenience, we recommend that you install the |percona-release| utility
 which makes it easy to install any |percona| product on your system.
 
@@ -58,16 +60,6 @@ enable the *tools* repository.
 Installing |pbm| Using ``apt``
 ================================================================================
 
-|percona| provides packages for the following systems that use the
-:program:`apt` to interface the package management system:
-
-* Debian 8 ("jessie")
-* Debian 9 ("stretch")
-* Debian 10 ("buster")
-* Ubuntu 16.04 LTS (Xenial Xerus)
-* Ubuntu 18.04 LTS (Bionic Beaver)
-* Ubuntu 20.04 LTS (Focal Fossa)
-
 .. code-block:: bash
 
    $ apt update
@@ -75,13 +67,6 @@ Installing |pbm| Using ``apt``
 
 Installing |pbm| Using ``yum``
 ================================================================================
-
-|percona| provides packages for the following systems that use the
-:program:`yum` to interface the package management system:
-
-* Red Hat Enterprise Linux / CentOS 6 (current stable release)
-* Red Hat Enterprise Linux / CentOS 7 (current stable release)
-* Red Hat Enterprise Linux / CentOS 8 (current stable release)  
 
 .. code-block:: bash
 
