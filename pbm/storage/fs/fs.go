@@ -46,6 +46,18 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
+func (fs *FS) CheckFile(name string) error {
+	f, err := os.Stat(path.Join(fs.opts.Path, name))
+	if err != nil {
+		return err
+	}
+	if f.Size() == 0 {
+		return errors.New("file empty")
+	}
+
+	return nil
+}
+
 func (fs *FS) FilesList(suffix string) ([][]byte, error) {
 	files, err := ioutil.ReadDir(fs.opts.Path)
 	if err != nil {

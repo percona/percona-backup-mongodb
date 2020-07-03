@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
 func (a *Agent) setPitr(p *currentPitr) (changed bool) {
@@ -189,10 +190,9 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 	}
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:       pbm.CmdPITRestore,
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: r.Name,
+		Type:    pbm.CmdPITRestore,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
 	})
 
 	got, err := lock.Acquire()
@@ -212,11 +212,11 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 		}
 	}()
 
-	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
-	err = pitr.NewRecovery(a.pbm, a.node).Run(r)
+	log.Printf("[INFO] Point-in-Time Recovery started")
+	err = restore.New(a.pbm, a.node).PITR(r)
 	if err != nil {
 		log.Println("[ERROR] restore:", err)
 		return
 	}
-	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
+	log.Printf("[INFO] Point-in-Time Recovery finished successfully")
 }

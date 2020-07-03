@@ -64,15 +64,15 @@ func (p *PBM) pitrChunk(rs string, sort int) (*PITRChunk, error) {
 	return chnk, errors.Wrap(err, "decode")
 }
 
-// PITRGetChunk returns a pitr slice chunk that blongs to the
+// PITRGetChunkContains returns a pitr slice chunk that belongs to the
 // given replica set and contains the given timestamp
-func (p *PBM) PITRGetChunk(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
+func (p *PBM) PITRGetChunkContains(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
 	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
 		p.ctx,
 		bson.D{
 			{"rs", rs},
-			{"start_ts", bson.M{"$gte": ts}},
-			{"end_ts", bson.M{"$lte": ts}},
+			{"start_ts", bson.M{"$lte": ts}},
+			{"end_ts", bson.M{"$gte": ts}},
 		},
 	)
 	if res.Err() != nil {
@@ -84,9 +84,40 @@ func (p *PBM) PITRGetChunk(rs string, ts primitive.Timestamp) (*PITRChunk, error
 	return chnk, errors.Wrap(err, "decode")
 }
 
-// PITRGetChunkFrom returns a pitr slice chunk that blongs to the
+// PITRGetChunksSlice returns slice of PITR oplog chunks which Start TS
+// lies in a given time frame
+func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PITRChunk, error) {
+	cur, err := p.Conn.Database(DB).Collection(PITRChunksCollection).Find(
+		p.ctx,
+		bson.D{
+			{"rs", rs},
+			{"start_ts", bson.M{"$gte": from, "$lte": to}},
+		},
+	)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "get cursor")
+	}
+	defer cur.Close(p.ctx)
+
+	chnks := []PITRChunk{}
+
+	for cur.Next(p.ctx) {
+		var chnk PITRChunk
+		err := cur.Decode(&chnk)
+		if err != nil {
+			return nil, errors.Wrap(err, "decode chunk")
+		}
+
+		chnks = append(chnks, chnk)
+	}
+
+	return chnks, cur.Err()
+}
+
+// PITRGetChunkStarts returns a pitr slice chunk that belongs to the
 // given replica set and start from the given timestamp
-func (p *PBM) PITRGetChunkFrom(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
+func (p *PBM) PITRGetChunkStarts(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
 	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
 		p.ctx,
 		bson.D{

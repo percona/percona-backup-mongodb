@@ -193,6 +193,39 @@ func (s *S3) FilesList(suffix string) ([][]byte, error) {
 	return bcps, nil
 }
 
+func (s *S3) CheckFile(name string) error {
+	awsSession, err := session.NewSession(&aws.Config{
+		Region:   aws.String(s.opts.Region),
+		Endpoint: aws.String(s.opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			"",
+		),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	if err != nil {
+		return errors.Wrap(err, "create AWS session")
+	}
+
+	h, err := s3.New(awsSession).HeadObject(&s3.HeadObjectInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	})
+	if err != nil {
+		return errors.Wrap(err, "get S3 object header")
+	}
+
+	if aws.Int64Value(h.ContentLength) == 0 {
+		return errors.New("file empty")
+	}
+	if aws.BoolValue(h.DeleteMarker) {
+		return errors.New("file has delete marker")
+	}
+
+	return nil
+}
+
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),

@@ -21,29 +21,28 @@ type IsMasterLastWrite struct {
 
 // IsMaster represents the document returned by db.runCommand( { isMaster: 1 } )
 type IsMaster struct {
-	Hosts                        []string           `bson:"hosts,omitempty"`
-	Msg                          string             `bson:"msg"`
-	MaxBsonObjectSise            int64              `bson:"maxBsonObjectSize"`
-	MaxMessageSizeBytes          int64              `bson:"maxMessageSizeBytes"`
-	MaxWriteBatchSize            int64              `bson:"maxWriteBatchSize"`
-	LocalTime                    time.Time          `bson:"localTime"`
-	LogicalSessionTimeoutMinutes int64              `bson:"logicalSessionTimeoutMinutes"`
-	MaxWireVersion               int64              `bson:"maxWireVersion"`
-	MinWireVersion               int64              `bson:"minWireVersion"`
-	OK                           int                `bson:"ok"`
-	SetName                      string             `bson:"setName,omitempty"`
-	Primary                      string             `bson:"primary,omitempty"`
-	SetVersion                   int32              `bson:"setVersion,omitempty"`
-	IsMaster                     bool               `bson:"ismaster"`
-	Secondary                    bool               `bson:"secondary,omitempty"`
-	Hidden                       bool               `bson:"hidden,omitempty"`
-	ConfigSvr                    int                `bson:"configsvr,omitempty"`
-	Me                           string             `bson:"me"`
-	LastWrite                    IsMasterLastWrite  `bson:"lastWrite"`
-	ClusterTime                  *ClusterTime       `bson:"$clusterTime,omitempty"`
-	ConfigServerState            *ConfigServerState `bson:"$configServerState,omitempty"`
-	// GleStats                     *GleStats            `bson:"$gleStats,omitempty"`
-	OperationTime *primitive.Timestamp `bson:"operationTime,omitempty"`
+	Hosts                        []string             `bson:"hosts,omitempty"`
+	Msg                          string               `bson:"msg"`
+	MaxBsonObjectSise            int64                `bson:"maxBsonObjectSize"`
+	MaxMessageSizeBytes          int64                `bson:"maxMessageSizeBytes"`
+	MaxWriteBatchSize            int64                `bson:"maxWriteBatchSize"`
+	LocalTime                    time.Time            `bson:"localTime"`
+	LogicalSessionTimeoutMinutes int64                `bson:"logicalSessionTimeoutMinutes"`
+	MaxWireVersion               int64                `bson:"maxWireVersion"`
+	MinWireVersion               int64                `bson:"minWireVersion"`
+	OK                           int                  `bson:"ok"`
+	SetName                      string               `bson:"setName,omitempty"`
+	Primary                      string               `bson:"primary,omitempty"`
+	SetVersion                   int32                `bson:"setVersion,omitempty"`
+	IsMaster                     bool                 `bson:"ismaster"`
+	Secondary                    bool                 `bson:"secondary,omitempty"`
+	Hidden                       bool                 `bson:"hidden,omitempty"`
+	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
+	Me                           string               `bson:"me"`
+	LastWrite                    IsMasterLastWrite    `bson:"lastWrite"`
+	ClusterTime                  *ClusterTime         `bson:"$clusterTime,omitempty"`
+	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
+	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
 }
 
 // IsSharded returns true is replset is part sharded cluster
@@ -147,19 +146,18 @@ type NodeStatus struct {
 }
 
 type ReplsetStatus struct {
-	Set                     string             `bson:"set" json:"set"`
-	Date                    time.Time          `bson:"date" json:"date"`
-	MyState                 NodeState          `bson:"myState" json:"myState"`
-	Members                 []NodeStatus       `bson:"members" json:"members"`
-	Term                    int64              `bson:"term,omitempty" json:"term,omitempty"`
-	HeartbeatIntervalMillis int64              `bson:"heartbeatIntervalMillis,omitempty" json:"heartbeatIntervalMillis,omitempty"`
-	Optimes                 *StatusOpTimes     `bson:"optimes,omitempty" json:"optimes,omitempty"`
-	Errmsg                  string             `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
-	Ok                      int                `bson:"ok" json:"ok"`
-	ClusterTime             *ClusterTime       `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
-	ConfigServerState       *ConfigServerState `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
-	// GleStats                *GleStats            `bson:"$gleStats,omitempty" json:"$gleStats,omitempty"`
-	OperationTime *primitive.Timestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
+	Set                     string               `bson:"set" json:"set"`
+	Date                    time.Time            `bson:"date" json:"date"`
+	MyState                 NodeState            `bson:"myState" json:"myState"`
+	Members                 []NodeStatus         `bson:"members" json:"members"`
+	Term                    int64                `bson:"term,omitempty" json:"term,omitempty"`
+	HeartbeatIntervalMillis int64                `bson:"heartbeatIntervalMillis,omitempty" json:"heartbeatIntervalMillis,omitempty"`
+	Optimes                 *StatusOpTimes       `bson:"optimes,omitempty" json:"optimes,omitempty"`
+	Errmsg                  string               `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
+	Ok                      int                  `bson:"ok" json:"ok"`
+	ClusterTime             *ClusterTime         `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
+	ConfigServerState       *ConfigServerState   `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
+	OperationTime           *primitive.Timestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
 }
 
 // Shard represent config.shard https://docs.mongodb.com/manual/reference/config-database/#config.shards
