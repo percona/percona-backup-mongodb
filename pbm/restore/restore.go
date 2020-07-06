@@ -46,7 +46,7 @@ type Restore struct {
 	oplogFile  string
 	pitrChunks []pbm.PITRChunk
 	pitrLastTS int64
-	mgoV       *pbm.MongoVersion
+	oplog      *Oplog
 }
 
 // New creates a new restore object
@@ -65,6 +65,7 @@ func (r *Restore) Close() {
 	}
 }
 
+// Snapshot do the snapshot's (mongo dump) restore
 func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
@@ -93,6 +94,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 	return r.Done()
 }
 
+// PITR do Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
@@ -197,10 +199,12 @@ func (r *Restore) Init(name string) (err error) {
 		return errors.Wrap(err, "get backup storage")
 	}
 
-	r.mgoV, err = r.node.GetMongoVersion()
-	if err != nil || len(r.mgoV.Version) < 1 {
+	mgoV, err := r.node.GetMongoVersion()
+	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
+
+	r.oplog = NewOplog(r.node, mgoV, preserveUUID)
 
 	return nil
 }
@@ -433,7 +437,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	}
 	defer oplogReader.Close()
 
-	err = NewOplog(r.node, r.mgoV, preserveUUID).Apply(oplogReader)
+	lts, err := r.oplog.Apply(oplogReader)
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
 	}
@@ -442,7 +446,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
-	log.Println("[INFO] oplog replay finished")
+	log.Println("[INFO] oplog replay finished on %v", lts)
 
 	log.Println("restoring users and roles")
 	err = r.restoreUsers(cusr)
@@ -453,43 +457,48 @@ func (r *Restore) RunSnapshot() (err error) {
 	return nil
 }
 
+// RestoreChunks replays PITR oplog chunks
 func (r *Restore) RestoreChunks() error {
 	log.Println("[INFO] replay pitr chunks")
 
 	var upto int64
+	var lts primitive.Timestamp
+	var err error
 	for i, chnk := range r.pitrChunks {
 		if i == len(r.pitrChunks)-1 {
 			upto = r.pitrLastTS
 		}
-		err := r.replyChunk(chnk.FName, chnk.Compression, upto)
+		lts, err = r.replyChunk(chnk.FName, chnk.Compression, upto)
 		if err != nil {
 			return errors.Errorf("replay chunk %v.%v: %v", chnk.StartTS.T, chnk.EndTS.T, err)
 		}
 	}
 
-	log.Println("[INFO] oplog replay finished")
+	log.Println("[INFO] oplog replay finished on %v <%d>", lts, upto)
 	return nil
 }
 
-// !!! TODO: handle last chunk
-func (r *Restore) replyChunk(file string, c pbm.CompressionType, upto int64) error {
+func (r *Restore) replyChunk(file string, c pbm.CompressionType, upto int64) (lts primitive.Timestamp, err error) {
 	or, err := r.stg.SourceReader(file)
 	if err != nil {
-		return errors.Wrapf(err, "get object %s form the storage", file)
+		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
 	oplogReader, err := Decompress(or, c)
 	if err != nil {
-		return errors.Wrapf(err, "decompress object %s", file)
+		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}
 	defer oplogReader.Close()
 
-	err = NewOplog(r.node, r.mgoV, preserveUUID).Apply(oplogReader)
+	r.oplog.SetEdgeUnix(upto)
+	lts, err = r.oplog.Apply(oplogReader)
 
-	return errors.Wrap(err, "apply oplog for chunk")
+	return lts, errors.Wrap(err, "apply oplog for chunk")
 }
 
+// Done waits for the replicas to finish the job
+// and marks restore as done
 func (r *Restore) Done() error {
 	err := r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDone, "")
 	if err != nil {

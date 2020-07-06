@@ -15,6 +15,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
+type currentPitr struct {
+	wakeup chan struct{} // to wake up a slicer on demand (not to wait for the tick)
+	cancel context.CancelFunc
+}
+
 func (a *Agent) setPitr(p *currentPitr) (changed bool) {
 	a.mx.Lock()
 	defer a.mx.Unlock()

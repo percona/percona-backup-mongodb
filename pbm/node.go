@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -10,7 +11,7 @@ import (
 )
 
 type Node struct {
-	name string
+	id   string
 	ctx  context.Context
 	cn   *mongo.Client
 	curi string
@@ -25,18 +26,27 @@ const (
 	ReplRoleConfigSrv = "configsrv"
 )
 
-func NewNode(ctx context.Context, name string, curi string) (*Node, error) {
+func NewNode(ctx context.Context, curi string) (*Node, error) {
 	n := &Node{
-		name: name,
 		ctx:  ctx,
 		curi: curi,
 	}
 	err := n.Connect()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "connect")
 	}
 
+	nodeInfo, err := n.GetIsMaster()
+	if err != nil {
+		return nil, errors.Wrap(err, "get node info")
+	}
+	n.id = fmt.Sprintf("%s/%s", nodeInfo.SetName, nodeInfo.Me)
+
 	return n, nil
+}
+
+func (n *Node) ID() string {
+	return n.id
 }
 
 func (n *Node) Connect() error {
