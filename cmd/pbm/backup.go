@@ -52,7 +52,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitBackupStart)
 	defer cancel()
-	err = waitForStatus(ctx, cn, bcpName)
+	err = waitForBcpStatus(ctx, cn, bcpName)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	return storeString, nil
 }
 
-func waitForStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
+func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	var err error

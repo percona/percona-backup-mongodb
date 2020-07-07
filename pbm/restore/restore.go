@@ -105,7 +105,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 		r.Close()
 	}()
 
-	err = r.Init(time.Now().UTC().Format(time.RFC3339Nano))
+	err = r.Init(cmd.Name)
 	if err != nil {
 		return err
 	}

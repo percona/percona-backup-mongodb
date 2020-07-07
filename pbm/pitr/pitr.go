@@ -49,9 +49,15 @@ func (i *IBackup) Catchup() error {
 		return errors.New("no backup found")
 	}
 
-	i.lastTS = bcp.LastWriteTS
+	rstr, err := i.pbm.GetLastRestore()
+	if err != nil {
+		return errors.Wrap(err, "get last restore")
+	}
+	if rstr != nil && rstr.StartTS > bcp.StartTS {
+		return errors.Errorf("no backup found after the restored %s", rstr.Backup)
+	}
 
-	log.Println("BCP lts", i.lastTS)
+	i.lastTS = bcp.LastWriteTS
 
 	chnk, err := i.pbm.PITRLastChunkMeta(i.rs)
 	if err != nil {
@@ -65,7 +71,6 @@ func (i *IBackup) Catchup() error {
 	if chnk.EndTS.T > i.lastTS.T {
 		i.lastTS = chnk.EndTS
 	}
-	log.Println("CHNK lts", i.lastTS)
 
 	return nil
 }
@@ -76,7 +81,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		return errors.New("no starting point defined")
 	}
 
-	log.Println("[INFO] PITR: streaming started from", time.Unix(int64(i.lastTS.T), 0).UTC())
+	log.Println("[INFO] PITR: streaming started from", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
 	defer tk.Stop()

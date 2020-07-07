@@ -190,19 +190,9 @@ func main() {
 			}
 			fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 		case *restorePITRF != "":
-			ts, err := parseDateT(*restorePITRF)
+			err := restore(pbmClient, *restorePITRF)
 			if err != nil {
-				log.Fatalln("Error: parse date:", err)
-			}
-
-			err = pbmClient.SendCmd(pbm.Cmd{
-				Cmd: pbm.CmdPITRestore,
-				PITRestore: pbm.PITRestoreCmd{
-					TS: ts.Unix(),
-				},
-			})
-			if err != nil {
-				log.Fatalln("Error: send command:", err)
+				log.Fatalln("Error:", err)
 			}
 			fmt.Printf("Restore to the point in time '%s' has started\n", *restorePITRF)
 		default:

@@ -78,7 +78,8 @@ type RestoreCmd struct {
 }
 
 type PITRestoreCmd struct {
-	TS int64 `bson:"ts"`
+	Name string `bson:"name"`
+	TS   int64  `bson:"ts"`
 }
 
 type CompressionType string
@@ -424,12 +425,12 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 // GetLastBackup returns last successfully finished backup
 // and nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
-func (p *PBM) GetLastBackup(ts *primitive.Timestamp) (*BackupMeta, error) {
+func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 	b := new(BackupMeta)
 
 	q := bson.D{{"status", StatusDone}}
-	if ts != nil {
-		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": ts}})
+	if before != nil {
+		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})
 	}
 
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -41,10 +42,11 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		}
 	}
 
+	name := time.Now().UTC().Format(time.RFC3339Nano)
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdRestore,
 		Restore: pbm.RestoreCmd{
-			Name:       time.Now().UTC().Format(time.RFC3339Nano),
+			Name:       name,
 			BackupName: bcpName,
 		},
 	})
@@ -52,7 +54,96 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		return errors.Wrap(err, "send command")
 	}
 
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	defer cancel()
+
+	return waitForRestoreStatus(ctx, cn, name)
+}
+
+func pitrestore(cn *pbm.PBM, t string) error {
+	tsto, err := parseDateT(t)
+	if err != nil {
+		return errors.Wrap(err, "parse date")
+	}
+
+	locks, err := cn.GetLocks(&pbm.LockHeader{}, pbm.LockCollection)
+	if err != nil {
+		log.Println("get locks", err)
+	}
+
+	ts, err := cn.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	// Stop if there is some live operation.
+	// But in case of stale lock just move on
+	// and leave it for agents to deal with.
+	for _, l := range locks {
+		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
+			return errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
+		}
+	}
+
+	name := time.Now().UTC().Format(time.RFC3339Nano)
+	err = cn.SendCmd(pbm.Cmd{
+		Cmd: pbm.CmdPITRestore,
+		PITRestore: pbm.PITRestoreCmd{
+			Name: name,
+			TS:   tsto.Unix(),
+		},
+	})
+	if err != nil {
+		return errors.Wrap(err, "send command")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	defer cancel()
+
+	return waitForRestoreStatus(ctx, cn, name)
+}
+
+func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	var err error
+	meta := new(pbm.RestoreMeta)
+	for {
+		select {
+		case <-tk.C:
+			fmt.Print(".")
+			meta, err = cn.GetRestoreMeta(name)
+			if err != nil {
+				return errors.Wrap(err, "get metadata")
+			}
+			switch meta.Status {
+			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
+				return nil
+			case pbm.StatusError:
+				rs := ""
+				for _, s := range meta.Replsets {
+					rs += fmt.Sprintf("\n- Restore on replicaset \"%s\" in state: %v", s.Name, s.Status)
+					if s.Error != "" {
+						rs += ": " + s.Error
+					}
+				}
+				return errors.New(meta.Error + rs)
+			}
+		case <-ctx.Done():
+			rs := ""
+			for _, s := range meta.Replsets {
+				rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
+				if s.Error != "" {
+					rs += ": " + s.Error
+				}
+			}
+			if rs == "" {
+				rs = "<no replset has started restore>\n"
+			}
+
+			return errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
+		}
+	}
 }
 
 func printRestoreList(cn *pbm.PBM, size int64, full bool) {
@@ -64,9 +155,13 @@ func printRestoreList(cn *pbm.PBM, size int64, full bool) {
 	for i := len(rs) - 1; i >= 0; i-- {
 		r := rs[i]
 
-		var rprint string
+		var rprint, name string
 
-		name := r.Backup
+		if r.PITR == 0 {
+			name = r.Backup
+		} else {
+			name = "PITR " + time.Unix(r.PITR, 0).Format(time.RFC3339)
+		}
 		if full {
 			name += fmt.Sprintf(" [%s]", r.Name)
 		}
