@@ -190,7 +190,7 @@ func main() {
 			}
 			fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 		case *restorePITRF != "":
-			err := restore(pbmClient, *restorePITRF)
+			err := pitrestore(pbmClient, *restorePITRF)
 			if err != nil {
 				log.Fatalln("Error:", err)
 			}

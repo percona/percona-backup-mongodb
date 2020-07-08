@@ -99,10 +99,11 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 	for {
 		// waiting for a trigger
 		select {
+		// wrapping up at the current point-in-time
 		case <-ctx.Done():
 			log.Println("[INFO] PITR: got done signal, stopping")
+			// lastSlice = true
 			return nil
-
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
 			log.Println("[INFO] PITR: got wake_up signal")
@@ -179,7 +180,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		}
 
 		if lastSlice {
-			log.Println("[INFO] PITR: pausing with last_ts", time.Unix(int64(sliceTo.T), 0).UTC())
+			log.Println("[INFO] PITR: pausing/stopping with last_ts", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
 		}
 

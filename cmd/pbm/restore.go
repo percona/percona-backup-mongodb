@@ -160,7 +160,7 @@ func printRestoreList(cn *pbm.PBM, size int64, full bool) {
 		if r.PITR == 0 {
 			name = r.Backup
 		} else {
-			name = "PITR " + time.Unix(r.PITR, 0).Format(time.RFC3339)
+			name = "PITR: " + time.Unix(r.PITR, 0).UTC().Format(time.RFC3339)
 		}
 		if full {
 			name += fmt.Sprintf(" [%s]", r.Name)

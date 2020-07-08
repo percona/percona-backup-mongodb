@@ -26,6 +26,7 @@ var excludeFromRestore = []string{
 	pbm.DB + "." + pbm.BcpCollection,
 	pbm.DB + "." + pbm.RestoresCollection,
 	pbm.DB + "." + pbm.LockCollection,
+	pbm.DB + "." + pbm.PITRChunksCollection,
 	"config.version",
 	"config.mongos",
 	"config.lockpings",
@@ -70,7 +71,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
-			log.Printf("Error: mark restore as failed `%v`: %v\n", err, ferr)
+			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
 		}
 
 		r.Close()
@@ -99,7 +100,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
-			log.Printf("Error: mark restore as failed `%v`: %v\n", err, ferr)
+			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
 		}
 
 		r.Close()
@@ -185,7 +186,7 @@ func (r *Restore) Init(name string) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
-			log.Printf("Error: mark restore as failed `%v`: %v\n", err, ferr)
+			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
 		}
 	}()
 
@@ -212,9 +213,11 @@ func (r *Restore) Init(name string) (err error) {
 func (r *Restore) PreparePITR(ts int64) (err error) {
 	r.pitrLastTS = ts
 
-	err = r.cn.SetRestorePITR(r.nodeInfo.SetName, ts)
-	if err != nil {
-		return errors.Wrap(err, "set PITR timestamp")
+	if r.nodeInfo.IsLeader() {
+		err = r.cn.SetRestorePITR(r.name, ts)
+		if err != nil {
+			return errors.Wrap(err, "set PITR timestamp")
+		}
 	}
 
 	pts := primitive.Timestamp{T: uint32(ts), I: 0}
@@ -441,12 +444,12 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
 	}
+	log.Printf("[INFO] oplog replay finished on %v", lts)
 
 	cusr, err := r.node.CurrentUser()
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
-	log.Println("[INFO] oplog replay finished on %v", lts)
 
 	log.Println("restoring users and roles")
 	err = r.restoreUsers(cusr)
@@ -459,7 +462,7 @@ func (r *Restore) RunSnapshot() (err error) {
 
 // RestoreChunks replays PITR oplog chunks
 func (r *Restore) RestoreChunks() error {
-	log.Println("[INFO] replay pitr chunks")
+	log.Println("[INFO] pitr: replay pitr chunks")
 
 	var upto int64
 	var lts primitive.Timestamp
@@ -474,7 +477,7 @@ func (r *Restore) RestoreChunks() error {
 		}
 	}
 
-	log.Println("[INFO] oplog replay finished on %v <%d>", lts, upto)
+	log.Printf("[INFO] pitr: oplog replay finished on %v <%d>", lts, upto)
 	return nil
 }
 

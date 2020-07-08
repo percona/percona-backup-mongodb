@@ -83,7 +83,7 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 			continue
 		}
 
-		//skip no-ops
+		// skip no-ops
 		if oe.Operation == "n" {
 			continue
 		}
