@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -11,10 +12,12 @@ import (
 )
 
 type Node struct {
-	id   string
+	rs   string
+	me   string
 	ctx  context.Context
 	cn   *mongo.Client
 	curi string
+	log  *Logger
 }
 
 // ReplRole is a replicaset role in sharded cluster
@@ -40,13 +43,20 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get node info")
 	}
-	n.id = fmt.Sprintf("%s/%s", nodeInfo.SetName, nodeInfo.Me)
+	n.rs, n.me = nodeInfo.SetName, nodeInfo.Me
+
+	n.log = &Logger{} // just not to panic if logger wasn't set before use
 
 	return n, nil
 }
 
+func (n *Node) InitLogger(cn *PBM) {
+	n.log = NewLogger(cn, n.rs, n.me)
+	n.log.SetOut(os.Stderr)
+}
+
 func (n *Node) ID() string {
-	return n.id
+	return fmt.Sprintf("%s/%s", n.rs, n.me)
 }
 
 func (n *Node) Connect() error {

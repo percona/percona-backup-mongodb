@@ -65,6 +65,7 @@ func runAgent(mongoURI string) error {
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
+	agnt.InitLogger(pbmClient)
 
 	log.Println("pbm-agent", version.DefaultInfo.All(""))
 	log.Println("starting pitr routine")

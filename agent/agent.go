@@ -30,6 +30,10 @@ func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 	return err
 }
 
+func (a *Agent) InitLogger(cn *pbm.PBM) {
+	a.node.InitLogger(cn)
+}
+
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
 	log.Printf("node: %s", a.node.ID())
