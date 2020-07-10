@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -139,4 +140,46 @@ func (p *PBM) PITRAddChunk(c PITRChunk) error {
 	_, err := p.Conn.Database(DB).Collection(PITRChunksCollection).InsertOne(p.ctx, c)
 
 	return err
+}
+
+type Timeline struct {
+	Start uint32
+	End   uint32
+}
+
+// PITRGetValidTimelines returns time ranges valid for PITR restore
+// for the given replicaset
+func (p *PBM) PITRGetValidTimelines(rs string, until int64) (tlines []Timeline, err error) {
+	fch, err := p.PITRFirstChunkMeta(rs)
+	if err != nil {
+		return nil, errors.Wrap(err, "get the oldest chunk")
+	}
+
+	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, primitive.Timestamp{T: uint32(until), I: 0})
+	if err != nil {
+		return nil, errors.Wrap(err, "get slice")
+	}
+
+	return gettlines(slices), nil
+}
+
+func gettlines(slices []PITRChunk) (tlines []Timeline) {
+	var tl Timeline
+	var prevEnd uint32
+	for _, s := range slices {
+		fmt.Println(s.StartTS.T, prevEnd)
+		if prevEnd != 0 && prevEnd != s.StartTS.T {
+			tlines = append(tlines, tl)
+			tl = Timeline{}
+		}
+		if tl.Start == 0 {
+			tl.Start = s.StartTS.T
+		}
+		prevEnd = s.EndTS.T
+		tl.End = s.EndTS.T
+	}
+
+	tlines = append(tlines, tl)
+
+	return tlines
 }
