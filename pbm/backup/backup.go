@@ -87,14 +87,14 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 				meta.Status = pbm.StatusCancelled
 				meta.Replsets = append(meta.Replsets, rsMeta)
-				log.Println("Delete artefacts from storage:", b.cn.DeleteBackupFiles(meta, stg))
+				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
-			log.Printf("Mark RS as %s `%v`: %v\n", status, err, ferr)
+			b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark RS as %s `%v`: %v", status, err, ferr)
 			if im.IsLeader() {
 				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
-				log.Printf("Mark backup as %s `%v`: %v\n", status, err, ferr)
+				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
 	}()
@@ -130,7 +130,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 				case <-tk.C:
 					err := b.cn.BackupHB(bcp.Name)
 					if err != nil {
-						log.Println("[ERROR] send pbm heartbeat:", err)
+						b.node.Log.Error(pbm.CmdBackup, bcp.Name, "send pbm heartbeat: %v", err)
 					}
 				case <-hbstop:
 					return
@@ -184,7 +184,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
-	log.Println("mongodump finished, waiting for the oplog")
+	b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mongodump finished, waiting for the oplog")
 
 	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDumpDone, "")
 	if err != nil {
@@ -342,7 +342,6 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	select {
 	case <-ctx.Done():
-		log.Println("Backup has been canceled")
 		err := r.Close()
 		if err != nil {
 			return 0, errors.Wrap(err, "cancel backup: close reader")

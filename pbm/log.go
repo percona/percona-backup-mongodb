@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -32,10 +33,18 @@ func (e *LogEntry) formatTS() string {
 	return time.Unix(e.TS, 0).UTC().Format(logTimeFormat)
 }
 
-func (e *LogEntry) String() string {
-	s := fmt.Sprintf("%s [%s] %s | {%s / %s}", e.formatTS(), e.Type, e.Msg)
+func (e *LogEntry) String() (s string) {
 	if e.Action != CmdUndefined || e.ObjName != "" {
-		s += fmt.Sprintf(" <%s / %s>", e.Action, e.ObjName)
+		id := []string{}
+		if e.Action != CmdUndefined {
+			id = append(id, string(e.Action))
+		}
+		if e.ObjName != "" {
+			id = append(id, e.ObjName)
+		}
+		s = fmt.Sprintf("%s [%s] %s: %s", e.formatTS(), e.Type, strings.Join(id, "/"), e.Msg)
+	} else {
+		s = fmt.Sprintf("%s [%s] %s", e.formatTS(), e.Type, e.Msg)
 	}
 
 	return s
@@ -44,9 +53,9 @@ func (e *LogEntry) String() string {
 type EntryType string
 
 const (
-	TypeInfo    EntryType = "info"
-	TypeWarning EntryType = "warning"
-	TypeError   EntryType = "error"
+	TypeInfo    EntryType = "INFO"
+	TypeWarning EntryType = "Warning"
+	TypeError   EntryType = "ERROR"
 )
 
 func NewLogger(cn *PBM, rs, node string) *Logger {
@@ -62,7 +71,10 @@ func (l *Logger) SetOut(w io.Writer) {
 	l.out = w
 }
 
-func (l *Logger) output(typ EntryType, msg string, action Command, obj string) {
+func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...interface{}) {
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
 	e := &LogEntry{
 		TS:      time.Now().UTC().Unix(),
 		RS:      l.rs,
@@ -75,20 +87,20 @@ func (l *Logger) output(typ EntryType, msg string, action Command, obj string) {
 
 	err := l.Output(e)
 	if err != nil {
-		log.Printf("[ERROR] wrting log entry: %v, entry: %s", err, e)
+		log.Printf("[ERROR] wrting log: %v, entry: %s", err, e)
 	}
 }
 
-func (l *Logger) Info(msg string, action Command, obj string) {
-	l.output(TypeInfo, msg, action, obj)
+func (l *Logger) Info(action Command, obj, msg string, args ...interface{}) {
+	l.output(TypeInfo, action, obj, msg, args...)
 }
 
-func (l *Logger) Warning(msg string, action Command, obj string) {
-	l.output(TypeWarning, msg, action, obj)
+func (l *Logger) Warning(action Command, obj, msg string, args ...interface{}) {
+	l.output(TypeWarning, action, obj, msg, args...)
 }
 
-func (l *Logger) Error(msg string, action Command, obj string) {
-	l.output(TypeError, msg, action, obj)
+func (l *Logger) Error(action Command, obj, msg string, args ...interface{}) {
+	l.output(TypeError, action, obj, msg, args...)
 }
 
 func (l *Logger) Output(e *LogEntry) error {

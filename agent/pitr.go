@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -65,7 +64,7 @@ func (a *Agent) PITR() {
 	for range tk.C {
 		err := a.pitr()
 		if err != nil {
-			log.Println("[ERROR] PITR: ", err)
+			a.log.Error(pbm.CmdPITR, "", "%v", err)
 		}
 	}
 }
@@ -111,10 +110,7 @@ func (a *Agent) pitr() (err error) {
 	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
 	// ErrNoDocuments or stale lock the only reasons to continue
 	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-		if err != nil {
-			return errors.Wrap(err, "check is run")
-		}
-		return nil
+		return errors.Wrap(err, "check is run")
 	}
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
@@ -133,7 +129,7 @@ func (a *Agent) pitr() (err error) {
 	releasLock := func() {
 		err := lock.Release()
 		if err != nil {
-			log.Println("[ERROR] PITR: release lock:", err)
+			a.log.Error(pbm.CmdPITR, "", "release lock: %v", err)
 		}
 	}
 
@@ -172,7 +168,7 @@ func (a *Agent) pitr() (err error) {
 
 		err := ibcp.Stream(ctx, w, stg, pbm.CompressionTypeS2)
 		if err != nil {
-			log.Println("[ERROR] PITR: streaming oplog:", err)
+			a.log.Error(pbm.CmdPITR, "", "streaming oplog: %v", err)
 		}
 
 		a.unsetPitr()
@@ -184,13 +180,14 @@ func (a *Agent) pitr() (err error) {
 
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
+	tsstr := time.Unix(int64(r.TS), 0).UTC().Format(time.RFC3339)
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
-		log.Println("[ERROR] backup: get node isMaster data:", err)
+		a.log.Error(pbm.CmdPITR, tsstr, "get node info: %v", err)
 		return
 	}
 	if !nodeInfo.IsMaster {
-		log.Println("Node in not suitable for restore")
+		a.log.Info(pbm.CmdPITR, tsstr, "Node in not suitable for restore")
 		return
 	}
 
@@ -202,26 +199,26 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 
 	got, err := lock.Acquire()
 	if err != nil {
-		log.Println("[ERROR] restore: acquiring lock:", err)
+		a.log.Error(pbm.CmdPITR, tsstr, "acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
+		a.log.Error(pbm.CmdPITR, tsstr, "unbale to run the restore while another backup or restore process running")
 		return
 	}
 
 	defer func() {
 		err := lock.Release()
 		if err != nil {
-			log.Println("[ERROR] release lock:", err)
+			a.log.Error(pbm.CmdPITR, tsstr, "release lock: %v", err)
 		}
 	}()
 
-	log.Printf("[INFO] Point-in-Time Recovery started")
+	a.log.Info(pbm.CmdPITR, tsstr, "recovery started")
 	err = restore.New(a.pbm, a.node).PITR(r)
 	if err != nil {
-		log.Println("[ERROR] restore:", err)
+		a.log.Error(pbm.CmdPITR, tsstr, "restore: %v", err)
 		return
 	}
-	log.Printf("[INFO] Point-in-Time Recovery finished successfully")
+	a.log.Info(pbm.CmdPITR, tsstr, "recovery successfully finished")
 }

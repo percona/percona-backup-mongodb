@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -55,19 +54,19 @@ func (a *Agent) CancelBackup() {
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	q, err := backup.NodeSuits(a.node)
 	if err != nil {
-		log.Println("[ERROR] backup: node check:", err)
+		a.log.Error(pbm.CmdBackup, bcp.Name, "node check: %v", err)
 		return
 	}
 
 	// node is not suitable for doing backup
 	if !q {
-		log.Println("Node in not suitable for backup")
+		a.log.Info(pbm.CmdBackup, bcp.Name, "node in not suitable for backup")
 		return
 	}
 
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
-		log.Println("[ERROR] backup: get node isMaster data:", err)
+		a.log.Error(pbm.CmdBackup, bcp.Name, "get node info: %v", err)
 		return
 	}
 
@@ -89,7 +88,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		Replset: nodeInfo.SetName,
 	}).Release()
 	if err != nil {
-		log.Println("[Warning] backup: clearing pitr locks:", err)
+		a.log.Warning(pbm.CmdBackup, bcp.Name, "clearing pitr locks: %v", err)
 	}
 	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
@@ -103,11 +102,11 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
 	if err != nil {
-		log.Println("[ERROR] backup: acquiring lock:", err)
+		a.log.Error(pbm.CmdBackup, bcp.Name, "acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		log.Println("Backup has been scheduled on another replset node")
+		a.log.Info(pbm.CmdBackup, bcp.Name, "backup has been scheduled on another replset node")
 		return
 	}
 
@@ -116,18 +115,18 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		header: &bcp,
 		cancel: cancel,
 	})
-	log.Printf("Backup %s started on node %s/%s", bcp.Name, nodeInfo.SetName, nodeInfo.Me)
+	a.log.Info(pbm.CmdBackup, bcp.Name, "backup started")
 	tstart := time.Now()
 	err = backup.New(ctx, a.pbm, a.node).Run(bcp)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
-			log.Println("[INFO] backup was canceled")
+			a.log.Info(pbm.CmdBackup, bcp.Name, "backup was canceled")
 		} else {
-			log.Println("[ERROR] backup:", err)
+			a.log.Error(pbm.CmdBackup, bcp.Name, "backup: %v", err)
 		}
 	} else {
-		log.Printf("Backup %s finished", bcp.Name)
+		a.log.Info(pbm.CmdBackup, bcp.Name, "backup finished")
 	}
 
 	// In the case of fast backup (small db) we have to wait before releasing the lock.
@@ -147,7 +146,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	}
 	err = lock.Release()
 	if err != nil {
-		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+		a.log.Error(pbm.CmdBackup, bcp.Name, "unable to release backup lock %v: %v", lock, err)
 	}
 }
 
@@ -155,11 +154,11 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 func (a *Agent) Restore(r pbm.RestoreCmd) {
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
-		log.Println("[ERROR] backup: get node isMaster data:", err)
+		a.log.Error(pbm.CmdRestore, r.BackupName, "get node info: %v", err)
 		return
 	}
 	if !nodeInfo.IsMaster {
-		log.Println("Node in not suitable for restore")
+		a.log.Info(pbm.CmdRestore, r.BackupName, "node in not suitable for restore")
 		return
 	}
 
@@ -172,26 +171,26 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 
 	got, err := lock.Acquire()
 	if err != nil {
-		log.Println("[ERROR] restore: acquiring lock:", err)
+		a.log.Error(pbm.CmdRestore, r.BackupName, "acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		log.Println("[ERROR] unbale to run the restore while another backup or restore process running")
+		a.log.Error(pbm.CmdRestore, r.BackupName, "unbale to run the restore while another backup or restore process running")
 		return
 	}
 
 	defer func() {
 		err := lock.Release()
 		if err != nil {
-			log.Println("[ERROR] release lock:", err)
+			a.log.Error(pbm.CmdRestore, r.BackupName, "release lock: %v", err)
 		}
 	}()
 
-	log.Printf("[INFO] Restore of '%s' started", r.BackupName)
+	a.log.Info(pbm.CmdRestore, r.BackupName, "restore started")
 	err = restore.New(a.pbm, a.node).Snapshot(r)
 	if err != nil {
-		log.Println("[ERROR] restore:", err)
+		a.log.Error(pbm.CmdRestore, r.BackupName, "restore: %v", err)
 		return
 	}
-	log.Printf("[INFO] Restore of '%s' finished successfully", r.BackupName)
+	a.log.Info(pbm.CmdRestore, r.BackupName, "restore finished successfully")
 }

@@ -3,7 +3,6 @@ package restore
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"strings"
 	"time"
 
@@ -48,6 +47,7 @@ type Restore struct {
 	pitrChunks []pbm.PITRChunk
 	pitrLastTS int64
 	oplog      *Oplog
+	log        *pbm.Logger
 }
 
 // New creates a new restore object
@@ -55,6 +55,7 @@ func New(cn *pbm.PBM, node *pbm.Node) *Restore {
 	return &Restore{
 		cn:   cn,
 		node: node,
+		log:  node.Log,
 	}
 }
 
@@ -71,7 +72,9 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
-			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
+			if ferr != nil {
+				r.log.Error(pbm.CmdRestore, cmd.BackupName, "mark restore as failed `%v`: %v", err, ferr)
+			}
 		}
 
 		r.Close()
@@ -100,7 +103,9 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
-			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
+			if ferr != nil {
+				r.log.Error(pbm.CmdRestore, time.Unix(cmd.TS, 0).UTC().Format(time.RFC3339), "mark restore as failed `%v`: %v", err, ferr)
+			}
 		}
 
 		r.Close()
@@ -160,7 +165,7 @@ func (r *Restore) Init(name string) (err error) {
 				case <-tk.C:
 					err := r.cn.RestoreHB(r.name)
 					if err != nil {
-						log.Println("[ERROR] send pbm heartbeat:", err)
+						r.log.Error(pbm.CmdRestore, name, "send heartbeat: %v", err)
 					}
 				case <-r.stopHB:
 					return
@@ -182,13 +187,6 @@ func (r *Restore) Init(name string) (err error) {
 		Status:     pbm.StatusStarting,
 		Conditions: []pbm.Condition{},
 	}
-
-	defer func() {
-		if err != nil {
-			ferr := r.MarkFailed(err)
-			log.Printf("[ERROR] mark restore as failed `%v`: %v\n", err, ferr)
-		}
-	}()
 
 	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)
 	if err != nil {
@@ -412,7 +410,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
-	log.Println("[INFO] mongorestore finished")
+	r.log.Info(pbm.CmdRestore, r.bcp.Name, "mongorestore finished")
 
 	if r.nodeInfo.IsLeader() {
 		err = r.reconcileStatus(pbm.StatusDumpDone, nil)
@@ -426,7 +424,7 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	log.Println("[INFO] starting the oplog replay")
+	r.log.Info(pbm.CmdRestore, r.bcp.Name, "starting oplog replay")
 
 	or, err := r.stg.SourceReader(r.oplogFile)
 	if err != nil {
@@ -444,14 +442,14 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
 	}
-	log.Printf("[INFO] oplog replay finished on %v", lts)
+	r.log.Info(pbm.CmdRestore, r.bcp.Name, "oplog replay finished on %v", lts)
 
 	cusr, err := r.node.CurrentUser()
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
 
-	log.Println("restoring users and roles")
+	r.log.Info(pbm.CmdRestore, r.bcp.Name, "restoring users and roles")
 	err = r.restoreUsers(cusr)
 	if err != nil {
 		return errors.Wrap(err, "restore users 'n' roles")
@@ -462,7 +460,8 @@ func (r *Restore) RunSnapshot() (err error) {
 
 // RestoreChunks replays PITR oplog chunks
 func (r *Restore) RestoreChunks() error {
-	log.Println("[INFO] pitr: replay pitr chunks")
+	n := time.Unix(r.pitrLastTS, 0).UTC().Format(time.RFC3339)
+	r.log.Info(pbm.CmdPITRestore, n, "replay chunks")
 
 	var upto int64
 	var lts primitive.Timestamp
@@ -477,7 +476,7 @@ func (r *Restore) RestoreChunks() error {
 		}
 	}
 
-	log.Printf("[INFO] pitr: oplog replay finished on %v <%d>", lts, upto)
+	r.log.Info(pbm.CmdPITRestore, n, "oplog replay finished on %v <%d>", lts, upto)
 	return nil
 }
 
@@ -558,14 +557,12 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	}
 	defer cur.Close(ctx)
 
-	log.Println("deleting users")
 	usersC := r.node.Session().Database("admin").Collection("system.users")
 	_, err = usersC.DeleteMany(ctx, bson.M{"_id": bson.M{"$ne": user}})
 	if err != nil {
 		return errors.Wrap(err, "delete current users")
 	}
 
-	log.Println("inserting users")
 	for cur.Next(ctx) {
 		u := new(interface{})
 		err := cur.Decode(u)
@@ -576,7 +573,6 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		if err != nil {
 			return errors.Wrap(err, "insert user")
 		}
-		log.Println("inserted user")
 	}
 
 	err = r.node.Session().Database(pbm.DB).Collection(tmpRoles).Drop(ctx)

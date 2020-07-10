@@ -18,6 +18,7 @@ type Agent struct {
 	pitrjob *currentPitr
 	mx      sync.Mutex
 	intent  uint32
+	log     *pbm.Logger
 }
 
 const (
@@ -32,6 +33,7 @@ func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 
 func (a *Agent) InitLogger(cn *pbm.PBM) {
 	a.node.InitLogger(cn)
+	a.log = a.node.Log
 }
 
 // Start starts listening the commands stream.
@@ -70,7 +72,7 @@ func (a *Agent) Start() error {
 					return errors.New("change stream was closed")
 				}
 
-				log.Println("[ERROR] listening commands:", err)
+				a.log.Error(pbm.CmdUndefined, "", "listening commands: %v", err)
 			}
 		}
 	}
@@ -80,12 +82,12 @@ func (a *Agent) Start() error {
 func (a *Agent) ResyncBackupList() {
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
-		log.Println("[ERROR] resync_list: get node isMaster data:", err)
+		a.log.Error(pbm.CmdResyncBackupList, "", "get node info data: %v", err)
 		return
 	}
 
 	if !nodeInfo.IsLeader() {
-		log.Println("[INFO] resync_list: not a member of the leader rs")
+		a.log.Info(pbm.CmdResyncBackupList, "", "not a member of the leader rs")
 		return
 	}
 
@@ -99,24 +101,24 @@ func (a *Agent) ResyncBackupList() {
 	if err != nil {
 		switch err.(type) {
 		case pbm.ErrConcurrentOp:
-			log.Println("[INFO] resync_list: acquiring lock:", err)
+			a.log.Info(pbm.CmdResyncBackupList, "", "acquiring lock: %v", err)
 		default:
-			log.Println("[ERROR] resync_list: acquiring lock:", err)
+			a.log.Error(pbm.CmdResyncBackupList, "", "acquiring lock: %v", err)
 		}
 		return
 	}
 	if !got {
-		log.Println("[INFO] resync_list: operation has been scheduled on another replset node")
+		a.log.Info(pbm.CmdResyncBackupList, "", "operation has been scheduled on another replset node")
 		return
 	}
 
 	tstart := time.Now()
-	log.Println("[INFO] resync_list: started")
+	a.log.Info(pbm.CmdResyncBackupList, "", "started")
 	err = a.pbm.ResyncBackupList()
 	if err != nil {
-		log.Println("[ERROR] resync_list:", err)
+		a.log.Error(pbm.CmdResyncBackupList, "", "%v", err)
 	} else {
-		log.Println("[INFO] resync_list: succeed")
+		a.log.Info(pbm.CmdResyncBackupList, "", "succeed")
 	}
 
 	needToWait := time.Second*1 - time.Since(tstart)
@@ -125,7 +127,7 @@ func (a *Agent) ResyncBackupList() {
 	}
 	err = lock.Release()
 	if err != nil {
-		log.Printf("[ERROR] backup: unable to release backup lock for %v:%v\n", lock, err)
+		a.log.Error(pbm.CmdResyncBackupList, "", "reslase lock %v: %v", lock, err)
 	}
 }
 
@@ -137,14 +139,14 @@ func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, er
 
 	switch err.(type) {
 	case pbm.ErrConcurrentOp:
-		log.Println("[INFO] backup: acquiring lock:", err)
+		a.log.Info(pbm.CmdUndefined, "", "acquiring lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		if m != nil {
 			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
 			merr := m(name)
 			if merr != nil {
-				log.Printf("[Warning] Failed to mark stale backup '%s' as failed: %v", name, merr)
+				a.log.Warning(pbm.CmdUndefined, "", "failed to mark stale backup '%s' as failed: %v", name, merr)
 			}
 		}
 		return l.Acquire()

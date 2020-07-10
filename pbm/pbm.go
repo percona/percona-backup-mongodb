@@ -170,7 +170,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 func (p *PBM) setupNewDB() error {
 	err := p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", 1 << 10 * 2}},
+		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", 1 << 10 * 10}}, // size 10kb ~ 50 commands
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure cmd collection")
@@ -178,7 +178,15 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", LockCollection}}, //size 2kb ~ 10 commands
+		bson.D{{"create", LogCollection}, {"capped", true}, {"size", 1 << 20}}, // 10Mb
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure log collection")
+	}
+
+	err = p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", LockCollection}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock collection")

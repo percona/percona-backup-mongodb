@@ -17,7 +17,7 @@ type Node struct {
 	ctx  context.Context
 	cn   *mongo.Client
 	curi string
-	log  *Logger
+	Log  *Logger
 }
 
 // ReplRole is a replicaset role in sharded cluster
@@ -45,14 +45,14 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	}
 	n.rs, n.me = nodeInfo.SetName, nodeInfo.Me
 
-	n.log = &Logger{} // just not to panic if logger wasn't set before use
+	n.Log = &Logger{} // just not to panic if logger wasn't set before use
 
 	return n, nil
 }
 
 func (n *Node) InitLogger(cn *PBM) {
-	n.log = NewLogger(cn, n.rs, n.me)
-	n.log.SetOut(os.Stderr)
+	n.Log = NewLogger(cn, n.rs, n.me)
+	n.Log.SetOut(os.Stderr)
 }
 
 func (n *Node) ID() string {

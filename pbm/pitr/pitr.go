@@ -2,7 +2,6 @@ package pitr
 
 import (
 	"context"
-	"log"
 	"strings"
 	"time"
 
@@ -21,6 +20,7 @@ type IBackup struct {
 	rs     string
 	span   time.Duration
 	lastTS primitive.Timestamp
+	log    *pbm.Logger
 }
 
 const (
@@ -34,6 +34,7 @@ func NewBackup(rs string, pbm *pbm.PBM, node *pbm.Node) (*IBackup, error) {
 		node: node,
 		rs:   rs,
 		span: defaultSpan,
+		log:  node.Log,
 	}, nil
 }
 
@@ -80,8 +81,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
-
-	log.Println("[INFO] PITR: streaming started from", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
+	i.log.Info(pbm.CmdPITR, "", "streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
 	defer tk.Stop()
@@ -101,12 +101,12 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		select {
 		// wrapping up at the current point-in-time
 		case <-ctx.Done():
-			log.Println("[INFO] PITR: got done signal, stopping")
+			i.log.Info(pbm.CmdPITR, "", "got done signal, stopping")
 			// lastSlice = true
 			return nil
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
-			log.Println("[INFO] PITR: got wake_up signal")
+			i.log.Info(pbm.CmdPITR, "", "got wake_up signal")
 		case <-tk.C:
 		}
 
@@ -180,7 +180,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		}
 
 		if lastSlice {
-			log.Println("[INFO] PITR: pausing/stopping with last_ts", time.Unix(int64(sliceTo.T), 0).UTC())
+			i.log.Info(pbm.CmdPITR, "", "pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
 		}
 
