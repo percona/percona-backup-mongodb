@@ -94,6 +94,7 @@ func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PIT
 			{"rs", rs},
 			{"start_ts", bson.M{"$gte": from, "$lte": to}},
 		},
+		options.Find().SetSort(bson.D{{"start_ts", 1}}),
 	)
 
 	if err != nil {
@@ -147,12 +148,24 @@ type Timeline struct {
 	End   uint32
 }
 
+func (t *Timeline) String() string {
+	ts := time.Unix(int64(t.Start), 0).UTC()
+	te := time.Unix(int64(t.End), 0).UTC()
+	return fmt.Sprintf("%s - %s", ts.Format(time.RFC3339), te.Format(time.RFC3339))
+}
+
 // PITRGetValidTimelines returns time ranges valid for PITR restore
-// for the given replicaset
+// for the given replicaset. We don't check for any "restore intrusions"
+// or other integrity issues since it's guaranteed be the slicer that
+// any saved chunk already belongs to some valid timeline,
+// the slice wouldn't be done otherwise
 func (p *PBM) PITRGetValidTimelines(rs string, until int64) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
+	}
+	if fch == nil {
+		return nil, nil
 	}
 
 	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, primitive.Timestamp{T: uint32(until), I: 0})
@@ -160,14 +173,13 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64) (tlines []Timeline, 
 		return nil, errors.Wrap(err, "get slice")
 	}
 
-	return gettlines(slices), nil
+	return gettimelines(slices), nil
 }
 
-func gettlines(slices []PITRChunk) (tlines []Timeline) {
+func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	var tl Timeline
 	var prevEnd uint32
 	for _, s := range slices {
-		fmt.Println(s.StartTS.T, prevEnd)
 		if prevEnd != 0 && prevEnd != s.StartTS.T {
 			tlines = append(tlines, tl)
 			tl = Timeline{}

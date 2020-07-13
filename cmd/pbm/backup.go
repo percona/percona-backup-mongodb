@@ -148,16 +148,11 @@ func printPITR(cn *pbm.PBM) {
 	on, err := cn.IsPITR()
 	if err != nil {
 		log.Fatalf("Error: check if PITR is on: %v", err)
-		return
-	}
-	if !on {
-		return
 	}
 
 	im, err := cn.GetIsMaster()
 	if err != nil {
 		log.Fatalf("Error: define cluster state: %v", err)
-		return
 	}
 
 	shards := []pbm.Shard{{ID: im.SetName}}
@@ -165,29 +160,60 @@ func printPITR(cn *pbm.PBM) {
 		s, err := cn.GetShards()
 		if err != nil {
 			log.Fatalf("Error: get shards: %v", err)
-			return
 		}
 		shards = append(shards, s...)
 	}
 
-	fmt.Println("PITR:")
+	ts, err := cn.ClusterTime()
+	if err != nil {
+		log.Fatalf("Read cluster time: %v", err)
+	}
+
+	now := time.Now().Unix()
+	var pitrList string
 	for _, s := range shards {
-		chnkf, err := cn.PITRFirstChunkMeta(s.ID)
-		if err != nil {
-			log.Fatalf("Error: get the first PITR slice for %s replset: %v", s.ID, err)
-		}
-		chnkl, err := cn.PITRLastChunkMeta(s.ID)
-		if err != nil {
-			log.Fatalf("Error: get the last PITR slice for %s replset: %v", s.ID, err)
+		if on {
+			l, err := cn.GetLockData(&pbm.LockHeader{Replset: s.ID}, pbm.LockCollection)
+			if err == mongo.ErrNoDocuments {
+				// !!! SHOW LOG
+			}
+			if err != nil {
+				log.Fatalf("Error: get lock for shard '%s': %v", s.ID, err)
+			}
+			switch l.Type {
+			default:
+				log.Fatalf("Error: undefined state, has lock for %v op while PITR is on", l.Type)
+			case pbm.CmdPITR:
+				if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
+					// !!! SHOW LOG
+				}
+			case pbm.CmdBackup: // backup is ok
+			}
 		}
 
-		fmt.Printf("  %s: %s - %s\n", s.ID, formatts(chnkf.StartTS.T), formatts(chnkl.EndTS.T))
+		tlns, err := cn.PITRGetValidTimelines(s.ID, now)
+		if err != nil {
+			log.Fatalf("Error: get PITR timelines for %s replset: %v", s.ID, err)
+		}
+
+		if len(tlns) == 0 {
+			continue
+		}
+
+		rsout := fmt.Sprintf("  %s:", s.ID)
+		for _, tln := range tlns {
+			rsout += fmt.Sprintf(" %s,", tln)
+		}
+		pitrList += rsout[:len(rsout)-1] + "\n"
+	}
+	if len(pitrList) > 0 {
+		fmt.Printf("PITR:\n%s", pitrList)
 	}
 }
 
-func formatts(t uint32) string {
-	return time.Unix(int64(t), 0).UTC().Format(time.RFC3339)
-}
+// func formatts(t uint32) string {
+// 	return time.Unix(int64(t), 0).UTC().Format(time.RFC3339)
+// }
 
 func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{

@@ -101,7 +101,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "get node isMaster data")
 	}
 
-	// extra check before real locking
+	// just a check before a real locking
 	// just trying to avoid redundant heavy operations
 	ts, err := a.pbm.ClusterTime()
 	if err != nil {
@@ -110,37 +110,8 @@ func (a *Agent) pitr() (err error) {
 	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
 	// ErrNoDocuments or stale lock the only reasons to continue
 	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-		return errors.Wrap(err, "check is run")
+		return errors.Wrap(err, "check if already run")
 	}
-
-	lock := a.pbm.NewLock(pbm.LockHeader{
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
-		Type:    pbm.CmdPITR,
-	})
-
-	got, err := a.aquireLock(lock, nil)
-	if err != nil {
-		return errors.Wrap(err, "acquiring lock")
-	}
-	if !got {
-		return nil
-	}
-	releasLock := func() {
-		err := lock.Release()
-		if err != nil {
-			a.log.Error(pbm.CmdPITR, "", "release lock: %v", err)
-		}
-	}
-
-	defer func() {
-		// release lock only on error.
-		// no error means the streaming go-routine was started
-		// and it will release the lock when it finishes
-		if err != nil {
-			releasLock()
-		}
-	}()
 
 	ibcp, err := pitr.NewBackup(nodeInfo.SetName, a.pbm, a.node)
 	if err != nil {
@@ -157,7 +128,28 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
+	lock := a.pbm.NewLock(pbm.LockHeader{
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		Type:    pbm.CmdPITR,
+	})
+
+	got, err := a.aquireLock(lock, nil)
+	if err != nil {
+		return errors.Wrap(err, "acquiring lock")
+	}
+	if !got {
+		return nil
+	}
+
 	go func() {
+		defer func() {
+			err := lock.Release()
+			if err != nil {
+				a.log.Error(pbm.CmdPITR, "", "release lock: %v", err)
+			}
+		}()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		w := make(chan struct{})
 
@@ -172,7 +164,6 @@ func (a *Agent) pitr() (err error) {
 		}
 
 		a.unsetPitr()
-		releasLock()
 	}()
 
 	return nil
