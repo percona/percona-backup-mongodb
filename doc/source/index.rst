@@ -46,6 +46,7 @@ which is no longer actively developed or supported.
    release-notes
    uninstalling
    contributing
+   glossary
 
 .. include:: .res/replace.txt
 .. include:: .res/url.txt
