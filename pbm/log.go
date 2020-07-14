@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Logger struct {
@@ -125,4 +127,28 @@ func (l *Logger) Output(e *LogEntry) error {
 	}
 
 	return rerr
+}
+
+// LogGet returns last log entries
+func (p *PBM) LogGet(rs string, typ EntryType, action Command, limit int64) ([]LogEntry, error) {
+	cur, err := p.Conn.Database(DB).Collection(LogCollection).Find(
+		p.ctx,
+		bson.D{{"rs", rs}, {"type", typ}, {"action", action}},
+		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "get list from mongo")
+	}
+
+	logs := []LogEntry{}
+	for cur.Next(p.ctx) {
+		l := LogEntry{}
+		err := cur.Decode(&l)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		logs = append(logs, l)
+	}
+
+	return logs, nil
 }

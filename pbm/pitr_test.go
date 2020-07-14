@@ -49,7 +49,7 @@ func TestPITRTimelines(t *testing.T) {
 		},
 	}
 
-	glines := gettlines(chunks)
+	glines := gettimelines(chunks)
 	if len(tlines) != len(glines) {
 		t.Fatalf("wrong timelines, exepct [%d] %v, got [%d] %v", len(tlines), tlines, len(glines), glines)
 	}
@@ -58,5 +58,82 @@ func TestPITRTimelines(t *testing.T) {
 			t.Errorf("wrong timeline %d, exepct %v, got %v", i, tlines[i], gl)
 		}
 	}
+}
 
+func TestPITRMergeTimelines(t *testing.T) {
+	tlns := [][]Timeline{
+		{
+			{
+				Start: 3,
+				End:   11,
+			},
+			{
+				Start: 14,
+				End:   19,
+			},
+			{
+				Start: 20,
+				End:   30,
+			},
+			{
+				Start: 42,
+				End:   100500,
+			},
+		},
+
+		{
+			{
+				Start: 2,
+				End:   12,
+			},
+			{
+				Start: 14,
+				End:   20,
+			},
+			{
+				Start: 20,
+				End:   30,
+			},
+		},
+
+		{
+			{
+				Start: 1,
+				End:   5,
+			},
+			{
+				Start: 13,
+				End:   19,
+			},
+			{
+				Start: 20,
+				End:   30,
+			},
+		},
+	}
+
+	should := []Timeline{
+		{
+			Start: 3,
+			End:   5,
+		},
+		{
+			Start: 14,
+			End:   19,
+		},
+		{
+			Start: 20,
+			End:   30,
+		},
+	}
+
+	got := MergeTimelines(tlns...)
+	if len(should) != len(got) {
+		t.Fatalf("wrong timelines, exepct [%d] %v, got [%d] %v", len(should), should, len(got), got)
+	}
+	for i, gl := range got {
+		if should[i] != gl {
+			t.Errorf("wrong timeline %d, exepct %v, got %v", i, should[i], gl)
+		}
+	}
 }

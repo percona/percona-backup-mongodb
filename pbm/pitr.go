@@ -148,10 +148,12 @@ type Timeline struct {
 	End   uint32
 }
 
-func (t *Timeline) String() string {
+const tlTimeFormat = "2006-01-02T15:04:05"
+
+func (t Timeline) String() string {
 	ts := time.Unix(int64(t.Start), 0).UTC()
 	te := time.Unix(int64(t.End), 0).UTC()
-	return fmt.Sprintf("%s - %s", ts.Format(time.RFC3339), te.Format(time.RFC3339))
+	return fmt.Sprintf("%s - %s", ts.Format(tlTimeFormat), te.Format(tlTimeFormat))
 }
 
 // PITRGetValidTimelines returns time ranges valid for PITR restore
@@ -194,4 +196,46 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	tlines = append(tlines, tl)
 
 	return tlines
+}
+
+// MergeTimelines merges overlaping sets on timelines
+// it preresumes timelines already sorted and doesn't start from 0
+func MergeTimelines(tlns ...[]Timeline) []Timeline {
+	if len(tlns) == 0 {
+		return nil
+	}
+	if len(tlns) == 1 {
+		return tlns[0]
+	}
+
+	ln := len(tlns[0])
+	for _, tl := range tlns {
+		if len(tl) < ln {
+			ln = len(tl)
+		}
+	}
+	rtl := make([]Timeline, ln)
+	rtl = tlns[0][:ln]
+LOOP:
+	for j := 1; j < len(tlns); j++ {
+		tl := tlns[j]
+
+		for i, t := range tl {
+			if i > len(rtl)-1 {
+				continue LOOP
+			}
+			if t.Start > rtl[i].End {
+				continue
+			}
+			if t.Start > rtl[i].Start {
+				rtl[i].Start = t.Start
+			}
+
+			if t.End < rtl[i].End {
+				rtl[i].End = t.End
+			}
+		}
+	}
+
+	return rtl
 }

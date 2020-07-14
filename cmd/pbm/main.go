@@ -45,10 +45,10 @@ var (
 
 	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Restore backup")
 
-	listCmd            = pbmCmd.Command("list", "Backup list")
-	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
-	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
-	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+	listCmd        = pbmCmd.Command("list", "Backup list")
+	listCmdRestore = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
+	listCmdFullF   = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
+	listCmdSize    = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcpName   = deleteBcpCmd.Arg("name", "Backup name").String()
@@ -200,10 +200,10 @@ func main() {
 		}
 	case listCmd.FullCommand():
 		if *listCmdRestore {
-			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
+			printRestoreList(pbmClient, *listCmdSize, *listCmdFullF)
 		} else {
 			printBackupList(pbmClient, *listCmdSize)
-			printPITR(pbmClient)
+			printPITR(pbmClient, int(*listCmdSize), *listCmdFullF)
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF && isTTY() {

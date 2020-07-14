@@ -100,10 +100,10 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		// waiting for a trigger
 		select {
 		// wrapping up at the current point-in-time
+		// upload the chunks up to the current time and return
 		case <-ctx.Done():
 			i.log.Info(pbm.CmdPITR, "", "got done signal, stopping")
-			// lastSlice = true
-			return nil
+			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
 			i.log.Info(pbm.CmdPITR, "", "got wake_up signal")
@@ -162,7 +162,8 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 
 		oplog.SetTailingSpan(i.lastTS, sliceTo)
 		fname := i.chunkPath(i.lastTS.T, sliceTo.T, compression)
-		_, err = backup.Upload(ctx, oplog, to, compression, fname)
+		// if use parent ctx, upload will be canceled on the "done" signal
+		_, err = backup.Upload(context.Background(), oplog, to, compression, fname)
 		if err != nil {
 			return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
 		}

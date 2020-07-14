@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -144,7 +145,7 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	}
 }
 
-func printPITR(cn *pbm.PBM) {
+func printPITR(cn *pbm.PBM, size int, full bool) {
 	on, err := cn.IsPITR()
 	if err != nil {
 		log.Fatalf("Error: check if PITR is on: %v", err)
@@ -170,24 +171,19 @@ func printPITR(cn *pbm.PBM) {
 	}
 
 	now := time.Now().Unix()
-	var pitrList string
+	var pitrList, pitrErrors string
+	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		if on {
-			l, err := cn.GetLockData(&pbm.LockHeader{Replset: s.ID}, pbm.LockCollection)
-			if err == mongo.ErrNoDocuments {
-				// !!! SHOW LOG
-			}
-			if err != nil {
-				log.Fatalf("Error: get lock for shard '%s': %v", s.ID, err)
-			}
-			switch l.Type {
-			default:
-				log.Fatalf("Error: undefined state, has lock for %v op while PITR is on", l.Type)
-			case pbm.CmdPITR:
-				if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
-					// !!! SHOW LOG
+			err := pitrState(cn, s.ID, ts)
+			if err == errPITRBackup {
+				lg, err := pitrLog(cn, s.ID)
+				if err != nil {
+					log.Fatalf("Error: get log for shard '%s': %v", s.ID, err)
 				}
-			case pbm.CmdBackup: // backup is ok
+				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
+			} else if err != nil {
+				log.Fatalf("Error: check PITR state: %v", err)
 			}
 		}
 
@@ -200,20 +196,68 @@ func printPITR(cn *pbm.PBM) {
 			continue
 		}
 
-		rsout := fmt.Sprintf("  %s:", s.ID)
-		for _, tln := range tlns {
-			rsout += fmt.Sprintf(" %s,", tln)
+		if size > 0 && size < len(tlns) {
+			tlns = tlns[len(tlns)-size:]
 		}
-		pitrList += rsout[:len(rsout)-1] + "\n"
+
+		if full {
+			rsout := fmt.Sprintf("  %s:", s.ID)
+			for _, tln := range tlns {
+				rsout += fmt.Sprintf(" %v,", tln)
+			}
+			pitrList += rsout[:len(rsout)-1] + "\n"
+		} else {
+			rstlines = append(rstlines, tlns)
+		}
 	}
 	if len(pitrList) > 0 {
 		fmt.Printf("PITR:\n%s", pitrList)
 	}
+	if len(rstlines) > 0 && len(rstlines) == len(shards) {
+		fmt.Println("PITR:")
+		for _, tl := range pbm.MergeTimelines(rstlines...) {
+			fmt.Println(" ", tl)
+		}
+	}
+	if len(pitrErrors) > 0 {
+		fmt.Printf("\n!Failed to run PITR backup. Agent logs:\n%s", pitrErrors)
+	}
 }
 
-// func formatts(t uint32) string {
-// 	return time.Unix(int64(t), 0).UTC().Format(time.RFC3339)
-// }
+var errPITRBackup = errors.New("PITR backup failed")
+
+func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
+	l, err := cn.GetLockData(&pbm.LockHeader{Replset: rs}, pbm.LockCollection)
+	if err == mongo.ErrNoDocuments {
+		return errPITRBackup
+	} else if err != nil {
+		return errors.Wrap(err, "get lok")
+	}
+
+	switch l.Type {
+	default:
+		return errors.Errorf("undefined state, has lock for op `%v`", l.Type)
+	case pbm.CmdPITR:
+		if l.Heartbeat.T+pbm.StaleFrameSec < ts.T {
+			return errPITRBackup
+		}
+	case pbm.CmdBackup: // running backup is ok
+	}
+
+	return nil
+}
+
+func pitrLog(cn *pbm.PBM, rs string) (string, error) {
+	l, err := cn.LogGet(rs, pbm.TypeError, pbm.CmdPITR, 1)
+	if err != nil {
+		return "", errors.Wrap(err, "get log records")
+	}
+	if len(l) == 0 {
+		return "<nil>", nil
+	}
+
+	return l[0].String(), nil
+}
 
 func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
