@@ -123,7 +123,7 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	if err != nil {
 		log.Fatalln("Error: unable to get backups list:", err)
 	}
-	fmt.Println("Backup history:")
+	fmt.Println("Backup snapshots:")
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
 		var bcp string

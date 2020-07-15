@@ -128,7 +128,7 @@ func (s *S3) Save(name string, data io.Reader) error {
 	}
 }
 
-func (s *S3) FilesList(suffix string) ([][]byte, error) {
+func (s *S3) Files(suffix string) ([][]byte, error) {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
 		Endpoint: aws.String(s.opts.EndpointURL),
@@ -191,6 +191,57 @@ func (s *S3) FilesList(suffix string) ([][]byte, error) {
 	}
 
 	return bcps, nil
+}
+
+func (s *S3) List(prefix string) ([]string, error) {
+	awsSession, err := session.NewSession(&aws.Config{
+		Region:   aws.String(s.opts.Region),
+		Endpoint: aws.String(s.opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			"",
+		),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "create AWS session")
+	}
+
+	lparams := &s3.ListObjectsInput{
+		Bucket: aws.String(s.opts.Bucket),
+		// Delimiter: aws.String("/"),
+	}
+	if s.opts.Prefix != "" {
+		lparams.Prefix = aws.String(s.opts.Prefix)
+		if s.opts.Prefix[len(s.opts.Prefix)-1] != '/' {
+			*lparams.Prefix += "/"
+		}
+	}
+	*lparams.Prefix = path.Join(*lparams.Prefix, prefix)
+
+	var files []string
+	awscli := s3.New(awsSession)
+	err = awscli.ListObjectsPages(lparams,
+		func(page *s3.ListObjectsOutput, lastPage bool) bool {
+			for _, o := range page.Contents {
+				f := aws.StringValue(o.Key)
+				if len(f) == 0 {
+					continue
+				}
+				if f[0] == '/' {
+					f = f[1:]
+				}
+				files = append(files, f)
+			}
+			return true
+		})
+
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup list")
+	}
+
+	return files, nil
 }
 
 func (s *S3) CheckFile(name string) error {

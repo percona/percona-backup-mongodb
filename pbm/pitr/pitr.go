@@ -2,6 +2,7 @@ package pitr
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ type IBackup struct {
 }
 
 const (
-	fsPrefix    = "pbmPitr"
+	FsPrefix    = "pbmPitr"
 	defaultSpan = time.Minute * 10
 )
 
@@ -161,7 +162,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		}
 
 		oplog.SetTailingSpan(i.lastTS, sliceTo)
-		fname := i.chunkPath(i.lastTS.T, sliceTo.T, compression)
+		fname := i.chunkPath(i.lastTS, sliceTo, compression)
 		// if use parent ctx, upload will be canceled on the "done" signal
 		_, err = backup.Upload(context.Background(), oplog, to, compression, fname)
 		if err != nil {
@@ -225,13 +226,13 @@ func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) 
 	return ts, errors.New("run out of tries")
 }
 
-func (i *IBackup) chunkPath(first, last uint32, c pbm.CompressionType) string {
-	ft := time.Unix(int64(first), 0).UTC()
-	lt := time.Unix(int64(last), 0).UTC()
+func (i *IBackup) chunkPath(first, last primitive.Timestamp, c pbm.CompressionType) string {
+	ft := time.Unix(int64(first.T), 0).UTC()
+	lt := time.Unix(int64(last.T), 0).UTC()
 
 	name := strings.Builder{}
-	if len(fsPrefix) > 0 {
-		name.WriteString(fsPrefix)
+	if len(FsPrefix) > 0 {
+		name.WriteString(FsPrefix)
 		name.WriteString("/")
 	}
 	name.WriteString(i.rs)
@@ -239,8 +240,12 @@ func (i *IBackup) chunkPath(first, last uint32, c pbm.CompressionType) string {
 	name.WriteString(ft.Format("20060102"))
 	name.WriteString("/")
 	name.WriteString(ft.Format("20060102150405"))
+	name.WriteString("-")
+	name.WriteString(strconv.Itoa(int(first.T)))
 	name.WriteString(".")
 	name.WriteString(lt.Format("20060102150405"))
+	name.WriteString("-")
+	name.WriteString(strconv.Itoa(int(last.T)))
 	name.WriteString(".oplog")
 	name.WriteString(csuffix(c))
 

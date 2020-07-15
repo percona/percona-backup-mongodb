@@ -16,9 +16,10 @@ func (*Blackhole) Save(_ string, data io.Reader) error {
 	return err
 }
 
-func (*Blackhole) FilesList(_ string) ([][]byte, error) { return [][]byte{}, nil }
-func (*Blackhole) Delete(_ string) error                { return nil }
-func (*Blackhole) CheckFile(_ string) error             { return nil }
+func (*Blackhole) Files(_ string) ([][]byte, error) { return [][]byte{}, nil }
+func (*Blackhole) List(_ string) ([]string, error)  { return []string{}, nil }
+func (*Blackhole) Delete(_ string) error            { return nil }
+func (*Blackhole) CheckFile(_ string) error         { return nil }
 
 // NopReadCloser is a no operation ReadCloser
 type NopReadCloser struct{}

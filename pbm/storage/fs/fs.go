@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -58,7 +59,34 @@ func (fs *FS) CheckFile(name string) error {
 	return nil
 }
 
-func (fs *FS) FilesList(suffix string) ([][]byte, error) {
+func (fs *FS) List(prefix string) ([]string, error) {
+	var files []string
+
+	prefix = path.Join(fs.opts.Path, prefix)
+
+	err := filepath.Walk(prefix, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return errors.Wrap(err, "walking the path")
+		}
+		if !info.IsDir() {
+			f := strings.TrimPrefix(path, prefix)
+			f = filepath.ToSlash(f)
+			if len(f) == 0 {
+				return nil
+			}
+			if f[0] == '/' {
+				f = f[1:]
+			}
+			files = append(files, f)
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+func (fs *FS) Files(suffix string) ([][]byte, error) {
 	files, err := ioutil.ReadDir(fs.opts.Path)
 	if err != nil {
 		return nil, errors.Wrap(err, "read dir")

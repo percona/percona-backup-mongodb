@@ -13,14 +13,14 @@ func (p *PBM) ResyncBackupList() error {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	bcps, err := stg.FilesList(MetadataFileSuffix)
+	bcps, err := stg.Files(MetadataFileSuffix)
 	if err != nil {
 		return errors.Wrap(err, "get a backups list from the storage")
 	}
 
-	err = p.archiveBackupsMeta()
+	err = p.archiveBackupsMeta(BcpCollection, BcpOldCollection)
 	if err != nil {
-		return errors.Wrap(err, "copy current backups meta")
+		return errors.Wrapf(err, "copy current backups meta from %s to %s", BcpCollection, BcpOldCollection)
 	}
 
 	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteMany(p.ctx, bson.M{})
@@ -49,20 +49,20 @@ func (p *PBM) ResyncBackupList() error {
 	return nil
 }
 
-func (p *PBM) archiveBackupsMeta() error {
-	err := p.Conn.Database(DB).Collection(BcpOldCollection).Drop(p.ctx)
+func (p *PBM) archiveBackupsMeta(from, to string) error {
+	err := p.Conn.Database(DB).Collection(to).Drop(p.ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to remove old archive from backups metadata")
 	}
 
-	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(p.ctx, bson.M{})
+	cur, err := p.Conn.Database(DB).Collection(from).Find(p.ctx, bson.M{})
 	if err != nil {
 		return errors.Wrap(err, "get current backups meta")
 	}
 	for cur.Next(p.ctx) {
-		_, err = p.Conn.Database(DB).Collection(BcpOldCollection).InsertOne(p.ctx, cur.Current)
+		_, err = p.Conn.Database(DB).Collection(to).InsertOne(p.ctx, cur.Current)
 		if err != nil {
-			return errors.Wrap(err, "insert")
+			return errors.Wrapf(err, "insert")
 		}
 
 	}
