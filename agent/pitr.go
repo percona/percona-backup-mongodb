@@ -113,10 +113,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "check if already run")
 	}
 
-	ibcp, err := pitr.NewBackup(nodeInfo.SetName, a.pbm, a.node)
-	if err != nil {
-		return errors.Wrap(err, "create backup object")
-	}
+	ibcp := pitr.NewBackup(nodeInfo.SetName, a.pbm, a.node)
 
 	err = ibcp.Catchup()
 	if err != nil {

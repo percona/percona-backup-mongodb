@@ -35,7 +35,7 @@ func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 }
 
 func (m *MongoPBM) StoreResync() error {
-	return m.p.ResyncBackupList()
+	return m.p.ResyncStorage()
 }
 
 func (m *MongoPBM) Conn() *mongo.Client {

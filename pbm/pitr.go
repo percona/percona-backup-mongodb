@@ -2,6 +2,9 @@ package pbm
 
 import (
 	"fmt"
+	"path"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -12,10 +15,10 @@ import (
 )
 
 const (
-	// PITRdiscrepancy oplog sliceing discrepancy
-	PITRdiscrepancy = time.Minute * 5
+	// PITRdefaultSpan oplog slicing time span
+	PITRdefaultSpan = time.Minute * 10
 	// PITRfsPrefix is a prefix (folder) for PITR chunks on the storage
-	PITRfsPrefix = "pbmPITR"
+	PITRfsPrefix = "pbmPitr"
 )
 
 // PITRChunk is index metadata for the oplog chunks
@@ -238,4 +241,63 @@ LOOP:
 	}
 
 	return rtl
+}
+
+// PITRmetaFromFName parses given file name and returns PITRChunk metadata
+// it returns nil if file wasn't parse successfully (e.g. wrong format)
+// !!! should be agreed with pbm/pitr.chunkPath().
+// current fromat is 20200715155939-0.20200715160029-1.oplog.snappy
+func PITRmetaFromFName(f string) *PITRChunk {
+	ppath := strings.Split(f, "/")
+	if len(ppath) < 2 {
+		return nil
+	}
+	chnk := &PITRChunk{}
+	chnk.RS = ppath[0]
+	chnk.FName = path.Join(PITRfsPrefix, f)
+
+	fname := ppath[len(ppath)-1]
+	fparts := strings.Split(fname, ".")
+	if len(fparts) < 3 || fparts[2] != "oplog" {
+		return nil
+	}
+	if len(fparts) == 4 {
+		chnk.Compression = FileCompression(fparts[3])
+	} else {
+		chnk.Compression = CompressionTypeNone
+	}
+
+	start := pitrParseTS(fparts[0])
+	if start == nil {
+		return nil
+	}
+	end := pitrParseTS(fparts[1])
+	if end == nil {
+		return nil
+	}
+
+	chnk.StartTS = *start
+	chnk.EndTS = *end
+
+	return chnk
+}
+
+func pitrParseTS(tstr string) *primitive.Timestamp {
+	tparts := strings.Split(tstr, "-")
+	t, err := time.Parse("20060102150405", tparts[0])
+	if err != nil {
+		// just skip this file
+		return nil
+	}
+	ts := primitive.Timestamp{T: uint32(t.Unix())}
+	if len(tparts) > 1 {
+		ti, err := strconv.Atoi(tparts[1])
+		if err != nil {
+			// just skip this file
+			return nil
+		}
+		ts.I = uint32(ti)
+	}
+
+	return &ts
 }

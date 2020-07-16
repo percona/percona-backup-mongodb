@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+// IBackup is an incremental backup object
 type IBackup struct {
 	pbm    *pbm.PBM
 	node   *pbm.Node
@@ -24,19 +25,14 @@ type IBackup struct {
 	log    *pbm.Logger
 }
 
-const (
-	FsPrefix    = "pbmPitr"
-	defaultSpan = time.Minute * 10
-)
-
-func NewBackup(rs string, pbm *pbm.PBM, node *pbm.Node) (*IBackup, error) {
+func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
 	return &IBackup{
-		pbm:  pbm,
+		pbm:  cn,
 		node: node,
 		rs:   rs,
-		span: defaultSpan,
+		span: pbm.PITRdefaultSpan,
 		log:  node.Log,
-	}, nil
+	}
 }
 
 // Catchup seeks for the last saved (backuped) TS - the starting point.  It should be run only
@@ -226,13 +222,14 @@ func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) 
 	return ts, errors.New("run out of tries")
 }
 
+// !!! should be agreed with pbm.PITRmetaFromFName()
 func (i *IBackup) chunkPath(first, last primitive.Timestamp, c pbm.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 
 	name := strings.Builder{}
-	if len(FsPrefix) > 0 {
-		name.WriteString(FsPrefix)
+	if len(pbm.PITRfsPrefix) > 0 {
+		name.WriteString(pbm.PITRfsPrefix)
 		name.WriteString("/")
 	}
 	name.WriteString(i.rs)
@@ -241,11 +238,11 @@ func (i *IBackup) chunkPath(first, last primitive.Timestamp, c pbm.CompressionTy
 	name.WriteString("/")
 	name.WriteString(ft.Format("20060102150405"))
 	name.WriteString("-")
-	name.WriteString(strconv.Itoa(int(first.T)))
+	name.WriteString(strconv.Itoa(int(first.I)))
 	name.WriteString(".")
 	name.WriteString(lt.Format("20060102150405"))
 	name.WriteString("-")
-	name.WriteString(strconv.Itoa(int(last.T)))
+	name.WriteString(strconv.Itoa(int(last.I)))
 	name.WriteString(".oplog")
 	name.WriteString(csuffix(c))
 

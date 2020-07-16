@@ -219,13 +219,13 @@ func (s *S3) List(prefix string) ([]string, error) {
 		}
 	}
 	*lparams.Prefix = path.Join(*lparams.Prefix, prefix)
-
 	var files []string
 	awscli := s3.New(awsSession)
 	err = awscli.ListObjectsPages(lparams,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
+				f = strings.TrimPrefix(f, *lparams.Prefix)
 				if len(f) == 0 {
 					continue
 				}

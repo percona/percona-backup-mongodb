@@ -213,8 +213,12 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	if len(pitrList) > 0 {
 		fmt.Printf("PITR:\n%s", pitrList)
 	}
-	if len(rstlines) > 0 && len(rstlines) == len(shards) {
-		fmt.Println("PITR:")
+	if len(rstlines) > 0 && len(rstlines) == len(shards) || on {
+		pitrStatus := "off"
+		if on {
+			pitrStatus = "on"
+		}
+		fmt.Printf("PITR <%s>:\n", pitrStatus)
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
 			fmt.Println(" ", tl)
 		}

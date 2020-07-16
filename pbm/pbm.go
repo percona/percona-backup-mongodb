@@ -38,6 +38,8 @@ const (
 	PITRCollection = "pbmPITRState"
 	//PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
+	//PITRChunksOldCollection contains archived index metadata of PITR chunks
+	PITRChunksOldCollection = "pbmPITRChunks.old"
 
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
@@ -537,4 +539,18 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	}
 
 	return im.ClusterTime.ClusterTime, nil
+}
+
+// FileCompression return compression alg based on given file extention
+func FileCompression(ext string) CompressionType {
+	switch ext {
+	default:
+		return CompressionTypeNone
+	case "gz":
+		return CompressionTypePGZIP
+	case "lz4":
+		return CompressionTypeLZ4
+	case "snappy":
+		return CompressionTypeS2
+	}
 }

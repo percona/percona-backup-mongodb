@@ -58,7 +58,7 @@ func (a *Agent) Start() error {
 			case pbm.CmdRestore:
 				a.Restore(cmd.Restore)
 			case pbm.CmdResyncBackupList:
-				a.ResyncBackupList()
+				a.ResyncStorage()
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore)
 			}
@@ -79,7 +79,7 @@ func (a *Agent) Start() error {
 }
 
 // ResyncBackupList uploads a backup list from the remote store
-func (a *Agent) ResyncBackupList() {
+func (a *Agent) ResyncStorage() {
 	nodeInfo, err := a.node.GetIsMaster()
 	if err != nil {
 		a.log.Error(pbm.CmdResyncBackupList, "", "get node info data: %v", err)
@@ -114,7 +114,7 @@ func (a *Agent) ResyncBackupList() {
 
 	tstart := time.Now()
 	a.log.Info(pbm.CmdResyncBackupList, "", "started")
-	err = a.pbm.ResyncBackupList()
+	err = a.pbm.ResyncStorage()
 	if err != nil {
 		a.log.Error(pbm.CmdResyncBackupList, "", "%v", err)
 	} else {
