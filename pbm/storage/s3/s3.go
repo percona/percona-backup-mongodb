@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -15,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/minio/minio-go"
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 const (
@@ -302,6 +306,8 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	return s3obj.Body, nil
 }
 
+// Delete deletes given file.
+// It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
@@ -322,5 +328,15 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 
-	return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchKey:
+				return storage.ErrNotExist
+			}
+		}
+		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+	}
+
+	return nil
 }

@@ -209,13 +209,18 @@ func (p *PBM) setupNewDB() error {
 	}
 
 	// create indexs for the pitr cunks
-	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateOne(
+	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(
 		p.ctx,
-		mongo.IndexModel{
-			Keys: bson.D{{"rs", 1}, {"start_ts", 1}},
-			Options: options.Index().
-				SetUnique(true).
-				SetSparse(true),
+		[]mongo.IndexModel{
+			{
+				Keys: bson.D{{"rs", 1}, {"start_ts", 1}, {"end_ts", 1}},
+				Options: options.Index().
+					SetUnique(true).
+					SetSparse(true),
+			},
+			{
+				Keys: bson.D{{"start_ts", 1}, {"end_ts", 1}},
+			},
 		},
 	)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
@@ -432,12 +437,19 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 	return b, errors.Wrap(err, "decode")
 }
 
+// GetFirstBackup returns first successfully finished backup
+func (p *PBM) GetFirstBackup() (*BackupMeta, error) {
+	return p.getRecentBackup(nil, 1)
+}
+
 // GetLastBackup returns last successfully finished backup
 // and nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
-	b := new(BackupMeta)
+	return p.getRecentBackup(before, -1)
+}
 
+func (p *PBM) getRecentBackup(before *primitive.Timestamp, sort int) (*BackupMeta, error) {
 	q := bson.D{{"status", StatusDone}}
 	if before != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})
@@ -446,7 +458,7 @@ func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
 		q,
-		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
+		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
@@ -454,6 +466,29 @@ func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
+
+	b := new(BackupMeta)
+	err := res.Decode(b)
+	return b, errors.Wrap(err, "decode")
+}
+
+func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
+		p.ctx,
+		bson.D{
+			{"status", StatusDone},
+			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+		},
+	)
+
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+
+	b := new(BackupMeta)
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }

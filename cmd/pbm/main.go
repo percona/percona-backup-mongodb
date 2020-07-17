@@ -207,6 +207,13 @@ func main() {
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF && isTTY() {
+			// don't care about the error since all this is only to show additional notice
+			pitrOn, _ := pbmClient.IsPITR()
+			if pitrOn {
+				fmt.Println("While PITR in ON the last snapshot won't be deleted")
+				fmt.Println()
+			}
+
 			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
@@ -234,6 +241,7 @@ func main() {
 			log.Fatalln("Error:", err)
 		}
 		printBackupList(pbmClient, 0)
+		printPITR(pbmClient, 0, false)
 	}
 }
 

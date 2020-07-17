@@ -91,12 +91,15 @@ func (p *PBM) PITRGetChunkContains(rs string, ts primitive.Timestamp) (*PITRChun
 // PITRGetChunksSlice returns slice of PITR oplog chunks which Start TS
 // lies in a given time frame
 func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PITRChunk, error) {
+	q := bson.D{}
+	if rs != "" {
+		q = bson.D{{"rs", rs}}
+	}
+	q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
+
 	cur, err := p.Conn.Database(DB).Collection(PITRChunksCollection).Find(
 		p.ctx,
-		bson.D{
-			{"rs", rs},
-			{"start_ts", bson.M{"$gte": from, "$lte": to}},
-		},
+		q,
 		options.Find().SetSort(bson.D{{"start_ts", 1}}),
 	)
 
@@ -245,8 +248,9 @@ LOOP:
 
 // PITRmetaFromFName parses given file name and returns PITRChunk metadata
 // it returns nil if file wasn't parse successfully (e.g. wrong format)
-// !!! should be agreed with pbm/pitr.chunkPath().
 // current fromat is 20200715155939-0.20200715160029-1.oplog.snappy
+//
+// !!! should be agreed with pbm/pitr.chunkPath()
 func PITRmetaFromFName(f string) *PITRChunk {
 	ppath := strings.Split(f, "/")
 	if len(ppath) < 2 {
