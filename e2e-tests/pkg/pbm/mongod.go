@@ -220,24 +220,24 @@ func (m *Mongo) GetCounters() ([]Counter, error) {
 	return data, nil
 }
 
-func (m *Mongo) GetIsMaster() (*pbm.IsMaster, error) {
-	im := &pbm.IsMaster{}
-	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"isMaster": 1}).Decode(im)
+func (m *Mongo) GetNodeInfo() (*pbm.NodeInfo, error) {
+	inf := &pbm.NodeInfo{}
+	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"isMaster": 1}).Decode(inf)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command isMaster")
+		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return im, nil
+	return inf, nil
 }
 
 func (m *Mongo) GetLastWrite() (primitive.Timestamp, error) {
-	isMaster, err := m.GetIsMaster()
+	inf, err := m.GetNodeInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
+		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
-	if isMaster.LastWrite.MajorityOpTime.TS.T == 0 {
+	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
 		return primitive.Timestamp{}, errors.New("timestamp is nil")
 	}
-	return isMaster.LastWrite.OpTime.TS, nil
+	return inf.LastWrite.OpTime.TS, nil
 }
 
 func (m *Mongo) Conn() *mongo.Client {

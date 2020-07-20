@@ -96,9 +96,9 @@ func (a *Agent) pitr() (err error) {
 	}
 
 	// TODO: no need to get it on each cycle
-	nodeInfo, err := a.node.GetIsMaster()
+	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
-		return errors.Wrap(err, "get node isMaster data")
+		return errors.Wrap(err, "get NodeInfo data")
 	}
 
 	// just a check before a real locking
@@ -169,12 +169,12 @@ func (a *Agent) pitr() (err error) {
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 	tsstr := time.Unix(int64(r.TS), 0).UTC().Format(time.RFC3339)
-	nodeInfo, err := a.node.GetIsMaster()
+	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdPITR, tsstr, "get node info: %v", err)
 		return
 	}
-	if !nodeInfo.IsMaster {
+	if !nodeInfo.IsPrimary {
 		a.log.Info(pbm.CmdPITR, tsstr, "Node in not suitable for restore")
 		return
 	}

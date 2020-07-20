@@ -64,7 +64,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		return
 	}
 
-	nodeInfo, err := a.node.GetIsMaster()
+	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdBackup, bcp.Name, "get node info: %v", err)
 		return
@@ -152,12 +152,12 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 // Restore starts the restore
 func (a *Agent) Restore(r pbm.RestoreCmd) {
-	nodeInfo, err := a.node.GetIsMaster()
+	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdRestore, r.BackupName, "get node info: %v", err)
 		return
 	}
-	if !nodeInfo.IsMaster {
+	if !nodeInfo.IsPrimary {
 		a.log.Info(pbm.CmdRestore, r.BackupName, "node in not suitable for restore")
 		return
 	}

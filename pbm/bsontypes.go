@@ -11,16 +11,16 @@ type OpTime struct {
 	Term int64               `bson:"t" json:"t"`
 }
 
-// IsMasterLastWrite represents the last write to the MongoDB server
-type IsMasterLastWrite struct {
+// MongoLastWrite represents the last write to the MongoDB server
+type MongoLastWrite struct {
 	OpTime            OpTime    `bson:"opTime"`
 	LastWriteDate     time.Time `bson:"lastWriteDate"`
 	MajorityOpTime    OpTime    `bson:"majorityOpTime"`
 	MajorityWriteDate time.Time `bson:"majorityWriteDate"`
 }
 
-// IsMaster represents the document returned by db.runCommand( { isMaster: 1 } )
-type IsMaster struct {
+// NodeInfo represents the mongo's node info
+type NodeInfo struct {
 	Hosts                        []string             `bson:"hosts,omitempty"`
 	Msg                          string               `bson:"msg"`
 	MaxBsonObjectSise            int64                `bson:"maxBsonObjectSize"`
@@ -34,33 +34,33 @@ type IsMaster struct {
 	SetName                      string               `bson:"setName,omitempty"`
 	Primary                      string               `bson:"primary,omitempty"`
 	SetVersion                   int32                `bson:"setVersion,omitempty"`
-	IsMaster                     bool                 `bson:"ismaster"`
+	IsPrimary                    bool                 `bson:"ismaster"`
 	Secondary                    bool                 `bson:"secondary,omitempty"`
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
-	LastWrite                    IsMasterLastWrite    `bson:"lastWrite"`
+	LastWrite                    MongoLastWrite       `bson:"lastWrite"`
 	ClusterTime                  *ClusterTime         `bson:"$clusterTime,omitempty"`
 	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
 	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
 }
 
 // IsSharded returns true is replset is part sharded cluster
-func (im *IsMaster) IsSharded() bool {
-	return im.SetName != "" && (im.ConfigServerState != nil || im.ConfigSvr == 2)
+func (i *NodeInfo) IsSharded() bool {
+	return i.SetName != "" && (i.ConfigServerState != nil || i.ConfigSvr == 2)
 }
 
 // IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
-func (im *IsMaster) IsLeader() bool {
-	return !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv
+func (i *NodeInfo) IsLeader() bool {
+	return !i.IsSharded() || i.ReplsetRole() == ReplRoleConfigSrv
 }
 
 // ReplsetRole returns replset role in sharded clister
-func (im *IsMaster) ReplsetRole() ReplRole {
+func (i *NodeInfo) ReplsetRole() ReplRole {
 	switch {
-	case im.ConfigSvr == 2:
+	case i.ConfigSvr == 2:
 		return ReplRoleConfigSrv
-	case im.ConfigServerState != nil:
+	case i.ConfigServerState != nil:
 		return ReplRoleShard
 	default:
 		return ReplRoleUnknown
@@ -68,8 +68,8 @@ func (im *IsMaster) ReplsetRole() ReplRole {
 }
 
 // IsStandalone returns true if node is not a part of replica set
-func (im *IsMaster) IsStandalone() bool {
-	return im.SetName == ""
+func (i *NodeInfo) IsStandalone() bool {
+	return i.SetName == ""
 }
 
 type ClusterTime struct {

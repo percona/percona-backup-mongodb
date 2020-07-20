@@ -39,7 +39,7 @@ type Restore struct {
 	cn         *pbm.PBM
 	node       *pbm.Node
 	stopHB     chan struct{}
-	nodeInfo   *pbm.IsMaster
+	nodeInfo   *pbm.NodeInfo
 	stg        storage.Storage
 	bcp        *pbm.BackupMeta
 	dumpFile   string
@@ -135,7 +135,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 }
 
 func (r *Restore) Init(name string) (err error) {
-	r.nodeInfo, err = r.node.GetIsMaster()
+	r.nodeInfo, err = r.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node data")
 	}

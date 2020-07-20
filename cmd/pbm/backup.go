@@ -151,13 +151,13 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: check if PITR is on: %v", err)
 	}
 
-	im, err := cn.GetIsMaster()
+	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		log.Fatalf("Error: define cluster state: %v", err)
 	}
 
-	shards := []pbm.Shard{{ID: im.SetName}}
-	if im.IsSharded() {
+	shards := []pbm.Shard{{ID: inf.SetName}}
+	if inf.IsSharded() {
 		s, err := cn.GetShards()
 		if err != nil {
 			log.Fatalf("Error: get shards: %v", err)

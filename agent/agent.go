@@ -80,7 +80,7 @@ func (a *Agent) Start() error {
 
 // ResyncBackupList uploads a backup list from the remote store
 func (a *Agent) ResyncStorage() {
-	nodeInfo, err := a.node.GetIsMaster()
+	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdResyncBackupList, "", "get node info data: %v", err)
 		return

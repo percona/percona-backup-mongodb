@@ -84,9 +84,9 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 	defer tk.Stop()
 
 	llock := &pbm.LockHeader{Replset: i.rs}
-	nodeInfo, err := i.node.GetIsMaster()
+	nodeInfo, err := i.node.GetInfo()
 	if err != nil {
-		return errors.Wrap(err, "get node isMaster data")
+		return errors.Wrap(err, "get NodeInfo data")
 	}
 
 	lastSlice := false

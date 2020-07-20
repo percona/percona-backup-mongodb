@@ -45,7 +45,7 @@ func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
 // run the backup.
 // TODO: describe flow
 func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
-	im, err := b.node.GetIsMaster()
+	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
 	}
@@ -59,14 +59,14 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // (andrew) I dunno why, but the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 	}
 
-	rsName := im.SetName
+	rsName := inf.SetName
 	if rsName == "" {
 		rsName = pbm.NoReplset
 	}
 	rsMeta := pbm.BackupReplset{
 		Name:         rsName,
-		OplogName:    getDstName("oplog", bcp, im.SetName),
-		DumpName:     getDstName("dump", bcp, im.SetName),
+		OplogName:    getDstName("oplog", bcp, inf.SetName),
+		DumpName:     getDstName("dump", bcp, inf.SetName),
 		StartTS:      time.Now().UTC().Unix(),
 		Status:       pbm.StatusRunning,
 		Conditions:   []pbm.Condition{},
@@ -92,7 +92,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
 			b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark RS as %s `%v`: %v", status, err, ferr)
-			if im.IsLeader() {
+			if inf.IsLeader() {
 				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
 				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark backup as %s `%v`: %v", status, err, ferr)
 			}
@@ -114,7 +114,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	// Erase credentials data
 	meta.Store.S3.Credentials = s3.Credentials{}
 
-	if im.IsLeader() {
+	if inf.IsLeader() {
 		err = b.cn.SetBackupMeta(meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
@@ -152,8 +152,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
-	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, im, &pbm.WaitBackupStart)
+	if inf.IsLeader() {
+		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, inf, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -201,8 +201,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "set shard's last write ts")
 	}
 
-	if im.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, im, nil)
+	if inf.IsLeader() {
+		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, inf, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
@@ -233,8 +233,8 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
 
-	if im.IsLeader() {
-		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, im, nil)
+	if inf.IsLeader() {
+		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, inf, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
@@ -252,12 +252,12 @@ const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
 func NodeSuits(node *pbm.Node) (bool, error) {
-	im, err := node.GetIsMaster()
+	inf, err := node.GetInfo()
 	if err != nil {
-		return false, errors.Wrap(err, "get isMaster data for node")
+		return false, errors.Wrap(err, "get NodeInfo data")
 	}
 
-	if im.IsStandalone() {
+	if inf.IsStandalone() {
 		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
 	}
 
@@ -269,7 +269,7 @@ func NodeSuits(node *pbm.Node) (bool, error) {
 	//
 	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
 	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
-	if im.IsMaster && im.Me == im.Primary && len(im.Hosts) > 1 {
+	if inf.IsPrimary && inf.Me == inf.Primary && len(inf.Hosts) > 1 {
 		time.Sleep(pbm.WaitBackupStart * 9 / 10)
 	}
 
@@ -357,15 +357,15 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 	return n, r.Close()
 }
 
-func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, im *pbm.IsMaster, timeout *time.Duration) error {
+func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
-			ID:   im.SetName,
-			Host: im.SetName + "/" + strings.Join(im.Hosts, ","),
+			ID:   ninf.SetName,
+			Host: ninf.SetName + "/" + strings.Join(ninf.Hosts, ","),
 		},
 	}
 
-	if im.IsSharded() {
+	if ninf.IsSharded() {
 		s, err := b.cn.GetShards()
 		if err != nil {
 			return errors.Wrap(err, "get shards list")

@@ -122,12 +122,12 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		Conn: client,
 		ctx:  ctx,
 	}
-	im, err := pbm.GetIsMaster()
+	inf, err := pbm.GetNodeInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "get topology")
 	}
 
-	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
+	if !inf.IsSharded() || inf.ReplsetRole() == ReplRoleConfigSrv {
 		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
@@ -545,35 +545,35 @@ func (p *PBM) Context() context.Context {
 	return p.ctx
 }
 
-// GetIsMaster returns IsMaster object encapsulating respective MongoDB structure
-func (p *PBM) GetIsMaster() (*IsMaster, error) {
-	im := &IsMaster{}
-	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(im)
+// GetNodeInfo returns mongo node info
+func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
+	inf := &NodeInfo{}
+	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(inf)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command isMaster")
+		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return im, nil
+	return inf, nil
 }
 
 // ClusterTime returns mongo's current cluster time
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
+	// Otherwise, cluster timestamp could remain the same between node info reads, while in fact time has been moved forward.
 	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
 	if err != nil && err != mongo.ErrNoDocuments {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
-	im, err := p.GetIsMaster()
+	inf, err := p.GetNodeInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}
 
-	if im.ClusterTime == nil {
+	if inf.ClusterTime == nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
 	}
 
-	return im.ClusterTime.ClusterTime, nil
+	return inf.ClusterTime.ClusterTime, nil
 }
 
 // FileCompression return compression alg based on given file extention

@@ -92,27 +92,27 @@ var errMongoTimestampNil = errors.New("timestamp is nil")
 
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
-	isMaster, err := ot.node.GetIsMaster()
+	inf, err := ot.node.GetInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster data")
+		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
-	if isMaster.LastWrite.MajorityOpTime.TS.T == 0 {
+	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
 		return primitive.Timestamp{}, errMongoTimestampNil
 	}
-	return isMaster.LastWrite.MajorityOpTime.TS, nil
+	return inf.LastWrite.MajorityOpTime.TS, nil
 }
 
 func (ot *Oplog) collectionName() (string, error) {
-	isMaster, err := ot.node.GetIsMaster()
+	inf, err := ot.node.GetInfo()
 	if err != nil {
-		return "", errors.Wrap(err, "get isMaster document")
+		return "", errors.Wrap(err, "get NodeInfo document")
 	}
 
-	if len(isMaster.Hosts) > 0 {
+	if len(inf.Hosts) > 0 {
 		return "oplog.rs", nil
 	}
-	if !isMaster.IsMaster {
-		return "", errors.New("not connected to master")
+	if !inf.IsPrimary {
+		return "", errors.New("not connected to primary")
 	}
 	return "oplog.$main", nil
 }

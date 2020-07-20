@@ -39,7 +39,7 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 		return nil, errors.Wrap(err, "connect")
 	}
 
-	nodeInfo, err := n.GetIsMaster()
+	nodeInfo, err := n.GetInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "get node info")
 	}
@@ -85,31 +85,31 @@ func (n *Node) Connect() error {
 	return nil
 }
 
-func (n *Node) GetIsMaster() (*IsMaster, error) {
-	im := &IsMaster{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(im)
+func (n *Node) GetInfo() (*NodeInfo, error) {
+	i := &NodeInfo{}
+	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(i)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command isMaster")
+		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return im, nil
+	return i, nil
 }
 
 // IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).
 func (n *Node) IsSharded() (bool, error) {
-	im, err := n.GetIsMaster()
+	i, err := n.GetInfo()
 	if err != nil {
 		return false, err
 	}
 
-	return im.IsSharded(), nil
+	return i.IsSharded(), nil
 }
 
 func (n *Node) Name() (string, error) {
-	im, err := n.GetIsMaster()
+	i, err := n.GetInfo()
 	if err != nil {
 		return "", err
 	}
-	return im.Me, nil
+	return i.Me, nil
 }
 
 type MongoVersion struct {
