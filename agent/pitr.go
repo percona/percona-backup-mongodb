@@ -85,6 +85,11 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
+	// we already do the job
+	if on && a.pitrjob != nil {
+		return nil
+	}
+
 	q, err := backup.NodeSuits(a.node)
 	if err != nil {
 		return errors.Wrap(err, "node check")
@@ -95,25 +100,19 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	// TODO: no need to get it on each cycle
-	nodeInfo, err := a.node.GetInfo()
-	if err != nil {
-		return errors.Wrap(err, "get NodeInfo data")
-	}
-
 	// just a check before a real locking
 	// just trying to avoid redundant heavy operations
 	ts, err := a.pbm.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}
-	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: nodeInfo.SetName}, pbm.LockCollection)
+	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()}, pbm.LockCollection)
 	// ErrNoDocuments or stale lock the only reasons to continue
 	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
 		return errors.Wrap(err, "check if already run")
 	}
 
-	ibcp := pitr.NewBackup(nodeInfo.SetName, a.pbm, a.node)
+	ibcp := pitr.NewBackup(a.node.RS(), a.pbm, a.node)
 
 	err = ibcp.Catchup()
 	if err != nil {
@@ -126,8 +125,8 @@ func (a *Agent) pitr() (err error) {
 	}
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
+		Replset: a.node.RS(),
+		Node:    a.node.Name(),
 		Type:    pbm.CmdPITR,
 	})
 

@@ -55,8 +55,19 @@ func (n *Node) InitLogger(cn *PBM) {
 	n.Log.SetOut(os.Stderr)
 }
 
+// ID returns node ID
 func (n *Node) ID() string {
 	return fmt.Sprintf("%s/%s", n.rs, n.me)
+}
+
+// RS return replicaset name node belongs to
+func (n *Node) RS() string {
+	return n.rs
+}
+
+// Name returns node name
+func (n *Node) Name() string {
+	return n.me
 }
 
 func (n *Node) Connect() error {
@@ -104,14 +115,6 @@ func (n *Node) IsSharded() (bool, error) {
 	return i.IsSharded(), nil
 }
 
-func (n *Node) Name() (string, error) {
-	i, err := n.GetInfo()
-	if err != nil {
-		return "", err
-	}
-	return i.Me, nil
-}
-
 type MongoVersion struct {
 	VersionString string `bson:"version"`
 	Version       []int  `bson:"versionArray"`
@@ -138,10 +141,7 @@ func (n *Node) Status() (*NodeStatus, error) {
 		return nil, errors.Wrap(err, "get replset status")
 	}
 
-	name, err := n.Name()
-	if err != nil {
-		return nil, errors.Wrap(err, "get node name")
-	}
+	name := n.Name()
 
 	for _, m := range s.Members {
 		if m.Name == name {
@@ -159,10 +159,7 @@ func (n *Node) ReplicationLag() (int, error) {
 		return -1, errors.Wrap(err, "get replset status")
 	}
 
-	name, err := n.Name()
-	if err != nil {
-		return -1, errors.Wrap(err, "get node name")
-	}
+	name := n.Name()
 
 	var primaryOptime, nodeOptime int
 	for _, m := range s.Members {
