@@ -106,7 +106,7 @@ func (a *Agent) pitr() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}
-	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()}, pbm.LockCollection)
+	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
 	// ErrNoDocuments or stale lock the only reasons to continue
 	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
 		return errors.Wrap(err, "check if already run")

@@ -88,7 +88,7 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	// there is some concurrent lock
-	peer, err := l.p.GetLockData(&LockHeader{Replset: l.Replset}, l.c.Name())
+	peer, err := l.p.GetLockData(&LockHeader{Replset: l.Replset})
 	if err != nil {
 		return false, errors.Wrap(err, "check for the peer")
 	}
@@ -208,9 +208,9 @@ func (l *Lock) beat() error {
 	return errors.Wrap(err, "set timestamp")
 }
 
-func (p *PBM) GetLockData(lh *LockHeader, collection string) (LockData, error) {
+func (p *PBM) GetLockData(lh *LockHeader) (LockData, error) {
 	var l LockData
-	r := p.Conn.Database(DB).Collection(collection).FindOne(p.ctx, lh)
+	r := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, lh)
 	if r.Err() != nil {
 		return l, r.Err()
 	}
@@ -218,10 +218,10 @@ func (p *PBM) GetLockData(lh *LockHeader, collection string) (LockData, error) {
 	return l, err
 }
 
-func (p *PBM) GetLocks(lh *LockHeader, collection string) ([]LockData, error) {
+func (p *PBM) GetLocks(lh *LockHeader) ([]LockData, error) {
 	var locks []LockData
 
-	cur, err := p.Conn.Database(DB).Collection(collection).Find(p.ctx, lh)
+	cur, err := p.Conn.Database(DB).Collection(LockCollection).Find(p.ctx, lh)
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
 	}

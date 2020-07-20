@@ -190,7 +190,7 @@ func (i *IBackup) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
-		ld, err = i.pbm.GetLockData(l, pbm.LockCollection)
+		ld, err = i.pbm.GetLockData(l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 			return ld, errors.Wrap(err, "get")
 		}

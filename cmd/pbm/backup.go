@@ -14,7 +14,7 @@ import (
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
-	locks, err := cn.GetLocks(&pbm.LockHeader{}, pbm.LockCollection)
+	locks, err := cn.GetLocks(&pbm.LockHeader{})
 	if err != nil {
 		log.Println("get locks", err)
 	}
@@ -231,7 +231,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 var errPITRBackup = errors.New("PITR backup failed")
 
 func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
-	l, err := cn.GetLockData(&pbm.LockHeader{Replset: rs}, pbm.LockCollection)
+	l, err := cn.GetLockData(&pbm.LockHeader{Replset: rs})
 	if err == mongo.ErrNoDocuments {
 		return errPITRBackup
 	} else if err != nil {
@@ -267,7 +267,7 @@ func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
 		Type:       pbm.CmdBackup,
 		BackupName: b.Name,
-	}, pbm.LockCollection)
+	})
 
 	if err != nil {
 		return "", errors.Wrap(err, "get locks")
