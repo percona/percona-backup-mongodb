@@ -25,6 +25,7 @@ type IBackup struct {
 	log    *pbm.Logger
 }
 
+// NewBackup creates an incremental backup object
 func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
 	return &IBackup{
 		pbm:  cn,
@@ -37,7 +38,9 @@ func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
 
 // Catchup seeks for the last saved (backuped) TS - the starting point.  It should be run only
 // if the timeline was lost (e.g. on (re)start or another node's fail).
-// The starting point sets to the last backup's or last PITR chunk's TS whichever is more recent
+// The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
+// It also checks if there is no restore intercepted the timeline
+// (hence there are no restores after the most recent backup)
 func (i *IBackup) Catchup() error {
 	bcp, err := i.pbm.GetLastBackup(nil)
 	if err != nil {
@@ -118,13 +121,13 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 
 		// before any action check if we still got a lock. if no:
 		//
-		// - if there another lock and it is backup op - wait for the backup to start,
-		//   make the last slice up unlit backup StartTS and return
-		// - if there is no other lock, we have to wait for backup - see above
-		// 	 (backup cmd can delete pitr lock but might not yet acquire own one)
-		// - if there another lock and that is pitr - return, probably split happened
+		// - if there is another lock and it is the backup operation - wait for the backup
+		//   to start, make the last slice up unlit backup StartTS and return;
+		// - if there is no other lock, we have to wait for the snapshot backup - see above
+		//   (snapshot cmd can delete pitr lock but might not yet acquire the own one)
+		// - if there another lock and that is pitr - return, probably the split happened
 		//   and a new worker was elected
-		// - any other case (including no lock) is undefined bechavior - return
+		// - any other case (including no lock) is the undefined behaviour - return
 		//
 		// if there is no lock, we should wait a bit for a backup lock
 		// because this routine is run concurently with the snapshot
