@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
+	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
 )
 
@@ -146,7 +147,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 	}
 	defer container.Close()
 
-	tmr := time.NewTimer(17 * time.Second)
+	tmr := time.NewTimer(pbm.WaitBackupStart)
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {

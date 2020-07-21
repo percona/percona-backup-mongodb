@@ -138,7 +138,7 @@ func main() {
 			}
 
 			cCfg, err := pbmClient.GetConfig()
-			if err != nil {
+			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 				log.Fatalln("Error: unable to get current config:", err)
 			}
 
