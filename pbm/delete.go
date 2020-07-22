@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"log"
 	"time"
 
 	"github.com/pkg/errors"
@@ -64,7 +65,7 @@ func (p *PBM) probeDelete(backup *BackupMeta) error {
 	// we shouldn't delete the last backup if PITR is ON
 	ispitr, err := p.IsPITR()
 	if err != nil {
-		errors.Wrap(err, "unable check pitr state")
+		return errors.Wrap(err, "unable check pitr state")
 	}
 	if !ispitr {
 		return nil
@@ -129,6 +130,7 @@ func (p *PBM) DeleteOlderThan(t time.Time) error {
 
 		err = p.probeDelete(m)
 		if err != nil {
+			log.Printf("Info: deleting %s: %v", m.Name, err)
 			continue
 		}
 

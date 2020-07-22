@@ -33,6 +33,7 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	n := &Node{
 		ctx:  ctx,
 		curi: curi,
+		Log:  &Logger{},
 	}
 	err := n.Connect()
 	if err != nil {
@@ -45,7 +46,7 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	}
 	n.rs, n.me = nodeInfo.SetName, nodeInfo.Me
 
-	n.Log = &Logger{} // just not to panic if logger wasn't set before use
+	n.Log.SetOut(os.Stderr)
 
 	return n, nil
 }

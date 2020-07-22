@@ -168,11 +168,16 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 }
 
+const (
+	cmdCollectionSizeBytes  = 1 << 10 * 10 // size 10kb ~ 50 commands
+	logsCollectionSizeBytes = 1 << 20      // 1Mb
+)
+
 // setup a new DB for PBM
 func (p *PBM) setupNewDB() error {
 	err := p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", 1 << 10 * 10}}, // size 10kb ~ 50 commands
+		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", cmdCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure cmd collection")
@@ -180,7 +185,7 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", LogCollection}, {"capped", true}, {"size", 1 << 20}}, // 10Mb
+		bson.D{{"create", LogCollection}, {"capped", true}, {"size", logsCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure log collection")

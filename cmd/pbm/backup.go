@@ -235,7 +235,7 @@ func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
 	if err == mongo.ErrNoDocuments {
 		return errPITRBackup
 	} else if err != nil {
-		return errors.Wrap(err, "get lok")
+		return errors.Wrap(err, "get lock")
 	}
 
 	switch l.Type {
