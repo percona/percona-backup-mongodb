@@ -15,6 +15,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+var ibackupspan string
+
 // IBackup is an incremental backup object
 type IBackup struct {
 	pbm    *pbm.PBM
@@ -27,13 +29,20 @@ type IBackup struct {
 
 // NewBackup creates an incremental backup object
 func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
-	return &IBackup{
+	b := &IBackup{
 		pbm:  cn,
 		node: node,
 		rs:   rs,
 		span: pbm.PITRdefaultSpan,
 		log:  node.Log,
 	}
+	if ibackupspan != "" {
+		s, err := strconv.Atoi(ibackupspan)
+		if err == nil {
+			b.span = time.Duration(s)
+		}
+	}
+	return b
 }
 
 // Catchup seeks for the last saved (backuped) TS - the starting point.  It should be run only
