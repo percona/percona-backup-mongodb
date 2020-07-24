@@ -167,7 +167,7 @@ func (a *Agent) pitr() (err error) {
 
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
-	tsstr := time.Unix(int64(r.TS), 0).UTC().Format(time.RFC3339)
+	tsstr := time.Unix(r.TS, 0).UTC().Format(time.RFC3339)
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdPITR, tsstr, "get node info: %v", err)

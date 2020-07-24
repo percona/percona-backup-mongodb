@@ -179,17 +179,17 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 			if err == errPITRBackup {
 				lg, err := pitrLog(cn, s.ID)
 				if err != nil {
-					log.Fatalf("Error: get log for shard '%s': %v", s.ID, err)
+					log.Printf("Error: get log for shard '%s': %v", s.ID, err)
 				}
 				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
 			} else if err != nil {
-				log.Fatalf("Error: check PITR state: %v", err)
+				log.Printf("Error: check PITR state: %v", err)
 			}
 		}
 
 		tlns, err := cn.PITRGetValidTimelines(s.ID, now)
 		if err != nil {
-			log.Fatalf("Error: get PITR timelines for %s replset: %v", s.ID, err)
+			log.Printf("Error: get PITR timelines for %s replset: %v", s.ID, err)
 		}
 
 		if len(tlns) == 0 {
@@ -211,18 +211,21 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		}
 	}
 	if len(pitrList) > 0 {
-		fmt.Printf("PITR:\n%s", pitrList)
+		fmt.Printf("PITR shards' timelines:\n%s", pitrList)
 	}
-	if len(rstlines) > 0 && len(rstlines) == len(shards) || on {
-		pitrStatus := "off"
-		if on {
-			pitrStatus = "on"
+
+	if on {
+		fmt.Println("PITR <on>:")
+	}
+	if len(rstlines) > 0 && len(rstlines) == len(shards) {
+		if !on {
+			fmt.Println("PITR <off>:")
 		}
-		fmt.Printf("PITR <%s>:\n", pitrStatus)
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
 			fmt.Println(" ", tl)
 		}
 	}
+
 	if len(pitrErrors) > 0 {
 		fmt.Printf("\n!Failed to run PITR backup. Agent logs:\n%s", pitrErrors)
 	}

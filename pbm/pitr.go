@@ -204,7 +204,7 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	return tlines
 }
 
-// MergeTimelines merges overlaping sets on timelines
+// MergeTimelines merges overlapping sets on timelines
 // it preresumes timelines already sorted and doesn't start from 0
 func MergeTimelines(tlns ...[]Timeline) []Timeline {
 	if len(tlns) == 0 {

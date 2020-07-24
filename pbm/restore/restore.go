@@ -226,6 +226,9 @@ func (r *Restore) PreparePITR(ts int64) (err error) {
 	}
 
 	r.bcp, err = r.cn.GetLastBackup(&lastChunk.EndTS)
+	if err != nil {
+		return errors.Wrap(err, "define last backup")
+	}
 
 	err = r.prepareChunks(r.bcp.LastWriteTS, lastChunk.StartTS)
 	if err != nil {
