@@ -167,7 +167,12 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 
 	ts, err := cn.ClusterTime()
 	if err != nil {
-		log.Fatalf("Read cluster time: %v", err)
+		log.Fatalf("Error: read cluster time: %v", err)
+	}
+
+	cfg, err := cn.GetConfig()
+	if err != nil {
+		log.Fatalf("Error: read config: %v", cfg)
 	}
 
 	now := time.Now().Unix()
@@ -177,13 +182,17 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		if on {
 			err := pitrState(cn, s.ID, ts)
 			if err == errPITRBackup {
-				lg, err := pitrLog(cn, s.ID)
+				lg, err := pitrLog(cn, s.ID, cfg.PITR.Changed)
 				if err != nil {
 					log.Printf("Error: get log for shard '%s': %v", s.ID, err)
 				}
-				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
+				if lg != "" {
+					pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
+				} else if cfg.PITR.Changed <= time.Now().Add(time.Minute*-1).Unix() {
+					pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
+				}
 			} else if err != nil {
-				log.Printf("Error: check PITR state: %v", err)
+				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)
 			}
 		}
 
@@ -229,6 +238,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	if len(pitrErrors) > 0 {
 		fmt.Printf("\n!Failed to run PITR backup. Agent logs:\n%s", pitrErrors)
 	}
+
 }
 
 var errPITRBackup = errors.New("PITR backup failed")
@@ -254,13 +264,17 @@ func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
 	return nil
 }
 
-func pitrLog(cn *pbm.PBM, rs string) (string, error) {
+func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
 	l, err := cn.LogGet(rs, pbm.TypeError, pbm.CmdPITR, 1)
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}
 	if len(l) == 0 {
-		return "<nil>", nil
+		return "", nil
+	}
+
+	if l[0].TS < after {
+		return "", nil
 	}
 
 	return l[0].String(), nil

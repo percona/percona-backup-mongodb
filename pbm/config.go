@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -25,7 +26,8 @@ type Config struct {
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Enabled bool  `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Changed int64 `bson:"changed" json:"-" yaml:"-"`
 }
 
 // StorageType represents a type of the destination storage for backups
@@ -82,6 +84,8 @@ func (p *PBM) SetConfig(cfg Config) error {
 		}
 	}
 
+	cfg.PITR.Changed = time.Now().Unix()
+
 	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
@@ -97,7 +101,7 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	}
 
 	// just check if config was set
-	_, err := p.GetConfigVar(key)
+	cval, err := p.GetConfigVar(key)
 	if err != nil {
 		if errors.Cause(err) == mongo.ErrNoDocuments {
 			return errors.New("config doesn't set")
@@ -109,10 +113,15 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	var v interface{}
 	switch key {
 	case "pitr.enabled":
-		v, err = strconv.ParseBool(val)
+		nv, err := strconv.ParseBool(val)
 		if err != nil {
-			return errors.Wrap(err, "casting value bool")
+			return errors.Wrap(err, "casting value of pitr.enabled")
 		}
+		if nv == cval.(bool) {
+			return nil
+		}
+
+		return errors.Wrap(p.confSetPITR(key, nv), "write to db")
 	default:
 		v = val
 	}
@@ -125,17 +134,35 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	return errors.Wrap(err, "write to db")
 }
 
+func (p *PBM) confSetPITR(k string, v bool) error {
+	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix()}},
+	)
+
+	return err
+}
+
 // GetConfigVar returns value of given config vaiable
-func (p *PBM) GetConfigVar(key string) (string, error) {
+func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	if !ValidateConfigKey(key) {
-		return "", errors.New("invalid config key")
+		return nil, errors.New("invalid config key")
 	}
 
 	bts, err := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{}).DecodeBytes()
 	if err != nil {
-		return "", errors.Wrap(err, "get from db")
+		return nil, errors.Wrap(err, "get from db")
 	}
-	return string(bts.Lookup(strings.Split(key, ".")...).Value), nil
+	v, err := bts.LookupErr(strings.Split(key, ".")...)
+	switch v.Type {
+	case bson.TypeBoolean:
+		return v.Boolean(), nil
+	case bson.TypeString:
+		return v.String(), nil
+	default:
+		return nil, errors.Errorf("unexpected type %v", v.Type)
+	}
 }
 
 // ValidateConfigKey checks if a config key valid
