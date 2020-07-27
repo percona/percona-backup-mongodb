@@ -1,0 +1,20 @@
+.. _PBM-1.2.1:
+
+================================================================================
+*Percona Backup for MongoDB* 1.2.1
+================================================================================
+
+:Date: July 27, 2020
+:Installation: `Installing Percona Backup for MongoDB <https://www.percona.com/doc/percona-backup-mongodb/installation.html>`_
+
+Percona Backup for MongoDB is a distributed, low-impact solution for consistent backups of MongoDB
+sharded clusters and replica sets. This is a tool for creating consistent backups 
+across a MongoDB sharded cluster (or a single replica set).
+
+
+Bugs Fixed
+================================================================================
+
+* :jirabug:`PBM-509`: Include "pbm-speed-test" binary for debian packages
+
+
