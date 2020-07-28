@@ -104,10 +104,10 @@ Listing all backups
 
    .. code-block:: text
 
-      2019-09-10T07:04:14Z
-      2019-09-09T07:03:50Z
-      2019-09-08T07:04:21Z
-      2019-09-07T07:04:18Z
+      2020-07-10T07:04:14Z
+      2020-07-09T07:03:50Z
+      2020-07-08T07:04:21Z
+      2020-07-07T07:04:18Z
 
 .. _pbm.running.backup.starting: 
 
@@ -177,7 +177,7 @@ restarted to reload the sharding metadata.
 
 .. _pbm.cancel.backup:
 
-Cancelling a backup
+Canceling a backup
 --------------------------------------------------------------------------------
 
 You can cancel a running backup if, for example, you want to do
@@ -188,15 +188,15 @@ To cancel the backup, use the |pbm-cancel-backup| command.
 .. code-block:: bash
 
   $ pbm cancel-backup
-  Backup cancelation has started
+  Backup cancellation has started
 
-After the command execution, the backup is marked as cancelled in the |pbm-list| output:
+After the command execution, the backup is marked as canceled in the |pbm-list| output:
 
 .. code-block:: bash
 
   $ pbm list
   ...
-  2020-04-30T18:05:26Z	Cancelled at 2020-04-30T18:05:37Z
+  2020-04-30T18:05:26Z	Canceled at 2020-04-30T18:05:37Z
   
 .. _pbm.backup.delete:
 

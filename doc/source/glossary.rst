@@ -58,13 +58,16 @@
      Command-line interface for controlling the backup system. PBM CLI can connect to several clusters so that a user can manage backups on many clusters.
 
   PBM Control collections
-     PBM Controll collections are :term:`collections <Collection>` with config, authentication data and backup states. They are stored in the admin db  in the cluster or non-sharded replicaset and serve as the communication channel between :term:`pbm-agent` and :term:`pbm CLI`. :term:`pbm CLI` creates a new pbmCmd document for a new operation. :term:`pbm-agents <pbm-agent>` monitor it and update as they process the operation.
+     PBM Control collections are :term:`collections <Collection>` with config, authentication data and backup states. They are stored in the admin db  in the cluster or non-sharded replica set and serve as the communication channel between :term:`pbm-agent` and :term:`pbm CLI`. :term:`pbm CLI` creates a new pbmCmd document for a new operation. :term:`pbm-agents <pbm-agent>` monitor it and update as they process the operation.
 
   Percona Backup for MongoDB
      Percona Backup for MongoDB (PBM) is a low-impact backup solution for MongoDB non-sharded replica sets and clusters. It supports both :term:`Percona Server for MongoDB` and MongoDB Community Edition. 
 
   Percona Server for MongoDB 
      Percona Server for MongoDB is a drop-in replacement for MongoDB Community Edition with enterprise-grade features.
+
+  Point-in-Time Recovery
+     Point-in-Time Recovery is restoring the database up to a specific moment in time. The data is restored from the backup snapshot and then events that occurred to the data are replayed from oplog. 
 
   Replica set
      A replica set is a group of mongod nodes that host the same data set.

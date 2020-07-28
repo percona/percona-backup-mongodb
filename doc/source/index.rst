@@ -41,6 +41,7 @@ which is no longer actively developed or supported.
    authentication
    config
    running
+   point-in-time-recovery
    troubleshooting
    release-notes
    uninstalling
