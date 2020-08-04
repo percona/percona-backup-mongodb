@@ -36,6 +36,12 @@ func (a *Agent) unsetPitr() {
 	a.mx.Unlock()
 }
 
+func (a *Agent) ispitr() bool {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+	return a.pitrjob != nil
+}
+
 func (a *Agent) cancelPitr() {
 	a.mx.Lock()
 	defer a.mx.Unlock()
@@ -79,14 +85,12 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "check if on")
 	}
 	if !on {
-		if a.pitrjob != nil {
-			a.cancelPitr()
-		}
+		a.cancelPitr()
 		return nil
 	}
 
 	// we already do the job
-	if on && a.pitrjob != nil {
+	if on && a.ispitr() {
 		return nil
 	}
 
