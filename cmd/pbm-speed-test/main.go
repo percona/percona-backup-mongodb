@@ -74,7 +74,7 @@ func compression(mURL string, compression pbm.CompressionType, sizeGb float64, c
 	var cn *mongo.Client
 
 	if collection != "" {
-		node, err := pbm.NewNode(ctx, "node", mURL)
+		node, err := pbm.NewNode(ctx, mURL)
 		if err != nil {
 			log.Fatalln("Error: connect to mongodb-node:", err)
 		}
@@ -100,7 +100,7 @@ func compression(mURL string, compression pbm.CompressionType, sizeGb float64, c
 func storage(mURL string, compression pbm.CompressionType, sizeGb float64, collection string) {
 	ctx := context.Background()
 
-	node, err := pbm.NewNode(ctx, "node", mURL)
+	node, err := pbm.NewNode(ctx, mURL)
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-node:", err)
 	}

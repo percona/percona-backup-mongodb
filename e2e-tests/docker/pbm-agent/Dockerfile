@@ -6,6 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/pbm
 COPY . .
-RUN make install-race
+RUN make install-tests
 
 USER nobody

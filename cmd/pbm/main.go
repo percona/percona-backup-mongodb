@@ -7,12 +7,14 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -38,14 +40,15 @@ var (
 		)
 
 	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
-	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").Required().String()
+	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").String()
+	restorePITRF   = restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String()
 
 	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Restore backup")
 
-	listCmd            = pbmCmd.Command("list", "Backup list")
-	listCmdRestore     = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
-	listCmdRestoreFull = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
-	listCmdSize        = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
+	listCmd        = pbmCmd.Command("list", "Backup list")
+	listCmdRestore = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
+	listCmdFullF   = listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool()
+	listCmdSize    = listCmd.Flag("size", "Show last N backups").Default("0").Int64()
 
 	deleteBcpCmd    = pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcpName   = deleteBcpCmd.Arg("name", "Backup name").String()
@@ -99,14 +102,22 @@ func main() {
 	case configCmd.FullCommand():
 		switch {
 		case len(*configSetF) > 0:
+			rsnc := false
 			for k, v := range *configSetF {
 				err := pbmClient.SetConfigVar(k, v)
 				if err != nil {
 					log.Fatalln("Error: set config key:", err)
 				}
 				fmt.Printf("[%s=%s]\n", k, v)
+
+				path := strings.Split(k, ".")
+				if !rsnc && len(path) > 0 && path[0] == "storage" {
+					rsnc = true
+				}
 			}
-			rsync(pbmClient)
+			if rsnc {
+				rsync(pbmClient)
+			}
 		case len(*configShowKey) > 0:
 			k, err := pbmClient.GetConfigVar(*configShowKey)
 			if err != nil {
@@ -120,6 +131,18 @@ func main() {
 			if err != nil {
 				log.Fatalln("Error: unable to read config file:", err)
 			}
+
+			var cfg pbm.Config
+			err = yaml.UnmarshalStrict(buf, &cfg)
+			if err != nil {
+				log.Fatalln("Error: unable to  unmarshal config file:", err)
+			}
+
+			cCfg, err := pbmClient.GetConfig()
+			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+				log.Fatalln("Error: unable to get current config:", err)
+			}
+
 			err = pbmClient.SetConfigByte(buf)
 			if err != nil {
 				log.Fatalln("Error: unable to set config:", err)
@@ -127,7 +150,13 @@ func main() {
 
 			fmt.Println("[Config set]\n------")
 			getConfig(pbmClient)
-			rsync(pbmClient)
+
+			// provider value may differ as it set automatically after config parsing
+			cCfg.Storage.S3.Provider = cfg.Storage.S3.Provider
+			// resync storage only if Storage options have changed
+			if !reflect.DeepEqual(cfg.Storage, cCfg.Storage) {
+				rsync(pbmClient)
+			}
 		case *configListF:
 			fallthrough
 		default:
@@ -151,19 +180,41 @@ func main() {
 		}
 		fmt.Printf("Backup cancellation has started\n")
 	case restoreCmd.FullCommand():
-		err := restore(pbmClient, *restoreBcpName)
-		if err != nil {
-			log.Fatalln("Error:", err)
+		if *restorePITRF != "" && *restoreBcpName != "" {
+			log.Fatalln("Error: either a backup name or point in time should be set, non both together!")
 		}
-		fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
+		switch {
+		case *restoreBcpName != "":
+			err := restore(pbmClient, *restoreBcpName)
+			if err != nil {
+				log.Fatalln("Error:", err)
+			}
+			fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
+		case *restorePITRF != "":
+			err := pitrestore(pbmClient, *restorePITRF)
+			if err != nil {
+				log.Fatalln("Error:", err)
+			}
+			fmt.Printf("Restore to the point in time '%s' has started\n", *restorePITRF)
+		default:
+			log.Fatalln("Error: undefined restore state")
+		}
 	case listCmd.FullCommand():
 		if *listCmdRestore {
-			printRestoreList(pbmClient, *listCmdSize, *listCmdRestoreFull)
+			printRestoreList(pbmClient, *listCmdSize, *listCmdFullF)
 		} else {
 			printBackupList(pbmClient, *listCmdSize)
+			printPITR(pbmClient, int(*listCmdSize), *listCmdFullF)
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF && isTTY() {
+			// don't care about the error since all this is only to show additional notice
+			pitrOn, _ := pbmClient.IsPITR()
+			if pitrOn {
+				fmt.Println("While PITR in ON the last snapshot won't be deleted")
+				fmt.Println()
+			}
+
 			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
@@ -191,6 +242,7 @@ func main() {
 			log.Fatalln("Error:", err)
 		}
 		printBackupList(pbmClient, 0)
+		printPITR(pbmClient, 0, false)
 	}
 }
 

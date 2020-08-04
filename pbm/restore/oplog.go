@@ -24,6 +24,7 @@ type Oplog struct {
 	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
 	preserveUUID      bool
+	lastTS            primitive.Timestamp
 }
 
 // NewOplog creates an object for an oplog applying
@@ -36,12 +37,24 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) *Oplog {
 	}
 }
 
+// SetEdge sets the edge time for the replayed operations
+// E.g. all operation that happened afterthe given timestamp going to be discarded
+func (o *Oplog) SetEdge(ts primitive.Timestamp) {
+	o.lastTS = ts
+}
+
+// SetEdgeUnix sets the edge time for the replayed operations
+// E.g. all operation that happened afterthe given timestamp going to be discarded
+func (o *Oplog) SetEdgeUnix(ts int64) {
+	o.SetEdge(primitive.Timestamp{T: uint32(ts), I: 0})
+}
+
 // Apply applys an oplog from a given source
-func (o *Oplog) Apply(src io.ReadCloser) error {
+func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 	// TODO: matcher should be created once since the exclude list always remains the same
 	matcher, err := ns.NewMatcher(excludeFromRestore)
 	if err != nil {
-		return errors.Wrap(err, "create matcher for the collections exclude")
+		return lts, errors.Wrap(err, "create matcher for the collections exclude")
 	}
 
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
@@ -58,37 +71,44 @@ func (o *Oplog) Apply(src io.ReadCloser) error {
 		oe := db.Oplog{}
 		err := bson.Unmarshal(rawOplogEntry, &oe)
 		if err != nil {
-			return errors.Wrap(err, "reading oplog")
+			return lts, errors.Wrap(err, "reading oplog")
+		}
+
+		// finish if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
+		if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
+			return lts, nil
 		}
 
 		if matcher.Has(oe.Namespace) {
 			continue
 		}
 
-		//skip no-ops
+		// skip no-ops
 		if oe.Operation == "n" {
 			continue
 		}
 
 		meta, err := txn.NewMeta(oe)
 		if err != nil {
-			return errors.Wrap(err, "getting op metadata")
+			return lts, errors.Wrap(err, "getting op metadata")
 		}
 
 		if meta.IsTxn() {
 			err = o.handleTxnOp(meta, oe)
 			if err != nil {
-				return errors.Wrap(err, "applying a transaction entry")
+				return lts, errors.Wrap(err, "applying a transaction entry")
 			}
 		} else {
 			err = o.handleNonTxnOp(oe)
 			if err != nil {
-				return errors.Wrap(err, "applying an entry")
+				return lts, errors.Wrap(err, "applying an entry")
 			}
 		}
+
+		lts = oe.Timestamp
 	}
 
-	return nil
+	return lts, nil
 }
 
 func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
