@@ -2,6 +2,7 @@ package pitr
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -119,6 +120,8 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		case <-tk.C:
 		}
 
+		nextChunkT := time.Now().Add(i.span)
+
 		// check if the node is still any good to make backups
 		q, err := backup.NodeSuits(i.node)
 		if err != nil {
@@ -189,6 +192,12 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
 		}
 
+		logm := fmt.Sprintf("created chunk %s - %s", formatts(meta.StartTS), formatts(meta.EndTS))
+		if !lastSlice {
+			logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT.Format("2006-01-02T15:04:05"))
+		}
+		i.log.Info(pbm.CmdPITR, "", logm)
+
 		if lastSlice {
 			i.log.Info(pbm.CmdPITR, "", "pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
@@ -196,6 +205,10 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 
 		i.lastTS = sliceTo
 	}
+}
+
+func formatts(t primitive.Timestamp) string {
+	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
 func (i *IBackup) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
