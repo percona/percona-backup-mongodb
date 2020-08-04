@@ -214,7 +214,6 @@ func (s *S3) List(prefix string) ([]string, error) {
 
 	lparams := &s3.ListObjectsInput{
 		Bucket: aws.String(s.opts.Bucket),
-		// Delimiter: aws.String("/"),
 	}
 	if s.opts.Prefix != "" {
 		lparams.Prefix = aws.String(s.opts.Prefix)
@@ -222,14 +221,18 @@ func (s *S3) List(prefix string) ([]string, error) {
 			*lparams.Prefix += "/"
 		}
 	}
-	*lparams.Prefix = path.Join(*lparams.Prefix, prefix)
+
+	if aws.StringValue(lparams.Prefix) != "" || prefix != "" {
+		lparams.Prefix = aws.String(path.Join(aws.StringValue(lparams.Prefix), prefix))
+	}
+
 	var files []string
 	awscli := s3.New(awsSession)
 	err = awscli.ListObjectsPages(lparams,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
-				f = strings.TrimPrefix(f, *lparams.Prefix)
+				f = strings.TrimPrefix(f, aws.StringValue(lparams.Prefix))
 				if len(f) == 0 {
 					continue
 				}
