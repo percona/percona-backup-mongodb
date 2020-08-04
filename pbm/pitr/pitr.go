@@ -56,7 +56,7 @@ func (i *IBackup) Catchup() error {
 		return errors.Wrap(err, "get last backup")
 	}
 	if bcp == nil {
-		return errors.New("no backup found")
+		return errors.New("no backup found, a new backup is required to start PITR")
 	}
 
 	rstr, err := i.pbm.GetLastRestore()
@@ -64,7 +64,7 @@ func (i *IBackup) Catchup() error {
 		return errors.Wrap(err, "get last restore")
 	}
 	if rstr != nil && rstr.StartTS > bcp.StartTS {
-		return errors.Errorf("no backup found after the restored %s", rstr.Backup)
+		return errors.Errorf("no backup found after the restored %s, a new backup is required to resume PITR", rstr.Backup)
 	}
 
 	i.lastTS = bcp.LastWriteTS
