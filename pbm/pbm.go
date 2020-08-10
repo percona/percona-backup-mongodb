@@ -232,6 +232,21 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure pitr chunks index")
 	}
 
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).Indexes().CreateMany(
+		p.ctx,
+		[]mongo.IndexModel{
+			{
+				Keys: bson.D{{"name", 1}},
+				Options: options.Index().
+					SetUnique(true).
+					SetSparse(true),
+			},
+			{
+				Keys: bson.D{{"start_ts", 1}, {"status", 1}},
+			},
+		},
+	)
+
 	return nil
 }
 
@@ -481,8 +496,8 @@ func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
 		bson.D{
-			{"status", StatusDone},
 			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+			{"status", StatusDone},
 		},
 	)
 
