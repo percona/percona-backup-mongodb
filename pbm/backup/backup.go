@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/version"
+
 	"github.com/mongodb/mongo-tools-common/db"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools-common/progress"
@@ -68,6 +70,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // (andrew) I dunno why, but the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		PBMVersion:  version.DefaultInfo.Version,
 	}
 
 	rsName := inf.SetName

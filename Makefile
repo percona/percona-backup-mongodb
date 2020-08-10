@@ -1,9 +1,11 @@
 .PHONY: build-pbm build-agent build install install-pbm install-agent test
 
+
+VERSION ?=v1.3.0-rc
+
 GOOS?=linux
 GOMOD?=on
 CGO_ENABLED?=0
-VERSION ?=$(shell git describe --tags --abbrev=0)
 GITCOMMIT?=$(shell git rev-parse HEAD 2>/dev/null)
 GITBRANCH?=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 BUILDTIME?=$(shell TZ=UTC date "+%Y-%m-%d_%H:%M_UTC")
