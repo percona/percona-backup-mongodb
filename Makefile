@@ -3,7 +3,6 @@
 GOOS?=linux
 GOMOD?=on
 CGO_ENABLED?=0
-VERSION ?=$(shell git describe --tags --abbrev=0)
 GITCOMMIT?=$(shell git rev-parse HEAD 2>/dev/null)
 GITBRANCH?=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 BUILDTIME?=$(shell TZ=UTC date "+%Y-%m-%d_%H:%M_UTC")
@@ -20,7 +19,7 @@ define ENVS_STATIC
 endef
 
 versionpath?=github.com/percona/percona-backup-mongodb/version
-LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
+LDFLAGS= -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 LDFLAGS_TESTS_BUILD=$(LDFLAGS) -X github.com/percona/percona-backup-mongodb/pbm/pitr.ibackupspan=30000000000
 

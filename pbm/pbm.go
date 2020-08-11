@@ -288,6 +288,7 @@ type BackupMeta struct {
 	Status           Status              `bson:"status" json:"status"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
+	PBMVersion       string              `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
 }
 
 type Condition struct {
