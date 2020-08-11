@@ -1,8 +1,5 @@
 .PHONY: build-pbm build-agent build install install-pbm install-agent test
 
-
-VERSION ?=v1.3.0-rc
-
 GOOS?=linux
 GOMOD?=on
 CGO_ENABLED?=0
@@ -22,7 +19,7 @@ define ENVS_STATIC
 endef
 
 versionpath?=github.com/percona/percona-backup-mongodb/version
-LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
+LDFLAGS= -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 LDFLAGS_TESTS_BUILD=$(LDFLAGS) -X github.com/percona/percona-backup-mongodb/pbm/pitr.ibackupspan=30000000000
 

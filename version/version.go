@@ -6,8 +6,10 @@ import (
 	"runtime"
 )
 
+// current PBM version
+const version = "v1.3.0-rc"
+
 var (
-	version   string
 	platform  string
 	gitCommit string
 	gitBranch string
