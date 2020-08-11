@@ -31,19 +31,71 @@ which is no longer actively developed or supported.
    - Users with classic, locally-mounted remote filesystem backup servers can
      use 'file system' instead of 's3' storage type.
 
+Introduction
+***********************************************
+
 .. toctree::
    :maxdepth: 2
+   :glob:
 
    intro
    architecture
+
+Installation and Upgrade
+***********************************************
+
+.. toctree::
+   :maxdepth: 2
+   :glob:
+
    installation
    upgrading
+
+Getting Started
+***********************************************  
+
+.. toctree::
+   :maxdepth: 2
+   :glob:
+
    authentication
    config
+
+Usage
+***********************************************
+
+.. toctree::
+   :maxdepth: 2
+   :glob:
+
    running
+
+Troubleshooting 
+***********************************************
+
+.. toctree::
+   :maxdepth: 2
+   :glob:
+
    troubleshooting
-   release-notes
+
+Uninstall |PBM|
+***********************************************
+
+.. toctree::
+   :maxdepth: 2
+   :glob:
+   
    uninstalling
+
+Reference
+***********************************************
+   
+.. toctree::
+   :maxdepth: 1
+   :glob:
+
+   release-notes
    contributing
    glossary
 
