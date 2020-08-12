@@ -42,7 +42,7 @@ The |pbm-list| output includes both backup snapshots and valid time ranges for r
 Restore to the point in time
 ============================
 
-A restore and oplog updates are incompatible operations and cannot be run simultaneously. You must disable |PITR| before restoring a database:
+A restore and |PITR| incremental backups are incompatible operations and cannot be run simultaneously. You must disable |PITR| before restoring a database:
 
 .. code-block:: bash
    

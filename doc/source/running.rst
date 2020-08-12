@@ -141,13 +141,17 @@ Restoring a backup
 --------------------------------------------------------------------------------
 
 To restore a backup that you have made using |pbm-backup| you should use the
-|pbm-restore| command supplying the timestamp of the backup that you intend to
+|pbm-restore| command supplying the time stamp of the backup that you intend to
 restore.
 
 .. important::
 
    Before running |pbm-restore| on a cluster stop the
    balancer.
+
+.. important::
+
+   If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together. 
 
 .. important::
 
