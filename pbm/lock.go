@@ -31,9 +31,11 @@ type LockData struct {
 // Lock is a lock for the PBM operation (e.g. backup, restore)
 type Lock struct {
 	LockData
-	p      *PBM
-	c      *mongo.Collection
-	cancel context.CancelFunc
+	p        *PBM
+	c        *mongo.Collection
+	cancel   context.CancelFunc
+	hbRate   time.Duration
+	staleSec uint32
 }
 
 // NewLock creates a new Lock object from geven header. Returned lock has no state.
@@ -43,11 +45,14 @@ func (p *PBM) NewLock(h LockHeader) *Lock {
 		LockData: LockData{
 			LockHeader: h,
 		},
-		p: p,
-		c: p.Conn.Database(DB).Collection(LockCollection),
+		p:        p,
+		c:        p.Conn.Database(DB).Collection(LockCollection),
+		hbRate:   time.Second * 5,
+		staleSec: StaleFrameSec,
 	}
 }
 
+// ErrConcurrentOp means lock was already aquired by another node
 type ErrConcurrentOp struct {
 	Lock LockHeader
 }
@@ -56,11 +61,21 @@ func (e ErrConcurrentOp) Error() string {
 	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.BackupName)
 }
 
+// ErrWasStaleLock - the lock was already got but the operation seems to be staled (no hb from the node)
+type ErrWasStaleLock struct {
+	Lock LockHeader
+}
+
+func (e ErrWasStaleLock) Error() string {
+	return fmt.Sprintf("was stale lock: %s '%s'", e.Lock.Type, e.Lock.BackupName)
+}
+
 // Acquire tries to acquire the lock.
-// It returns true in case of success and false if there is
-// lock already acquired by another process or some error happened.
-// In case there is already concurrent lock exists, it checks if the concurrent lock isn't stale
-// and clear the rot and tries again if it's happened to be so.
+// It returns true in case of success and false if
+// a lock already acquired by another process or some error happened.
+// In case of concurrent lock exists is stale it will be deleted and
+// ErrWasStaleLock gonna be returned. A client shell mark respective operation
+// as stale and retry if it needs to
 func (l *Lock) Acquire() (bool, error) {
 	got, err := l.acquire()
 
@@ -84,7 +99,7 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	// peer is alive
-	if peer.Heartbeat.T+StaleFrameSec >= ts.T {
+	if peer.Heartbeat.T+l.staleSec >= ts.T {
 		if l.BackupName != peer.BackupName {
 			return false, ErrConcurrentOp{Lock: peer.LockHeader}
 		}
@@ -96,15 +111,10 @@ func (l *Lock) Acquire() (bool, error) {
 		return false, errors.Wrap(err, "delete stale lock")
 	}
 
-	err = l.p.markBcpStale(peer.BackupName)
-	if err != nil {
-		log.Printf("Failed to mark stale backup '%s' as failed: %v", peer.BackupName, err)
-	}
-
-	return l.acquire()
+	return false, ErrWasStaleLock{Lock: peer.LockHeader}
 }
 
-func (p *PBM) markBcpStale(bcpName string) error {
+func (p *PBM) MarkBcpStale(bcpName string) error {
 	bcp, err := p.GetBackupMeta(bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
@@ -115,7 +125,21 @@ func (p *PBM) markBcpStale(bcpName string) error {
 		return nil
 	}
 
-	return p.ChangeBackupState(bcpName, StatusError, "some pbm-agents were lost during the backup")
+	return p.ChangeBackupState(bcpName, StatusError, "some of pbm-agents were lost during the backup")
+}
+
+func (p *PBM) MarkRestoreStale(name string) error {
+	r, err := p.GetRestoreMeta(name)
+	if err != nil {
+		return errors.Wrap(err, "get retore meta")
+	}
+
+	// not to rewrite an error emitted by the agent
+	if r.Status == StatusError {
+		return nil
+	}
+
+	return p.ChangeRestoreState(name, StatusError, "some of pbm-agents were lost during the restore")
 }
 
 // Release the lock
@@ -154,7 +178,7 @@ func (l *Lock) hb() {
 	var ctx context.Context
 	ctx, l.cancel = context.WithCancel(context.Background())
 	go func() {
-		tk := time.NewTicker(time.Second * 5)
+		tk := time.NewTicker(l.hbRate)
 		defer tk.Stop()
 		for {
 			select {

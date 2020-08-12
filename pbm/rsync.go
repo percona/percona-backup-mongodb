@@ -7,25 +7,25 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func (p *PBM) ResyncBackupList() error {
+// ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
+func (p *PBM) ResyncStorage() error {
 	stg, err := p.GetStorage()
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	bcps, err := stg.FilesList(MetadataFileSuffix)
+	bcps, err := stg.Files(MetadataFileSuffix)
 	if err != nil {
 		return errors.Wrap(err, "get a backups list from the storage")
 	}
 
-	err = p.archiveBackupsMeta()
+	err = p.moveCollection(BcpCollection, BcpOldCollection)
 	if err != nil {
-		return errors.Wrap(err, "copy current backups meta")
+		return errors.Wrapf(err, "copy current backups meta from %s to %s", BcpCollection, BcpOldCollection)
 	}
-
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteMany(p.ctx, bson.M{})
+	err = p.moveCollection(PITRChunksCollection, PITRChunksOldCollection)
 	if err != nil {
-		return errors.Wrap(err, "remove current backups meta")
+		return errors.Wrapf(err, "copy current pitr meta from %s to %s", PITRChunksCollection, PITRChunksOldCollection)
 	}
 
 	if len(bcps) == 0 {
@@ -46,26 +46,51 @@ func (p *PBM) ResyncBackupList() error {
 		return errors.Wrap(err, "insert retrieved backups meta")
 	}
 
+	pitrf, err := stg.List(PITRfsPrefix)
+	if err != nil {
+		return errors.Wrap(err, "get list of pitr chunks")
+	}
+	if len(pitrf) == 0 {
+		return nil
+	}
+
+	var pitr []interface{}
+	for _, f := range pitrf {
+		chnk := PITRmetaFromFName(f)
+		if chnk != nil {
+			pitr = append(pitr, chnk)
+		}
+	}
+
+	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).InsertMany(p.ctx, pitr)
+	if err != nil {
+		return errors.Wrap(err, "insert retrieved pitr meta")
+	}
+
 	return nil
 }
 
-func (p *PBM) archiveBackupsMeta() error {
-	err := p.Conn.Database(DB).Collection(BcpOldCollection).Drop(p.ctx)
+func (p *PBM) moveCollection(coll, as string) error {
+	err := p.Conn.Database(DB).Collection(as).Drop(p.ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to remove old archive from backups metadata")
 	}
 
-	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(p.ctx, bson.M{})
+	cur, err := p.Conn.Database(DB).Collection(coll).Find(p.ctx, bson.M{})
 	if err != nil {
-		return errors.Wrap(err, "get current backups meta")
+		return errors.Wrap(err, "get current data")
 	}
 	for cur.Next(p.ctx) {
-		_, err = p.Conn.Database(DB).Collection(BcpOldCollection).InsertOne(p.ctx, cur.Current)
+		_, err = p.Conn.Database(DB).Collection(as).InsertOne(p.ctx, cur.Current)
 		if err != nil {
-			return errors.Wrap(err, "insert")
+			return errors.Wrapf(err, "insert")
 		}
-
 	}
 
-	return cur.Err()
+	if cur.Err() != nil {
+		return cur.Err()
+	}
+
+	_, err = p.Conn.Database(DB).Collection(coll).DeleteMany(p.ctx, bson.M{})
+	return errors.Wrap(err, "remove current data")
 }

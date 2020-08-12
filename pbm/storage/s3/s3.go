@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -15,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/minio/minio-go"
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 const (
@@ -128,7 +132,7 @@ func (s *S3) Save(name string, data io.Reader) error {
 	}
 }
 
-func (s *S3) FilesList(suffix string) ([][]byte, error) {
+func (s *S3) Files(suffix string) ([][]byte, error) {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
 		Endpoint: aws.String(s.opts.EndpointURL),
@@ -193,6 +197,93 @@ func (s *S3) FilesList(suffix string) ([][]byte, error) {
 	return bcps, nil
 }
 
+func (s *S3) List(prefix string) ([]string, error) {
+	awsSession, err := session.NewSession(&aws.Config{
+		Region:   aws.String(s.opts.Region),
+		Endpoint: aws.String(s.opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			"",
+		),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "create AWS session")
+	}
+
+	lparams := &s3.ListObjectsInput{
+		Bucket: aws.String(s.opts.Bucket),
+	}
+	if s.opts.Prefix != "" {
+		lparams.Prefix = aws.String(s.opts.Prefix)
+		if s.opts.Prefix[len(s.opts.Prefix)-1] != '/' {
+			*lparams.Prefix += "/"
+		}
+	}
+
+	if aws.StringValue(lparams.Prefix) != "" || prefix != "" {
+		lparams.Prefix = aws.String(path.Join(aws.StringValue(lparams.Prefix), prefix))
+	}
+
+	var files []string
+	awscli := s3.New(awsSession)
+	err = awscli.ListObjectsPages(lparams,
+		func(page *s3.ListObjectsOutput, lastPage bool) bool {
+			for _, o := range page.Contents {
+				f := aws.StringValue(o.Key)
+				f = strings.TrimPrefix(f, aws.StringValue(lparams.Prefix))
+				if len(f) == 0 {
+					continue
+				}
+				if f[0] == '/' {
+					f = f[1:]
+				}
+				files = append(files, f)
+			}
+			return true
+		})
+
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup list")
+	}
+
+	return files, nil
+}
+
+func (s *S3) CheckFile(name string) error {
+	awsSession, err := session.NewSession(&aws.Config{
+		Region:   aws.String(s.opts.Region),
+		Endpoint: aws.String(s.opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			"",
+		),
+		S3ForcePathStyle: aws.Bool(true),
+	})
+	if err != nil {
+		return errors.Wrap(err, "create AWS session")
+	}
+
+	h, err := s3.New(awsSession).HeadObject(&s3.HeadObjectInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	})
+	if err != nil {
+		return errors.Wrap(err, "get S3 object header")
+	}
+
+	if aws.Int64Value(h.ContentLength) == 0 {
+		return errors.New("file empty")
+	}
+	if aws.BoolValue(h.DeleteMarker) {
+		return errors.New("file has delete marker")
+	}
+
+	return nil
+}
+
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
@@ -218,6 +309,8 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	return s3obj.Body, nil
 }
 
+// Delete deletes given file.
+// It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
 	awsSession, err := session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
@@ -238,5 +331,15 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 
-	return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchKey:
+				return storage.ErrNotExist
+			}
+		}
+		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+	}
+
+	return nil
 }
