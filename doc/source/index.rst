@@ -36,7 +36,6 @@ Introduction
 
 .. toctree::
    :maxdepth: 2
-   :glob:
 
    intro
    architecture
@@ -46,7 +45,6 @@ Installation and Upgrade
 
 .. toctree::
    :maxdepth: 2
-   :glob:
 
    installation
    upgrading
@@ -56,7 +54,6 @@ Getting Started
 
 .. toctree::
    :maxdepth: 2
-   :glob:
 
    authentication
    config
@@ -65,18 +62,17 @@ Usage
 ***********************************************
 
 .. toctree::
-   :maxdepth: 2
-   :glob:
+   :maxdepth: 2  
 
    running
+   point-in-time-recovery
 
 Troubleshooting 
 ***********************************************
 
 .. toctree::
    :maxdepth: 2
-   :glob:
-
+      
    troubleshooting
 
 Uninstall |PBM|
@@ -84,7 +80,6 @@ Uninstall |PBM|
 
 .. toctree::
    :maxdepth: 2
-   :glob:
    
    uninstalling
 
@@ -93,7 +88,6 @@ Reference
    
 .. toctree::
    :maxdepth: 1
-   :glob:
 
    release-notes
    contributing
