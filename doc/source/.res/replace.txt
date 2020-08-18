@@ -32,3 +32,4 @@
 .. |pbm-cancel-backup| replace:: ``pbm cancel-backup``
 .. |pbm-delete-backup| replace:: ``pbm delete-backup``
 .. |sudo| replace:: :program:`sudo`
+.. |PITR| replace:: Point-in-Time Recovery

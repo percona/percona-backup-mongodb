@@ -84,7 +84,7 @@ backups or restores. (See config page later.)
 Remote Backup Storage
 ================================================================================
 
-Conceptually or actually PBM saves your files to a directory. Conceptually in
+|PBM| saves your files to a directory. Conceptually in
 the case of object store; actually if you are using filesystem-type remote
 storage. Using |pbm-list|, a user can scan this directory to find existing
 backups even if they never used |pbm.app| on their computer before.
@@ -92,8 +92,8 @@ backups even if they never used |pbm.app| on their computer before.
 The files are prefixed with the (UTC) starting time of the backup. For each
 backup there is one metadata file. For each replicaset in the backup:
 
-  - A mongodump-format compressed archive that is the dump of collections
-  - A (compressed) BSON file dump of the oplog covering the timespan of the backup.
+- A mongodump-format compressed archive that is the dump of collections
+- A (compressed) BSON file dump of the oplog covering the timespan of the backup.
     
 The end time of the oplog slice(s) is the data-consistent point in time of a backup snapshot.
 
