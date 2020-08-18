@@ -29,6 +29,7 @@ pbm              Command-line interface for controlling the backup system
 pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
 
+
 You should install |pbm-agent| on every server that has mongod nodes in the
 MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed
 on any or all servers or desktop computers you wish to use it from, so long as
@@ -116,7 +117,7 @@ By running :program:`pbm version`, you can verify if |pbm| has been built correc
       GoVersion: [Go version number]
 
 |pbm| services and location of configuration files
---------------------------------------------------------------------------------
+================================================================================
 
 After |pbm| is successfully installed on your system, you have |pbm.app|
 and |pbm-agent| programs on your system.
@@ -126,25 +127,32 @@ and |pbm-agent| programs on your system.
 Configuring service init scripts
 ================================================================================
 
-The MongoDB connection URI string to the local mongod node should be set in the
-environment file that the `pbm-agent.service` systemd unit file includes.
+To start a |pbm-agent|, set the MongoDB connection URI string for the PBM user to the local ``mongod`` node in the
+environment file that is included in the `pbm-agent.service` systemd unit file.
 
 With the current systemd unit file (see below), this means setting the
 "PBM_MONGODB_URI" environment variable in :file:`/etc/default/pbm-agent` (for
 Debian and Ubuntu) or :file:`/etc/sysconfig/pbm-agent` (for Red Hat or CentOS).
 
------
-
-The :ref:`pbm.running` section, explains in detail how to start |pbm-agent| and
-provides examples how to use |pbm.app| commands.
-
 .. hint::
 
-   In Ubuntu and Debian :file:`pbm-agent.service` is located in the
-   :file:`/lib/systemd/system/` directory. In Red Hat and CentOS, this
-   file is found in :file:`/usr/lib/systemd/system/pbm-agent.service`.
+   In Ubuntu and Debian, the path to the :file:`pbm-agent.service` file is 
+   :file:`/lib/systemd/system/pbm-agent.service`. 
+
+   In Red Hat and CentOS, this
+   file is found at the path :file:`/usr/lib/systemd/system/pbm-agent.service`.
 
 .. include:: .res/code-block/bash/systemd-unit-file.txt
+
+To set the "PBM_MONGODB_URI" environment variable:
+
+1. Create the "pbm user" in the ``admin`` database. 
+   See :ref:`pbm.auth.create_pbm_user`.
+#. Edit the environment file:  
+
+   .. code-block:: guess
+   
+      PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018"
 
 .. seealso::
 
@@ -152,5 +160,9 @@ provides examples how to use |pbm.app| commands.
       :ref:`pbm.auth`
 
 
+-----
+
+The :ref:`pbm.running` section, explains in detail how to start |pbm-agent| and
+provides examples how to use |pbm.app| commands.
 
 .. include:: .res/replace.txt

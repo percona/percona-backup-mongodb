@@ -12,7 +12,8 @@ In short: you can see the whole config by running
 *db.getSiblingDB("admin").pbmConfig.findOne()*. But you don't have to use the
 mongo shell; the |pbm.app| CLI has a "config" subcommand to read and update it.
 
-As of v1.0 or v1.1 the config only contains the remote storage information.
+As of v1.0 or v1.1 the config contains the remote storage information.
+Starting from v1.3.0 it also includes the :ref:`pitr` configuration.
 
 .. _pbm.config.initialize:
 
