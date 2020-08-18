@@ -111,6 +111,23 @@ func (c *Cluster) Restore(bcpName string) {
 	log.Printf("restore finished '%s'\n", bcpName)
 }
 
+func (c *Cluster) PITRestore(t time.Time) {
+	log.Println("restoring to the point-in-time")
+	err := c.pbm.PITRestore(t)
+	if err != nil {
+		log.Fatalln("restore:", err)
+	}
+
+	log.Println("waiting for the restore")
+	err = c.pbm.CheckPITRestore(t, time.Minute*25)
+	if err != nil {
+		log.Fatalln("check restore:", err)
+	}
+	// just wait so the all data gonna be written (aknowleged) before the next steps
+	time.Sleep(time.Second * 1)
+	log.Printf("restore to the point-in-time '%v' finished", t)
+}
+
 func (c *Cluster) Backup() string {
 	log.Println("starting backup")
 	bcpName, err := c.pbm.Backup()
@@ -142,10 +159,10 @@ func (c *Cluster) BackupWaitDone(bcpName string) {
 }
 
 func (c *Cluster) GenerateBallastData(amount int) {
-	log.Println("genrating ballast data")
+	log.Println("generating ballast data")
 	err := c.mongos.GenBallast(amount)
 	if err != nil {
-		log.Fatalln("genrating ballast:", err)
+		log.Fatalln("generating ballast:", err)
 	}
 	log.Println("ballast data generated")
 }

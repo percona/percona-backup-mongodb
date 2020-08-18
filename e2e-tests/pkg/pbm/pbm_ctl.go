@@ -36,6 +36,25 @@ func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 	}, nil
 }
 
+func (c *Ctl) PITRon() error {
+	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=true")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("done", out)
+	return nil
+}
+func (c *Ctl) PITRoff() error {
+	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=false")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("done", out)
+	return nil
+}
+
 func (c *Ctl) ApplyConfig(file string) error {
 	out, err := c.RunCmd("pbm", "config", "--file", file)
 	if err != nil {
@@ -124,8 +143,49 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 	}
 }
 
+func (c *Ctl) CheckPITRestore(t time.Time, waitFor time.Duration) error {
+	tstr := t.Format("2006-01-02T15:04:05Z")
+
+	rinlist := "PITR: " + tstr
+
+	tmr := time.NewTimer(waitFor)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			list, err := c.RunCmd("pbm", "list", "--restore")
+			if err != nil {
+				return errors.Wrap(err, "timeout reached. get backups list")
+			}
+			return errors.Errorf("timeout reached. backups list:\n%s", list)
+		case <-tkr.C:
+			out, err := c.RunCmd("pbm", "list", "--restore")
+			if err != nil {
+				return err
+			}
+			for _, s := range strings.Split(out, "\n") {
+				s := strings.TrimSpace(s)
+				if s == rinlist {
+					return nil
+				}
+				if strings.HasPrefix(s, rinlist) {
+					status := strings.TrimSpace(strings.Split(s, rinlist)[1])
+					if strings.Contains(status, "Failed with") {
+						return errors.New(status)
+					}
+				}
+			}
+		}
+	}
+}
+
 func (c *Ctl) Restore(bcpName string) error {
 	_, err := c.RunCmd("pbm", "restore", bcpName)
+	return err
+}
+
+func (c *Ctl) PITRestore(t time.Time) error {
+	_, err := c.RunCmd("pbm", "restore", "--time", t.Format("2006-01-02T15:04:05"))
 	return err
 }
 

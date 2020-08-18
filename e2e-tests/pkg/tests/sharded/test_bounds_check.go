@@ -108,11 +108,11 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 	}
 
 	log.Println(name, "checking restored counters")
-
+	var lastc pbm.Counter
 	for i, d := range *data {
 		if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d)\n", name, i, d.Count, len(restored))
+				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %#v\n", name, i, d.Count, len(restored), lastc)
 			}
 			r := restored[i]
 			if d.Count != r.Count {
@@ -122,5 +122,7 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 			r := restored[i]
 			log.Fatalf("ERROR: %s data %#v souldn't be restored\n", name, r)
 		}
+
+		lastc = d
 	}
 }
