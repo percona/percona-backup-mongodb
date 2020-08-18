@@ -75,6 +75,8 @@ The |pbm-agent| connection string
 |pbm-agent| processes should connect to their localhost mongod with a standalone
 type of connection.
 
+.. _pbm.auth.pbm.app_conn_string:
+
 The |pbm.app| connection string
 -------------------------------
 

@@ -13,10 +13,10 @@ Initial Setup
 ================================================================================
 
 1. Determine the right MongoDB connection string for the |pbm.app| CLI.
-   (See :ref:`pbm.auth.mdb_conn_string`)
-2. Use the |pbm.app| CLI to insert the config (especially the Remote Storage
+   (See :ref:`pbm.auth.mdb_conn_string`) 
+#. Use the |pbm.app| CLI to insert the config (especially the Remote Storage
    location and credentials information). See :ref:`pbm.config.initialize`
-3. Start (or restart) the |pbm-agent| processes for all mongod nodes.
+#. Start (or restart) the |pbm-agent| processes for all mongod nodes.
 
 
 Start the |pbm-agent| processes
@@ -33,7 +33,7 @@ node (e.g. "mongodb://username:password@localhost:27019/").
 
 It is best to use the packaged service scripts to run |pbm-agent|. After
 adding the database connection configuration for them (see
-:ref: pbm.installation.service_init_scripts) you can start the |pbm-agent|
+:ref:`pbm.installation.service_init_scripts`), you can start the |pbm-agent|
 service as below:
 
 .. code-block:: bash
@@ -52,12 +52,11 @@ debug the startup from the log messages.
 
 .. tip::
    
-   Running as the mongod user would be the most intuitive and convenient way.
+   Running as the ``mongod`` user would be the most intuitive and convenient way.
    But if you want it can be another user.
 
-You can confirm the |pbm-agent| connected to its mongod and started OK by
-confirming *"pbm agent is listening for the commands"* is printed to the log
-file.
+When a message *"pbm agent is listening for the commands"* is printed to the
+|pbm-agent| log file it confirms it connected to its mongod successfully.
 
 How to see the pbm-agent log
 --------------------------------------------------------------------------------
@@ -81,6 +80,15 @@ to.
 
 Running |pbm|
 ================================================================================
+Provide the MongoDB URI connection string for |pbm.app|. This allows you to call |pbm.app| commands without the :option:`--mongodb-uri` flag.
+
+Use the following command:
+
+.. code-block:: guess
+ 
+   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/"
+
+For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
 
 Running |pbm.app| Commands
 ================================================================================

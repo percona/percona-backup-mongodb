@@ -1,4 +1,4 @@
 
 .. code-block:: bash
 
-   $ pbm config --file pbm_config.yaml --mongodb-uri="mongodb://pbmuser:secretpwd@mongocsvr1:27018,mongocsvr2:27018,mongocsvr3:27018/?replicaSet=configrs"
+   $ pbm config --file pbm_config.yaml 
