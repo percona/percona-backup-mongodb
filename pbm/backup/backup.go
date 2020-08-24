@@ -273,7 +273,9 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		}
 	}
 
-	return nil
+	// to be sure the locks released only after the "done" status had written
+	err = b.waitForStatus(bcp.Name, pbm.StatusDone)
+	return errors.Wrap(err, "waiting for done")
 }
 
 const maxReplicationLagTimeSec = 21
