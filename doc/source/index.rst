@@ -11,6 +11,17 @@
 and MongoDB Community v3.6 or higher with `MongoDB Replication
 <https://docs.mongodb.com/manual/replication/>`_ enabled.
 
+.. note::
+
+   |PBM| doesn't work on standalone |mongodb| instances. This is because |PBM| requires an :term:`oplog` to guarantee backup consistency. Oplog is available in clusters and replica sets only.
+
+   For testing purposes, you can deploy |PBM| on a single-node replica set. ( Specify the ``replication.replSetName`` in the configuration file of the standalone server.)  
+
+   .. seealso::
+
+      MongoDB Documentation: Convert a Standalone to a Replica Set
+         https://docs.mongodb.com/manual/tutorial/convert-standalone-to-replica-set/
+
 The |pbm| project inherited from and replaces `mongodb_consistent_backup`,
 which is no longer actively developed or supported.
 
@@ -21,7 +32,7 @@ which is no longer actively developed or supported.
 .. hlist::
    :columns: 2
 
-   - Backup and restore for both classic, non-sharded replica sets and clusters
+   - Backup and restore for both classic non-sharded replica sets and sharded clusters
    - Simple command-line management utility
    - Replica set and sharded cluster consistency through oplog capture
    - Distributed transaction consistency with MongoDB 4.2+
