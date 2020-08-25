@@ -38,7 +38,7 @@ func restore(cn *pbm.PBM, bcpName string) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
+			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
 		}
 	}
 
@@ -81,7 +81,7 @@ func pitrestore(cn *pbm.PBM, t string) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
+			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
 		}
 	}
 

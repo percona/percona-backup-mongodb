@@ -120,7 +120,7 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 			}
 		} else if i < len(restored) {
 			r := restored[i]
-			log.Fatalf("ERROR: %s data %#v souldn't be restored\n", name, r)
+			log.Fatalf("ERROR: %s data %v souldn't be restored\n", name, r)
 		}
 
 		lastc = d

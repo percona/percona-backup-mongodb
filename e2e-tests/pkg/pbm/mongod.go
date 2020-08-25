@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -154,6 +155,16 @@ type Counter struct {
 	WallTime  time.Time
 	ID        interface{}
 	WriteTime primitive.Timestamp
+}
+
+func (c Counter) String() string {
+	return fmt.Sprintf("cnt: %d, clusterT: %d/%d (%v), wallT: %v",
+		c.Count,
+		c.WriteTime.T,
+		c.WriteTime.I,
+		time.Unix(int64(c.WriteTime.T), 0),
+		c.WallTime,
+	)
 }
 
 func (m *Mongo) ResetCounters() (int, error) {

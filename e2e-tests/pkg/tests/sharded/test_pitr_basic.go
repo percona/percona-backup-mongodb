@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
@@ -44,7 +45,6 @@ func (c *Cluster) PITRbasic() {
 	time.Sleep(ds)
 
 	log.Println("Get reference time")
-	refc := make(map[string]*pbm.Counter)
 	var lastt primitive.Timestamp
 	for name, c := range counters {
 		cc := c.cnt.current()
@@ -52,7 +52,6 @@ func (c *Cluster) PITRbasic() {
 		if cc.WriteTime.T > lastt.T {
 			lastt = cc.WriteTime
 		}
-		refc[name] = cc
 	}
 
 	ds = time.Second * 30 * time.Duration(rand.Int63n(5)+2)
@@ -64,19 +63,16 @@ func (c *Cluster) PITRbasic() {
 	}
 
 	c.pitrOff()
-	log.Println("Turning pitr off")
-	log.Println("Sleep")
-	time.Sleep(time.Second * 60)
 
 	for name, shard := range c.shards {
 		c.bcheckClear(name, shard)
 	}
 
-	// -1 sec back since we are PITR restore done up to < time (not <=)
-	c.PITRestore(time.Unix(int64(lastt.T), 0).Add(time.Second * -1))
+	// +1 sec since we are PITR restore done up to < time (not <=)
+	c.PITRestore(time.Unix(int64(lastt.T), 0).Add(time.Second * 1))
 
 	for name, shard := range c.shards {
-		c.bcheckCheck(name, shard, &counters[name].cnt.data, lastt)
+		c.pitrcCheck(name, shard, &counters[name].cnt.data, lastt)
 	}
 }
 
@@ -92,6 +88,17 @@ func (c *Cluster) pitrOff() {
 	if err != nil {
 		log.Fatalf("ERROR: turn PITR off: %v\n", err)
 	}
+	log.Println("Turning pitr off")
+	log.Println("waiting for the pitr to stop")
+	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
+		Type: pbmt.CmdPITR,
+	},
+		time.Minute*5,
+	)
+	if err != nil {
+		log.Fatalf("ERROR: waiting for the pitr to stop: %v", err)
+	}
+	time.Sleep(time.Second * 2)
 }
 
 type pcounter struct {
@@ -139,4 +146,32 @@ func (pc *pcounter) current() *pbm.Counter {
 	pc.mx.Lock()
 	defer pc.mx.Unlock()
 	return pc.curr
+}
+
+func (c *Cluster) pitrcCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp) {
+	log.Println(name, "getting restored counters")
+	restored, err := shard.GetCounters()
+	if err != nil {
+		log.Fatalln("ERROR: ", name, "get data:", err)
+	}
+
+	log.Println(name, "checking restored counters")
+	var lastc pbm.Counter
+	for i, d := range *data {
+		// if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
+		if d.WriteTime.T <= bcpLastWrite.T {
+			if len(restored) <= i {
+				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %#v\n", name, i, d.Count, len(restored), lastc)
+			}
+			r := restored[i]
+			if d.Count != r.Count {
+				log.Fatalf("ERROR: %s unmatched backuped %#v and restored %#v\n", name, d, r)
+			}
+		} else if i < len(restored) {
+			r := restored[i]
+			log.Fatalf("ERROR: %s data %#v souldn't be restored\n", name, r)
+		}
+
+		lastc = d
+	}
 }
