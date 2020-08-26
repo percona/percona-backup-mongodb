@@ -3,8 +3,8 @@
 Architecture
 ********************************************************************************
 
-|pbm| uses one |pbm-agent| process per |mongod| node. The PBM control
-collections in the |mongodb| cluster or non-sharded replicaset itself serve as
+|pbm| uses one |pbm-agent| process per |mongod| node. The :term:`PBM Control
+collections` in the |mongodb| cluster or non-sharded replica set itself serve as
 the central configuration, authentication and coordination
 channel. Administrators observe and control the backups or restores with a
 |pbm.app| CLI command that they can run from any host with the access to the
@@ -33,8 +33,8 @@ service script (e.g. ``systemd`` unit file) that will run it though. See
 
 The |pbm-agent|'s backup and restore operations are triggered when it observes
 updates made to the PBM control collections by the |pbm.app| command line
-utility. In a method similar to the way replica set members elect a new primary
-the |pbm-agent| processes in the same replica set 'elect' one to do the backup
+utility. In a method similar to the way replica set members elect a new primary,
+the |pbm-agent| processes in the same replica set 'elect' the one to do the backup
 or restore for that replica set.
 
 .. _pbm.architecture.pbmctl:
