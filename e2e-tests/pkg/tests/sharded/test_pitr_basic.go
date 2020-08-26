@@ -98,7 +98,7 @@ func (c *Cluster) pitrOff() {
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the pitr to stop: %v", err)
 	}
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 5)
 }
 
 type pcounter struct {
