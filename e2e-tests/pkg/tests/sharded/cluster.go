@@ -112,7 +112,7 @@ func (c *Cluster) Restore(bcpName string) {
 }
 
 func (c *Cluster) PITRestore(t time.Time) {
-	log.Println("restoring to the point-in-time")
+	log.Printf("restoring to the point-in-time %v", t)
 	err := c.pbm.PITRestore(t)
 	if err != nil {
 		log.Fatalln("restore:", err)

@@ -43,26 +43,26 @@ func main() {
 
 	storage := "/etc/pbm/aws.yaml"
 
-	// flushStore(storage)
-	// tests.ApplyConfig(storage)
+	flushStore(storage)
+	tests.ApplyConfig(storage)
 
-	// tests.DeleteBallast()
-	// tests.GenerateBallastData(1e5)
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
 
-	// printStart("Basic Backup & Restore AWS S3")
-	// tests.BackupAndRestore()
-	// printDone("Basic Backup & Restore AWS S3")
-	// flushStore(storage)
+	printStart("Basic Backup & Restore AWS S3")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore AWS S3")
+	flushStore(storage)
 
-	// storage = "/etc/pbm/gcs.yaml"
+	storage = "/etc/pbm/gcs.yaml"
 
-	// flushStore(storage)
-	// tests.ApplyConfig(storage)
+	flushStore(storage)
+	tests.ApplyConfig(storage)
 
-	// printStart("Basic Backup & Restore GCS")
-	// tests.BackupAndRestore()
-	// printDone("Basic Backup & Restore GCS")
-	// flushStore(storage)
+	printStart("Basic Backup & Restore GCS")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore GCS")
+	flushStore(storage)
 
 	storage = "/etc/pbm/minio.yaml"
 
@@ -72,15 +72,13 @@ func main() {
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
-	// printStart("Basic Backup & Restore Minio")
-	// tests.BackupAndRestore()
-	// printDone("Basic Backup & Restore Minio")
+	printStart("Basic Backup & Restore Minio")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore Minio")
 
 	printStart("Basic PITR & Restore Minio")
 	tests.PITRbasic()
 	printDone("Basic PITR & Restore Minio")
-
-	return
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e3)
@@ -123,8 +121,12 @@ func main() {
 	v42 := version.Must(version.NewVersion("4.2"))
 	if cVersion.GreaterThanOrEqual(v42) {
 		printStart("Distributed Transactions backup")
-		tests.DistributedTransactions()
+		tests.DistributedTrxSnapshot()
 		printDone("Distributed Transactions backup")
+
+		printStart("Distributed Transactions PITR")
+		tests.DistributedTrxPITR()
+		printDone("Distributed Transactions PITR")
 	}
 
 	printStart("Clock Skew Tests")
