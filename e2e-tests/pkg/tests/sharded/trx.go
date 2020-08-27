@@ -88,38 +88,30 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	c.printBalancerStatus(ctx)
 
 	log.Println("Starting a backup")
-	bcpDone := make(chan struct{})
-	go func() {
-		bcp.Backup(bcpDone)
-	}()
+	go bcp.Backup()
 
-	// distributed transaction that commits before backup ends
-	// results should be visible after restore
+	// distributed transaction that commits before the backup ends
+	// should be visible after restore
 	log.Println("Run trx1")
 	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
-		log.Println("trx1 30")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 30}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx30:", err)
-		}
+		c.trxSet(sc, 30)
 
-		log.Println("trx1 130")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 130}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx130:", err)
-		}
+		bcp.WaitStarted()
 
-		log.Println("trx1 3000")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 3000}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx3000:", err)
-		}
+		c.trxSet(sc, 130)
+		c.trxSet(sc, 131)
+
+		bcp.WaitSnapshot()
+
+		c.trxSet(sc, 3000)
+		c.trxSet(sc, 3001)
 
 		return nil, nil
 	})
 
-	// distributed transaction that commits after backup ends
-	// results should NOT be visible after restore
+	log.Println("Run trx2")
+	// distributed transaction that commits after the backup ends
+	// should NOT be visible after the restore
 	mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
 		err := sess.StartTransaction()
 		if err != nil {
@@ -132,43 +124,20 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 			}
 		}()
 
-		log.Println("trx2 0")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 0}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx0:", err)
-		}
-
-		log.Println("trx2 180")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 180}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx180:", err)
-		}
+		c.trxSet(sc, 0)
+		c.trxSet(sc, 99)
+		c.trxSet(sc, 180)
 
 		c.printBalancerStatus(ctx)
 
 		log.Println("Waiting for the backup to done")
-		<-bcpDone
+		bcp.WaitDone()
 		log.Println("Backup done")
 
 		c.printBalancerStatus(ctx)
 
-		log.Println("trx2 99")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 99}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx99:", err)
-		}
-
-		log.Println("trx2 199")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 199}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx199:", err)
-		}
-
-		log.Println("trx2 2001")
-		err = c.updateTrxRetry(sc, bson.M{"idx": 2001}, bson.D{{"$set", bson.M{"changed": 1}}})
-		if err != nil {
-			log.Fatalln("ERROR: update in transaction trx2001:", err)
-		}
+		c.trxSet(sc, 199)
+		c.trxSet(sc, 2001)
 
 		log.Println("Commiting the transaction")
 		err = sess.CommitTransaction(sc)
@@ -183,6 +152,14 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	c.printBalancerStatus(ctx)
 
 	c.checkTrxCollection(ctx, bcp)
+}
+
+func (c *Cluster) trxSet(ctx mongo.SessionContext, id int) {
+	log.Print("\ttrx", id)
+	err := c.updateTrxRetry(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 1}}})
+	if err != nil {
+		log.Fatalf("ERROR: update in transaction trx%d: %v", id, err)
+	}
 }
 
 // updateTrxRetry tries to run an update operation and in case of the StaleConfig error
@@ -321,10 +298,12 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcp Backuper) {
 		c.zeroTrxDoc(ctx, 30)
 		c.zeroTrxDoc(ctx, 99)
 		c.zeroTrxDoc(ctx, 130)
+		c.zeroTrxDoc(ctx, 131)
 		c.zeroTrxDoc(ctx, 180)
 		c.zeroTrxDoc(ctx, 199)
 		c.zeroTrxDoc(ctx, 2001)
 		c.zeroTrxDoc(ctx, 3000)
+		c.zeroTrxDoc(ctx, 3001)
 	}
 	c.flushRouterConfig(ctx)
 
@@ -333,7 +312,9 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, bcp Backuper) {
 	// check commited transaction
 	c.checkTrxDoc(ctx, 30, 1)
 	c.checkTrxDoc(ctx, 130, 1)
+	c.checkTrxDoc(ctx, 131, 1)
 	c.checkTrxDoc(ctx, 3000, 1)
+	c.checkTrxDoc(ctx, 3001, 1)
 
 	// check uncommited (commit wasn't dropped to backup) transaction
 	c.checkTrxDoc(ctx, 0, -1)

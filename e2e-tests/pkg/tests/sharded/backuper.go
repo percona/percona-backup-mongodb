@@ -9,47 +9,71 @@ import (
 )
 
 type Backuper interface {
-	Backup(done chan<- struct{})
+	Backup()
 	Restore()
+	WaitStarted()
+	WaitSnapshot()
+	WaitDone()
 }
 
 type Snapshot struct {
 	bcpName string
 	c       *Cluster
+	started chan struct{}
+	done    chan struct{}
 }
 
 func NewSnapshot(c *Cluster) *Snapshot {
-	return &Snapshot{c: c}
-}
-
-func (s *Snapshot) Backup(done chan<- struct{}) {
-	s.bcpName = s.c.Backup()
-	s.c.BackupWaitDone(s.bcpName)
-	time.Sleep(time.Second * 1)
-	if done != nil {
-		done <- struct{}{}
+	return &Snapshot{
+		c:       c,
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 }
+
+func (s *Snapshot) Backup() {
+	s.bcpName = s.c.Backup()
+	s.started <- struct{}{}
+	s.c.BackupWaitDone(s.bcpName)
+	time.Sleep(time.Second * 1)
+	log.Println("==>1")
+	s.done <- struct{}{}
+	log.Println("==>2")
+}
+
+func (s *Snapshot) WaitSnapshot() {}
+func (s *Snapshot) WaitDone()     { <-s.done }
+func (s *Snapshot) WaitStarted()  { <-s.started }
 
 func (s *Snapshot) Restore() {
 	s.c.Restore(s.bcpName)
 }
 
 type Pitr struct {
-	pointT time.Time
-	c      *Cluster
+	pointT  time.Time
+	c       *Cluster
+	started chan struct{}
+	done    chan struct{}
+	sdone   chan struct{}
 }
 
 func NewPitr(c *Cluster) *Pitr {
-	return &Pitr{c: c}
+	return &Pitr{
+		c:       c,
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+		sdone:   make(chan struct{}),
+	}
 }
 
-func (p *Pitr) Backup(done chan<- struct{}) {
+func (p *Pitr) Backup() {
 	rand.Seed(time.Now().UnixNano())
 
 	bcpName := p.c.Backup()
+	p.started <- struct{}{}
 	p.c.pitrOn()
 	p.c.BackupWaitDone(bcpName)
+	p.sdone <- struct{}{}
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
 	log.Printf("PITR slicing for %v", ds)
@@ -65,10 +89,12 @@ func (p *Pitr) Backup(done chan<- struct{}) {
 	}
 	p.pointT = time.Unix(int64(lw.T), 0)
 
-	if done != nil {
-		done <- struct{}{}
-	}
+	p.done <- struct{}{}
 }
+
+func (p *Pitr) WaitSnapshot() { <-p.sdone }
+func (p *Pitr) WaitDone()     { <-p.done }
+func (p *Pitr) WaitStarted()  { <-p.started }
 
 func (p *Pitr) Restore() {
 	p.c.pitrOff()
