@@ -83,7 +83,11 @@ func (c *Cluster) pitrOn() {
 	}
 }
 
+const pitrCheckPeriod = time.Second * 15
+
 func (c *Cluster) pitrOff() {
+	time.Sleep(pitrCheckPeriod * 11 / 10)
+
 	err := c.pbm.PITRoff()
 	if err != nil {
 		log.Fatalf("ERROR: turn PITR off: %v\n", err)
@@ -98,7 +102,7 @@ func (c *Cluster) pitrOff() {
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the pitr to stop: %v", err)
 	}
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 1)
 }
 
 type pcounter struct {
