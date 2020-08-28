@@ -30,7 +30,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	ctx := context.Background()
 	conn := c.mongos.Conn()
 
-	const trxLimitT = 700
+	const trxLimitT = 300
 	log.Println("Updating transactionLifetimeLimitSeconds to", trxLimitT)
 	err := c.mongopbm.Conn().Database("admin").RunCommand(
 		ctx,
@@ -40,6 +40,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 		log.Fatalln("ERROR: update transactionLifetimeLimitSeconds:", err)
 	}
 	for sname, cn := range c.shards {
+		log.Printf("Updating transactionLifetimeLimitSeconds for %s to %d", sname, trxLimitT)
 		err := cn.Conn().Database("admin").RunCommand(
 			ctx,
 			bson.D{{"setParameter", 1}, {"transactionLifetimeLimitSeconds", trxLimitT}},
