@@ -52,6 +52,23 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 
 	c.setupTrxCollection(ctx)
 
+	c.moveChunk(ctx, 0, "rs1")
+	c.moveChunk(ctx, 30, "rs1")
+	c.moveChunk(ctx, 89, "rs1")
+	c.moveChunk(ctx, 99, "rs1")
+	c.moveChunk(ctx, 110, "rs1")
+	c.moveChunk(ctx, 130, "rs1")
+	c.moveChunk(ctx, 131, "rs1")
+	c.moveChunk(ctx, 630, "rs2")
+	c.moveChunk(ctx, 530, "rs2")
+	c.moveChunk(ctx, 631, "rs2")
+	c.moveChunk(ctx, 730, "rs2")
+	c.moveChunk(ctx, 3000, "rs2")
+	c.moveChunk(ctx, 3001, "rs2")
+	c.moveChunk(ctx, 180, "rs2")
+	c.moveChunk(ctx, 199, "rs2")
+	c.moveChunk(ctx, 2001, "rs2")
+
 	_, err = conn.Database("trx").Collection("test").DeleteMany(ctx, bson.M{})
 	if err != nil {
 		log.Fatalln("ERROR: delete data from trx.test:", err)
@@ -96,14 +113,19 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	log.Println("Run trx1")
 	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		c.trxSet(sc, 30)
+		c.trxSet(sc, 530)
 
 		bcp.WaitStarted()
 
 		c.trxSet(sc, 130)
 		c.trxSet(sc, 131)
+		c.trxSet(sc, 630)
+		c.trxSet(sc, 631)
 
 		bcp.WaitSnapshot()
 
+		c.trxSet(sc, 110)
+		c.trxSet(sc, 730)
 		c.trxSet(sc, 3000)
 		c.trxSet(sc, 3001)
 
@@ -126,7 +148,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 		}()
 
 		c.trxSet(sc, 0)
-		c.trxSet(sc, 99)
+		c.trxSet(sc, 89)
 		c.trxSet(sc, 180)
 
 		c.printBalancerStatus(ctx)
@@ -137,6 +159,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 
 		c.printBalancerStatus(ctx)
 
+		c.trxSet(sc, 99)
 		c.trxSet(sc, 199)
 		c.trxSet(sc, 2001)
 
@@ -291,40 +314,68 @@ func (c *Cluster) setupTrxCollection(ctx context.Context) {
 	}
 }
 
+func (c *Cluster) moveChunk(ctx context.Context, idx int, to string) {
+	log.Println("move chunk", idx, "to", to)
+	err := c.mongos.Conn().Database("admin").RunCommand(
+		ctx,
+		bson.D{
+			{"moveChunk", "trx.test"},
+			{"find", bson.M{"idx": idx}},
+			{"to", to},
+		},
+	).Err()
+	if err != nil {
+		log.Println("ERROR: moveChunk trx.test/idx:2000:", err)
+	}
+}
+
 func (c *Cluster) checkTrxCollection(ctx context.Context, bcp Backuper) {
 	log.Println("Checking restored data")
+
 	c.DeleteBallast()
 	if ok := c.deleteTrxData(ctx, time.Minute*1); !ok {
-		c.zeroTrxDoc(ctx, 0)
 		c.zeroTrxDoc(ctx, 30)
-		c.zeroTrxDoc(ctx, 99)
+		c.zeroTrxDoc(ctx, 530)
 		c.zeroTrxDoc(ctx, 130)
 		c.zeroTrxDoc(ctx, 131)
+		c.zeroTrxDoc(ctx, 630)
+		c.zeroTrxDoc(ctx, 631)
+		c.zeroTrxDoc(ctx, 110)
+		c.zeroTrxDoc(ctx, 730)
+		c.zeroTrxDoc(ctx, 3000)
+		c.zeroTrxDoc(ctx, 3001)
+		c.zeroTrxDoc(ctx, 0)
+		c.zeroTrxDoc(ctx, 89)
+		c.zeroTrxDoc(ctx, 99)
 		c.zeroTrxDoc(ctx, 180)
 		c.zeroTrxDoc(ctx, 199)
 		c.zeroTrxDoc(ctx, 2001)
-		c.zeroTrxDoc(ctx, 3000)
-		c.zeroTrxDoc(ctx, 3001)
 	}
 	c.flushRouterConfig(ctx)
 
 	bcp.Restore()
 
-	// check commited transaction
+	log.Println("check commited transaction")
 	c.checkTrxDoc(ctx, 30, 1)
+	c.checkTrxDoc(ctx, 530, 1)
 	c.checkTrxDoc(ctx, 130, 1)
 	c.checkTrxDoc(ctx, 131, 1)
+	c.checkTrxDoc(ctx, 630, 1)
+	c.checkTrxDoc(ctx, 631, 1)
+	c.checkTrxDoc(ctx, 110, 1)
+	c.checkTrxDoc(ctx, 730, 1)
 	c.checkTrxDoc(ctx, 3000, 1)
 	c.checkTrxDoc(ctx, 3001, 1)
 
-	// check uncommited (commit wasn't dropped to backup) transaction
+	log.Println("check uncommited (commit wasn't dropped to backup) transaction")
 	c.checkTrxDoc(ctx, 0, -1)
+	c.checkTrxDoc(ctx, 89, -1)
 	c.checkTrxDoc(ctx, 99, -1)
 	c.checkTrxDoc(ctx, 180, -1)
 	c.checkTrxDoc(ctx, 199, -1)
 	c.checkTrxDoc(ctx, 2001, -1)
 
-	// check data that wasn't touched by transactions
+	log.Println("check data that wasn't touched by transactions")
 	c.checkTrxDoc(ctx, 10, -1)
 	c.checkTrxDoc(ctx, 2000, -1)
 }
@@ -337,6 +388,7 @@ func (c *Cluster) zeroTrxDoc(ctx context.Context, id int) {
 }
 
 func (c *Cluster) checkTrxDoc(ctx context.Context, id, expect int) {
+	log.Println("\tcheck", id, expect)
 	r1 := pbm.TestData{}
 	err := c.mongos.Conn().Database("trx").Collection("test").FindOne(ctx, bson.M{"idx": id}).Decode(&r1)
 	if err != nil {
