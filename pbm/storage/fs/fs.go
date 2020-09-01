@@ -30,7 +30,7 @@ func New(opts Conf) *FS {
 func (fs *FS) Save(name string, data io.Reader) error {
 	filepath := path.Join(fs.opts.Path, name)
 
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir)
+	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0775)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -39,6 +39,11 @@ func (fs *FS) Save(name string, data io.Reader) error {
 	if err != nil {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
+	err = os.Chmod(filepath, 0664)
+	if err != nil {
+		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
+	}
+
 	_, err = io.Copy(fw, data)
 	return errors.Wrap(err, "write to file")
 }
