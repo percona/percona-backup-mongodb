@@ -64,6 +64,21 @@ func main() {
 	printDone("Basic Backup & Restore GCS")
 	flushStore(storage)
 
+	storage = "/etc/pbm/fs.yaml"
+
+	flushStore(storage)
+	tests.ApplyConfig(storage)
+
+	printStart("Basic Backup & Restore FS")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore FS")
+
+	printStart("Basic PITR & Restore FS")
+	tests.PITRbasic()
+	printDone("Basic PITR & Restore FS")
+
+	flushStore(storage)
+
 	storage = "/etc/pbm/minio.yaml"
 
 	flushStore(storage)

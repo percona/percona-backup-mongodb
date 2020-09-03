@@ -26,11 +26,16 @@ type trxData struct {
 	UID     int
 }
 
-func (c *Cluster) DistributedTransactions(bcp Backuper) {
+const trxdb = "trx"
+
+func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
+	const trxLimitT = 300
+
+	dbcol := trxdb + "." + col
+
 	ctx := context.Background()
 	conn := c.mongos.Conn()
 
-	const trxLimitT = 300
 	log.Println("Updating transactionLifetimeLimitSeconds to", trxLimitT)
 	err := c.mongopbm.Conn().Database("admin").RunCommand(
 		ctx,
@@ -50,31 +55,31 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 		}
 	}
 
-	c.setupTrxCollection(ctx)
+	c.setupTrxCollection(ctx, col)
 
-	c.moveChunk(ctx, 0, "rs1")
-	c.moveChunk(ctx, 30, "rs1")
-	c.moveChunk(ctx, 89, "rs1")
-	c.moveChunk(ctx, 99, "rs1")
-	c.moveChunk(ctx, 110, "rs1")
-	c.moveChunk(ctx, 130, "rs1")
-	c.moveChunk(ctx, 131, "rs1")
-	c.moveChunk(ctx, 630, "rs2")
-	c.moveChunk(ctx, 530, "rs2")
-	c.moveChunk(ctx, 631, "rs2")
-	c.moveChunk(ctx, 730, "rs2")
-	c.moveChunk(ctx, 3000, "rs2")
-	c.moveChunk(ctx, 3001, "rs2")
-	c.moveChunk(ctx, 180, "rs2")
-	c.moveChunk(ctx, 199, "rs2")
-	c.moveChunk(ctx, 2001, "rs2")
+	c.moveChunk(ctx, col, 0, "rs1")
+	c.moveChunk(ctx, col, 30, "rs1")
+	c.moveChunk(ctx, col, 89, "rs1")
+	c.moveChunk(ctx, col, 99, "rs1")
+	c.moveChunk(ctx, col, 110, "rs1")
+	c.moveChunk(ctx, col, 130, "rs1")
+	c.moveChunk(ctx, col, 131, "rs1")
+	c.moveChunk(ctx, col, 630, "rs2")
+	c.moveChunk(ctx, col, 530, "rs2")
+	c.moveChunk(ctx, col, 631, "rs2")
+	c.moveChunk(ctx, col, 730, "rs2")
+	c.moveChunk(ctx, col, 3000, "rs2")
+	c.moveChunk(ctx, col, 3001, "rs2")
+	c.moveChunk(ctx, col, 180, "rs2")
+	c.moveChunk(ctx, col, 199, "rs2")
+	c.moveChunk(ctx, col, 2001, "rs2")
 
-	_, err = conn.Database("trx").Collection("test").DeleteMany(ctx, bson.M{})
+	_, err = conn.Database(trxdb).Collection(col).DeleteMany(ctx, bson.M{})
 	if err != nil {
-		log.Fatalln("ERROR: delete data from trx.test:", err)
+		log.Fatalf("ERROR: delete data from %s: %v", dbcol, err)
 	}
 
-	err = c.mongos.GenData("trx", "test", 5000)
+	err = c.mongos.GenData(trxdb, col, 5000)
 	if err != nil {
 		log.Fatalln("ERROR: GenData:", err)
 	}
@@ -94,13 +99,13 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	err = conn.Database("admin").RunCommand(
 		ctx,
 		bson.D{
-			{"moveChunk", "trx.test"},
+			{"moveChunk", dbcol},
 			{"find", bson.M{"idx": 2000}},
 			{"to", "rs2"},
 		},
 	).Err()
 	if err != nil {
-		log.Println("ERROR: moveChunk trx.test/idx:2000:", err)
+		log.Printf("ERROR: moveChunk %s/idx:2000: %v", dbcol, err)
 	}
 
 	c.printBalancerStatus(ctx)
@@ -112,22 +117,22 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 	// should be visible after restore
 	log.Println("Run trx1")
 	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
-		c.trxSet(sc, 30)
-		c.trxSet(sc, 530)
+		c.trxSet(sc, 30, col)
+		c.trxSet(sc, 530, col)
 
 		bcp.WaitStarted()
 
-		c.trxSet(sc, 130)
-		c.trxSet(sc, 131)
-		c.trxSet(sc, 630)
-		c.trxSet(sc, 631)
+		c.trxSet(sc, 130, col)
+		c.trxSet(sc, 131, col)
+		c.trxSet(sc, 630, col)
+		c.trxSet(sc, 631, col)
 
 		bcp.WaitSnapshot()
 
-		c.trxSet(sc, 110)
-		c.trxSet(sc, 730)
-		c.trxSet(sc, 3000)
-		c.trxSet(sc, 3001)
+		c.trxSet(sc, 110, col)
+		c.trxSet(sc, 730, col)
+		c.trxSet(sc, 3000, col)
+		c.trxSet(sc, 3001, col)
 
 		return nil, nil
 	})
@@ -147,9 +152,9 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 			}
 		}()
 
-		c.trxSet(sc, 0)
-		c.trxSet(sc, 89)
-		c.trxSet(sc, 180)
+		c.trxSet(sc, 0, col)
+		c.trxSet(sc, 89, col)
+		c.trxSet(sc, 180, col)
 
 		c.printBalancerStatus(ctx)
 
@@ -159,9 +164,9 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 
 		c.printBalancerStatus(ctx)
 
-		c.trxSet(sc, 99)
-		c.trxSet(sc, 199)
-		c.trxSet(sc, 2001)
+		c.trxSet(sc, 99, col)
+		c.trxSet(sc, 199, col)
+		c.trxSet(sc, 2001, col)
 
 		log.Println("Commiting the transaction")
 		err = sess.CommitTransaction(sc)
@@ -175,12 +180,12 @@ func (c *Cluster) DistributedTransactions(bcp Backuper) {
 
 	c.printBalancerStatus(ctx)
 
-	c.checkTrxCollection(ctx, bcp)
+	c.checkTrxCollection(ctx, col, bcp)
 }
 
-func (c *Cluster) trxSet(ctx mongo.SessionContext, id int) {
+func (c *Cluster) trxSet(ctx mongo.SessionContext, id int, col string) {
 	log.Print("\ttrx", id)
-	err := c.updateTrxRetry(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 1}}})
+	err := c.updateTrxRetry(ctx, col, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 1}}})
 	if err != nil {
 		log.Fatalf("ERROR: update in transaction trx%d: %v", id, err)
 	}
@@ -188,12 +193,12 @@ func (c *Cluster) trxSet(ctx mongo.SessionContext, id int) {
 
 // updateTrxRetry tries to run an update operation and in case of the StaleConfig error
 // it run flushRouterConfig and tries again
-func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, filter interface{}, update interface{}) error {
+func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, col string, filter interface{}, update interface{}) error {
 	var err error
 	conn := c.mongos.Conn()
 	for i := 0; i < 3; i++ {
 		c.flushRouterConfig(context.Background())
-		_, err = conn.Database("trx").Collection("test").UpdateOne(ctx, filter, update)
+		_, err = conn.Database(trxdb).Collection(col).UpdateOne(ctx, filter, update)
 		if err == nil {
 			return nil
 		}
@@ -228,8 +233,8 @@ func (c *Cluster) flushRouterConfig(ctx context.Context) {
 	}
 }
 
-func (c *Cluster) deleteTrxData(ctx context.Context, tout time.Duration) bool {
-	log.Println("Deleting trx.test data")
+func (c *Cluster) deleteTrxData(ctx context.Context, col string, tout time.Duration) bool {
+	log.Printf("Deleting %s.%s data", trxdb, col)
 	timer := time.NewTimer(tout)
 	defer timer.Stop()
 	tk := time.NewTicker(time.Second * 1)
@@ -237,38 +242,42 @@ func (c *Cluster) deleteTrxData(ctx context.Context, tout time.Duration) bool {
 	for {
 		select {
 		case <-timer.C:
-			log.Printf("Warning: unable to drop trx.test. %v timeout exceeded", tout)
+			log.Printf("Warning: unable to drop %s.%s. %v timeout exceeded", trxdb, col, tout)
 			return false
 		case <-tk.C:
-			err := c.mongos.Conn().Database("trx").Collection("test").Drop(ctx)
-			if err != nil && !strings.Contains(err.Error(), "LockBusy") {
-				log.Fatalln("ERROR: drop trx.test collections:", err)
+			err := c.mongos.Conn().Database(trxdb).Collection(col).Drop(ctx)
+			if err == nil {
+				return true
 			}
-			return true
+			if err != nil && !strings.Contains(err.Error(), "LockBusy") {
+				log.Fatalf("ERROR: drop %s.%s collections: %v", trxdb, col, err)
+			}
 		}
 	}
 }
 
-func (c *Cluster) setupTrxCollection(ctx context.Context) {
+func (c *Cluster) setupTrxCollection(ctx context.Context, col string) {
 	conn := c.mongos.Conn()
 
-	err := conn.Database("trx").Collection("test").Drop(ctx)
-	if err != nil {
-		log.Fatalln("ERROR: drop old trx.test collections:", err)
+	if ok := c.deleteTrxData(ctx, col, time.Minute*5); !ok {
+		_, err := conn.Database(trxdb).Collection(col).DeleteMany(ctx, bson.D{})
+		if err != nil {
+			log.Fatalf("ERROR: delete data from the old %s.%s collection: %v", trxdb, col, err)
+		}
 	}
 
 	log.Println("Creating a sharded collection")
-	err = conn.Database("trx").RunCommand(
+	err := conn.Database(trxdb).RunCommand(
 		ctx,
-		bson.D{{"create", "test"}},
+		bson.D{{"create", col}},
 	).Err()
 	if err != nil {
-		log.Fatalln("ERROR: create trx.test collections:", err)
+		log.Fatalf("ERROR: create %s.%s collections: %v", trxdb, col, err)
 	}
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"enableSharding", "trx"}},
+		bson.D{{"enableSharding", trxdb}},
 	).Err()
 	if err != nil {
 		log.Fatalln("ERROR: enableSharding on trx db:", err)
@@ -276,10 +285,10 @@ func (c *Cluster) setupTrxCollection(ctx context.Context) {
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"shardCollection", "trx.test"}, {"key", bson.M{"idx": 1}}},
+		bson.D{{"shardCollection", trxdb + "." + col}, {"key", bson.M{"idx": 1}}},
 	).Err()
 	if err != nil {
-		log.Fatalln("ERROR: shardCollection trx.test:", err)
+		log.Fatalf("ERROR: shardCollection %s.%s: %v", trxdb, col, err)
 	}
 
 	err = conn.Database("admin").RunCommand(
@@ -300,101 +309,101 @@ func (c *Cluster) setupTrxCollection(ctx context.Context) {
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", "trx.test"}, {"min", bson.M{"idx": 0}}, {"max", bson.M{"idx": 151}}, {"zone", "R1"}},
+		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 0}}, {"max", bson.M{"idx": 151}}, {"zone", "R1"}},
 	).Err()
 	if err != nil {
-		log.Fatalln("ERROR: updateZoneKeyRange trx.test/R1:", err)
+		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R1: %v", trxdb, col, err)
 	}
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", "trx.test"}, {"min", bson.M{"idx": 151}}, {"max", bson.M{"idx": 1000}}, {"zone", "R2"}},
+		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 151}}, {"max", bson.M{"idx": 1000}}, {"zone", "R2"}},
 	).Err()
 	if err != nil {
-		log.Fatalln("ERROR: updateZoneKeyRange trx.test/R2:", err)
+		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R2: %v", trxdb, col, err)
 	}
 }
 
-func (c *Cluster) moveChunk(ctx context.Context, idx int, to string) {
+func (c *Cluster) moveChunk(ctx context.Context, col string, idx int, to string) {
 	log.Println("move chunk", idx, "to", to)
 	err := c.mongos.Conn().Database("admin").RunCommand(
 		ctx,
 		bson.D{
-			{"moveChunk", "trx.test"},
+			{"moveChunk", trxdb + "." + col},
 			{"find", bson.M{"idx": idx}},
 			{"to", to},
 		},
 	).Err()
 	if err != nil {
-		log.Println("ERROR: moveChunk trx.test/idx:2000:", err)
+		log.Printf("ERROR: moveChunk %s.%s/idx:2000: %v", trxdb, col, err)
 	}
 }
 
-func (c *Cluster) checkTrxCollection(ctx context.Context, bcp Backuper) {
+func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backuper) {
 	log.Println("Checking restored data")
 
 	c.DeleteBallast()
-	if ok := c.deleteTrxData(ctx, time.Minute*1); !ok {
-		c.zeroTrxDoc(ctx, 30)
-		c.zeroTrxDoc(ctx, 530)
-		c.zeroTrxDoc(ctx, 130)
-		c.zeroTrxDoc(ctx, 131)
-		c.zeroTrxDoc(ctx, 630)
-		c.zeroTrxDoc(ctx, 631)
-		c.zeroTrxDoc(ctx, 110)
-		c.zeroTrxDoc(ctx, 730)
-		c.zeroTrxDoc(ctx, 3000)
-		c.zeroTrxDoc(ctx, 3001)
-		c.zeroTrxDoc(ctx, 0)
-		c.zeroTrxDoc(ctx, 89)
-		c.zeroTrxDoc(ctx, 99)
-		c.zeroTrxDoc(ctx, 180)
-		c.zeroTrxDoc(ctx, 199)
-		c.zeroTrxDoc(ctx, 2001)
+	if ok := c.deleteTrxData(ctx, col, time.Minute*1); !ok {
+		c.zeroTrxDoc(ctx, col, 30)
+		c.zeroTrxDoc(ctx, col, 530)
+		c.zeroTrxDoc(ctx, col, 130)
+		c.zeroTrxDoc(ctx, col, 131)
+		c.zeroTrxDoc(ctx, col, 630)
+		c.zeroTrxDoc(ctx, col, 631)
+		c.zeroTrxDoc(ctx, col, 110)
+		c.zeroTrxDoc(ctx, col, 730)
+		c.zeroTrxDoc(ctx, col, 3000)
+		c.zeroTrxDoc(ctx, col, 3001)
+		c.zeroTrxDoc(ctx, col, 0)
+		c.zeroTrxDoc(ctx, col, 89)
+		c.zeroTrxDoc(ctx, col, 99)
+		c.zeroTrxDoc(ctx, col, 180)
+		c.zeroTrxDoc(ctx, col, 199)
+		c.zeroTrxDoc(ctx, col, 2001)
 	}
 	c.flushRouterConfig(ctx)
 
 	bcp.Restore()
 
 	log.Println("check commited transaction")
-	c.checkTrxDoc(ctx, 30, 1)
-	c.checkTrxDoc(ctx, 530, 1)
-	c.checkTrxDoc(ctx, 130, 1)
-	c.checkTrxDoc(ctx, 131, 1)
-	c.checkTrxDoc(ctx, 630, 1)
-	c.checkTrxDoc(ctx, 631, 1)
-	c.checkTrxDoc(ctx, 110, 1)
-	c.checkTrxDoc(ctx, 730, 1)
-	c.checkTrxDoc(ctx, 3000, 1)
-	c.checkTrxDoc(ctx, 3001, 1)
+	c.checkTrxDoc(ctx, col, 30, 1)
+	c.checkTrxDoc(ctx, col, 530, 1)
+	c.checkTrxDoc(ctx, col, 130, 1)
+	c.checkTrxDoc(ctx, col, 131, 1)
+	c.checkTrxDoc(ctx, col, 630, 1)
+	c.checkTrxDoc(ctx, col, 631, 1)
+	c.checkTrxDoc(ctx, col, 110, 1)
+	c.checkTrxDoc(ctx, col, 730, 1)
+	c.checkTrxDoc(ctx, col, 3000, 1)
+	c.checkTrxDoc(ctx, col, 3001, 1)
 
 	log.Println("check uncommited (commit wasn't dropped to backup) transaction")
-	c.checkTrxDoc(ctx, 0, -1)
-	c.checkTrxDoc(ctx, 89, -1)
-	c.checkTrxDoc(ctx, 99, -1)
-	c.checkTrxDoc(ctx, 180, -1)
-	c.checkTrxDoc(ctx, 199, -1)
-	c.checkTrxDoc(ctx, 2001, -1)
+	c.checkTrxDoc(ctx, col, 0, -1)
+	c.checkTrxDoc(ctx, col, 89, -1)
+	c.checkTrxDoc(ctx, col, 99, -1)
+	c.checkTrxDoc(ctx, col, 180, -1)
+	c.checkTrxDoc(ctx, col, 199, -1)
+	c.checkTrxDoc(ctx, col, 2001, -1)
 
 	log.Println("check data that wasn't touched by transactions")
-	c.checkTrxDoc(ctx, 10, -1)
-	c.checkTrxDoc(ctx, 2000, -1)
+	c.checkTrxDoc(ctx, col, 10, -1)
+	c.checkTrxDoc(ctx, col, 2000, -1)
 }
 
-func (c *Cluster) zeroTrxDoc(ctx context.Context, id int) {
-	_, err := c.mongos.Conn().Database("trx").Collection("test").UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
+func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
+	_, err := c.mongos.Conn().Database(trxdb).Collection(col).UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
 	if err != nil {
 		log.Fatalf("ERROR: update idx %v: %v", id, err)
 	}
 }
 
-func (c *Cluster) checkTrxDoc(ctx context.Context, id, expect int) {
+func (c *Cluster) checkTrxDoc(ctx context.Context, col string, id, expect int) {
 	log.Println("\tcheck", id, expect)
 	r1 := pbm.TestData{}
-	err := c.mongos.Conn().Database("trx").Collection("test").FindOne(ctx, bson.M{"idx": id}).Decode(&r1)
+	err := c.mongos.Conn().Database(trxdb).Collection(col).FindOne(ctx, bson.M{"idx": id}).Decode(&r1)
 	if err != nil {
-		log.Fatalf("ERROR: get trx.test record `idx %v`: %v", id, err)
+		log.Fatalf("ERROR: get %s.%s record `idx %v`: %v", trxdb, col, id, err)
 	}
 	if r1.C != expect {
-		log.Fatalf("ERROR: wrong trx.test record `idx %v`. got: %v, expect: %v\n", id, r1.C, expect)
+		log.Fatalf("ERROR: wrong %s.%s record `idx %v`. got: %v, expect: %v\n", trxdb, col, id, r1.C, expect)
 	}
 }

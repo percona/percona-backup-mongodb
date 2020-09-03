@@ -1,5 +1,5 @@
 package sharded
 
 func (c *Cluster) DistributedTrxSnapshot() {
-	c.DistributedTransactions(NewSnapshot(c))
+	c.DistributedTransactions(NewSnapshot(c), "test")
 }
