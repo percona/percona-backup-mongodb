@@ -22,7 +22,7 @@ You can upgrade |PBM| to the **latest version** or to a **specific version**. Si
 .. rubric:: Important notes
  
 1. Backward compatibility between data backup and restore is supported for upgrades within one major version only (e.g. from 1.1.x to 1.2.y). When you upgrade |PBM| over several major versions (e.g. from 1.0.x to 1.2.y), we recommend to make a backup right after the upgrade.
-2. Starting from version 1.2.1, |pbm| packages are stored in the *pbm* repository and the *tools* repository for backward compatibility. To upgrade to the version lower than 1.2.1, enable the *tools* repository.
+2. Starting from version 1.3.0, |pbm| packages are stored in the *pbm* repository and the *tools* repository for backward compatibility. To upgrade to the version lower than 1.3.0, enable the *tools* repository.
 3. Upgrade |PBM| on all nodes where it is installed.
       
 Enable |percona| repository
