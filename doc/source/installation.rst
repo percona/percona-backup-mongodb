@@ -44,14 +44,14 @@ Prerequisites
 ================================================================================
 
 It is recommended to install |pbm| from official |percona| repositories by using
-the |percona-release| utility.
+the |percona-release| utility. Starting from v1.2.1, |pbm| packages are stored in the *pbm* repository.
 
 .. code-block:: bash
 
-   $ percona-release enable tools
+   $ sudo percona-release enable pbm
 
 |pbm| is available for installation from your package management system when you
-enable the *tools* repository.
+enable the *pbm* repository.
 
 .. seealso:: 
 
@@ -63,16 +63,16 @@ Installing |pbm| Using ``apt``
 
 .. code-block:: bash
 
-   $ apt update
-   $ apt install percona-backup-mongodb
+   $ sudo apt-get update
+   $ sudo apt-get install percona-backup-mongodb
 
 Installing |pbm| Using ``yum``
 ================================================================================
 
 .. code-block:: bash
 
-   $ yum update
-   $ yum install percona-backup-mongodb
+   $ sudo yum update
+   $ sudo yum install percona-backup-mongodb
 
 Building from source code
 ================================================================================
