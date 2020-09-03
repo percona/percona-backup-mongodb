@@ -44,11 +44,11 @@ Prerequisites
 ================================================================================
 
 It is recommended to install |pbm| from official |percona| repositories by using
-the |percona-release| utility. Starting from v1.2.1, |pbm| packages are stored in the *pbm* repository.
+the |percona-release| utility. Starting from v1.3.0, |pbm| packages are stored in the *pbm* repository.
 
 .. code-block:: bash
 
-   $ sudo percona-release enable pbm
+   $ sudo percona-release enable pbm release
 
 |pbm| is available for installation from your package management system when you
 enable the *pbm* repository.
