@@ -108,6 +108,7 @@ start_cluster() {
 
     if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
     mkdir "${test_dir}/docker/backups"
+    ls -lah "${test_dir}/docker/backups"
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
@@ -124,6 +125,9 @@ start_cluster() {
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
     docker-compose -f $COMPOSE_PATH start \
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
+
+    sleep 10
+    docker-compose exec agent-rs101 ls -lah /opt
 }
 
 destroy_cluster() {
