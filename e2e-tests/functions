@@ -106,6 +106,8 @@ start_cluster() {
         docker-compose -f $COMPOSE_PATH build
     fi
 
+    mkdir "${test_dir}/docker/backups"
+
     export MONGODB_VERSION=${mongo_version:-"3.6"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
     sleep 25
