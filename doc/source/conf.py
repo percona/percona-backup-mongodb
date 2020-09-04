@@ -144,6 +144,13 @@ html_theme = 'percona-theme'
 # Add any paths that contain custom themes here, relative to this directory.
 html_theme_path = ['.', './percona-theme']
 
+# Redirect info for Edit on Github link
+html_context = {
+    'repo_name': '/percona/percona-backup-mongodb',
+    'repo_url': 'https://github.com/percona/percona-backup-mongodb',
+    'edit_uri': 'edit/main/doc/source'
+}
+
 # The name for this set of Sphinx documents.
 # "<project> v<release> documentation" by default.
 #
@@ -190,7 +197,7 @@ html_static_path = ['_static']
 # Custom sidebar templates, maps document names to template names.
 #
 html_sidebars = {
-        '**': ['localtoc.html', 'relations.html', 'sourcelink.html'],
+        '**': ['localtoc.html', 'relations.html', 'sourcelink.html', 'edit.html'],
         'using/windows': ['windowssidebar.html'],
 }
 
