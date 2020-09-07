@@ -107,12 +107,3 @@ Reference
 .. include:: .res/replace.txt
 .. include:: .res/url.txt
 
-----
-
-.. rubric:: Contact Us
-
-Bugs and feature requests can be opened as JIRA tickets at
-https://jira.percona.com/projects/PBM/issues .
-
-Contact us using the form on the
-site (https://www.percona.com/about-percona/contact).
