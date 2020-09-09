@@ -3,17 +3,15 @@
 Architecture
 ********************************************************************************
 
-|pbm| uses one |pbm-agent| process per |mongod| node. The :term:`PBM Control
-collections` in the |mongodb| cluster or non-sharded replica set itself serve as
-the central configuration, authentication and coordination
-channel. Administrators observe and control the backups or restores with a
-|pbm.app| CLI command that they can run from any host with the access to the
-|mongodb| cluster.
+|pbm| consists of the following components:
 
-A single |pbm-agent| is only involved with one cluster (or non-sharded replica
-set). The |pbm.app| CLI tool can connect to any cluster it has network access
-to, so it is possible for one user to list and launch backups or restores on
-many clusters. 
+- |pbm-agent| is a process running on every ``mongod`` node within the cluster or a replica set that performs backup and restore operations. 
+- **pbm** CLI is a command-line utility that instructs pbm-agents to perform an operation. 
+
+  A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI utility can connect to any cluster it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. 
+
+- :term:`PBM Control collections` is a special collection in MongoDB that stores the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to authenticate in MongoDB and communicate with each other. 
+- Remote backup storage is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
 
 .. contents::
    :local:
@@ -24,16 +22,15 @@ many clusters.
 ================================================================================
 
 |pbm| requires one instance of |pbm-agent| to be attached locally to each
-|mongod| instance. This includes replicaset nodes that are currently secondaries
-and config server replicaset nodes in a cluster.
+|mongod| instance. This includes replica set nodes that are currently secondaries
+and config server replica set nodes in a sharded cluster.
 
 There is no |pbm-agent| config file. Some configuration is required for the
 service script (e.g. ``systemd`` unit file) that will run it though. See
 :ref:`pbm.installation.service_init_scripts`.
 
-The |pbm-agent|'s backup and restore operations are triggered when it observes
-updates made to the PBM control collections by the |pbm.app| command line
-utility. In a method similar to the way replica set members elect a new primary,
+The backup and restore operations are triggered when the |pbm-agent| observes
+updates made to the PBM control collections by the |pbm.app| CLI. In a method similar to the way replica set members elect a new primary,
 the |pbm-agent| processes in the same replica set 'elect' the one to do the backup
 or restore for that replica set.
 
@@ -48,11 +45,11 @@ It manages your backups through a set of sub-commands:
 
 .. include:: .res/code-block/bash/pbm-help-output.txt
 
-|pbm.app| modifies the PBM config by saving it in the PBM control collection for
+|pbm.app| modifies the PBM config by saving it in the PBM Control collection for
 config values. Likewise it starts and monitors backup or restore operations by
 updating and reading other PBM control collections for operations, log, etc.
 
-|pbm.app| does not have its own config and/or cache files per se. Setting the
+|pbm.app| does not have its own config and/or cache files. Setting the
 |env-pbm-mongodb-uri| environment variable in your shell is a
 configuration-like step that should be done for practical ease though. (Without
 |env-pbm-mongodb-uri| the |opt-mongodb-uri| command line argument will need to
@@ -66,7 +63,7 @@ PBM Control Collections
 The config and state (current and historical) for backups is stored in
 collections in the MongoDB cluster or non-sharded replica set itself. These are
 put in the system ``admin`` db of the config server replica set to keep them
-cleanly separated from user db namespaces. (In a non-sharded replicaset the
+cleanly separated from user db namespaces. (In a non-sharded replica set the
 ``admin`` db of the replica set itself is used.)
 
 - *admin.pbmConfig*
