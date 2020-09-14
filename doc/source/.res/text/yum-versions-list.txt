@@ -6,3 +6,6 @@
    percona-backup-mongodb.x86_64    1.1.1-1.el7          tools-release-x86_64
    percona-backup-mongodb.x86_64    1.1.3-1.el7          tools-release-x86_64
    percona-backup-mongodb.x86_64    1.2.0-1.el7          tools-release-x86_64
+   percona-backup-mongodb.x86_64    1.2.1-1.el7          tools-release-x86_64
+   percona-backup-mongodb.x86_64    1.3.0-1.el7          tools-release-x86_64
+   percona-backup-mongodb.x86_64    1.3.1-1.el7          tools-release-x86_64
