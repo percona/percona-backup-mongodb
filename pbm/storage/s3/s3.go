@@ -34,7 +34,7 @@ type Conf struct {
 	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials          Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
-	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 }
 
 type AWSsse struct {
