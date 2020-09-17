@@ -38,8 +38,8 @@ type Conf struct {
 }
 
 type AWSsse struct {
-	SseAlgorithm   string `bson:"sseAlgorithm" json:"sseAlgorithm" yaml:"sseAlgorithm"`
-	KmsMasterKeyID string `bson:"kmsMasterKeyID" json:"kmsMasterKeyID" yaml:"kmsMasterKeyID"`
+	SseAlgorithm string `bson:"sseAlgorithm" json:"sseAlgorithm" yaml:"sseAlgorithm"`
+	KmsKeyID     string `bson:"kmsKeyID" json:"kmsKeyID" yaml:"kmsKeyID"`
 }
 
 func (c *Conf) Cast() error {
@@ -98,7 +98,7 @@ func New(opts Conf) (*S3, error) {
 func (s *S3) Save(name string, data io.Reader) error {
 	switch s.opts.Provider {
 	default:
-		awsSession, err := s.sesseion()
+		awsSession, err := s.session()
 		if err != nil {
 			return errors.Wrap(err, "create AWS session")
 		}
@@ -115,9 +115,9 @@ func (s *S3) Save(name string, data io.Reader) error {
 		if s.opts.ServerSideEncryption != nil {
 			sse := s.opts.ServerSideEncryption
 
-			uplInput.SSECustomerAlgorithm = aws.String(sse.SseAlgorithm)
+			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-				uplInput.SSEKMSKeyId = aws.String(sse.KmsMasterKeyID)
+				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 			}
 		}
 
@@ -170,6 +170,15 @@ func (s *S3) Files(suffix string) ([][]byte, error) {
 					if err != nil {
 						berr = errors.Wrapf(err, "get object '%s'", name)
 						return false
+					}
+
+					if s.opts.ServerSideEncryption != nil {
+						sse := s.opts.ServerSideEncryption
+
+						s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+						if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+							s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+						}
 					}
 
 					b, err := ioutil.ReadAll(s3obj.Body)
@@ -268,13 +277,25 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 		return nil, errors.Wrap(err, "AWS session")
 	}
 
-	s3obj, err := s3s.GetObject(&s3.GetObjectInput{
+	getInput := &s3.GetObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
-	})
+	}
+
+	s3obj, err := s3s.GetObject(getInput)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
 	}
+
+	if s.opts.ServerSideEncryption != nil {
+		sse := s.opts.ServerSideEncryption
+
+		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		}
+	}
+
 	return s3obj.Body, nil
 }
 
@@ -304,20 +325,15 @@ func (s *S3) Delete(name string) error {
 }
 
 func (s *S3) s3session() (*s3.S3, error) {
-	sess, err := s.sesseion()
+	sess, err := s.session()
 	if err != nil {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
-	s3s, err := s.s3(sess)
-	if err != nil {
-		return nil, errors.Wrap(err, "create s3 session")
-	}
-
-	return s3s, nil
+	return s3.New(sess), nil
 }
 
-func (s *S3) sesseion() (*session.Session, error) {
+func (s *S3) session() (*session.Session, error) {
 	return session.NewSession(&aws.Config{
 		Region:   aws.String(s.opts.Region),
 		Endpoint: aws.String(s.opts.EndpointURL),
@@ -328,32 +344,4 @@ func (s *S3) sesseion() (*session.Session, error) {
 		),
 		S3ForcePathStyle: aws.Bool(true),
 	})
-}
-
-func (s *S3) s3(sess *session.Session) (*s3.S3, error) {
-	s3s := s3.New(sess)
-
-	if s.opts.ServerSideEncryption != nil {
-		sse := s.opts.ServerSideEncryption
-
-		sseopts := &s3.ServerSideEncryptionByDefault{
-			SSEAlgorithm: aws.String(sse.SseAlgorithm),
-		}
-
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			sseopts.KMSMasterKeyID = aws.String(sse.KmsMasterKeyID)
-		}
-
-		_, err := s3s.PutBucketEncryption(&s3.PutBucketEncryptionInput{
-			Bucket: aws.String(s.opts.Bucket),
-			ServerSideEncryptionConfiguration: &s3.ServerSideEncryptionConfiguration{
-				Rules: []*s3.ServerSideEncryptionRule{{
-					ApplyServerSideEncryptionByDefault: sseopts,
-				}},
-			},
-		})
-		return nil, errors.Wrap(err, "set ServerSideEncryption")
-	}
-
-	return s3s, nil
 }
