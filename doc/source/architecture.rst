@@ -10,7 +10,7 @@ Architecture
 
   A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI utility can connect to any cluster it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. 
 
-- :term:`PBM Control collections` is a special collection in MongoDB that stores the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to authenticate in MongoDB and communicate with each other. 
+- :term:`PBM Control collections` are special collections in MongoDB that store the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to check backup status in MongoDB and communicate with each other. 
 - Remote backup storage is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
 
 .. contents::
