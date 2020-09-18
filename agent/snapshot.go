@@ -17,12 +17,6 @@ type currentBackup struct {
 	cancel context.CancelFunc
 }
 
-func New(pbm *pbm.PBM) *Agent {
-	return &Agent{
-		pbm: pbm,
-	}
-}
-
 func (a *Agent) setBcp(b *currentBackup) (changed bool) {
 	a.mx.Lock()
 	defer a.mx.Unlock()

@@ -26,6 +26,12 @@ const (
 	intentBackup
 )
 
+func New(pbm *pbm.PBM) *Agent {
+	return &Agent{
+		pbm: pbm,
+	}
+}
+
 func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 	a.node, err = pbm.NewNode(ctx, curi)
 	return err

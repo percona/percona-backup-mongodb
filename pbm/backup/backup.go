@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/version"
-
 	"github.com/mongodb/mongo-tools-common/db"
+	mlog "github.com/mongodb/mongo-tools-common/log"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools-common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
@@ -24,7 +23,16 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/version"
 )
+
+func init() {
+	// set date format for mongo tools (mongodump/mongorestore) logger
+	//
+	// duplicated in backup/restore packages just
+	// in the sake of clarity
+	mlog.SetDateFormat(pbm.LogTimeFormat)
+}
 
 type Backup struct {
 	cn   *pbm.PBM

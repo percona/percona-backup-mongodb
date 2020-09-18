@@ -21,6 +21,7 @@ type Logger struct {
 
 type LogEntry struct {
 	TS      int64     `bson:"ts" json:"ts"`
+	TZone   int       `bson:"tz" json:"tz"`
 	RS      string    `bson:"rs" json:"rs"`
 	Node    string    `bson:"node" json:"node"`
 	Type    EntryType `bson:"type" json:"type"`
@@ -29,10 +30,11 @@ type LogEntry struct {
 	Msg     string    `bson:"msg" json:"msg"`
 }
 
-const logTimeFormat = "2006/01/02 15:04:05"
+// LogTimeFormat is a date-time format to be displayed in the log output
+const LogTimeFormat = "2006/01/02 15:04:05"
 
 func (e *LogEntry) formatTS() string {
-	return time.Unix(e.TS, 0).UTC().Format(logTimeFormat)
+	return time.Unix(e.TS, 0).Local().Format(LogTimeFormat)
 }
 
 func (e *LogEntry) String() (s string) {
@@ -77,8 +79,10 @@ func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
+	_, tz := time.Now().Local().Zone()
 	e := &LogEntry{
 		TS:      time.Now().UTC().Unix(),
+		TZone:   tz,
 		RS:      l.rs,
 		Node:    l.node,
 		Type:    typ,
