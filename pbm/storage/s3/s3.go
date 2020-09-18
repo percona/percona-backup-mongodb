@@ -112,9 +112,9 @@ func (s *S3) Save(name string, data io.Reader) error {
 			Key:    aws.String(path.Join(s.opts.Prefix, name)),
 			Body:   data,
 		}
-		if s.opts.ServerSideEncryption != nil {
-			sse := s.opts.ServerSideEncryption
 
+		sse := s.opts.ServerSideEncryption
+		if sse != nil && sse.SseAlgorithm != "" {
 			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
 				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
@@ -172,9 +172,8 @@ func (s *S3) Files(suffix string) ([][]byte, error) {
 						return false
 					}
 
-					if s.opts.ServerSideEncryption != nil {
-						sse := s.opts.ServerSideEncryption
-
+					sse := s.opts.ServerSideEncryption
+					if sse != nil && sse.SseAlgorithm != "" {
 						s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 						if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
 							s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
