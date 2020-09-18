@@ -64,14 +64,36 @@ func main() {
 	printDone("Basic Backup & Restore GCS")
 	flushStore(storage)
 
+	storage = "/etc/pbm/fs.yaml"
+
+	flushStore(storage)
+	tests.ApplyConfig(storage)
+
+	printStart("Basic Backup & Restore FS")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore FS")
+
+	printStart("Basic PITR & Restore FS")
+	tests.PITRbasic()
+	printDone("Basic PITR & Restore FS")
+
+	flushStore(storage)
+
 	storage = "/etc/pbm/minio.yaml"
 
 	flushStore(storage)
 	tests.ApplyConfig(storage)
 
+	tests.DeleteBallast()
+	tests.GenerateBallastData(1e5)
+
 	printStart("Basic Backup & Restore Minio")
 	tests.BackupAndRestore()
 	printDone("Basic Backup & Restore Minio")
+
+	printStart("Basic PITR & Restore Minio")
+	tests.PITRbasic()
+	printDone("Basic PITR & Restore Minio")
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e3)
@@ -114,8 +136,12 @@ func main() {
 	v42 := version.Must(version.NewVersion("4.2"))
 	if cVersion.GreaterThanOrEqual(v42) {
 		printStart("Distributed Transactions backup")
-		tests.DistributedTransactions()
+		tests.DistributedTrxSnapshot()
 		printDone("Distributed Transactions backup")
+
+		printStart("Distributed Transactions PITR")
+		tests.DistributedTrxPITR()
+		printDone("Distributed Transactions PITR")
 	}
 
 	printStart("Clock Skew Tests")

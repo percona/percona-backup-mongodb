@@ -28,7 +28,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	// But if there is some stale lock leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T && l.Type != pbm.CmdPITR {
-			return "", errors.Errorf("another operation in progress, %s/%s", l.Type, l.BackupName)
+			return "", errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
 		}
 	}
 

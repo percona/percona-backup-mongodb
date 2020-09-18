@@ -73,6 +73,9 @@ func (fs *FS) List(prefix string) ([]string, error) {
 
 	err := filepath.Walk(prefix, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return errors.Wrap(err, "walking the path")
 		}
 		if !info.IsDir() {

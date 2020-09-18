@@ -10,9 +10,8 @@ services:
       - MONGO_PASS=test1234
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./conf/aws.yaml:/etc/pbm/aws.yaml
-      - ./conf/gcs.yaml:/etc/pbm/gcs.yaml
-      - ./conf/minio.yaml:/etc/pbm/minio.yaml
+      - ./conf:/etc/pbm
+      - ./backups:/opt/backups
     depends_on:
       - mongos
 
@@ -58,6 +57,8 @@ services:
       - NET_ADMIN
     depends_on:
       - cfg01
+    volumes: 
+      - ./backups:/opt/backups
   agent-cfg02:
     container_name: "pbmagent_cfg02"
     labels:
@@ -75,6 +76,8 @@ services:
       - NET_ADMIN
     depends_on:
       - cfg02
+    volumes: 
+      - ./backups:/opt/backups
   agent-cfg03:
     container_name: "pbmagent_cfg03"
     labels:
@@ -92,6 +95,8 @@ services:
       - NET_ADMIN
     depends_on:
       - cfg03
+    volumes: 
+      - ./backups:/opt/backups
 
   rs101:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
@@ -131,6 +136,7 @@ services:
       context: ../..
     volumes: 
       - ./conf:/etc/pbm
+      - ./backups:/opt/backups
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -153,6 +159,8 @@ services:
       - NET_ADMIN
     depends_on:
       - rs102
+    volumes: 
+      - ./backups:/opt/backups
   agent-rs103:
     container_name: "pbmagent_rs103"
     labels:
@@ -170,6 +178,8 @@ services:
       - NET_ADMIN
     depends_on:
       - rs103
+    volumes: 
+      - ./backups:/opt/backups
     
   rs201:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
@@ -212,6 +222,8 @@ services:
       - NET_ADMIN
     depends_on:
       - rs201
+    volumes: 
+      - ./backups:/opt/backups
   agent-rs202:
     container_name: "pbmagent_rs202"
     labels:
@@ -229,6 +241,8 @@ services:
       - NET_ADMIN
     depends_on:
       - rs202
+    volumes: 
+      - ./backups:/opt/backups
   agent-rs203:
     container_name: "pbmagent_rs203"
     labels:
@@ -246,6 +260,8 @@ services:
       - NET_ADMIN
     depends_on:
       - rs203
+    volumes: 
+      - ./backups:/opt/backups
 
   mongos:
     image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
@@ -284,10 +300,12 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
+      sleep 5;
       /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
       /usr/bin/mc mb myminio/bcp;
       exit 0;
       "
 volumes: 
   backups:
+  backupsfs:
 
