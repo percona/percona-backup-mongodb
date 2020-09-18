@@ -276,12 +276,10 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 		return nil, errors.Wrap(err, "AWS session")
 	}
 
-	getInput := &s3.GetObjectInput{
+	s3obj, err := s3s.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
-	}
-
-	s3obj, err := s3s.GetObject(getInput)
+	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
 	}
