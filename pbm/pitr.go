@@ -34,6 +34,10 @@ type PITRChunk struct {
 func (p *PBM) IsPITR() (bool, error) {
 	cfg, err := p.GetConfig()
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
+		}
+
 		return false, errors.Wrap(err, "get config")
 	}
 
