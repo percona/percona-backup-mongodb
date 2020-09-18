@@ -8,9 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -29,12 +28,18 @@ const (
 )
 
 type Conf struct {
-	Provider    S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
-	Region      string      `bson:"region" json:"region" yaml:"region"`
-	EndpointURL string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
+	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
+	Region               string      `bson:"region" json:"region" yaml:"region"`
+	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Credentials          Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
+	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+}
+
+type AWSsse struct {
+	SseAlgorithm string `bson:"sseAlgorithm" json:"sseAlgorithm" yaml:"sseAlgorithm"`
+	KmsKeyID     string `bson:"kmsKeyID" json:"kmsKeyID" yaml:"kmsKeyID"`
 }
 
 func (c *Conf) Cast() error {
@@ -93,16 +98,7 @@ func New(opts Conf) (*S3, error) {
 func (s *S3) Save(name string, data io.Reader) error {
 	switch s.opts.Provider {
 	default:
-		awsSession, err := session.NewSession(&aws.Config{
-			Region:   aws.String(s.opts.Region),
-			Endpoint: aws.String(s.opts.EndpointURL),
-			Credentials: credentials.NewStaticCredentials(
-				s.opts.Credentials.AccessKeyID,
-				s.opts.Credentials.SecretAccessKey,
-				"",
-			),
-			S3ForcePathStyle: aws.Bool(true),
-		})
+		awsSession, err := s.session()
 		if err != nil {
 			return errors.Wrap(err, "create AWS session")
 		}
@@ -110,15 +106,26 @@ func (s *S3) Save(name string, data io.Reader) error {
 		if cc == 0 {
 			cc = 1
 		}
+
+		uplInput := &s3manager.UploadInput{
+			Bucket: aws.String(s.opts.Bucket),
+			Key:    aws.String(path.Join(s.opts.Prefix, name)),
+			Body:   data,
+		}
+
+		sse := s.opts.ServerSideEncryption
+		if sse != nil && sse.SseAlgorithm != "" {
+			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+			}
+		}
+
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 			u.PartSize = 10 * 1024 * 1024 // 10MB part size
 			u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
-		}).Upload(&s3manager.UploadInput{
-			Bucket: aws.String(s.opts.Bucket),
-			Key:    aws.String(path.Join(s.opts.Prefix, name)),
-			Body:   data,
-		})
+		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
 		// using minio client with GCS because it
@@ -133,18 +140,9 @@ func (s *S3) Save(name string, data io.Reader) error {
 }
 
 func (s *S3) Files(suffix string) ([][]byte, error) {
-	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(s.opts.Region),
-		Endpoint: aws.String(s.opts.EndpointURL),
-		Credentials: credentials.NewStaticCredentials(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			"",
-		),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	s3s, err := s.s3session()
 	if err != nil {
-		return nil, errors.Wrap(err, "create AWS session")
+		return nil, errors.Wrap(err, "AWS session")
 	}
 
 	lparams := &s3.ListObjectsInput{
@@ -160,19 +158,26 @@ func (s *S3) Files(suffix string) ([][]byte, error) {
 
 	var bcps [][]byte
 	var berr error
-	awscli := s3.New(awsSession)
-	err = awscli.ListObjectsPages(lparams,
+	err = s3s.ListObjectsPages(lparams,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
 				name := aws.StringValue(o.Key)
 				if strings.HasSuffix(name, suffix) {
-					s3obj, err := awscli.GetObject(&s3.GetObjectInput{
+					s3obj, err := s3s.GetObject(&s3.GetObjectInput{
 						Bucket: aws.String(s.opts.Bucket),
 						Key:    aws.String(name),
 					})
 					if err != nil {
 						berr = errors.Wrapf(err, "get object '%s'", name)
 						return false
+					}
+
+					sse := s.opts.ServerSideEncryption
+					if sse != nil && sse.SseAlgorithm != "" {
+						s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+						if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+							s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+						}
 					}
 
 					b, err := ioutil.ReadAll(s3obj.Body)
@@ -198,18 +203,9 @@ func (s *S3) Files(suffix string) ([][]byte, error) {
 }
 
 func (s *S3) List(prefix string) ([]string, error) {
-	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(s.opts.Region),
-		Endpoint: aws.String(s.opts.EndpointURL),
-		Credentials: credentials.NewStaticCredentials(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			"",
-		),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	s3s, err := s.s3session()
 	if err != nil {
-		return nil, errors.Wrap(err, "create AWS session")
+		return nil, errors.Wrap(err, "AWS session")
 	}
 
 	lparams := &s3.ListObjectsInput{
@@ -227,8 +223,7 @@ func (s *S3) List(prefix string) ([]string, error) {
 	}
 
 	var files []string
-	awscli := s3.New(awsSession)
-	err = awscli.ListObjectsPages(lparams,
+	err = s3s.ListObjectsPages(lparams,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
@@ -252,21 +247,12 @@ func (s *S3) List(prefix string) ([]string, error) {
 }
 
 func (s *S3) CheckFile(name string) error {
-	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(s.opts.Region),
-		Endpoint: aws.String(s.opts.EndpointURL),
-		Credentials: credentials.NewStaticCredentials(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			"",
-		),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	s3s, err := s.s3session()
 	if err != nil {
-		return errors.Wrap(err, "create AWS session")
+		return errors.Wrap(err, "AWS session")
 	}
 
-	h, err := s3.New(awsSession).HeadObject(&s3.HeadObjectInput{
+	h, err := s3s.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
@@ -285,48 +271,39 @@ func (s *S3) CheckFile(name string) error {
 }
 
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(s.opts.Region),
-		Endpoint: aws.String(s.opts.EndpointURL),
-		Credentials: credentials.NewStaticCredentials(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			"",
-		),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	s3s, err := s.s3session()
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot create AWS session")
+		return nil, errors.Wrap(err, "AWS session")
 	}
 
-	s3obj, err := s3.New(awsSession).GetObject(&s3.GetObjectInput{
+	s3obj, err := s3s.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
 	}
+
+	if s.opts.ServerSideEncryption != nil {
+		sse := s.opts.ServerSideEncryption
+
+		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		}
+	}
+
 	return s3obj.Body, nil
 }
 
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	awsSession, err := session.NewSession(&aws.Config{
-		Region:   aws.String(s.opts.Region),
-		Endpoint: aws.String(s.opts.EndpointURL),
-		Credentials: credentials.NewStaticCredentials(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			"",
-		),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	s3s, err := s.s3session()
 	if err != nil {
-		return errors.Wrap(err, "cannot create AWS session")
+		return errors.Wrap(err, "AWS session")
 	}
-
-	_, err = s3.New(awsSession).DeleteObject(&s3.DeleteObjectInput{
+	_, err = s3s.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
@@ -342,4 +319,26 @@ func (s *S3) Delete(name string) error {
 	}
 
 	return nil
+}
+
+func (s *S3) s3session() (*s3.S3, error) {
+	sess, err := s.session()
+	if err != nil {
+		return nil, errors.Wrap(err, "create aws session")
+	}
+
+	return s3.New(sess), nil
+}
+
+func (s *S3) session() (*session.Session, error) {
+	return session.NewSession(&aws.Config{
+		Region:   aws.String(s.opts.Region),
+		Endpoint: aws.String(s.opts.EndpointURL),
+		Credentials: credentials.NewStaticCredentials(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			"",
+		),
+		S3ForcePathStyle: aws.Bool(true),
+	})
 }
