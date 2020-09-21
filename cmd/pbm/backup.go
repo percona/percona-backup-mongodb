@@ -172,6 +172,10 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 
 	cfg, err := cn.GetConfig()
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return
+		}
+
 		log.Fatalf("Error: read config: %v", cfg)
 	}
 
