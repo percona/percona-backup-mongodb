@@ -9,7 +9,7 @@ import (
 var ErrNotExist = errors.New("no such file")
 
 type Storage interface {
-	Save(name string, data io.Reader) error
+	Save(name string, data io.Reader, size int) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// CheckFile checks if file/object exists and isn't empty
 	CheckFile(name string) error

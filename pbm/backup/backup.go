@@ -207,8 +207,20 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "set shard's first write ts")
 	}
 
+	// Get size of the largest db in replset
+	// so the S3 uploader can calculate proper chunk size.
+	//
+	// In fact, for all DBs the upload size would be the same
+	// and equals to the size of the largest DB. We're ok with that
+	// since there are no easy way to define (distinct) DBs in upload
+	// func given we're piping dump thru the mongodump util.
+	sz, err := b.node.MaxDBSize()
+	if err != nil {
+		return errors.Wrap(err, "mongodump")
+	}
+
 	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
-	_, err = Upload(b.ctx, dump, stg, bcp.Compression, rsMeta.DumpName)
+	_, err = Upload(b.ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -252,7 +264,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	oplog.SetTailingSpan(oplogTS, lwTS)
-	_, err = Upload(b.ctx, oplog, stg, bcp.Compression, rsMeta.OplogName)
+	_, err = Upload(b.ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -351,7 +363,7 @@ type Source interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string, sizeb int) (int64, error) {
 	r, pw := io.Pipe()
 
 	w := Compress(pw, compression)
@@ -366,7 +378,7 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	saveDone := make(chan struct{})
 	go func() {
-		err.write = dst.Save(fname, r)
+		err.write = dst.Save(fname, r, sizeb)
 		saveDone <- struct{}{}
 	}()
 
@@ -580,7 +592,7 @@ func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = stg.Save(meta.Name+pbm.MetadataFileSuffix, bytes.NewReader(b))
+	err = stg.Save(meta.Name+pbm.MetadataFileSuffix, bytes.NewReader(b), -1)
 	return errors.Wrap(err, "write to store")
 }
 

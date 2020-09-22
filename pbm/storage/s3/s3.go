@@ -95,7 +95,9 @@ func New(opts Conf) (*S3, error) {
 	}, nil
 }
 
-func (s *S3) Save(name string, data io.Reader) error {
+const defaultPartSize = 10 * 1024 * 1024 // 10Mb
+
+func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 	switch s.opts.Provider {
 	default:
 		awsSession, err := s.session()
@@ -121,9 +123,23 @@ func (s *S3) Save(name string, data io.Reader) error {
 			}
 		}
 
+		// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
+		// would be ~ 97.6Gb. So if the file size is bigger we're enlarging PartSize
+		// so PartSize * MaxUploadParts could fit the file.
+		// If calculated PartSize is smaller than the default we leave the default.
+		// sizeb usually would be an uncompressed db size on disk
+		partSize := defaultPartSize
+		if sizeb > 0 {
+			ps := sizeb / s3manager.MaxUploadParts * 99 / 100 // shed 1% just to be sure we fit in even when data is not compressed
+			if ps > partSize {
+				partSize = ps
+			}
+		}
+
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-			u.PartSize = 10 * 1024 * 1024 // 10MB part size
-			u.LeavePartsOnError = true    // Don't delete the parts if the upload fails.
+			u.MaxUploadParts = s3manager.MaxUploadParts
+			u.PartSize = int64(partSize) // 10MB part size
+			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
 		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")

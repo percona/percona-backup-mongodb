@@ -106,6 +106,28 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	return i, nil
 }
 
+// MaxDBSize returns the size of the largest database on replicaset.
+// It is the of files on disk in bytes
+func (n *Node) MaxDBSize() (int, error) {
+	i := &struct {
+		Databases []struct {
+			SizeOnDisk int `bson:"sizeOnDisk"`
+		} `bson:"databases"`
+	}{}
+	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"listDatabases", 1}}).Decode(i)
+	if err != nil {
+		return 0, errors.Wrap(err, "run mongo command listDatabases")
+	}
+
+	sized := 0
+	for _, db := range i.Databases {
+		if db.SizeOnDisk > sized {
+			sized = db.SizeOnDisk
+		}
+	}
+	return sized, nil
+}
+
 // IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).
 func (n *Node) IsSharded() (bool, error) {
 	i, err := n.GetInfo()
