@@ -207,16 +207,15 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "set shard's first write ts")
 	}
 
-	// Get size of the largest db in replset
-	// so the S3 uploader can calculate proper chunk size.
-	//
-	// In fact, for all DBs the upload size would be the same
-	// and equals to the size of the largest DB. We're ok with that
-	// since there are no easy way to define (distinct) DBs in upload
-	// func given we're piping dump thru the mongodump util.
-	sz, err := b.node.MaxDBSize()
+	sz, err := b.node.SizeDBs()
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
+	}
+	// if backup wouldn't be compressed we're assuming
+	// that the dump size could be up to 4x lagrer due to
+	// mongo's wieredtiger compression
+	if bcp.Compression == pbm.CompressionTypeNone {
+		sz *= 4
 	}
 
 	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
@@ -264,6 +263,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	oplog.SetTailingSpan(oplogTS, lwTS)
+	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
 	_, err = Upload(b.ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")

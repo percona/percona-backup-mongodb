@@ -106,26 +106,16 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	return i, nil
 }
 
-// MaxDBSize returns the size of the largest database on replicaset.
-// It is the of files on disk in bytes
-func (n *Node) MaxDBSize() (int, error) {
+// SizeDBs returns the total size in bytes of all databases' files on disk on replicaset
+func (n *Node) SizeDBs() (int, error) {
 	i := &struct {
-		Databases []struct {
-			SizeOnDisk int `bson:"sizeOnDisk"`
-		} `bson:"databases"`
+		TotalSize int `bson:"totalSize"`
 	}{}
 	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"listDatabases", 1}}).Decode(i)
 	if err != nil {
 		return 0, errors.Wrap(err, "run mongo command listDatabases")
 	}
-
-	sized := 0
-	for _, db := range i.Databases {
-		if db.SizeOnDisk > sized {
-			sized = db.SizeOnDisk
-		}
-	}
-	return sized, nil
+	return i.TotalSize, nil
 }
 
 // IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).

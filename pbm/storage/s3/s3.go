@@ -35,6 +35,7 @@ type Conf struct {
 	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials          Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
 	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 }
 
 type AWSsse struct {
@@ -124,13 +125,21 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		}
 
 		// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
-		// would be ~ 97.6Gb. So if the file size is bigger we're enlarging PartSize
+		// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
 		// so PartSize * MaxUploadParts could fit the file.
 		// If calculated PartSize is smaller than the default we leave the default.
-		// sizeb usually would be an uncompressed db size on disk
+		// If UploadPartSize option was set we use it instead of the default. Even
+		// with the UploadPartSize set the calculated PartSize woulbe used if it's bigger.
 		partSize := defaultPartSize
+		if s.opts.UploadPartSize > 0 {
+			if s.opts.UploadPartSize < int(s3manager.MinUploadPartSize) {
+				s.opts.UploadPartSize = int(s3manager.MinUploadPartSize)
+			}
+
+			partSize = s.opts.UploadPartSize
+		}
 		if sizeb > 0 {
-			ps := sizeb / s3manager.MaxUploadParts * 99 / 100 // shed 1% just to be sure we fit in even when data is not compressed
+			ps := sizeb / s3manager.MaxUploadParts * 9 / 10 // shed 10% just in case
 			if ps > partSize {
 				partSize = ps
 			}
