@@ -57,7 +57,7 @@ func (a *Agent) Start() error {
 	for {
 		select {
 		case cmd := <-c:
-			a.log.Printf("Got command %s", cmd)
+			a.log.Printf("got command %s", cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
