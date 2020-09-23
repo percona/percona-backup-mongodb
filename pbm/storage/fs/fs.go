@@ -27,7 +27,7 @@ func New(opts Conf) *FS {
 	}
 }
 
-func (fs *FS) Save(name string, data io.Reader) error {
+func (fs *FS) Save(name string, data io.Reader, _ int) error {
 	filepath := path.Join(fs.opts.Path, name)
 
 	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0775)

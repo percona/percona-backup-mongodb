@@ -175,7 +175,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		oplog.SetTailingSpan(i.lastTS, sliceTo)
 		fname := i.chunkPath(i.lastTS, sliceTo, compression)
 		// if use parent ctx, upload will be canceled on the "done" signal
-		_, err = backup.Upload(context.Background(), oplog, to, compression, fname)
+		_, err = backup.Upload(context.Background(), oplog, to, compression, fname, -1)
 		if err != nil {
 			return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
 		}

@@ -106,6 +106,18 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	return i, nil
 }
 
+// SizeDBs returns the total size in bytes of all databases' files on disk on replicaset
+func (n *Node) SizeDBs() (int, error) {
+	i := &struct {
+		TotalSize int `bson:"totalSize"`
+	}{}
+	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"listDatabases", 1}}).Decode(i)
+	if err != nil {
+		return 0, errors.Wrap(err, "run mongo command listDatabases")
+	}
+	return i.TotalSize, nil
+}
+
 // IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).
 func (n *Node) IsSharded() (bool, error) {
 	i, err := n.GetInfo()
