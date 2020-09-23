@@ -27,11 +27,11 @@ type Info struct {
 }
 
 const plain = `Version:   %s
-Platform:  %s
-GitCommit: %s
-GitBranch: %s
-BuildTime: %s
-GoVersion: %s`
+	Platform:  %s
+	GitCommit: %s
+	GitBranch: %s
+	BuildTime: %s
+	GoVersion: %s`
 
 var DefaultInfo Info
 

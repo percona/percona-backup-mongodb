@@ -31,7 +31,7 @@ type LogEntry struct {
 }
 
 // LogTimeFormat is a date-time format to be displayed in the log output
-const LogTimeFormat = "2006/01/02 15:04:05"
+const LogTimeFormat = "2006-01-02T15:04:05.000-0700"
 
 func (e *LogEntry) formatTS() string {
 	return time.Unix(e.TS, 0).Local().Format(LogTimeFormat)
@@ -95,6 +95,10 @@ func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...
 	if err != nil {
 		log.Printf("[ERROR] wrting log: %v, entry: %s", err, e)
 	}
+}
+
+func (l *Logger) Printf(msg string, args ...interface{}) {
+	l.output(TypeInfo, CmdUndefined, "", msg, args...)
 }
 
 func (l *Logger) Info(action Command, obj, msg string, args ...interface{}) {

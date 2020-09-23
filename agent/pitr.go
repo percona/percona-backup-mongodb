@@ -64,7 +64,10 @@ func (a *Agent) wakeupPitr() {
 
 const pitrCheckPeriod = time.Second * 15
 
+// PITR starts PITR prcessing routine
 func (a *Agent) PITR() {
+	a.log.Printf("starting PITR routine")
+
 	tk := time.NewTicker(pitrCheckPeriod)
 	defer tk.Stop()
 	for range tk.C {
