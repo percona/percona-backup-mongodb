@@ -62,14 +62,16 @@ const (
 	CmdResyncBackupList Command = "resyncBcpList"
 	CmdPITR             Command = "pitr"
 	CmdPITRestore       Command = "pitrestore"
+	CmdDeleteBackup     Command = "delete"
 )
 
 type Cmd struct {
-	Cmd        Command       `bson:"cmd"`
-	Backup     BackupCmd     `bson:"backup,omitempty"`
-	Restore    RestoreCmd    `bson:"restore,omitempty"`
-	PITRestore PITRestoreCmd `bson:"pitrestore,omitempty"`
-	TS         int64         `bson:"ts"`
+	Cmd        Command         `bson:"cmd"`
+	Backup     BackupCmd       `bson:"backup,omitempty"`
+	Restore    RestoreCmd      `bson:"restore,omitempty"`
+	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
+	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
+	TS         int64           `bson:"ts"`
 }
 
 func (c Cmd) String() string {
@@ -121,6 +123,15 @@ type PITRestoreCmd struct {
 
 func (p PITRestoreCmd) String() string {
 	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
+}
+
+type DeleteBackupCmd struct {
+	Backup    string `bson:"backup"`
+	OlderThan int64  `bson:"olderthan"`
+}
+
+func (d DeleteBackupCmd) String() string {
+	return fmt.Sprintf("backup: %s, older than: %d", d.Backup, d.OlderThan)
 }
 
 type CompressionType string

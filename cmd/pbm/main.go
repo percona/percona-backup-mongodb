@@ -208,7 +208,7 @@ func main() {
 		}
 	case deleteBcpCmd.FullCommand():
 		if !*deleteBcpForceF && isTTY() {
-			// don't care about the error since all this is only to show additional notice
+			// we don't care about the error since all this is only to show an additional notice
 			pitrOn, _ := pbmClient.IsPITR()
 			if pitrOn {
 				fmt.Println("While PITR in ON the last snapshot won't be deleted")
@@ -225,24 +225,26 @@ func main() {
 			}
 		}
 
-		var err error
+		cmd := pbm.Cmd{
+			Cmd: pbm.CmdDeleteBackup,
+		}
 		if len(*deleteBcpCmdOtF) > 0 {
 			t, err := parseDateT(*deleteBcpCmdOtF)
 			if err != nil {
 				log.Fatalln("Error: parse date:", err)
 			}
-			err = pbmClient.DeleteOlderThan(t)
+			cmd.Delete.OlderThan = t.UTC().Unix()
 		} else {
 			if len(*deleteBcpName) == 0 {
 				log.Fatalln("Error: backup name should be specified")
 			}
-			err = pbmClient.DeleteBackup(*deleteBcpName)
+			cmd.Delete.Backup = *deleteBcpName
 		}
+		err = pbmClient.SendCmd(cmd)
 		if err != nil {
-			log.Fatalln("Error:", err)
+			log.Fatalln("Error: schedule delete:", err)
 		}
-		printBackupList(pbmClient, 0)
-		printPITR(pbmClient, 0, false)
+		fmt.Println("Backup deletion from the store has started")
 	}
 }
 
@@ -258,7 +260,7 @@ func rsync(pbmClient *pbm.PBM) {
 	if err != nil {
 		log.Fatalln("Error: schedule resync:", err)
 	}
-	fmt.Printf("Backup list resync from the store has started\n")
+	fmt.Println("Backup list resync from the store has started")
 }
 
 func getConfig(pbmClient *pbm.PBM) {
