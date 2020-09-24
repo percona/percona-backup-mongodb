@@ -67,10 +67,7 @@ func runAgent(mongoURI string) error {
 	}
 	agnt.InitLogger(pbmClient)
 
-	log.Println("pbm-agent", version.DefaultInfo.All(""))
-	log.Println("starting pitr routine")
 	go agnt.PITR()
 
-	log.Println("listening for the commands")
 	return errors.Wrap(agnt.Start(), "listen the commands stream")
 }

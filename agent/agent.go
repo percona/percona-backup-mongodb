@@ -2,13 +2,13 @@ package agent
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type Agent struct {
@@ -26,6 +26,12 @@ const (
 	intentBackup
 )
 
+func New(pbm *pbm.PBM) *Agent {
+	return &Agent{
+		pbm: pbm,
+	}
+}
+
 func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 	a.node, err = pbm.NewNode(ctx, curi)
 	return err
@@ -38,17 +44,20 @@ func (a *Agent) InitLogger(cn *pbm.PBM) {
 
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
-	log.Printf("node: %s", a.node.ID())
+	a.log.Printf("pbm-agent:\n\t%s", version.DefaultInfo.All(""))
+	a.log.Printf("node: %s", a.node.ID())
 
 	c, cerr, err := a.pbm.ListenCmd()
 	if err != nil {
 		return err
 	}
 
+	a.log.Printf("listening for the commands")
+
 	for {
 		select {
 		case cmd := <-c:
-			log.Printf("Got command %s [%v]", cmd.Cmd, cmd)
+			a.log.Printf("got command %s", cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
@@ -78,7 +87,7 @@ func (a *Agent) Start() error {
 	}
 }
 
-// ResyncBackupList uploads a backup list from the remote store
+// ResyncStorage uploads a backup list from the remote store
 func (a *Agent) ResyncStorage() {
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {

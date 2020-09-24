@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools-common/db"
+	mlog "github.com/mongodb/mongo-tools-common/log"
 	"github.com/mongodb/mongo-tools-common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
@@ -17,6 +18,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
+
+func init() {
+	// set date format for mongo tools (mongodump/mongorestore) logger
+	//
+	// duplicated in backup/restore packages just
+	// in the sake of clarity
+	mlog.SetDateFormat(pbm.LogTimeFormat)
+}
 
 var excludeFromRestore = []string{
 	pbm.DB + "." + pbm.CmdStreamCollection,

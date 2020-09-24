@@ -1,8 +1,11 @@
 package pbm
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,9 +72,37 @@ type Cmd struct {
 	TS         int64         `bson:"ts"`
 }
 
+func (c Cmd) String() string {
+	var buf bytes.Buffer
+
+	buf.WriteString(string(c.Cmd))
+	switch c.Cmd {
+	case CmdBackup:
+		buf.WriteString(" [")
+		buf.WriteString(c.Backup.String())
+		buf.WriteString("]")
+	case CmdRestore:
+		buf.WriteString(" [")
+		buf.WriteString(c.Restore.String())
+		buf.WriteString("]")
+	case CmdPITRestore:
+		buf.WriteString(" [")
+		buf.WriteString(c.PITRestore.String())
+		buf.WriteString("]")
+	}
+	buf.WriteString(" <ts: ")
+	buf.WriteString(strconv.FormatInt(c.TS, 10))
+	buf.WriteString(">")
+	return buf.String()
+}
+
 type BackupCmd struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
+}
+
+func (b BackupCmd) String() string {
+	return fmt.Sprintf("name: %s, compression: %s", b.Name, b.Compression)
 }
 
 type RestoreCmd struct {
@@ -79,9 +110,17 @@ type RestoreCmd struct {
 	BackupName string `bson:"backupName"`
 }
 
+func (r RestoreCmd) String() string {
+	return fmt.Sprintf("name: %s, backup name: %s", r.Name, r.BackupName)
+}
+
 type PITRestoreCmd struct {
 	Name string `bson:"name"`
 	TS   int64  `bson:"ts"`
+}
+
+func (p PITRestoreCmd) String() string {
+	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
 }
 
 type CompressionType string
