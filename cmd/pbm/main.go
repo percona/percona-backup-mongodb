@@ -207,71 +207,7 @@ func main() {
 			printPITR(pbmClient, int(*listCmdSize), *listCmdFullF)
 		}
 	case deleteBcpCmd.FullCommand():
-		if !*deleteBcpForceF && isTTY() {
-			// we don't care about the error since all this is only to show an additional notice
-			pitrOn, _ := pbmClient.IsPITR()
-			if pitrOn {
-				fmt.Println("While PITR in ON the last snapshot won't be deleted")
-				fmt.Println()
-			}
-
-			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
-			scanner := bufio.NewScanner(os.Stdin)
-			scanner.Scan()
-			switch strings.TrimSpace(scanner.Text()) {
-			case "yes", "Yes", "YES", "Y", "y":
-			default:
-				return
-			}
-		}
-
-		cmd := pbm.Cmd{
-			Cmd: pbm.CmdDeleteBackup,
-		}
-		if len(*deleteBcpCmdOtF) > 0 {
-			t, err := parseDateT(*deleteBcpCmdOtF)
-			if err != nil {
-				log.Fatalln("Error: parse date:", err)
-			}
-			cmd.Delete.OlderThan = t.UTC().Unix()
-		} else {
-			if len(*deleteBcpName) == 0 {
-				log.Fatalln("Error: backup name should be specified")
-			}
-			cmd.Delete.Backup = *deleteBcpName
-		}
-		tsop := time.Now().UTC().Unix()
-		err = pbmClient.SendCmd(cmd)
-		if err != nil {
-			log.Fatalln("Error: schedule delete:", err)
-		}
-
-		fmt.Print("Waiting delete to be done ")
-		err = waitOp(pbmClient,
-			&pbm.LockHeader{
-				Type: pbm.CmdDeleteBackup,
-			},
-			time.Second*60)
-		if err != nil && err != errTout {
-			log.Fatalln("\nError:", err)
-		}
-
-		errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
-		if err != nil {
-			log.Fatalln("\nError: read agents log:", err)
-		}
-
-		if errl != "" {
-			log.Fatalln("\nError:", errl)
-		}
-
-		if err == errTout {
-			fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
-		} else {
-			fmt.Println("[done]")
-		}
-		printBackupList(pbmClient, 0)
-		printPITR(pbmClient, 0, false)
+		deleteBackup(pbmClient)
 	}
 }
 
@@ -296,6 +232,74 @@ func getConfig(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: unable to get config:", err)
 	}
 	fmt.Println(string(cfg))
+}
+
+func deleteBackup(pbmClient *pbm.PBM) {
+	if !*deleteBcpForceF && isTTY() {
+		// we don't care about the error since all this is only to show an additional notice
+		pitrOn, _ := pbmClient.IsPITR()
+		if pitrOn {
+			fmt.Println("While PITR in ON the last snapshot won't be deleted")
+			fmt.Println()
+		}
+
+		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		switch strings.TrimSpace(scanner.Text()) {
+		case "yes", "Yes", "YES", "Y", "y":
+		default:
+			return
+		}
+	}
+
+	cmd := pbm.Cmd{
+		Cmd: pbm.CmdDeleteBackup,
+	}
+	if len(*deleteBcpCmdOtF) > 0 {
+		t, err := parseDateT(*deleteBcpCmdOtF)
+		if err != nil {
+			log.Fatalln("Error: parse date:", err)
+		}
+		cmd.Delete.OlderThan = t.UTC().Unix()
+	} else {
+		if len(*deleteBcpName) == 0 {
+			log.Fatalln("Error: backup name should be specified")
+		}
+		cmd.Delete.Backup = *deleteBcpName
+	}
+	tsop := time.Now().UTC().Unix()
+	err := pbmClient.SendCmd(cmd)
+	if err != nil {
+		log.Fatalln("Error: schedule delete:", err)
+	}
+
+	fmt.Print("Waiting delete to be done ")
+	err = waitOp(pbmClient,
+		&pbm.LockHeader{
+			Type: pbm.CmdDeleteBackup,
+		},
+		time.Second*60)
+	if err != nil && err != errTout {
+		log.Fatalln("\nError:", err)
+	}
+
+	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
+	if err != nil {
+		log.Fatalln("\nError: read agents log:", err)
+	}
+
+	if errl != "" {
+		log.Fatalln("\nError:", errl)
+	}
+
+	if err == errTout {
+		fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
+	} else {
+		fmt.Println("[done]")
+	}
+	printBackupList(pbmClient, 0)
+	printPITR(pbmClient, 0, false)
 }
 
 const (
