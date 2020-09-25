@@ -163,7 +163,12 @@ func (a *Agent) pitr() (err error) {
 
 		err := ibcp.Stream(ctx, w, stg, pbm.CompressionTypeS2)
 		if err != nil {
-			a.log.Error(pbm.CmdPITR, "", "streaming oplog: %v", err)
+			switch err.(type) {
+			case pitr.ErrOpMoved:
+				a.log.Info(pbm.CmdPITR, "", "streaming oplog: %v", err)
+			default:
+				a.log.Error(pbm.CmdPITR, "", "streaming oplog: %v", err)
+			}
 		}
 
 		a.unsetPitr()
