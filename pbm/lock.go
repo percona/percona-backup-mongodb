@@ -41,12 +41,22 @@ type Lock struct {
 // NewLock creates a new Lock object from geven header. Returned lock has no state.
 // So Acquire() and Release() methods should be called.
 func (p *PBM) NewLock(h LockHeader) *Lock {
+	return p.newLock(h, LockCollection)
+}
+
+// NewLockCol creates a new Lock object from geven header in given collection.
+// Returned lock has no state. So Acquire() and Release() methods should be called.
+func (p *PBM) NewLockCol(h LockHeader, collection string) *Lock {
+	return p.newLock(h, collection)
+}
+
+func (p *PBM) newLock(h LockHeader, col string) *Lock {
 	return &Lock{
 		LockData: LockData{
 			LockHeader: h,
 		},
 		p:        p,
-		c:        p.Conn.Database(DB).Collection(LockCollection),
+		c:        p.Conn.Database(DB).Collection(col),
 		hbRate:   time.Second * 5,
 		staleSec: StaleFrameSec,
 	}

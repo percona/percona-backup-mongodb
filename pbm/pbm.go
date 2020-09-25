@@ -27,8 +27,12 @@ const (
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
 	// LockCollection is the name of the mongo collection that is used
-	// by agents to coordinate operations (e.g. locks)
+	// by agents to coordinate mutually exclusive operations (e.g. backup/restore)
 	LockCollection = "pbmLock"
+	// LockOpCollection is the name of the mongo collection that is used
+	// by agents to coordinate operations that doesn't need to be
+	// mutually exclusive to other operation types (e.g. backup-delete)
+	LockOpCollection = "pbmLockOp"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
 	// BcpOldCollection contains a backup of backups metadata
@@ -249,7 +253,7 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
-	// create indexes for the lock collection
+	// create indexes for the lock collections
 	_, err = p.Conn.Database(DB).Collection(LockCollection).Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
@@ -260,7 +264,19 @@ func (p *PBM) setupNewDB() error {
 		},
 	)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return errors.Wrap(err, "ensure lock index")
+		return errors.Wrapf(err, "ensure lock index on %s", LockCollection)
+	}
+	_, err = p.Conn.Database(DB).Collection(LockOpCollection).Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}, {"type", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
 	}
 
 	// create indexs for the pitr cunks

@@ -240,11 +240,38 @@ func main() {
 			}
 			cmd.Delete.Backup = *deleteBcpName
 		}
+		tsop := time.Now().UTC().Unix()
 		err = pbmClient.SendCmd(cmd)
 		if err != nil {
 			log.Fatalln("Error: schedule delete:", err)
 		}
-		fmt.Println("Backup deletion from the store has started")
+
+		fmt.Print("Waiting delete to be done ")
+		err = waitOp(pbmClient,
+			&pbm.LockHeader{
+				Type: pbm.CmdDeleteBackup,
+			},
+			time.Second*60)
+		if err != nil && err != errTout {
+			log.Fatalln("\nError:", err)
+		}
+
+		errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
+		if err != nil {
+			log.Fatalln("\nError: read agents log:", err)
+		}
+
+		if errl != "" {
+			log.Fatalln("\nError:", errl)
+		}
+
+		if err == errTout {
+			fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
+		} else {
+			fmt.Println("[done]")
+		}
+		printBackupList(pbmClient, 0)
+		printPITR(pbmClient, 0, false)
 	}
 }
 
@@ -285,4 +312,56 @@ func parseDateT(v string) (time.Time, error) {
 	}
 
 	return time.Time{}, errors.New("invalid format")
+}
+
+var errTout = errors.Errorf("timeout reached")
+
+// waitOp waits up to waitFor duration until operations which acquires a given lock are finished
+func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) error {
+	// just to be sure the check hasn't started before the lock were created
+	time.Sleep(1 * time.Second)
+
+	tmr := time.NewTimer(waitFor)
+	defer tmr.Stop()
+	tkr := time.NewTicker(1 * time.Second)
+	defer tkr.Stop()
+	for {
+		select {
+		case <-tmr.C:
+			return errTout
+		case <-tkr.C:
+			fmt.Print(".")
+			lock, err := pbmClient.GetLockData(lock)
+			if err != nil {
+				// No lock, so operation has finished
+				if err == mongo.ErrNoDocuments {
+					return nil
+				}
+				return errors.Wrap(err, "get lock data")
+			}
+			clusterTime, err := pbmClient.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+			if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("operation stale, last beat ts: %d", lock.Heartbeat.T)
+			}
+		}
+	}
+}
+
+func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
+	l, err := cn.LogGet("", pbm.TypeError, op, 1)
+	if err != nil {
+		return "", errors.Wrap(err, "get log records")
+	}
+	if len(l) == 0 {
+		return "", nil
+	}
+
+	if l[0].TS < after {
+		return "", nil
+	}
+
+	return l[0].Msg, nil
 }

@@ -91,11 +91,22 @@ func (a *Agent) Start() error {
 
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
-	lock := a.pbm.NewLock(pbm.LockHeader{
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		a.log.Error(pbm.CmdDeleteBackup, "", "get node info data: %v", err)
+		return
+	}
+
+	if !nodeInfo.IsLeader() {
+		a.log.Info(pbm.CmdDeleteBackup, "", "not a member of the leader rs, skipping")
+		return
+	}
+
+	lock := a.pbm.NewLockCol(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdDeleteBackup,
-	})
+	}, pbm.LockOpCollection)
 
 	got, err := a.aquireLock(lock, nil)
 	if err != nil {
