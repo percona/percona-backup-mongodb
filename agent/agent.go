@@ -145,7 +145,8 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		}
 		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "done")
 	default:
-		a.log.Error(pbm.CmdDeleteBackup, "", "malformed command: %v", d)
+		a.log.Error(pbm.CmdDeleteBackup, "", "malformed command received in Delete() of backup: %v", d)
+
 	}
 }
 
