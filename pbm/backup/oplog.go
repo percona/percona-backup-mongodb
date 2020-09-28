@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -30,6 +31,14 @@ func NewOplog(node *pbm.Node) *Oplog {
 func (ot *Oplog) SetTailingSpan(start, end primitive.Timestamp) {
 	ot.start = start
 	ot.end = end
+}
+
+type ErrInsuffRange struct {
+	t primitive.Timestamp
+}
+
+func (e ErrInsuffRange) Error() string {
+	return fmt.Sprintf("oplog has insufficient range, not enough data from starting point %v", e.t)
 }
 
 // WriteTo writes an oplog slice between start and end timestamps into the given io.Writer
@@ -62,13 +71,37 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 	defer cur.Close(ctx)
 
 	opts := primitive.Timestamp{}
-	var ok bool
+	var ok, rcheck bool
 	var written int64
 	for cur.Next(ctx) {
 		opts.T, opts.I, ok = cur.Current.Lookup("ts").TimestampOK()
 		if !ok {
 			return written, errors.Errorf("get the timestamp of record %v", cur.Current)
 		}
+		// Before processing the first oplog record we check if oplog has sufficient range,
+		// i.e. if there are no gaps between the ts of the last backup or slice and
+		// the first record of the current slice. Whereas the request is >= last_saved_ts
+		// we don't know if the returned oldest record is the first since last_saved_ts or
+		// there were other records that are now removed because of oplog collection capacity.
+		// So after we retrieved the first record of the current slice we check if there is
+		// at least one preceding record (basically if there is still record(s) from the previous set).
+		// If so, we can be sure we have a contiguous history with respect to the last_saved_slice.
+		//
+		// We should do this check only after we retrieved the first record of the set. Otherwise,
+		// there is a possibility some records would be erased in a time span between check and first
+		// recorded retrieval due to ongoing write traffic (i.e. oplog append). There's a chance of
+		// false-negative though.
+		if !rcheck {
+			c, err := cl.CountDocuments(ctx, bson.M{"ts": bson.M{"$lte": ot.start}})
+			if err != nil {
+				return 0, errors.Wrap(err, "check oplog range: count preceding documents")
+			}
+			if c == 0 {
+				return 0, ErrInsuffRange{ot.start}
+			}
+			rcheck = true
+		}
+
 		if primitive.CompareTimestamp(ot.end, opts) == -1 {
 			return written, nil
 		}
