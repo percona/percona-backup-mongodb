@@ -70,6 +70,8 @@ func (a *Agent) Start() error {
 				a.ResyncStorage()
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore)
+			case pbm.CmdDeleteBackup:
+				a.Delete(cmd.Delete)
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -84,6 +86,67 @@ func (a *Agent) Start() error {
 				a.log.Error(pbm.CmdUndefined, "", "listening commands: %v", err)
 			}
 		}
+	}
+}
+
+// Delete deletes backup(s) from the store and cleans up its metadata
+func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		a.log.Error(pbm.CmdDeleteBackup, "", "get node info data: %v", err)
+		return
+	}
+
+	if !nodeInfo.IsLeader() {
+		a.log.Info(pbm.CmdDeleteBackup, "", "not a member of the leader rs, skipping")
+		return
+	}
+
+	lock := a.pbm.NewLockCol(pbm.LockHeader{
+		Replset: a.node.RS(),
+		Node:    a.node.Name(),
+		Type:    pbm.CmdDeleteBackup,
+	}, pbm.LockOpCollection)
+
+	got, err := a.aquireLock(lock, nil)
+	if err != nil {
+		a.log.Error(pbm.CmdDeleteBackup, "", "acquire lock: %v", err)
+		return
+	}
+	if !got {
+		a.log.Info(pbm.CmdDeleteBackup, "", "scheduled to another node")
+		return
+	}
+	defer func() {
+		err := lock.Release()
+		if err != nil {
+			a.log.Error(pbm.CmdDeleteBackup, "", "release lock: %v", err)
+		}
+	}()
+
+	switch {
+	case d.OlderThan > 0:
+		t := time.Unix(d.OlderThan, 0).UTC()
+		tstr := t.Format("2006-01-02T15:04:05Z")
+		a.log.Info(pbm.CmdDeleteBackup, tstr, "deleting backups older than %v", t)
+		err := a.pbm.DeleteOlderThan(t)
+		if err != nil {
+			a.log.Error(pbm.CmdDeleteBackup, tstr, "deleting: %v", err)
+			return
+		}
+		a.log.Info(pbm.CmdDeleteBackup, tstr, "done")
+	case d.Backup != "":
+		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "deleting backup")
+		err := a.pbm.DeleteBackup(d.Backup)
+		if err != nil {
+			a.log.Error(pbm.CmdDeleteBackup, d.Backup, "deleting: %v", err)
+
+			return
+		}
+		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "done")
+	default:
+		a.log.Error(pbm.CmdDeleteBackup, "", "malformed command received in Delete() of backup: %v", d)
+
 	}
 }
 

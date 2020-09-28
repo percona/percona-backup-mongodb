@@ -207,42 +207,7 @@ func main() {
 			printPITR(pbmClient, int(*listCmdSize), *listCmdFullF)
 		}
 	case deleteBcpCmd.FullCommand():
-		if !*deleteBcpForceF && isTTY() {
-			// don't care about the error since all this is only to show additional notice
-			pitrOn, _ := pbmClient.IsPITR()
-			if pitrOn {
-				fmt.Println("While PITR in ON the last snapshot won't be deleted")
-				fmt.Println()
-			}
-
-			fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
-			scanner := bufio.NewScanner(os.Stdin)
-			scanner.Scan()
-			switch strings.TrimSpace(scanner.Text()) {
-			case "yes", "Yes", "YES", "Y", "y":
-			default:
-				return
-			}
-		}
-
-		var err error
-		if len(*deleteBcpCmdOtF) > 0 {
-			t, err := parseDateT(*deleteBcpCmdOtF)
-			if err != nil {
-				log.Fatalln("Error: parse date:", err)
-			}
-			err = pbmClient.DeleteOlderThan(t)
-		} else {
-			if len(*deleteBcpName) == 0 {
-				log.Fatalln("Error: backup name should be specified")
-			}
-			err = pbmClient.DeleteBackup(*deleteBcpName)
-		}
-		if err != nil {
-			log.Fatalln("Error:", err)
-		}
-		printBackupList(pbmClient, 0)
-		printPITR(pbmClient, 0, false)
+		deleteBackup(pbmClient)
 	}
 }
 
@@ -258,7 +223,7 @@ func rsync(pbmClient *pbm.PBM) {
 	if err != nil {
 		log.Fatalln("Error: schedule resync:", err)
 	}
-	fmt.Printf("Backup list resync from the store has started\n")
+	fmt.Println("Backup list resync from the store has started")
 }
 
 func getConfig(pbmClient *pbm.PBM) {
@@ -267,6 +232,74 @@ func getConfig(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: unable to get config:", err)
 	}
 	fmt.Println(string(cfg))
+}
+
+func deleteBackup(pbmClient *pbm.PBM) {
+	if !*deleteBcpForceF && isTTY() {
+		// we don't care about the error since all this is only to show an additional notice
+		pitrOn, _ := pbmClient.IsPITR()
+		if pitrOn {
+			fmt.Println("While PITR in ON the last snapshot won't be deleted")
+			fmt.Println()
+		}
+
+		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		switch strings.TrimSpace(scanner.Text()) {
+		case "yes", "Yes", "YES", "Y", "y":
+		default:
+			return
+		}
+	}
+
+	cmd := pbm.Cmd{
+		Cmd: pbm.CmdDeleteBackup,
+	}
+	if len(*deleteBcpCmdOtF) > 0 {
+		t, err := parseDateT(*deleteBcpCmdOtF)
+		if err != nil {
+			log.Fatalln("Error: parse date:", err)
+		}
+		cmd.Delete.OlderThan = t.UTC().Unix()
+	} else {
+		if len(*deleteBcpName) == 0 {
+			log.Fatalln("Error: backup name should be specified")
+		}
+		cmd.Delete.Backup = *deleteBcpName
+	}
+	tsop := time.Now().UTC().Unix()
+	err := pbmClient.SendCmd(cmd)
+	if err != nil {
+		log.Fatalln("Error: schedule delete:", err)
+	}
+
+	fmt.Print("Waiting delete to be done ")
+	err = waitOp(pbmClient,
+		&pbm.LockHeader{
+			Type: pbm.CmdDeleteBackup,
+		},
+		time.Second*60)
+	if err != nil && err != errTout {
+		log.Fatalln("\nError:", err)
+	}
+
+	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
+	if err != nil {
+		log.Fatalln("\nError: read agents log:", err)
+	}
+
+	if errl != "" {
+		log.Fatalln("\nError:", errl)
+	}
+
+	if err == errTout {
+		fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
+	} else {
+		fmt.Println("[done]")
+	}
+	printBackupList(pbmClient, 0)
+	printPITR(pbmClient, 0, false)
 }
 
 const (
@@ -283,4 +316,56 @@ func parseDateT(v string) (time.Time, error) {
 	}
 
 	return time.Time{}, errors.New("invalid format")
+}
+
+var errTout = errors.Errorf("timeout reached")
+
+// waitOp waits up to waitFor duration until operations which acquires a given lock are finished
+func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) error {
+	// just to be sure the check hasn't started before the lock were created
+	time.Sleep(1 * time.Second)
+
+	tmr := time.NewTimer(waitFor)
+	defer tmr.Stop()
+	tkr := time.NewTicker(1 * time.Second)
+	defer tkr.Stop()
+	for {
+		select {
+		case <-tmr.C:
+			return errTout
+		case <-tkr.C:
+			fmt.Print(".")
+			lock, err := pbmClient.GetLockData(lock)
+			if err != nil {
+				// No lock, so operation has finished
+				if err == mongo.ErrNoDocuments {
+					return nil
+				}
+				return errors.Wrap(err, "get lock data")
+			}
+			clusterTime, err := pbmClient.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+			if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("operation stale, last beat ts: %d", lock.Heartbeat.T)
+			}
+		}
+	}
+}
+
+func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
+	l, err := cn.LogGet("", pbm.TypeError, op, 1)
+	if err != nil {
+		return "", errors.Wrap(err, "get log records")
+	}
+	if len(l) == 0 {
+		return "", nil
+	}
+
+	if l[0].TS < after {
+		return "", nil
+	}
+
+	return l[0].Msg, nil
 }

@@ -139,9 +139,16 @@ func (l *Logger) Output(e *LogEntry) error {
 
 // LogGet returns last log entries
 func (p *PBM) LogGet(rs string, typ EntryType, action Command, limit int64) ([]LogEntry, error) {
+	// TODO: it should be reworked along with the status implementation
+	// TODO: add indexes, make logs retrieval more flexible
+	filter := bson.D{{"type", typ}, {"action", action}}
+	if rs != "" {
+		filter = append(filter, bson.E{"rs", rs})
+	}
+
 	cur, err := p.Conn.Database(DB).Collection(LogCollection).Find(
 		p.ctx,
-		bson.D{{"rs", rs}, {"type", typ}, {"action", action}},
+		filter,
 		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
 	)
 	if err != nil {

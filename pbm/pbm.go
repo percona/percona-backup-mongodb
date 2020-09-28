@@ -27,8 +27,12 @@ const (
 	// ConfigCollection is the name of the mongo collection that contains PBM configs
 	ConfigCollection = "pbmConfig"
 	// LockCollection is the name of the mongo collection that is used
-	// by agents to coordinate operations (e.g. locks)
+	// by agents to coordinate mutually exclusive operations (e.g. backup/restore)
 	LockCollection = "pbmLock"
+	// LockOpCollection is the name of the mongo collection that is used
+	// by agents to coordinate operations that doesn't need to be
+	// mutually exclusive to other operation types (e.g. backup-delete)
+	LockOpCollection = "pbmLockOp"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
 	// BcpOldCollection contains a backup of backups metadata
@@ -62,14 +66,16 @@ const (
 	CmdResyncBackupList Command = "resyncBcpList"
 	CmdPITR             Command = "pitr"
 	CmdPITRestore       Command = "pitrestore"
+	CmdDeleteBackup     Command = "delete"
 )
 
 type Cmd struct {
-	Cmd        Command       `bson:"cmd"`
-	Backup     BackupCmd     `bson:"backup,omitempty"`
-	Restore    RestoreCmd    `bson:"restore,omitempty"`
-	PITRestore PITRestoreCmd `bson:"pitrestore,omitempty"`
-	TS         int64         `bson:"ts"`
+	Cmd        Command         `bson:"cmd"`
+	Backup     BackupCmd       `bson:"backup,omitempty"`
+	Restore    RestoreCmd      `bson:"restore,omitempty"`
+	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
+	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
+	TS         int64           `bson:"ts"`
 }
 
 func (c Cmd) String() string {
@@ -121,6 +127,15 @@ type PITRestoreCmd struct {
 
 func (p PITRestoreCmd) String() string {
 	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
+}
+
+type DeleteBackupCmd struct {
+	Backup    string `bson:"backup"`
+	OlderThan int64  `bson:"olderthan"`
+}
+
+func (d DeleteBackupCmd) String() string {
+	return fmt.Sprintf("backup: %s, older than: %d", d.Backup, d.OlderThan)
 }
 
 type CompressionType string
@@ -238,7 +253,7 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
-	// create indexes for the lock collection
+	// create indexes for the lock collections
 	_, err = p.Conn.Database(DB).Collection(LockCollection).Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
@@ -249,7 +264,19 @@ func (p *PBM) setupNewDB() error {
 		},
 	)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return errors.Wrap(err, "ensure lock index")
+		return errors.Wrapf(err, "ensure lock index on %s", LockCollection)
+	}
+	_, err = p.Conn.Database(DB).Collection(LockOpCollection).Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"replset", 1}, {"type", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
 	}
 
 	// create indexs for the pitr cunks
