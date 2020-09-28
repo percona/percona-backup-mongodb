@@ -128,18 +128,19 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
 		tstr := t.Format("2006-01-02T15:04:05Z")
-		a.log.Info(pbm.CmdDeleteBackup, tstr, "deleteing backups older than %v", t)
+		a.log.Info(pbm.CmdDeleteBackup, tstr, "deleting backups older than %v", t)
 		err := a.pbm.DeleteOlderThan(t)
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, tstr, "deleteing: %v", err)
+			a.log.Error(pbm.CmdDeleteBackup, tstr, "deleting: %v", err)
 			return
 		}
 		a.log.Info(pbm.CmdDeleteBackup, tstr, "done")
 	case d.Backup != "":
-		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "deleteing backup")
+		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "deleting backup")
 		err := a.pbm.DeleteBackup(d.Backup)
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, d.Backup, "deleteing: %v", err)
+			a.log.Error(pbm.CmdDeleteBackup, d.Backup, "deleting: %v", err)
+
 			return
 		}
 		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "done")
