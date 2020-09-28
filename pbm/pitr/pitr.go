@@ -86,6 +86,16 @@ func (i *IBackup) Catchup() error {
 	return nil
 }
 
+// ErrOpMoved is the error signaling that slicing op
+// now being run by the other node
+type ErrOpMoved struct {
+	to string
+}
+
+func (e ErrOpMoved) Error() string {
+	return fmt.Sprintf("pitr slicing resumed on node %s", e.to)
+}
+
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
 	if i.lastTS.T == 0 {
@@ -154,7 +164,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		switch ld.Type {
 		case pbm.CmdPITR:
 			if ld.Node != nodeInfo.Me {
-				return errors.Errorf("pitr lock was stolen by node %s", ld.Node)
+				return ErrOpMoved{ld.Node}
 			}
 			sliceTo, err = oplog.LastWrite()
 			if err != nil {
