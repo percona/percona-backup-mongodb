@@ -17,6 +17,9 @@
      "all or nothing" rule. A transaction is either fully applied or not
      at all.
 
+  Bucket
+     A bucket is a container on the s3 remote storage that stores backups.
+
   Collection
      A collection is the way data is organized in MongoDB. It is analogous to a table in relational databases.
 
@@ -49,7 +52,7 @@
      Oplog (operations log) is a fixed-size collection that keeps a rolling record of all operations that modify data in the database. 
 
   Oplog slice
-     A compressed bundle of :term:`oplog <Oplog> entries stored in the Oplog Store database in MongoDB. The oplog size captures an approximately 10-minute frame. For a snapshot, the oplog size is defined by the time that the slowest replica set member requires to perform mongodump.    
+     A compressed bundle of :term:`oplog <Oplog>` entries stored in the Oplog Store database in MongoDB. The oplog size captures an approximately 10-minute frame. For a snapshot, the oplog size is defined by the time that the slowest replica set member requires to perform mongodump.    
 
   pbm-agent
      A ``pbm-agent`` is a :term:`PBM <Percona Backup for MongoDB>` process running on the mongod node for backup and restore operations. A pbm-agent instance is required for every mongod node (including replica set secondary members and config server replica set nodes).   

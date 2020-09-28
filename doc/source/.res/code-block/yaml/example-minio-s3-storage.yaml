@@ -6,6 +6,7 @@
        endpointUrl: "http://localhost:9000"
        region: my-region
        bucket: pbm-example
+       prefix: data/pbm/test
        credentials:
          access-key-id: <your-access-key-id-here>
          secret-access-key: <your-secret-key-here>

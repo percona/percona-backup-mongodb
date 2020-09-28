@@ -5,6 +5,7 @@
      s3:
        region: us-west-2
        bucket: pbm-test-bucket
+       prefix: data/pbm/backup
        credentials:
          access-key-id: <your-access-key-id-here>
          secret-access-key: <your-secret-key-here>
