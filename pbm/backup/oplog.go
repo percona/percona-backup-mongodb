@@ -38,7 +38,7 @@ type ErrInsuffRange struct {
 }
 
 func (e ErrInsuffRange) Error() string {
-	return fmt.Sprintf("oplog has insufficient range, not enough data from starting point %v", e.t)
+	return fmt.Sprintf("oplog has insufficient range, not enough data from starting point %v. Run `pbm backup` to create a valid starting point for the PITR", e.t)
 }
 
 // WriteTo writes an oplog slice between start and end timestamps into the given io.Writer
@@ -80,7 +80,7 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 		}
 		// Before processing the first oplog record we check if oplog has sufficient range,
 		// i.e. if there are no gaps between the ts of the last backup or slice and
-		// the first record of the current slice. Whereas the request is >= last_saved_ts
+		// the first record of the current slice. Whereas the request is ">= last_saved_ts"
 		// we don't know if the returned oldest record is the first since last_saved_ts or
 		// there were other records that are now removed because of oplog collection capacity.
 		// So after we retrieved the first record of the current slice we check if there is
@@ -88,11 +88,11 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 		// If so, we can be sure we have a contiguous history with respect to the last_saved_slice.
 		//
 		// We should do this check only after we retrieved the first record of the set. Otherwise,
-		// there is a possibility some records would be erased in a time span between check and first
-		// recorded retrieval due to ongoing write traffic (i.e. oplog append). There's a chance of
-		// false-negative though.
+		// there is a possibility some records would be erased in a time span between the check and
+		// the first record retrieval due to ongoing write traffic (i.e. oplog append).
+		// There's a chance of false-negative though.
 		if !rcheck {
-			c, err := cl.CountDocuments(ctx, bson.M{"ts": bson.M{"$lte": ot.start}})
+			c, err := cl.CountDocuments(ctx, bson.M{"ts": bson.M{"$lte": ot.start}}, options.Count().SetLimit(1))
 			if err != nil {
 				return 0, errors.Wrap(err, "check oplog range: count preceding documents")
 			}
