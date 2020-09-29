@@ -3,7 +3,7 @@
    storage:
     type: s3
     s3:
-        region: US-EAST1
+        region: us-east1
         bucket: pbm-testing
         prefix: pbm/test
         endpointUrl: https://storage.googleapis.com
