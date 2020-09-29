@@ -124,6 +124,15 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		a.log.Info(pbm.CmdBackup, bcp.Name, "backup finished")
 	}
 
+	// Update PITR "changed" option to "reset" observation by pbm list of
+	// any PITR related errors in the log since some of the errors might
+	// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
+	// generate new errors so we won't miss anything
+	err = a.pbm.ConfigBumpPITRepoch()
+	if err != nil {
+		a.log.Warning(pbm.CmdBackup, bcp.Name, "update PITR obesrvation ts")
+	}
+
 	// In the case of fast backup (small db) we have to wait before releasing the lock.
 	// Otherwise, since the primary node waits for `WaitBackupStart*0.9` before trying to acquire the lock
 	// it might happen that the backup will be made twice:

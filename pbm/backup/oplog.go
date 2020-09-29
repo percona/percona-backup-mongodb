@@ -38,7 +38,7 @@ type ErrInsuffRange struct {
 }
 
 func (e ErrInsuffRange) Error() string {
-	return fmt.Sprintf("oplog has insufficient range, not enough data from starting point %v. Run `pbm backup` to create a valid starting point for the PITR", e.t)
+	return fmt.Sprintf("oplog has insufficient range, some records since the last saved ts %v are missing. Run `pbm backup` to create a valid starting point for the PITR", e.t)
 }
 
 // WriteTo writes an oplog slice between start and end timestamps into the given io.Writer
