@@ -185,18 +185,17 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	for _, s := range shards {
 		if on {
 			err := pitrState(cn, s.ID, ts)
-			if err == errPITRBackup {
-				lg, err := pitrLog(cn, s.ID, cfg.PITR.Changed)
-				if err != nil {
-					log.Printf("Error: get log for shard '%s': %v", s.ID, err)
-				}
-				if lg != "" {
-					pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
-				} else if cfg.PITR.Changed <= time.Now().Add(time.Minute*-1).Unix() {
-					pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
-				}
+			if err == errPITRBackup && cfg.PITR.Changed <= time.Now().Add(time.Minute*-1).Unix() {
+				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
 			} else if err != nil {
 				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)
+			}
+			lg, err := pitrLog(cn, s.ID, cfg.PITR.Changed)
+			if err != nil {
+				log.Printf("Error: get log for shard '%s': %v", s.ID, err)
+			}
+			if lg != "" {
+				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
 			}
 		}
 

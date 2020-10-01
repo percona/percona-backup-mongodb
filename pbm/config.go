@@ -95,6 +95,16 @@ func (p *PBM) SetConfig(cfg Config) error {
 	return errors.Wrap(err, "mongo ConfigCollection UpdateOne")
 }
 
+func (p *PBM) ConfigBumpPITRepoch() error {
+	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$set": bson.M{"pitr.changed": time.Now().Unix()}},
+	)
+
+	return errors.Wrap(err, "write to db")
+}
+
 func (p *PBM) SetConfigVar(key, val string) error {
 	if !ValidateConfigKey(key) {
 		return errors.New("invalid config key")
