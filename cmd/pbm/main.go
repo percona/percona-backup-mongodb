@@ -274,7 +274,7 @@ func deleteBackup(pbmClient *pbm.PBM) {
 		log.Fatalln("Error: schedule delete:", err)
 	}
 
-	fmt.Print("Waiting delete to be done ")
+	fmt.Print("Waiting for delete to be done ")
 	err = waitOp(pbmClient,
 		&pbm.LockHeader{
 			Type: pbm.CmdDeleteBackup,
@@ -324,6 +324,7 @@ var errTout = errors.Errorf("timeout reached")
 func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)
+	fmt.Print(".")
 
 	tmr := time.NewTimer(waitFor)
 	defer tmr.Stop()

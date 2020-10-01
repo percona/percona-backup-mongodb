@@ -91,6 +91,8 @@ func (a *Agent) Start() error {
 
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
+	const waitAtLeast = time.Second * 5
+
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		a.log.Error(pbm.CmdDeleteBackup, "", "get node info data: %v", err)
@@ -124,30 +126,37 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		}
 	}()
 
+	tsstart := time.Now()
+	obj := d.Backup
 	switch {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
-		tstr := t.Format("2006-01-02T15:04:05Z")
-		a.log.Info(pbm.CmdDeleteBackup, tstr, "deleting backups older than %v", t)
+		obj = t.Format("2006-01-02T15:04:05Z")
+		a.log.Info(pbm.CmdDeleteBackup, obj, "deleting backups older than %v", t)
 		err := a.pbm.DeleteOlderThan(t)
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, tstr, "deleting: %v", err)
+			a.log.Error(pbm.CmdDeleteBackup, obj, "deleting: %v", err)
 			return
 		}
-		a.log.Info(pbm.CmdDeleteBackup, tstr, "done")
 	case d.Backup != "":
 		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "deleting backup")
 		err := a.pbm.DeleteBackup(d.Backup)
 		if err != nil {
 			a.log.Error(pbm.CmdDeleteBackup, d.Backup, "deleting: %v", err)
-
 			return
 		}
-		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "done")
 	default:
 		a.log.Error(pbm.CmdDeleteBackup, "", "malformed command received in Delete() of backup: %v", d)
-
+		return
 	}
+
+	// TODO: timers logic should be replaced with the opID
+	needToWait := waitAtLeast - time.Since(tsstart)
+	if needToWait > 0 {
+		time.Sleep(needToWait)
+	}
+
+	a.log.Info(pbm.CmdDeleteBackup, obj, "done")
 }
 
 // ResyncStorage uploads a backup list from the remote store
