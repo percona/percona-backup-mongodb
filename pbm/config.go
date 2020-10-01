@@ -22,6 +22,7 @@ import (
 type Config struct {
 	PITR    PITRConf    `bson:"pitr" json:"pitr" yaml:"pitr"`
 	Storage StorageConf `bson:"storage" json:"storage" yaml:"storage"`
+	Restore RestoreConf `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
 }
 
 // PITRConf is a Point-In-Time Recovery options
@@ -45,6 +46,12 @@ type StorageConf struct {
 	Type       StorageType `bson:"type" json:"type" yaml:"type"`
 	S3         s3.Conf     `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Filesystem fs.Conf     `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+}
+
+// RestoreConf is config options for the restore
+type RestoreConf struct {
+	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
+	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
 }
 
 // ConfKeys returns valid (existing) config keys (option names)
