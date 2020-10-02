@@ -336,6 +336,9 @@ const (
 	tmpRoles = `pbmRRoles`
 
 	preserveUUID = false
+
+	batchSizeDefault           = 500
+	numInsertionWorkersDefault = 10
 )
 
 func (r *Restore) RunSnapshot() (err error) {
@@ -386,6 +389,20 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "create session for the dump restore")
 	}
 
+	cfg, err := r.cn.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+
+	batchSize := batchSizeDefault
+	if cfg.Restore.BatchSize > 0 {
+		batchSize = cfg.Restore.BatchSize
+	}
+	numInsertionWorkers := numInsertionWorkersDefault
+	if cfg.Restore.NumInsertionWorkers > 0 {
+		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
+	}
+
 	mr := mongorestore.MongoRestore{
 		SessionProvider: rsession,
 		ToolOptions:     &topts,
@@ -393,10 +410,10 @@ func (r *Restore) RunSnapshot() (err error) {
 			Archive: "-",
 		},
 		OutputOptions: &mongorestore.OutputOptions{
-			BulkBufferSize:           2000,
+			BulkBufferSize:           batchSize,
 			BypassDocumentValidation: true,
 			Drop:                     true,
-			NumInsertionWorkers:      20,
+			NumInsertionWorkers:      numInsertionWorkers,
 			NumParallelCollections:   1,
 			PreserveUUID:             preserveUUID,
 			StopOnError:              true,
@@ -413,10 +430,10 @@ func (r *Restore) RunSnapshot() (err error) {
 	}
 
 	rdumpResult := mr.Restore()
+	mr.Close()
 	if rdumpResult.Err != nil {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
-	mr.Close()
 
 	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDumpDone, "")
 	if err != nil {

@@ -47,6 +47,13 @@ func main() {
 	tests.ApplyConfig(storage)
 
 	tests.DeleteBallast()
+	tests.GenerateBallastData(2e7)
+	printStart("Basic Backup & Restore AWS S3")
+	tests.BackupAndRestore()
+	printDone("Basic Backup & Restore AWS S3")
+	flushStore(storage)
+
+	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
 	printStart("Basic Backup & Restore AWS S3")
