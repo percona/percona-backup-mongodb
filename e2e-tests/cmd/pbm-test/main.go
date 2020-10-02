@@ -46,12 +46,12 @@ func main() {
 	flushStore(storage)
 	tests.ApplyConfig(storage)
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(2e7)
-	printStart("Basic Backup & Restore AWS S3")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore AWS S3")
-	flushStore(storage)
+	// tests.DeleteBallast()
+	// tests.GenerateBallastData(2e7)
+	// printStart("Basic Backup & Restore AWS S3")
+	// tests.BackupAndRestore()
+	// printDone("Basic Backup & Restore AWS S3")
+	// flushStore(storage)
 
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
@@ -71,20 +71,20 @@ func main() {
 	printDone("Basic Backup & Restore GCS")
 	flushStore(storage)
 
-	storage = "/etc/pbm/fs.yaml"
+	// storage = "/etc/pbm/fs.yaml"
 
-	flushStore(storage)
-	tests.ApplyConfig(storage)
+	// flushStore(storage)
+	// tests.ApplyConfig(storage)
 
-	printStart("Basic Backup & Restore FS")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore FS")
+	// printStart("Basic Backup & Restore FS")
+	// tests.BackupAndRestore()
+	// printDone("Basic Backup & Restore FS")
 
-	printStart("Basic PITR & Restore FS")
-	tests.PITRbasic()
-	printDone("Basic PITR & Restore FS")
+	// printStart("Basic PITR & Restore FS")
+	// tests.PITRbasic()
+	// printDone("Basic PITR & Restore FS")
 
-	flushStore(storage)
+	// flushStore(storage)
 
 	storage = "/etc/pbm/minio.yaml"
 
