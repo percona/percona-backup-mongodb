@@ -54,21 +54,25 @@ type RestoreConf struct {
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
 }
 
-// ConfKeys returns valid (existing) config keys (option names)
-func ConfKeys() []string {
-	return keys(reflect.TypeOf(Config{}))
+type confMap map[string]reflect.Kind
+
+// _confmap is list valid keys and its types of current config
+var _confmap confMap
+
+func init() {
+	_confmap = keys(reflect.TypeOf(Config{}))
 }
 
-func keys(t reflect.Type) []string {
-	var v []string
+func keys(t reflect.Type) confMap {
+	v := make(confMap)
 	for i := 0; i < t.NumField(); i++ {
 		name := strings.TrimSpace(strings.Split(t.Field(i).Tag.Get("bson"), ",")[0])
 		if t.Field(i).Type.Kind() == reflect.Struct {
-			for _, n := range keys(t.Field(i).Type) {
-				v = append(v, name+"."+n)
+			for n, t := range keys(t.Field(i).Type) {
+				v[name+"."+n] = t
 			}
 		} else {
-			v = append(v, name)
+			v[name] = t.Field(i).Type.Kind()
 		}
 	}
 	return v
@@ -118,7 +122,7 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	}
 
 	// just check if config was set
-	cval, err := p.GetConfigVar(key)
+	_, err := p.GetConfig()
 	if err != nil {
 		if errors.Cause(err) == mongo.ErrNoDocuments {
 			return errors.New("config doesn't set")
@@ -126,22 +130,26 @@ func (p *PBM) SetConfigVar(key, val string) error {
 		return err
 	}
 
-	// TODO: generalised parsing of non string types
 	var v interface{}
-	switch key {
-	case "pitr.enabled":
-		nv, err := strconv.ParseBool(val)
-		if err != nil {
-			return errors.Wrap(err, "casting value of pitr.enabled")
-		}
-		if nv == cval.(bool) {
-			return nil
-		}
-
-		return errors.Wrap(p.confSetPITR(key, nv), "write to db")
-	default:
+	switch _confmap[key] {
+	case reflect.String:
 		v = val
+	case reflect.Int, reflect.Int64:
+		v, err = strconv.ParseInt(val, 10, 64)
+	case reflect.Float32, reflect.Float64:
+		v, err = strconv.ParseFloat(val, 64)
+	case reflect.Bool:
+		v, err = strconv.ParseBool(val)
 	}
+	if err != nil {
+		return errors.Wrapf(err, "casting value of %s", key)
+	}
+
+	// TODO: how to be with special case options like pitr.enabled
+	if key == "pitr.enabled" {
+		return errors.Wrap(p.confSetPITR(key, v.(bool)), "write to db")
+	}
+
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
@@ -175,6 +183,12 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil
+	case bson.TypeInt32:
+		return v.Int32(), nil
+	case bson.TypeInt64:
+		return v.Int64(), nil
+	case bson.TypeDouble:
+		return v.Double(), nil
 	case bson.TypeString:
 		return v.String(), nil
 	default:
@@ -184,12 +198,8 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 
 // ValidateConfigKey checks if a config key valid
 func ValidateConfigKey(k string) bool {
-	for _, v := range ConfKeys() {
-		if k == v {
-			return true
-		}
-	}
-	return false
+	_, ok := _confmap[k]
+	return ok
 }
 
 func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
