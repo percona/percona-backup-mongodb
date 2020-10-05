@@ -135,6 +135,15 @@ S3 storage options
      - string
      - YES
      - The key to sign your programmatic requests to the storage bucket 
+   * - ``storage.s3.uploadPartSize``
+     - int
+     - NO
+     - The size of data chunks to be uploaded to the bucket. Default: 10MB.
+       
+       |PBM| automatically increases the ``uploadPartSize`` value if the size of the file to be uploaded exceeds the max allowed file size. (The max allowed file size is calculated with the default values of uploadPartSize * `maxUploadParts <https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#pkg-constants>`_ and is appr. 97,6 GB)
+
+       By setting this option, you can manually adjust the size of data chunks if |PBM| failed to do it for some reason. The defined ``uploadPartSize`` value overrides the default value and is used for calculating the max allowed file size
+ 
 
 Filesystem storage options
 -------------------------------------------------------------------------------
