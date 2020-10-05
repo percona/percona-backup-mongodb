@@ -22,6 +22,12 @@ Starting from v1.3.0, it also includes the :ref:`pitr` configuration.
 - `Amazon Simple Storage Service <https://docs.aws.amazon.com/s3/index.html>`_, 
 - `Google Cloud Storage <https://cloud.google.com/storage>`_, 
 - `MinIO <https://min.io/>`_.
+  
+Starting from v1.3.2, |PBM| supports :term:`server-side encryption <Server-side encryption>` for :term:`S3 buckets <Bucket>` with customer managed keys stored in |AWS KMS|.
+
+.. seealso::
+
+   `Protecting Data Using Server-Side Encryption with CMKs Stored in AWS Key Management Service (SSE-KMS) <https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingKMSEncryption.html>`_
 
 .. rubric:: Remote Filesystem Server Storage
 
@@ -102,7 +108,7 @@ S3 storage options
 
    * - Option
      - Type
-     - Mandatory
+     - Required
      - Description
    * - ``storage.s3.provider``
      - string
@@ -136,16 +142,34 @@ S3 storage options
      - YES
      - The key to sign your programmatic requests to the storage bucket 
 
-Filesystem storage options
--------------------------------------------------------------------------------
+.. rubric:: Server-side encryption options
 
 .. list-table::
-   :widths: 30 10 20 40
+   :widths: 40 20 40
    :header-rows: 1
 
    * - Option
      - Type
-     - Mandatory
+     - Description
+   * - ``serverSideEncryption.sseAlgorythm``
+     - string
+     - The key management mode used for server-side encryption. 
+
+       Supported value: ``aws:kms``
+   * - ``serverSideEncryption.kmsKeyID``
+     - string
+     - Your customer-managed key
+
+Filesystem storage options
+-------------------------------------------------------------------------------
+
+.. list-table::
+   :widths: 40 10 20 40
+   :header-rows: 1
+
+   * - Option
+     - Type
+     - Required
      - Description
    * - ``storage.filesystem.path``
      - string

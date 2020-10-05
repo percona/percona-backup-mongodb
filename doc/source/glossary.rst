@@ -77,4 +77,6 @@
 
   S3 compatible storage   
      This is the storage that is built on the :term:`S3 <Amazon S3>` API.
-   
+ 
+  Server-side encryption
+     Server-side encryption is the encryption of data on the remote storage. The data is encrypted when it is written to S3 bucket and decrypted when you access the data. 

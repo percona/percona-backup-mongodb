@@ -33,3 +33,4 @@
 .. |pbm-delete-backup| replace:: ``pbm delete-backup``
 .. |sudo| replace:: :program:`sudo`
 .. |PITR| replace:: Point-in-Time Recovery
+.. |AWS KMS| replace:: :abbr:`AWS KMS (AWS Key Management Service)`
