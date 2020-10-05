@@ -208,6 +208,11 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	return tlines
 }
 
+type tlineMerge struct {
+	tl    Timeline
+	repls int
+}
+
 // MergeTimelines merges overlapping sets on timelines
 // it preresumes timelines already sorted and doesn't start from 0
 func MergeTimelines(tlns ...[]Timeline) []Timeline {
@@ -218,36 +223,59 @@ func MergeTimelines(tlns ...[]Timeline) []Timeline {
 		return tlns[0]
 	}
 
+	// defining the base timeline set
+	// (set with the less anount of timelines)
 	ln := len(tlns[0])
-	for _, tl := range tlns {
+	ri := 0
+	for i, tl := range tlns {
 		if len(tl) < ln {
 			ln = len(tl)
+			ri = i
 		}
 	}
-	rtl := make([]Timeline, ln)
-	rtl = tlns[0][:ln]
-LOOP:
-	for j := 1; j < len(tlns); j++ {
-		tl := tlns[j]
+	if ri != 0 {
+		tlns[0], tlns[ri] = tlns[ri], tlns[0]
+	}
 
-		for i, t := range tl {
-			if i > len(rtl)-1 {
-				continue LOOP
-			}
-			if t.Start > rtl[i].End {
-				continue
-			}
-			if t.Start > rtl[i].Start {
-				rtl[i].Start = t.Start
-			}
+	rtl := make([]tlineMerge, ln)
+	for i, v := range tlns[0] {
+		rtl[i] = tlineMerge{tl: v, repls: 1}
+	}
 
-			if t.End < rtl[i].End {
-				rtl[i].End = t.End
+	// for each timeilne in the base set we're looking
+	// for the overlaping timeline in the rest of the sets
+	for i := range rtl {
+	RSLOOP:
+		for j := 1; j < len(tlns); j++ {
+			tl := tlns[j]
+
+			for _, t := range tl {
+				if rtl[i].tl.End <= t.Start || t.End <= rtl[i].tl.Start {
+					continue
+				}
+				if t.Start > rtl[i].tl.Start {
+					rtl[i].tl.Start = t.Start
+				}
+
+				if t.End < rtl[i].tl.End {
+					rtl[i].tl.End = t.End
+				}
+
+				rtl[i].repls++
+				continue RSLOOP
 			}
+		}
+
+	}
+
+	tlines := []Timeline{}
+	for _, v := range rtl {
+		if v.repls == len(tlns) {
+			tlines = append(tlines, v.tl)
 		}
 	}
 
-	return rtl
+	return tlines
 }
 
 // PITRmetaFromFName parses given file name and returns PITRChunk metadata
