@@ -34,6 +34,12 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+	// PITRCollection represents current incremental backups state
+	PITRCollection = "pbmPITRState"
+	//PITRChunksCollection contains index metadata of PITR chunks
+	PITRChunksCollection = "pbmPITRChunks"
+	//PITRChunksOldCollection contains archived index metadata of PITR chunks
+	PITRChunksOldCollection = "pbmPITRChunks.old"
 
 	// NoReplset is the name of a virtual replica set of the standalone node
 	NoReplset = "pbmnoreplicaset"
@@ -42,6 +48,7 @@ const (
 	MetadataFileSuffix = ".pbm.json"
 )
 
+// Command represents actions that could be done on behalf of the client by the agents
 type Command string
 
 const (
@@ -50,13 +57,16 @@ const (
 	CmdRestore          Command = "restore"
 	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
+	CmdPITR             Command = "pitr"
+	CmdPITRestore       Command = "pitrestore"
 )
 
 type Cmd struct {
-	Cmd     Command    `bson:"cmd"`
-	Backup  BackupCmd  `bson:"backup,omitempty"`
-	Restore RestoreCmd `bson:"restore,omitempty"`
-	TS      int64      `bson:"ts"`
+	Cmd        Command       `bson:"cmd"`
+	Backup     BackupCmd     `bson:"backup,omitempty"`
+	Restore    RestoreCmd    `bson:"restore,omitempty"`
+	PITRestore PITRestoreCmd `bson:"pitrestore,omitempty"`
+	TS         int64         `bson:"ts"`
 }
 
 type BackupCmd struct {
@@ -67,6 +77,11 @@ type BackupCmd struct {
 type RestoreCmd struct {
 	Name       string `bson:"name"`
 	BackupName string `bson:"backupName"`
+}
+
+type PITRestoreCmd struct {
+	Name string `bson:"name"`
+	TS   int64  `bson:"ts"`
 }
 
 type CompressionType string
@@ -80,7 +95,12 @@ const (
 	CompressionTypeS2     CompressionType = "s2"
 )
 
-var WaitActionStart = time.Second * 15
+const PITRcheckPeriod = time.Second * 15
+
+var (
+	WaitActionStart = time.Second * 15
+	WaitBackupStart = WaitActionStart + PITRcheckPeriod*12/10
+)
 
 type PBM struct {
 	Conn *mongo.Client
@@ -102,12 +122,12 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		Conn: client,
 		ctx:  ctx,
 	}
-	im, err := pbm.GetIsMaster()
+	inf, err := pbm.GetNodeInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "get topology")
 	}
 
-	if !im.IsSharded() || im.ReplsetRole() == ReplRoleConfigSrv {
+	if !inf.IsSharded() || inf.ReplsetRole() == ReplRoleConfigSrv {
 		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
@@ -148,11 +168,16 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 }
 
+const (
+	cmdCollectionSizeBytes  = 1 << 10 * 10 // size 10kb ~ 50 commands
+	logsCollectionSizeBytes = 1 << 20      // 1Mb
+)
+
 // setup a new DB for PBM
 func (p *PBM) setupNewDB() error {
 	err := p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", 1 << 10 * 2}},
+		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", cmdCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure cmd collection")
@@ -160,15 +185,22 @@ func (p *PBM) setupNewDB() error {
 
 	err = p.Conn.Database(DB).RunCommand(
 		p.ctx,
-		bson.D{{"create", LockCollection}}, //size 2kb ~ 10 commands
+		bson.D{{"create", LogCollection}, {"capped", true}, {"size", logsCollectionSizeBytes}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure log collection")
+	}
+
+	err = p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", LockCollection}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock collection")
 	}
 
-	// create index for Locks
-	c := p.Conn.Database(DB).Collection(LockCollection)
-	_, err = c.Indexes().CreateOne(
+	// create indexes for the lock collection
+	_, err = p.Conn.Database(DB).Collection(LockCollection).Indexes().CreateOne(
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}},
@@ -179,6 +211,25 @@ func (p *PBM) setupNewDB() error {
 	)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure lock index")
+	}
+
+	// create indexs for the pitr cunks
+	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(
+		p.ctx,
+		[]mongo.IndexModel{
+			{
+				Keys: bson.D{{"rs", 1}, {"start_ts", 1}, {"end_ts", 1}},
+				Options: options.Index().
+					SetUnique(true).
+					SetSparse(true),
+			},
+			{
+				Keys: bson.D{{"start_ts", 1}, {"end_ts", 1}},
+			},
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure pitr chunks index")
 	}
 
 	return nil
@@ -223,6 +274,7 @@ type BackupMeta struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 }
+
 type Condition struct {
 	Timestamp int64  `bson:"timestamp" json:"timestamp"`
 	Status    Status `bson:"status" json:"status"`
@@ -236,6 +288,7 @@ type BackupReplset struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
@@ -245,12 +298,12 @@ type BackupReplset struct {
 type Status string
 
 const (
-	StatusStarting Status = "starting"
-	StatusRunning  Status = "running"
-	StatusDumpDone Status = "dumpDone"
-	StatusDone     Status = "done"
+	StatusStarting  Status = "starting"
+	StatusRunning   Status = "running"
+	StatusDumpDone  Status = "dumpDone"
+	StatusDone      Status = "done"
 	StatusCancelled Status = "canceled"
-	StatusError    Status = "error"
+	StatusError     Status = "error"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {
@@ -263,6 +316,17 @@ func (p *PBM) SetBackupMeta(m *BackupMeta) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).InsertOne(p.ctx, m)
 
 	return err
+}
+
+// RS returns the metada of the replset with given name.
+// It returns nil if no replsent found.
+func (b *BackupMeta) RS(name string) *BackupReplset {
+	for _, rs := range b.Replsets {
+		if rs.Name == name {
+			return &rs
+		}
+	}
+	return nil
 }
 
 func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
@@ -341,6 +405,18 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
+func (p *PBM) SetRSFirstWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.first_write_ts": ts}},
+		},
+	)
+
+	return err
+}
+
 func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -362,6 +438,62 @@ func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
 		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
+	err := res.Decode(b)
+	return b, errors.Wrap(err, "decode")
+}
+
+// GetFirstBackup returns first successfully finished backup
+func (p *PBM) GetFirstBackup() (*BackupMeta, error) {
+	return p.getRecentBackup(nil, 1)
+}
+
+// GetLastBackup returns last successfully finished backup
+// and nil if there is no such backup yet. If ts isn't nil it will
+// search for the most recent backup that finished before specified timestamp
+func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
+	return p.getRecentBackup(before, -1)
+}
+
+func (p *PBM) getRecentBackup(before *primitive.Timestamp, sort int) (*BackupMeta, error) {
+	q := bson.D{{"status", StatusDone}}
+	if before != nil {
+		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})
+	}
+
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
+		p.ctx,
+		q,
+		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
+	)
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+
+	b := new(BackupMeta)
+	err := res.Decode(b)
+	return b, errors.Wrap(err, "decode")
+}
+
+func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
+		p.ctx,
+		bson.D{
+			{"status", StatusDone},
+			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+		},
+	)
+
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+
+	b := new(BackupMeta)
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }
@@ -418,33 +550,47 @@ func (p *PBM) Context() context.Context {
 	return p.ctx
 }
 
-// GetIsMaster returns IsMaster object encapsulating respective MongoDB structure
-func (p *PBM) GetIsMaster() (*IsMaster, error) {
-	im := &IsMaster{}
-	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(im)
+// GetNodeInfo returns mongo node info
+func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
+	inf := &NodeInfo{}
+	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(inf)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command isMaster")
+		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return im, nil
+	return inf, nil
 }
 
 // ClusterTime returns mongo's current cluster time
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between `isMaster` reads, while in fact time has been moved forward.
+	// Otherwise, cluster timestamp could remain the same between node info reads, while in fact time has been moved forward.
 	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
 	if err != nil && err != mongo.ErrNoDocuments {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
-	im, err := p.GetIsMaster()
+	inf, err := p.GetNodeInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get isMaster")
+		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}
 
-	if im.ClusterTime == nil {
+	if inf.ClusterTime == nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
 	}
 
-	return im.ClusterTime.ClusterTime, nil
+	return inf.ClusterTime.ClusterTime, nil
+}
+
+// FileCompression return compression alg based on given file extention
+func FileCompression(ext string) CompressionType {
+	switch ext {
+	default:
+		return CompressionTypeNone
+	case "gz":
+		return CompressionTypePGZIP
+	case "lz4":
+		return CompressionTypeLZ4
+	case "snappy":
+		return CompressionTypeS2
+	}
 }

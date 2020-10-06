@@ -1,0 +1,31 @@
+.. _PBM-1.3.0:
+
+================================================================================
+*Percona Backup for MongoDB* 1.3.0
+================================================================================
+
+:Date: August 24, 2020
+:Installation: `Installing Percona Backup for MongoDB <https://www.percona.com/doc/percona-backup-mongodb/installation.html>`_
+
+Percona Backup for MongoDB is a distributed, low-impact solution for consistent backups of MongoDB
+sharded clusters and replica sets. This is a tool for creating consistent backups
+across a MongoDB sharded cluster (or a single replica set), and for restoring
+those backups to a specific point in time. 
+
+New Features
+================================================================================
+
+* :jirabug:`PBM-455`: Add oplog archiver thread for PITR
+* :jirabug:`PBM-491`: Modify "pbm restore" to accept arbitrary point in time when PITR oplog archives available
+
+
+
+
+Improvements
+================================================================================
+
+* :jirabug:`PBM-526`: Add pbm version information to the backup metadata
+* :jirabug:`PBM-478`: Prevent restore from incomplete backup
+
+
+

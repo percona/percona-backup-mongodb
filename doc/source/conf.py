@@ -62,7 +62,7 @@ copyright = 'Percona LLC and/or its affiliates 2009-2020'
 # built documents.
 #
 # The short X.Y version.
-version = '1.2'
+version = '1.3'
 # The full version, including alpha/beta/rc tags.
 release = "0"
 release = ".".join([version, release])
@@ -190,7 +190,7 @@ html_static_path = ['_static']
 # Custom sidebar templates, maps document names to template names.
 #
 html_sidebars = {
-        '**': ['localtoc.html', 'sourcelink.html'],
+        '**': ['localtoc.html', 'relations.html', 'sourcelink.html'],
         'using/windows': ['windowssidebar.html'],
 }
 

@@ -13,6 +13,7 @@ import (
 type RestoreMeta struct {
 	Name             string              `bson:"name" json:"name"`
 	Backup           string              `bson:"backup" json:"backup"`
+	PITR             int64               `bson:"pitr" json:"pitr"`
 	Replsets         []RestoreReplset    `bson:"replsets" json:"replsets"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
@@ -50,6 +51,26 @@ func (p *PBM) GetRestoreMeta(name string) (*RestoreMeta, error) {
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
 			return r, nil
+		}
+		return nil, errors.Wrap(res.Err(), "get")
+	}
+	err := res.Decode(r)
+	return r, errors.Wrap(err, "decode")
+}
+
+// GetLastRestore returns last successfully finished restore
+// and nil if there is no such restore yet.
+func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
+	r := new(RestoreMeta)
+
+	res := p.Conn.Database(DB).Collection(RestoresCollection).FindOne(
+		p.ctx,
+		bson.D{{"status", StatusDone}},
+		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
+	)
+	if res.Err() != nil {
+		if res.Err() == mongo.ErrNoDocuments {
+			return nil, nil
 		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
@@ -99,6 +120,30 @@ func (p *PBM) ChangeRestoreState(name string, s Status, msg string) error {
 			{"$set", bson.M{"last_transition_ts": ts}},
 			{"$set", bson.M{"error": msg}},
 			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetRestoreBackup(name, backupName string) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}},
+		bson.D{
+			{"$set", bson.M{"backup": backupName}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetRestorePITR(name string, ts int64) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}},
+		bson.D{
+			{"$set", bson.M{"pitr": ts}},
 		},
 	)
 

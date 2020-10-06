@@ -205,7 +205,7 @@ install_deps() {
         sleep 1
         echo "waiting"
       done
-      apt-get -y install lsb_release
+      DEBIAN_FRONTEND=noninteractive apt-get -y install lsb_release
       export DEBIAN=$(lsb_release -sc)
       export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
       INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git"

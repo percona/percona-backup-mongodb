@@ -22,7 +22,7 @@ endef
 versionpath?=github.com/percona/percona-backup-mongodb/version
 LDFLAGS= -X $(versionpath).version=$(VERSION) -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
-
+LDFLAGS_TESTS_BUILD=$(LDFLAGS) -X github.com/percona/percona-backup-mongodb/pbm/pitr.ibackupspan=30000000000
 
 test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
@@ -59,6 +59,23 @@ install-agent-race:
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-agent
 install-stest-race:
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" -mod=vendor ./cmd/pbm-speed-test
+
+# CI TESTS BUILD: RACE DETECTOR ON & PITR FRAME = 30sec
+build-tests: build-pbm-tests build-agent-tests build-stest-tests
+build-pbm-tests:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor -o ./bin/pbm ./cmd/pbm
+build-agent-tests:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor -o ./bin/pbm-agent ./cmd/pbm-agent
+build-stest-tests:
+	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
+
+install-tests: install-pbm-tests install-agent-tests install-stest-tests
+install-pbm-tests:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor ./cmd/pbm
+install-agent-tests:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor ./cmd/pbm-agent
+install-stest-tests:
+	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" -mod=vendor ./cmd/pbm-speed-test
 
 # STATIC BUILDS
 build-static: build-pbm-static build-agent-static build-stest-static
