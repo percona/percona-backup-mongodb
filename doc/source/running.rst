@@ -98,7 +98,7 @@ Running |pbm.app| Commands
 Configuring a Remote Store for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
-This must be done once, at installation or re-installaton time, before backups can
+This must be done once, at installation or re-installation time, before backups can
 be listed, made, or restored. Please see :ref:`pbm.config`.
 
 .. _pbm.running.backup.listing:
@@ -175,7 +175,7 @@ restore.
    will perform a full all-databases, all collections restore and does not
    offer an option to restore only a subset of collections in the backup, as
    MongoDB's mongodump tool does. But to avoid surprising mongodump users |pbm|
-   as of now (versions 1.x) replicates mongodump's behaviour to only drop
+   as of now (versions 1.x) replicates mongodump's behavior to only drop
    collections in the backup. It does not drop collections that are created new
    after the time of the backup and before the restore. Run a db.dropDatabase()
    manually in all non-system databases (i.e. all databases except "local",
@@ -184,8 +184,33 @@ restore.
 
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
 
-After a cluster's restore is complete all mongos nodes will need to be
-restarted to reload the sharding metadata.
+After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
+
+Starting from v1.3.2, the |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
+
+.. code-block:: yaml
+
+   restore:
+     batchSize: 500
+     numInsertionWorkers: 10
+
+.. option:: batchSize
+   
+   :default: 500
+
+   The number of documents to buffer. 
+
+.. option:: numInsertionWorkers 
+
+   :default: 10
+
+   The number of workers that add the documents to buffer. 
+
+The default values were adjusted to fit the setups with the memory allocation of 1GB and less for the agent. 
+
+.. note:: 
+
+  The lower the values, the less memory is allocated for the restore. However, the performance decreases too.
 
 .. _pbm.cancel.backup:
 
