@@ -1,12 +1,15 @@
 package s3
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/url"
+	"os"
 	"path"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -144,6 +147,8 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 				partSize = ps
 			}
 		}
+		// TODO: needs to be pbm.Logger
+		fmt.Fprintf(os.Stderr, "%s [INFO] s3.uploadPartSize is set to %d (~%dMb)\n", time.Now().Format("2006-01-02T15:04:05.000-0700"), partSize, partSize>>20)
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 			u.MaxUploadParts = s3manager.MaxUploadParts
