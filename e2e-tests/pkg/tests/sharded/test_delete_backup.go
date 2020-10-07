@@ -42,12 +42,23 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("Error: delete backup %s: %v", backups[4].name, err)
 	}
 
+	log.Println("wait for delete")
+	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
+	if err != nil {
+		log.Fatalf("waiting for the delete: %v", err)
+	}
+
 	c.printBcpList()
 
 	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[3].ts.Format("2006-01-02T15:04:05"))
 	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
 	if err != nil {
 		log.Fatalf("Error: delete backups older than %s: %v", backups[3].name, err)
+	}
+	log.Println("wait for delete")
+	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
+	if err != nil {
+		log.Fatalf("waiting for the delete: %v", err)
 	}
 
 	c.printBcpList()
@@ -125,6 +136,7 @@ func (c *Cluster) BackupNotDeleteRunning() {
 		log.Fatalf("Error: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%v\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
 	}
 	c.BackupWaitDone(bcpName)
+	time.Sleep(time.Second * 2)
 }
 
 func (c *Cluster) printBcpList() {
