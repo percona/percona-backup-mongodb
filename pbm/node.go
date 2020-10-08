@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,7 +16,6 @@ type Node struct {
 	ctx  context.Context
 	cn   *mongo.Client
 	curi string
-	Log  *Logger
 }
 
 // ReplRole is a replicaset role in sharded cluster
@@ -33,7 +31,6 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	n := &Node{
 		ctx:  ctx,
 		curi: curi,
-		Log:  &Logger{},
 	}
 	err := n.Connect()
 	if err != nil {
@@ -46,14 +43,7 @@ func NewNode(ctx context.Context, curi string) (*Node, error) {
 	}
 	n.rs, n.me = nodeInfo.SetName, nodeInfo.Me
 
-	n.Log.SetOut(os.Stderr)
-
 	return n, nil
-}
-
-func (n *Node) InitLogger(cn *PBM) {
-	n.Log = NewLogger(cn, n.rs, n.me)
-	n.Log.SetOut(os.Stderr)
 }
 
 // ID returns node ID

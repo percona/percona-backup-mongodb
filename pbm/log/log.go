@@ -1,20 +1,23 @@
-package pbm
+package log
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Logger struct {
-	cn   *PBM      // pbm object
-	out  io.Writer // duplicate log to
+	cn   *mongo.Collection
+	out  io.Writer
 	rs   string
 	node string
 }
@@ -25,7 +28,7 @@ type LogEntry struct {
 	RS      string    `bson:"rs" json:"rs"`
 	Node    string    `bson:"node" json:"node"`
 	Type    EntryType `bson:"type" json:"type"`
-	Action  Command   `bson:"action" json:"action"`
+	Event   string    `bson:"event" json:"event"`
 	ObjName string    `bson:"obj" json:"obj"`
 	Msg     string    `bson:"msg" json:"msg"`
 }
@@ -38,10 +41,10 @@ func (e *LogEntry) formatTS() string {
 }
 
 func (e *LogEntry) String() (s string) {
-	if e.Action != CmdUndefined || e.ObjName != "" {
+	if e.Event != "" || e.ObjName != "" {
 		id := []string{}
-		if e.Action != CmdUndefined {
-			id = append(id, string(e.Action))
+		if e.Event != "" {
+			id = append(id, string(e.Event))
 		}
 		if e.ObjName != "" {
 			id = append(id, e.ObjName)
@@ -62,20 +65,21 @@ const (
 	TypeError   EntryType = "ERROR"
 )
 
-func NewLogger(cn *PBM, rs, node string) *Logger {
+func New(cn *mongo.Collection, rs, node string) *Logger {
 	return &Logger{
 		cn:   cn,
+		out:  os.Stderr,
 		rs:   rs,
 		node: node,
 	}
 }
 
-// SetOut set additional output for the logs
+// SetOut set io output for the logs
 func (l *Logger) SetOut(w io.Writer) {
 	l.out = w
 }
 
-func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...interface{}) {
+func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...interface{}) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -86,7 +90,7 @@ func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...
 		RS:      l.rs,
 		Node:    l.node,
 		Type:    typ,
-		Action:  action,
+		Event:   event,
 		ObjName: obj,
 		Msg:     msg,
 	}
@@ -98,26 +102,26 @@ func (l *Logger) output(typ EntryType, action Command, obj, msg string, args ...
 }
 
 func (l *Logger) Printf(msg string, args ...interface{}) {
-	l.output(TypeInfo, CmdUndefined, "", msg, args...)
+	l.output(TypeInfo, "", "", msg, args...)
 }
 
-func (l *Logger) Info(action Command, obj, msg string, args ...interface{}) {
-	l.output(TypeInfo, action, obj, msg, args...)
+func (l *Logger) Info(event string, obj, msg string, args ...interface{}) {
+	l.output(TypeInfo, event, obj, msg, args...)
 }
 
-func (l *Logger) Warning(action Command, obj, msg string, args ...interface{}) {
-	l.output(TypeWarning, action, obj, msg, args...)
+func (l *Logger) Warning(event string, obj, msg string, args ...interface{}) {
+	l.output(TypeWarning, event, obj, msg, args...)
 }
 
-func (l *Logger) Error(action Command, obj, msg string, args ...interface{}) {
-	l.output(TypeError, action, obj, msg, args...)
+func (l *Logger) Error(event string, obj, msg string, args ...interface{}) {
+	l.output(TypeError, event, obj, msg, args...)
 }
 
 func (l *Logger) Output(e *LogEntry) error {
 	var rerr error
 
 	if l.cn != nil {
-		_, err := l.cn.Conn.Database(DB).Collection(LogCollection).InsertOne(l.cn.ctx, e)
+		_, err := l.cn.InsertOne(context.TODO(), e)
 		if err != nil {
 			rerr = errors.Wrap(err, "db")
 		}
@@ -137,17 +141,44 @@ func (l *Logger) Output(e *LogEntry) error {
 	return rerr
 }
 
-// LogGet returns last log entries
-func (p *PBM) LogGet(rs string, typ EntryType, action Command, limit int64) ([]LogEntry, error) {
+// Event provides logging for some event (backup, restore)
+type Event struct {
+	l   *Logger
+	typ string
+	obj string
+}
+
+func (l *Logger) NewEvent(typ, name string) *Event {
+	return &Event{
+		l:   l,
+		typ: typ,
+		obj: name,
+	}
+}
+
+func (e *Event) Info(msg string, args ...interface{}) {
+	e.l.Info(e.typ, e.obj, msg, args)
+}
+
+func (e *Event) Warning(msg string, args ...interface{}) {
+	e.l.Warning(e.typ, e.obj, msg, args)
+}
+
+func (e *Event) Error(msg string, args ...interface{}) {
+	e.l.Error(e.typ, e.obj, msg, args)
+}
+
+// GetEntries returns last log entries
+func GetEntries(cn *mongo.Collection, rs string, typ EntryType, event string, limit int64) ([]LogEntry, error) {
 	// TODO: it should be reworked along with the status implementation
 	// TODO: add indexes, make logs retrieval more flexible
-	filter := bson.D{{"type", typ}, {"action", action}}
+	filter := bson.D{{"type", typ}, {"action", event}}
 	if rs != "" {
 		filter = append(filter, bson.E{"rs", rs})
 	}
 
-	cur, err := p.Conn.Database(DB).Collection(LogCollection).Find(
-		p.ctx,
+	cur, err := cn.Find(
+		context.TODO(),
 		filter,
 		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
 	)
@@ -156,7 +187,7 @@ func (p *PBM) LogGet(rs string, typ EntryType, action Command, limit int64) ([]L
 	}
 
 	logs := []LogEntry{}
-	for cur.Next(p.ctx) {
+	for cur.Next(context.TODO()) {
 		l := LogEntry{}
 		err := cur.Decode(&l)
 		if err != nil {

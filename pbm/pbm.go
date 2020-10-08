@@ -17,6 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 const (
@@ -158,6 +160,7 @@ var (
 
 type PBM struct {
 	Conn *mongo.Client
+	log  *log.Logger
 	ctx  context.Context
 }
 
@@ -222,9 +225,17 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 }
 
+func (p *PBM) InitLogger(rs, node string) {
+	p.log = log.New(p.Conn.Database(DB).Collection(LogCollection), rs, node)
+}
+
+func (p *PBM) Logger() *log.Logger {
+	return p.log
+}
+
 const (
-	cmdCollectionSizeBytes  = 1 << 10 * 10 // size 10kb ~ 50 commands
-	logsCollectionSizeBytes = 1 << 20      // 1Mb
+	cmdCollectionSizeBytes  = 10 << 10 // size 10kb ~ 50 commands
+	logsCollectionSizeBytes = 1 << 20  // 1Mb
 )
 
 // setup a new DB for PBM

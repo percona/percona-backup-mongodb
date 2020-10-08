@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -18,7 +19,7 @@ type Agent struct {
 	pitrjob *currentPitr
 	mx      sync.Mutex
 	intent  uint32
-	log     *pbm.Logger
+	log     *log.Logger
 }
 
 const (
@@ -38,8 +39,8 @@ func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 }
 
 func (a *Agent) InitLogger(cn *pbm.PBM) {
-	a.node.InitLogger(cn)
-	a.log = a.node.Log
+	a.pbm.InitLogger(a.node.ID(), a.node.RS())
+	a.log = a.pbm.Logger()
 }
 
 // Start starts listening the commands stream.
@@ -83,7 +84,7 @@ func (a *Agent) Start() error {
 					return errors.New("change stream was closed")
 				}
 
-				a.log.Error(pbm.CmdUndefined, "", "listening commands: %v", err)
+				a.log.Error("", "", "listening commands: %v", err)
 			}
 		}
 	}
@@ -220,14 +221,14 @@ func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, er
 
 	switch err.(type) {
 	case pbm.ErrConcurrentOp:
-		a.log.Info(pbm.CmdUndefined, "", "acquiring lock: %v", err)
+		a.log.Info("", "", "acquiring lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		if m != nil {
 			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
 			merr := m(name)
 			if merr != nil {
-				a.log.Warning(pbm.CmdUndefined, "", "failed to mark stale backup '%s' as failed: %v", name, merr)
+				a.log.Warning("", "", "failed to mark stale backup '%s' as failed: %v", name, merr)
 			}
 		}
 		return l.Acquire()
