@@ -67,12 +67,18 @@ func keys(t reflect.Type) confMap {
 	v := make(confMap)
 	for i := 0; i < t.NumField(); i++ {
 		name := strings.TrimSpace(strings.Split(t.Field(i).Tag.Get("bson"), ",")[0])
-		if t.Field(i).Type.Kind() == reflect.Struct {
-			for n, t := range keys(t.Field(i).Type) {
+
+		typ := t.Field(i).Type
+		if typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
+		}
+		switch typ.Kind() {
+		case reflect.Struct:
+			for n, t := range keys(typ) {
 				v[name+"."+n] = t
 			}
-		} else {
-			v[name] = t.Field(i).Type.Kind()
+		default:
+			v[name] = typ.Kind()
 		}
 	}
 	return v
