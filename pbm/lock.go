@@ -222,6 +222,10 @@ func (p *PBM) GetLockData(lh *LockHeader) (LockData, error) {
 	return p.getLockData(lh, p.Conn.Database(DB).Collection(LockCollection))
 }
 
+func (p *PBM) GetOpLockData(lh *LockHeader) (LockData, error) {
+	return p.getLockData(lh, p.Conn.Database(DB).Collection(LockOpCollection))
+}
+
 func (p *PBM) getLockData(lh *LockHeader, cl *mongo.Collection) (LockData, error) {
 	var l LockData
 	r := cl.FindOne(p.ctx, lh)
@@ -234,6 +238,10 @@ func (p *PBM) getLockData(lh *LockHeader, cl *mongo.Collection) (LockData, error
 
 func (p *PBM) GetLocks(lh *LockHeader) ([]LockData, error) {
 	return p.getLocks(lh, p.Conn.Database(DB).Collection(LockCollection))
+}
+
+func (p *PBM) GetOpLocks(lh *LockHeader) ([]LockData, error) {
+	return p.getLocks(lh, p.Conn.Database(DB).Collection(LockOpCollection))
 }
 
 func (p *PBM) getLocks(lh *LockHeader, cl *mongo.Collection) ([]LockData, error) {

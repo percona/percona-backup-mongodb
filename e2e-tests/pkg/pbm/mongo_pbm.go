@@ -44,6 +44,16 @@ func (m *MongoPBM) Conn() *mongo.Client {
 
 // WaitOp waits up to waitFor duration until operations which acquires a given lock are finished
 func (m *MongoPBM) WaitOp(lock *pbm.LockHeader, waitFor time.Duration) error {
+	return m.waitOp(lock, waitFor, m.p.GetLockData)
+}
+
+// WaitConcurentOp waits up to waitFor duration until operations which acquires a given lock are finished
+func (m *MongoPBM) WaitConcurentOp(lock *pbm.LockHeader, waitFor time.Duration) error {
+	return m.waitOp(lock, waitFor, m.p.GetOpLockData)
+}
+
+// WaitOp waits up to waitFor duration until operations which acquires a given lock are finished
+func (m *MongoPBM) waitOp(lock *pbm.LockHeader, waitFor time.Duration, f func(*pbm.LockHeader) (pbm.LockData, error)) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)
 
@@ -54,7 +64,7 @@ func (m *MongoPBM) WaitOp(lock *pbm.LockHeader, waitFor time.Duration) error {
 		case <-tmr.C:
 			return errors.Errorf("timeout reached")
 		case <-tkr.C:
-			lock, err := m.p.GetLockData(lock)
+			lock, err := f(lock)
 			if err != nil {
 				// No lock, so operation has finished
 				if err == mongo.ErrNoDocuments {
