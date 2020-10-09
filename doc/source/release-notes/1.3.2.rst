@@ -1,0 +1,54 @@
+.. _PBM-1.3.2:
+
+================================================================================
+*Percona Backup for MongoDB* 1.3.2
+================================================================================
+
+:Date: October 14, 2020
+:Installation: `Installing Percona Backup for MongoDB <https://www.percona.com/doc/percona-backup-mongodb/installation.html>`_
+
+Percona Backup for MongoDB is a distributed, low-impact solution for consistent backups of MongoDB
+sharded clusters and replica sets. This is a tool for creating consistent backups
+across a MongoDB sharded cluster (or a single replica set), and for restoring
+those backups to a specific point in time. 
+
+New Features
+================================================================================
+
+* :jirabug:`PBM-426`: Add AWS KMS key encryption/decryption for S3 buckets 
+
+  Config format
+
+  
+  .. code-block:: yaml
+  
+     storage:
+       s3:
+         serverSideEncryption:
+           sseAlgorithm: "aws:kms"
+           kmsKeyID: "........"
+   
+  
+  (Thanks to user pedroalb for reporting this issue)
+
+
+
+Improvements
+================================================================================
+
+* :jirabug:`PBM-568`: Print uploadPartSize value to log during backup
+* :jirabug:`PBM-560`: Use s2 compression as default for ``pbm-speed-test`` instead of gzip
+
+
+
+Bugs Fixed
+================================================================================
+
+* :jirabug:`PBM-485`: Fix backups to S3 failing with ``MaxUploadParts`` limit by auto-adjusting ``uploadPartSize`` value (Thanks to user pedroalb for reporting this issue) 
+* :jirabug:`PBM-559`: pbm-agent runs out of memory while doing restore of large backup (Thanks to user Simon Bernier St-Pierre for reporting this issue)
+* :jirabug:`PBM-567`: Allow setting serverSideEncryption options using CLI 
+* :jirabug:`PBM-562`: Correct calculation of available PITR time ranges by pbm list 
+* :jirabug:`PBM-561`: Fix setting of numeric options in config
+* :jirabug:`PBM-547`: Allow deleting backups from local filesystem by moving delete operations to pbm-agents
+
+
