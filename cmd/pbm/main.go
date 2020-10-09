@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -356,7 +357,7 @@ func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) err
 }
 
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
-	l, err := cn.LogGet("", pbm.TypeError, op, 1)
+	l, err := cn.LogGet("", plog.TypeError, op, 1)
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}

@@ -93,15 +93,16 @@ func (a *Agent) Start() error {
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 	const waitAtLeast = time.Second * 5
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "")
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
-		a.log.Error(pbm.CmdDeleteBackup, "", "get node info data: %v", err)
+		l.Error("get node info data: %v", err)
 		return
 	}
 
 	if !nodeInfo.IsLeader() {
-		a.log.Info(pbm.CmdDeleteBackup, "", "not a member of the leader rs, skipping")
+		l.Info("not a member of the leader rs, skipping")
 		return
 	}
 
@@ -113,17 +114,17 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 
 	got, err := a.aquireLock(lock, nil)
 	if err != nil {
-		a.log.Error(pbm.CmdDeleteBackup, "", "acquire lock: %v", err)
+		l.Error("acquire lock: %v", err)
 		return
 	}
 	if !got {
-		a.log.Info(pbm.CmdDeleteBackup, "", "scheduled to another node")
+		l.Info("scheduled to another node")
 		return
 	}
 	defer func() {
 		err := lock.Release()
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, "", "release lock: %v", err)
+			l.Error("release lock: %v", err)
 		}
 	}()
 
@@ -133,21 +134,23 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
 		obj = t.Format("2006-01-02T15:04:05Z")
-		a.log.Info(pbm.CmdDeleteBackup, obj, "deleting backups older than %v", t)
+		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj)
+		l.Info("deleting backups older than %v", t)
 		err := a.pbm.DeleteOlderThan(t)
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, obj, "deleting: %v", err)
+			l.Error("deleting: %v", err)
 			return
 		}
 	case d.Backup != "":
-		a.log.Info(pbm.CmdDeleteBackup, d.Backup, "deleting backup")
+		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup)
+		l.Info("deleting backup")
 		err := a.pbm.DeleteBackup(d.Backup)
 		if err != nil {
-			a.log.Error(pbm.CmdDeleteBackup, d.Backup, "deleting: %v", err)
+			l.Error("deleting: %v", err)
 			return
 		}
 	default:
-		a.log.Error(pbm.CmdDeleteBackup, "", "malformed command received in Delete() of backup: %v", d)
+		l.Error("malformed command received in Delete() of backup: %v", d)
 		return
 	}
 
@@ -157,19 +160,21 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		time.Sleep(needToWait)
 	}
 
-	a.log.Info(pbm.CmdDeleteBackup, obj, "done")
+	a.pbm.Logger().Info(string(pbm.CmdDeleteBackup), obj, "done")
 }
 
 // ResyncStorage uploads a backup list from the remote store
 func (a *Agent) ResyncStorage() {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "")
+
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
-		a.log.Error(pbm.CmdResyncBackupList, "", "get node info data: %v", err)
+		l.Error("get node info data: %v", err)
 		return
 	}
 
 	if !nodeInfo.IsLeader() {
-		a.log.Info(pbm.CmdResyncBackupList, "", "not a member of the leader rs")
+		l.Info("not a member of the leader rs")
 		return
 	}
 
@@ -183,24 +188,24 @@ func (a *Agent) ResyncStorage() {
 	if err != nil {
 		switch err.(type) {
 		case pbm.ErrConcurrentOp:
-			a.log.Info(pbm.CmdResyncBackupList, "", "acquiring lock: %v", err)
+			l.Info("acquiring lock: %v", err)
 		default:
-			a.log.Error(pbm.CmdResyncBackupList, "", "acquiring lock: %v", err)
+			l.Error("acquiring lock: %v", err)
 		}
 		return
 	}
 	if !got {
-		a.log.Info(pbm.CmdResyncBackupList, "", "operation has been scheduled on another replset node")
+		l.Info("operation has been scheduled on another replset node")
 		return
 	}
 
 	tstart := time.Now()
-	a.log.Info(pbm.CmdResyncBackupList, "", "started")
+	l.Info("started")
 	err = a.pbm.ResyncStorage()
 	if err != nil {
-		a.log.Error(pbm.CmdResyncBackupList, "", "%v", err)
+		l.Error("%v", err)
 	} else {
-		a.log.Info(pbm.CmdResyncBackupList, "", "succeed")
+		l.Info("succeed")
 	}
 
 	needToWait := time.Second*1 - time.Since(tstart)
@@ -209,7 +214,7 @@ func (a *Agent) ResyncStorage() {
 	}
 	err = lock.Release()
 	if err != nil {
-		a.log.Error(pbm.CmdResyncBackupList, "", "reslase lock %v: %v", lock, err)
+		l.Error("reslase lock %v: %v", lock, err)
 	}
 }
 

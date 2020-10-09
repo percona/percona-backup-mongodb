@@ -25,7 +25,6 @@ type IBackup struct {
 	rs     string
 	span   time.Duration
 	lastTS primitive.Timestamp
-	log    *pbm.Logger
 }
 
 // NewBackup creates an incremental backup object
@@ -35,7 +34,6 @@ func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
 		node: node,
 		rs:   rs,
 		span: pbm.PITRdefaultSpan,
-		log:  node.Log,
 	}
 	if ibackupspan != "" {
 		s, err := strconv.Atoi(ibackupspan)
@@ -101,7 +99,8 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
-	i.log.Info(pbm.CmdPITR, "", "streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
+	l := i.pbm.Logger().NewEvent(string(pbm.CmdPITR), "")
+	l.Info("streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
 	defer tk.Stop()
@@ -122,11 +121,11 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		// wrapping up at the current point-in-time
 		// upload the chunks up to the current time and return
 		case <-ctx.Done():
-			i.log.Info(pbm.CmdPITR, "", "got done signal, stopping")
+			l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
-			i.log.Info(pbm.CmdPITR, "", "got wake_up signal")
+			l.Info("got wake_up signal")
 		case <-tk.C:
 		}
 
@@ -206,10 +205,10 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		if !lastSlice {
 			logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT.Format("2006-01-02T15:04:05"))
 		}
-		i.log.Info(pbm.CmdPITR, "", logm)
+		l.Info(logm)
 
 		if lastSlice {
-			i.log.Info(pbm.CmdPITR, "", "pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
+			l.Info("pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
 		}
 

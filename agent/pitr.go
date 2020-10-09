@@ -73,7 +73,7 @@ func (a *Agent) PITR() {
 	for range tk.C {
 		err := a.pitr()
 		if err != nil {
-			a.log.Error(pbm.CmdPITR, "", "%v", err)
+			a.log.Error(string(pbm.CmdPITR), "", "%v", err)
 		}
 	}
 }
@@ -145,11 +145,13 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
+	l := a.log.NewEvent(string(pbm.CmdPITR), "")
+
 	go func() {
 		defer func() {
 			err := lock.Release()
 			if err != nil {
-				a.log.Error(pbm.CmdPITR, "", "release lock: %v", err)
+				l.Error("release lock: %v", err)
 			}
 		}()
 
@@ -165,9 +167,9 @@ func (a *Agent) pitr() (err error) {
 		if err != nil {
 			switch err.(type) {
 			case pitr.ErrOpMoved:
-				a.log.Info(pbm.CmdPITR, "", "streaming oplog: %v", err)
+				l.Info("streaming oplog: %v", err)
 			default:
-				a.log.Error(pbm.CmdPITR, "", "streaming oplog: %v", err)
+				l.Error("streaming oplog: %v", err)
 			}
 		}
 
@@ -179,14 +181,15 @@ func (a *Agent) pitr() (err error) {
 
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
-	tsstr := time.Unix(r.TS, 0).UTC().Format(time.RFC3339)
+	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339))
+
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
-		a.log.Error(pbm.CmdPITR, tsstr, "get node info: %v", err)
+		l.Error("get node info: %v", err)
 		return
 	}
 	if !nodeInfo.IsPrimary {
-		a.log.Info(pbm.CmdPITR, tsstr, "Node in not suitable for restore")
+		l.Info("Node in not suitable for restore")
 		return
 	}
 
@@ -198,26 +201,26 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 
 	got, err := lock.Acquire()
 	if err != nil {
-		a.log.Error(pbm.CmdPITR, tsstr, "acquiring lock: %v", err)
+		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		a.log.Error(pbm.CmdPITR, tsstr, "unbale to run the restore while another backup or restore process running")
+		l.Error("unbale to run the restore while another backup or restore process running")
 		return
 	}
 
 	defer func() {
 		err := lock.Release()
 		if err != nil {
-			a.log.Error(pbm.CmdPITR, tsstr, "release lock: %v", err)
+			l.Error("release lock: %v", err)
 		}
 	}()
 
-	a.log.Info(pbm.CmdPITR, tsstr, "recovery started")
+	l.Info("recovery started")
 	err = restore.New(a.pbm, a.node).PITR(r)
 	if err != nil {
-		a.log.Error(pbm.CmdPITR, tsstr, "restore: %v", err)
+		l.Error("restore: %v", err)
 		return
 	}
-	a.log.Info(pbm.CmdPITR, tsstr, "recovery successfully finished")
+	l.Info("recovery successfully finished")
 }

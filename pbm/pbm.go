@@ -674,6 +674,10 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	return inf.ClusterTime.ClusterTime, nil
 }
 
+func (p *PBM) LogGet(rs string, typ log.EntryType, event Command, limit int64) ([]log.LogEntry, error) {
+	return log.GetEntries(p.Conn.Database(DB).Collection(LogCollection), rs, typ, string(event), limit)
+}
+
 // FileCompression return compression alg based on given file extention
 func FileCompression(ext string) CompressionType {
 	switch ext {
