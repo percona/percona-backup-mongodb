@@ -9,3 +9,6 @@
        credentials:
          access-key-id: <your-access-key-id-here>
          secret-access-key: <your-secret-key-here>
+       serverSideEncryption:
+         sseAlgorithm: aws:kms
+         kmsKeyID: <your-kms-key-here>
