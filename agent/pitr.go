@@ -126,7 +126,9 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "defining starting point for the backup")
 	}
 
-	stg, err := a.pbm.GetStorage()
+	l := a.log.NewEvent(string(pbm.CmdPITR), "")
+
+	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
@@ -144,8 +146,6 @@ func (a *Agent) pitr() (err error) {
 	if !got {
 		return nil
 	}
-
-	l := a.log.NewEvent(string(pbm.CmdPITR), "")
 
 	go func() {
 		defer func() {

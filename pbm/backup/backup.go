@@ -96,11 +96,12 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
 
-	stg, err := b.cn.GetStorage()
+	l := b.cn.Logger().NewEvent(string(pbm.CmdBackup), bcp.Name)
+
+	stg, err := b.cn.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
-	l := b.cn.Logger().NewEvent(string(pbm.CmdBackup), bcp.Name)
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {

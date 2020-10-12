@@ -9,7 +9,7 @@ import (
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
 func (p *PBM) ResyncStorage() error {
-	stg, err := p.GetStorage()
+	stg, err := p.GetStorage(p.log.NewEvent(string(CmdResyncBackupList), ""))
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}

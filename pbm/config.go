@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/yaml.v2"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -248,7 +249,7 @@ var ErrStorageUndefined = errors.New("storage undefined")
 
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object
-func (p *PBM) GetStorage() (storage.Storage, error) {
+func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 	c, err := p.GetConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
@@ -256,7 +257,7 @@ func (p *PBM) GetStorage() (storage.Storage, error) {
 
 	switch c.Storage.Type {
 	case StorageS3:
-		return s3.New(c.Storage.S3)
+		return s3.New(c.Storage.S3, l)
 	case StorageFilesystem:
 		return fs.New(c.Storage.Filesystem), nil
 	case StorageBlackHole:
