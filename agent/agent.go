@@ -44,7 +44,7 @@ func (a *Agent) InitLogger(cn *pbm.PBM) {
 
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
-	a.log.Printf("pbm-agent:\n\t%s", version.DefaultInfo.All(""))
+	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
 	a.log.Printf("node: %s", a.node.ID())
 
 	c, cerr, err := a.pbm.ListenCmd()
