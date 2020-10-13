@@ -46,9 +46,7 @@ Bugs Fixed
 
 * :jirabug:`PBM-485`: Fix backups to S3 failing with ``MaxUploadParts`` limit by auto-adjusting ``uploadPartSize`` value (Thanks to user pedroalb for reporting this issue) 
 * :jirabug:`PBM-559`: pbm-agent runs out of memory while doing restore of large backup (Thanks to user Simon Bernier St-Pierre for reporting this issue)
-* :jirabug:`PBM-567`: Allow setting serverSideEncryption options using CLI 
 * :jirabug:`PBM-562`: Correct calculation of available PITR time ranges by pbm list 
 * :jirabug:`PBM-561`: Fix setting of numeric options in config
 * :jirabug:`PBM-547`: Allow deleting backups from local filesystem by moving delete operations to pbm-agents
-
 
