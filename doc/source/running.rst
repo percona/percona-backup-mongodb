@@ -58,6 +58,9 @@ debug the startup from the log messages.
 When a message *"pbm agent is listening for the commands"* is printed to the
 |pbm-agent| log file it confirms it connected to its mongod successfully.
 
+
+.. _pbm-agent.log:
+
 How to see the pbm-agent log
 --------------------------------------------------------------------------------
 
