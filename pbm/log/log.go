@@ -23,14 +23,18 @@ type Logger struct {
 }
 
 type LogEntry struct {
-	TS      int64     `bson:"ts" json:"ts"`
-	TZone   int       `bson:"tz" json:"tz"`
+	TS      int64 `bson:"ts" json:"ts"`
+	TZone   int   `bson:"tz" json:"tz"`
+	LogKeys `bson:",inline" json:",inline"`
+	Msg     string `bson:"msg" json:"msg"`
+}
+
+type LogKeys struct {
 	RS      string    `bson:"rs" json:"rs"`
 	Node    string    `bson:"node" json:"node"`
 	Type    EntryType `bson:"type" json:"type"`
 	Event   string    `bson:"event" json:"event"`
 	ObjName string    `bson:"obj" json:"obj"`
-	Msg     string    `bson:"msg" json:"msg"`
 }
 
 // LogTimeFormat is a date-time format to be displayed in the log output
@@ -60,6 +64,7 @@ func (e *LogEntry) String() (s string) {
 type EntryType string
 
 const (
+	TypeNone    EntryType = ""
 	TypeInfo    EntryType = "INFO"
 	TypeWarning EntryType = "Warning"
 	TypeError   EntryType = "ERROR"
@@ -85,14 +90,16 @@ func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...in
 	}
 	_, tz := time.Now().Local().Zone()
 	e := &LogEntry{
-		TS:      time.Now().UTC().Unix(),
-		TZone:   tz,
-		RS:      l.rs,
-		Node:    l.node,
-		Type:    typ,
-		Event:   event,
-		ObjName: obj,
-		Msg:     msg,
+		TS:    time.Now().UTC().Unix(),
+		TZone: tz,
+		LogKeys: LogKeys{
+			RS:      l.rs,
+			Node:    l.node,
+			Type:    typ,
+			Event:   event,
+			ObjName: obj,
+		},
+		Msg: msg,
 	}
 
 	err := l.Output(e)
@@ -175,6 +182,60 @@ func GetEntries(cn *mongo.Collection, rs string, typ EntryType, event string, li
 	filter := bson.D{{"type", typ}, {"action", event}}
 	if rs != "" {
 		filter = append(filter, bson.E{"rs", rs})
+	}
+
+	cur, err := cn.Find(
+		context.TODO(),
+		filter,
+		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "get list from mongo")
+	}
+
+	logs := []LogEntry{}
+	for cur.Next(context.TODO()) {
+		l := LogEntry{}
+		err := cur.Decode(&l)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		logs = append(logs, l)
+	}
+
+	return logs, nil
+}
+
+// pbm logs -tail=N -agent=rs1/localhost:37019 -type=error|warning -event=backup/2222-22-22T
+
+type LogRequest struct {
+	TimeMin time.Time
+	TimeMax time.Time
+	LogKeys
+}
+
+func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
+	filter := bson.D{}
+	if r.RS != "" {
+		filter = append(filter, bson.E{"rs", r.RS})
+	}
+	if r.Node != "" {
+		filter = append(filter, bson.E{"node", r.Node})
+	}
+	if r.Type != TypeNone {
+		filter = append(filter, bson.E{"type", r.Type})
+	}
+	if r.Event != "" {
+		filter = append(filter, bson.E{"event", r.Type})
+	}
+	if r.ObjName != "" {
+		filter = append(filter, bson.E{"obj", r.Node})
+	}
+	if !r.TimeMin.IsZero() {
+		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})
+	}
+	if !r.TimeMax.IsZero() {
+		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
 	}
 
 	cur, err := cn.Find(
