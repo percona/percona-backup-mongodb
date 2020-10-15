@@ -39,7 +39,7 @@ func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
 }
 
 func (a *Agent) InitLogger(cn *pbm.PBM) {
-	a.pbm.InitLogger(a.node.ID(), a.node.RS())
+	a.pbm.InitLogger(a.node.RS(), a.node.Name())
 	a.log = a.pbm.Logger()
 }
 

@@ -24,6 +24,7 @@ type Logger struct {
 
 type LogEntry struct {
 	TS      int64 `bson:"ts" json:"ts"`
+	Tns     int   `bson:"ns" json:"ns"`
 	TZone   int   `bson:"tz" json:"tz"`
 	LogKeys `bson:",inline" json:",inline"`
 	Msg     string `bson:"msg" json:"msg"`
@@ -45,6 +46,19 @@ func (e *LogEntry) formatTS() string {
 }
 
 func (e *LogEntry) String() (s string) {
+	return e.string(false)
+}
+
+func (e *LogEntry) StringNode() (s string) {
+	return e.string(true)
+}
+
+func (e *LogEntry) string(showNode bool) (s string) {
+	node := ""
+	if showNode {
+		node = " " + e.RS + "/" + e.Node
+	}
+
 	if e.Event != "" || e.ObjName != "" {
 		id := []string{}
 		if e.Event != "" {
@@ -53,9 +67,9 @@ func (e *LogEntry) String() (s string) {
 		if e.ObjName != "" {
 			id = append(id, e.ObjName)
 		}
-		s = fmt.Sprintf("%s [%s] %s: %s", e.formatTS(), e.Type, strings.Join(id, "/"), e.Msg)
+		s = fmt.Sprintf("%s%s [%s] %s: %s", e.formatTS(), node, e.Type, strings.Join(id, "/"), e.Msg)
 	} else {
-		s = fmt.Sprintf("%s [%s] %s", e.formatTS(), e.Type, e.Msg)
+		s = fmt.Sprintf("%s%s [%s] %s", e.formatTS(), node, e.Type, e.Msg)
 	}
 
 	return s
@@ -89,8 +103,11 @@ func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...in
 		msg = fmt.Sprintf(msg, args...)
 	}
 	_, tz := time.Now().Local().Zone()
+	t := time.Now().UTC()
+
 	e := &LogEntry{
-		TS:    time.Now().UTC().Unix(),
+		TS:    t.Unix(),
+		Tns:   t.Nanosecond(),
 		TZone: tz,
 		LogKeys: LogKeys{
 			RS:      l.rs,
@@ -164,15 +181,15 @@ func (l *Logger) NewEvent(typ, name string) *Event {
 }
 
 func (e *Event) Info(msg string, args ...interface{}) {
-	e.l.Info(e.typ, e.obj, msg, args)
+	e.l.Info(e.typ, e.obj, msg, args...)
 }
 
 func (e *Event) Warning(msg string, args ...interface{}) {
-	e.l.Warning(e.typ, e.obj, msg, args)
+	e.l.Warning(e.typ, e.obj, msg, args...)
 }
 
 func (e *Event) Error(msg string, args ...interface{}) {
-	e.l.Error(e.typ, e.obj, msg, args)
+	e.l.Error(e.typ, e.obj, msg, args...)
 }
 
 // GetEntries returns last log entries
@@ -206,8 +223,6 @@ func GetEntries(cn *mongo.Collection, rs string, typ EntryType, event string, li
 	return logs, nil
 }
 
-// pbm logs -tail=N -agent=rs1/localhost:37019 -type=error|warning -event=backup/2222-22-22T
-
 type LogRequest struct {
 	TimeMin time.Time
 	TimeMax time.Time
@@ -226,10 +241,10 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
 		filter = append(filter, bson.E{"type", r.Type})
 	}
 	if r.Event != "" {
-		filter = append(filter, bson.E{"event", r.Type})
+		filter = append(filter, bson.E{"event", r.Event})
 	}
 	if r.ObjName != "" {
-		filter = append(filter, bson.E{"obj", r.Node})
+		filter = append(filter, bson.E{"obj", r.ObjName})
 	}
 	if !r.TimeMin.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})
@@ -241,7 +256,7 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
 	cur, err := cn.Find(
 		context.TODO(),
 		filter,
-		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
+		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}, {"ns", -1}}),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "get list from mongo")

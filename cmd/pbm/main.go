@@ -63,7 +63,7 @@ var (
 
 	// pbm logs --tail=N --node=rs1/localhost:37019 --type=ERROR --event=backup/2222-22-22T
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
-	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Int64()
+	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Default("20").Int64()
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").String()
 	logsTypeF  = logsCmd.Flag("type", "Entry type <INFO>/<Warning>/<ERROR>").Enum(string(plog.TypeInfo), string(plog.TypeWarning), string(plog.TypeError))
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").String()
@@ -366,7 +366,14 @@ func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) err
 }
 
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
-	l, err := cn.LogGet("", plog.TypeError, op, 1)
+	l, err := cn.LogGet(
+		&plog.LogRequest{
+			LogKeys: plog.LogKeys{
+				Type:  plog.TypeError,
+				Event: string(op),
+			},
+		}, 1)
+
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}

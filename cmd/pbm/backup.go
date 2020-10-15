@@ -269,7 +269,15 @@ func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
 }
 
 func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
-	l, err := cn.LogGet(rs, plog.TypeError, pbm.CmdPITR, 1)
+	l, err := cn.LogGet(
+		&plog.LogRequest{
+			LogKeys: plog.LogKeys{
+				RS:    rs,
+				Type:  plog.TypeError,
+				Event: string(pbm.CmdPITR),
+			},
+		},
+		1)
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}
