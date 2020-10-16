@@ -63,10 +63,10 @@ var (
 
 	// pbm logs --tail=N --node=rs1/localhost:37019 --type=ERROR --event=backup/2222-22-22T
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
-	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Default("20").Int64()
-	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").String()
-	logsTypeF  = logsCmd.Flag("type", "Entry type <INFO>/<Warning>/<ERROR>").Enum(string(plog.TypeInfo), string(plog.TypeWarning), string(plog.TypeError))
-	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").String()
+	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Short('t').Default("20").Int64()
+	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
+	logsTypeF  = logsCmd.Flag("severety", "Severity level <F/E/W/I/D>. W includes also E & F etc.").Short('s').Default("I").Enum("F", "E", "W", "I", "D")
+	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
 
 	client *mongo.Client
 )
@@ -369,8 +369,8 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	l, err := cn.LogGet(
 		&plog.LogRequest{
 			LogKeys: plog.LogKeys{
-				Type:  plog.TypeError,
-				Event: string(op),
+				Severity: plog.Error,
+				Event:    string(op),
 			},
 		}, 1)
 

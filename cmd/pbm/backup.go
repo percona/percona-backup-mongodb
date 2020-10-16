@@ -272,9 +272,9 @@ func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
 	l, err := cn.LogGet(
 		&plog.LogRequest{
 			LogKeys: plog.LogKeys{
-				RS:    rs,
-				Type:  plog.TypeError,
-				Event: string(pbm.CmdPITR),
+				RS:       rs,
+				Severity: plog.Error,
+				Event:    string(pbm.CmdPITR),
 			},
 		},
 		1)

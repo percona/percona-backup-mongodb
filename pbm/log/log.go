@@ -23,19 +23,20 @@ type Logger struct {
 }
 
 type LogEntry struct {
-	TS      int64 `bson:"ts" json:"ts"`
-	Tns     int   `bson:"ns" json:"ns"`
-	TZone   int   `bson:"tz" json:"tz"`
+	Time    string `bson:"-" json:"t"`
+	TS      int64  `bson:"ts" json:"-"`
+	Tns     int    `bson:"ns" json:"-"`
+	TZone   int    `bson:"tz" json:"-"`
 	LogKeys `bson:",inline" json:",inline"`
 	Msg     string `bson:"msg" json:"msg"`
 }
 
 type LogKeys struct {
-	RS      string    `bson:"rs" json:"rs"`
-	Node    string    `bson:"node" json:"node"`
-	Type    EntryType `bson:"type" json:"type"`
-	Event   string    `bson:"event" json:"event"`
-	ObjName string    `bson:"obj" json:"obj"`
+	Severity Severity `bson:"s" json:"s"`
+	RS       string   `bson:"rs" json:"rs"`
+	Node     string   `bson:"node" json:"node"`
+	Event    string   `bson:"e" json:"e"`
+	ObjName  string   `bson:"obj" json:"obj"`
 }
 
 // LogTimeFormat is a date-time format to be displayed in the log output
@@ -56,7 +57,7 @@ func (e *LogEntry) StringNode() (s string) {
 func (e *LogEntry) string(showNode bool) (s string) {
 	node := ""
 	if showNode {
-		node = " " + e.RS + "/" + e.Node
+		node = " [" + e.RS + "/" + e.Node + "]"
 	}
 
 	if e.Event != "" || e.ObjName != "" {
@@ -67,22 +68,40 @@ func (e *LogEntry) string(showNode bool) (s string) {
 		if e.ObjName != "" {
 			id = append(id, e.ObjName)
 		}
-		s = fmt.Sprintf("%s%s [%s] %s: %s", e.formatTS(), node, e.Type, strings.Join(id, "/"), e.Msg)
+		s = fmt.Sprintf("%s %s%s [%s] %s", e.formatTS(), e.Severity, node, strings.Join(id, "/"), e.Msg)
 	} else {
-		s = fmt.Sprintf("%s%s [%s] %s", e.formatTS(), node, e.Type, e.Msg)
+		s = fmt.Sprintf("%s %s%s %s", e.formatTS(), e.Severity, node, e.Msg)
 	}
 
 	return s
 }
 
-type EntryType string
+type Severity int
 
 const (
-	TypeNone    EntryType = ""
-	TypeInfo    EntryType = "INFO"
-	TypeWarning EntryType = "Warning"
-	TypeError   EntryType = "ERROR"
+	Fatal Severity = iota
+	Error
+	Warning
+	Info
+	Debug
 )
+
+func (s Severity) String() string {
+	switch s {
+	case Fatal:
+		return "F"
+	case Error:
+		return "E"
+	case Warning:
+		return "W"
+	case Info:
+		return "I"
+	case Debug:
+		return "D"
+	default:
+		return ""
+	}
+}
 
 func New(cn *mongo.Collection, rs, node string) *Logger {
 	return &Logger{
@@ -98,7 +117,7 @@ func (l *Logger) SetOut(w io.Writer) {
 	l.out = w
 }
 
-func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...interface{}) {
+func (l *Logger) output(s Severity, event string, obj, msg string, args ...interface{}) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -110,11 +129,11 @@ func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...in
 		Tns:   t.Nanosecond(),
 		TZone: tz,
 		LogKeys: LogKeys{
-			RS:      l.rs,
-			Node:    l.node,
-			Type:    typ,
-			Event:   event,
-			ObjName: obj,
+			RS:       l.rs,
+			Node:     l.node,
+			Severity: s,
+			Event:    event,
+			ObjName:  obj,
 		},
 		Msg: msg,
 	}
@@ -126,19 +145,19 @@ func (l *Logger) output(typ EntryType, event string, obj, msg string, args ...in
 }
 
 func (l *Logger) Printf(msg string, args ...interface{}) {
-	l.output(TypeInfo, "", "", msg, args...)
+	l.output(Info, "", "", msg, args...)
 }
 
 func (l *Logger) Info(event string, obj, msg string, args ...interface{}) {
-	l.output(TypeInfo, event, obj, msg, args...)
+	l.output(Info, event, obj, msg, args...)
 }
 
 func (l *Logger) Warning(event string, obj, msg string, args ...interface{}) {
-	l.output(TypeWarning, event, obj, msg, args...)
+	l.output(Warning, event, obj, msg, args...)
 }
 
 func (l *Logger) Error(event string, obj, msg string, args ...interface{}) {
-	l.output(TypeError, event, obj, msg, args...)
+	l.output(Error, event, obj, msg, args...)
 }
 
 func (l *Logger) Output(e *LogEntry) error {
@@ -192,37 +211,6 @@ func (e *Event) Error(msg string, args ...interface{}) {
 	e.l.Error(e.typ, e.obj, msg, args...)
 }
 
-// GetEntries returns last log entries
-func GetEntries(cn *mongo.Collection, rs string, typ EntryType, event string, limit int64) ([]LogEntry, error) {
-	// TODO: it should be reworked along with the status implementation
-	// TODO: add indexes, make logs retrieval more flexible
-	filter := bson.D{{"type", typ}, {"action", event}}
-	if rs != "" {
-		filter = append(filter, bson.E{"rs", rs})
-	}
-
-	cur, err := cn.Find(
-		context.TODO(),
-		filter,
-		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}}),
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "get list from mongo")
-	}
-
-	logs := []LogEntry{}
-	for cur.Next(context.TODO()) {
-		l := LogEntry{}
-		err := cur.Decode(&l)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		logs = append(logs, l)
-	}
-
-	return logs, nil
-}
-
 type LogRequest struct {
 	TimeMin time.Time
 	TimeMax time.Time
@@ -230,18 +218,15 @@ type LogRequest struct {
 }
 
 func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
-	filter := bson.D{}
+	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
 	if r.RS != "" {
 		filter = append(filter, bson.E{"rs", r.RS})
 	}
 	if r.Node != "" {
 		filter = append(filter, bson.E{"node", r.Node})
 	}
-	if r.Type != TypeNone {
-		filter = append(filter, bson.E{"type", r.Type})
-	}
 	if r.Event != "" {
-		filter = append(filter, bson.E{"event", r.Event})
+		filter = append(filter, bson.E{"e", r.Event})
 	}
 	if r.ObjName != "" {
 		filter = append(filter, bson.E{"obj", r.ObjName})
@@ -252,6 +237,8 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
 	if !r.TimeMax.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
 	}
+
+	// fmt.Printf("%#v\n\n", r.LogKeys)
 
 	cur, err := cn.Find(
 		context.TODO(),

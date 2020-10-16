@@ -28,8 +28,19 @@ func logs(cn *pbm.PBM) {
 		}
 	}
 
-	if *logsTypeF != "" {
-		r.Type = plog.EntryType(*logsTypeF)
+	switch *logsTypeF {
+	case "F":
+		r.Severity = plog.Fatal
+	case "E":
+		r.Severity = plog.Error
+	case "W":
+		r.Severity = plog.Warning
+	case "I":
+		r.Severity = plog.Info
+	case "D":
+		r.Severity = plog.Debug
+	default:
+		r.Severity = plog.Info
 	}
 
 	entrs, err := cn.LogGet(r, *logsTailF)
