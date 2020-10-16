@@ -61,7 +61,6 @@ var (
 	versionCommit = versionCmd.Flag("commit", "Only git commit info").Default("false").Bool()
 	versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
 
-	// pbm logs --tail=N --node=rs1/localhost:37019 --type=ERROR --event=backup/2222-22-22T
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
 	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Short('t').Default("20").Int64()
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
