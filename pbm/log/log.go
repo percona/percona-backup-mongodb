@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -217,7 +218,51 @@ type LogRequest struct {
 	LogKeys
 }
 
-func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
+type OutFormat int
+
+const (
+	FormatText OutFormat = iota
+	FormatJSON
+)
+
+func (l *Logger) PrintLogs(to io.Writer, f OutFormat, r *LogRequest, limit int64, showNode bool) error {
+	cur, err := l.Get(r, limit)
+	if err != nil {
+		return errors.Wrap(err, "get list from mongo")
+	}
+
+	var fn entryFn
+
+	switch f {
+	case FormatJSON:
+		enc := json.NewEncoder(to)
+		fn = func(e LogEntry) error {
+			e.Time = e.formatTS()
+			err := enc.Encode(e)
+			return errors.Wrap(err, "json encode message")
+		}
+	default:
+		fn = func(e LogEntry) error {
+			_, err := io.WriteString(to, e.string(showNode)+"\n")
+			return errors.Wrap(err, "write message")
+		}
+	}
+	return processList(cur, fn)
+}
+
+type entryFn func(e LogEntry) error
+
+func processList(e []LogEntry, fn entryFn) error {
+	for i := len(e) - 1; i >= 0; i-- {
+		err := fn(e[i])
+		if err != nil {
+			return errors.Wrap(err, "process message")
+		}
+	}
+	return nil
+}
+
+func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
 	if r.RS != "" {
 		filter = append(filter, bson.E{"rs", r.RS})
@@ -238,9 +283,7 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
 		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
 	}
 
-	// fmt.Printf("%#v\n\n", r.LogKeys)
-
-	cur, err := cn.Find(
+	cur, err := l.cn.Find(
 		context.TODO(),
 		filter,
 		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}, {"ns", -1}}),
@@ -248,6 +291,7 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64) ([]LogEntry, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get list from mongo")
 	}
+	defer cur.Close(context.TODO())
 
 	logs := []LogEntry{}
 	for cur.Next(context.TODO()) {
