@@ -1,15 +1,12 @@
 package s3
 
 import (
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/url"
-	"os"
 	"path"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -20,6 +17,7 @@ import (
 	"github.com/minio/minio-go"
 	"github.com/pkg/errors"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -86,9 +84,10 @@ const (
 
 type S3 struct {
 	opts Conf
+	log  *log.Event
 }
 
-func New(opts Conf) (*S3, error) {
+func New(opts Conf, l *log.Event) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -96,6 +95,7 @@ func New(opts Conf) (*S3, error) {
 
 	return &S3{
 		opts: opts,
+		log:  l,
 	}, nil
 }
 
@@ -147,8 +147,10 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 				partSize = ps
 			}
 		}
-		// TODO: needs to be pbm.Logger
-		fmt.Fprintf(os.Stderr, "%s [INFO] s3.uploadPartSize is set to %d (~%dMb)\n", time.Now().Format("2006-01-02T15:04:05.000-0700"), partSize, partSize>>20)
+
+		if s.log != nil {
+			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
+		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 			u.MaxUploadParts = s3manager.MaxUploadParts

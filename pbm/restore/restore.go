@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -24,7 +25,7 @@ func init() {
 	//
 	// duplicated in backup/restore packages just
 	// in the sake of clarity
-	mlog.SetDateFormat(pbm.LogTimeFormat)
+	mlog.SetDateFormat(log.LogTimeFormat)
 }
 
 var excludeFromRestore = []string{
@@ -56,7 +57,7 @@ type Restore struct {
 	pitrChunks []pbm.PITRChunk
 	pitrLastTS int64
 	oplog      *Oplog
-	log        *pbm.Logger
+	log        *log.Event
 }
 
 // New creates a new restore object
@@ -64,7 +65,6 @@ func New(cn *pbm.PBM, node *pbm.Node) *Restore {
 	return &Restore{
 		cn:   cn,
 		node: node,
-		log:  node.Log,
 	}
 }
 
@@ -82,14 +82,14 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 		if err != nil {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
-				r.log.Error(pbm.CmdRestore, cmd.BackupName, "mark restore as failed `%v`: %v", err, ferr)
+				r.cn.Logger().Error(string(pbm.CmdRestore), cmd.BackupName, "mark restore as failed `%v`: %v", err, ferr)
 			}
 		}
 
 		r.Close()
 	}()
 
-	err = r.Init(cmd.Name)
+	err = r.InitSnapshot(cmd)
 	if err != nil {
 		return err
 	}
@@ -106,6 +106,9 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 
 	return r.Done()
 }
+func (r *Restore) InitSnapshot(cmd pbm.RestoreCmd) error {
+	return r.init(cmd.Name, r.cn.Logger().NewEvent(string(pbm.CmdRestore), cmd.BackupName))
+}
 
 // PITR do Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
@@ -113,14 +116,14 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 		if err != nil {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
-				r.log.Error(pbm.CmdRestore, time.Unix(cmd.TS, 0).UTC().Format(time.RFC3339), "mark restore as failed `%v`: %v", err, ferr)
+				r.cn.Logger().Error(string(pbm.CmdRestore), time.Unix(cmd.TS, 0).UTC().Format(time.RFC3339), "mark restore as failed `%v`: %v", err, ferr)
 			}
 		}
 
 		r.Close()
 	}()
 
-	err = r.Init(cmd.Name)
+	err = r.InitPITR(cmd)
 	if err != nil {
 		return err
 	}
@@ -143,7 +146,13 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 	return r.Done()
 }
 
-func (r *Restore) Init(name string) (err error) {
+func (r *Restore) InitPITR(cmd pbm.PITRestoreCmd) error {
+	return r.init(cmd.Name, r.cn.Logger().NewEvent(string(pbm.CmdPITRestore), time.Unix(r.pitrLastTS, 0).UTC().Format(time.RFC3339)))
+}
+
+func (r *Restore) init(name string, l *log.Event) (err error) {
+	r.log = l
+
 	r.nodeInfo, err = r.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node data")
@@ -174,7 +183,7 @@ func (r *Restore) Init(name string) (err error) {
 				case <-tk.C:
 					err := r.cn.RestoreHB(r.name)
 					if err != nil {
-						r.log.Error(pbm.CmdRestore, name, "send heartbeat: %v", err)
+						r.cn.Logger().Error(string(pbm.CmdRestore), name, "send heartbeat: %v", err)
 					}
 				case <-r.stopHB:
 					return
@@ -202,7 +211,7 @@ func (r *Restore) Init(name string) (err error) {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
-	r.stg, err = r.cn.GetStorage()
+	r.stg, err = r.cn.GetStorage(r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -439,7 +448,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
-	r.log.Info(pbm.CmdRestore, r.bcp.Name, "mongorestore finished")
+	r.log.Info("mongorestore finished")
 
 	if r.nodeInfo.IsLeader() {
 		err = r.reconcileStatus(pbm.StatusDumpDone, nil)
@@ -453,7 +462,7 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	r.log.Info(pbm.CmdRestore, r.bcp.Name, "starting oplog replay")
+	r.log.Info("starting oplog replay")
 
 	or, err := r.stg.SourceReader(r.oplogFile)
 	if err != nil {
@@ -471,14 +480,14 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
 	}
-	r.log.Info(pbm.CmdRestore, r.bcp.Name, "oplog replay finished on %v", lts)
+	r.log.Info("oplog replay finished on %v", lts)
 
 	cusr, err := r.node.CurrentUser()
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
 
-	r.log.Info(pbm.CmdRestore, r.bcp.Name, "restoring users and roles")
+	r.log.Info("restoring users and roles")
 	err = r.restoreUsers(cusr)
 	if err != nil {
 		return errors.Wrap(err, "restore users 'n' roles")
@@ -489,8 +498,7 @@ func (r *Restore) RunSnapshot() (err error) {
 
 // RestoreChunks replays PITR oplog chunks
 func (r *Restore) RestoreChunks() error {
-	n := time.Unix(r.pitrLastTS, 0).UTC().Format(time.RFC3339)
-	r.log.Info(pbm.CmdPITRestore, n, "replay chunks")
+	r.log.Info("replay chunks")
 
 	var upto int64
 	var lts primitive.Timestamp
@@ -505,7 +513,7 @@ func (r *Restore) RestoreChunks() error {
 		}
 	}
 
-	r.log.Info(pbm.CmdPITRestore, n, "oplog replay finished on %v <%d>", lts, upto)
+	r.log.Info("oplog replay finished on %v <%d>", lts, upto)
 	return nil
 }
 

@@ -112,7 +112,7 @@ func storage(mURL string, compression pbm.CompressionType, sizeGb float64, colle
 	}
 	defer pbmClient.Conn.Disconnect(ctx)
 
-	stg, err := pbmClient.GetStorage()
+	stg, err := pbmClient.GetStorage(nil)
 	if err != nil {
 		log.Fatalln("Error: get storage:", err)
 	}

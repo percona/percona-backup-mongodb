@@ -21,6 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -31,7 +32,7 @@ func init() {
 	//
 	// duplicated in backup/restore packages just
 	// in the sake of clarity
-	mlog.SetDateFormat(pbm.LogTimeFormat)
+	mlog.SetDateFormat(plog.LogTimeFormat)
 }
 
 type Backup struct {
@@ -95,11 +96,12 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
 
-	stg, err := b.cn.GetStorage()
+	l := b.cn.Logger().NewEvent(string(pbm.CmdBackup), bcp.Name)
+
+	stg, err := b.cn.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
-
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
@@ -117,7 +119,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 
 				meta.Status = pbm.StatusCancelled
 				meta.Replsets = append(meta.Replsets, rsMeta)
-				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
+				l.Info("delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
 			// protection from the lagging node.
@@ -126,11 +128,11 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 			// this is what we want to prevent. see https://jira.percona.com/browse/PBM-520
 			if meta.Status != pbm.StatusStarting {
 				ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
-				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark RS as %s `%v`: %v", status, err, ferr)
+				l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 			}
 			if inf.IsLeader() {
 				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
-				b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mark backup as %s `%v`: %v", status, err, ferr)
+				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
 	}()
@@ -166,7 +168,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 				case <-tk.C:
 					err := b.cn.BackupHB(bcp.Name)
 					if err != nil {
-						b.node.Log.Error(pbm.CmdBackup, bcp.Name, "send pbm heartbeat: %v", err)
+						l.Error("send pbm heartbeat: %v", err)
 					}
 				case <-hbstop:
 					return
@@ -231,7 +233,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
-	b.node.Log.Info(pbm.CmdBackup, bcp.Name, "mongodump finished, waiting for the oplog")
+	l.Info("mongodump finished, waiting for the oplog")
 
 	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDumpDone, "")
 	if err != nil {

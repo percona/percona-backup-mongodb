@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -59,6 +60,13 @@ var (
 	versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
 	versionCommit = versionCmd.Flag("commit", "Only git commit info").Default("false").Bool()
 	versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
+
+	// pbm logs --tail=N --node=rs1/localhost:37019 --type=ERROR --event=backup/2222-22-22T
+	logsCmd    = pbmCmd.Command("logs", "PBM logs")
+	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Default("20").Int64()
+	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").String()
+	logsTypeF  = logsCmd.Flag("type", "Entry type <INFO>/<Warning>/<ERROR>").Enum(string(plog.TypeInfo), string(plog.TypeWarning), string(plog.TypeError))
+	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").String()
 
 	client *mongo.Client
 )
@@ -208,6 +216,8 @@ func main() {
 		}
 	case deleteBcpCmd.FullCommand():
 		deleteBackup(pbmClient)
+	case logsCmd.FullCommand():
+		logs(pbmClient)
 	}
 }
 
@@ -356,7 +366,14 @@ func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) err
 }
 
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
-	l, err := cn.LogGet("", pbm.TypeError, op, 1)
+	l, err := cn.LogGet(
+		&plog.LogRequest{
+			LogKeys: plog.LogKeys{
+				Type:  plog.TypeError,
+				Event: string(op),
+			},
+		}, 1)
+
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}

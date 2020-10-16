@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
@@ -268,7 +269,15 @@ func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
 }
 
 func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
-	l, err := cn.LogGet(rs, pbm.TypeError, pbm.CmdPITR, 1)
+	l, err := cn.LogGet(
+		&plog.LogRequest{
+			LogKeys: plog.LogKeys{
+				RS:    rs,
+				Type:  plog.TypeError,
+				Event: string(pbm.CmdPITR),
+			},
+		},
+		1)
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}
