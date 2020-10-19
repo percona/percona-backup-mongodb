@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -28,20 +28,31 @@ func logs(cn *pbm.PBM) {
 		}
 	}
 
-	if *logsTypeF != "" {
-		r.Type = plog.EntryType(*logsTypeF)
+	switch *logsTypeF {
+	case "F":
+		r.Severity = plog.Fatal
+	case "E":
+		r.Severity = plog.Error
+	case "W":
+		r.Severity = plog.Warning
+	case "I":
+		r.Severity = plog.Info
+	case "D":
+		r.Severity = plog.Debug
+	default:
+		r.Severity = plog.Info
 	}
 
-	entrs, err := cn.LogGet(r, *logsTailF)
+	f := plog.FormatText
+	if *logsOutF == "json" {
+		f = plog.FormatJSON
+	}
+
+	// TODO: need to decouple "logger" and "logs printer"
+	cn.InitLogger("", "")
+	err := cn.Logger().PrintLogs(os.Stdout, f, r, *logsTailF, r.Node == "")
+
 	if err != nil {
 		log.Fatalf("Error: get logs: %v", err)
-	}
-
-	for i := len(entrs) - 1; i >= 0; i-- {
-		if r.Node != "" {
-			fmt.Println(entrs[i].String())
-		} else {
-			fmt.Println(entrs[i].StringNode())
-		}
 	}
 }
