@@ -37,7 +37,7 @@ type LogKeys struct {
 	RS       string   `bson:"rs" json:"rs"`
 	Node     string   `bson:"node" json:"node"`
 	Event    string   `bson:"e" json:"e"`
-	ObjName  string   `bson:"obj" json:"obj"`
+	ObjName  string   `bson:"eobj" json:"eobj"`
 }
 
 // LogTimeFormat is a date-time format to be displayed in the log output
@@ -274,7 +274,7 @@ func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 		filter = append(filter, bson.E{"e", r.Event})
 	}
 	if r.ObjName != "" {
-		filter = append(filter, bson.E{"obj", r.ObjName})
+		filter = append(filter, bson.E{"eobj", r.ObjName})
 	}
 	if !r.TimeMin.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})
