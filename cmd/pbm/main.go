@@ -64,7 +64,7 @@ var (
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
 	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Short('t').Default("20").Int64()
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
-	logsTypeF  = logsCmd.Flag("severety", "Severity level <F/E/W/I/D>. W includes also E & F etc.").Short('s').Default("I").Enum("F", "E", "W", "I", "D")
+	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
 	logsOutF   = logsCmd.Flag("out", "Event in format backup[/2020-10-06T11:45:14Z]").Short('o').Default("text").Enum("json", "text")
 
