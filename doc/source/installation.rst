@@ -150,7 +150,7 @@ To set the "PBM_MONGODB_URI" environment variable:
    See :ref:`pbm.auth.create_pbm_user`.
 #. Edit the environment file:  
 
-   .. code-block:: guess
+   .. code-block:: bash
    
       PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018"
 
