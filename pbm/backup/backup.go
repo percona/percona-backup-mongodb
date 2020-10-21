@@ -83,9 +83,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	rsName := inf.SetName
-	if rsName == "" {
-		rsName = pbm.NoReplset
-	}
+
 	rsMeta := pbm.BackupReplset{
 		Name:         rsName,
 		OplogName:    getDstName("oplog", bcp, inf.SetName),

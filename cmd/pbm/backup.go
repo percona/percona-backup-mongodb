@@ -35,7 +35,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 
 	cfg, err := cn.GetConfig()
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "", errors.New("no store set. Set remote store with <pbm store set>")
 		}
 		return "", errors.Wrap(err, "get remote-store")
