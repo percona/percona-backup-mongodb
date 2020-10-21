@@ -49,9 +49,8 @@ const (
 	PITRChunksCollection = "pbmPITRChunks"
 	//PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
-
-	// NoReplset is the name of a virtual replica set of the standalone node
-	NoReplset = "pbmnoreplicaset"
+	// StatusCollection stores pbm status
+	StatusCollection = "pbmStatus"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
@@ -235,7 +234,7 @@ func (p *PBM) Logger() *log.Logger {
 
 const (
 	cmdCollectionSizeBytes  = 10 << 10 // size 10kb ~ 50 commands
-	logsCollectionSizeBytes = 1 << 20  // 1Mb
+	logsCollectionSizeBytes = 10 << 20 // 10Mb
 )
 
 // setup a new DB for PBM

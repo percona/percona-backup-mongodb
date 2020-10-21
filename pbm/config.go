@@ -8,6 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/yaml.v2"
@@ -28,8 +29,9 @@ type Config struct {
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled bool  `bson:"enabled" json:"enabled" yaml:"enabled"`
-	Changed int64 `bson:"changed" json:"-" yaml:"-"`
+	Enabled bool                `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Changed int64               `bson:"changed" json:"-" yaml:"-"`
+	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
 // StorageType represents a type of the destination storage for backups
@@ -57,7 +59,7 @@ type RestoreConf struct {
 
 type confMap map[string]reflect.Kind
 
-// _confmap is list valid keys and its types of current config
+// _confmap is a list of config's valid keys and its types
 var _confmap confMap
 
 func init() {
@@ -101,10 +103,19 @@ func (p *PBM) SetConfig(cfg Config) error {
 			return errors.Wrap(err, "cast storage")
 		}
 	}
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
 
 	cfg.PITR.Changed = time.Now().Unix()
+	cfg.PITR.Epoch = ct
 
-	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+	// TODO: if store or pitr changed - need to bump epoch
+	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
+	p.GetConfig()
+
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
 		bson.M{"$set": cfg},
@@ -114,10 +125,15 @@ func (p *PBM) SetConfig(cfg Config) error {
 }
 
 func (p *PBM) ConfigBumpPITRepoch() error {
-	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
-		bson.M{"$set": bson.M{"pitr.changed": time.Now().Unix()}},
+		bson.M{"$set": bson.M{"pitr.changed": time.Now().Unix(), "pitr.epoch": ct}},
 	)
 
 	return errors.Wrap(err, "write to db")
@@ -167,10 +183,14 @@ func (p *PBM) SetConfigVar(key, val string) error {
 }
 
 func (p *PBM) confSetPITR(k string, v bool) error {
-	_, err := p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
-		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix()}},
+		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix(), "pitr.epoch": ct}},
 	)
 
 	return err
