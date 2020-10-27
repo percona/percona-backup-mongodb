@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/alecthomas/kingpin"
@@ -21,6 +23,7 @@ func main() {
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
 
 		mURI = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		dumpConns = pbmAgentCmd.Flag("parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU()/2)).Int()
 
 		versionCmd    = pbmCmd.Command("version", "PBM version info")
 		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -46,10 +49,10 @@ func main() {
 		return
 	}
 
-	log.Println(runAgent(*mURI))
+	log.Println(runAgent(*mURI, *dumpConns))
 }
 
-func runAgent(mongoURI string) error {
+func runAgent(mongoURI string, dumpConns int) error {
 	mongoURI = "mongodb://" + strings.Replace(mongoURI, "mongodb://", "", 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,7 +64,7 @@ func runAgent(mongoURI string) error {
 	}
 
 	agnt := agent.New(pbmClient)
-	err = agnt.AddNode(ctx, mongoURI)
+	err = agnt.AddNode(ctx, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
