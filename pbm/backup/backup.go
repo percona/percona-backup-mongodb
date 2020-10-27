@@ -638,6 +638,7 @@ func newDump(curi string, conns int) *mdump {
 			Auth:       &options.Auth{},
 			Namespace:  &options.Namespace{},
 			Connection: &options.Connection{},
+			Direct:     true,
 		},
 		conns: conns,
 	}
