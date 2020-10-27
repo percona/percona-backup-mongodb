@@ -43,19 +43,25 @@ type LogKeys struct {
 // LogTimeFormat is a date-time format to be displayed in the log output
 const LogTimeFormat = "2006-01-02T15:04:05.000-0700"
 
-func (e *LogEntry) formatTS() string {
-	return time.Unix(e.TS, 0).Local().Format(LogTimeFormat)
+func tsLocal(ts int64) string {
+	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
+}
+
+func tsUTC(ts int64) string {
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
 
 func (e *LogEntry) String() (s string) {
-	return e.string(false)
+	return e.string(tsLocal, false)
 }
 
 func (e *LogEntry) StringNode() (s string) {
-	return e.string(true)
+	return e.string(tsLocal, true)
 }
 
-func (e *LogEntry) string(showNode bool) (s string) {
+type tsformatf func(ts int64) string
+
+func (e *LogEntry) string(f tsformatf, showNode bool) (s string) {
 	node := ""
 	if showNode {
 		node = " [" + e.RS + "/" + e.Node + "]"
@@ -69,9 +75,9 @@ func (e *LogEntry) string(showNode bool) (s string) {
 		if e.ObjName != "" {
 			id = append(id, e.ObjName)
 		}
-		s = fmt.Sprintf("%s %s%s [%s] %s", e.formatTS(), e.Severity, node, strings.Join(id, "/"), e.Msg)
+		s = fmt.Sprintf("%s %s%s [%s] %s", f(e.TS), e.Severity, node, strings.Join(id, "/"), e.Msg)
 	} else {
-		s = fmt.Sprintf("%s %s%s %s", e.formatTS(), e.Severity, node, e.Msg)
+		s = fmt.Sprintf("%s %s%s %s", f(e.TS), e.Severity, node, e.Msg)
 	}
 
 	return s
@@ -237,13 +243,13 @@ func (l *Logger) PrintLogs(to io.Writer, f OutFormat, r *LogRequest, limit int64
 	case FormatJSON:
 		enc := json.NewEncoder(to)
 		fn = func(e LogEntry) error {
-			e.Time = e.formatTS()
+			e.Time = tsUTC(e.TS)
 			err := enc.Encode(e)
 			return errors.Wrap(err, "json encode message")
 		}
 	default:
 		fn = func(e LogEntry) error {
-			_, err := io.WriteString(to, e.string(showNode)+"\n")
+			_, err := io.WriteString(to, e.string(tsUTC, showNode)+"\n")
 			return errors.Wrap(err, "write message")
 		}
 	}
