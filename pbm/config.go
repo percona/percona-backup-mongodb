@@ -30,7 +30,6 @@ type Config struct {
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
 	Enabled bool                `bson:"enabled" json:"enabled" yaml:"enabled"`
-	Changed int64               `bson:"changed" json:"-" yaml:"-"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -108,7 +107,6 @@ func (p *PBM) SetConfig(cfg Config) error {
 		return errors.Wrap(err, "get cluster time")
 	}
 
-	cfg.PITR.Changed = time.Now().Unix()
 	cfg.PITR.Epoch = ct
 
 	// TODO: if store or pitr changed - need to bump epoch
@@ -122,21 +120,6 @@ func (p *PBM) SetConfig(cfg Config) error {
 		options.Update().SetUpsert(true),
 	)
 	return errors.Wrap(err, "mongo ConfigCollection UpdateOne")
-}
-
-func (p *PBM) ConfigBumpPITRepoch() error {
-	ct, err := p.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
-
-	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
-		p.ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{"pitr.changed": time.Now().Unix(), "pitr.epoch": ct}},
-	)
-
-	return errors.Wrap(err, "write to db")
 }
 
 func (p *PBM) SetConfigVar(key, val string) error {

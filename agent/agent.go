@@ -56,23 +56,27 @@ func (a *Agent) Start() error {
 	a.log.Printf("listening for the commands")
 
 	for {
+		ep, err := a.pbm.GetEpoch()
+		if err != nil {
+			a.log.Error("", "", "", ep.TS(), "get epoch: %v", err)
+		}
 		select {
 		case cmd := <-c:
 			a.log.Printf("got command %s", cmd)
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
-				go a.Backup(cmd.Backup)
+				go a.Backup(cmd.Backup, cmd.OPID, ep)
 			case pbm.CmdCancelBackup:
 				a.CancelBackup()
 			case pbm.CmdRestore:
-				a.Restore(cmd.Restore)
+				a.Restore(cmd.Restore, cmd.OPID, ep)
 			case pbm.CmdResyncBackupList:
-				a.ResyncStorage()
+				a.ResyncStorage(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
-				a.PITRestore(cmd.PITRestore)
+				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
-				a.Delete(cmd.Delete)
+				a.Delete(cmd.Delete, cmd.OPID, ep)
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -84,16 +88,16 @@ func (a *Agent) Start() error {
 					return errors.New("change stream was closed")
 				}
 
-				a.log.Error("", "", "listening commands: %v", err)
+				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
 			}
 		}
 	}
 }
 
 // Delete deletes backup(s) from the store and cleans up its metadata
-func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
+func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	const waitAtLeast = time.Second * 5
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "")
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -110,6 +114,8 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdDeleteBackup,
+		OPID:    opid.String(),
+		Epoch:   ep.TS(),
 	}, pbm.LockOpCollection)
 
 	got, err := a.aquireLock(lock, nil)
@@ -129,12 +135,11 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 	}()
 
 	tsstart := time.Now()
-	obj := d.Backup
 	switch {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
-		obj = t.Format("2006-01-02T15:04:05Z")
-		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj)
+		obj := t.Format("2006-01-02T15:04:05Z")
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		l.Info("deleting backups older than %v", t)
 		err := a.pbm.DeleteOlderThan(t)
 		if err != nil {
@@ -142,7 +147,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 			return
 		}
 	case d.Backup != "":
-		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup)
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		l.Info("deleting backup")
 		err := a.pbm.DeleteBackup(d.Backup)
 		if err != nil {
@@ -160,12 +165,12 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		time.Sleep(needToWait)
 	}
 
-	a.pbm.Logger().Info(string(pbm.CmdDeleteBackup), obj, "done")
+	l.Info("done")
 }
 
 // ResyncStorage uploads a backup list from the remote store
-func (a *Agent) ResyncStorage() {
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "")
+func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -182,6 +187,8 @@ func (a *Agent) ResyncStorage() {
 		Type:    pbm.CmdResyncBackupList,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   ep.TS(),
 	})
 
 	got, err := lock.Acquire()
@@ -226,14 +233,14 @@ func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, er
 
 	switch err.(type) {
 	case pbm.ErrConcurrentOp:
-		a.log.Info("", "", "acquiring lock: %v", err)
+		a.log.Printf("acquiring lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		if m != nil {
 			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
 			merr := m(name)
 			if merr != nil {
-				a.log.Warning("", "", "failed to mark stale backup '%s' as failed: %v", name, merr)
+				a.log.Warning("", "", "", l.Epoch, "failed to mark stale backup '%s' as failed: %v", name, merr)
 			}
 		}
 		return l.Acquire()

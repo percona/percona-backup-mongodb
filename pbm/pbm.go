@@ -70,6 +70,8 @@ const (
 	CmdDeleteBackup     Command = "delete"
 )
 
+type OPID primitive.ObjectID
+
 type Cmd struct {
 	Cmd        Command         `bson:"cmd"`
 	Backup     BackupCmd       `bson:"backup,omitempty"`
@@ -77,6 +79,23 @@ type Cmd struct {
 	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
 	TS         int64           `bson:"ts"`
+	OPID       OPID            `bson:"-"`
+}
+
+func OPIDfromStr(s string) (OPID, error) {
+	o, err := primitive.ObjectIDFromHex(s)
+	if err != nil {
+		return OPID{}, err
+	}
+	return OPID(o), nil
+}
+
+func (o OPID) String() string {
+	return primitive.ObjectID(o).Hex()
+}
+
+func (o OPID) Obj() primitive.ObjectID {
+	return primitive.ObjectID(o)
 }
 
 func (c Cmd) String() string {
@@ -233,8 +252,8 @@ func (p *PBM) Logger() *log.Logger {
 }
 
 const (
-	cmdCollectionSizeBytes  = 10 << 10 // size 10kb ~ 50 commands
-	logsCollectionSizeBytes = 10 << 20 // 10Mb
+	cmdCollectionSizeBytes  = 20 << 20 // 10Mb
+	logsCollectionSizeBytes = 50 << 20 // 50Mb
 )
 
 // setup a new DB for PBM
@@ -675,6 +694,35 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 
 func (p *PBM) LogGet(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
 	return p.log.Get(r, limit)
+}
+
+type Epoch primitive.Timestamp
+
+func (p *PBM) GetEpoch() (Epoch, error) {
+	c, err := p.GetConfig()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "get config")
+	}
+
+	return Epoch(c.PITR.Epoch), nil
+}
+
+func (p *PBM) ResetEpoch() (Epoch, error) {
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "get cluster time")
+	}
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$set": bson.M{"pitr.epoch": ct}},
+	)
+
+	return Epoch(ct), err
+}
+
+func (e Epoch) TS() primitive.Timestamp {
+	return primitive.Timestamp(e)
 }
 
 // FileCompression return compression alg based on given file extention

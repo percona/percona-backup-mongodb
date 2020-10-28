@@ -17,10 +17,12 @@ const StaleFrameSec uint32 = 30
 
 // LockHeader describes the lock. This data will be serialased into the mongo document.
 type LockHeader struct {
-	Type       Command `bson:"type,omitempty"`
-	Replset    string  `bson:"replset,omitempty"`
-	Node       string  `bson:"node,omitempty"`
-	BackupName string  `bson:"backup,omitempty"`
+	Type       Command             `bson:"type,omitempty"`
+	Replset    string              `bson:"replset,omitempty"`
+	Node       string              `bson:"node,omitempty"`
+	BackupName string              `bson:"backup,omitempty"`
+	OPID       string              `bson:"opid,omitempty"`
+	Epoch      primitive.Timestamp `bson:"epoch,omitempty"`
 }
 
 type LockData struct {
@@ -110,7 +112,7 @@ func (l *Lock) Acquire() (bool, error) {
 
 	// peer is alive
 	if peer.Heartbeat.T+l.staleSec >= ts.T {
-		if l.BackupName != peer.BackupName {
+		if l.OPID != peer.OPID {
 			return false, ErrConcurrentOp{Lock: peer.LockHeader}
 		}
 		return false, nil

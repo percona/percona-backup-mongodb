@@ -82,7 +82,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 		if err != nil {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
-				r.cn.Logger().Error(string(pbm.CmdRestore), cmd.BackupName, "mark restore as failed `%v`: %v", err, ferr)
+				r.log.Error("mark restore as failed `%v`: %v", err, ferr)
 			}
 		}
 

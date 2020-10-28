@@ -180,6 +180,8 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: read config: %v", cfg)
 	}
 
+	cn.InitLogger("", "")
+
 	now := time.Now().Unix()
 	var pitrList, pitrErrors string
 	var rstlines [][]pbm.Timeline

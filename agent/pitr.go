@@ -68,13 +68,14 @@ const pitrCheckPeriod = time.Second * 15
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
-	tk := time.NewTicker(pitrCheckPeriod)
-	defer tk.Stop()
-	for range tk.C {
+	for {
 		err := a.pitr()
 		if err != nil {
-			a.log.Error(string(pbm.CmdPITR), "", "%v", err)
+			ep, _ := a.pbm.GetEpoch()
+			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
 		}
+
+		time.Sleep(pitrCheckPeriod)
 	}
 }
 
@@ -126,7 +127,11 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "defining starting point for the backup")
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdPITR), "")
+	ep, err := a.pbm.GetEpoch()
+	if err != nil {
+		return errors.Wrap(err, "get epoch")
+	}
+	l := a.log.NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
 
 	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
@@ -137,6 +142,7 @@ func (a *Agent) pitr() (err error) {
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdPITR,
+		Epoch:   ep.TS(),
 	})
 
 	got, err := a.aquireLock(lock, nil)
@@ -180,8 +186,8 @@ func (a *Agent) pitr() (err error) {
 }
 
 // PITRestore starts the point-in-time recovery
-func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
-	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339))
+func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339), opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -197,6 +203,8 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 		Type:    pbm.CmdPITRestore,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   ep.TS(),
 	})
 
 	got, err := lock.Acquire()

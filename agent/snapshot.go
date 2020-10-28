@@ -46,8 +46,8 @@ func (a *Agent) CancelBackup() {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(bcp pbm.BackupCmd) {
-	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name)
+func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name, opid.String(), ep.TS())
 
 	q, err := backup.NodeSuits(a.node)
 	if err != nil {
@@ -95,6 +95,8 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
 		BackupName: bcp.Name,
+		OPID:       opid.String(),
+		Epoch:      ep.TS(),
 	})
 
 	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
@@ -157,8 +159,8 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 }
 
 // Restore starts the restore
-func (a *Agent) Restore(r pbm.RestoreCmd) {
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName)
+func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -175,6 +177,8 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		Replset:    nodeInfo.SetName,
 		Node:       nodeInfo.Me,
 		BackupName: r.Name,
+		OPID:       opid.String(),
+		Epoch:      ep.TS(),
 	})
 
 	got, err := lock.Acquire()

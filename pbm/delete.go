@@ -23,7 +23,7 @@ func (p *PBM) DeleteBackup(name string) error {
 		return err
 	}
 
-	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), ""))
+	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), "", "", 0))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -106,7 +106,7 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err erro
 
 // DeleteOlderThan deletes backups which older than given Time
 func (p *PBM) DeleteOlderThan(t time.Time) error {
-	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), ""))
+	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), "", "", 0))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
