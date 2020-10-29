@@ -183,7 +183,9 @@ restore.
 
    $ pbm restore 2019-06-09T07:03:50Z
 
-As of v1.3.2, the |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
+.. versionadded:: 1.3.2 
+
+   The |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
 
 .. code-block:: yaml
 
@@ -219,7 +221,7 @@ The default values were adjusted to fit the setups with the memory allocation of
    2. Shut down all ``mongos`` nodes to stop clients from accessing the database while restore is in progress. This ensures that the final restored data doesn’t differ from the backed-up data.
    3. Disable point-in-time recovery if it is enabled. To learn more about point-in-time recovery, see :ref:`pitr`.
 
-Note that you can restore a sharded backup only into a sharded environment. 
+Note that you can restore a sharded backup only into a sharded environment. It can be your existing cluster or a new one. To learn how to restore a backup into a new environment, see :ref:`pbm.restore-new-env`.
 
 During the restore, ``pbm-agents`` write data to primary nodes in the cluster. The following diagram shows the restore flow.
 
@@ -228,6 +230,20 @@ During the restore, ``pbm-agents`` write data to primary nodes in the cluster. T
 |
 
 After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
+
+|
+
+.. _pbm.restore-new-env:
+
+.. rubric:: Restoring a backup into a new environment
+
+To restore a backup from one environment to another, consider the following key points about the destination environment:
+
+* Replica set names (both the config servers and the shards) in your new destination cluster and in the cluster that was backed up must be exactly the same.
+
+* |PBM| configuration in the new environment must point to the same remote storage that is defined for the original environment, including the authentication credentials if it is an object store. Once you run ``pbm list`` and see the backups made from the original environment, then you can run the ``pbm restore`` command.
+
+  Of course, make sure not to run ``pbm backup`` from the new environment whilst the |PBM| config is pointing to the remote storage location of the original environment.
 
 .. _pbm.cancel.backup:
 
