@@ -23,7 +23,7 @@ func main() {
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
 
 		mURI = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
-		dumpConns = pbmAgentCmd.Flag("parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU()/2)).Int()
+		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU()/2)).Int()
 
 		versionCmd    = pbmCmd.Command("version", "PBM version info")
 		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
