@@ -9,7 +9,7 @@ Running |pbm|
 Please see :ref:`pbm.auth` if you have not already. This will explain the
 MongoDB user that needs to be created, and the connection method used by |pbm|.
 
-Initial Setup
+Initial setup
 ================================================================================
 
 1. Determine the right MongoDB connection string for the |pbm.app| CLI.
@@ -93,12 +93,12 @@ Use the following command:
 
 For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
 
-Running |pbm.app| Commands
+Running |pbm.app| commands
 ================================================================================
 
 |pbm.app| is the command line utility to control the backup system.
 
-Configuring a Remote Store for Backup and Restore Operations
+Configuring a remote store for backup and restore operations
 --------------------------------------------------------------------------------
 
 This must be done once, at installation or re-installation time, before backups can
@@ -125,20 +125,36 @@ Listing all backups
 Starting a backup
 --------------------------------------------------------------------------------
 
-.. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
+.. code-block:: bash
+
+   pbm backup
 
 .. rubric:: Starting a backup with compression
 
-.. include:: .res/code-block/bash/pbm-backup-compression.txt
+.. code-block:: bash
+
+   pbm backup --compression=s2 
 
 ``s2`` is the default compression type. Other supported compression types are: ``gzip``,
 ``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
 backup.
 
+.. rubric:: Backup in sharded clusters 
+
 .. important::
 
    For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
    balancer.
+
+In sharded clusters, ``pbm-agents`` in every shard and config server replica set write backup snapshots and :term:`oplog slices <Oplog slice>` into the remote backup storage directly. To learn more about oplog slicing, see :ref:`pitr`.
+
+The ``mongos`` nodes are not involved in the backup process.
+
+The following diagram illustrates the backup flow.
+
+.. image:: _images/pbm-backup-shard.svg
+
+|
 
 Checking an in-progress backup
 --------------------------------------------------------------------------------
@@ -151,45 +167,23 @@ Run the |pbm-list| command and you will see the running backup listed with a
 Restoring a backup
 --------------------------------------------------------------------------------
 
-To restore a backup that you have made using |pbm-backup| you should use the
+To restore a backup that you have made using |pbm-backup|, use the
 |pbm-restore| command supplying the time stamp of the backup that you intend to
 restore.
 
 .. important::
 
-   Before running |pbm-restore| on a cluster stop the
-   balancer.
+   Consider these important notes on restore operation:
 
-.. important::
+   1. |pbm| is designed to be a full-database restore tool. As of version <=1.x it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore|if you want to guarantee that the post-restore database only includes collections that are in the backup.
+   2. Whilst the restore is running, prevents clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data. 
+   3. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
+   
+.. code-block:: bash
 
-   If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together. 
+   $ pbm restore 2019-06-09T07:03:50Z
 
-.. important::
-
-   Whilst the restore is running, clients should be stopped from accessing the
-   database. The data will naturally be incomplete whilst the restore is in
-   progress, and writes they make will cause the final restored data to differ
-   from the backed-up data. In a cluster's restore the simplest way would be to
-   shutdown all mongos nodes.
-
-.. important::
-
-   |pbm| is designed to be a full-database restore tool. As of version <=1.x it
-   will perform a full all-databases, all collections restore and does not
-   offer an option to restore only a subset of collections in the backup, as
-   MongoDB's mongodump tool does. But to avoid surprising mongodump users |pbm|
-   as of now (versions 1.x) replicates mongodump's behavior to only drop
-   collections in the backup. It does not drop collections that are created new
-   after the time of the backup and before the restore. Run a db.dropDatabase()
-   manually in all non-system databases (i.e. all databases except "local",
-   "config" and "admin") before running |pbm-restore| if you want to guarantee
-   the post-restore database only includes collections that are in the backup.
-
-.. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
-
-After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
-
-Starting from v1.3.2, the |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
+As of v1.3.2, the |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
 
 .. code-block:: yaml
 
@@ -214,6 +208,26 @@ The default values were adjusted to fit the setups with the memory allocation of
 .. note:: 
 
   The lower the values, the less memory is allocated for the restore. However, the performance decreases too.
+
+.. rubric:: Restoring a backup in sharded clusters
+
+.. important::
+
+   As preconditions for restoring a backup in a sharded cluster, complete the following steps:
+  
+   1. Stop the balancer.
+   2. Shut down all ``mongos`` nodes to stop clients from accessing the database while restore is in progress. This ensures that the final restored data doesn’t differ from the backed-up data.
+   3. Disable point-in-time recovery if it is enabled. To learn more about point-in-time recovery, see :ref:`pitr`.
+
+Note that you can restore a sharded backup only into a sharded environment. 
+
+During the restore, ``pbm-agents`` write data to primary nodes in the cluster. The following diagram shows the restore flow.
+
+.. image:: _images/pbm-restore-shard.svg
+
+|
+
+After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
 
 .. _pbm.cancel.backup:
 

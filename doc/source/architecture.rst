@@ -5,16 +5,18 @@ Architecture
 
 |pbm| consists of the following components:
 
-- |pbm-agent| is a process running on every ``mongod`` node within the cluster or a replica set that performs backup and restore operations. 
-- **pbm** CLI is a command-line utility that instructs pbm-agents to perform an operation. 
+- :ref:`pbm.architecture.agent` is a process running on every ``mongod`` node within the cluster or a replica set that performs backup and restore operations. 
+- :ref:`pbm.architecture.pbmctl` is a command-line utility that instructs pbm-agents to perform an operation. 
 
   A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI utility can connect to any cluster it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. 
 
-- :term:`PBM Control collections` are special collections in MongoDB that store the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to check backup status in MongoDB and communicate with each other. 
-- Remote backup storage is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
+- :ref:`pbm.architecture.pbm_control_collections` are special collections in MongoDB that store the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to check backup status in MongoDB and communicate with each other. 
+- :ref:`pbm.architecture.remote_storage` is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
 
-.. contents::
-   :local:
+.. image:: _images/pbm-architecture.svg
+   :width: 400
+   :align: center
+   :alt: PBM components 
 
 .. _pbm.architecture.agent:
 
@@ -78,6 +80,8 @@ either. Dropping them during a backup will cause an abort of the backup.
 Filling the config collection is a prerequisite to using PBM for executing
 backups or restores. (See config page later.)
  
+.. _pbm.architecture.remote_storage:
+
 Remote Backup Storage
 ================================================================================
 
