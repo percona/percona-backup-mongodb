@@ -11,11 +11,12 @@ import (
 )
 
 type Node struct {
-	rs   string
-	me   string
-	ctx  context.Context
-	cn   *mongo.Client
-	curi string
+	rs        string
+	me        string
+	ctx       context.Context
+	cn        *mongo.Client
+	curi      string
+	dumpConns int
 }
 
 // ReplRole is a replicaset role in sharded cluster
@@ -27,10 +28,11 @@ const (
 	ReplRoleConfigSrv = "configsrv"
 )
 
-func NewNode(ctx context.Context, curi string) (*Node, error) {
+func NewNode(ctx context.Context, curi string, dumpConns int) (*Node, error) {
 	n := &Node{
 		ctx:  ctx,
 		curi: curi,
+		dumpConns: dumpConns,
 	}
 	err := n.Connect()
 	if err != nil {
@@ -179,6 +181,10 @@ func (n *Node) ReplicationLag() (int, error) {
 
 func (n *Node) ConnURI() string {
 	return n.curi
+}
+
+func (n *Node) DumpConns() int {
+	return n.dumpConns
 }
 
 func (n *Node) Session() *mongo.Client {
