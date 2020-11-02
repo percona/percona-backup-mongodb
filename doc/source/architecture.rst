@@ -94,6 +94,6 @@ backup there is one metadata file. For each replicaset in the backup:
     
 The end time of the oplog slice(s) is the data-consistent point in time of a backup snapshot.
 
-For details about supported backup storages, see :ref:`storage.config`.
+For details about supported backup storage, see :ref:`storage.config`.
 
 .. include:: .res/replace.txt
