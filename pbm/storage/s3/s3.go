@@ -302,30 +302,46 @@ func (s *S3) CheckFile(name string) error {
 	return nil
 }
 
+type partReader struct {
+	w io.WriteCloser
+	r io.ReadCloser
+}
+
+func newPartReader() *partReader {
+	pr := new(partReader)
+	pr.r, pr.w = io.Pipe()
+	return pr
+}
+
+func (pr *partReader) WriteAt(p []byte, _ int64) (n int, err error) {
+	return pr.w.Write(p)
+}
+
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	s3s, err := s.s3session()
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
 	}
 
-	s3obj, err := s3s.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	dl := s3manager.NewDownloaderWithClient(s3s, func(d *s3manager.Downloader) {
+		d.PartSize = 10 << 20 //10Mb
+		d.Concurrency = 1
 	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
-	}
+	pr := newPartReader()
 
-	if s.opts.ServerSideEncryption != nil {
-		sse := s.opts.ServerSideEncryption
-
-		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+	go func() {
+		_, err := dl.Download(pr, &s3.GetObjectInput{
+			Bucket: aws.String(s.opts.Bucket),
+			Key:    aws.String(path.Join(s.opts.Prefix, name)),
+		})
+		if err != nil {
+			s.log.Error("downloading object: %v", err)
 		}
-	}
 
-	return s3obj.Body, nil
+		pr.w.Close()
+	}()
+
+	return pr.r, nil
 }
 
 // Delete deletes given file.
