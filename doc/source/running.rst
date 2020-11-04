@@ -155,7 +155,7 @@ The ``mongos`` nodes are not involved in the backup process.
 
 The following diagram illustrates the backup flow.
 
-.. image:: _images/pbm-backup-shard.svg
+.. image:: _images/pbm-backup-shard.png
 
 |
 
@@ -216,13 +216,12 @@ Note that you can restore a sharded backup only into a sharded environment. It c
 
 During the restore, ``pbm-agents`` write data to primary nodes in the cluster. The following diagram shows the restore flow.
 
-.. image:: _images/pbm-restore-shard.svg
+.. image:: _images/pbm-restore-shard.png
 
 |
 
 After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
 
-|
 
 .. _pbm.restore-new-env:
 

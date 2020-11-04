@@ -13,7 +13,7 @@ Architecture
 - :ref:`pbm.architecture.pbm_control_collections` are special collections in MongoDB that store the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to check backup status in MongoDB and communicate with each other. 
 - :ref:`pbm.architecture.remote_storage` is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
 
-.. image:: _images/pbm-architecture.svg
+.. image:: _images/pbm-architecture.png
    :width: 400
    :align: center
    :alt: PBM components 
