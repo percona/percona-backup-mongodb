@@ -146,7 +146,7 @@ backup.
    For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
    balancer.
 
-In sharded clusters, ``pbm-agents`` in every shard and config server replica set write backup snapshots and :term:`oplog slices <Oplog slice>` into the remote backup storage directly. To learn more about oplog slicing, see :ref:`pitr`.
+In sharded clusters, one of ``pbm-agent`` processes for every shard and the config server replica set writes backup snapshots and :term:`oplog slices <Oplog slice>` into the remote backup storage directly. To learn more about oplog slicing, see :ref:`pitr`.
 
 The ``mongos`` nodes are not involved in the backup process.
 
