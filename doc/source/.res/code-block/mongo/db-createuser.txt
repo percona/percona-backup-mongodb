@@ -1,5 +1,5 @@
 
-.. code-block:: guess
+.. code-block:: javascript
 
    db.getSiblingDB("admin").createRole({ "role": "pbmAnyAction",
          "privileges": [

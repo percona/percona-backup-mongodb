@@ -87,7 +87,7 @@ Provide the MongoDB URI connection string for |pbm.app|. This allows you to call
 
 Use the following command:
 
-.. code-block:: guess
+.. code-block:: bash
  
    export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/"
 
@@ -98,11 +98,14 @@ Running |pbm.app| Commands
 
 |pbm.app| is the command line utility to control the backup system.
 
-Configuring a Remote Store for Backup and Restore Operations
+.. contents::
+   :local:
+
+Configuring a Remote Storage for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
 This must be done once, at installation or re-installation time, before backups can
-be listed, made, or restored. Please see :ref:`pbm.config`.
+be listed, made, or restored. To configure remote storage, see :ref:`pbm.config` and :ref:`storage.config`.
 
 .. _pbm.running.backup.listing:
 
@@ -189,25 +192,13 @@ restore.
 
 After a cluster's restore is complete, restart all ``mongos`` nodes to reload the sharding metadata.
 
-Starting from v1.3.2, the |pbm| config includes the restore options to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
+Starting from v1.3.2, the |pbm| config includes the :ref:`restore options <restore.config>` to adjust the memory consumption by the |pbm-agent| in environments with tight memory bounds. This allows preventing out of memory errors during the restore operation. 
 
 .. code-block:: yaml
 
    restore:
      batchSize: 500
      numInsertionWorkers: 10
-
-.. option:: batchSize
-   
-   :default: 500
-
-   The number of documents to buffer. 
-
-.. option:: numInsertionWorkers 
-
-   :default: 10
-
-   The number of workers that add the documents to buffer. 
 
 The default values were adjusted to fit the setups with the memory allocation of 1GB and less for the agent. 
 
