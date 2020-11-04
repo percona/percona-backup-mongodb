@@ -87,7 +87,7 @@ Provide the MongoDB URI connection string for |pbm.app|. This allows you to call
 
 Use the following command:
 
-.. code-block:: guess
+.. code-block:: bash
  
    export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/"
 
@@ -98,11 +98,14 @@ Running |pbm.app| commands
 
 |pbm.app| is the command line utility to control the backup system.
 
-Configuring a remote store for backup and restore operations
+.. contents::
+   :local:
+
+Configuring a Remote Storage for Backup and Restore Operations
 --------------------------------------------------------------------------------
 
 This must be done once, at installation or re-installation time, before backups can
-be listed, made, or restored. Please see :ref:`pbm.config`.
+be listed, made, or restored. To configure remote storage, see :ref:`pbm.config` and :ref:`storage.config`.
 
 .. _pbm.running.backup.listing:
 
@@ -192,18 +195,6 @@ restore.
    restore:
      batchSize: 500
      numInsertionWorkers: 10
-
-.. option:: batchSize
-   
-   :default: 500
-
-   The number of documents to buffer. 
-
-.. option:: numInsertionWorkers 
-
-   :default: 10
-
-   The number of workers that add the documents to buffer. 
 
 The default values were adjusted to fit the setups with the memory allocation of 1GB and less for the agent. 
 

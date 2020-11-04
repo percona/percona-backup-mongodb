@@ -57,7 +57,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 
 	// node is not suitable for doing backup
 	if !q {
-		l.Info("node in not suitable for backup")
+		l.Info("node is not suitable for backup")
 		return
 	}
 
@@ -166,7 +166,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 	if !nodeInfo.IsPrimary {
-		l.Info("node in not suitable for restore")
+		l.Info("node is not primary so it unsuitable to do restore")
 		return
 	}
 

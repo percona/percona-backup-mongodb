@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"runtime"
 	"strings"
 	"time"
 
@@ -228,7 +227,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		sz *= 4
 	}
 
-	dump := newDump(b.node.ConnURI(), runtime.NumCPU()/2)
+	dump := newDump(b.node.ConnURI(), b.node.DumpConns())
 	_, err = Upload(b.ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
@@ -640,6 +639,7 @@ func newDump(curi string, conns int) *mdump {
 			Auth:       &options.Auth{},
 			Namespace:  &options.Namespace{},
 			Connection: &options.Connection{},
+			Direct:     true,
 		},
 		conns: conns,
 	}

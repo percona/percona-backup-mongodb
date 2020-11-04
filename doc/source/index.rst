@@ -13,7 +13,7 @@ and MongoDB Community v3.6 or higher with `MongoDB Replication
 
 .. note::
 
-   |PBM| doesn't work on standalone |mongodb| instances. This is because |PBM| requires an :term:`oplog` to guarantee backup consistency. Oplog is available in clusters and replica sets only.
+   |PBM| doesn't work on standalone |mongodb| instances. This is because |PBM| requires an :term:`oplog <Oplog>` to guarantee backup consistency. Oplog is available on nodes with replication enabled.
 
    For testing purposes, you can deploy |PBM| on a single-node replica set. ( Specify the ``replication.replSetName`` in the configuration file of the standalone server.)  
 
@@ -49,6 +49,13 @@ Introduction
    :maxdepth: 2
 
    intro
+
+Architecture
+***********************************************
+
+.. toctree::
+   :maxdepth: 2
+
    architecture
 
 Installation and Upgrade
@@ -60,7 +67,7 @@ Installation and Upgrade
    installation
    upgrading
 
-Getting Started
+Configuration
 ***********************************************  
 
 .. toctree::
@@ -68,6 +75,7 @@ Getting Started
 
    authentication
    config
+   storage-configuration
 
 Usage
 ***********************************************
@@ -101,6 +109,7 @@ Reference
    :maxdepth: 1
 
    release-notes
+   configuration-options
    contributing
    glossary
 

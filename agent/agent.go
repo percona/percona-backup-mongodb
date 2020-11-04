@@ -33,8 +33,8 @@ func New(pbm *pbm.PBM) *Agent {
 	}
 }
 
-func (a *Agent) AddNode(ctx context.Context, curi string) (err error) {
-	a.node, err = pbm.NewNode(ctx, curi)
+func (a *Agent) AddNode(ctx context.Context, curi string, dumpConns int) (err error) {
+	a.node, err = pbm.NewNode(ctx, curi, dumpConns)
 	return err
 }
 

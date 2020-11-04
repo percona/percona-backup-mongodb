@@ -18,7 +18,7 @@ When |PITR| is enabled, |pbm-agent| periodically saves consecutive slices of the
 
 A slice covers a 10 minute span of oplog events. It can be shorter if |PITR| is disabled or interrupted by the start of a backup snapshot operation.
 
-The oplog slices are stored in the :file:`pbmPitr` subdirectory in the :ref:`remote storage defined in the config <pbm.config.initialize>`. A slice name reflects the start and end time this slice covers. 
+The oplog slices are stored in the :file:`pbmPitr` subdirectory in the :ref:`remote storage defined in the config <storage.config>`. A slice name reflects the start and end time this slice covers. 
 
 The |pbm-list| output includes both backup snapshots and valid time ranges for recovery. It also shows the |PITR| status.
 

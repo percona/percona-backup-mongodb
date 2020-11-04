@@ -12,46 +12,11 @@ You can see the whole config by running
 *db.getSiblingDB("admin").pbmConfig.findOne()*. But you don't have to use the
 mongo shell; the |pbm.app| CLI has a "config" subcommand to read and update it.
 
-As of v1.0 or v1.1, the config contains the remote storage information.
-Starting from v1.3.0, it also includes the :ref:`pitr` configuration.
+|PBM| config contains the following settings:
 
-.. rubric:: S3 compatible storage
-
-|PBM| should work with other S3-compatible storages but was only tested with the following ones:
-
-- `Amazon Simple Storage Service <https://docs.aws.amazon.com/s3/index.html>`_, 
-- `Google Cloud Storage <https://cloud.google.com/storage>`_, 
-- `MinIO <https://min.io/>`_.
-  
-Starting from v1.3.2, |PBM| supports :term:`server-side encryption <Server-side encryption>` for :term:`S3 buckets <Bucket>` with customer managed keys stored in |AWS KMS|.
-
-.. seealso::
-
-   `Protecting Data Using Server-Side Encryption with CMKs Stored in AWS Key Management Service (SSE-KMS) <https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingKMSEncryption.html>`_
-
-.. rubric:: Remote Filesystem Server Storage
-
-This storage must be a remote fileserver mounted to a local directory. It is the
-responsibility of the server administrators to guarantee that the same remote
-directory is mounted at exactly the same local path on all servers in the
-MongoDB cluster or non-sharded replica set.
-
-.. warning::
-   |PBM| uses the directory as if it was any normal directory, and does not
-   attempt to confirm it is mounted from a remote server.
-   If the path is accidentally a normal local directory, errors will eventually
-   occur, most likely during a restore attempt. This will happen because
-   |pbm-agent| processes of other nodes in the same replica set can't access
-   backup archive files in a normal local directory on another server.
-
-.. rubric:: Local Filesystem Storage
-
-This cannot be used except if you have a single-node replica set. (See the warning
-note above as to why). We recommend using any object store you might be already
-familiar with for testing. If you don't have an object store yet, we recommend
-using MinIO for testing as it has simple setup. If you plan to use a remote
-filesytem-type backup server, please see the "Remote Filesystem Server Storage"
-above.
+- :ref:`storage.config` configuration is available as of v1.0 or v1.1
+- :ref:`pitr` configuration is available as of v1.3.0
+- :ref:`restore.config` are available as of v1.3.2  
 
 .. _pbm.config.initialize:
 
@@ -66,126 +31,10 @@ If you are initializing a cluster or non-sharded replica set for the first time,
 Execute whilst connecting to config server replica set if it is a
 cluster. Otherwise just connect to the non-sharded replica set as normal. (See
 :ref:`pbm.auth.mdb_conn_string` if you are not familiar with MongoDB connection
-strings yet.)
+strings yet.) For more information about available config file options, see :ref:`pbm.config.options`.
 
 Run |pbm-config-list| to see the whole config. (Sensitive fields such as keys
 will be redacted.)
-
-.. _pbm.config.example_yaml:
-
-Example config files
-================================================================================
-
-.. rubric:: S3-compatible remote storage
-
-Amazon Simple Storage Service
-
-.. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
-
-GCS
-
-.. include:: .res/code-block/yaml/example-gcs-s3-storage.yaml
-
-MinIO
-
-.. include:: .res/code-block/yaml/example-minio-s3-storage.yaml
-
-.. rubric:: Remote filesystem server storage
-
-.. include:: .res/code-block/yaml/example-local-file-system-store.yaml
-
-.. _pbm.storage.config.options:
-
-Configuration options
-================================================================================
-
-S3 storage options
--------------------------------------------------------------------------------
-
-.. list-table::
-   :widths: 30 10 20 40
-   :header-rows: 1
-
-   * - Option
-     - Type
-     - Required
-     - Description
-   * - ``storage.s3.provider``
-     - string
-     - NO
-     - The storage provider's name. 
-       Supported values: aws, gcs
-   * - ``storage.s3.bucket``
-     - string
-     - YES
-     - The name of the storage :term:`bucket <Bucket>`. See the `AWS Bucket naming rules <https://docs.aws.amazon.com/AmazonS3/latest/dev/BucketRestrictions.html#bucketnamingrules>`_ and `GCS bucket naming guidelines <https://cloud.google.com/storage/docs/naming-buckets#requirements>`_ for bucket name requirements.
-   * - ``storage.s3.region``
-     - string
-     - YES (for AWS and GCS)
-     - The location of the storage bucket. 
-       Use the `AWS region list <https://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region>`_ and `GCS region list <https://cloud.google.com/storage/docs/locations>`_ to define the bucket region.
-   * - ``storage.s3.prefix``
-     - string
-     - NO
-     - The path to the data directory on the bucket. If undefined, backups are stored in the bucket root directory.
-   * - ``storage.s3.endpointUrl``
-     - string
-     - YES (for MinIO and GCS)
-     - The URL to access the bucket.
-       The default value for GCS is ``https://storage.googleapis.com``
-   * - ``storage.s3.credentials.access-key-id``
-     - string
-     - YES
-     - Your access key to the storage bucket
-   * - ``storage.s3.credentials.secret-access-key``
-     - string
-     - YES
-     - The key to sign your programmatic requests to the storage bucket 
-   * - ``storage.s3.uploadPartSize``
-     - int
-     - NO
-     - The size of data chunks to be uploaded to the bucket. Default: 10MB.
-       
-       |PBM| automatically increases the ``uploadPartSize`` value if the size of the file to be uploaded exceeds the max allowed file size. (The max allowed file size is calculated with the default values of uploadPartSize * `maxUploadParts <https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#pkg-constants>`_ and is appr. 97,6 GB)
-
-       The ``uploadPartSize`` value is printed in the :ref:`pbm-agent log <pbm-agent.log>`.
-
-       By setting this option, you can manually adjust the size of data chunks if |PBM| failed to do it for some reason. The defined ``uploadPartSize`` value overrides the default value and is used for calculating the max allowed file size
- 
-
-.. rubric:: Server-side encryption options
-
-.. list-table::
-   :widths: 40 20 40
-   :header-rows: 1
-
-   * - Option
-     - Type
-     - Description
-   * - ``serverSideEncryption.sseAlgorythm``
-     - string
-     - The key management mode used for server-side encryption. 
-
-       Supported value: ``aws:kms``
-   * - ``serverSideEncryption.kmsKeyID``
-     - string
-     - Your customer-managed key
-
-Filesystem storage options
--------------------------------------------------------------------------------
-
-.. list-table::
-   :widths: 40 10 20 40
-   :header-rows: 1
-
-   * - Option
-     - Type
-     - Required
-     - Description
-   * - ``storage.filesystem.path``
-     - string
-     - YES
-     - The path to the backup directory
 
 .. _pbm.config.update:
 
