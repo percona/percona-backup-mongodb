@@ -1,12 +1,15 @@
 package s3
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/url"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -26,6 +29,9 @@ const (
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
+
+	downloadChuckSize = 10 << 20 // 10Mb
+	downloadRetries   = 10
 )
 
 type Conf struct {
@@ -302,19 +308,109 @@ func (s *S3) CheckFile(name string) error {
 	return nil
 }
 
+type (
+	errGetObj  error
+	errReadObj error
+)
+
 type partReader struct {
-	w io.WriteCloser
-	r io.ReadCloser
+	sess  *s3.S3
+	n     int64
+	size  int64
+	l     *log.Event
+	buf   []byte
+	opts  *Conf
+	fname string
 }
 
-func newPartReader() *partReader {
-	pr := new(partReader)
-	pr.r, pr.w = io.Pipe()
-	return pr
+func (s *S3) newPartReader(fname string) *partReader {
+	return &partReader{
+		l:     s.log,
+		buf:   make([]byte, downloadChuckSize),
+		opts:  &s.opts,
+		fname: fname,
+		size:  -1,
+	}
 }
 
-func (pr *partReader) WriteAt(p []byte, _ int64) (n int, err error) {
-	return pr.w.Write(p)
+func (pr *partReader) setSession(s *s3.S3) {
+	pr.sess = s
+}
+
+func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
+	if pr.size >= 0 && pr.n >= pr.size {
+		return 0, io.EOF
+	}
+
+	for i := 0; i < downloadRetries; i++ {
+		n, err = pr.WriteTo(w)
+		if err == nil {
+			return n, nil
+		}
+
+		switch err.(type) {
+		case errGetObj:
+			return n, err
+		}
+
+		pr.l.Warning("failed to download chunk %d-%d", pr.n, pr.n+downloadChuckSize-1)
+	}
+
+	return 0, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", pr.n, pr.n+downloadChuckSize-1, pr.size, downloadRetries)
+}
+
+func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
+	s3obj, err := pr.sess.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(pr.opts.Bucket),
+		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
+	})
+	if err != nil {
+		return 0, errGetObj(err)
+	}
+	if pr.size < 0 {
+		pr.setSize(s3obj)
+	}
+
+	if pr.opts.ServerSideEncryption != nil {
+		sse := pr.opts.ServerSideEncryption
+
+		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		}
+	}
+
+	n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
+	s3obj.Body.Close()
+	if err != nil {
+		return 0, errReadObj(err)
+	}
+
+	pr.n += n
+	return n, nil
+}
+
+func (pr *partReader) setSize(o *s3.GetObjectOutput) {
+	if o.ContentRange == nil {
+		if o.ContentLength != nil {
+			pr.size = *o.ContentLength
+		}
+		return
+	}
+
+	rng := strings.Split(*o.ContentRange, "/")
+	if len(rng) < 2 || rng[1] == "*" {
+		return
+	}
+
+	size, err := strconv.ParseInt(rng[1], 10, 64)
+	if err != nil {
+		pr.l.Warning("unable to parse object size from %s: %v", rng[1], err)
+		return
+	}
+
+	pr.size = size
 }
 
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
@@ -323,25 +419,41 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 		return nil, errors.Wrap(err, "AWS session")
 	}
 
-	dl := s3manager.NewDownloaderWithClient(s3s, func(d *s3manager.Downloader) {
-		d.PartSize = 10 << 20 //10Mb
-		d.Concurrency = 1
-	})
-	pr := newPartReader()
+	pr := s.newPartReader(name)
+	pr.setSession(s3s)
+
+	r, w := io.Pipe()
 
 	go func() {
-		_, err := dl.Download(pr, &s3.GetObjectInput{
-			Bucket: aws.String(s.opts.Bucket),
-			Key:    aws.String(path.Join(s.opts.Prefix, name)),
-		})
-		if err != nil {
-			s.log.Error("downloading object: %v", err)
-		}
+		defer w.Close()
 
-		pr.w.Close()
+	Loop:
+		for {
+			for i := 0; i < downloadRetries; i++ {
+				_, err := pr.tryNext(w)
+				if err == nil {
+					continue Loop
+				}
+				if err == io.EOF {
+					return
+				}
+
+				s.log.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
+				time.Sleep(time.Second * time.Duration(i+1))
+				s3s, err := s.s3session()
+				if err != nil {
+					s.log.Warning("recreate session")
+					continue
+				}
+				pr.setSession(s3s)
+				s.log.Info("session recreated, resuming download")
+			}
+			s.log.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
+			return
+		}
 	}()
 
-	return pr.r, nil
+	return r, nil
 }
 
 // Delete deletes given file.
