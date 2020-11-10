@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"net/url"
 	"path"
 	"runtime"
@@ -314,13 +315,13 @@ type (
 )
 
 type partReader struct {
-	sess  *s3.S3
-	n     int64
-	size  int64
-	l     *log.Event
-	buf   []byte
-	opts  *Conf
 	fname string
+	sess  *s3.S3
+	l     *log.Event
+	opts  *Conf
+	n     int64
+	tsize int64
+	buf   []byte
 }
 
 func (s *S3) newPartReader(fname string) *partReader {
@@ -329,7 +330,7 @@ func (s *S3) newPartReader(fname string) *partReader {
 		buf:   make([]byte, downloadChuckSize),
 		opts:  &s.opts,
 		fname: fname,
-		size:  -1,
+		tsize: -2,
 	}
 }
 
@@ -338,14 +339,11 @@ func (pr *partReader) setSession(s *s3.S3) {
 }
 
 func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
-	if pr.size >= 0 && pr.n >= pr.size {
-		return 0, io.EOF
-	}
-
 	for i := 0; i < downloadRetries; i++ {
-		n, err = pr.WriteTo(w)
-		if err == nil {
-			return n, nil
+		n, err = pr.writeNext(w)
+
+		if err == nil || err == io.EOF {
+			return n, err
 		}
 
 		switch err.(type) {
@@ -356,24 +354,30 @@ func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
 		pr.l.Warning("failed to download chunk %d-%d", pr.n, pr.n+downloadChuckSize-1)
 	}
 
-	return 0, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", pr.n, pr.n+downloadChuckSize-1, pr.size, downloadRetries)
+	return 0, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", pr.n, pr.n+downloadChuckSize-1, pr.tsize, downloadRetries)
 }
 
-func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
-	pr.l.Info("get chunk %d-%d / %d", pr.n, pr.n+downloadChuckSize-1, pr.size)
+func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 	s3obj, err := pr.sess.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
 		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
 	})
+
 	if err != nil {
+		// if object size is undefined, we would read
+		// until HTTP code 416 (Requested Range Not Satisfiable)
+		var er awserr.RequestFailure
+		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
+			return 0, io.EOF
+		}
 		pr.l.Warning("errGetObj Err: %v", err)
 		return 0, errGetObj(err)
 	}
-	if pr.size < 0 {
+	if pr.tsize == -2 {
 		pr.setSize(s3obj)
 	}
-	pr.l.Info("GET")
+
 	if pr.opts.ServerSideEncryption != nil {
 		sse := pr.opts.ServerSideEncryption
 
@@ -383,11 +387,16 @@ func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
 		}
 	}
 
-	// n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
-	n, err = pr.copyBuffer(w, s3obj.Body, pr.buf)
-	pr.n += n
-	pr.l.Info("written %d, next %d", n, pr.n)
+	n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
 	s3obj.Body.Close()
+
+	pr.n += n
+
+	// we don't care about the error if we've read the entire object
+	if pr.tsize >= 0 && pr.n >= pr.tsize {
+		return 0, io.EOF
+	}
+
 	if err != nil {
 		pr.l.Warning("errReadObj Err: %v", err)
 		return n, errReadObj(err)
@@ -396,60 +405,11 @@ func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
 	return n, nil
 }
 
-// copyBuffer is the actual implementation of Copy and CopyBuffer.
-// if buf is nil, one is allocated.
-func (pr *partReader) copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
-	// If the reader has a WriteTo method, use it to do the copy.
-	// Avoids an allocation and a copy.
-	if wt, ok := src.(io.WriterTo); ok {
-		return wt.WriteTo(dst)
-	}
-	// Similarly, if the writer has a ReadFrom method, use it to do the copy.
-	if rt, ok := dst.(io.ReaderFrom); ok {
-		return rt.ReadFrom(src)
-	}
-	if buf == nil {
-		size := 32 * 1024
-		if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
-			if l.N < 1 {
-				size = 1
-			} else {
-				size = int(l.N)
-			}
-		}
-		buf = make([]byte, size)
-	}
-	for {
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw > 0 {
-				written += int64(nw)
-			}
-			if ew != nil {
-				err = ew
-				break
-			}
-			if nr != nw {
-				err = io.ErrShortWrite
-				break
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				err = er
-			}
-			pr.l.Info("copyBuffer EOF", written)
-			break
-		}
-	}
-	return written, err
-}
-
 func (pr *partReader) setSize(o *s3.GetObjectOutput) {
+	pr.tsize = -1
 	if o.ContentRange == nil {
 		if o.ContentLength != nil {
-			pr.size = *o.ContentLength
+			pr.tsize = *o.ContentLength
 		}
 		return
 	}
@@ -465,9 +425,16 @@ func (pr *partReader) setSize(o *s3.GetObjectOutput) {
 		return
 	}
 
-	pr.size = size
+	pr.tsize = size
 }
 
+// SourceReader reads object with the given name from S3
+// and pipes its data to the returned io.ReadCloser.
+//
+// It uses partReader to download the object by chunks (`downloadChuckSize`).
+// In case of error, it would retry get the next bytes up to `downloadRetries` times.
+// If it fails to do so or connection error happened, it recreates the session
+// and tries again up to `downloadRetries` times.
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	s3s, err := s.s3session()
 	if err != nil {
@@ -480,10 +447,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	r, w := io.Pipe()
 
 	go func() {
-		defer func() {
-			s.log.Info("close writer")
-			w.Close()
-		}()
+		defer w.Close()
 
 	Loop:
 		for {
@@ -493,7 +457,6 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					continue Loop
 				}
 				if err == io.EOF {
-					s.log.Info("send EOF")
 					return
 				}
 
@@ -546,7 +509,6 @@ func (s *S3) s3session() (*s3.S3, error) {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
-	sess.Config.HTTPClient.Timeout = 10 * time.Second
 	return s3.New(sess), nil
 }
 
