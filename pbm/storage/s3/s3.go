@@ -360,18 +360,20 @@ func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
 }
 
 func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
+	pr.l.Info("get chunk %d-%d / %d", pr.n, pr.n+downloadChuckSize-1, pr.size)
 	s3obj, err := pr.sess.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
 		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
 	})
 	if err != nil {
+		pr.l.Warning("errGetObj Err: %v", err)
 		return 0, errGetObj(err)
 	}
 	if pr.size < 0 {
 		pr.setSize(s3obj)
 	}
-
+	pr.l.Info("GET")
 	if pr.opts.ServerSideEncryption != nil {
 		sse := pr.opts.ServerSideEncryption
 
@@ -381,14 +383,67 @@ func (pr *partReader) WriteTo(w io.Writer) (n int64, err error) {
 		}
 	}
 
-	n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
+	// n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
+	n, err = pr.copyBuffer(w, s3obj.Body, pr.buf)
+	pr.n += n
+	pr.l.Info("written %d, next %d", n, pr.n)
 	s3obj.Body.Close()
 	if err != nil {
-		return 0, errReadObj(err)
+		pr.l.Warning("errReadObj Err: %v", err)
+		return n, errReadObj(err)
 	}
 
-	pr.n += n
 	return n, nil
+}
+
+// copyBuffer is the actual implementation of Copy and CopyBuffer.
+// if buf is nil, one is allocated.
+func (pr *partReader) copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+	// If the reader has a WriteTo method, use it to do the copy.
+	// Avoids an allocation and a copy.
+	if wt, ok := src.(io.WriterTo); ok {
+		return wt.WriteTo(dst)
+	}
+	// Similarly, if the writer has a ReadFrom method, use it to do the copy.
+	if rt, ok := dst.(io.ReaderFrom); ok {
+		return rt.ReadFrom(src)
+	}
+	if buf == nil {
+		size := 32 * 1024
+		if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
+			if l.N < 1 {
+				size = 1
+			} else {
+				size = int(l.N)
+			}
+		}
+		buf = make([]byte, size)
+	}
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			pr.l.Info("copyBuffer EOF", written)
+			break
+		}
+	}
+	return written, err
 }
 
 func (pr *partReader) setSize(o *s3.GetObjectOutput) {
@@ -425,7 +480,10 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	r, w := io.Pipe()
 
 	go func() {
-		defer w.Close()
+		defer func() {
+			s.log.Info("close writer")
+			w.Close()
+		}()
 
 	Loop:
 		for {
@@ -435,6 +493,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					continue Loop
 				}
 				if err == io.EOF {
+					s.log.Info("send EOF")
 					return
 				}
 
@@ -487,6 +546,7 @@ func (s *S3) s3session() (*s3.S3, error) {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
+	sess.Config.HTTPClient.Timeout = 10 * time.Second
 	return s3.New(sess), nil
 }
 
