@@ -48,8 +48,6 @@ func logs(cn *pbm.PBM) {
 		f = plog.FormatJSON
 	}
 
-	// TODO: need to decouple "logger" and "logs printer"
-	cn.InitLogger("", "")
 	err := cn.Logger().PrintLogs(os.Stdout, f, r, *logsTailF, r.Node == "")
 
 	if err != nil {

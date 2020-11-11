@@ -1,12 +1,16 @@
 package s3
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"net/url"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -26,6 +30,9 @@ const (
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
+
+	downloadChuckSize = 10 << 20 // 10Mb
+	downloadRetries   = 10
 )
 
 type Conf struct {
@@ -302,22 +309,77 @@ func (s *S3) CheckFile(name string) error {
 	return nil
 }
 
-func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	s3s, err := s.s3session()
-	if err != nil {
-		return nil, errors.Wrap(err, "AWS session")
+type (
+	errGetObj  error
+	errReadObj error
+)
+
+type partReader struct {
+	fname string
+	sess  *s3.S3
+	l     *log.Event
+	opts  *Conf
+	n     int64
+	tsize int64
+	buf   []byte
+}
+
+func (s *S3) newPartReader(fname string) *partReader {
+	return &partReader{
+		l:     s.log,
+		buf:   make([]byte, downloadChuckSize),
+		opts:  &s.opts,
+		fname: fname,
+		tsize: -2,
+	}
+}
+
+func (pr *partReader) setSession(s *s3.S3) {
+	pr.sess = s
+}
+
+func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
+	for i := 0; i < downloadRetries; i++ {
+		n, err = pr.writeNext(w)
+
+		if err == nil || err == io.EOF {
+			return n, err
+		}
+
+		switch err.(type) {
+		case errGetObj:
+			return n, err
+		}
+
+		pr.l.Warning("failed to download chunk %d-%d", pr.n, pr.n+downloadChuckSize-1)
 	}
 
-	s3obj, err := s3s.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	return 0, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", pr.n, pr.n+downloadChuckSize-1, pr.tsize, downloadRetries)
+}
+
+func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
+	s3obj, err := pr.sess.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(pr.opts.Bucket),
+		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
 	})
+
 	if err != nil {
-		return nil, errors.Wrapf(err, "read '%s/%s' file from S3", s.opts.Bucket, name)
+		// if object size is undefined, we would read
+		// until HTTP code 416 (Requested Range Not Satisfiable)
+		var er awserr.RequestFailure
+		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
+			return 0, io.EOF
+		}
+		pr.l.Warning("errGetObj Err: %v", err)
+		return 0, errGetObj(err)
+	}
+	if pr.tsize == -2 {
+		pr.setSize(s3obj)
 	}
 
-	if s.opts.ServerSideEncryption != nil {
-		sse := s.opts.ServerSideEncryption
+	if pr.opts.ServerSideEncryption != nil {
+		sse := pr.opts.ServerSideEncryption
 
 		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
@@ -325,7 +387,95 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 		}
 	}
 
-	return s3obj.Body, nil
+	n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
+	s3obj.Body.Close()
+
+	pr.n += n
+
+	// we don't care about the error if we've read the entire object
+	if pr.tsize >= 0 && pr.n >= pr.tsize {
+		return 0, io.EOF
+	}
+
+	if err != nil {
+		pr.l.Warning("errReadObj Err: %v", err)
+		return n, errReadObj(err)
+	}
+
+	return n, nil
+}
+
+func (pr *partReader) setSize(o *s3.GetObjectOutput) {
+	pr.tsize = -1
+	if o.ContentRange == nil {
+		if o.ContentLength != nil {
+			pr.tsize = *o.ContentLength
+		}
+		return
+	}
+
+	rng := strings.Split(*o.ContentRange, "/")
+	if len(rng) < 2 || rng[1] == "*" {
+		return
+	}
+
+	size, err := strconv.ParseInt(rng[1], 10, 64)
+	if err != nil {
+		pr.l.Warning("unable to parse object size from %s: %v", rng[1], err)
+		return
+	}
+
+	pr.tsize = size
+}
+
+// SourceReader reads object with the given name from S3
+// and pipes its data to the returned io.ReadCloser.
+//
+// It uses partReader to download the object by chunks (`downloadChuckSize`).
+// In case of error, it would retry get the next bytes up to `downloadRetries` times.
+// If it fails to do so or connection error happened, it recreates the session
+// and tries again up to `downloadRetries` times.
+func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
+	s3s, err := s.s3session()
+	if err != nil {
+		return nil, errors.Wrap(err, "AWS session")
+	}
+
+	pr := s.newPartReader(name)
+	pr.setSession(s3s)
+
+	r, w := io.Pipe()
+
+	go func() {
+		defer w.Close()
+
+	Loop:
+		for {
+			for i := 0; i < downloadRetries; i++ {
+				_, err := pr.tryNext(w)
+				if err == nil {
+					continue Loop
+				}
+				if err == io.EOF {
+					return
+				}
+
+				s.log.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
+				time.Sleep(time.Second * time.Duration(i+1))
+				s3s, err := s.s3session()
+				if err != nil {
+					s.log.Warning("recreate session")
+					continue
+				}
+				pr.setSession(s3s)
+				s.log.Info("session recreated, resuming download")
+			}
+			s.log.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
+			return
+		}
+	}()
+
+	return r, nil
 }
 
 // Delete deletes given file.
