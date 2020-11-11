@@ -97,6 +97,8 @@ func main() {
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb:", err)
 	}
+	// TODO: need to decouple "logger" and "logs printer"
+	pbmClient.InitLogger("", "")
 
 	switch cmd {
 	case configCmd.FullCommand():

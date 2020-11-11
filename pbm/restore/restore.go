@@ -25,6 +25,9 @@ func init() {
 	// duplicated in backup/restore packages just
 	// in the sake of clarity
 	mlog.SetDateFormat(pbm.LogTimeFormat)
+	mlog.SetVerbosity(&options.Verbosity{
+		VLevel: mlog.DebugLow,
+	})
 }
 
 var excludeFromRestore = []string{
