@@ -132,7 +132,11 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		nextChunkT := time.Now().Add(i.span)
 
 		// check if the node is still any good to make backups
-		q, err := backup.NodeSuits(i.node)
+		ninf, err := i.node.GetInfo()
+		if err != nil {
+			return errors.Wrap(err, "get node info")
+		}
+		q, err := backup.NodeSuits(i.node, ninf)
 		if err != nil {
 			return errors.Wrap(err, "node check")
 		}

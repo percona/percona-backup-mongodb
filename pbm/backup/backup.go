@@ -183,6 +183,14 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
+	// A fallback. If there are some leftovers and main node
+	// hasn't cleaned up it yet we should stop and notify user
+	// since backup would be unrestorable.
+	err = b.node.EnsureNoTMPcoll()
+	if err != nil {
+		return errors.Wrap(err, "EnsureNoTMPcoll")
+	}
+
 	rsMeta.Status = pbm.StatusRunning
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
@@ -302,12 +310,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
-func NodeSuits(node *pbm.Node) (bool, error) {
-	inf, err := node.GetInfo()
-	if err != nil {
-		return false, errors.Wrap(err, "get NodeInfo data")
-	}
-
+func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
 	if inf.IsStandalone() {
 		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
 	}
