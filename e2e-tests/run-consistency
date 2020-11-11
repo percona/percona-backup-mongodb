@@ -25,6 +25,8 @@ fi
 desc 'Destroy cluster'
 destroy_cluster
 
+ls -al ${test_dir}/docker/backups/ || :
+ls -al ${test_dir}/docker/backups/pbmPitr/ || :
 rm -rf  "${test_dir}/docker/backups"
 
 exit $EXIT_CODE
