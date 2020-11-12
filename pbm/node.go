@@ -239,7 +239,7 @@ func (n *Node) EnsureNoTMPcoll() error {
 	}
 	if len(ext) > 0 {
 		return errors.Errorf(
-			"pbm tmp collections exists. It will lead to failed restore. Drop collections: %s",
+			"PBM temporary collections exist. It will lead to a failed restore. Please, drop next collections manually: %s",
 			strings.Join(ext, ", "),
 		)
 	}
