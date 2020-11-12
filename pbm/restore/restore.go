@@ -43,6 +43,7 @@ var excludeFromRestore = []string{
 	"config.system.sessions",
 	"config.cache.*",
 	"config.shards",
+	"admin.system.version",
 }
 
 type Restore struct {
