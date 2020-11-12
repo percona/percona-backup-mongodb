@@ -335,9 +335,6 @@ func (r *Restore) prepareSnapshot() (err error) {
 }
 
 const (
-	tmpUsers = `pbmRUsers`
-	tmpRoles = `pbmRRoles`
-
 	preserveUUID = false
 
 	batchSizeDefault           = 500
@@ -406,6 +403,13 @@ func (r *Restore) RunSnapshot() (err error) {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
 
+	defer func() {
+		err := r.node.DropTMPcoll()
+		if err != nil {
+			r.log.Error(pbm.CmdRestore, r.bcp.Name, "dropping tmp collections: %v", err)
+		}
+	}()
+
 	mr := mongorestore.MongoRestore{
 		SessionProvider: rsession,
 		ToolOptions:     &topts,
@@ -427,7 +431,7 @@ func (r *Restore) RunSnapshot() (err error) {
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromRestore,
 			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
-			NSTo:      []string{pbm.DB + `.` + tmpUsers, pbm.DB + `.` + tmpRoles},
+			NSTo:      []string{pbm.DB + `.` + pbm.TmpUsersCollection, pbm.DB + `.` + pbm.TmpRolesCollection},
 		},
 		InputReader: dumpReader,
 	}
@@ -557,7 +561,7 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		eroles = append(eroles, r.DB+"."+r.Role)
 	}
 
-	curr, err := r.node.Session().Database(pbm.DB).Collection(tmpRoles).Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	curr, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpRolesCollection).Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpRoles")
 	}
@@ -583,7 +587,7 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	if len(exclude.Users) > 0 {
 		user = exclude.Users[0].DB + "." + exclude.Users[0].User
 	}
-	cur, err := r.node.Session().Database(pbm.DB).Collection(tmpUsers).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	cur, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpUsersCollection).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpUsers")
 	}
@@ -605,15 +609,6 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		if err != nil {
 			return errors.Wrap(err, "insert user")
 		}
-	}
-
-	err = r.node.Session().Database(pbm.DB).Collection(tmpRoles).Drop(ctx)
-	if err != nil {
-		return errors.Wrapf(err, "drop tmp roles collection %s", tmpRoles)
-	}
-	err = r.node.Session().Database(pbm.DB).Collection(tmpUsers).Drop(ctx)
-	if err != nil {
-		return errors.Wrapf(err, "drop tmp users collection %s", tmpUsers)
 	}
 
 	return nil
