@@ -313,7 +313,7 @@ type (
 type partReader struct {
 	fname string
 	sess  *s3.S3
-	l     *log.Event
+	l     *llog
 	opts  *Conf
 	n     int64
 	tsize int64
@@ -322,7 +322,7 @@ type partReader struct {
 
 func (s *S3) newPartReader(fname string) *partReader {
 	return &partReader{
-		l:     s.log,
+		l:     &llog{os.Stderr, "2006-01-02T15:04:05.000-0700"},
 		buf:   make([]byte, downloadChuckSize),
 		opts:  &s.opts,
 		fname: fname,
@@ -445,6 +445,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	go func() {
 		defer w.Close()
 
+		slog := &llog{os.Stderr, "2006-01-02T15:04:05.000-0700"}
 	Loop:
 		for {
 			for i := 0; i < downloadRetries; i++ {
@@ -456,22 +457,43 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					return
 				}
 
-				s.log.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
+				slog.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
 				time.Sleep(time.Second * time.Duration(i+1))
 				s3s, err := s.s3session()
 				if err != nil {
-					s.log.Warning("recreate session")
+					slog.Warning("recreate session")
 					continue
 				}
 				pr.setSession(s3s)
-				s.log.Info("session recreated, resuming download")
+				slog.Info("session recreated, resuming download")
 			}
-			s.log.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
+			slog.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
 			return
 		}
 	}()
 
 	return r, nil
+}
+
+type llog struct {
+	dst     io.Writer
+	tformat string
+}
+
+func (l *llog) print(level, msg string, args ...interface{}) {
+	fmt.Fprintf(l.dst, "%s [%s] %s\n", time.Now().Format(l.tformat), level, fmt.Sprintf(msg, args...))
+}
+
+func (l *llog) Error(msg string, args ...interface{}) {
+	l.print("ERROR", msg, args...)
+}
+
+func (l *llog) Warning(msg string, args ...interface{}) {
+	l.print("Warning", msg, args...)
+}
+
+func (l *llog) Info(msg string, args ...interface{}) {
+	l.print("INFO", msg, args...)
 }
 
 // Delete deletes given file.
@@ -505,6 +527,7 @@ func (s *S3) s3session() (*s3.S3, error) {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
+	sess.Config.HTTPClient.Timeout = time.Second * 3
 	return s3.New(sess), nil
 }
 
