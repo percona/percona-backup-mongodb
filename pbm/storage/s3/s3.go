@@ -456,6 +456,10 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 				if err == io.EOF {
 					return
 				}
+				if errors.Is(err, io.ErrClosedPipe) {
+					slog.Info("reader closed pipe, stopping download")
+					return
+				}
 
 				slog.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
 				time.Sleep(time.Second * time.Duration(i+1))
@@ -527,7 +531,6 @@ func (s *S3) s3session() (*s3.S3, error) {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
-	sess.Config.HTTPClient.Timeout = time.Second * 3
 	return s3.New(sess), nil
 }
 
