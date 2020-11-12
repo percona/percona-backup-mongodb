@@ -6,16 +6,33 @@ set -o xtrace
 
 if [ "${1:0:9}" = "pbm-agent" ]; then
 	OUT="$(mktemp)"
+	OUT_CFG="$(mktemp)"
 	timeout=5
-
 	for i in {1..10}; do
-		mongo "${PBM_MONGODB_URI}" --eval="(db.isMaster().hosts).length" --quiet | tee "$OUT"
-		exit_status=$?
-		rs_size=$(grep -E '^([0-9]+)$' "$OUT")
-		if [[ "${exit_status}" == 0 ]] && [[ $rs_size -ge 1 ]]; then
-			break
+		if [ "${SHARDED}" ]; then
+			echo "waiting for sharded scluster"
+			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().\$configServerState.opTime.ts" --quiet | tee "$OUT"
+			exit_status=$?
+			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().configsvr" --quiet | tail -n 1 | tee "$OUT_CFG"
+			exit_status_cfg=$?
+
+			ts=$(grep -E '^Timestamp\([0-9]+, [0-9]+\)$' "$OUT")
+			isCfg=$(grep -E '^2$' "$OUT_CFG")
+
+			if [[ "${exit_status}" == 0 && "${ts}" ]] || [[ "${exit_status_cfg}" == 0 && "${isCfg}" ]]; then
+				break
+			else
+				sleep "$((timeout * i))"
+			fi
 		else
-			sleep "$((timeout * i))"
+			mongo "${PBM_MONGODB_URI}" --eval="(db.isMaster().hosts).length" --quiet | tee "$OUT"
+			exit_status=$?
+			rs_size=$(grep -E '^([0-9]+)$' "$OUT")
+			if [[ "${exit_status}" == 0 ]] && [[ $rs_size -ge 1 ]]; then
+				break
+			else
+				sleep "$((timeout * i))"
+			fi
 		fi
 	done
 

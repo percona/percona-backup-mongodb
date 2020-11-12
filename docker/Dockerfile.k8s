@@ -7,9 +7,9 @@ FROM registry.access.redhat.com/ubi7/ubi-minimal
 RUN microdnf update && microdnf clean all
 
 LABEL name="Percona Backup for MongoDB" \
-	vendor="Percona" \
-	summary="Percona Backup for MongoDB" \
-	description="Percona Backup for MongoDB is a distributed, \
+    vendor="Percona" \
+    summary="Percona Backup for MongoDB" \
+    description="Percona Backup for MongoDB is a distributed, \
 low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
 
 MAINTAINER Percona Development <info@percona.com>
