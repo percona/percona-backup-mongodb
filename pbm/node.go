@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -26,12 +27,21 @@ const (
 	ReplRoleUnknown   = "unknown"
 	ReplRoleShard     = "shard"
 	ReplRoleConfigSrv = "configsrv"
+
+	// TmpUsersCollection and TmpRoles are tmp collections used to avoid
+	// user related issues while resoring on new cluster.
+	// See https://jira.percona.com/browse/PBM-425
+	//
+	// Backup should ensure abscense of this collection to avoid
+	// restore conflicts. See https://jira.percona.com/browse/PBM-460
+	TmpUsersCollection = `pbmRUsers`
+	TmpRolesCollection = `pbmRRoles`
 )
 
 func NewNode(ctx context.Context, curi string, dumpConns int) (*Node, error) {
 	n := &Node{
-		ctx:  ctx,
-		curi: curi,
+		ctx:       ctx,
+		curi:      curi,
 		dumpConns: dumpConns,
 	}
 	err := n.Connect()
@@ -199,4 +209,39 @@ func (n *Node) CurrentUser() (*AuthInfo, error) {
 	}
 
 	return &c.AuthInfo, nil
+}
+
+func (n *Node) DropTMPcoll() error {
+	err := n.cn.Database(DB).Collection(TmpRolesCollection).Drop(n.ctx)
+	if err != nil {
+		return errors.Wrapf(err, "drop tmp roles collection %s", TmpRolesCollection)
+	}
+
+	err = n.cn.Database(DB).Collection(TmpUsersCollection).Drop(n.ctx)
+	if err != nil {
+		return errors.Wrapf(err, "drop tmp users collection %s", TmpUsersCollection)
+	}
+
+	return nil
+}
+
+func (n *Node) EnsureNoTMPcoll() error {
+	cols, err := n.cn.Database(DB).ListCollectionNames(n.ctx, bson.D{})
+	if err != nil {
+		return errors.Wrapf(err, "list collections in %s", DB)
+	}
+
+	var ext []string
+	for _, n := range cols {
+		if n == TmpRolesCollection || n == TmpUsersCollection {
+			ext = append(ext, DB+"."+n)
+		}
+	}
+	if len(ext) > 0 {
+		return errors.Errorf(
+			"PBM temporary collections exist. It will lead to a failed restore. Please, drop next collections manually: %s",
+			strings.Join(ext, ", "),
+		)
+	}
+	return nil
 }

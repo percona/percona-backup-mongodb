@@ -97,7 +97,11 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	q, err := backup.NodeSuits(a.node)
+	ninf, err := a.node.GetInfo()
+	if err != nil {
+		return errors.Wrap(err, "get node info")
+	}
+	q, err := backup.NodeSuits(a.node, ninf)
 	if err != nil {
 		return errors.Wrap(err, "node check")
 	}

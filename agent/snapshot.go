@@ -49,7 +49,28 @@ func (a *Agent) CancelBackup() {
 func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name)
 
-	q, err := backup.NodeSuits(a.node)
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		l.Error("get node info: %v", err)
+		return
+	}
+
+	// In case there are some leftovers from the restore.
+	//
+	// There is no way to exclude some collections on mongodump stage
+	// while it accepts "exclude..." option only if sole db specified (¯\_(ツ)_/¯)
+	// So we're trying to clean up on primary node but because there is no guarantee
+	// that primary node reaches this code before some of the secondaries starts backup
+	// we have to double-check in backup.run() before mongodump and fail on dirty state.
+	if nodeInfo.IsPrimary && nodeInfo.Me == nodeInfo.Primary {
+		err = a.node.DropTMPcoll()
+		if err != nil {
+			l.Error("ensure no tmp collections: %v", err)
+			return
+		}
+	}
+
+	q, err := backup.NodeSuits(a.node, nodeInfo)
 	if err != nil {
 		l.Error("node check: %v", err)
 		return
@@ -58,12 +79,6 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// node is not suitable for doing backup
 	if !q {
 		l.Info("node is not suitable for backup")
-		return
-	}
-
-	nodeInfo, err := a.node.GetInfo()
-	if err != nil {
-		l.Error("get node info: %v", err)
 		return
 	}
 
