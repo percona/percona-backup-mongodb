@@ -11,8 +11,12 @@ if [ "${1:0:9}" = "pbm-agent" ]; then
 	for i in {1..10}; do
 		if [ "${SHARDED}" ]; then
 			echo "waiting for sharded scluster"
+
+			# check in case if shard has role 'shardsrv'
 			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().\$configServerState.opTime.ts" --quiet | tee "$OUT"
 			exit_status=$?
+
+			# check in case if shard has role 'configsrv'
 			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().configsvr" --quiet | tail -n 1 | tee "$OUT_CFG"
 			exit_status_cfg=$?
 
