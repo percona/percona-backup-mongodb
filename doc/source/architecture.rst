@@ -3,21 +3,6 @@
 Architecture
 ********************************************************************************
 
-|pbm| consists of the following components:
-
-- :ref:`pbm.architecture.agent` is a process running on every ``mongod`` node within the cluster or a replica set that performs backup and restore operations. 
-- :ref:`pbm.architecture.pbmctl` is a command-line utility that instructs pbm-agents to perform an operation. 
-
-  A single |pbm-agent| is only involved with one cluster (or non-sharded replica set). The |pbm.app| CLI utility can connect to any cluster it has network access to, so it is possible for one user to list and launch backups or restores on many clusters. 
-
-- :ref:`pbm.architecture.pbm_control_collections` are special collections in MongoDB that store the configuration data and backup states. Both |pbm.app| CLI and |pbm-agent| use PBM Control collections to check backup status in MongoDB and communicate with each other. 
-- :ref:`pbm.architecture.remote_storage` is where |pbm| saves backups. It can be either an :term:`S3 compatible storage` or a filesystem-type storage.
-
-.. image:: _images/pbm-architecture.png
-   :width: 400
-   :align: center
-   :alt: PBM components 
-
 .. _pbm.architecture.agent:
 
 |pbm-agent|
@@ -98,6 +83,6 @@ backup there is one metadata file. For each replicaset in the backup:
     
 The end time of the oplog slice(s) is the data-consistent point in time of a backup snapshot.
 
-For details about supported backup storage, see :ref:`storage.config`.
+For details about supported backup storages, see :ref:`storage.config`.
 
 .. include:: .res/replace.txt

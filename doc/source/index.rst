@@ -49,33 +49,17 @@ Introduction
    :maxdepth: 2
 
    intro
+   pbm-components
 
-Architecture
+Getting started
 ***********************************************
 
 .. toctree::
    :maxdepth: 2
 
-   architecture
-
-Installation and Upgrade
-***********************************************
-
-.. toctree::
-   :maxdepth: 2
-
-   installation
-   upgrading
-
-Configuration
-***********************************************  
-
-.. toctree::
-   :maxdepth: 2
-
-   authentication
-   config
-   storage-configuration
+   installation   
+   initial-setup
+   
 
 Usage
 ***********************************************
@@ -86,20 +70,25 @@ Usage
    running
    point-in-time-recovery
 
-Troubleshooting 
+Details
+***********************************************
+
+.. toctree::
+   :maxdepth: 1
+
+   architecture
+   authentication
+   config
+   storage-configuration
+
+How to 
 ***********************************************
 
 .. toctree::
    :maxdepth: 2
       
-   troubleshooting
-
-Uninstall |PBM|
-***********************************************
-
-.. toctree::
-   :maxdepth: 2
-   
+   upgrading
+   troubleshooting   
    uninstalling
 
 Reference
@@ -108,10 +97,20 @@ Reference
 .. toctree::
    :maxdepth: 1
 
-   release-notes
+   pbm-commands
    configuration-options
    contributing
    glossary
+   copyright
+   trademark-policy
+
+Release notes
+***********************************************
+   
+.. toctree::
+   :maxdepth: 1
+   
+   release-notes
 
 .. include:: .res/replace.txt
 .. include:: .res/url.txt

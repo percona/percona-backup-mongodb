@@ -13,11 +13,9 @@ interfaces to your package management system.
 
 The `Percona Software and Platform Lifecycle <https://www.percona.com/services/policies/percona-software-platform-lifecycle#mongodb>`_ page lists Linux distributions for which |pbm| installation packages are available.
 
-For your convenience, we recommend that you install the |percona-release| utility
-which makes it easy to install any |percona| product on your system.
+The recommended approach is to install |pbm|  from Percona repositories using the  |percona-release| tool.
 
-You may also build and install |pbm| from source code in case you require a
-fully controlled installation method.
+If you want a full control over the installation, you may build and install |pbm| from source code.
 
 Regardless of the installation method you choose, the following tools are at
 your disposal after the installation completes:
@@ -29,22 +27,19 @@ pbm              Command-line interface for controlling the backup system
 pbm-agent        An agent for running backup/restore actions on a database host
 ===============  ===============================================================
 
+|
 
-You should install |pbm-agent| on every server that has mongod nodes in the
-MongoDB cluster (or non-sharded replica set). The |pbm.app| CLI can be installed
+Install |pbm-agent| on every server that has mongod nodes in the
+MongoDB cluster (or non-sharded replica set). You can install |pbm.app| CLI 
 on any or all servers or desktop computers you wish to use it from, so long as
 those computers aren't network-blocked from accessing the MongoDB cluster.
 
-.. seealso::
-
-   More information about |percona-release|
-      https://www.percona.com/doc/percona-repo-config/percona-release.html
-
-Prerequisites
+Installing from Percona repositories
 ================================================================================
 
-It is recommended to install |pbm| from official |percona| repositories by using
-the |percona-release| utility. Starting from v1.3.0, |pbm| packages are stored in the *pbm* repository.
+To install |pbm|, first install |percona-release| tool using the package manager of your operating system. |percona-release| automatically configures the required repository for you.  Follow the instructions in `Percona Software repositories documentation <https://www.percona.com/doc/percona-repo-config/percona-release.html>`_ to install |percona-release|.
+
+As of version 1.3.0, |pbm| packages are stored in the *pbm* repository.
 
 .. code-block:: bash
 
@@ -53,13 +48,9 @@ the |percona-release| utility. Starting from v1.3.0, |pbm| packages are stored i
 |pbm| is available for installation from your package management system when you
 enable the *pbm* repository.
 
-.. seealso:: 
-
-   Configuring |percona| repositories
-      https://www.percona.com/doc/percona-repo-config/index.html
 
 Installing |pbm| Using ``apt``
-================================================================================
+---------------------------------------------
 
 .. code-block:: bash
 
@@ -67,7 +58,7 @@ Installing |pbm| Using ``apt``
    $ sudo apt-get install percona-backup-mongodb
 
 Installing |pbm| Using ``yum``
-================================================================================
+---------------------------------------------
 
 .. code-block:: bash
 
@@ -116,53 +107,8 @@ By running :program:`pbm version`, you can verify if |pbm| has been built correc
       BuildTime: [time when this version was produced in UTC format]
       GoVersion: [Go version number]
 
-|pbm| services and location of configuration files
-================================================================================
-
 After |pbm| is successfully installed on your system, you have |pbm.app|
-and |pbm-agent| programs on your system.
+and |pbm-agent| programs available. See :ref:`initial-setup` for guidelines how to set up |PBM|.  
 
-.. _pbm.installation.service_init_scripts:
-
-Configuring service init scripts
-================================================================================
-
-To start a |pbm-agent|, set the MongoDB connection URI string for the PBM user to the local ``mongod`` node in the
-environment file that is included in the `pbm-agent.service` systemd unit file.
-
-With the current systemd unit file (see below), this means setting the
-"PBM_MONGODB_URI" environment variable in :file:`/etc/default/pbm-agent` (for
-Debian and Ubuntu) or :file:`/etc/sysconfig/pbm-agent` (for Red Hat or CentOS).
-
-.. hint::
-
-   In Ubuntu and Debian, the path to the :file:`pbm-agent.service` file is 
-   :file:`/lib/systemd/system/pbm-agent.service`. 
-
-   In Red Hat and CentOS, this
-   file is found at the path :file:`/usr/lib/systemd/system/pbm-agent.service`.
-
-.. include:: .res/code-block/bash/systemd-unit-file.txt
-
-To set the "PBM_MONGODB_URI" environment variable:
-
-1. Create the "pbm user" in the ``admin`` database. 
-   See :ref:`pbm.auth.create_pbm_user`.
-#. Edit the environment file:  
-
-   .. code-block:: bash
-   
-      PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018"
-
-.. seealso::
-
-   More information about standard MongoDB connection strings
-      :ref:`pbm.auth`
-
-
------
-
-The :ref:`pbm.running` section, explains in detail how to start |pbm-agent| and
-provides examples how to use |pbm.app| commands.
 
 .. include:: .res/replace.txt
