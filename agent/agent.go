@@ -118,7 +118,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   ep.TS(),
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, nil)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -141,7 +141,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		obj := t.Format("2006-01-02T15:04:05Z")
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		l.Info("deleting backups older than %v", t)
-		err := a.pbm.DeleteOlderThan(t)
+		err := a.pbm.DeleteOlderThan(t, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -149,7 +149,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	case d.Backup != "":
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		l.Info("deleting backup")
-		err := a.pbm.DeleteBackup(d.Backup)
+		err := a.pbm.DeleteBackup(d.Backup, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -191,14 +191,9 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   ep.TS(),
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
-		switch err.(type) {
-		case pbm.ErrConcurrentOp:
-			l.Info("acquiring lock: %v", err)
-		default:
-			l.Error("acquiring lock: %v", err)
-		}
+		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
@@ -208,7 +203,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 
 	tstart := time.Now()
 	l.Info("started")
-	err = a.pbm.ResyncStorage()
+	err = a.pbm.ResyncStorage(l)
 	if err != nil {
 		l.Error("%v", err)
 	} else {
@@ -225,7 +220,9 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	}
 }
 
-func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, err error) {
+// aquireLock tries to aquire the lock. If there is a stale lock
+// it tries to mark op that held the lock (backup, [pitr]restore) as failed.
+func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 	got, err = l.Acquire()
 	if err == nil {
 		return got, nil
@@ -236,12 +233,19 @@ func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, er
 		a.log.Printf("acquiring lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
-		if m != nil {
-			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
-			merr := m(name)
-			if merr != nil {
-				a.log.Warning("", "", "", l.Epoch, "failed to mark stale backup '%s' as failed: %v", name, merr)
-			}
+		lk := err.(pbm.ErrWasStaleLock).Lock
+		var fn func(opid string) error
+		switch lk.Type {
+		case pbm.CmdBackup:
+			fn = a.pbm.MarkBcpStale
+		case pbm.CmdRestore, pbm.CmdPITRestore:
+			fn = a.pbm.MarkRestoreStale
+		default:
+			return l.Acquire()
+		}
+		merr := fn(lk.OPID)
+		if merr != nil {
+			a.log.Warning("", "", "", l.Epoch, "failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
 		return l.Acquire()
 	default:

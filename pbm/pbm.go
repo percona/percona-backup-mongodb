@@ -85,10 +85,12 @@ type Cmd struct {
 func OPIDfromStr(s string) (OPID, error) {
 	o, err := primitive.ObjectIDFromHex(s)
 	if err != nil {
-		return OPID{}, err
+		return OPID(primitive.NilObjectID), err
 	}
 	return OPID(o), nil
 }
+
+func NilOPID() OPID { return OPID(primitive.NilObjectID) }
 
 func (o OPID) String() string {
 	return primitive.ObjectID(o).Hex()
@@ -371,6 +373,7 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
+	OPID             string              `bson:"opid" json:"opid"`
 	Name             string              `bson:"name" json:"name"`
 	Replsets         []BackupReplset     `bson:"replsets" json:"replsets"`
 	Compression      CompressionType     `bson:"compression" json:"compression"`
@@ -440,11 +443,17 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 	return nil
 }
 
+func (p *PBM) ChangeBackupStateOPID(opid string, s Status, msg string) error {
+	return p.changeBackupState(bson.D{{"opid", opid}}, s, msg)
+}
 func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
+	return p.changeBackupState(bson.D{{"name", bcpName}}, s, msg)
+}
+func (p *PBM) changeBackupState(clause bson.D, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"name", bcpName}},
+		clause,
 		bson.D{
 			{"$set", bson.M{"status": s}},
 			{"$set", bson.M{"last_transition_ts": ts}},
@@ -541,8 +550,16 @@ func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timesta
 }
 
 func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
+	return p.getBackupMeta(bson.D{{"name", name}})
+}
+
+func (p *PBM) GetBackupByOPID(opid string) (*BackupMeta, error) {
+	return p.getBackupMeta(bson.D{{"opid", opid}})
+}
+
+func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 	b := new(BackupMeta)
-	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, clause)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
 			return b, nil

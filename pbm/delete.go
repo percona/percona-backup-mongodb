@@ -1,19 +1,19 @@
 package pbm
 
 import (
-	"log"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 // DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
-func (p *PBM) DeleteBackup(name string) error {
+func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 	meta, err := p.GetBackupMeta(name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
@@ -23,7 +23,7 @@ func (p *PBM) DeleteBackup(name string) error {
 		return err
 	}
 
-	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), "", "", 0))
+	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -105,8 +105,8 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err erro
 }
 
 // DeleteOlderThan deletes backups which older than given Time
-func (p *PBM) DeleteOlderThan(t time.Time) error {
-	stg, err := p.GetStorage(p.log.NewEvent(string(CmdDeleteBackup), "", "", 0))
+func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
+	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -130,7 +130,7 @@ func (p *PBM) DeleteOlderThan(t time.Time) error {
 
 		err = p.probeDelete(m)
 		if err != nil {
-			log.Printf("Info: deleting %s: %v", m.Name, err)
+			l.Info("deleting %s: %v", m.Name, err)
 			continue
 		}
 

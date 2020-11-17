@@ -145,7 +145,7 @@ func (a *Agent) pitr() (err error) {
 		Epoch:   ep.TS(),
 	})
 
-	got, err := a.aquireLock(lock, nil)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -169,7 +169,7 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		err := ibcp.Stream(ctx, w, stg, pbm.CompressionTypeS2)
+		err := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
 		if err != nil {
 			switch err.(type) {
 			case pitr.ErrOpMoved:
@@ -207,7 +207,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   ep.TS(),
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -225,7 +225,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}()
 
 	l.Info("recovery started")
-	err = restore.New(a.pbm, a.node).PITR(r)
+	err = restore.New(a.pbm, a.node).PITR(r, opid, l)
 	if err != nil {
 		l.Error("restore: %v", err)
 		return

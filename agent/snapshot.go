@@ -91,15 +91,14 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	a.wakeupPitr()
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:       pbm.CmdBackup,
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: bcp.Name,
-		OPID:       opid.String(),
-		Epoch:      ep.TS(),
+		Type:    pbm.CmdBackup,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   ep.TS(),
 	})
 
-	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -116,7 +115,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	})
 	l.Info("backup started")
 	tstart := time.Now()
-	err = backup.New(ctx, a.pbm, a.node).Run(bcp)
+	err = backup.New(ctx, a.pbm, a.node).Run(bcp, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
@@ -132,7 +131,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	// any PITR related errors in the log since some of the errors might
 	// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
 	// generate new errors so we won't miss anything
-	err = a.pbm.ConfigBumpPITRepoch()
+	_, err = a.pbm.ResetEpoch()
 	if err != nil {
 		l.Warning("update PITR obesrvation ts")
 	}
@@ -173,21 +172,20 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:       pbm.CmdRestore,
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: r.Name,
-		OPID:       opid.String(),
-		Epoch:      ep.TS(),
+		Type:    pbm.CmdRestore,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   ep.TS(),
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		l.Error("unbale to run the restore while another backup or restore process running")
+		l.Error("unbale to run the restore while another operation running")
 		return
 	}
 
@@ -199,7 +197,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}()
 
 	l.Info("restore started")
-	err = restore.New(a.pbm, a.node).Snapshot(r)
+	err = restore.New(a.pbm, a.node).Snapshot(r, opid, l)
 	if err != nil {
 		l.Error("restore: %v", err)
 		return

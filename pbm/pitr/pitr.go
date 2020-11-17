@@ -95,11 +95,11 @@ func (e ErrOpMoved) Error() string {
 }
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
+func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
-	l := i.pbm.Logger().NewEvent(string(pbm.CmdPITR), "")
+	l := i.pbm.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
 	l.Info("streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
@@ -127,6 +127,14 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 		case <-wakeupSig:
 			l.Info("got wake_up signal")
 		case <-tk.C:
+		}
+
+		cep, err := i.pbm.GetEpoch()
+		if err != nil {
+			return errors.Wrap(err, "get epoch")
+		}
+		if primitive.CompareTimestamp(ep.TS(), cep.TS()) != 0 {
+			return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", ep.TS(), cep.TS())
 		}
 
 		nextChunkT := time.Now().Add(i.span)
@@ -160,6 +168,16 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 			return errors.Wrap(err, "check lock")
 		}
 
+		// in case there is a lock, even legit (our own, or backup's one) but it is stale
+		// we sould return so the slicer whould get thru the lock aquisition again.
+		ts, err := i.pbm.ClusterTime()
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+		if ld.Heartbeat.T+pbm.StaleFrameSec < ts.T {
+			return errors.Errorf("stale lock %#v, last beat ts: %d", ld.LockHeader, ld.Heartbeat.T)
+		}
+
 		switch ld.Type {
 		case pbm.CmdPITR:
 			if ld.Node != nodeInfo.Me {
@@ -170,7 +188,7 @@ func (i *IBackup) Stream(ctx context.Context, wakeupSig <-chan struct{}, to stor
 				return errors.Wrap(err, "define last write timestamp")
 			}
 		case pbm.CmdBackup:
-			sliceTo, err = i.backupStartTS(ld.BackupName)
+			sliceTo, err = i.backupStartTS(ld.OPID)
 			if err != nil {
 				return errors.Wrap(err, "get backup start TS")
 			}
@@ -237,11 +255,11 @@ func (i *IBackup) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
 	return ld, nil
 }
 
-func (i *IBackup) backupStartTS(bcp string) (ts primitive.Timestamp, err error) {
+func (i *IBackup) backupStartTS(opid string) (ts primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
-		b, err := i.pbm.GetBackupMeta(bcp)
+		b, err := i.pbm.GetBackupByOPID(opid)
 		if err != nil {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
