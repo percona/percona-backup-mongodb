@@ -254,7 +254,7 @@ func (p *PBM) Logger() *log.Logger {
 }
 
 const (
-	cmdCollectionSizeBytes  = 20 << 20 // 10Mb
+	cmdCollectionSizeBytes  = 1 << 20  // 1Mb
 	logsCollectionSizeBytes = 50 << 20 // 50Mb
 )
 
@@ -721,7 +721,7 @@ func (p *PBM) GetEpoch() (Epoch, error) {
 		return Epoch{}, errors.Wrap(err, "get config")
 	}
 
-	return Epoch(c.PITR.Epoch), nil
+	return Epoch(c.Epoch), nil
 }
 
 func (p *PBM) ResetEpoch() (Epoch, error) {
@@ -732,7 +732,7 @@ func (p *PBM) ResetEpoch() (Epoch, error) {
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
-		bson.M{"$set": bson.M{"pitr.epoch": ct}},
+		bson.M{"$set": bson.M{"epoch": ct}},
 	)
 
 	return Epoch(ct), err

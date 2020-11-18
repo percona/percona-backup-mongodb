@@ -160,6 +160,10 @@ func (l *Logger) Printf(msg string, args ...interface{}) {
 	l.output(Info, "", "", "", primitive.Timestamp{}, msg, args...)
 }
 
+func (l *Logger) Debug(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Debug, event, obj, opid, epoch, msg, args...)
+}
+
 func (l *Logger) Info(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Info, event, obj, opid, epoch, msg, args...)
 }
@@ -170,6 +174,10 @@ func (l *Logger) Warning(event string, obj, opid string, epoch primitive.Timesta
 
 func (l *Logger) Error(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Error, event, obj, opid, epoch, msg, args...)
+}
+
+func (l *Logger) Fatal(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Fatal, event, obj, opid, epoch, msg, args...)
 }
 
 func (l *Logger) Output(e *LogEntry) error {
@@ -215,6 +223,10 @@ func (l *Logger) NewEvent(typ, name, opid string, epoch primitive.Timestamp) *Ev
 	}
 }
 
+func (e *Event) Debug(msg string, args ...interface{}) {
+	e.l.Debug(e.typ, e.obj, e.opid, e.ep, msg, args...)
+}
+
 func (e *Event) Info(msg string, args ...interface{}) {
 	e.l.Info(e.typ, e.obj, e.opid, e.ep, msg, args...)
 }
@@ -225,6 +237,10 @@ func (e *Event) Warning(msg string, args ...interface{}) {
 
 func (e *Event) Error(msg string, args ...interface{}) {
 	e.l.Error(e.typ, e.obj, e.opid, e.ep, msg, args...)
+}
+
+func (e *Event) Fatal(msg string, args ...interface{}) {
+	e.l.Fatal(e.typ, e.obj, e.opid, e.ep, msg, args...)
 }
 
 type LogRequest struct {
@@ -290,6 +306,12 @@ func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 	}
 	if r.ObjName != "" {
 		filter = append(filter, bson.E{"eobj", r.ObjName})
+	}
+	if r.Epoch.T > 0 {
+		filter = append(filter, bson.E{"ep", r.Epoch})
+	}
+	if r.OPID != "" {
+		filter = append(filter, bson.E{"ep", r.OPID})
 	}
 	if !r.TimeMin.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})

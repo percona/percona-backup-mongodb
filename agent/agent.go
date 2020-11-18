@@ -56,13 +56,18 @@ func (a *Agent) Start() error {
 	a.log.Printf("listening for the commands")
 
 	for {
-		ep, err := a.pbm.GetEpoch()
-		if err != nil {
-			a.log.Error("", "", "", ep.TS(), "get epoch: %v", err)
-		}
 		select {
 		case cmd := <-c:
 			a.log.Printf("got command %s", cmd)
+
+			ep, err := a.pbm.GetEpoch()
+			if err != nil {
+				a.log.Error(string(cmd.Cmd), "", cmd.OPID.String(), ep.TS(), "get epoch: %v", err)
+				continue
+			}
+
+			a.log.Printf("got epoch %v", ep)
+
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
@@ -88,6 +93,8 @@ func (a *Agent) Start() error {
 					return errors.New("change stream was closed")
 				}
 
+				ep, _ := a.pbm.GetEpoch()
+
 				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
 			}
 		}
@@ -110,12 +117,13 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLockCol(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdDeleteBackup,
 		OPID:    opid.String(),
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
 	got, err := a.aquireLock(lock)
@@ -183,12 +191,13 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdResyncBackupList,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	})
 
 	got, err := a.aquireLock(lock)
@@ -208,6 +217,16 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		l.Error("%v", err)
 	} else {
 		l.Info("succeed")
+
+		if nodeInfo.IsLeader() {
+			epch, err := a.pbm.ResetEpoch()
+			if err != nil {
+				l.Error("reset epoch")
+				return
+			}
+
+			l.Debug("epoch set to %v", epch)
+		}
 	}
 
 	needToWait := time.Second*1 - time.Since(tstart)
@@ -245,7 +264,7 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
-			a.log.Warning("", "", "", l.Epoch, "failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
+			a.log.Warning("", "", "", *l.Epoch, "failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
 		return l.Acquire()
 	default:

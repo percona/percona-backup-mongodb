@@ -16,11 +16,13 @@ const StaleFrameSec uint32 = 30
 
 // LockHeader describes the lock. This data will be serialased into the mongo document.
 type LockHeader struct {
-	Type    Command             `bson:"type,omitempty"`
-	Replset string              `bson:"replset,omitempty"`
-	Node    string              `bson:"node,omitempty"`
-	OPID    string              `bson:"opid,omitempty"`
-	Epoch   primitive.Timestamp `bson:"epoch,omitempty"`
+	Type    Command `bson:"type,omitempty"`
+	Replset string  `bson:"replset,omitempty"`
+	Node    string  `bson:"node,omitempty"`
+	OPID    string  `bson:"opid,omitempty"`
+	// should be a pointer so mongo find with empty epoch would work
+	// otherwise it always set it at least to "epoch":{"$timestamp":{"t":0,"i":0}}
+	Epoch *primitive.Timestamp `bson:"epoch,omitempty"`
 }
 
 type LockData struct {
@@ -195,7 +197,7 @@ func (l *Lock) hb() {
 			case <-tk.C:
 				err := l.beat()
 				if err != nil {
-					l.p.log.Error(string(l.Type), "", l.OPID, l.Epoch, "send lock heartbeat: %v", err)
+					l.p.log.Error(string(l.Type), "", l.OPID, *l.Epoch, "send lock heartbeat: %v", err)
 				}
 			case <-ctx.Done():
 				return

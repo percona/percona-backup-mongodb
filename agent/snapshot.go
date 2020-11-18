@@ -90,12 +90,13 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdBackup,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	})
 
 	got, err := a.aquireLock(lock)
@@ -125,15 +126,19 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	} else {
 		l.Info("backup finished")
-	}
 
-	// Update PITR "changed" option to "reset" observation by pbm list of
-	// any PITR related errors in the log since some of the errors might
-	// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
-	// generate new errors so we won't miss anything
-	_, err = a.pbm.ResetEpoch()
-	if err != nil {
-		l.Warning("update PITR obesrvation ts")
+		// Update PITR "changed" option to "reset" observation by pbm list of
+		// any PITR related errors in the log since some of the errors might
+		// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
+		// generate new errors so we won't miss anything
+		if nodeInfo.IsLeader() {
+			epch, err := a.pbm.ResetEpoch()
+			if err != nil {
+				l.Error("reset epoch")
+			} else {
+				l.Debug("epoch set to %v", epch)
+			}
+		}
 	}
 
 	// In the case of fast backup (small db) we have to wait before releasing the lock.
@@ -171,12 +176,13 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdRestore,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	})
 
 	got, err := a.aquireLock(lock)
@@ -203,4 +209,14 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	l.Info("restore finished successfully")
+
+	if nodeInfo.IsLeader() {
+		epch, err := a.pbm.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch")
+			return
+		}
+
+		l.Debug("epoch set to %v", epch)
+	}
 }

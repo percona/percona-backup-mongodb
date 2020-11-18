@@ -138,11 +138,12 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdPITR,
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	})
 
 	got, err := a.aquireLock(lock)
@@ -199,12 +200,13 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITRestore,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   ep.TS(),
+		Epoch:   &epts,
 	})
 
 	got, err := a.aquireLock(lock)
@@ -231,4 +233,14 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	l.Info("recovery successfully finished")
+
+	if nodeInfo.IsLeader() {
+		epch, err := a.pbm.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch")
+			return
+		}
+
+		l.Debug("epoch set to %v", epch)
+	}
 }

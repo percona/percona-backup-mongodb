@@ -22,15 +22,15 @@ import (
 
 // Config is a pbm config
 type Config struct {
-	PITR    PITRConf    `bson:"pitr" json:"pitr" yaml:"pitr"`
-	Storage StorageConf `bson:"storage" json:"storage" yaml:"storage"`
-	Restore RestoreConf `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
+	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
+	Storage StorageConf         `bson:"storage" json:"storage" yaml:"storage"`
+	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled bool                `bson:"enabled" json:"enabled" yaml:"enabled"`
-	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
 }
 
 // StorageType represents a type of the destination storage for backups
@@ -107,7 +107,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 		return errors.Wrap(err, "get cluster time")
 	}
 
-	cfg.PITR.Epoch = ct
+	cfg.Epoch = ct
 
 	// TODO: if store or pitr changed - need to bump epoch
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
@@ -173,7 +173,7 @@ func (p *PBM) confSetPITR(k string, v bool) error {
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
 		bson.D{},
-		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix(), "pitr.epoch": ct}},
+		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix(), "epoch": ct}},
 	)
 
 	return err
