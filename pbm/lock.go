@@ -96,6 +96,11 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	if got {
+		// log the operation. duplicate means error
+		err := l.log()
+		if err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 
@@ -124,6 +129,28 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	return false, ErrWasStaleLock{Lock: peer.LockHeader}
+}
+
+// ErrDuplicateOp means the operation with the same ID
+// alredy had been running
+type ErrDuplicateOp struct {
+	Lock LockHeader
+}
+
+func (e ErrDuplicateOp) Error() string {
+	return fmt.Sprintf("duplicate operation: %s [%s]", e.Lock.OPID, e.Lock.Type)
+}
+
+func (l *Lock) log() error {
+	_, err := l.p.Conn.Database(DB).Collection(PBMOpLogCollection).InsertOne(l.p.Context(), l.LockHeader)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "E11000 duplicate key error") {
+		return ErrDuplicateOp{l.LockHeader}
+	}
+
+	return err
 }
 
 func (p *PBM) MarkBcpStale(opid string) error {

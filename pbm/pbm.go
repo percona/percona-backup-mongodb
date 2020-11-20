@@ -50,7 +50,8 @@ const (
 	//PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
 	// StatusCollection stores pbm status
-	StatusCollection = "pbmStatus"
+	StatusCollection   = "pbmStatus"
+	PBMOpLogCollection = "pbmOpLog"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
@@ -178,6 +179,14 @@ var (
 	WaitBackupStart = WaitActionStart + PITRcheckPeriod*12/10
 )
 
+// OpLog represents log of started operation.
+// Operation progress can be get from logs by OPID.
+// Basically it is a log of all ever taken locks. With the
+// uniqueness by rs + opid
+type OpLog struct {
+	LockHeader `bson:",inline" json:",inline"`
+}
+
 type PBM struct {
 	Conn *mongo.Client
 	log  *log.Logger
@@ -254,8 +263,9 @@ func (p *PBM) Logger() *log.Logger {
 }
 
 const (
-	cmdCollectionSizeBytes  = 1 << 20  // 1Mb
-	logsCollectionSizeBytes = 50 << 20 // 50Mb
+	cmdCollectionSizeBytes      = 1 << 20  // 1Mb
+	pbmOplogCollectionSizeBytes = 10 << 20 // 1Mb
+	logsCollectionSizeBytes     = 50 << 20 // 50Mb
 )
 
 // setup a new DB for PBM
@@ -301,6 +311,26 @@ func (p *PBM) setupNewDB() error {
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}, {"type", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
+	}
+
+	err = p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", PBMOpLogCollection}, {"capped", true}, {"size", pbmOplogCollectionSizeBytes}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure log collection")
+	}
+	_, err = p.Conn.Database(DB).Collection(PBMOpLogCollection).Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"opid", 1}, {"replset", 1}},
 			Options: options.Index().
 				SetUnique(true).
 				SetSparse(true),
