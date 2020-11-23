@@ -37,17 +37,15 @@ those computers aren't network-blocked from accessing the MongoDB cluster.
 Installing from Percona repositories
 ================================================================================
 
-To install |pbm|, first install |percona-release| tool using the package manager of your operating system. |percona-release| automatically configures the required repository for you.  Follow the instructions in `Percona Software repositories documentation <https://www.percona.com/doc/percona-repo-config/percona-release.html>`_ to install |percona-release|.
+To install |pbm|, first install |percona-release| tool using the package manager of your operating system. This is a repository management tool that automatically configures the required repository for you.  
 
-As of version 1.3.0, |pbm| packages are stored in the *pbm* repository.
+Follow the instructions in `Percona Software repositories documentation <https://www.percona.com/doc/percona-repo-config/percona-release.html>`_ to install |percona-release|.
+
+Enable the repository. As of version 1.3.0, |pbm| packages are stored in the *pbm* repository.
 
 .. code-block:: bash
 
    $ sudo percona-release enable pbm release
-
-|pbm| is available for installation from your package management system when you
-enable the *pbm* repository.
-
 
 Installing |pbm| Using ``apt``
 ---------------------------------------------

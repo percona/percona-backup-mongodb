@@ -3,7 +3,10 @@
 Running |pbm|
 ********************************************************************************
 
-This document provides examples of using |pbm.app| commands to operate your backup system.
+This document provides examples of using |pbm.app| commands to operate your backup system. For detailed description of pbm commands, refer to :ref:`pbm-commands`.
+
+.. contents::
+   :local:
 
 .. _pbm.running.backup.listing:
 
@@ -28,13 +31,13 @@ Starting a backup
 
 .. code-block:: bash
 
-   pbm backup
+   $ pbm backup
 
 .. rubric:: Starting a backup with compression
 
 .. code-block:: bash
 
-   pbm backup --compression=s2 
+   $ pbm backup --compression=s2 
 
 ``s2`` is the default compression type. Other supported compression types are: ``gzip``,
 ``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during

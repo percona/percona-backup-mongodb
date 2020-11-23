@@ -22,6 +22,8 @@ The following diagram illustrates how |PBM| components communicate with MongoDB.
    :align: center
    :alt: PBM components 
 
+|
+
 To learn more about |PBM| architecture, see :ref:`pbm.architecture`.
 
 .. include:: .res/replace.txt

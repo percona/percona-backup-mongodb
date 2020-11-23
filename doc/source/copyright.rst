@@ -7,4 +7,4 @@ Documentation Licensing
 =======================
 
 This software documentation is (C)2016-2020 Percona LLC and/or its affiliates
-and is distributed under the `Apache License 2.0 <https://www.apache.org/licenses/LICENSE-2.0>`_ license.
+and is distributed under the `Creative Commons Attribution 4.0 International Public License <https://creativecommons.org/licenses/by/4.0/>`_ license.

@@ -3,13 +3,16 @@
 Initial setup   
 ****************************************************************
 
-After you’ve installed |pbm-agent| on every server with the ``mongod`` node, set it up to run |PBM|.
+After you’ve installed |pbm-agent| on every server with the ``mongod`` node, perform initial setup to run |PBM|.
 
 The setup steps are the following:
 
--	Configure authentication in MongoDB
--	Use ``pbm CLI`` to insert the config information for remote backup storage
--	Start |pbm-agent| process
+1.	Configure authentication in MongoDB
+#. Use ``pbm CLI`` to insert the config information for remote backup storage
+#.	Start |pbm-agent| process
+ 	
+.. contents::
+   :local:
 
 Configure authentication in MongoDB
 ================================================================================
@@ -50,7 +53,7 @@ Then create the user and assign the role you created to it.
           ]
        });
 
-You can specify username and password values and other options of the createUser command as you require so long as the roles shown above are granted.
+You can specify username and password values and other options of the ``createUser`` command as you require so long as the roles shown above are granted.
 
 Create the ``pbm`` user on every replica set. In a sharded cluster, this means every shard replica sets and the config server replica set.
 
@@ -71,7 +74,7 @@ The :file:`pbm-agent.service` systemd unit file includes the environment file. Y
 
 The environment file for Debian and Ubuntu is :file:`/etc/default/pbm-agent`. For Redhat and CentOS, it is :file:`/etc/sysconfig/pbm-agent`. 
 
-Edit the environment file and specify MongoDB connection URI string for the ``pbm`` user to the local ``mongod`` node.
+Edit the environment file and specify MongoDB connection URI string for the ``pbm`` user to the local ``mongod`` node. For example, if ``mongod`` node listens on port 27018, the MongoDB connection URI string will be the following:
 
 .. code-block:: bash
 
@@ -96,7 +99,9 @@ Configure the service init script for every |pbm-agent|.
 
    More information about standard MongoDB connection strings
       :ref:`pbm.auth`
- 
+
+.. _set-mongodbURI-pbm.CLI: 
+
 Set the MongoDB connection URI for ``pbm CLI``
 ------------------------------------------------------------------
 
@@ -113,24 +118,32 @@ For more information what connection string to specify, refer to :ref:`pbm.auth.
 Configure remote backup storage
 ==================================
 
-The easiest way to provide remote backup storage configuration is to specify it in a YAML config file and upload this file to |PBM|.
+The easiest way to provide remote backup storage configuration is to specify it in a YAML config file and upload this file to |PBM| using ``pbm CLI``.
 
 The storage configuration itself is out of scope of the present document. We assume that you have configured one of the :ref:`supported remote backup storages <storage.config>`.
 
 1. Create a config file (e.g. :file:`pbm_config.yaml`).
-2. Specify the storage information within. The sample configuration for Amazon AWS is the following:
+2. Specify the storage information within. 
+   
+   The following is the sample configuration for Amazon AWS:
    
    .. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
    
-   See more examples in :ref:`pbm.config.example_yaml`
+   This is the sample configuration for filesystem storage:
+
+   .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
+
+   See more examples in :ref:`pbm.config.example_yaml`.
 
 3. Insert the config file
    
-   .. include:: .res/code-block/bash/pbm-config-file-set.txt
+   .. code-block:: bash
+
+      $ pbm config --file pbm_config.yaml 
 
    For a sharded cluster, run this command whilst connecting to config server replica set. Otherwise connect to the non-sharded replica set as normal. 
 
- To learn more about |PBM| configuration, see :ref:`pbm.config`.
+To learn more about |PBM| configuration, see :ref:`pbm.config`.
  
 Start the |pbm-agent| process
 ==================================
@@ -182,11 +195,11 @@ command below. See `man journalctl` for useful options such as '--lines',
    ...
    ...
 
-If you started pbm-agent manually see the file you redirected stdout and stderr
+If you started pbm-agent manually, see the file you redirected stdout and stderr
 to.
 
 When a message *"pbm agent is listening for the commands"* is printed to the
-|pbm-agent| log file it confirms it connected to its mongod successfully.
+|pbm-agent| log file, it confirms that it has connected to its ``mongod`` node successfully.
 
 
 .. include:: .res/replace.txt

@@ -34,6 +34,4 @@ To be on the safe side, it might be best to make an extra backup manually before
 
 Find the full set of commands available in |PBM| in :ref:`pbm-commands`.
 
-.. include:: .res/code-block/bash/pbm-help-output.txt
-
 .. include:: .res/replace.txt
