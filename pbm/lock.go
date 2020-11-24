@@ -142,6 +142,13 @@ func (e ErrDuplicateOp) Error() string {
 }
 
 func (l *Lock) log() error {
+	// PITR slicing technically speaking is not an OP but
+	// long standing process. It souldn't be logged. Moreover
+	// having no opid it would block all subsequent PITR events.
+	if l.LockHeader.Type == CmdPITR {
+		return nil
+	}
+
 	_, err := l.p.Conn.Database(DB).Collection(PBMOpLogCollection).InsertOne(l.p.Context(), l.LockHeader)
 	if err == nil {
 		return nil

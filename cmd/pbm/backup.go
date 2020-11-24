@@ -190,7 +190,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	for _, s := range shards {
 		if on {
 			err := pitrState(cn, s.ID, ts)
-			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(time.Minute*-1).Unix() {
+			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(-1*time.Minute).Unix() {
 				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
 			} else if err != nil {
 				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)

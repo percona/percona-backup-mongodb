@@ -129,12 +129,15 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 		case <-tk.C:
 		}
 
-		cep, err := i.pbm.GetEpoch()
-		if err != nil {
-			return errors.Wrap(err, "get epoch")
-		}
-		if primitive.CompareTimestamp(ep.TS(), cep.TS()) != 0 {
-			return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", ep.TS(), cep.TS())
+		// if it's last slice, epoch probably already changed (e.g. due to config changes) and it's ok
+		if !lastSlice {
+			cep, err := i.pbm.GetEpoch()
+			if err != nil {
+				return errors.Wrap(err, "get epoch")
+			}
+			if primitive.CompareTimestamp(ep.TS(), cep.TS()) != 0 {
+				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", ep.TS(), cep.TS())
+			}
 		}
 
 		nextChunkT := time.Now().Add(i.span)
