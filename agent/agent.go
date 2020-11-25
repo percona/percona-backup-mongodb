@@ -59,20 +59,29 @@ func (a *Agent) Start() error {
 		select {
 		case cmd := <-c:
 			a.log.Printf("got command %s", cmd)
+
+			ep, err := a.pbm.GetEpoch()
+			if err != nil {
+				a.log.Error(string(cmd.Cmd), "", cmd.OPID.String(), ep.TS(), "get epoch: %v", err)
+				continue
+			}
+
+			a.log.Printf("got epoch %v", ep)
+
 			switch cmd.Cmd {
 			case pbm.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
-				go a.Backup(cmd.Backup)
+				go a.Backup(cmd.Backup, cmd.OPID, ep)
 			case pbm.CmdCancelBackup:
 				a.CancelBackup()
 			case pbm.CmdRestore:
-				a.Restore(cmd.Restore)
+				a.Restore(cmd.Restore, cmd.OPID, ep)
 			case pbm.CmdResyncBackupList:
-				a.ResyncStorage()
+				a.ResyncStorage(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
-				a.PITRestore(cmd.PITRestore)
+				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
-				a.Delete(cmd.Delete)
+				a.Delete(cmd.Delete, cmd.OPID, ep)
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -84,16 +93,18 @@ func (a *Agent) Start() error {
 					return errors.New("change stream was closed")
 				}
 
-				a.log.Error("", "", "listening commands: %v", err)
+				ep, _ := a.pbm.GetEpoch()
+
+				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
 			}
 		}
 	}
 }
 
 // Delete deletes backup(s) from the store and cleans up its metadata
-func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
+func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	const waitAtLeast = time.Second * 5
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "")
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -106,13 +117,16 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLockCol(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdDeleteBackup,
+		OPID:    opid.String(),
+		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, nil)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -129,22 +143,21 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 	}()
 
 	tsstart := time.Now()
-	obj := d.Backup
 	switch {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
-		obj = t.Format("2006-01-02T15:04:05Z")
-		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj)
+		obj := t.Format("2006-01-02T15:04:05Z")
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		l.Info("deleting backups older than %v", t)
-		err := a.pbm.DeleteOlderThan(t)
+		err := a.pbm.DeleteOlderThan(t, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
 		}
 	case d.Backup != "":
-		l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup)
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		l.Info("deleting backup")
-		err := a.pbm.DeleteBackup(d.Backup)
+		err := a.pbm.DeleteBackup(d.Backup, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -160,12 +173,12 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd) {
 		time.Sleep(needToWait)
 	}
 
-	a.pbm.Logger().Info(string(pbm.CmdDeleteBackup), obj, "done")
+	l.Info("done")
 }
 
 // ResyncStorage uploads a backup list from the remote store
-func (a *Agent) ResyncStorage() {
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "")
+func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -178,20 +191,18 @@ func (a *Agent) ResyncStorage() {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdResyncBackupList,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   &epts,
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
-		switch err.(type) {
-		case pbm.ErrConcurrentOp:
-			l.Info("acquiring lock: %v", err)
-		default:
-			l.Error("acquiring lock: %v", err)
-		}
+		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
@@ -201,11 +212,21 @@ func (a *Agent) ResyncStorage() {
 
 	tstart := time.Now()
 	l.Info("started")
-	err = a.pbm.ResyncStorage()
+	err = a.pbm.ResyncStorage(l)
 	if err != nil {
 		l.Error("%v", err)
 	} else {
 		l.Info("succeed")
+
+		if nodeInfo.IsLeader() {
+			epch, err := a.pbm.ResetEpoch()
+			if err != nil {
+				l.Error("reset epoch")
+				return
+			}
+
+			l.Debug("epoch set to %v", epch)
+		}
 	}
 
 	needToWait := time.Second*1 - time.Since(tstart)
@@ -218,7 +239,9 @@ func (a *Agent) ResyncStorage() {
 	}
 }
 
-func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, err error) {
+// aquireLock tries to aquire the lock. If there is a stale lock
+// it tries to mark op that held the lock (backup, [pitr]restore) as failed.
+func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 	got, err = l.Acquire()
 	if err == nil {
 		return got, nil
@@ -226,15 +249,22 @@ func (a *Agent) aquireLock(l *pbm.Lock, m func(name string) error) (got bool, er
 
 	switch err.(type) {
 	case pbm.ErrConcurrentOp:
-		a.log.Info("", "", "acquiring lock: %v", err)
+		a.log.Printf("acquiring lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
-		if m != nil {
-			name := err.(pbm.ErrWasStaleLock).Lock.BackupName
-			merr := m(name)
-			if merr != nil {
-				a.log.Warning("", "", "failed to mark stale backup '%s' as failed: %v", name, merr)
-			}
+		lk := err.(pbm.ErrWasStaleLock).Lock
+		var fn func(opid string) error
+		switch lk.Type {
+		case pbm.CmdBackup:
+			fn = a.pbm.MarkBcpStale
+		case pbm.CmdRestore, pbm.CmdPITRestore:
+			fn = a.pbm.MarkRestoreStale
+		default:
+			return l.Acquire()
+		}
+		merr := fn(lk.OPID)
+		if merr != nil {
+			a.log.Warning("", "", "", *l.Epoch, "failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
 		return l.Acquire()
 	default:

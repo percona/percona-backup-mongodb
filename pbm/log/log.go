@@ -12,6 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -33,11 +34,13 @@ type LogEntry struct {
 }
 
 type LogKeys struct {
-	Severity Severity `bson:"s" json:"s"`
-	RS       string   `bson:"rs" json:"rs"`
-	Node     string   `bson:"node" json:"node"`
-	Event    string   `bson:"e" json:"e"`
-	ObjName  string   `bson:"eobj" json:"eobj"`
+	Severity Severity            `bson:"s" json:"s"`
+	RS       string              `bson:"rs" json:"rs"`
+	Node     string              `bson:"node" json:"node"`
+	Event    string              `bson:"e" json:"e"`
+	ObjName  string              `bson:"eobj" json:"eobj"`
+	Epoch    primitive.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
+	OPID     string              `bson:"opid,omitempty" json:"opid,omitempty"`
 }
 
 // LogTimeFormat is a date-time format to be displayed in the log output
@@ -124,7 +127,7 @@ func (l *Logger) SetOut(w io.Writer) {
 	l.out = w
 }
 
-func (l *Logger) output(s Severity, event string, obj, msg string, args ...interface{}) {
+func (l *Logger) output(s Severity, event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -141,6 +144,8 @@ func (l *Logger) output(s Severity, event string, obj, msg string, args ...inter
 			Severity: s,
 			Event:    event,
 			ObjName:  obj,
+			OPID:     opid,
+			Epoch:    epoch,
 		},
 		Msg: msg,
 	}
@@ -152,19 +157,27 @@ func (l *Logger) output(s Severity, event string, obj, msg string, args ...inter
 }
 
 func (l *Logger) Printf(msg string, args ...interface{}) {
-	l.output(Info, "", "", msg, args...)
+	l.output(Info, "", "", "", primitive.Timestamp{}, msg, args...)
 }
 
-func (l *Logger) Info(event string, obj, msg string, args ...interface{}) {
-	l.output(Info, event, obj, msg, args...)
+func (l *Logger) Debug(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Debug, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Warning(event string, obj, msg string, args ...interface{}) {
-	l.output(Warning, event, obj, msg, args...)
+func (l *Logger) Info(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Info, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Error(event string, obj, msg string, args ...interface{}) {
-	l.output(Error, event, obj, msg, args...)
+func (l *Logger) Warning(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Warning, event, obj, opid, epoch, msg, args...)
+}
+
+func (l *Logger) Error(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Error, event, obj, opid, epoch, msg, args...)
+}
+
+func (l *Logger) Fatal(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+	l.output(Fatal, event, obj, opid, epoch, msg, args...)
 }
 
 func (l *Logger) Output(e *LogEntry) error {
@@ -193,29 +206,41 @@ func (l *Logger) Output(e *LogEntry) error {
 
 // Event provides logging for some event (backup, restore)
 type Event struct {
-	l   *Logger
-	typ string
-	obj string
+	l    *Logger
+	typ  string
+	obj  string
+	ep   primitive.Timestamp
+	opid string
 }
 
-func (l *Logger) NewEvent(typ, name string) *Event {
+func (l *Logger) NewEvent(typ, name, opid string, epoch primitive.Timestamp) *Event {
 	return &Event{
-		l:   l,
-		typ: typ,
-		obj: name,
+		l:    l,
+		typ:  typ,
+		obj:  name,
+		ep:   epoch,
+		opid: opid,
 	}
 }
 
+func (e *Event) Debug(msg string, args ...interface{}) {
+	e.l.Debug(e.typ, e.obj, e.opid, e.ep, msg, args...)
+}
+
 func (e *Event) Info(msg string, args ...interface{}) {
-	e.l.Info(e.typ, e.obj, msg, args...)
+	e.l.Info(e.typ, e.obj, e.opid, e.ep, msg, args...)
 }
 
 func (e *Event) Warning(msg string, args ...interface{}) {
-	e.l.Warning(e.typ, e.obj, msg, args...)
+	e.l.Warning(e.typ, e.obj, e.opid, e.ep, msg, args...)
 }
 
 func (e *Event) Error(msg string, args ...interface{}) {
-	e.l.Error(e.typ, e.obj, msg, args...)
+	e.l.Error(e.typ, e.obj, e.opid, e.ep, msg, args...)
+}
+
+func (e *Event) Fatal(msg string, args ...interface{}) {
+	e.l.Fatal(e.typ, e.obj, e.opid, e.ep, msg, args...)
 }
 
 type LogRequest struct {
@@ -281,6 +306,12 @@ func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 	}
 	if r.ObjName != "" {
 		filter = append(filter, bson.E{"eobj", r.ObjName})
+	}
+	if r.Epoch.T > 0 {
+		filter = append(filter, bson.E{"ep", r.Epoch})
+	}
+	if r.OPID != "" {
+		filter = append(filter, bson.E{"ep", r.OPID})
 	}
 	if !r.TimeMin.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})

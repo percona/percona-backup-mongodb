@@ -38,7 +38,7 @@ func restore(cn *pbm.PBM, bcpName string) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
+			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
 		}
 	}
 
@@ -81,7 +81,7 @@ func pitrestore(cn *pbm.PBM, t string) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
+			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
 		}
 	}
 
@@ -183,8 +183,8 @@ func printRestoreList(cn *pbm.PBM, size int64, full bool) {
 
 func printRestoreProgress(r pbm.RestoreMeta, pbmClient *pbm.PBM, full bool) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
-		Type:       pbm.CmdRestore,
-		BackupName: r.Name,
+		Type: pbm.CmdRestore,
+		OPID: r.OPID,
 	})
 
 	if err != nil {

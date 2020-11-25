@@ -63,6 +63,7 @@ type Restore struct {
 	pitrLastTS int64
 	oplog      *Oplog
 	log        *log.Event
+	opid       string
 }
 
 // New creates a new restore object
@@ -82,19 +83,19 @@ func (r *Restore) Close() {
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
-func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
+func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
-				r.cn.Logger().Error(string(pbm.CmdRestore), cmd.BackupName, "mark restore as failed `%v`: %v", err, ferr)
+				l.Error("mark restore as failed `%v`: %v", err, ferr)
 			}
 		}
 
 		r.Close()
 	}()
 
-	err = r.InitSnapshot(cmd)
+	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return err
 	}
@@ -111,24 +112,21 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd) (err error) {
 
 	return r.Done()
 }
-func (r *Restore) InitSnapshot(cmd pbm.RestoreCmd) error {
-	return r.init(cmd.Name, r.cn.Logger().NewEvent(string(pbm.CmdRestore), cmd.BackupName))
-}
 
 // PITR do Point-in-Time Recovery
-func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
+func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
 		if err != nil {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
-				r.cn.Logger().Error(string(pbm.CmdRestore), time.Unix(cmd.TS, 0).UTC().Format(time.RFC3339), "mark restore as failed `%v`: %v", err, ferr)
+				l.Error("mark restore as failed `%v`: %v", err, ferr)
 			}
 		}
 
 		r.Close()
 	}()
 
-	err = r.InitPITR(cmd)
+	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return err
 	}
@@ -151,11 +149,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd) (err error) {
 	return r.Done()
 }
 
-func (r *Restore) InitPITR(cmd pbm.PITRestoreCmd) error {
-	return r.init(cmd.Name, r.cn.Logger().NewEvent(string(pbm.CmdPITRestore), time.Unix(r.pitrLastTS, 0).UTC().Format(time.RFC3339)))
-}
-
-func (r *Restore) init(name string, l *log.Event) (err error) {
+func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	r.log = l
 
 	r.nodeInfo, err = r.node.GetInfo()
@@ -168,7 +162,9 @@ func (r *Restore) init(name string, l *log.Event) (err error) {
 
 	r.name = name
 
+	r.opid = opid.String()
 	meta := &pbm.RestoreMeta{
+		OPID:     r.opid,
 		Name:     r.name,
 		StartTS:  time.Now().Unix(),
 		Status:   pbm.StatusStarting,
@@ -188,7 +184,7 @@ func (r *Restore) init(name string, l *log.Event) (err error) {
 				case <-tk.C:
 					err := r.cn.RestoreHB(r.name)
 					if err != nil {
-						r.cn.Logger().Error(string(pbm.CmdRestore), name, "send heartbeat: %v", err)
+						l.Error("send heartbeat: %v", err)
 					}
 				case <-r.stopHB:
 					return
@@ -509,24 +505,23 @@ func (r *Restore) RunSnapshot() (err error) {
 func (r *Restore) RestoreChunks() error {
 	r.log.Info("replay chunks")
 
-	var upto int64
 	var lts primitive.Timestamp
 	var err error
 	for i, chnk := range r.pitrChunks {
 		if i == len(r.pitrChunks)-1 {
-			upto = r.pitrLastTS
+			r.oplog.SetEdgeUnix(r.pitrLastTS)
 		}
-		lts, err = r.replyChunk(chnk.FName, chnk.Compression, upto)
+		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
 		if err != nil {
 			return errors.Errorf("replay chunk %v.%v: %v", chnk.StartTS.T, chnk.EndTS.T, err)
 		}
 	}
 
-	r.log.Info("oplog replay finished on %v <%d>", lts, upto)
+	r.log.Info("oplog replay finished on %v <%d>", lts, r.pitrLastTS)
 	return nil
 }
 
-func (r *Restore) replyChunk(file string, c pbm.CompressionType, upto int64) (lts primitive.Timestamp, err error) {
+func (r *Restore) replyChunk(file string, c pbm.CompressionType) (lts primitive.Timestamp, err error) {
 	or, err := r.stg.SourceReader(file)
 	if err != nil {
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
@@ -539,7 +534,6 @@ func (r *Restore) replyChunk(file string, c pbm.CompressionType, upto int64) (lt
 	}
 	defer oplogReader.Close()
 
-	r.oplog.SetEdgeUnix(upto)
 	lts, err = r.oplog.Apply(oplogReader)
 
 	return lts, errors.Wrap(err, "apply oplog for chunk")
@@ -713,9 +707,9 @@ func (r *Restore) converged(shards []pbm.Shard, status pbm.Status) (bool, error)
 			if shard.Name == sh.ID {
 				// check if node alive
 				lock, err := r.cn.GetLockData(&pbm.LockHeader{
-					Type:       pbm.CmdRestore,
-					BackupName: r.name,
-					Replset:    shard.Name,
+					Type:    pbm.CmdRestore,
+					OPID:    r.opid,
+					Replset: shard.Name,
 				})
 
 				// nodes are cleaning its locks moving to the done status

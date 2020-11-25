@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -17,10 +16,13 @@ const StaleFrameSec uint32 = 30
 
 // LockHeader describes the lock. This data will be serialased into the mongo document.
 type LockHeader struct {
-	Type       Command `bson:"type,omitempty"`
-	Replset    string  `bson:"replset,omitempty"`
-	Node       string  `bson:"node,omitempty"`
-	BackupName string  `bson:"backup,omitempty"`
+	Type    Command `bson:"type,omitempty"`
+	Replset string  `bson:"replset,omitempty"`
+	Node    string  `bson:"node,omitempty"`
+	OPID    string  `bson:"opid,omitempty"`
+	// should be a pointer so mongo find with empty epoch would work
+	// otherwise it always set it at least to "epoch":{"$timestamp":{"t":0,"i":0}}
+	Epoch *primitive.Timestamp `bson:"epoch,omitempty"`
 }
 
 type LockData struct {
@@ -68,7 +70,7 @@ type ErrConcurrentOp struct {
 }
 
 func (e ErrConcurrentOp) Error() string {
-	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.BackupName)
+	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.OPID)
 }
 
 // ErrWasStaleLock - the lock was already got but the operation seems to be staled (no hb from the node)
@@ -77,7 +79,7 @@ type ErrWasStaleLock struct {
 }
 
 func (e ErrWasStaleLock) Error() string {
-	return fmt.Sprintf("was stale lock: %s '%s'", e.Lock.Type, e.Lock.BackupName)
+	return fmt.Sprintf("was stale lock: %s '%s'", e.Lock.Type, e.Lock.OPID)
 }
 
 // Acquire tries to acquire the lock.
@@ -94,6 +96,11 @@ func (l *Lock) Acquire() (bool, error) {
 	}
 
 	if got {
+		// log the operation. duplicate means error
+		err := l.log()
+		if err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 
@@ -110,7 +117,7 @@ func (l *Lock) Acquire() (bool, error) {
 
 	// peer is alive
 	if peer.Heartbeat.T+l.staleSec >= ts.T {
-		if l.BackupName != peer.BackupName {
+		if l.OPID != peer.OPID {
 			return false, ErrConcurrentOp{Lock: peer.LockHeader}
 		}
 		return false, nil
@@ -124,8 +131,37 @@ func (l *Lock) Acquire() (bool, error) {
 	return false, ErrWasStaleLock{Lock: peer.LockHeader}
 }
 
-func (p *PBM) MarkBcpStale(bcpName string) error {
-	bcp, err := p.GetBackupMeta(bcpName)
+// ErrDuplicateOp means the operation with the same ID
+// alredy had been running
+type ErrDuplicateOp struct {
+	Lock LockHeader
+}
+
+func (e ErrDuplicateOp) Error() string {
+	return fmt.Sprintf("duplicate operation: %s [%s]", e.Lock.OPID, e.Lock.Type)
+}
+
+func (l *Lock) log() error {
+	// PITR slicing technically speaking is not an OP but
+	// long standing process. It souldn't be logged. Moreover
+	// having no opid it would block all subsequent PITR events.
+	if l.LockHeader.Type == CmdPITR {
+		return nil
+	}
+
+	_, err := l.p.Conn.Database(DB).Collection(PBMOpLogCollection).InsertOne(l.p.Context(), l.LockHeader)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "E11000 duplicate key error") {
+		return ErrDuplicateOp{l.LockHeader}
+	}
+
+	return err
+}
+
+func (p *PBM) MarkBcpStale(opid string) error {
+	bcp, err := p.GetBackupByOPID(opid)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
@@ -135,11 +171,11 @@ func (p *PBM) MarkBcpStale(bcpName string) error {
 		return nil
 	}
 
-	return p.ChangeBackupState(bcpName, StatusError, "some of pbm-agents were lost during the backup")
+	return p.ChangeBackupStateOPID(opid, StatusError, "some of pbm-agents were lost during the backup")
 }
 
-func (p *PBM) MarkRestoreStale(name string) error {
-	r, err := p.GetRestoreMeta(name)
+func (p *PBM) MarkRestoreStale(opid string) error {
+	r, err := p.GetRestoreMetaByOPID(opid)
 	if err != nil {
 		return errors.Wrap(err, "get retore meta")
 	}
@@ -149,7 +185,7 @@ func (p *PBM) MarkRestoreStale(name string) error {
 		return nil
 	}
 
-	return p.ChangeRestoreState(name, StatusError, "some of pbm-agents were lost during the restore")
+	return p.ChangeRestoreStateOPID(opid, StatusError, "some of pbm-agents were lost during the restore")
 }
 
 // Release the lock
@@ -195,7 +231,7 @@ func (l *Lock) hb() {
 			case <-tk.C:
 				err := l.beat()
 				if err != nil {
-					log.Println("[ERROR] lock heartbeat:", err)
+					l.p.log.Error(string(l.Type), "", l.OPID, *l.Epoch, "send lock heartbeat: %v", err)
 				}
 			case <-ctx.Done():
 				return
