@@ -1,19 +1,31 @@
 package pbm
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/version"
 )
+
+const StorInitFile = ".pbm.init"
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
 func (p *PBM) ResyncStorage(l *log.Event) error {
 	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
+	}
+
+	err = stg.CheckFile(StorInitFile)
+	if err != nil {
+		l.Info("storInitFile: %v | %#v", err, err)
+
+		err := stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+		return errors.Wrap(err, "init storage")
 	}
 
 	bcps, err := stg.Files(MetadataFileSuffix)

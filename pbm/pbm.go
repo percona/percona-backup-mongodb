@@ -50,8 +50,11 @@ const (
 	//PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
 	// StatusCollection stores pbm status
-	StatusCollection   = "pbmStatus"
+	StatusCollection = "pbmStatus"
+	// PBMOpLogCollection contains log of aquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
+	// AgentsRegCollection is a agents registry with its status/health checks
+	AgentsRegCollection = "pbmAgents"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
