@@ -66,7 +66,10 @@ var (
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
-	logsOutF   = logsCmd.Flag("out", "Event in format backup[/2020-10-06T11:45:14Z]").Short('o').Default("text").Enum("json", "text")
+	logsOutF   = logsCmd.Flag("out", "Output format").Short('o').Default("text").Enum("json", "text")
+
+	statusCmd  = pbmCmd.Command("status", "Show PBM status")
+	statusOutF = statusCmd.Flag("out", "Output format").Short('o').Default("text").Hidden().Enum("json", "text")
 
 	client *mongo.Client
 )
@@ -220,6 +223,13 @@ func main() {
 		deleteBackup(pbmClient)
 	case logsCmd.FullCommand():
 		logs(pbmClient)
+	case statusCmd.FullCommand():
+		frmt := formatText
+		if *statusOutF == "json" {
+			frmt = formatJSON
+		}
+
+		status(pbmClient, frmt)
 	}
 }
 
@@ -308,6 +318,9 @@ func deleteBackup(pbmClient *pbm.PBM) {
 	if err == errTout {
 		fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
 	} else {
+		time.Sleep(time.Second)
+		fmt.Print(".")
+		time.Sleep(time.Second)
 		fmt.Println("[done]")
 	}
 	printBackupList(pbmClient, 0)

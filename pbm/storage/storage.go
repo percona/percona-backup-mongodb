@@ -8,11 +8,15 @@ import (
 // ErrNotExist is an error for file isn't exists on storage
 var ErrNotExist = errors.New("no such file")
 
+type FileInfo struct {
+	Size int64
+}
+
 type Storage interface {
 	Save(name string, data io.Reader, size int) error
 	SourceReader(name string) (io.ReadCloser, error)
-	// CheckFile checks if file/object exists and isn't empty
-	CheckFile(name string) error
+	// FileStat returns file info. It returns error if file is empty or not exists
+	FileStat(name string) (FileInfo, error)
 	List(prefix string) ([]string, error)
 	Files(suffix string) ([][]byte, error)
 	// Delete deletes given file.

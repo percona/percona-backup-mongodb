@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -20,11 +21,11 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	err = stg.CheckFile(StorInitFile)
+	_, err = stg.FileStat(StorInitFile)
+	if errors.Is(err, storage.ErrNotExist) {
+		err = stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+	}
 	if err != nil {
-		l.Info("storInitFile: %v | %#v", err, err)
-
-		err := stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
 		return errors.Wrap(err, "init storage")
 	}
 

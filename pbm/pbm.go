@@ -53,8 +53,8 @@ const (
 	StatusCollection = "pbmStatus"
 	// PBMOpLogCollection contains log of aquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
-	// AgentsRegCollection is a agents registry with its status/health checks
-	AgentsRegCollection = "pbmAgents"
+	// AgentsStatusCollection is a agents registry with its status/health checks
+	AgentsStatusCollection = "pbmAgents"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
@@ -73,6 +73,27 @@ const (
 	CmdPITRestore       Command = "pitrestore"
 	CmdDeleteBackup     Command = "delete"
 )
+
+func (c Command) String() string {
+	switch c {
+	case CmdBackup:
+		return "Snapshot backup"
+	case CmdRestore:
+		return "Snapshot restore"
+	case CmdCancelBackup:
+		return "Backup cancelation"
+	case CmdResyncBackupList:
+		return "Resync storage"
+	case CmdPITR:
+		return "PITR incremental backup"
+	case CmdPITRestore:
+		return "PITR restore"
+	case CmdDeleteBackup:
+		return "Delete"
+	default:
+		return "Undefined"
+	}
+}
 
 type OPID primitive.ObjectID
 
@@ -175,11 +196,14 @@ const (
 	CompressionTypeS2     CompressionType = "s2"
 )
 
-const PITRcheckPeriod = time.Second * 15
+const (
+	PITRcheckRange       = time.Second * 15
+	AgentsStatCheckRange = time.Second * 5
+)
 
 var (
 	WaitActionStart = time.Second * 15
-	WaitBackupStart = WaitActionStart + PITRcheckPeriod*12/10
+	WaitBackupStart = WaitActionStart + PITRcheckRange*12/10
 )
 
 // OpLog represents log of started operation.
@@ -787,4 +811,100 @@ func FileCompression(ext string) CompressionType {
 	case "snappy":
 		return CompressionTypeS2
 	}
+}
+
+type AgentStat struct {
+	Node          string              `bson:"n"`
+	RS            string              `bson:"rs"`
+	Ver           string              `bson:"v"`
+	PBMStatus     SubsysStatus        `bson:"pbms"`
+	NodeStatus    SubsysStatus        `bson:"nodes"`
+	StorageStatus SubsysStatus        `bson:"stors"`
+	Heartbeat     primitive.Timestamp `bson:"hb"`
+}
+
+type SubsysStatus struct {
+	OK  bool   `bson:"ok"`
+	Err string `bson:"e"`
+}
+
+func (s *AgentStat) OK() (ok bool, errs []string) {
+	ok = true
+	if !s.PBMStatus.OK {
+		ok = false
+		errs = append(errs, fmt.Sprintf("PBM connection: %s", s.PBMStatus.Err))
+	}
+	if !s.NodeStatus.OK {
+		ok = false
+		errs = append(errs, fmt.Sprintf("node connection: %s", s.NodeStatus.Err))
+	}
+	if !s.StorageStatus.OK {
+		ok = false
+		errs = append(errs, fmt.Sprintf("storage: %s", s.StorageStatus.Err))
+	}
+
+	return ok, errs
+}
+
+func (p *PBM) SetAgentStatus(stat AgentStat) error {
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+	stat.Heartbeat = ct
+
+	_, err = p.Conn.Database(DB).Collection(AgentsStatusCollection).ReplaceOne(
+		p.ctx,
+		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
+		stat,
+		options.Replace().SetUpsert(true),
+	)
+	return errors.Wrap(err, "write into db")
+}
+
+func (p *PBM) RmAgentStatus(stat AgentStat) error {
+	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteOne(
+		p.ctx,
+		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
+	)
+
+	return err
+}
+
+// GetAgentStatus returns agent status by given node and rs
+// it's up to user how to handle ErrNoDocuments
+func (p *PBM) GetAgentStatus(rs, node string) (s AgentStat, err error) {
+	res := p.Conn.Database(DB).Collection(AgentsStatusCollection).FindOne(
+		p.ctx,
+		bson.D{{"n", node}, {"rs", rs}},
+	)
+	if res.Err() != nil {
+		return s, errors.Wrap(res.Err(), "query mongo")
+	}
+
+	err = res.Decode(&s)
+	return s, errors.Wrap(err, "decode")
+}
+
+// AgentStatusGC cleans up stale agent statuses
+func (p *PBM) AgentStatusGC() error {
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+	// 30 secs is the connection time out for mongo. So if there are some connection issues the agent checker
+	// may stuck for 30 sec on ping (trying to connect), it's HB became stale and it would be collected.
+	// Which would lead to the false clamin "not found" in the status output. So stale range should at least 30 sec
+	// (+5 just in case).
+	stalesec := AgentsStatCheckRange.Seconds() * 3
+	if stalesec < 35 {
+		stalesec = 35
+	}
+	ct.T -= uint32(stalesec)
+	_, err = p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteMany(
+		p.ctx,
+		bson.M{"hb": bson.M{"$lt": ct}},
+	)
+
+	return errors.Wrap(err, "delete")
 }
