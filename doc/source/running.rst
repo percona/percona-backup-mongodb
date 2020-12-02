@@ -21,14 +21,13 @@ Initial setup
 
 Start the |pbm-agent| processes
 --------------------------------------------------------------------------------
-After installing |pbm-agent| on the all the servers that have mongod nodes make
-sure one instance of it is started for each mongod node.
+After installing |pbm-agent| on all the servers that run ``mongod`` nodes, make
+sure one instance of it is started for each ``mongod`` node. This also applies if you deployed several ``mongod`` nodes on the same server.
 
-E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
-servers as the first shard's mongod nodes (listen port 27018, replica set name
-"sh1rs"). In this server there should be two 
-|pbm-agent| processes, one connected to the shard
-(e.g. "mongodb://username:password@localhost:27018/") and one to the configsvr
+For example, your configsvr nodes (listen port 27019) run on the same servers as the first shard's mongod nodes (listen port 27018, replica set name
+"sh1rs"). Then you should start two 
+|pbm-agent| processes on these servers, one process is connected to the shard
+(e.g. "mongodb://username:password@localhost:27018/") and another one to the configsvr
 node (e.g. "mongodb://username:password@localhost:27019/").
 
 It is best to use the packaged service scripts to run |pbm-agent|. After
@@ -178,9 +177,10 @@ restore.
 
    Consider these important notes on restore operation:
 
-   1. |pbm| is designed to be a full-database restore tool. As of version <=1.x it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore|if you want to guarantee that the post-restore database only includes collections that are in the backup.
-   2. Whilst the restore is running, prevents clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data. 
-   3. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
+   1. |pbm| is designed to be a full-database restore tool. For versions earlier than 1.x, it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does.       
+      As of versions 1.x and later, |pbm| replicates ``mongodump``'s behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore| if you want to guarantee that the post-restore database only includes collections that are in the backup.
+   3. Whilst the restore is running, prevents clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data. 
+   4. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
    
 .. code-block:: bash
 
@@ -241,7 +241,7 @@ Canceling a backup
 --------------------------------------------------------------------------------
 
 You can cancel a running backup if, for example, you want to do
-another maintenance and don't want to wait for the large backup to finish first.
+another maintenance of a server and don't want to wait for the large backup to finish first.
 
 To cancel the backup, use the |pbm-cancel-backup| command.
 
