@@ -27,8 +27,8 @@ sure one instance of it is started for each ``mongod`` node. This also applies i
 For example, your configsvr nodes (listen port 27019) run on the same servers as the first shard's mongod nodes (listen port 27018, replica set name
 "sh1rs"). Then you should start two 
 |pbm-agent| processes on these servers, one process is connected to the shard
-(e.g. "mongodb://username:password@localhost:27018/") and another one to the configsvr
-node (e.g. "mongodb://username:password@localhost:27019/").
+("mongodb://username:password@localhost:27018/") and another one to the configsvr
+node ("mongodb://username:password@localhost:27019/").
 
 It is best to use the packaged service scripts to run |pbm-agent|. After
 adding the database connection configuration for them (see
@@ -40,7 +40,7 @@ service as below:
    $ sudo systemctl start pbm-agent
    $ sudo systemctl status pbm-agent
 
-For reference an example of starting pbm-agent manually is shown below. The
+For reference an example of starting |pbm-agent| manually is shown below. The
 output is redirected to a file and the process is backgrounded. Alternatively
 you can run it on a shell terminal temporarily if you want to observe and/or
 debug the startup from the log messages.
@@ -290,8 +290,8 @@ To delete backups that were created before the specified time, pass the ``--olde
 command. Specify the timestamp as an argument
 for the |pbm-delete-backup| command in the following format:
 
-* ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or
-* ``%Y-%M-%D`` (e.g. 2020-04-20).
+* ``%Y-%M-%DT%H:%M:%S`` (for example, 2020-04-20T13:13:20) or
+* ``%Y-%M-%D`` (2020-04-20).
 
 .. include:: .res/code-block/bash/pbm-delete-backup-older-than-timestamp.txt
 

@@ -28,7 +28,7 @@ Architecture
 and config server replica set nodes in a sharded cluster.
 
 There is no |pbm-agent| config file. Some configuration is required for the
-service script (e.g. ``systemd`` unit file) that will run it though. See
+service script like ``systemd`` unit file that will run it though. See
 :ref:`pbm.installation.service_init_scripts`.
 
 The backup and restore operations are triggered when the |pbm-agent| observes
