@@ -24,7 +24,7 @@
      A collection is the way data is organized in MongoDB. It is analogous to a table in relational databases.
 
   Consistency
-     In the context of backup and restore, consistency means that the data restored will be consistent in a given point in time. Partial or incomplete writes to disk of atomic operations (e.g. to table and index data structures separately) won't be served to the client after the restore. The same applies to multi-document transactions, that started but didn't complete by the time the backup was finished.
+     In the context of backup and restore, consistency means that the data restored will be consistent in a given point in time. Partial or incomplete writes to disk of atomic operations (for example, to table and index data structures separately) won't be served to the client after the restore. The same applies to multi-document transactions, that started but didn't complete by the time the backup was finished.
 
   Durability
      Once a transaction is committed, it will remain so.
