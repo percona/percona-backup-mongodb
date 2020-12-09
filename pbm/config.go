@@ -52,8 +52,9 @@ type StorageConf struct {
 
 // RestoreConf is config options for the restore
 type RestoreConf struct {
-	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
-	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	BatchSize            int  `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
+	NumInsertionWorkers  int  `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	ConvertLegacyIndexes bool `bson:"convertLegacyIndexes" json:"convertLegacyIndexes" yaml:"convertLegacyIndexes"`
 }
 
 type confMap map[string]reflect.Kind

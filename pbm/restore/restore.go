@@ -434,6 +434,7 @@ func (r *Restore) RunSnapshot() (err error) {
 			TempRolesColl:            "temproles",
 			TempUsersColl:            "tempusers",
 			WriteConcern:             "majority",
+			ConvertLegacyIndexes:     cfg.Restore.ConvertLegacyIndexes,
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromRestore,
