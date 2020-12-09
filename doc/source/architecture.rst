@@ -52,10 +52,11 @@ put in the system ``admin`` db of the config server replica set to keep them
 cleanly separated from user db namespaces. (In a non-sharded replica set the
 ``admin`` db of the replica set itself is used.)
 
+- *admin.pbmBackups* (Log / status of each backup)
 - *admin.pbmConfig*
 - *admin.pbmCmd* (Used to define and trigger operations)
 - *admin.pbmLock* (|pbm-agent| synchronization-lock structure)
-- *admin.pbmBackup* (Log / status of each backup)
+
 
 The |pbm.app| command line tool creates these collections as needed. You do not
 have to maintain these collections, but you should not drop them unnecessarily

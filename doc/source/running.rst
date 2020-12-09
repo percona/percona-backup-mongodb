@@ -31,16 +31,18 @@ Starting a backup
 
 .. code-block:: bash
 
-   $ pbm backup
+   $ pbm backup 
 
-.. rubric:: Starting a backup with compression
+By default, |PBM| uses ``s2`` compression method when making a backup. 
+You can start a backup with a different compression method by passing the ``--compression`` flag to the :command:`pbm backup` command. 
+
+For example, to start a backup with gzip compression, use the following command
 
 .. code-block:: bash
 
-   $ pbm backup --compression=s2 
+   $ pbm backup --compression=gzip 
 
-``s2`` is the default compression type. Other supported compression types are: ``gzip``,
-``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
+Supported compression types are: ``gzip``, ``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
 backup.
 
 .. rubric:: Backup in sharded clusters 

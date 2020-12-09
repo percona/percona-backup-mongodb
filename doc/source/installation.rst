@@ -60,7 +60,6 @@ Installing |pbm| Using ``yum``
 
 .. code-block:: bash
 
-   $ sudo yum update
    $ sudo yum install percona-backup-mongodb
 
 Building from source code
@@ -70,6 +69,7 @@ Building the project requires:
 
 - Go 1.11 or above
 - make
+- git
 
 .. seealso::
 
@@ -82,7 +82,7 @@ To build the project (from the project dir):
 
    $ go get -d github.com/percona/percona-backup-mongodb
    $ cd "$(go env GOPATH)/src/github.com/percona/percona-backup-mongodb"
-   $ make
+   $ make build
 
 After :program:`make` completes, you can find |pbm.app| and |pbm-agent| binaries
 in the :dir:`./bin` directory:
