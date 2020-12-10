@@ -410,6 +410,15 @@ func (r *Restore) RunSnapshot() (err error) {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
 
+	splitFunc := func(c rune) bool {
+		return c == ','
+	}
+	excludeNamespaces := strings.FieldsFunc(cfg.Restore.ExcludeNamespaces, splitFunc)
+	for i := range excludeNamespaces {
+		excludeNamespaces[i] = strings.TrimSpace(excludeNamespaces[i])
+	}
+	excludeNs := append(excludeFromRestore, excludeNamespaces...)
+
 	defer func() {
 		err := r.node.DropTMPcoll()
 		if err != nil {
@@ -436,7 +445,7 @@ func (r *Restore) RunSnapshot() (err error) {
 			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
-			NSExclude: excludeFromRestore,
+			NSExclude: excludeNs,
 			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
 			NSTo:      []string{pbm.DB + `.` + pbm.TmpUsersCollection, pbm.DB + `.` + pbm.TmpRolesCollection},
 		},
