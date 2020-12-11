@@ -211,6 +211,15 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 		// if use parent ctx, upload will be canceled on the "done" signal
 		_, err = backup.Upload(context.Background(), oplog, to, compression, fname, -1)
 		if err != nil {
+			// PITR chunks have no metadata to indicate any failed state and if something went
+			// wrong during the data read we may end up with an already created file. Although
+			// the failed range won't be saved in db as the available for restore. It would get
+			// in there after the storage resync. see: https://jira.percona.com/browse/PBM-602
+			l.Debug("remove %s due to upload errors", fname)
+			derr := to.Delete(fname)
+			if derr != nil {
+				l.Error("remove %s: %v", fname, derr)
+			}
 			return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
 		}
 

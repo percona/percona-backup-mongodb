@@ -403,11 +403,13 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 	case <-saveDone:
 	}
 
+	r.Close()
+
 	if !err.nil() {
 		return 0, err
 	}
 
-	return n, r.Close()
+	return n, nil
 }
 
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
