@@ -130,7 +130,6 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	tstart := time.Now()
 	err = backup.New(ctx, a.pbm, a.node).Run(bcp, opid, l)
 	a.unsetBcp()
 	if err != nil {
@@ -156,21 +155,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}
 
-	// In the case of fast backup (small db) we have to wait before releasing the lock.
-	// Otherwise, since the primary node waits for `WaitBackupStart*0.9` before trying to acquire the lock
-	// it might happen that the backup will be made twice:
-	//
-	// secondary1 >---------*!lock(fail - acuired by s1)---------------------------
-	// secondary2 >------*lock====backup====*unlock--------------------------------
-	// primary    >--------*wait--------------------*lock====backup====*unlock-----
-	//
-	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
-	// TODO: we cannot rely on the nodes wall clock.
-	// TODO: ? pbmBackups should have unique index by name ?
-	needToWait := pbm.WaitBackupStart - time.Since(tstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
-	}
+	l.Debug("releasing lock")
 	err = lock.Release()
 	if err != nil {
 		l.Error("unable to release backup lock %v: %v", lock, err)
@@ -211,6 +196,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	defer func() {
+		l.Debug("releasing lock")
 		err := lock.Release()
 		if err != nil {
 			l.Error("release lock: %v", err)

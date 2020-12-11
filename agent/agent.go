@@ -142,7 +142,6 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}()
 
-	tsstart := time.Now()
 	switch {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
@@ -165,12 +164,6 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	default:
 		l.Error("malformed command received in Delete() of backup: %v", d)
 		return
-	}
-
-	// TODO: timers logic should be replaced with the opID
-	needToWait := waitAtLeast - time.Since(tsstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
 	}
 
 	l.Info("done")
@@ -210,7 +203,6 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	tstart := time.Now()
 	l.Info("started")
 	err = a.pbm.ResyncStorage(l)
 	if err != nil {
@@ -229,10 +221,6 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}
 
-	needToWait := time.Second*1 - time.Since(tstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
-	}
 	err = lock.Release()
 	if err != nil {
 		l.Error("reslase lock %v: %v", lock, err)
@@ -248,8 +236,8 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 	}
 
 	switch err.(type) {
-	case pbm.ErrConcurrentOp:
-		a.log.Printf("acquiring lock: %v", err)
+	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
+		a.log.Info("", "", l.OPID, *l.Epoch, "get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock
