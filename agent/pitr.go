@@ -155,6 +155,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "acquiring lock")
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		return nil
 	}
 
@@ -219,6 +220,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		l.Error("unbale to run the restore while another backup or restore process running")
 		return
 	}
