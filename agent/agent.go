@@ -132,7 +132,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
-		l.Info("scheduled to another node")
+		l.Debug("skip: lock not acquired")
 		return
 	}
 	defer func() {
@@ -199,7 +199,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
-		l.Info("operation has been scheduled on another replset node")
+		l.Debug("lock not acquired")
 		return
 	}
 
@@ -237,7 +237,7 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 
 	switch err.(type) {
 	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
-		a.log.Info("", "", l.OPID, *l.Epoch, "get lock: %v", err)
+		a.log.Debug("", "", l.OPID, *l.Epoch, "get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock

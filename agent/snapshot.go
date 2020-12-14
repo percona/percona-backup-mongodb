@@ -120,7 +120,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
-		l.Info("backup has been scheduled on another replset node")
+		l.Debug("skip: lock not acquired")
 		return
 	}
 
@@ -191,6 +191,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		l.Error("unbale to run the restore while another operation running")
 		return
 	}

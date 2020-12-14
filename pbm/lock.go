@@ -99,6 +99,10 @@ func (l *Lock) Acquire() (bool, error) {
 		// log the operation. duplicate means error
 		err := l.log()
 		if err != nil {
+			rerr := l.Release()
+			if rerr != nil {
+				err = errors.Errorf("%v. Also failed to release the lock: %v", err, rerr)
+			}
 			return false, err
 		}
 		return true, nil
