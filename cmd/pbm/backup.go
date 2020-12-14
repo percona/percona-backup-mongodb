@@ -14,7 +14,7 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
-func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
+func backup(cn *pbm.PBM, bcpName, compression string, bcpTag map[string]string) (string, error) {
 	locks, err := cn.GetLocks(&pbm.LockHeader{})
 	if err != nil {
 		log.Println("get locks", err)
@@ -45,6 +45,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		Cmd: pbm.CmdBackup,
 		Backup: pbm.BackupCmd{
 			Name:        bcpName,
+			Tag:         bcpTag,
 			Compression: pbm.CompressionType(compression),
 		},
 	})

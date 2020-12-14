@@ -152,6 +152,7 @@ func (c Cmd) String() string {
 type BackupCmd struct {
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
+    Tag         map[string]string `bson:"tag,omitempty"`
 }
 
 func (b BackupCmd) String() string {

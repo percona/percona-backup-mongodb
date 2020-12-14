@@ -55,6 +55,29 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+    // Skip check Tags for ConfigSvr
+    if !nodeInfo.IsLeader() && len(nodeInfo.Tags) > 0 && len(bcp.Tag) == 1 {
+         l.Info("Finding Tags")
+         tags := []string{}
+         for k, v := range bcp.Tag {
+             tags = append(tags, k)
+             tags = append(tags, v)
+         }
+         var tagFound bool = false
+         for k, v := range nodeInfo.Tags {
+            if tags[0] == k && tags[1] == v  {
+                l.Info("Tag FOUND")
+                tagFound = true
+                break
+            }
+         }
+
+         if !tagFound {
+            l.Error("Tag specified NOT FOUND [%s=%s]", tags[0], tags[1])
+            return
+         }
+    }
+
 	// In case there are some leftovers from the restore.
 	//
 	// There is no way to exclude some collections on mongodump stage
