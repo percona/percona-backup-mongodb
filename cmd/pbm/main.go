@@ -33,7 +33,7 @@ var (
 	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
-	bcpAdminTag    = backupCmd.Flag("tagname", "Set Tag for preferred Secondary <name=value>").StringMap()
+    bcpTags        = backupCmd.Flag("tag", "Tags for preferred secondary nodes <name=value>").StringMap()
     bcpCompression = backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
 			Default(string(pbm.CompressionTypeS2)).
 			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
@@ -180,7 +180,7 @@ func main() {
 	case backupCmd.FullCommand():
 		bcpName := time.Now().UTC().Format(time.RFC3339)
 		fmt.Printf("Starting backup '%s'", bcpName)
-		storeString, err := backup(pbmClient, bcpName, *bcpCompression, *bcpAdminTag)
+		storeString, err := backup(pbmClient, bcpName, *bcpCompression, *bcpTags)
 		if err != nil {
 			log.Fatalln("\nError starting backup:", err)
 			return

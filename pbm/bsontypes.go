@@ -12,7 +12,7 @@ type OpTime struct {
 }
 
 type Tags struct {
-    Name map[string] string `bson:"omitempty" json:"omitempty"`
+	Name map[string]string `bson:"omitempty" json:"omitempty"`
 }
 
 // MongoLastWrite represents the last write to the MongoDB server
@@ -37,7 +37,7 @@ type NodeInfo struct {
 	OK                           int                  `bson:"ok"`
 	SetName                      string               `bson:"setName,omitempty"`
 	Primary                      string               `bson:"primary,omitempty"`
-    Tags                         map[string]string    `bson:"tags,omitempty"`
+	Tags                         map[string]string    `bson:"tags,omitempty"`
 	SetVersion                   int32                `bson:"setVersion,omitempty"`
 	IsPrimary                    bool                 `bson:"ismaster"`
 	Secondary                    bool                 `bson:"secondary,omitempty"`
