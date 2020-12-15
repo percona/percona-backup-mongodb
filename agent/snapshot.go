@@ -73,7 +73,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
          }
 
          if !tagFound {
-            l.info("Tag specified NOT FOUND [%s=%s]", tags[0], tags[1])
+            l.Info("Tag specified NOT FOUND [%s=%s]", tags[0], tags[1])
             return
          }
     }
