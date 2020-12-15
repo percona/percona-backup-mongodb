@@ -56,8 +56,9 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
     // Skip check Tags for ConfigSvr
-    if !nodeInfo.IsLeader() && len(nodeInfo.Tags) > 0 && len(bcp.Tag) == 1 {
-         l.Info("Finding Tags")
+    //if !nodeInfo.IsLeader() && len(nodeInfo.Tags) > 0 && len(bcp.Tag) == 1 {
+    if nodeInfo.ConfigSvr != 2 && len(nodeInfo.Tags) > 0 && len(bcp.Tag) == 1 {
+         l.Debug("Finding Tags")
          tags := []string{}
          for k, v := range bcp.Tag {
              tags = append(tags, k)
