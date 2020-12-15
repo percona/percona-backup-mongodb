@@ -72,12 +72,13 @@ cleanly separated from user db namespaces. (In a non-sharded replica set the
 - *admin.pbmCmd* (Used to define and trigger operations)
 - *admin.pbmLock* (|pbm-agent| synchronization-lock structure)
 - *admin.pbmBackup* (Log / status of each backup)
+- *admin.pbmLog* (Log information from all ``pbm-agents`` in the MongoDB environment. Available in |PBM| as of version 1.4.0)
 
 The |pbm.app| command line tool creates these collections as needed. You do not
 have to maintain these collections, but you should not drop them unnecessarily
 either. Dropping them during a backup will cause an abort of the backup.
 
-Filling the config collection is a prerequisite to using PBM for executing
+Filling the config collection is a prerequisite to using |PBM| for executing
 backups or restores. (See config page later.)
  
 .. _pbm.architecture.remote_storage:
