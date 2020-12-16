@@ -100,7 +100,7 @@ func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*p
 		//  would be ok. So no reason to complicate code to avoid that.
 		if lk != nil && l.OPID != lk.OPID {
 			if err != nil {
-				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]",
+				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. This conflict may naturally resolve after 10 seconds",
 					l.Replset, l.Node, l.Type, l.OPID,
 					lk.Replset, lk.Node, lk.Type, lk.OPID,
 				)
