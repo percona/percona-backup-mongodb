@@ -285,10 +285,10 @@ func (s *S3) List(prefix string) ([]string, error) {
 	return files, nil
 }
 
-func (s *S3) CheckFile(name string) error {
+func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	s3s, err := s.s3session()
 	if err != nil {
-		return errors.Wrap(err, "AWS session")
+		return inf, errors.Wrap(err, "AWS session")
 	}
 
 	h, err := s3s.HeadObject(&s3.HeadObjectInput{
@@ -296,17 +296,23 @@ func (s *S3) CheckFile(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		return errors.Wrap(err, "get S3 object header")
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
+			return inf, storage.ErrNotExist
+		}
+
+		return inf, errors.Wrap(err, "get S3 object header")
 	}
 
-	if aws.Int64Value(h.ContentLength) == 0 {
-		return errors.New("file empty")
+	inf.Size = aws.Int64Value(h.ContentLength)
+
+	if inf.Size == 0 {
+		return inf, errors.New("file empty")
 	}
 	if aws.BoolValue(h.DeleteMarker) {
-		return errors.New("file has delete marker")
+		return inf, errors.New("file has delete marker")
 	}
 
-	return nil
+	return inf, nil
 }
 
 type (

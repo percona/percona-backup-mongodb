@@ -3,6 +3,8 @@ package blackhole
 import (
 	"io"
 	"io/ioutil"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type Blackhole struct{}
@@ -16,10 +18,10 @@ func (*Blackhole) Save(_ string, data io.Reader, _ int) error {
 	return err
 }
 
-func (*Blackhole) Files(_ string) ([][]byte, error) { return [][]byte{}, nil }
-func (*Blackhole) List(_ string) ([]string, error)  { return []string{}, nil }
-func (*Blackhole) Delete(_ string) error            { return nil }
-func (*Blackhole) CheckFile(_ string) error         { return nil }
+func (*Blackhole) Files(_ string) ([][]byte, error)                    { return [][]byte{}, nil }
+func (*Blackhole) List(_ string) ([]string, error)                     { return []string{}, nil }
+func (*Blackhole) Delete(_ string) error                               { return nil }
+func (*Blackhole) FileStat(_ string) (inf storage.FileInfo, err error) { return }
 
 // NopReadCloser is a no operation ReadCloser
 type NopReadCloser struct{}

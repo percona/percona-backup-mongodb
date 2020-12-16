@@ -204,7 +204,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 			}
 		}
 
-		tlns, err := cn.PITRGetValidTimelines(s.RS, now)
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
 			log.Printf("Error: get PITR timelines for %s replset: %v", s.RS, err)
 		}
