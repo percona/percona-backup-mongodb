@@ -71,7 +71,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	var pitr []interface{}
 	for _, f := range pitrf {
-		err := stg.CheckFile(f)
+		_, err := stg.FileStat(f)
 		if err != nil {
 			l.Warning("skip %s because of %v", f, err)
 			continue
