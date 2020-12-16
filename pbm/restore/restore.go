@@ -272,7 +272,7 @@ func (r *Restore) prepareChunks(from, to primitive.Timestamp) error {
 		}
 		nextStart = c.EndTS
 
-		err := r.stg.CheckFile(c.FName)
+		_, err := r.stg.FileStat(c.FName)
 		if err != nil {
 			return errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
 		}
@@ -324,11 +324,11 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("metadata for replset/shard %s is not found", r.nodeInfo.SetName)
 	}
 
-	err = r.stg.CheckFile(r.dumpFile)
+	_, err = r.stg.FileStat(r.dumpFile)
 	if err != nil {
 		return errors.Errorf("failed to ensure snapshot file %s: %v", r.dumpFile, err)
 	}
-	err = r.stg.CheckFile(r.oplogFile)
+	_, err = r.stg.FileStat(r.oplogFile)
 	if err != nil {
 		return errors.Errorf("failed to ensure oplog file %s: %v", r.oplogFile, err)
 	}

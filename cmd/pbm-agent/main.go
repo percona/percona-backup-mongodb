@@ -22,8 +22,8 @@ func main() {
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
 
-		mURI = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
-		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU()/2)).Int()
+		mURI      = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU() / 2)).Int()
 
 		versionCmd    = pbmCmd.Command("version", "PBM version info")
 		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
@@ -71,6 +71,7 @@ func runAgent(mongoURI string, dumpConns int) error {
 	agnt.InitLogger(pbmClient)
 
 	go agnt.PITR()
+	go agnt.HbStatus()
 
 	return errors.Wrap(agnt.Start(), "listen the commands stream")
 }
