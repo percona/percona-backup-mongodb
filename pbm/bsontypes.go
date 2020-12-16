@@ -163,6 +163,7 @@ type ReplsetStatus struct {
 // Shard represent config.shard https://docs.mongodb.com/manual/reference/config-database/#config.shards
 type Shard struct {
 	ID   string `bson:"_id"`
+	RS   string `bson:"-"`
 	Host string `bson:"host"`
 }
 

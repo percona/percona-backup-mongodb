@@ -697,6 +697,13 @@ func (p *PBM) GetShards() ([]Shard, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "message decode")
 		}
+		s.RS = s.ID
+		// _id may differ from the rs name, so extract rs name from the host (format like "rs2/localhost:27017")
+		// see https://jira.percona.com/browse/PBM-595
+		h := strings.Split(s.Host, "/")
+		if len(h) > 1 {
+			s.RS = h[0]
+		}
 		shards = append(shards, s)
 	}
 

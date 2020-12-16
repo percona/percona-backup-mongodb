@@ -625,7 +625,7 @@ func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
-			ID:   r.nodeInfo.SetName,
+			RS:   r.nodeInfo.SetName,
 			Host: r.nodeInfo.SetName + "/" + strings.Join(r.nodeInfo.Hosts, ","),
 		},
 	}
@@ -704,7 +704,7 @@ func (r *Restore) converged(shards []pbm.Shard, status pbm.Status) (bool, error)
 
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
-			if shard.Name == sh.ID {
+			if shard.Name == sh.RS {
 				// check if node alive
 				lock, err := r.cn.GetLockData(&pbm.LockHeader{
 					Type:    pbm.CmdRestore,
