@@ -54,7 +54,7 @@ above.
 Example config files
 ================================================================================
 
-Providing remote storage information within a YAML config file is the easiest way to configure the storage for |PBM|. For how to insert the config file, see :ref:`pbm.config.initialize`. 
+Provide the remote backup storage configuration as a YAML config file. The following are the examples of config fles for supported remote storages. For how to insert the config file, see :ref:`pbm.config.initialize`. 
 
 .. rubric:: S3-compatible remote storage
 
@@ -74,6 +74,6 @@ MinIO
 
 .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
 
-For the description of available configuration options, see :ref:`pbm.config.options`.
+For the description of configuration options, see :ref:`pbm.config.options`.
 
 .. include:: .res/replace.txt     
