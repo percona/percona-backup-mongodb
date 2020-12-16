@@ -1,11 +1,13 @@
 .. _pbm.intro:
 
-|pbm| Intro
+How |pbm| works
 ********************************************************************************
 
-.. rubric:: How to use |pbm|: going back in time (|pbm-restore|)
+Even in a highly-available architecture, such as with |mongodb| replication, backups are still required even though losing one server is not fatal. Whether for a complete or partial data disaster, you can use PBM (Percona Backup for MongoDB) to go back in time to the best available backup snapshot.
 
-Even in a highly-available architecture, such as with |mongodb| replication, backups are still required even though losing one server is not fatal. Whether for a complete or partial data disaster you can use PBM (Percona Backup for MongoDB) to go back in time to the best available backup snapshot.
+|PBM| is a command line interface. It provides the set of commands to make backup and restore operations in your database. 
+
+The following example illustrates how to use |PBM|.
 
 For example, imagine your web application's update was released on Sunday, June 9th 23:00 EDT but, by 11:23 Monday, someone realizes that the update has a bug that is wiping the historical data of any user who logged in. Nobody likes to have downtime, but it's time to roll back: what's the best backup to use?
 
@@ -26,13 +28,10 @@ Let's restore the one before that:
 
 .. include:: .res/code-block/bash/pbm-restore-mongodb-uri.txt
 
-Next time there is an application release, it might be best to make an extra backup
-manually just before:
+To be on the safe side, it might be best to make an extra backup manually before the next application release:
 
 .. include:: .res/code-block/bash/pbm-backup-mongodb-uri.txt
 
-Percona Backup for MongoDB is an uncomplicated command-line tool by design. The full set of commands:
-
-.. include:: .res/code-block/bash/pbm-help-output.txt
+Find the full set of commands available in |PBM| in :ref:`pbm-commands`.
 
 .. include:: .res/replace.txt
