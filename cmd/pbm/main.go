@@ -66,6 +66,7 @@ var (
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
+	logsOPIDF  = logsCmd.Flag("opid", "Operation ID").Short('i').String()
 	logsOutF   = logsCmd.Flag("out", "Event in format backup[/2020-10-06T11:45:14Z]").Short('o').Default("text").Enum("json", "text")
 
 	client *mongo.Client
