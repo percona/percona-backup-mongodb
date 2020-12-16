@@ -418,9 +418,9 @@ func (s storageStat) String() string {
 		case pbm.StatusDone:
 			ret += fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
-			ret += fmt.Sprintf(" [cancelled: %s]", fmtTS(sn.StateTS))
+			ret += fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
-			ret += fmt.Sprintf(" [error: %s / %s]", sn.Err, fmtTS(sn.StateTS))
+			ret += fmt.Sprintf(" [ERROR: %s / %s]", sn.Err, fmtTS(sn.StateTS))
 		default:
 			ret += fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
