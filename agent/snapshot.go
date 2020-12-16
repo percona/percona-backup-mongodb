@@ -46,8 +46,8 @@ func (a *Agent) CancelBackup() {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(bcp pbm.BackupCmd) {
-	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name)
+func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name, opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -105,20 +105,22 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:       pbm.CmdBackup,
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: bcp.Name,
+		Type:    pbm.CmdBackup,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, a.pbm.MarkBcpStale)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		l.Info("backup has been scheduled on another replset node")
+		l.Debug("skip: lock not acquired")
 		return
 	}
 
@@ -128,8 +130,7 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	tstart := time.Now()
-	err = backup.New(ctx, a.pbm, a.node).Run(bcp)
+	err = backup.New(ctx, a.pbm, a.node).Run(bcp, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
@@ -139,32 +140,22 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 		}
 	} else {
 		l.Info("backup finished")
+
+		// Update PITR "changed" option to "reset" observation by pbm list of
+		// any PITR related errors in the log since some of the errors might
+		// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
+		// generate new errors so we won't miss anything
+		if nodeInfo.IsLeader() {
+			epch, err := a.pbm.ResetEpoch()
+			if err != nil {
+				l.Error("reset epoch")
+			} else {
+				l.Debug("epoch set to %v", epch)
+			}
+		}
 	}
 
-	// Update PITR "changed" option to "reset" observation by pbm list of
-	// any PITR related errors in the log since some of the errors might
-	// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
-	// generate new errors so we won't miss anything
-	err = a.pbm.ConfigBumpPITRepoch()
-	if err != nil {
-		l.Warning("update PITR obesrvation ts")
-	}
-
-	// In the case of fast backup (small db) we have to wait before releasing the lock.
-	// Otherwise, since the primary node waits for `WaitBackupStart*0.9` before trying to acquire the lock
-	// it might happen that the backup will be made twice:
-	//
-	// secondary1 >---------*!lock(fail - acuired by s1)---------------------------
-	// secondary2 >------*lock====backup====*unlock--------------------------------
-	// primary    >--------*wait--------------------*lock====backup====*unlock-----
-	//
-	// Secondaries also may start trying to acquire a lock with quite an interval (e.g. due to network issues)
-	// TODO: we cannot rely on the nodes wall clock.
-	// TODO: ? pbmBackups should have unique index by name ?
-	needToWait := pbm.WaitBackupStart - time.Since(tstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
-	}
+	l.Debug("releasing lock")
 	err = lock.Release()
 	if err != nil {
 		l.Error("unable to release backup lock %v: %v", lock, err)
@@ -172,8 +163,8 @@ func (a *Agent) Backup(bcp pbm.BackupCmd) {
 }
 
 // Restore starts the restore
-func (a *Agent) Restore(r pbm.RestoreCmd) {
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName)
+func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -185,24 +176,28 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:       pbm.CmdRestore,
-		Replset:    nodeInfo.SetName,
-		Node:       nodeInfo.Me,
-		BackupName: r.Name,
+		Type:    pbm.CmdRestore,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   &epts,
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		l.Error("unbale to run the restore while another backup or restore process running")
+		l.Debug("skip: lock not acquired")
+		l.Error("unbale to run the restore while another operation running")
 		return
 	}
 
 	defer func() {
+		l.Debug("releasing lock")
 		err := lock.Release()
 		if err != nil {
 			l.Error("release lock: %v", err)
@@ -210,10 +205,20 @@ func (a *Agent) Restore(r pbm.RestoreCmd) {
 	}()
 
 	l.Info("restore started")
-	err = restore.New(a.pbm, a.node).Snapshot(r)
+	err = restore.New(a.pbm, a.node).Snapshot(r, opid, l)
 	if err != nil {
 		l.Error("restore: %v", err)
 		return
 	}
 	l.Info("restore finished successfully")
+
+	if nodeInfo.IsLeader() {
+		epch, err := a.pbm.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch")
+			return
+		}
+
+		l.Debug("epoch set to %v", epch)
+	}
 }

@@ -38,6 +38,7 @@ type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
 	ctx  context.Context
+	opid string
 }
 
 func New(ctx context.Context, cn *pbm.PBM, node *pbm.Node) *Backup {
@@ -49,8 +50,8 @@ func New(ctx context.Context, cn *pbm.PBM, node *pbm.Node) *Backup {
 }
 
 // Run runs the backup
-func (b *Backup) Run(bcp pbm.BackupCmd) (err error) {
-	return b.run(bcp)
+func (b *Backup) Run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+	return b.run(bcp, opid, l)
 }
 
 type errMetaExists struct {
@@ -65,13 +66,15 @@ func (e *errMetaExists) Unwrap() error { return e.error }
 
 // run the backup.
 // TODO: describe flow
-func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
+func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
 	}
 
+	b.opid = opid.String()
 	meta := &pbm.BackupMeta{
+		OPID:        b.opid,
 		Name:        bcp.Name,
 		StartTS:     time.Now().Unix(),
 		Compression: bcp.Compression,
@@ -82,9 +85,7 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 	}
 
 	rsName := inf.SetName
-	if rsName == "" {
-		rsName = pbm.NoReplset
-	}
+
 	rsMeta := pbm.BackupReplset{
 		Name:         rsName,
 		OplogName:    getDstName("oplog", bcp, inf.SetName),
@@ -94,8 +95,6 @@ func (b *Backup) run(bcp pbm.BackupCmd) (err error) {
 		Conditions:   []pbm.Condition{},
 		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
-
-	l := b.cn.Logger().NewEvent(string(pbm.CmdBackup), bcp.Name)
 
 	stg, err := b.cn.GetStorage(l)
 	if err != nil {
@@ -404,11 +403,13 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 	case <-saveDone:
 	}
 
+	r.Close()
+
 	if !err.nil() {
 		return 0, err
 	}
 
-	return n, r.Close()
+	return n, nil
 }
 
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
@@ -496,9 +497,9 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 			if shard.Name == sh.ID {
 				// check if node alive
 				lock, err := b.cn.GetLockData(&pbm.LockHeader{
-					Type:       pbm.CmdBackup,
-					BackupName: bcpName,
-					Replset:    shard.Name,
+					Type:    pbm.CmdBackup,
+					OPID:    b.opid,
+					Replset: shard.Name,
 				})
 
 				// nodes are cleaning its locks moving to the done status

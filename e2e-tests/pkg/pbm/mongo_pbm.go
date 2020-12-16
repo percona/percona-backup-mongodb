@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type MongoPBM struct {
@@ -35,7 +37,7 @@ func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 }
 
 func (m *MongoPBM) StoreResync() error {
-	return m.p.ResyncStorage()
+	return m.p.ResyncStorage(m.p.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", "", primitive.Timestamp{}))
 }
 
 func (m *MongoPBM) Conn() *mongo.Client {

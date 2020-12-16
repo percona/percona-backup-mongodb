@@ -49,9 +49,9 @@ const (
 	PITRChunksCollection = "pbmPITRChunks"
 	//PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
-
-	// NoReplset is the name of a virtual replica set of the standalone node
-	NoReplset = "pbmnoreplicaset"
+	// StatusCollection stores pbm status
+	StatusCollection   = "pbmStatus"
+	PBMOpLogCollection = "pbmOpLog"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
@@ -71,6 +71,8 @@ const (
 	CmdDeleteBackup     Command = "delete"
 )
 
+type OPID primitive.ObjectID
+
 type Cmd struct {
 	Cmd        Command         `bson:"cmd"`
 	Backup     BackupCmd       `bson:"backup,omitempty"`
@@ -78,6 +80,25 @@ type Cmd struct {
 	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
 	TS         int64           `bson:"ts"`
+	OPID       OPID            `bson:"-"`
+}
+
+func OPIDfromStr(s string) (OPID, error) {
+	o, err := primitive.ObjectIDFromHex(s)
+	if err != nil {
+		return OPID(primitive.NilObjectID), err
+	}
+	return OPID(o), nil
+}
+
+func NilOPID() OPID { return OPID(primitive.NilObjectID) }
+
+func (o OPID) String() string {
+	return primitive.ObjectID(o).Hex()
+}
+
+func (o OPID) Obj() primitive.ObjectID {
+	return primitive.ObjectID(o)
 }
 
 func (c Cmd) String() string {
@@ -158,6 +179,14 @@ var (
 	WaitBackupStart = WaitActionStart + PITRcheckPeriod*12/10
 )
 
+// OpLog represents log of started operation.
+// Operation progress can be get from logs by OPID.
+// Basically it is a log of all ever taken locks. With the
+// uniqueness by rs + opid
+type OpLog struct {
+	LockHeader `bson:",inline" json:",inline"`
+}
+
 type PBM struct {
 	Conn *mongo.Client
 	log  *log.Logger
@@ -234,8 +263,9 @@ func (p *PBM) Logger() *log.Logger {
 }
 
 const (
-	cmdCollectionSizeBytes  = 10 << 10 // size 10kb ~ 50 commands
-	logsCollectionSizeBytes = 1 << 20  // 1Mb
+	cmdCollectionSizeBytes      = 1 << 20  // 1Mb
+	pbmOplogCollectionSizeBytes = 10 << 20 // 1Mb
+	logsCollectionSizeBytes     = 50 << 20 // 50Mb
 )
 
 // setup a new DB for PBM
@@ -281,6 +311,26 @@ func (p *PBM) setupNewDB() error {
 		p.ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}, {"type", 1}},
+			Options: options.Index().
+				SetUnique(true).
+				SetSparse(true),
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
+	}
+
+	err = p.Conn.Database(DB).RunCommand(
+		p.ctx,
+		bson.D{{"create", PBMOpLogCollection}, {"capped", true}, {"size", pbmOplogCollectionSizeBytes}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure log collection")
+	}
+	_, err = p.Conn.Database(DB).Collection(PBMOpLogCollection).Indexes().CreateOne(
+		p.ctx,
+		mongo.IndexModel{
+			Keys: bson.D{{"opid", 1}, {"replset", 1}},
 			Options: options.Index().
 				SetUnique(true).
 				SetSparse(true),
@@ -353,6 +403,7 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
+	OPID             string              `bson:"opid" json:"opid"`
 	Name             string              `bson:"name" json:"name"`
 	Replsets         []BackupReplset     `bson:"replsets" json:"replsets"`
 	Compression      CompressionType     `bson:"compression" json:"compression"`
@@ -422,11 +473,17 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 	return nil
 }
 
+func (p *PBM) ChangeBackupStateOPID(opid string, s Status, msg string) error {
+	return p.changeBackupState(bson.D{{"opid", opid}}, s, msg)
+}
 func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
+	return p.changeBackupState(bson.D{{"name", bcpName}}, s, msg)
+}
+func (p *PBM) changeBackupState(clause bson.D, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"name", bcpName}},
+		clause,
 		bson.D{
 			{"$set", bson.M{"status": s}},
 			{"$set", bson.M{"last_transition_ts": ts}},
@@ -523,8 +580,16 @@ func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timesta
 }
 
 func (p *PBM) GetBackupMeta(name string) (*BackupMeta, error) {
+	return p.getBackupMeta(bson.D{{"name", name}})
+}
+
+func (p *PBM) GetBackupByOPID(opid string) (*BackupMeta, error) {
+	return p.getBackupMeta(bson.D{{"opid", opid}})
+}
+
+func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 	b := new(BackupMeta)
-	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, bson.D{{"name", name}})
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, clause)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
 			return b, nil
@@ -676,6 +741,35 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 
 func (p *PBM) LogGet(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
 	return p.log.Get(r, limit)
+}
+
+type Epoch primitive.Timestamp
+
+func (p *PBM) GetEpoch() (Epoch, error) {
+	c, err := p.GetConfig()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "get config")
+	}
+
+	return Epoch(c.Epoch), nil
+}
+
+func (p *PBM) ResetEpoch() (Epoch, error) {
+	ct, err := p.ClusterTime()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "get cluster time")
+	}
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$set": bson.M{"epoch": ct}},
+	)
+
+	return Epoch(ct), err
+}
+
+func (e Epoch) TS() primitive.Timestamp {
+	return primitive.Timestamp(e)
 }
 
 // FileCompression return compression alg based on given file extention

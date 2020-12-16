@@ -12,7 +12,6 @@ Architecture
 |mongod| instance. This includes replica set nodes that are currently secondaries
 and config server replica set nodes in a sharded cluster.
 
-
 The backup and restore operations are triggered when the |pbm-agent| observes
 updates made to the PBM control collections by the |pbm.app| CLI. In a method similar to the way replica set members elect a new primary,
 the |pbm-agent| processes in the same replica set 'elect' the one to do the backup

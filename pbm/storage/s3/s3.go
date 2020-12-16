@@ -335,6 +335,7 @@ func (s *S3) newPartReader(fname string) *partReader {
 }
 
 func (pr *partReader) setSession(s *s3.S3) {
+	s.Client.Config.HTTPClient.Timeout = time.Second * 30
 	pr.sess = s
 }
 
@@ -457,6 +458,10 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					continue Loop
 				}
 				if err == io.EOF {
+					return
+				}
+				if errors.Is(err, io.ErrClosedPipe) {
+					s.log.Warning("reader closed pipe, stopping download")
 					return
 				}
 

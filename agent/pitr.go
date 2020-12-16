@@ -68,13 +68,14 @@ const pitrCheckPeriod = time.Second * 15
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
-	tk := time.NewTicker(pitrCheckPeriod)
-	defer tk.Stop()
-	for range tk.C {
+	for {
 		err := a.pitr()
 		if err != nil {
-			a.log.Error(string(pbm.CmdPITR), "", "%v", err)
+			ep, _ := a.pbm.GetEpoch()
+			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
 		}
+
+		time.Sleep(pitrCheckPeriod)
 	}
 }
 
@@ -130,24 +131,31 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "defining starting point for the backup")
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdPITR), "")
+	ep, err := a.pbm.GetEpoch()
+	if err != nil {
+		return errors.Wrap(err, "get epoch")
+	}
+	l := a.log.NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
 
 	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
 		Type:    pbm.CmdPITR,
+		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, nil)
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		return nil
 	}
 
@@ -167,7 +175,7 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		err := ibcp.Stream(ctx, w, stg, pbm.CompressionTypeS2)
+		err := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
 		if err != nil {
 			switch err.(type) {
 			case pitr.ErrOpMoved:
@@ -184,8 +192,8 @@ func (a *Agent) pitr() (err error) {
 }
 
 // PITRestore starts the point-in-time recovery
-func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
-	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339))
+func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339), opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -197,18 +205,22 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 		return
 	}
 
+	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITRestore,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
+		OPID:    opid.String(),
+		Epoch:   &epts,
 	})
 
-	got, err := lock.Acquire()
+	got, err := a.aquireLock(lock)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		l.Error("unbale to run the restore while another backup or restore process running")
 		return
 	}
@@ -221,10 +233,20 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd) {
 	}()
 
 	l.Info("recovery started")
-	err = restore.New(a.pbm, a.node).PITR(r)
+	err = restore.New(a.pbm, a.node).PITR(r, opid, l)
 	if err != nil {
 		l.Error("restore: %v", err)
 		return
 	}
 	l.Info("recovery successfully finished")
+
+	if nodeInfo.IsLeader() {
+		epch, err := a.pbm.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch")
+			return
+		}
+
+		l.Debug("epoch set to %v", epch)
+	}
 }

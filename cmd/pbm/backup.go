@@ -29,13 +29,13 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	// But if there is some stale lock leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T && l.Type != pbm.CmdPITR {
-			return "", errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.BackupName, l.Replset, l.Node)
+			return "", errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
 		}
 	}
 
 	cfg, err := cn.GetConfig()
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "", errors.New("no store set. Set remote store with <pbm store set>")
 		}
 		return "", errors.Wrap(err, "get remote-store")
@@ -180,18 +180,22 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: read config: %v", cfg)
 	}
 
+	epch, err := cn.GetEpoch()
+	if err != nil {
+		log.Printf("Error: get current epoch: %v", err)
+	}
 	now := time.Now().Unix()
 	var pitrList, pitrErrors string
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		if on {
 			err := pitrState(cn, s.ID, ts)
-			if err == errPITRBackup && cfg.PITR.Changed <= time.Now().Add(time.Minute*-1).Unix() {
+			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(-1*time.Minute).Unix() {
 				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
 			} else if err != nil {
 				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)
 			}
-			lg, err := pitrLog(cn, s.ID, cfg.PITR.Changed)
+			lg, err := pitrLog(cn, s.ID, epch)
 			if err != nil {
 				log.Printf("Error: get log for shard '%s': %v", s.ID, err)
 			}
@@ -268,13 +272,14 @@ func pitrState(cn *pbm.PBM, rs string, ts primitive.Timestamp) error {
 	return nil
 }
 
-func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
+func pitrLog(cn *pbm.PBM, rs string, e pbm.Epoch) (string, error) {
 	l, err := cn.LogGet(
 		&plog.LogRequest{
 			LogKeys: plog.LogKeys{
 				RS:       rs,
 				Severity: plog.Error,
 				Event:    string(pbm.CmdPITR),
+				Epoch:    e.TS(),
 			},
 		},
 		1)
@@ -285,17 +290,13 @@ func pitrLog(cn *pbm.PBM, rs string, after int64) (string, error) {
 		return "", nil
 	}
 
-	if l[0].TS < after {
-		return "", nil
-	}
-
 	return l[0].String(), nil
 }
 
 func printBackupProgress(b pbm.BackupMeta, pbmClient *pbm.PBM) (string, error) {
 	locks, err := pbmClient.GetLocks(&pbm.LockHeader{
-		Type:       pbm.CmdBackup,
-		BackupName: b.Name,
+		Type: pbm.CmdBackup,
+		OPID: b.OPID,
 	})
 
 	if err != nil {

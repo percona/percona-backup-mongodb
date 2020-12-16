@@ -5,11 +5,13 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
-func (p *PBM) ResyncStorage() error {
-	stg, err := p.GetStorage(p.log.NewEvent(string(CmdResyncBackupList), ""))
+func (p *PBM) ResyncStorage(l *log.Event) error {
+	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -56,6 +58,11 @@ func (p *PBM) ResyncStorage() error {
 
 	var pitr []interface{}
 	for _, f := range pitrf {
+		err := stg.CheckFile(f)
+		if err != nil {
+			l.Warning("skip %s because of %v", f, err)
+			continue
+		}
 		chnk := PITRmetaFromFName(f)
 		if chnk != nil {
 			pitr = append(pitr, chnk)

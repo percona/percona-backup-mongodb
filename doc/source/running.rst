@@ -3,6 +3,7 @@
 Running |pbm|
 ********************************************************************************
 
+
 This document provides examples of using |pbm.app| commands to operate your backup system. For detailed description of pbm commands, refer to :ref:`pbm-commands`.
 
 .. contents::
@@ -81,9 +82,10 @@ restore.
 
    Consider these important notes on restore operation:
 
-   1. |pbm| is designed to be a full-database restore tool. As of version <=1.x it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore|if you want to guarantee that the post-restore database only includes collections that are in the backup.
-   2. Whilst the restore is running, prevents clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data. 
-   3. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
+   1. |pbm| is designed to be a full-database restore tool. For versions earlier than 1.x, it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does.       
+      As of versions 1.x and later, |pbm| replicates ``mongodump``'s behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore| if you want to guarantee that the post-restore database only includes collections that are in the backup.
+   3. Whilst the restore is running, prevents clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data. 
+   4. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
    
 .. code-block:: bash
 
@@ -144,7 +146,7 @@ Canceling a backup
 --------------------------------------------------------------------------------
 
 You can cancel a running backup if, for example, you want to do
-another maintenance and don't want to wait for the large backup to finish first.
+another maintenance of a server and don't want to wait for the large backup to finish first.
 
 To cancel the backup, use the |pbm-cancel-backup| command.
 
@@ -193,8 +195,8 @@ To delete backups that were created before the specified time, pass the ``--olde
 command. Specify the timestamp as an argument
 for the |pbm-delete-backup| command in the following format:
 
-* ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or
-* ``%Y-%M-%D`` (e.g. 2020-04-20).
+* ``%Y-%M-%DT%H:%M:%S`` (for example, 2020-04-20T13:13:20) or
+* ``%Y-%M-%D`` (2020-04-20).
 
 .. include:: .res/code-block/bash/pbm-delete-backup-older-than-timestamp.txt
 
