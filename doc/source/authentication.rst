@@ -10,30 +10,6 @@ connection URI string for the PBM user.
 For the S3-compatible remote storage authentication config, see
 :ref:`pbm.config`.
 
-.. _pbm.auth.create_pbm_user:
-
-Create the PBM user
-===================
-
-To run |pbm| a user must be created in the ``admin`` db that has the role
-`grants` as shown below.
-
-.. include:: .res/code-block/mongo/db-createuser.txt
-
-User name and password values and other options of the createUser command can be
-set as you require so long as the roles shown above are granted.
-
-This user must be created on every replicaset, i.e. it must be created on the
-shard replicasets as well as the config server replicaset.
-
-.. note::
-
-   In a cluster run `db.getSiblingDB("config").shards.find({}, {"host": true,
-   "_id": false})` to list all the host+port lists for the shard
-   replicasets. The replicaset name at the *front* of these "host" strings will
-   have to be placed as a "/?replicaSet=xxxx" argument in the parameters part
-   of the connection URI (see below).
-
 .. _pbm.auth.mdb_conn_string:
 
 MongoDB connection strings - A Reminder (or Primer)

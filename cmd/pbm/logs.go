@@ -28,6 +28,10 @@ func logs(cn *pbm.PBM) {
 		}
 	}
 
+	if *logsOPIDF != "" {
+		r.OPID = *logsOPIDF
+	}
+
 	switch *logsTypeF {
 	case "F":
 		r.Severity = plog.Fatal

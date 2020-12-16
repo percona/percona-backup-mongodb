@@ -67,6 +67,7 @@ var (
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
 	logsOutF   = logsCmd.Flag("out", "Output format").Short('o').Default("text").Enum("json", "text")
+	logsOPIDF  = logsCmd.Flag("opid", "Operation ID").Short('i').String()
 
 	statusCmd  = pbmCmd.Command("status", "Show PBM status")
 	statusOutF = statusCmd.Flag("out", "Output format").Short('o').Default("text").Hidden().Enum("json", "text")

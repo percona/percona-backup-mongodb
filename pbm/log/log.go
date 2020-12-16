@@ -311,7 +311,7 @@ func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 		filter = append(filter, bson.E{"ep", r.Epoch})
 	}
 	if r.OPID != "" {
-		filter = append(filter, bson.E{"ep", r.OPID})
+		filter = append(filter, bson.E{"opid", r.OPID})
 	}
 	if !r.TimeMin.IsZero() {
 		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})

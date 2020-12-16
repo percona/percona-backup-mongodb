@@ -3,108 +3,11 @@
 Running |pbm|
 ********************************************************************************
 
-.. contents::
-   :local:
 
-Please see :ref:`pbm.auth` if you have not already. This will explain the
-MongoDB user that needs to be created, and the connection method used by |pbm|.
-
-Initial setup
-================================================================================
-
-1. Determine the right MongoDB connection string for the |pbm.app| CLI.
-   (See :ref:`pbm.auth.mdb_conn_string`) 
-#. Use the |pbm.app| CLI to insert the config (especially the Remote Storage
-   location and credentials information). See :ref:`pbm.config.initialize`
-#. Start (or restart) the |pbm-agent| processes for all mongod nodes.
-
-
-Start the |pbm-agent| processes
---------------------------------------------------------------------------------
-After installing |pbm-agent| on all the servers that run ``mongod`` nodes, make
-sure one instance of it is started for each ``mongod`` node. This also applies if you deployed several ``mongod`` nodes on the same server.
-
-For example, your configsvr nodes (listen port 27019) run on the same servers as the first shard's mongod nodes (listen port 27018, replica set name
-"sh1rs"). Then you should start two 
-|pbm-agent| processes on these servers, one process is connected to the shard
-("mongodb://username:password@localhost:27018/") and another one to the configsvr
-node ("mongodb://username:password@localhost:27019/").
-
-It is best to use the packaged service scripts to run |pbm-agent|. After
-adding the database connection configuration for them (see
-:ref:`pbm.installation.service_init_scripts`), you can start the |pbm-agent|
-service as below:
-
-.. code-block:: bash
-
-   $ sudo systemctl start pbm-agent
-   $ sudo systemctl status pbm-agent
-
-For reference an example of starting |pbm-agent| manually is shown below. The
-output is redirected to a file and the process is backgrounded. Alternatively
-you can run it on a shell terminal temporarily if you want to observe and/or
-debug the startup from the log messages.
-
-.. code-block:: bash
-
-   $ nohup pbm-agent --mongodb-uri "mongodb://username:password@localhost:27018/" > /data/mdb_node_xyz/pbm-agent.$(hostname -s).27018.log 2>&1 &
-
-.. tip::
-   
-   Running as the ``mongod`` user would be the most intuitive and convenient way.
-   But if you want it can be another user.
-
-When a message *"pbm agent is listening for the commands"* is printed to the
-|pbm-agent| log file it confirms it connected to its mongod successfully.
-
-
-.. _pbm-agent.log:
-
-How to see the pbm-agent log
---------------------------------------------------------------------------------
-
-With the packaged systemd service the log output to stdout is captured by
-systemd's default redirection to systemd-journald. You can view it with the
-command below. See `man journalctl` for useful options such as '--lines',
-'--follow', etc.
-
-.. code-block:: bash
-
-   ~$ journalctl -u pbm-agent.service
-   -- Logs begin at Tue 2019-10-22 09:31:34 JST. --
-   Jan 22 15:59:14 akira-x1 systemd[1]: Started pbm-agent.
-   Jan 22 15:59:14 akira-x1 pbm-agent[3579]: pbm agent is listening for the commands
-   ...
-   ...
-
-If you started pbm-agent manually see the file you redirected stdout and stderr
-to.
-
-Running |pbm|
-================================================================================
-Provide the MongoDB URI connection string for |pbm.app|. This allows you to call |pbm.app| commands without the :option:`--mongodb-uri` flag.
-
-Use the following command:
-
-.. code-block:: bash
- 
-   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/"
-
-For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
-
-Running |pbm.app| commands
-================================================================================
-
-|pbm.app| is the command line utility to control the backup system.
+This document provides examples of using |pbm.app| commands to operate your backup system. For detailed description of pbm commands, refer to :ref:`pbm-commands`.
 
 .. contents::
    :local:
-
-Configuring a Remote Storage for Backup and Restore Operations
---------------------------------------------------------------------------------
-
-This must be done once, at installation or re-installation time, before backups can
-be listed, made, or restored. To configure remote storage, see :ref:`pbm.config` and :ref:`storage.config`.
 
 .. _pbm.running.backup.listing:
 
@@ -129,16 +32,18 @@ Starting a backup
 
 .. code-block:: bash
 
-   pbm backup
+   $ pbm backup 
 
-.. rubric:: Starting a backup with compression
+By default, |PBM| uses ``s2`` compression method when making a backup. 
+You can start a backup with a different compression method by passing the ``--compression`` flag to the :command:`pbm backup` command. 
+
+For example, to start a backup with gzip compression, use the following command
 
 .. code-block:: bash
 
-   pbm backup --compression=s2 
+   $ pbm backup --compression=gzip 
 
-``s2`` is the default compression type. Other supported compression types are: ``gzip``,
-``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
+Supported compression types are: ``gzip``, ``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
 backup.
 
 .. rubric:: Backup in sharded clusters 

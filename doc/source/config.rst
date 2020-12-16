@@ -1,6 +1,6 @@
 .. _pbm.config:
 
-|pbm| config in a Cluster (or Non-sharded Replica set)
+|pbm| configuration in a cluster (or non-sharded replica set)
 ********************************************************************************
 
 The configuration information is stored in a single document of the *admin.pbmConfig*
@@ -18,6 +18,9 @@ mongo shell; the |pbm.app| CLI has a "config" subcommand to read and update it.
 - :ref:`pitr` configuration is available as of v1.3.0
 - :ref:`restore.config` are available as of v1.3.2  
 
+Run |pbm-config-list| to see the whole config. (Sensitive fields such as keys
+will be redacted.)
+
 .. _pbm.config.initialize:
 
 Insert the whole |pbm| config from a YAML file
@@ -26,16 +29,18 @@ Insert the whole |pbm| config from a YAML file
 If you are initializing a cluster or non-sharded replica set for the first time, it is simplest to write the whole config as YAML file and use the
 |pbm-config-file-set| method to upload all the values in one command.
 
-.. include:: .res/code-block/bash/pbm-config-file-set.txt
+The :ref:`pbm.config.example_yaml` section provides config file examples for the remote backup storage (required). For more information about available config file options, see :ref:`pbm.config.options`.
+
+Use the following command to upload the config file (e.g. :file:`pbm_config.yaml `):
+
+.. code-block:: bash
+
+   $ pbm config --file pbm_config.yaml 
 
 Execute whilst connecting to config server replica set if it is a
 cluster. Otherwise just connect to the non-sharded replica set as normal. (See
 :ref:`pbm.auth.mdb_conn_string` if you are not familiar with MongoDB connection
-strings yet.) For more information about available config file options, see :ref:`pbm.config.options`.
-
-Run |pbm-config-list| to see the whole config. (Sensitive fields such as keys
-will be redacted.)
-
+strings yet.) 
 .. _pbm.config.update:
 
 Accessing or updating single config values
