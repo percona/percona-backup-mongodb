@@ -415,7 +415,7 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
-			ID:   ninf.SetName,
+			RS:   ninf.SetName,
 			Host: ninf.SetName + "/" + strings.Join(ninf.Hosts, ","),
 		},
 	}
@@ -494,7 +494,7 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
-			if shard.Name == sh.ID {
+			if shard.Name == sh.RS {
 				// check if node alive
 				lock, err := b.cn.GetLockData(&pbm.LockHeader{
 					Type:    pbm.CmdBackup,

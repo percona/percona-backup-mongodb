@@ -157,7 +157,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: define cluster state: %v", err)
 	}
 
-	shards := []pbm.Shard{{ID: inf.SetName}}
+	shards := []pbm.Shard{{RS: inf.SetName}}
 	if inf.IsSharded() {
 		s, err := cn.GetShards()
 		if err != nil {
@@ -189,24 +189,24 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		if on {
-			err := pitrState(cn, s.ID, ts)
+			err := pitrState(cn, s.RS, ts)
 			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(-1*time.Minute).Unix() {
-				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
+				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.RS)
 			} else if err != nil {
-				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)
+				log.Printf("Error: check PITR state for shard '%s': %v", s.RS, err)
 			}
-			lg, err := pitrLog(cn, s.ID, epch)
+			lg, err := pitrLog(cn, s.RS, epch)
 			if err != nil {
-				log.Printf("Error: get log for shard '%s': %v", s.ID, err)
+				log.Printf("Error: get log for shard '%s': %v", s.RS, err)
 			}
 			if lg != "" {
-				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
+				pitrErrors += fmt.Sprintf("  %s: %s\n", s.RS, lg)
 			}
 		}
 
-		tlns, err := cn.PITRGetValidTimelines(s.ID, now, nil)
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
-			log.Printf("Error: get PITR timelines for %s replset: %v", s.ID, err)
+			log.Printf("Error: get PITR timelines for %s replset: %v", s.RS, err)
 		}
 
 		if len(tlns) == 0 {
@@ -218,7 +218,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		}
 
 		if full {
-			rsout := fmt.Sprintf("  %s:", s.ID)
+			rsout := fmt.Sprintf("  %s:", s.RS)
 			for _, tln := range tlns {
 				rsout += fmt.Sprintf(" %v,", tln)
 			}
