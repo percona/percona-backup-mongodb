@@ -13,6 +13,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -243,12 +244,12 @@ func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 	return ret, nil
 }
 
-type pitr struct {
+type pitrStat struct {
 	Status string `json:"status"`
 	Err    string `json:"error,omitempty"`
 }
 
-func (p pitr) String() string {
+func (p pitrStat) String() string {
 	s := fmt.Sprintf("Status [%s]", p.Status)
 	if p.Err != "" {
 		s += fmt.Sprintf("\n! ERROR while running PITR backup: %s", p.Err)
@@ -257,7 +258,7 @@ func (p pitr) String() string {
 }
 
 func getPitrStatus(cn *pbm.PBM) (fmt.Stringer, error) {
-	var p pitr
+	var p pitrStat
 	on, err := cn.IsPITR()
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR status")
@@ -267,28 +268,77 @@ func getPitrStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 		return p, nil
 	}
 	p.Status = "ON"
+
+	p.Err, err = getPitrErr(cn)
+
+	return p, errors.Wrap(err, "check for errors")
+}
+
+func getPitrErr(cn *pbm.PBM) (string, error) {
 	epch, err := cn.GetEpoch()
 	if err != nil {
-		return p, errors.Wrap(err, "get current epoch")
+		return "", errors.Wrap(err, "get current epoch")
 	}
 
-	l, err := cn.LogGet(
-		&plog.LogRequest{
-			LogKeys: plog.LogKeys{
-				Severity: plog.Error,
-				Event:    string(pbm.CmdPITR),
-				Epoch:    epch.TS(),
-			},
-		},
-		1)
+	inf, err := cn.GetNodeInfo()
 	if err != nil {
-		return p, errors.Wrap(err, "get log records")
-	}
-	if len(l) > 0 {
-		p.Err = l[0].String()
+		log.Fatalf("Error: define cluster state: %v", err)
 	}
 
-	return p, nil
+	shards := []pbm.Shard{{RS: inf.SetName}}
+	if inf.IsSharded() {
+		s, err := cn.GetShards()
+		if err != nil {
+			log.Fatalf("Error: get shards: %v", err)
+		}
+		shards = append(shards, s...)
+	}
+
+	var errs []string
+LOOP:
+	for _, s := range shards {
+		l, err := cn.LogGetExactSeverity(
+			&plog.LogRequest{
+				LogKeys: plog.LogKeys{
+					Severity: plog.Error,
+					Event:    string(pbm.CmdPITR),
+					Epoch:    epch.TS(),
+					RS:       s.RS,
+				},
+			},
+			1)
+		if err != nil {
+			return "", errors.Wrap(err, "get log records")
+		}
+
+		if len(l) == 0 {
+			continue
+		}
+
+		// check if some node in the RS had successfully restarted slicing
+		nl, err := cn.LogGetExactSeverity(
+			&plog.LogRequest{
+				LogKeys: plog.LogKeys{
+					Severity: plog.Debug,
+					Event:    string(pbm.CmdPITR),
+					Epoch:    epch.TS(),
+					RS:       s.RS,
+				},
+			},
+			0)
+		if err != nil {
+			return "", errors.Wrap(err, "get debug log records")
+		}
+		for _, r := range nl {
+			if r.Msg == pitr.LogStartMsg && r.ObjID.Timestamp().After(l[0].ObjID.Timestamp()) {
+				continue LOOP
+			}
+		}
+
+		errs = append(errs, l[0].StringNode())
+	}
+
+	return strings.Join(errs, "; "), nil
 }
 
 type currOp struct {

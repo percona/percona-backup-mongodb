@@ -94,12 +94,16 @@ func (e ErrOpMoved) Error() string {
 	return fmt.Sprintf("pitr slicing resumed on node %s", e.to)
 }
 
+// LogStartMsg message to log on successful streaming start
+const LogStartMsg = "star_ok"
+
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
 	l := i.pbm.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
+	l.Debug(LogStartMsg)
 	l.Info("streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
