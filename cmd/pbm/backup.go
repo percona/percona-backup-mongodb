@@ -127,22 +127,12 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	fmt.Println("Backup snapshots:")
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
-		var bcp string
-		switch b.Status {
-		case pbm.StatusDone:
-			bcp = b.Name
-		case pbm.StatusCancelled:
-			bcp = fmt.Sprintf("%s\tCancelled at %s", b.Name, time.Unix(b.LastTransitionTS, 0).UTC().Format(time.RFC3339))
-		case pbm.StatusError:
-			bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
-		default:
-			bcp, err = printBackupProgress(b, cn)
-			if err != nil {
-				log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
-			}
+
+		if b.Status != pbm.StatusDone {
+			continue
 		}
 
-		fmt.Println(" ", bcp)
+		fmt.Printf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.LastWriteTS.T)))
 	}
 }
 
@@ -232,11 +222,11 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	}
 
 	if on {
-		fmt.Println("PITR <on>:")
+		fmt.Println("\nPITR <on>:")
 	}
 	if len(rstlines) > 0 && len(rstlines) == len(shards) {
 		if !on {
-			fmt.Println("PITR <off>:")
+			fmt.Println("\nPITR <off>:")
 		}
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
 			fmt.Println(" ", tl)
