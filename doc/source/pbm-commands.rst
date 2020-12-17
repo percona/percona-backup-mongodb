@@ -93,12 +93,14 @@ Cancels a running backup. The backup is marked as canceled in the backup list.
 
 :command:`pbm list`
 
-Provides the list of backups and their states. Backup states are the following:
+Provides the list of backups. In versions 1.3.4 and earlier, the command listed all backups and their states. Backup states are the following:
 
 - In progress - A backup is running
 - Canceled - A backup was canceled
 - Error - A backup was finished with an error
 - No status means a backup is complete
+
+As of version 1.4.0, only successfully completed backups are listed. To view full backup information, run `pbm status`.
   
 When :ref:`PITR` is enabled, the ``pbm list`` also provides the list of valid time ranges for recovery and point-in-time recovery status. 
 
