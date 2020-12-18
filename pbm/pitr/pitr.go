@@ -95,7 +95,7 @@ func (e ErrOpMoved) Error() string {
 }
 
 // LogStartMsg message to log on successful streaming start
-const LogStartMsg = "star_ok"
+const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
