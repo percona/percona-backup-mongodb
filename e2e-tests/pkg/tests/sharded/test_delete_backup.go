@@ -115,6 +115,9 @@ func checkArtefacts(shouldStay, conf string) {
 	}
 
 	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
+		if strings.Contains(object.Key, pbm.StorInitFile) {
+			continue
+		}
 		if object.Err != nil {
 			fmt.Println("Error: ListObjects: ", object.Err)
 			continue
