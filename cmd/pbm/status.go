@@ -208,8 +208,8 @@ func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 		}
 		for _, s := range shrd {
 			topology = append(topology, clstr{
-				rs:    s.ID,
-				nodes: strings.Split(strings.TrimLeft(s.Host, s.ID+"/"), ","),
+				rs:    s.RS,
+				nodes: strings.Split(strings.TrimPrefix(s.Host, s.RS+"/"), ","),
 			})
 		}
 	}
@@ -562,7 +562,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		return pr, errors.Wrap(err, "define cluster state")
 	}
 
-	shards := []pbm.Shard{{ID: inf.SetName}}
+	shards := []pbm.Shard{{RS: inf.SetName}}
 	if inf.IsSharded() {
 		s, err := cn.GetShards()
 		if err != nil {
@@ -574,9 +574,9 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 	now := time.Now().Unix()
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(s.ID, now, stg)
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, stg)
 		if err != nil {
-			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.ID, err)
+			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.RS, err)
 			continue
 		}
 		rstlines = append(rstlines, tlns)
