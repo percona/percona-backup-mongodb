@@ -774,7 +774,11 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 }
 
 func (p *PBM) LogGet(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
-	return p.log.Get(r, limit)
+	return p.log.Get(r, limit, false)
+}
+
+func (p *PBM) LogGetExactSeverity(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
+	return p.log.Get(r, limit, true)
 }
 
 type Epoch primitive.Timestamp

@@ -156,44 +156,10 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		shards = append(shards, s...)
 	}
 
-	ts, err := cn.ClusterTime()
-	if err != nil {
-		log.Fatalf("Error: read cluster time: %v", err)
-	}
-
-	cfg, err := cn.GetConfig()
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return
-		}
-
-		log.Fatalf("Error: read config: %v", cfg)
-	}
-
-	epch, err := cn.GetEpoch()
-	if err != nil {
-		log.Printf("Error: get current epoch: %v", err)
-	}
 	now := time.Now().Unix()
-	var pitrList, pitrErrors string
+	var pitrList string
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		if on {
-			err := pitrState(cn, s.RS, ts)
-			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(-1*time.Minute).Unix() {
-				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.RS)
-			} else if err != nil {
-				log.Printf("Error: check PITR state for shard '%s': %v", s.RS, err)
-			}
-			lg, err := pitrLog(cn, s.RS, epch)
-			if err != nil {
-				log.Printf("Error: get log for shard '%s': %v", s.RS, err)
-			}
-			if lg != "" {
-				pitrErrors += fmt.Sprintf("  %s: %s\n", s.RS, lg)
-			}
-		}
-
 		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
 			log.Printf("Error: get PITR timelines for %s replset: %v", s.RS, err)
@@ -232,11 +198,6 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 			fmt.Println(" ", tl)
 		}
 	}
-
-	if len(pitrErrors) > 0 {
-		fmt.Printf("\n!Failed to run PITR backup. Agent logs:\n%s", pitrErrors)
-	}
-
 }
 
 var errPITRBackup = errors.New("PITR backup failed")

@@ -25,10 +25,11 @@ type Logger struct {
 }
 
 type LogEntry struct {
-	Time    string `bson:"-" json:"t"`
-	TS      int64  `bson:"ts" json:"-"`
-	Tns     int    `bson:"ns" json:"-"`
-	TZone   int    `bson:"tz" json:"-"`
+	ObjID   primitive.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
+	Time    string             `bson:"-" json:"t"`
+	TS      int64              `bson:"ts" json:"-"`
+	Tns     int                `bson:"ns" json:"-"`
+	TZone   int                `bson:"tz" json:"-"`
 	LogKeys `bson:",inline" json:",inline"`
 	Msg     string `bson:"msg" json:"msg"`
 }
@@ -257,7 +258,7 @@ const (
 )
 
 func (l *Logger) PrintLogs(to io.Writer, f OutFormat, r *LogRequest, limit int64, showNode bool) error {
-	cur, err := l.Get(r, limit)
+	cur, err := l.Get(r, limit, false)
 	if err != nil {
 		return errors.Wrap(err, "get list from mongo")
 	}
@@ -293,8 +294,12 @@ func processList(e []LogEntry, fn entryFn) error {
 	return nil
 }
 
-func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
+func (l *Logger) Get(r *LogRequest, limit int64, exactSeverity bool) ([]LogEntry, error) {
 	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
+	if exactSeverity {
+		filter = bson.D{bson.E{"s", r.Severity}}
+	}
+
 	if r.RS != "" {
 		filter = append(filter, bson.E{"rs", r.RS})
 	}
@@ -336,6 +341,9 @@ func (l *Logger) Get(r *LogRequest, limit int64) ([]LogEntry, error) {
 		err := cur.Decode(&l)
 		if err != nil {
 			return nil, errors.Wrap(err, "message decode")
+		}
+		if id, ok := cur.Current.Lookup("_id").ObjectIDOK(); ok {
+			l.ObjID = id
 		}
 		logs = append(logs, l)
 	}

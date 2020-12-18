@@ -69,13 +69,21 @@ func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
 	for {
+		wait := pitrCheckPeriod
+
 		err := a.pitr()
 		if err != nil {
+			// wee need epoch just to log pitr err with an extra context
+			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
 			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
+
+			// penalty to the failed node to give priority to other nodes
+			// on the next try
+			wait *= 2
 		}
 
-		time.Sleep(pitrCheckPeriod)
+		time.Sleep(wait)
 	}
 }
 
@@ -98,6 +106,22 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
+	// just a check before a real locking
+	// just trying to avoid redundant heavy operations
+	moveOn, err := a.pitrLockCheck()
+	if err != nil {
+		return errors.Wrap(err, "check if already run")
+	}
+
+	if !moveOn {
+		return nil
+	}
+
+	// shoud be after the lock pre-check
+	//
+	// if node failing, then some other agent with healthy node will hopefully catchup
+	// so this code won't be reached and will not pollute log with "pitr" errors while
+	// the other node does successfully slice
 	ninf, err := a.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node info")
@@ -110,18 +134,6 @@ func (a *Agent) pitr() (err error) {
 	// node is not suitable for doing backup
 	if !q {
 		return nil
-	}
-
-	// just a check before a real locking
-	// just trying to avoid redundant heavy operations
-	ts, err := a.pbm.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
-	// ErrNoDocuments or stale lock the only reasons to continue
-	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-		return errors.Wrap(err, "check if already run")
 	}
 
 	ibcp := pitr.NewBackup(a.node.RS(), a.pbm, a.node)
@@ -189,6 +201,26 @@ func (a *Agent) pitr() (err error) {
 	}()
 
 	return nil
+}
+
+func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
+	ts, err := a.pbm.ClusterTime()
+	if err != nil {
+		return false, errors.Wrap(err, "read cluster time")
+	}
+
+	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
+	if err != nil {
+		// mongo.ErrNoDocuments means no lock and we're good to move on
+		if err == mongo.ErrNoDocuments {
+			return true, nil
+		}
+
+		return false, errors.Wrap(err, "get lock")
+	}
+
+	// stale lock means we should move on and clean it up during the lock.Aquire
+	return tl.Heartbeat.T+pbm.StaleFrameSec < ts.T, nil
 }
 
 // PITRestore starts the point-in-time recovery
