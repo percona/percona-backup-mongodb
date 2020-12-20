@@ -25,6 +25,4 @@ fi
 desc 'Destroy cluster'
 destroy_cluster
 
-rm -rf  "${test_dir}/docker/backups"
-
 exit $EXIT_CODE
