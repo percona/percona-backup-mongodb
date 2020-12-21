@@ -85,11 +85,11 @@ func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
 	for {
 		select {
 		case <-tmr.C:
-			list, err := c.RunCmd("pbm", "list")
+			sts, err := c.RunCmd("pbm", "status")
 			if err != nil {
-				return errors.Wrap(err, "timeout reached. get backups list")
+				return errors.Wrap(err, "timeout reached. pbm status")
 			}
-			return errors.Errorf("timeout reached. backups list:\n%s", list)
+			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
 		case <-tkr.C:
 			out, err := c.RunCmd("pbm", "list")
 			if err != nil {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -143,7 +144,7 @@ func (c *Cluster) Backup() string {
 func (c *Cluster) BackupWaitDone(bcpName string) {
 	log.Println("waiting for the backup")
 	ts := time.Now()
-	err := c.pbm.CheckBackup(bcpName, time.Minute*25)
+	err := c.checkBackup(bcpName, time.Minute*25)
 	if err != nil {
 		log.Fatalln("check backup state:", err)
 	}
@@ -188,6 +189,32 @@ func (c *Cluster) DataChecker() (check func()) {
 			}
 			if hashes1[name]["_all_"] != h["_all_"] {
 				log.Fatalf("%s: hashes doesn't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
+			}
+		}
+	}
+}
+
+func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
+	tmr := time.NewTimer(waitFor)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			sts, err := c.pbm.RunCmd("pbm", "status")
+			if err != nil {
+				return errors.Wrap(err, "timeout reached. pbm status")
+			}
+			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
+		case <-tkr.C:
+			m, err := c.mongopbm.GetBackupMeta(bcpName)
+			if err != nil {
+				errors.Wrap(err, "get backup meta")
+			}
+			switch m.Status {
+			case pbmt.StatusDone:
+				return nil
+			case pbmt.StatusError:
+				return errors.New(m.Error)
 			}
 		}
 	}
