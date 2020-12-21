@@ -70,7 +70,7 @@ Checking an in-progress backup
 
    As of version 1.4.0 the information about running backups is not available in the :command:`pbm list` output. Use the :command:`pbm status` command instead to check for running backups. See :ref:`pbm-status` for more information.
 
-Run the |pbm-list| command and you will see the running backup listed with a
+For |PBM| version 1.3.4 and earlier, run the |pbm-list| command and you will see the running backup listed with a
 'In progress' label. When that is absent, the backup is complete.
 
 .. _pbm.running.backup.restoring: 

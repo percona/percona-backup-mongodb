@@ -15,7 +15,7 @@ To check |PBM| status, run the following command:
 The output of the :command:`pbm status` command provides the information about:
 
 - Your MongoDB deployment and ``pbm-agents`` running in it: to what ``mongod`` node each agent is connected, the |pbm| version it runs and the agent's state
-- Running backups / restores, if any
+- The currently running backups / restores, if any
 - Backups stored in the remote backup storage: backup name, completion time, size and status (complete, canceled, failed)
 - :term:`Point-in-Time Recovery` status (enabled or disabled).
 - Valid time ranges for point-in-time recovery and the data size
