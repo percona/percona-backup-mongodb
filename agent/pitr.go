@@ -171,13 +171,6 @@ func (a *Agent) pitr() (err error) {
 	}
 
 	go func() {
-		defer func() {
-			err := lock.Release()
-			if err != nil {
-				l.Error("release lock: %v", err)
-			}
-		}()
-
 		ctx, cancel := context.WithCancel(context.Background())
 		w := make(chan struct{})
 
@@ -186,16 +179,24 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		err := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
-		if err != nil {
-			switch err.(type) {
+		streamErr := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
+		if streamErr != nil {
+			switch streamErr.(type) {
 			case pitr.ErrOpMoved:
-				l.Info("streaming oplog: %v", err)
+				l.Info("streaming oplog: %v", streamErr)
 			default:
-				l.Error("streaming oplog: %v", err)
+				l.Error("streaming oplog: %v", streamErr)
 			}
+		}
 
-			// penalty to the failed node so healthy nodes would have priority on next try
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+
+		// Penalty to the failed node so healthy nodes would have priority on next try.
+		// But lock has to be released first. Otherwise, healthy nodes would wait for the lock release
+		// and the penalty won't have any sense.
+		if streamErr != nil {
 			time.Sleep(pitrCheckPeriod * 2)
 		}
 
