@@ -76,10 +76,9 @@ func (a *Agent) PITR() {
 			// wee need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
-			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
+			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
 
-			// penalty to the failed node to give priority to other nodes
-			// on the next try
+			// penalty to the failed node so healthy nodes would have priority on next try
 			wait *= 2
 		}
 
@@ -172,13 +171,6 @@ func (a *Agent) pitr() (err error) {
 	}
 
 	go func() {
-		defer func() {
-			err := lock.Release()
-			if err != nil {
-				l.Error("release lock: %v", err)
-			}
-		}()
-
 		ctx, cancel := context.WithCancel(context.Background())
 		w := make(chan struct{})
 
@@ -187,14 +179,25 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		err := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
-		if err != nil {
-			switch err.(type) {
+		streamErr := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
+		if streamErr != nil {
+			switch streamErr.(type) {
 			case pitr.ErrOpMoved:
-				l.Info("streaming oplog: %v", err)
+				l.Info("streaming oplog: %v", streamErr)
 			default:
-				l.Error("streaming oplog: %v", err)
+				l.Error("streaming oplog: %v", streamErr)
 			}
+		}
+
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+
+		// Penalty to the failed node so healthy nodes would have priority on next try.
+		// But lock has to be released first. Otherwise, healthy nodes would wait for the lock release
+		// and the penalty won't have any sense.
+		if streamErr != nil {
+			time.Sleep(pitrCheckPeriod * 2)
 		}
 
 		a.unsetPitr()
