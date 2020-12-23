@@ -71,7 +71,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	var pitr []interface{}
 	for _, f := range pitrf {
-		_, err := stg.FileStat(f)
+		_, err := stg.FileStat(PITRfsPrefix + "/" + f)
 		if err != nil {
 			l.Warning("skip %s because of %v", f, err)
 			continue
@@ -80,6 +80,10 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		if chnk != nil {
 			pitr = append(pitr, chnk)
 		}
+	}
+
+	if len(pitr) == 0 {
+		return nil
 	}
 
 	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).InsertMany(p.ctx, pitr)
