@@ -76,10 +76,9 @@ func (a *Agent) PITR() {
 			// wee need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
-			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
+			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
 
-			// penalty to the failed node to give priority to other nodes
-			// on the next try
+			// penalty to the failed node so healthy nodes would have priority on next try
 			wait *= 2
 		}
 
@@ -195,6 +194,9 @@ func (a *Agent) pitr() (err error) {
 			default:
 				l.Error("streaming oplog: %v", err)
 			}
+
+			// penalty to the failed node so healthy nodes would have priority on next try
+			time.Sleep(pitrCheckPeriod * 2)
 		}
 
 		a.unsetPitr()
