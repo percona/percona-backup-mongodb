@@ -225,7 +225,7 @@ The following flags are available:
    - E - Error
    - F - Fatal
 - ``-o``, ``--output`` - Show log information as text (default) or in JSON format.
-- ``--opid`` - Filter logs by the operation ID
+- ``-i``, ``--opid`` - Filter logs by the operation ID
 
 .. rubric:: Examples
 
