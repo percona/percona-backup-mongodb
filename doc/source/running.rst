@@ -344,7 +344,7 @@ The output includes log messages of the specified severity type and all higher l
 
 .. rubric:: Implementation details
 
-``pbm-agents`` write log information into the ``pbmLog`` collection in the :term:`PBM Control collections`. Every |pbm-agent| also writes log information to stderr so that you can retrieve it when there is no living node in your cluster or replica set. For how to view an individual |pbm-agent| log, see :ref:`pbm-agent.log`.
+``pbm-agents`` write log information into the ``pbmLog`` collection in the :term:`PBM Control collections`. Every |pbm-agent| also writes log information to stderr so that you can retrieve it when there is no healthy mongod node in your cluster or replica set. For how to view an individual |pbm-agent| log, see :ref:`pbm-agent.log`.
 
 Note that log information from ``pbmLog`` collection is shown in the UTC timezone and from the stderr - in the server's time zone.
 
