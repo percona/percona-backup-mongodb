@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -28,6 +29,7 @@ type PITRChunk struct {
 	Compression CompressionType     `bson:"compression"`
 	StartTS     primitive.Timestamp `bson:"start_ts"`
 	EndTS       primitive.Timestamp `bson:"end_ts"`
+	size        int64               `bson:"-"`
 }
 
 // IsPITR checks if PITR is enabled
@@ -156,6 +158,7 @@ func (p *PBM) PITRAddChunk(c PITRChunk) error {
 type Timeline struct {
 	Start uint32
 	End   uint32
+	Size  int64
 }
 
 const tlTimeFormat = "2006-01-02T15:04:05"
@@ -171,7 +174,7 @@ func (t Timeline) String() string {
 // or other integrity issues since it's guaranteed be the slicer that
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise
-func (p *PBM) PITRGetValidTimelines(rs string, until int64) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until int64, stg storage.Storage) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -183,6 +186,16 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64) (tlines []Timeline, 
 	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, primitive.Timestamp{T: uint32(until), I: 0})
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
+	}
+
+	if stg != nil {
+		for i, s := range slices {
+			fs, err := stg.FileStat(s.FName)
+			if err != nil {
+				return nil, errors.Wrapf(err, "get file stat %s", s.FName)
+			}
+			slices[i].size = fs.Size
+		}
 	}
 
 	return gettimelines(slices), nil
@@ -201,6 +214,7 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 		}
 		prevEnd = s.EndTS.T
 		tl.End = s.EndTS.T
+		tl.Size += s.size
 	}
 
 	tlines = append(tlines, tl)
@@ -214,7 +228,7 @@ type tlineMerge struct {
 }
 
 // MergeTimelines merges overlapping sets on timelines
-// it preresumes timelines already sorted and doesn't start from 0
+// it preresumes timelines already sorted and don't start from 0
 func MergeTimelines(tlns ...[]Timeline) []Timeline {
 	if len(tlns) == 0 {
 		return nil

@@ -99,6 +99,10 @@ func (l *Lock) Acquire() (bool, error) {
 		// log the operation. duplicate means error
 		err := l.log()
 		if err != nil {
+			rerr := l.Release()
+			if rerr != nil {
+				err = errors.Errorf("%v. Also failed to release the lock: %v", err, rerr)
+			}
 			return false, err
 		}
 		return true, nil
@@ -167,10 +171,11 @@ func (p *PBM) MarkBcpStale(opid string) error {
 	}
 
 	// not to rewrite an error emitted by the agent
-	if bcp.Status == StatusError {
+	if bcp.Status == StatusError || bcp.Status == StatusDone {
 		return nil
 	}
 
+	p.log.Debug(string(CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
 	return p.ChangeBackupStateOPID(opid, StatusError, "some of pbm-agents were lost during the backup")
 }
 
@@ -181,10 +186,11 @@ func (p *PBM) MarkRestoreStale(opid string) error {
 	}
 
 	// not to rewrite an error emitted by the agent
-	if r.Status == StatusError {
+	if r.Status == StatusError || r.Status == StatusDone {
 		return nil
 	}
 
+	p.log.Debug(string(CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
 	return p.ChangeRestoreStateOPID(opid, StatusError, "some of pbm-agents were lost during the restore")
 }
 

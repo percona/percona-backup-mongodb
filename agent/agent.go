@@ -1,14 +1,18 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -132,7 +136,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
-		l.Info("scheduled to another node")
+		l.Debug("skip: lock not acquired")
 		return
 	}
 	defer func() {
@@ -142,7 +146,6 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}()
 
-	tsstart := time.Now()
 	switch {
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
@@ -165,12 +168,6 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	default:
 		l.Error("malformed command received in Delete() of backup: %v", d)
 		return
-	}
-
-	// TODO: timers logic should be replaced with the opID
-	needToWait := waitAtLeast - time.Since(tsstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
 	}
 
 	l.Info("done")
@@ -206,36 +203,33 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
-		l.Info("operation has been scheduled on another replset node")
+		l.Debug("lock not acquired")
 		return
 	}
 
-	tstart := time.Now()
+	defer func() {
+		err = lock.Release()
+		if err != nil {
+			l.Error("reslase lock %v: %v", lock, err)
+		}
+	}()
+
 	l.Info("started")
 	err = a.pbm.ResyncStorage(l)
 	if err != nil {
 		l.Error("%v", err)
-	} else {
-		l.Info("succeed")
+		return
+	}
+	l.Info("succeed")
 
-		if nodeInfo.IsLeader() {
-			epch, err := a.pbm.ResetEpoch()
-			if err != nil {
-				l.Error("reset epoch")
-				return
-			}
-
-			l.Debug("epoch set to %v", epch)
+	if nodeInfo.IsLeader() {
+		epch, err := a.pbm.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch: %v", err)
+			return
 		}
-	}
 
-	needToWait := time.Second*1 - time.Since(tstart)
-	if needToWait > 0 {
-		time.Sleep(needToWait)
-	}
-	err = lock.Release()
-	if err != nil {
-		l.Error("reslase lock %v: %v", lock, err)
+		l.Debug("epoch set to %v", epch)
 	}
 }
 
@@ -248,8 +242,8 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 	}
 
 	switch err.(type) {
-	case pbm.ErrConcurrentOp:
-		a.log.Printf("acquiring lock: %v", err)
+	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
+		a.log.Debug("", "", l.OPID, *l.Epoch, "get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock
@@ -269,5 +263,91 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 		return l.Acquire()
 	default:
 		return false, err
+	}
+}
+
+func (a *Agent) HbStatus() {
+	hb := pbm.AgentStat{
+		Node: a.node.Name(),
+		RS:   a.node.RS(),
+		Ver:  version.DefaultInfo.Version,
+	}
+	defer a.pbm.RmAgentStatus(hb)
+
+	tk := time.NewTicker(pbm.AgentsStatCheckRange)
+	defer tk.Stop()
+
+	l := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
+
+	for range tk.C {
+		hb.PBMStatus = a.pbmStatus()
+		logHbStatus("PBM connecion", hb.PBMStatus, l)
+
+		hb.NodeStatus = a.nodeStatus()
+		logHbStatus("node connecion", hb.NodeStatus, l)
+
+		hb.StorageStatus = a.storStatus(l)
+		logHbStatus("storage connecion", hb.StorageStatus, l)
+
+		err := a.pbm.SetAgentStatus(hb)
+		if err != nil {
+			l.Error("set status: %v", err)
+		}
+	}
+}
+
+func (a *Agent) pbmStatus() (sts pbm.SubsysStatus) {
+	err := a.pbm.Conn.Ping(a.pbm.Context(), nil)
+	if err != nil {
+		sts.OK = false
+		sts.Err = err.Error()
+		return
+	}
+
+	sts.OK = true
+	return
+}
+
+func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
+	err := a.node.Session().Ping(a.pbm.Context(), nil)
+	if err != nil {
+		sts.OK = false
+		sts.Err = err.Error()
+		return
+	}
+
+	sts.OK = true
+	return
+}
+
+func (a *Agent) storStatus(log *log.Event) (sts pbm.SubsysStatus) {
+	sts.OK = false
+
+	stg, err := a.pbm.GetStorage(log)
+	if err != nil {
+		sts.Err = fmt.Sprintf("unable to get storage: %v", err)
+		return sts
+	}
+
+	_, err = stg.FileStat(pbm.StorInitFile)
+	if errors.Is(err, storage.ErrNotExist) {
+		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+		if err != nil {
+			sts.Err = fmt.Sprintf("storage: no init file, attempt to create failed: %v", err)
+			return sts
+		}
+	}
+	if err != nil {
+		sts.Err = fmt.Sprintf("storage check failed with: %v", err)
+		return sts
+	}
+
+	sts.OK = true
+	return sts
+}
+
+func logHbStatus(name string, st pbm.SubsysStatus, l *log.Event) {
+	if !st.OK {
+		l.Error("check %s: %s", name, st.Err)
 	}
 }

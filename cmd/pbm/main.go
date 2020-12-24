@@ -33,7 +33,7 @@ var (
 	configShowKey       = configCmd.Arg("key", "Show the value of a specified key").String()
 
 	backupCmd      = pbmCmd.Command("backup", "Make backup")
-	bcpCompression = pbmCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+	bcpCompression = backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
 			Default(string(pbm.CompressionTypeS2)).
 			Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
@@ -44,7 +44,7 @@ var (
 	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").String()
 	restorePITRF   = restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String()
 
-	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Restore backup")
+	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Cancel backup")
 
 	listCmd        = pbmCmd.Command("list", "Backup list")
 	listCmdRestore = listCmd.Flag("restore", "Show last N restores").Default("false").Bool()
@@ -62,11 +62,15 @@ var (
 	versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
 
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
-	logsTailF  = logsCmd.Flag("tail", "Show last N entries").Short('t').Default("20").Int64()
+	logsTailF  = logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64()
+	logsOutF   = logsCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Enum("json", "text")
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
-	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]").Short('e').String()
-	logsOutF   = logsCmd.Flag("out", "Event in format backup[/2020-10-06T11:45:14Z]").Short('o').Default("text").Enum("json", "text")
+	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resyncBcpList, pitr, pitrestore, delete").Short('e').String()
+	logsOPIDF  = logsCmd.Flag("opid", "Operation ID").Short('i').String()
+
+	statusCmd  = pbmCmd.Command("status", "Show PBM status")
+	statusOutF = statusCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Hidden().Enum("json", "text")
 
 	client *mongo.Client
 )
@@ -220,6 +224,13 @@ func main() {
 		deleteBackup(pbmClient)
 	case logsCmd.FullCommand():
 		logs(pbmClient)
+	case statusCmd.FullCommand():
+		frmt := formatText
+		if *statusOutF == "json" {
+			frmt = formatJSON
+		}
+
+		status(pbmClient, frmt)
 	}
 }
 
@@ -308,6 +319,9 @@ func deleteBackup(pbmClient *pbm.PBM) {
 	if err == errTout {
 		fmt.Println("\nOperation is still in progress, please check agents' logs in a while")
 	} else {
+		time.Sleep(time.Second)
+		fmt.Print(".")
+		time.Sleep(time.Second)
 		fmt.Println("[done]")
 	}
 	printBackupList(pbmClient, 0)

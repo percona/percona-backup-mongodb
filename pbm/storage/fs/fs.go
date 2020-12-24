@@ -54,16 +54,23 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
-func (fs *FS) CheckFile(name string) error {
+func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
 	f, err := os.Stat(path.Join(fs.opts.Path, name))
-	if err != nil {
-		return err
+
+	if errors.Is(err, os.ErrNotExist) {
+		return inf, storage.ErrNotExist
 	}
-	if f.Size() == 0 {
-		return errors.New("file empty")
+	if err != nil {
+		return inf, err
 	}
 
-	return nil
+	inf.Size = f.Size()
+
+	if inf.Size == 0 {
+		return inf, errors.New("file empty")
+	}
+
+	return inf, nil
 }
 
 func (fs *FS) List(prefix string) ([]string, error) {

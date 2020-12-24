@@ -272,7 +272,7 @@ func (r *Restore) prepareChunks(from, to primitive.Timestamp) error {
 		}
 		nextStart = c.EndTS
 
-		err := r.stg.CheckFile(c.FName)
+		_, err := r.stg.FileStat(c.FName)
 		if err != nil {
 			return errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
 		}
@@ -324,11 +324,11 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("metadata for replset/shard %s is not found", r.nodeInfo.SetName)
 	}
 
-	err = r.stg.CheckFile(r.dumpFile)
+	_, err = r.stg.FileStat(r.dumpFile)
 	if err != nil {
 		return errors.Errorf("failed to ensure snapshot file %s: %v", r.dumpFile, err)
 	}
-	err = r.stg.CheckFile(r.oplogFile)
+	_, err = r.stg.FileStat(r.oplogFile)
 	if err != nil {
 		return errors.Errorf("failed to ensure oplog file %s: %v", r.oplogFile, err)
 	}
@@ -625,7 +625,7 @@ func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	shards := []pbm.Shard{
 		{
-			ID:   r.nodeInfo.SetName,
+			RS:   r.nodeInfo.SetName,
 			Host: r.nodeInfo.SetName + "/" + strings.Join(r.nodeInfo.Hosts, ","),
 		},
 	}
@@ -704,7 +704,7 @@ func (r *Restore) converged(shards []pbm.Shard, status pbm.Status) (bool, error)
 
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
-			if shard.Name == sh.ID {
+			if shard.Name == sh.RS {
 				// check if node alive
 				lock, err := r.cn.GetLockData(&pbm.LockHeader{
 					Type:    pbm.CmdRestore,

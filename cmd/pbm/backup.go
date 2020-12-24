@@ -127,22 +127,12 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	fmt.Println("Backup snapshots:")
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
-		var bcp string
-		switch b.Status {
-		case pbm.StatusDone:
-			bcp = b.Name
-		case pbm.StatusCancelled:
-			bcp = fmt.Sprintf("%s\tCancelled at %s", b.Name, time.Unix(b.LastTransitionTS, 0).UTC().Format(time.RFC3339))
-		case pbm.StatusError:
-			bcp = fmt.Sprintf("%s\tFailed with \"%s\"", b.Name, b.Error)
-		default:
-			bcp, err = printBackupProgress(b, cn)
-			if err != nil {
-				log.Fatalf("Error: list backup %s: %v\n", b.Name, err)
-			}
+
+		if b.Status != pbm.StatusDone {
+			continue
 		}
 
-		fmt.Println(" ", bcp)
+		fmt.Printf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.LastWriteTS.T)))
 	}
 }
 
@@ -157,7 +147,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: define cluster state: %v", err)
 	}
 
-	shards := []pbm.Shard{{ID: inf.SetName}}
+	shards := []pbm.Shard{{RS: inf.SetName}}
 	if inf.IsSharded() {
 		s, err := cn.GetShards()
 		if err != nil {
@@ -166,47 +156,13 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		shards = append(shards, s...)
 	}
 
-	ts, err := cn.ClusterTime()
-	if err != nil {
-		log.Fatalf("Error: read cluster time: %v", err)
-	}
-
-	cfg, err := cn.GetConfig()
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return
-		}
-
-		log.Fatalf("Error: read config: %v", cfg)
-	}
-
-	epch, err := cn.GetEpoch()
-	if err != nil {
-		log.Printf("Error: get current epoch: %v", err)
-	}
 	now := time.Now().Unix()
-	var pitrList, pitrErrors string
+	var pitrList string
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		if on {
-			err := pitrState(cn, s.ID, ts)
-			if err == errPITRBackup && int64(epch.TS().T) <= time.Now().Add(-1*time.Minute).Unix() {
-				pitrErrors += fmt.Sprintf("  %s: PITR backup didn't started\n", s.ID)
-			} else if err != nil {
-				log.Printf("Error: check PITR state for shard '%s': %v", s.ID, err)
-			}
-			lg, err := pitrLog(cn, s.ID, epch)
-			if err != nil {
-				log.Printf("Error: get log for shard '%s': %v", s.ID, err)
-			}
-			if lg != "" {
-				pitrErrors += fmt.Sprintf("  %s: %s\n", s.ID, lg)
-			}
-		}
-
-		tlns, err := cn.PITRGetValidTimelines(s.ID, now)
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
-			log.Printf("Error: get PITR timelines for %s replset: %v", s.ID, err)
+			log.Printf("Error: get PITR timelines for %s replset: %v", s.RS, err)
 		}
 
 		if len(tlns) == 0 {
@@ -218,7 +174,7 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		}
 
 		if full {
-			rsout := fmt.Sprintf("  %s:", s.ID)
+			rsout := fmt.Sprintf("  %s:", s.RS)
 			for _, tln := range tlns {
 				rsout += fmt.Sprintf(" %v,", tln)
 			}
@@ -232,21 +188,16 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 	}
 
 	if on {
-		fmt.Println("PITR <on>:")
+		fmt.Println("\nPITR <on>:")
 	}
 	if len(rstlines) > 0 && len(rstlines) == len(shards) {
 		if !on {
-			fmt.Println("PITR <off>:")
+			fmt.Println("\nPITR <off>:")
 		}
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
 			fmt.Println(" ", tl)
 		}
 	}
-
-	if len(pitrErrors) > 0 {
-		fmt.Printf("\n!Failed to run PITR backup. Agent logs:\n%s", pitrErrors)
-	}
-
 }
 
 var errPITRBackup = errors.New("PITR backup failed")

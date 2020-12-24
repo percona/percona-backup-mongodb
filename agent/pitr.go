@@ -69,13 +69,20 @@ func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
 	for {
+		wait := pitrCheckPeriod
+
 		err := a.pitr()
 		if err != nil {
+			// wee need epoch just to log pitr err with an extra context
+			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
-			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "%v", err)
+			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
+
+			// penalty to the failed node so healthy nodes would have priority on next try
+			wait *= 2
 		}
 
-		time.Sleep(pitrCheckPeriod)
+		time.Sleep(wait)
 	}
 }
 
@@ -98,6 +105,22 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
+	// just a check before a real locking
+	// just trying to avoid redundant heavy operations
+	moveOn, err := a.pitrLockCheck()
+	if err != nil {
+		return errors.Wrap(err, "check if already run")
+	}
+
+	if !moveOn {
+		return nil
+	}
+
+	// shoud be after the lock pre-check
+	//
+	// if node failing, then some other agent with healthy node will hopefully catchup
+	// so this code won't be reached and will not pollute log with "pitr" errors while
+	// the other node does successfully slice
 	ninf, err := a.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node info")
@@ -110,18 +133,6 @@ func (a *Agent) pitr() (err error) {
 	// node is not suitable for doing backup
 	if !q {
 		return nil
-	}
-
-	// just a check before a real locking
-	// just trying to avoid redundant heavy operations
-	ts, err := a.pbm.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
-	// ErrNoDocuments or stale lock the only reasons to continue
-	if err != mongo.ErrNoDocuments && tl.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-		return errors.Wrap(err, "check if already run")
 	}
 
 	ibcp := pitr.NewBackup(a.node.RS(), a.pbm, a.node)
@@ -155,17 +166,11 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "acquiring lock")
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		return nil
 	}
 
 	go func() {
-		defer func() {
-			err := lock.Release()
-			if err != nil {
-				l.Error("release lock: %v", err)
-			}
-		}()
-
 		ctx, cancel := context.WithCancel(context.Background())
 		w := make(chan struct{})
 
@@ -174,20 +179,51 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		err := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
-		if err != nil {
-			switch err.(type) {
+		streamErr := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
+		if streamErr != nil {
+			switch streamErr.(type) {
 			case pitr.ErrOpMoved:
-				l.Info("streaming oplog: %v", err)
+				l.Info("streaming oplog: %v", streamErr)
 			default:
-				l.Error("streaming oplog: %v", err)
+				l.Error("streaming oplog: %v", streamErr)
 			}
+		}
+
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+
+		// Penalty to the failed node so healthy nodes would have priority on next try.
+		// But lock has to be released first. Otherwise, healthy nodes would wait for the lock release
+		// and the penalty won't have any sense.
+		if streamErr != nil {
+			time.Sleep(pitrCheckPeriod * 2)
 		}
 
 		a.unsetPitr()
 	}()
 
 	return nil
+}
+
+func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
+	ts, err := a.pbm.ClusterTime()
+	if err != nil {
+		return false, errors.Wrap(err, "read cluster time")
+	}
+
+	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
+	if err != nil {
+		// mongo.ErrNoDocuments means no lock and we're good to move on
+		if err == mongo.ErrNoDocuments {
+			return true, nil
+		}
+
+		return false, errors.Wrap(err, "get lock")
+	}
+
+	// stale lock means we should move on and clean it up during the lock.Aquire
+	return tl.Heartbeat.T+pbm.StaleFrameSec < ts.T, nil
 }
 
 // PITRestore starts the point-in-time recovery
@@ -219,6 +255,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if !got {
+		l.Debug("skip: lock not acquired")
 		l.Error("unbale to run the restore while another backup or restore process running")
 		return
 	}

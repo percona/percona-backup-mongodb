@@ -1,4 +1,0 @@
-
-.. code-block:: bash
-
-   $ pbm config --file pbm_config.yaml 

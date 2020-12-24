@@ -19,6 +19,13 @@ Remote backup storage options
 - `Google Cloud Storage <https://cloud.google.com/storage>`_, 
 - `MinIO <https://min.io/>`_.
 
+.. option:: storage.type
+   
+   :type: string
+   :required: YES
+
+   Remote backup storage type. Supported values: s3, filesystem.
+
 S3 type storage options
 -------------------------------------------------------------------------------
 

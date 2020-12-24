@@ -24,7 +24,7 @@
      A collection is the way data is organized in MongoDB. It is analogous to a table in relational databases.
 
   Consistency
-     In the context of backup and restore, consistency means that the data restored will be consistent in a given point in time. Partial or incomplete writes to disk of atomic operations (e.g. to table and index data structures separately) won't be served to the client after the restore. The same applies to multi-document transactions, that started but didn't complete by the time the backup was finished.
+     In the context of backup and restore, consistency means that the data restored will be consistent in a given point in time. Partial or incomplete writes to disk of atomic operations (for example, to table and index data structures separately) won't be served to the client after the restore. The same applies to multi-document transactions, that started but didn't complete by the time the backup was finished.
 
   Durability
      Once a transaction is committed, it will remain so.
@@ -53,6 +53,9 @@
 
   Oplog slice
      A compressed bundle of :term:`oplog <Oplog>` entries stored in the Oplog Store database in MongoDB. The oplog size captures an approximately 10-minute frame. For a snapshot, the oplog size is defined by the time that the slowest replica set member requires to perform mongodump.    
+
+  OpID
+    A unique identifier of an operation such as backup, restore, resync. When a pbm-agent starts processing an operation, it acquires a lock and an opID. This prevents processing the same operation twice (for example, if there are network issues in distributed systems). Using opID as a log filter allows viewing logs for an operation in progress.
 
   pbm-agent
      A ``pbm-agent`` is a :term:`PBM <Percona Backup for MongoDB>` process running on the mongod node for backup and restore operations. A pbm-agent instance is required for every mongod node (including replica set secondary members and config server replica set nodes).   

@@ -1,19 +1,32 @@
 package pbm
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
+
+const StorInitFile = ".pbm.init"
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
 func (p *PBM) ResyncStorage(l *log.Event) error {
 	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
+	}
+
+	_, err = stg.FileStat(StorInitFile)
+	if errors.Is(err, storage.ErrNotExist) {
+		err = stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+	}
+	if err != nil {
+		return errors.Wrap(err, "init storage")
 	}
 
 	bcps, err := stg.Files(MetadataFileSuffix)
@@ -58,10 +71,19 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	var pitr []interface{}
 	for _, f := range pitrf {
+		_, err := stg.FileStat(PITRfsPrefix + "/" + f)
+		if err != nil {
+			l.Warning("skip %s because of %v", f, err)
+			continue
+		}
 		chnk := PITRmetaFromFName(f)
 		if chnk != nil {
 			pitr = append(pitr, chnk)
 		}
+	}
+
+	if len(pitr) == 0 {
+		return nil
 	}
 
 	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).InsertMany(p.ctx, pitr)

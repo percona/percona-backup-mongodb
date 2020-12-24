@@ -94,12 +94,16 @@ func (e ErrOpMoved) Error() string {
 	return fmt.Sprintf("pitr slicing resumed on node %s", e.to)
 }
 
+// LogStartMsg message to log on successful streaming start
+const LogStartMsg = "start_ok"
+
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan struct{}, to storage.Storage, compression pbm.CompressionType) error {
 	if i.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
 	l := i.pbm.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
+	l.Debug(LogStartMsg)
 	l.Info("streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
 	tk := time.NewTicker(i.span)
@@ -211,6 +215,15 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 		// if use parent ctx, upload will be canceled on the "done" signal
 		_, err = backup.Upload(context.Background(), oplog, to, compression, fname, -1)
 		if err != nil {
+			// PITR chunks have no metadata to indicate any failed state and if something went
+			// wrong during the data read we may end up with an already created file. Although
+			// the failed range won't be saved in db as the available for restore. It would get
+			// in there after the storage resync. see: https://jira.percona.com/browse/PBM-602
+			l.Debug("remove %s due to upload errors", fname)
+			derr := to.Delete(fname)
+			if derr != nil {
+				l.Error("remove %s: %v", fname, derr)
+			}
 			return errors.Wrapf(err, "unable to upload chunk %v.%v", i.lastTS.T, sliceTo.T)
 		}
 
