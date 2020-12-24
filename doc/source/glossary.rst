@@ -54,6 +54,9 @@
   Oplog slice
      A compressed bundle of :term:`oplog <Oplog>` entries stored in the Oplog Store database in MongoDB. The oplog size captures an approximately 10-minute frame. For a snapshot, the oplog size is defined by the time that the slowest replica set member requires to perform mongodump.    
 
+  OpID
+    A unique identifier of an operation such as backup, restore, resync. When a pbm-agent starts processing an operation, it acquires a lock and an opID. This prevents processing the same operation twice (for example, if there are network issues in distributed systems). Using opID as a log filter allows viewing logs for an operation in progress.
+
   pbm-agent
      A ``pbm-agent`` is a :term:`PBM <Percona Backup for MongoDB>` process running on the mongod node for backup and restore operations. A pbm-agent instance is required for every mongod node (including replica set secondary members and config server replica set nodes).   
 
