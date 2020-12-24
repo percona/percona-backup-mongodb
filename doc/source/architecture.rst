@@ -55,7 +55,9 @@ cleanly separated from user db namespaces. (In a non-sharded replica set the
 - *admin.pbmConfig*
 - *admin.pbmCmd* (Used to define and trigger operations)
 - *admin.pbmLock* (|pbm-agent| synchronization-lock structure)
-- *admin.pbmOpLog* (logs each operation except :term:`Point-in-Time Recovery` slicing)
+- *admin.pbmBackup* (Log / status of each backup)
+- *admin.pbmLog* (Log information from all ``pbm-agents`` in the MongoDB environment. Available in |PBM| as of version 1.4.0)
+
 
 The |pbm.app| command line tool creates these collections as needed. You do not
 have to maintain these collections, but you should not drop them unnecessarily
