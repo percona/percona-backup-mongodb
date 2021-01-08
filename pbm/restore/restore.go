@@ -417,7 +417,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	for i := range excludeNamespaces {
 		excludeNamespaces[i] = strings.TrimSpace(excludeNamespaces[i])
 	}
-	excludeNs := append(excludeFromRestore, excludeNamespaces...)
+	excludeFromRestore = append(excludeFromRestore, excludeNamespaces...)
 
 	defer func() {
 		err := r.node.DropTMPcoll()
@@ -445,7 +445,7 @@ func (r *Restore) RunSnapshot() (err error) {
 			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
-			NSExclude: excludeNs,
+			NSExclude: excludeFromRestore,
 			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
 			NSTo:      []string{pbm.DB + `.` + pbm.TmpUsersCollection, pbm.DB + `.` + pbm.TmpRolesCollection},
 		},
