@@ -309,9 +309,25 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
-func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
+func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo, tag ...map[string]string) (bool, error) {
 	if inf.IsStandalone() {
 		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+	}
+
+	if len(tag) > 0 && len(inf.Tags) > 0 {
+		var tagFound bool = false
+		tags := make(map[string]string)
+		tags = tag[0]
+		for k, v := range inf.Tags {
+			if tags[k] == v {
+				tagFound = true
+				break
+			}
+		}
+
+		if !tagFound {
+			return false, errors.New("Tag specified NOT FOUND")
+		}
 	}
 
 	// for the cases when no secondary was good enough for backup or there are no secondaries alive
