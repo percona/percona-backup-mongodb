@@ -25,6 +25,7 @@ type Config struct {
 	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
 	Storage StorageConf         `bson:"storage" json:"storage" yaml:"storage"`
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -54,6 +55,11 @@ type StorageConf struct {
 type RestoreConf struct {
 	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+}
+
+// BackupConfig is config options for choose preferred tagged node to take a backup
+type BackupConf struct {
+	ReplSetTagFilter map[string]string `bson:"replset_tag_filter" json:"replset_tag_filter" yaml:"replset_tag_filter"`
 }
 
 type confMap map[string]reflect.Kind
