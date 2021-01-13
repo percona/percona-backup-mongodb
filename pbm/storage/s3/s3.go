@@ -241,7 +241,7 @@ func (s *S3) Files(suffix string) ([][]byte, error) {
 	return bcps, nil
 }
 
-func (s *S3) List(prefix string) ([]string, error) {
+func (s *S3) List(prefix string) ([]storage.FileInfo, error) {
 	s3s, err := s.s3session()
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
@@ -261,7 +261,7 @@ func (s *S3) List(prefix string) ([]string, error) {
 		lparams.Prefix = aws.String(path.Join(aws.StringValue(lparams.Prefix), prefix))
 	}
 
-	var files []string
+	var files []storage.FileInfo
 	err = s3s.ListObjectsPages(lparams,
 		func(page *s3.ListObjectsOutput, lastPage bool) bool {
 			for _, o := range page.Contents {
@@ -273,7 +273,10 @@ func (s *S3) List(prefix string) ([]string, error) {
 				if f[0] == '/' {
 					f = f[1:]
 				}
-				files = append(files, f)
+				files = append(files, storage.FileInfo{
+					Name: f,
+					Size: aws.Int64Value(o.Size),
+				})
 			}
 			return true
 		})
@@ -302,7 +305,7 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 
 		return inf, errors.Wrap(err, "get S3 object header")
 	}
-
+	inf.Name = name
 	inf.Size = aws.Int64Value(h.ContentLength)
 
 	if inf.Size == 0 {

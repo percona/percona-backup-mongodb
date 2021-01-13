@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -173,8 +172,9 @@ func (t Timeline) String() string {
 // for the given replicaset. We don't check for any "restore intrusions"
 // or other integrity issues since it's guaranteed be the slicer that
 // any saved chunk already belongs to some valid timeline,
-// the slice wouldn't be done otherwise
-func (p *PBM) PITRGetValidTimelines(rs string, until int64, stg storage.Storage) (tlines []Timeline, err error) {
+// the slice wouldn't be done otherwise.
+// `flist` is a cache of chunk sizes.
+func (p *PBM) PITRGetValidTimelines(rs string, until int64, flist map[string]int64) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -188,13 +188,9 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64, stg storage.Storage)
 		return nil, errors.Wrap(err, "get slice")
 	}
 
-	if stg != nil {
+	if flist != nil {
 		for i, s := range slices {
-			fs, err := stg.FileStat(s.FName)
-			if err != nil {
-				return nil, errors.Wrapf(err, "get file stat %s", s.FName)
-			}
-			slices[i].size = fs.Size
+			slices[i].size = flist[s.FName]
 		}
 	}
 

@@ -73,8 +73,8 @@ func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
 	return inf, nil
 }
 
-func (fs *FS) List(prefix string) ([]string, error) {
-	var files []string
+func (fs *FS) List(prefix string) ([]storage.FileInfo, error) {
+	var files []storage.FileInfo
 
 	prefix = path.Join(fs.opts.Path, prefix)
 
@@ -94,7 +94,7 @@ func (fs *FS) List(prefix string) ([]string, error) {
 			if f[0] == '/' {
 				f = f[1:]
 			}
-			files = append(files, f)
+			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
 		}
 
 		return nil

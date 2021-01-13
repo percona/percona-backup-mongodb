@@ -538,7 +538,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
 			sz, err := getSnapshotSize(bcp.Replsets, stg)
 			if err != nil {
-				log.Println("ERROR:", err)
+				log.Println("ERROR: storage: get snapshot size:", err)
 				continue
 			}
 			snpsht.Size = sz
@@ -571,10 +571,19 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		shards = append(shards, s...)
 	}
 
+	fl, err := stg.List(pbm.PITRfsPrefix)
+	if err != nil {
+		return pr, errors.Wrap(err, "get chunks list")
+	}
+
+	flist := make(map[string]int64)
+	for _, f := range fl {
+		flist[pbm.PITRfsPrefix+"/"+f.Name] = f.Size
+	}
 	now := time.Now().Unix()
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(s.RS, now, stg)
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, flist)
 		if err != nil {
 			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.RS, err)
 			continue
