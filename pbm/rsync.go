@@ -54,6 +54,11 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		if err != nil {
 			return errors.Wrap(err, "unmarshal backup meta")
 		}
+		err = checkBackupFiles(&v, stg)
+		if err != nil {
+			l.Warning("skip snapshot %s: %v", v.Name, err)
+			continue
+		}
 		ins = append(ins, v)
 	}
 	_, err = p.Conn.Database(DB).Collection(BcpCollection).InsertMany(p.ctx, ins)
@@ -89,6 +94,28 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).InsertMany(p.ctx, pitr)
 	if err != nil {
 		return errors.Wrap(err, "insert retrieved pitr meta")
+	}
+
+	return nil
+}
+
+func checkBackupFiles(bcp *BackupMeta, stg storage.Storage) error {
+	for _, rs := range bcp.Replsets {
+		f, err := stg.FileStat(rs.DumpName)
+		if err != nil {
+			return errors.Wrapf(err, "file %s", rs.DumpName)
+		}
+		if f.Size == 0 {
+			return errors.Errorf("%s is empty", rs.DumpName)
+		}
+
+		f, err = stg.FileStat(rs.OplogName)
+		if err != nil {
+			return errors.Wrapf(err, "file %s", rs.OplogName)
+		}
+		if f.Size == 0 {
+			return errors.Errorf("%s is empty", rs.OplogName)
+		}
 	}
 
 	return nil
