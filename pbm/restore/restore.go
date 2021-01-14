@@ -163,14 +163,14 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	r.name = name
 
 	r.opid = opid.String()
-	meta := &pbm.RestoreMeta{
-		OPID:     r.opid,
-		Name:     r.name,
-		StartTS:  time.Now().Unix(),
-		Status:   pbm.StatusStarting,
-		Replsets: []pbm.RestoreReplset{},
-	}
 	if r.nodeInfo.IsLeader() {
+		meta := &pbm.RestoreMeta{
+			OPID:     r.opid,
+			Name:     r.name,
+			StartTS:  time.Now().Unix(),
+			Status:   pbm.StatusStarting,
+			Replsets: []pbm.RestoreReplset{},
+		}
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
@@ -771,7 +771,7 @@ func (r *Restore) waitForStatus(status pbm.Status) error {
 			case status:
 				return nil
 			case pbm.StatusError:
-				return errors.Wrap(err, "restore failed")
+				return errors.Errorf("cluster failed: %s", meta.Error)
 			}
 		case <-r.cn.Context().Done():
 			return nil
