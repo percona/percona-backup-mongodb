@@ -71,12 +71,12 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	var pitr []interface{}
 	for _, f := range pitrf {
-		_, err := stg.FileStat(PITRfsPrefix + "/" + f)
+		_, err := stg.FileStat(PITRfsPrefix + "/" + f.Name)
 		if err != nil {
 			l.Warning("skip %s because of %v", f, err)
 			continue
 		}
-		chnk := PITRmetaFromFName(f)
+		chnk := PITRmetaFromFName(f.Name)
 		if chnk != nil {
 			pitr = append(pitr, chnk)
 		}
