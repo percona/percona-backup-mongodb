@@ -563,7 +563,7 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 			case pbm.StatusCancelled:
 				return ErrCancelled
 			case pbm.StatusError:
-				return errors.Wrap(err, "backup failed")
+				return errors.Errorf("cluster failed: %v", err)
 			}
 		case <-b.cn.Context().Done():
 			return nil
