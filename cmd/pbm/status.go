@@ -391,7 +391,7 @@ func getCurrOps(cn *pbm.PBM) (fmt.Stringer, error) {
 		OPID: lk.OPID,
 	}
 
-	// recheacing here means no conflict operation, hence all locks are the same,
+	// reaching here means no conflict operation, hence all locks are the same,
 	// hence any lock in `lk` contais info on the current op
 	switch r.Type {
 	case pbm.CmdBackup:

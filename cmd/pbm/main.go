@@ -217,6 +217,13 @@ func main() {
 		if *listCmdRestore {
 			printRestoreList(pbmClient, *listCmdSize, *listCmdFullF)
 		} else {
+			// show message ans skip when resync is running
+			lk, err := findLock(pbmClient, pbmClient.GetLocks)
+			if err == nil && lk != nil && lk.Type == pbm.CmdResyncBackupList {
+				fmt.Println("[Storage resync is running. Backups list will be available after sync finishes.]")
+				return
+			}
+
 			printBackupList(pbmClient, *listCmdSize)
 			printPITR(pbmClient, int(*listCmdSize), *listCmdFullF)
 		}
