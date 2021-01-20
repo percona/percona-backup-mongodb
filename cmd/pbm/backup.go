@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -124,6 +125,14 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	if err != nil {
 		log.Fatalln("Error: unable to get backups list:", err)
 	}
+
+	shards, err := cn.ClusterMembers(nil)
+	if err != nil {
+		log.Fatalln("Error: get cluster members", err)
+	}
+
+	bcpMatchCluster(bcps, shards)
+
 	fmt.Println("Backup snapshots:")
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
@@ -136,24 +145,57 @@ func printBackupList(cn *pbm.PBM, size int64) {
 	}
 }
 
+// bcpMatchCluster checks if given backups match shards in the cluster. Match means that
+// for every shard in the cluster there is data in the backup. It's ok if the backup has data for
+// more shards than there are currently in cluster.
+//
+// If some backup doesn't match cluster, the status of the backup meta in given `bcps` would be
+// changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
+// storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
+// in given `bcps`.
+func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard) {
+	sh := make(map[string]int, len(shards))
+	for _, s := range shards {
+		sh[s.RS] = -1
+	}
+
+	var nomatch int
+	for i := 0; i < len(bcps); i++ {
+		bcp := &bcps[i]
+		nomatch = len(sh)
+		for _, rs := range bcp.Replsets {
+			if _, ok := sh[rs.Name]; ok {
+				sh[rs.Name] = i
+
+				nomatch--
+				if nomatch == 0 {
+					break
+				}
+			}
+		}
+
+		if nomatch > 0 {
+			nrs := make([]string, 0, nomatch)
+			for rs, epch := range sh {
+				if epch != i {
+					nrs = append(nrs, rs)
+				}
+			}
+			bcp.Error = "Backup doesn't match current cluster. No data for replsets: " + strings.Join(nrs, ", ")
+			bcp.Status = pbm.StatusError
+		}
+	}
+}
+
 func printPITR(cn *pbm.PBM, size int, full bool) {
 	on, err := cn.IsPITR()
 	if err != nil {
 		log.Fatalf("Error: check if PITR is on: %v", err)
 	}
 
-	inf, err := cn.GetNodeInfo()
+	shards, err := cn.ClusterMembers(nil)
 	if err != nil {
-		log.Fatalf("Error: define cluster state: %v", err)
-	}
-
-	shards := []pbm.Shard{{RS: inf.SetName}}
-	if inf.IsSharded() {
-		s, err := cn.GetShards()
-		if err != nil {
-			log.Fatalf("Error: get shards: %v", err)
-		}
-		shards = append(shards, s...)
+		log.Fatalf("Error: get cluster members: %v", err)
 	}
 
 	now := time.Now().Unix()

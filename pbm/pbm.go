@@ -708,6 +708,34 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 	return backups, cur.Err()
 }
 
+// ClusterMembers returns list of replicasets current cluster consts of
+// (shards + configserver). The list would consist of on rs if cluster is
+// a non-sharded rs. If `inf` is nil, method would request mongo to define it.
+func (p *PBM) ClusterMembers(inf *NodeInfo) ([]Shard, error) {
+	var err error
+
+	if inf == nil {
+		inf, err = p.GetNodeInfo()
+		if err != nil {
+			return nil, errors.Wrap(err, "define cluster state")
+		}
+	}
+
+	shards := []Shard{{
+		RS:   inf.SetName,
+		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
+	}}
+	if inf.IsSharded() {
+		s, err := p.GetShards()
+		if err != nil {
+			return nil, errors.Wrap(err, "get shards")
+		}
+		shards = append(shards, s...)
+	}
+
+	return shards, nil
+}
+
 // GetShards gets list of shards
 func (p *PBM) GetShards() ([]Shard, error) {
 	cur, err := p.Conn.Database("config").Collection("shards").Find(p.ctx, bson.M{})

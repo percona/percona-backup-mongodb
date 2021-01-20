@@ -3,7 +3,6 @@ package restore
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/mongodb/mongo-tools-common/db"
@@ -623,19 +622,9 @@ func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
 }
 
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
-	shards := []pbm.Shard{
-		{
-			RS:   r.nodeInfo.SetName,
-			Host: r.nodeInfo.SetName + "/" + strings.Join(r.nodeInfo.Hosts, ","),
-		},
-	}
-
-	if r.nodeInfo.IsSharded() {
-		s, err := r.cn.GetShards()
-		if err != nil {
-			return errors.Wrap(err, "get shards list")
-		}
-		shards = append(shards, s...)
+	shards, err := r.cn.ClusterMembers(r.nodeInfo)
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
 	}
 
 	if timeout != nil {

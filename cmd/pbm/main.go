@@ -96,8 +96,8 @@ func main() {
 	}
 
 	if *mURL == "" {
-		log.Println("Error: no mongodb connection URI supplied\n")
-		log.Println("       Usual practice is the set it by the PBM_MONGODB_URI environment variable. It can also be set with commandline argument --mongodb-uri.\n")
+		log.Println("Error: no mongodb connection URI supplied")
+		log.Println("       Usual practice is the set it by the PBM_MONGODB_URI environment variable. It can also be set with commandline argument --mongodb-uri.")
 		pbmCmd.Usage(os.Args[1:])
 		os.Exit(1)
 	}
