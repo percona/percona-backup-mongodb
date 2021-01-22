@@ -538,8 +538,8 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
 			sz, err := getSnapshotSize(bcp.Replsets, stg)
 			if err != nil {
-				log.Println("ERROR: storage: get snapshot size:", err)
-				continue
+				snpsht.Err = err.Error()
+				snpsht.Status = pbm.StatusError
 			}
 			snpsht.Size = sz
 		case pbm.StatusError:
