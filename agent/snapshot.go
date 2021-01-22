@@ -207,7 +207,11 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("restore started")
 	err = restore.New(a.pbm, a.node).Snapshot(r, opid, l)
 	if err != nil {
-		l.Error("restore: %v", err)
+		if errors.Is(err, restore.ErrNoDatForShard) {
+			l.Info("no data for the shard in backup, skipping")
+		} else {
+			l.Error("restore: %v", err)
+		}
 		return
 	}
 	l.Info("restore finished successfully")
