@@ -20,20 +20,24 @@ A slice covers a 10 minute span of oplog events. It can be shorter if |PITR| is 
 
 The oplog slices are stored in the :file:`pbmPitr` subdirectory in the :ref:`remote storage defined in the config <storage.config>`. A slice name reflects the start and end time this slice covers. 
 
-The |pbm-list| output includes both backup snapshots and valid time ranges for recovery. It also shows the |PITR| status.
+The |pbm-list| output includes the following information:
+
+- Backup snapshots. As of version 1.4.0, it also shows the completion time
+- Valid time ranges for recovery
+- |PITR| status.
 
 .. code-block:: bash
 
    $ pbm list
 
    Backup snapshots:
-  	2020-07-10T12:19:10Z
-  	2020-07-14T10:44:44Z
-  	2020-07-14T14:26:20Z
-  	2020-07-17T16:46:59Z
+  	2020-12-10T12:19:10Z [complete: 2020-12-10T12:23:50]
+  	2020-12-14T10:44:44Z [complete: 2020-12-14T10:49:03]
+  	2020-12-14T14:26:20Z [complete: 2020-12-14T14:34:39]
+  	2020-12-17T16:46:59Z [complete: 2020-12-17T16:51:07]
    PITR <on>:
-  	2020-07-14T14:26:40 - 2020-07-16T17:27:26
-  	2020-07-17T16:47:20 - 2020-07-17T16:57:55
+  	2020-12-14T14:26:40 - 2020-12-16T17:27:26
+  	2020-12-17T16:47:20 - 2020-12-17T16:57:55
 
 .. note::
 
