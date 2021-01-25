@@ -50,10 +50,11 @@ PBM Control Collections
 
 The config and state (current and historical) for backups is stored in
 collections in the MongoDB cluster or non-sharded replica set itself. These are
-put in the system ``admin`` db of the config server replica set to keep them
-cleanly separated from user db namespaces. (In a non-sharded replica set the
-``admin`` db of the replica set itself is used.)
+put in the system ``admin`` db to keep them
+cleanly separated from user db namespaces. 
 
+In sharded clusters, this is the ``admin`` db of the config server replica set. In a non-sharded replica set, the PBM Control Collections are stored in 
+``admin`` db of the replica set itself.
 
 - *admin.pbmBackups* - Log / status of each backup
 - *admin.pbmAgents* - Contains information about ``pbm-agents`` statuses and health
