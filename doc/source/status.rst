@@ -1,18 +1,16 @@
 .. _pbm-status:
 
 
-Checking status of |PBM| 
+Checking status of |PBM|
 ******************************************************
 
-As of version 1.4.0, you can check the status of |pbm| running in your MongoDB environment. This helps you identify 
-
-To check |PBM| status, run the following command:
+As of version 1.4.0, you can check the status of |pbm| running in your MongoDB environment using the :command:`pbm status` command. 
 
 .. code-block:: bash
 
    $ pbm status
 
-The output of the :command:`pbm status` command provides the information about:
+The output provides the information about:
 
 - Your MongoDB deployment and ``pbm-agents`` running in it: to what ``mongod`` node each agent is connected, the |pbm| version it runs and the agent's state
 - The currently running backups / restores, if any
@@ -20,10 +18,14 @@ The output of the :command:`pbm status` command provides the information about:
 - :term:`Point-in-Time Recovery` status (enabled or disabled).
 - Valid time ranges for point-in-time recovery and the data size
 
+This simplifies troubleshooting since the whole information is provided in one place.
+
 .. admonition:: Sample output
 
    .. code-block:: text
-   
+
+      $ pbm status
+
       Cluster:
       ========
       config:
@@ -38,7 +40,7 @@ The output of the :command:`pbm status` command provides the information about:
         - rs2/localhost:28018: pbm-agent v1.3.2 OK
         - rs2/localhost:28019: pbm-agent v1.3.2 OK
         - rs2/localhost:28020: pbm-agent v1.3.2 OK
-        
+
       PITR incremental backup:
       ========================
       Status [OFF]
