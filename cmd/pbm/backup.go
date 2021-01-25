@@ -146,42 +146,33 @@ func printBackupList(cn *pbm.PBM, size int64) {
 }
 
 // bcpMatchCluster checks if given backups match shards in the cluster. Match means that
-// for every shard in the cluster there is data in the backup. It's ok if the backup has data for
-// more shards than there are currently in cluster.
+// each replset in backup have respective replset on the target cluster. It's ok if the
+// cluster has more shards than there are currently in backup.
 //
 // If some backup doesn't match cluster, the status of the backup meta in given `bcps` would be
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
 func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard) {
-	sh := make(map[string]int, len(shards))
+	sh := make(map[string]struct{}, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = -1
+		sh[s.RS] = struct{}{}
 	}
 
-	var nomatch int
+	var nomatch []string
 	for i := 0; i < len(bcps); i++ {
 		bcp := &bcps[i]
-		nomatch = len(sh)
+		nomatch = nomatch[:0]
 		for _, rs := range bcp.Replsets {
-			if _, ok := sh[rs.Name]; ok {
-				sh[rs.Name] = i
-
-				nomatch--
-				if nomatch == 0 {
-					break
-				}
+			if _, ok := sh[rs.Name]; !ok {
+				nomatch = append(nomatch, rs.Name)
 			}
 		}
 
-		if nomatch > 0 {
-			nrs := make([]string, 0, nomatch)
-			for rs, epch := range sh {
-				if epch != i {
-					nrs = append(nrs, rs)
-				}
-			}
-			bcp.Error = "Backup doesn't match current cluster. No data for replsets: " + strings.Join(nrs, ", ")
+		if len(nomatch) > 0 {
+			bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
+				"Extra shards in the backup will cause this, for a simple example. " +
+				"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
 			bcp.Status = pbm.StatusError
 		}
 	}

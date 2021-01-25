@@ -8,10 +8,13 @@ import (
 )
 
 func TestBcpMatchCluster(t *testing.T) {
+	type bcase struct {
+		meta   pbm.BackupMeta
+		expect pbm.Status
+	}
 	cases := []struct {
 		shards []pbm.Shard
-		bcps   []pbm.BackupMeta
-		expect []pbm.BackupMeta
+		bcps   []bcase
 	}{
 		{
 			shards: []pbm.Shard{
@@ -19,46 +22,56 @@ func TestBcpMatchCluster(t *testing.T) {
 				{RS: "rs1"},
 				{RS: "rs2"},
 			},
-			bcps: []pbm.BackupMeta{
+			bcps: []bcase{
 				{
-					Name: "bcp1",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
-						{Name: "rs1"},
-						{Name: "rs3"},
+					pbm.BackupMeta{
+						Name: "bcp1",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs3"},
+						},
 					},
-					Status: pbm.StatusDone,
+					pbm.StatusError,
 				},
 				{
-					Name: "bcp2",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
-						{Name: "rs1"},
+					pbm.BackupMeta{
+						Name: "bcp2",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs1"},
+						},
 					},
-					Status: pbm.StatusDone,
+					pbm.StatusDone,
 				},
 				{
-					Name: "bcp3",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
-						{Name: "rs1"},
-						{Name: "rs2"},
+					pbm.BackupMeta{
+						Name: "bcp3",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+							{Name: "rs3"},
+						},
 					},
-					Status: pbm.StatusDone,
-				},
-			},
-			expect: []pbm.BackupMeta{
-				{
-					Name:   "bcp1",
-					Status: pbm.StatusError,
+					pbm.StatusError,
 				},
 				{
-					Name:   "bcp2",
-					Status: pbm.StatusError,
+					pbm.BackupMeta{
+						Name: "bcp4",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+						},
+					},
+					pbm.StatusDone,
 				},
 				{
-					Name:   "bcp3",
-					Status: pbm.StatusDone,
+					pbm.BackupMeta{
+						Name: "bcp5",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+							{Name: "rs2"},
+						},
+					},
+					pbm.StatusDone,
 				},
 			},
 		},
@@ -66,56 +79,56 @@ func TestBcpMatchCluster(t *testing.T) {
 			shards: []pbm.Shard{
 				{RS: "rs1"},
 			},
-			bcps: []pbm.BackupMeta{
+			bcps: []bcase{
 				{
-					Name: "bcp1",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
-						{Name: "rs1"},
-						{Name: "rs3"},
+					pbm.BackupMeta{
+						Name: "bcp1",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs3"},
+						},
 					},
-					Status: pbm.StatusDone,
+					pbm.StatusError,
 				},
 				{
-					Name: "bcp2",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
+					pbm.BackupMeta{
+						Name: "bcp2",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs1"},
+						},
 					},
-					Status: pbm.StatusDone,
+					pbm.StatusDone,
 				},
 				{
-					Name: "bcp3",
-					Replsets: []pbm.BackupReplset{
-						{Name: "config"},
-						{Name: "rs2"},
-						{Name: "rs3"},
+					pbm.BackupMeta{
+						Name: "bcp3",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+							{Name: "rs3"},
+						},
 					},
-					Status: pbm.StatusDone,
+					pbm.StatusError,
 				},
 				{
-					Name: "bcp4",
-					Replsets: []pbm.BackupReplset{
-						{Name: "rs1"},
+					pbm.BackupMeta{
+						Name: "bcp4",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+						},
 					},
-					Status: pbm.StatusDone,
-				},
-			},
-			expect: []pbm.BackupMeta{
-				{
-					Name:   "bcp1",
-					Status: pbm.StatusDone,
+					pbm.StatusError,
 				},
 				{
-					Name:   "bcp2",
-					Status: pbm.StatusError,
-				},
-				{
-					Name:   "bcp3",
-					Status: pbm.StatusError,
-				},
-				{
-					Name:   "bcp4",
-					Status: pbm.StatusDone,
+					pbm.BackupMeta{
+						Name: "bcp5",
+						Replsets: []pbm.BackupReplset{
+							{Name: "config"},
+							{Name: "rs1"},
+							{Name: "rs2"},
+						},
+					},
+					pbm.StatusError,
 				},
 			},
 		},
@@ -123,10 +136,15 @@ func TestBcpMatchCluster(t *testing.T) {
 
 	for i, c := range cases {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			bcpMatchCluster(c.bcps, c.shards)
-			for i := 0; i < len(c.expect); i++ {
-				if c.expect[i].Status != c.bcps[i].Status {
-					t.Errorf("wrong status for %s, expect %s, got %s", c.bcps[i].Name, c.expect[i].Status, c.bcps[i].Status)
+			m := []pbm.BackupMeta{}
+			for _, b := range c.bcps {
+				b.meta.Status = pbm.StatusDone
+				m = append(m, b.meta)
+			}
+			bcpMatchCluster(m, c.shards)
+			for i := 0; i < len(c.bcps); i++ {
+				if c.bcps[i].expect != m[i].Status {
+					t.Errorf("wrong status for %s, expect %s, got %s", m[i].Name, c.bcps[i].expect, m[i].Status)
 				}
 			}
 		})
@@ -291,7 +309,6 @@ func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
 func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 	shards := []pbm.Shard{
 		{RS: "config"},
-		{RS: "rs1"},
 		{RS: "rs2"},
 	}
 
@@ -338,7 +355,7 @@ func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
 		rss = append(rss, pbm.BackupReplset{Name: fmt.Sprint(i)})
 	}
 
-	shards = append(shards, pbm.Shard{RS: "newrs"})
+	rss = append(rss, pbm.BackupReplset{Name: "newrs"})
 	bcps := []pbm.BackupMeta{}
 
 	for i := 0; i < 1000; i++ {
