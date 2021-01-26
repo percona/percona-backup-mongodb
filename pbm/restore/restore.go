@@ -50,13 +50,19 @@ var excludeFromRestore = []string{
 }
 
 type Restore struct {
-	name       string
-	cn         *pbm.PBM
-	node       *pbm.Node
-	stopHB     chan struct{}
-	nodeInfo   *pbm.NodeInfo
-	stg        storage.Storage
-	bcp        *pbm.BackupMeta
+	name     string
+	cn       *pbm.PBM
+	node     *pbm.Node
+	stopHB   chan struct{}
+	nodeInfo *pbm.NodeInfo
+	stg      storage.Storage
+	bcp      *pbm.BackupMeta
+	// Shards to participate in restore. Num of shards in bcp could
+	// be less than in the cluster and this is ok.
+	//
+	// Only the restore leader would have this info.
+	shards []pbm.Shard
+
 	dumpFile   string
 	oplogFile  string
 	pitrChunks []pbm.PITRChunk
@@ -85,7 +91,7 @@ func (r *Restore) Close() {
 // Snapshot do the snapshot's (mongo dump) restore
 func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrNoDatForShard) {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
 				l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -116,7 +122,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 // PITR do Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrNoDatForShard) {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
 				l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -198,18 +204,6 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	err = r.waitForStatus(pbm.StatusStarting)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
-	}
-
-	rsMeta := pbm.RestoreReplset{
-		Name:       r.nodeInfo.SetName,
-		StartTS:    time.Now().UTC().Unix(),
-		Status:     pbm.StatusStarting,
-		Conditions: []pbm.Condition{},
-	}
-
-	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)
-	if err != nil {
-		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	r.stg, err = r.cn.GetStorage(r.log)
@@ -297,6 +291,8 @@ func (r *Restore) PrepareBackup(backupName string) (err error) {
 	return errors.Wrap(err, "prepare snapshot")
 }
 
+var ErrNoDatForShard = errors.New("no data for shard")
+
 func (r *Restore) prepareSnapshot() (err error) {
 	if r.bcp == nil {
 		return errors.New("snapshot name doesn't set")
@@ -311,6 +307,33 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error)
 	}
 
+	if r.nodeInfo.IsLeader() {
+		s, err := r.cn.ClusterMembers(r.nodeInfo)
+		if err != nil {
+			return errors.Wrap(err, "get cluster members")
+		}
+
+		fl := make(map[string]pbm.Shard, len(s))
+		for _, rs := range s {
+			fl[rs.RS] = rs
+		}
+
+		var nors []string
+		for _, sh := range r.bcp.Replsets {
+			rs, ok := fl[sh.Name]
+			if !ok {
+				nors = append(nors, sh.Name)
+				continue
+			}
+
+			r.shards = append(r.shards, rs)
+		}
+
+		if len(nors) > 0 {
+			return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
+		}
+	}
+
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == r.nodeInfo.SetName {
@@ -321,7 +344,7 @@ func (r *Restore) prepareSnapshot() (err error) {
 		}
 	}
 	if !ok {
-		return errors.Errorf("metadata for replset/shard %s is not found", r.nodeInfo.SetName)
+		return ErrNoDatForShard
 	}
 
 	_, err = r.stg.FileStat(r.dumpFile)
@@ -333,9 +356,16 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("failed to ensure oplog file %s: %v", r.oplogFile, err)
 	}
 
-	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusRunning, "")
+	rsMeta := pbm.RestoreReplset{
+		Name:       r.nodeInfo.SetName,
+		StartTS:    time.Now().UTC().Unix(),
+		Status:     pbm.StatusRunning,
+		Conditions: []pbm.Condition{},
+	}
+
+	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)
 	if err != nil {
-		return errors.Wrap(err, "set shard's StatusDumpDone")
+		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	return nil
@@ -623,35 +653,20 @@ func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
 }
 
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
-	shards := []pbm.Shard{
-		{
-			RS:   r.nodeInfo.SetName,
-			Host: r.nodeInfo.SetName + "/" + strings.Join(r.nodeInfo.Hosts, ","),
-		},
-	}
-
-	if r.nodeInfo.IsSharded() {
-		s, err := r.cn.GetShards()
-		if err != nil {
-			return errors.Wrap(err, "get shards list")
-		}
-		shards = append(shards, s...)
-	}
-
 	if timeout != nil {
-		return errors.Wrap(r.convergeClusterWithTimeout(shards, status, *timeout), "convergeClusterWithTimeout")
+		return errors.Wrap(r.convergeClusterWithTimeout(status, *timeout), "convergeClusterWithTimeout")
 	}
-	return errors.Wrap(r.convergeCluster(shards, status), "convergeCluster")
+	return errors.Wrap(r.convergeCluster(status), "convergeCluster")
 }
 
-// convergeCluster waits until all given shards reached `status` and updates a cluster status
-func (r *Restore) convergeCluster(shards []pbm.Shard, status pbm.Status) error {
+// convergeCluster waits until all participating shards reached `status` and updates a cluster status
+func (r *Restore) convergeCluster(status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
 		select {
 		case <-tk.C:
-			ok, err := r.converged(shards, status)
+			ok, err := r.converged(r.shards, status)
 			if err != nil {
 				return err
 			}
@@ -666,8 +681,9 @@ func (r *Restore) convergeCluster(shards []pbm.Shard, status pbm.Status) error {
 
 var errConvergeTimeOut = errors.New("reached converge timeout")
 
-// convergeClusterWithTimeout waits up to the geiven timeout until all given shards reached `status` and then updates the cluster status
-func (r *Restore) convergeClusterWithTimeout(shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+// convergeClusterWithTimeout waits up to the geiven timeout until all participating shards reached
+// `status` and then updates the cluster status
+func (r *Restore) convergeClusterWithTimeout(status pbm.Status, t time.Duration) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	tout := time.NewTicker(t)
@@ -675,7 +691,7 @@ func (r *Restore) convergeClusterWithTimeout(shards []pbm.Shard, status pbm.Stat
 	for {
 		select {
 		case <-tk.C:
-			ok, err := r.converged(shards, status)
+			ok, err := r.converged(r.shards, status)
 			if err != nil {
 				return err
 			}

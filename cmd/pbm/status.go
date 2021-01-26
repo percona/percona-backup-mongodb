@@ -280,18 +280,9 @@ func getPitrErr(cn *pbm.PBM) (string, error) {
 		return "", errors.Wrap(err, "get current epoch")
 	}
 
-	inf, err := cn.GetNodeInfo()
+	shards, err := cn.ClusterMembers(nil)
 	if err != nil {
-		log.Fatalf("Error: define cluster state: %v", err)
-	}
-
-	shards := []pbm.Shard{{RS: inf.SetName}}
-	if inf.IsSharded() {
-		s, err := cn.GetShards()
-		if err != nil {
-			log.Fatalf("Error: get shards: %v", err)
-		}
-		shards = append(shards, s...)
+		log.Fatalf("Error: get cluster members: %v", err)
 	}
 
 	var errs []string
@@ -470,7 +461,7 @@ func (s storageStat) String() string {
 		case pbm.StatusCancelled:
 			ret += fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
-			ret += fmt.Sprintf(" [ERROR: %s / %s]", sn.Err, fmtTS(sn.StateTS))
+			ret += fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
 		default:
 			ret += fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
@@ -521,6 +512,13 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		return s, errors.Wrap(err, "get backups list")
 	}
 
+	shards, err := cn.ClusterMembers(nil)
+	if err != nil {
+		return s, errors.Wrap(err, "get cluster members")
+	}
+
+	bcpMatchCluster(bcps, shards)
+
 	stg, err := cn.GetStorage(nil)
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
@@ -557,18 +555,9 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 }
 
 func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error) {
-	inf, err := cn.GetNodeInfo()
+	shards, err := cn.ClusterMembers(nil)
 	if err != nil {
-		return pr, errors.Wrap(err, "define cluster state")
-	}
-
-	shards := []pbm.Shard{{RS: inf.SetName}}
-	if inf.IsSharded() {
-		s, err := cn.GetShards()
-		if err != nil {
-			return pr, errors.Wrap(err, "get shards")
-		}
-		shards = append(shards, s...)
+		return pr, errors.Wrap(err, "get cluster members")
 	}
 
 	fl, err := stg.List(pbm.PITRfsPrefix)

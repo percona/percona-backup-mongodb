@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/mongodb/mongo-tools-common/db"
@@ -413,19 +412,9 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 }
 
 func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
-	shards := []pbm.Shard{
-		{
-			RS:   ninf.SetName,
-			Host: ninf.SetName + "/" + strings.Join(ninf.Hosts, ","),
-		},
-	}
-
-	if ninf.IsSharded() {
-		s, err := b.cn.GetShards()
-		if err != nil {
-			return errors.Wrap(err, "get shards list")
-		}
-		shards = append(shards, s...)
+	shards, err := b.cn.ClusterMembers(ninf)
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
 	}
 
 	if timeout != nil {
