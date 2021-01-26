@@ -16,6 +16,7 @@ URL:  https://github.com/percona/percona-backup-mongodb
 Source0: percona-backup-mongodb-%{version}.tar.gz
 
 BuildRequires: golang make git
+BuildRequires: krb5-devel
 Requires(pre): /usr/sbin/useradd, /usr/bin/getent
 Requires(postun): /usr/sbin/userdel
 %if 0%{?systemd}
