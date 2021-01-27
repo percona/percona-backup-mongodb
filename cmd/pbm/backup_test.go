@@ -13,10 +13,12 @@ func TestBcpMatchCluster(t *testing.T) {
 		expect pbm.Status
 	}
 	cases := []struct {
-		shards []pbm.Shard
-		bcps   []bcase
+		confsrv string
+		shards  []pbm.Shard
+		bcps    []bcase
 	}{
 		{
+			confsrv: "config",
 			shards: []pbm.Shard{
 				{RS: "config"},
 				{RS: "rs1"},
@@ -36,10 +38,29 @@ func TestBcpMatchCluster(t *testing.T) {
 					pbm.BackupMeta{
 						Name: "bcp2",
 						Replsets: []pbm.BackupReplset{
-							{Name: "rs1"},
+							{Name: "config"},
 						},
 					},
 					pbm.StatusDone,
+				},
+				{
+					pbm.BackupMeta{
+						Name: "bcp2",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs1"},
+							{Name: "rs2"},
+						},
+					},
+					pbm.StatusError,
+				},
+				{
+					pbm.BackupMeta{
+						Name: "bcp2",
+						Replsets: []pbm.BackupReplset{
+							{Name: "rs1"},
+						},
+					},
+					pbm.StatusError,
 				},
 				{
 					pbm.BackupMeta{
@@ -76,6 +97,7 @@ func TestBcpMatchCluster(t *testing.T) {
 			},
 		},
 		{
+			confsrv: "rs1",
 			shards: []pbm.Shard{
 				{RS: "rs1"},
 			},
@@ -141,7 +163,7 @@ func TestBcpMatchCluster(t *testing.T) {
 				b.meta.Status = pbm.StatusDone
 				m = append(m, b.meta)
 			}
-			bcpMatchCluster(m, c.shards)
+			bcpMatchCluster(m, c.shards, c.confsrv)
 			for i := 0; i < len(c.bcps); i++ {
 				if c.bcps[i].expect != m[i].Status {
 					t.Errorf("wrong status for %s, expect %s, got %s", m[i].Name, c.bcps[i].expect, m[i].Status)
@@ -173,7 +195,7 @@ func BenchmarkBcpMatchCluster3x10(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
@@ -199,7 +221,7 @@ func BenchmarkBcpMatchCluster3x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
@@ -253,7 +275,7 @@ func BenchmarkBcpMatchCluster17x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
@@ -279,13 +301,13 @@ func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
 func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
-	shards := []pbm.Shard{}
-	rss := []pbm.BackupReplset{}
+	shards := []pbm.Shard{{RS: "config"}}
+	rss := []pbm.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
 		shards = append(shards, pbm.Shard{RS: fmt.Sprint(i)})
@@ -302,7 +324,7 @@ func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
@@ -342,13 +364,13 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		})
 	}
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
 
 func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
-	shards := []pbm.Shard{}
-	rss := []pbm.BackupReplset{}
+	shards := []pbm.Shard{{RS: "config"}}
+	rss := []pbm.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
 		shards = append(shards, pbm.Shard{RS: fmt.Sprint(i)})
@@ -366,6 +388,6 @@ func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpMatchCluster(bcps, shards)
+		bcpMatchCluster(bcps, shards, "config")
 	}
 }
