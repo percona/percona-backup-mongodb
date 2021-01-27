@@ -512,12 +512,19 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		return s, errors.Wrap(err, "get backups list")
 	}
 
-	shards, err := cn.ClusterMembers(nil)
+	inf, err := cn.GetNodeInfo()
+	if err != nil {
+		return s, errors.Wrap(err, "define cluster state")
+	}
+
+	shards, err := cn.ClusterMembers(inf)
 	if err != nil {
 		return s, errors.Wrap(err, "get cluster members")
 	}
 
-	bcpMatchCluster(bcps, shards)
+	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
+	// which the `confsrv` param in `bcpMatchCluster` is all about
+	bcpMatchCluster(bcps, shards, inf.SetName)
 
 	stg, err := cn.GetStorage(nil)
 	if err != nil {

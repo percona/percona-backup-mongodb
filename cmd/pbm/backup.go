@@ -126,12 +126,19 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		log.Fatalln("Error: unable to get backups list:", err)
 	}
 
-	shards, err := cn.ClusterMembers(nil)
+	inf, err := cn.GetNodeInfo()
+	if err != nil {
+		log.Fatalln("Error: define cluster state", err)
+	}
+
+	shards, err := cn.ClusterMembers(inf)
 	if err != nil {
 		log.Fatalln("Error: get cluster members", err)
 	}
 
-	bcpMatchCluster(bcps, shards)
+	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
+	// which the `confsrv` param in `bcpMatchCluster` is all about
+	bcpMatchCluster(bcps, shards, inf.SetName)
 
 	fmt.Println("Backup snapshots:")
 	for i := len(bcps) - 1; i >= 0; i-- {
@@ -146,14 +153,15 @@ func printBackupList(cn *pbm.PBM, size int64) {
 }
 
 // bcpMatchCluster checks if given backups match shards in the cluster. Match means that
-// each replset in backup have respective replset on the target cluster. It's ok if the
-// cluster has more shards than there are currently in backup.
+// each replset in backup have respective replset on the target cluster. It's ok if cluster
+// has more shards than there are currently in backup. But in the case of sharded cluster
+// backup has to have data for the current config server or for the sole RS in case of non-sharded rs.
 //
 // If some backup doesn't match cluster, the status of the backup meta in given `bcps` would be
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard) {
+func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string) {
 	sh := make(map[string]struct{}, len(shards))
 	for _, s := range shards {
 		sh[s.RS] = struct{}{}
@@ -163,9 +171,13 @@ func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard) {
 	for i := 0; i < len(bcps); i++ {
 		bcp := &bcps[i]
 		nomatch = nomatch[:0]
+		hasconfsrv := false
 		for _, rs := range bcp.Replsets {
 			if _, ok := sh[rs.Name]; !ok {
 				nomatch = append(nomatch, rs.Name)
+			}
+			if rs.Name == confsrv {
+				hasconfsrv = true
 			}
 		}
 
@@ -173,6 +185,14 @@ func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard) {
 			bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
 				"Extra shards in the backup will cause this, for a simple example. " +
 				"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
+			bcp.Status = pbm.StatusError
+		}
+
+		if !hasconfsrv {
+			if bcp.Error != "" {
+				bcp.Error += ". "
+			}
+			bcp.Error += "Backup has no data for the config server or sole replicaset"
 			bcp.Status = pbm.StatusError
 		}
 	}
