@@ -3,6 +3,9 @@
 Architecture
 ********************************************************************************
 
+.. contents::
+   :local:
+
 .. _pbm.architecture.agent:
 
 |pbm-agent|
@@ -29,7 +32,7 @@ It manages your backups through a set of sub-commands:
 .. include:: .res/code-block/bash/pbm-help-output.txt
 
 |pbm.app| modifies the PBM config by saving it in the PBM Control collection for
-config values. Likewise it starts and monitors backup or restore operations by
+config values. Likewise, it starts and monitors backup or restore operations by
 updating and reading other PBM control collections for operations, log, etc.
 
 |pbm.app| does not have its own config and/or cache files. Setting the
@@ -47,17 +50,24 @@ PBM Control Collections
 
 The config and state (current and historical) for backups is stored in
 collections in the MongoDB cluster or non-sharded replica set itself. These are
-put in the system ``admin`` db of the config server replica set to keep them
-cleanly separated from user db namespaces. (In a non-sharded replica set the
-``admin`` db of the replica set itself is used.)
+put in the system ``admin`` db to keep them
+cleanly separated from user db namespaces. 
 
-- *admin.pbmBackups* (Log / status of each backup)
-- *admin.pbmConfig*
-- *admin.pbmCmd* (Used to define and trigger operations)
-- *admin.pbmLock* (|pbm-agent| synchronization-lock structure)
-- *admin.pbmBackup* (Log / status of each backup)
-- *admin.pbmLog* (Log information from all ``pbm-agents`` in the MongoDB environment. Available in |PBM| as of version 1.4.0)
+In sharded clusters, this is the ``admin`` db of the config server replica set. In a non-sharded replica set, the PBM Control Collections are stored in 
+``admin`` db of the replica set itself.
 
+- *admin.pbmBackups* - Log / status of each backup
+- *admin.pbmAgents* - Contains information about ``pbm-agents`` statuses and health
+- *admin.pbmConfig* - Contains configuration information for |PBM|
+- *admin.pbmCmd* - Is used to define and trigger operations
+- *admin.pbmLock* - |pbm-agent| synchronization-lock structure
+- *admin.pbmLockOp* - Is used to coordinate operations that are not mutually-exclusive such as make backup and delete backup.
+- *admin.pbmLog* - Stores log information from all ``pbm-agents`` in the MongoDB environment. Available in |PBM| as of version 1.4.0
+- *admin.pbmOpLog* - Stores :term:`operation IDs <OpID>`
+- *admin.pbmPITRChunks* - Stores :term:`Point-in-Time Recovery` oplog slices
+- *admin.pbmPITRState* - Contains current state of |PITR| incremental backups
+- *admin.pbmRestores* - Contains restore history and the restore state for all replica sets
+- *admin.pbmStatus* - Stores |PBM| status records
 
 The |pbm.app| command line tool creates these collections as needed. You do not
 have to maintain these collections, but you should not drop them unnecessarily
