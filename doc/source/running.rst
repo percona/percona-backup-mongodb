@@ -11,19 +11,25 @@ This document provides examples of using |pbm.app| commands to operate your back
 
 .. _pbm.running.backup.listing:
 
-Listing all backups
+Listing backups
 --------------------------------------------------------------------------------
 
-.. include:: .res/code-block/bash/pbm-list-mongodb-uri.txt
+To view all completed backups, run the :command:`pbm list` command.
+
+.. code-block:: bash
+
+   $ pbm list
+
+As of version 1.4.0, the ``pbm list`` output shows the completion time.
 
 .. admonition:: Sample output
 
    .. code-block:: text
 
-      2020-07-10T07:04:14Z
-      2020-07-09T07:03:50Z
-      2020-07-08T07:04:21Z
-      2020-07-07T07:04:18Z
+      Backup snapshots:
+        2021-01-13T15:50:54Z [complete: 2021-01-13T15:53:40]
+        2021-01-13T16:10:20Z [complete: 2021-01-13T16:13:00]
+        2021-01-20T17:09:46Z [complete: 2021-01-20T17:10:33]
 
 .. _pbm.running.backup.starting:
 
@@ -85,7 +91,6 @@ restore.
 .. important::
 
    Consider these important notes on restore operation:
-
 
    1. |pbm| is designed to be a full-database restore tool. As of version <=1.x it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore|if you want to guarantee that the post-restore database only includes collections that are in the backup.
    2. Whilst the restore is running, prevent clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data.
