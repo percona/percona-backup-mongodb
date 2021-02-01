@@ -32,7 +32,7 @@ sys.path.append(os.path.abspath('ext'))
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-author = "Percona LLC and/or its affiliates 2015-2020"
+author = "Percona LLC and/or its affiliates 2015-2021"
 extensions = ['sphinx.ext.intersphinx', 'sphinx.ext.todo', 
               'sphinx.ext.coverage', 'sphinx.ext.ifconfig', 
               'sphinx.ext.extlinks']
@@ -55,7 +55,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Percona Backup for MongoDB'
-copyright = 'Percona LLC and/or its affiliates 2009-2020'
+copyright = 'Percona LLC and/or its affiliates 2009-2021'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
