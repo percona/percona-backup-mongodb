@@ -77,7 +77,6 @@ S3 type storage options
 
    :type: string
    :required: YES (for MinIO and GCS)
-   
 
    The URL to access the bucket. The default value for GCS is ``https://storage.googleapis.com``
 
@@ -100,9 +99,9 @@ S3 type storage options
    :type: int
    :required: NO
   
-   The size of data chunks to be uploaded to the bucket. Default: 10MB.
+   The size of data chunks in bytes to be uploaded to the storage bucket. Default: 10MB
        
-   |PBM| automatically increases the ``uploadPartSize`` value if the size of the file to be uploaded exceeds the max allowed file size. (The max allowed file size is calculated with the default values of uploadPartSize * `maxUploadParts <https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#pkg-constants>`_ and is appr. 97,6 GB)
+   |PBM| automatically increases the ``uploadPartSize`` value if the size of the file to be uploaded exceeds the max allowed file size. (The max allowed file size is calculated with the default values of uploadPartSize * `maxUploadParts <https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#pkg-constants>`_ and is appr. 97,6 GB).
 
    The ``uploadPartSize`` value is printed in the :ref:`pbm-agent log <pbm-agent.log>`.
 
@@ -114,7 +113,7 @@ S3 type storage options
    
    :type: string
   
-   The key management mode used for server-side encryption. 
+   The key management mode used for server-side encryption 
 
    Supported value: ``aws:kms``
    
