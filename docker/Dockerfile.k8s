@@ -1,4 +1,5 @@
 FROM golang:1.14
+RUN apt-get update -y && apt-get install -y libkrb5-dev
 WORKDIR /opt/pbm
 COPY . .
 RUN make install
@@ -10,9 +11,8 @@ LABEL name="Percona Backup for MongoDB" \
     vendor="Percona" \
     summary="Percona Backup for MongoDB" \
     description="Percona Backup for MongoDB is a distributed, \
-low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
-
-MAINTAINER Percona Development <info@percona.com>
+    low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets." \
+    org.opencontainers.image.authors="info@percona.com"
 
 COPY LICENSE /licenses/
 
@@ -20,11 +20,11 @@ COPY LICENSE /licenses/
 ENV KUBECTL_VERSION=v1.14.1
 ENV KUBECTL_MD5SUM=223668b6d47121a9011645b04f5ef349
 RUN curl -Lf -o /usr/bin/kubectl \
-        https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
+    https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
     && chmod +x /usr/bin/kubectl \
     && echo "${KUBECTL_MD5SUM} /usr/bin/kubectl" | md5sum -c - \
     && curl -Lf  -o /licenses/LICENSE.kubectl \
-        https://raw.githubusercontent.com/kubernetes/kubectl/master/LICENSE
+    https://raw.githubusercontent.com/kubernetes/kubectl/master/LICENSE
 
 # check repository package signature in secure way
 RUN set -ex; \
