@@ -55,7 +55,7 @@ Then create the user and assign the role you created to it.
 
 You can specify username and password values and other options of the ``createUser`` command as you require so long as the roles shown above are granted.
 
-Create the ``pbm`` user on every replica set. In a sharded cluster, this means every shard replica sets and the config server replica set.
+Create the ``pbm`` user on every replica set. In a sharded cluster, this means every shard replica set and the config server replica set.
 
 .. note::
 
@@ -68,7 +68,7 @@ Create the ``pbm`` user on every replica set. In a sharded cluster, this means e
 Set the MongoDB connection URI for ``pbm-agent``
 ------------------------------------------------------------------
 
-There is no |pbm-agent| config file. It is defined in a service init script (:file:`pbm-agent.service` systemd unit file) that runs a |pbm-agent|.
+A |pbm-agent| process connects to its localhost ``mongod`` node with a standalone type of connection. To set the MongoDB URI connection string means to configure a service init script (:file:`pbm-agent.service` systemd unit file) that runs a |pbm-agent|.
 
 The :file:`pbm-agent.service` systemd unit file includes the environment file. You set the MongoDB URI connection string for the  "PBM_MONGODB_URI" variable within the environment file.
 
@@ -105,13 +105,13 @@ Configure the service init script for every |pbm-agent|.
 Set the MongoDB connection URI for ``pbm CLI``
 ------------------------------------------------------------------
 
-Provide the MongoDB URI connection string for |pbm.app|. This allows you to call |pbm.app| commands without the :option:`--mongodb-uri` flag.
+Provide the MongoDB URI connection string for |pbm.app| in your shell. This allows you to call |pbm.app| commands without the :option:`--mongodb-uri` flag.
 
 Use the following command:
 
 .. code-block:: bash
  
-   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/"
+   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018?/replSetName=xxxx"
 
 For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
 
@@ -132,6 +132,14 @@ The storage configuration itself is out of scope of the present document. We ass
    This is the sample configuration for filesystem storage:
 
    .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
+
+   .. important::
+
+      When using a filesystem storage, verify that the user running |PBM| is the owner of the backup folder.
+
+      .. code-block:: bash
+      
+         $ sudo chown pbm:pbm <backup_directory>
 
    See more examples in :ref:`pbm.config.example_yaml`.
 
