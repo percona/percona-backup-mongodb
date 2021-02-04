@@ -53,15 +53,15 @@ func (b *Backup) Run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	return b.run(bcp, opid, l)
 }
 
-type errMetaExists struct {
+type errSetMeta struct {
 	error
 }
 
-func (e *errMetaExists) Error() string {
+func (e *errSetMeta) Error() string {
 	return fmt.Sprintf("write backup meta to db: %v", e.error)
 }
 
-func (e *errMetaExists) Unwrap() error { return e.error }
+func (e *errSetMeta) Unwrap() error { return e.error }
 
 // run the backup.
 // TODO: describe flow
@@ -102,11 +102,8 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
-			// protection from the lagging leader node.
-			// if the leader node wasn't able to create meta (it's prjbably already exists)
-			// it shouldn't try change anything, otherwise it may commit errors state to the
-			// meta of already done backup. see https://jira.percona.com/browse/PBM-520
-			if _, ok := err.(*errMetaExists); ok {
+			// nothing to mark if meta wasn't set
+			if _, ok := err.(*errSetMeta); ok {
 				return
 			}
 
@@ -119,14 +116,9 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 				l.Info("delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
-			// protection from the lagging node.
-			// during the StatusStarting stage a meta doesn't created yet,
-			// so the node can mark with the error only meta of already finished backup
-			// this is what we want to prevent. see https://jira.percona.com/browse/PBM-520
-			if meta.Status != pbm.StatusStarting {
-				ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
-				l.Info("mark RS as %s `%v`: %v", status, err, ferr)
-			}
+			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
+			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
+
 			if inf.IsLeader() {
 				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
@@ -152,7 +144,7 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	if inf.IsLeader() {
 		err = b.cn.SetBackupMeta(meta)
 		if err != nil {
-			return &errMetaExists{err}
+			return &errSetMeta{err}
 		}
 
 		hbstop := make(chan struct{})
