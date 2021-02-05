@@ -176,7 +176,7 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 
 	// Waiting for StatusStarting to move further.
 	// In case some preparations has to be done before backup.
-	err = b.waitForStatus(bcp.Name, pbm.StatusStarting)
+	err = b.waitForStatus(bcp.Name, pbm.StatusStarting, &pbm.WaitBackupStart)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
@@ -206,9 +206,9 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	}
 
 	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(bcp.Name, pbm.StatusRunning)
+	err = b.waitForStatus(bcp.Name, pbm.StatusRunning, nil)
 	if err != nil {
-		return errors.Wrap(err, "waiting for start")
+		return errors.Wrap(err, "waiting for running")
 	}
 
 	oplog := NewOplog(b.node)
@@ -267,14 +267,14 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 		}
 	}
 
-	err = b.waitForStatus(bcp.Name, pbm.StatusDumpDone)
+	err = b.waitForStatus(bcp.Name, pbm.StatusDumpDone, nil)
 	if err != nil {
 		return errors.Wrap(err, "waiting for dump done")
 	}
 
 	lwTS, err := b.waitForLastWrite(bcp.Name)
 	if err != nil {
-		return errors.Wrap(err, "waiting and reading cluster last write ts")
+		return errors.Wrap(err, "get cluster last write ts")
 	}
 
 	oplog.SetTailingSpan(oplogTS, lwTS)
@@ -301,7 +301,7 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	}
 
 	// to be sure the locks released only after the "done" status had written
-	err = b.waitForStatus(bcp.Name, pbm.StatusDone)
+	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
 }
 
@@ -526,13 +526,22 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 	return false, nil
 }
 
-func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
+func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.Duration) error {
+	var tout <-chan time.Time
+	if waitFor != nil {
+		tmr := time.NewTimer(*waitFor)
+		defer tmr.Stop()
+		tout = tmr.C
+	}
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
 		select {
 		case <-tk.C:
 			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
@@ -554,6 +563,8 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status) error {
 			case pbm.StatusError:
 				return errors.Errorf("cluster failed: %v", err)
 			}
+		case <-tout:
+			return errors.New("no backup meta, looks like a leader failed to start")
 		case <-b.cn.Context().Done():
 			return nil
 		}
@@ -570,6 +581,16 @@ func (b *Backup) waitForLastWrite(bcpName string) (primitive.Timestamp, error) {
 			if err != nil {
 				return primitive.Timestamp{}, errors.Wrap(err, "get backup metadata")
 			}
+
+			clusterTime, err := b.cn.ClusterTime()
+			if err != nil {
+				return primitive.Timestamp{}, errors.Wrap(err, "read cluster time")
+			}
+
+			if bmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+				return primitive.Timestamp{}, errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
+			}
+
 			if bmeta.LastWriteTS.T > 0 {
 				return bmeta.LastWriteTS, nil
 			}

@@ -77,16 +77,19 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 	return storeString, nil
 }
 
-func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
+func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
-	var err error
-	bmeta := new(pbm.BackupMeta)
+
+	var bmeta *pbm.BackupMeta
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
 			bmeta, err = cn.GetBackupMeta(bcpName)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
@@ -104,6 +107,9 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 				return errors.New(bmeta.Error + rs)
 			}
 		case <-ctx.Done():
+			if bmeta == nil {
+				return errors.New("no progress from leader, backup metadata not found")
+			}
 			rs := ""
 			for _, s := range bmeta.Replsets {
 				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)

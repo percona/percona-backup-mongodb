@@ -207,7 +207,7 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
 		case <-tkr.C:
 			m, err := c.mongopbm.GetBackupMeta(bcpName)
-			if err != nil {
+			if err != nil && err != pbmt.ErrNotFound {
 				errors.Wrap(err, "get backup meta")
 			}
 			switch m.Status {
