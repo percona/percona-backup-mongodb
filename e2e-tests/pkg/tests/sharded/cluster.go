@@ -20,6 +20,7 @@ type Cluster struct {
 	mongos   *pbm.Mongo
 	shards   map[string]*pbm.Mongo
 	mongopbm *pbm.MongoPBM
+	confsrv  string
 }
 
 type ClusterConf struct {
@@ -37,6 +38,7 @@ func New(cfg ClusterConf) *Cluster {
 		mongos:   mgoConn(ctx, cfg.Mongos),
 		mongopbm: pbmConn(ctx, cfg.Configsrv),
 		shards:   make(map[string]*pbm.Mongo),
+		confsrv:  cfg.ConfigsrvRsName,
 	}
 	for name, uri := range cfg.Shards {
 		c.shards[name] = mgoConn(ctx, uri)
@@ -207,8 +209,11 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
 		case <-tkr.C:
 			m, err := c.mongopbm.GetBackupMeta(bcpName)
-			if err != nil && err != pbmt.ErrNotFound {
-				errors.Wrap(err, "get backup meta")
+			if errors.Is(err, pbmt.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return errors.Wrap(err, "get backup meta")
 			}
 			switch m.Status {
 			case pbmt.StatusDone:
