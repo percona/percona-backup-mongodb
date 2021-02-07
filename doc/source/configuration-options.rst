@@ -166,6 +166,7 @@ Backup restore options
    restore:
      batchSize: <int>
      numInsertionWorkers: <int>
+     preserveUUID: <bool>
 
 .. option:: batchSize
    
@@ -179,6 +180,12 @@ Backup restore options
    :type: int
    :default: 10
 
-   The number of workers that add the documents to buffer.      
+   The number of workers that add the documents to buffer.
+
+.. option:: preserveUUID
+   :type: bool
+   :default: false
+
+   Preserve collection UUID from backup source.
        
 .. include:: .res/replace.txt      

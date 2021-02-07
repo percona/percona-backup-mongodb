@@ -109,6 +109,7 @@ restore.
    restore:
      batchSize: 500
      numInsertionWorkers: 10
+     preserveUUID: false
 
 The default values were adjusted to fit the setups with the memory allocation of 1GB and less for the agent.
 

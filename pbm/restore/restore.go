@@ -216,7 +216,12 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 		return errors.Wrap(err, "define mongo version")
 	}
 
-	r.oplog = NewOplog(r.node, mgoV, preserveUUID)
+	cfg, err := r.cn.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+
+	r.oplog = NewOplog(r.node, mgoV, cfg.Restore.PreserveUUID)
 
 	return nil
 }
@@ -375,8 +380,6 @@ func (r *Restore) prepareSnapshot() (err error) {
 }
 
 const (
-	preserveUUID = false
-
 	batchSizeDefault           = 500
 	numInsertionWorkersDefault = 10
 )
@@ -462,7 +465,7 @@ func (r *Restore) RunSnapshot() (err error) {
 			Drop:                     true,
 			NumInsertionWorkers:      numInsertionWorkers,
 			NumParallelCollections:   1,
-			PreserveUUID:             preserveUUID,
+			PreserveUUID:             cfg.Restore.PreserveUUID,
 			StopOnError:              true,
 			TempRolesColl:            "temproles",
 			TempUsersColl:            "tempusers",
