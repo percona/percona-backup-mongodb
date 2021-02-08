@@ -60,6 +60,9 @@ const (
 	MetadataFileSuffix = ".pbm.json"
 )
 
+// ErrNotFound - object not found
+var ErrNotFound = errors.New("not found")
+
 // Command represents actions that could be done on behalf of the client by the agents
 type Command string
 
@@ -615,14 +618,15 @@ func (p *PBM) GetBackupByOPID(opid string) (*BackupMeta, error) {
 }
 
 func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
-	b := new(BackupMeta)
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, clause)
 	if res.Err() != nil {
 		if res.Err() == mongo.ErrNoDocuments {
-			return b, nil
+			return nil, ErrNotFound
 		}
 		return nil, errors.Wrap(res.Err(), "get")
 	}
+
+	b := &BackupMeta{}
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }

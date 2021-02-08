@@ -13,14 +13,14 @@ import (
 
 func restore(cn *pbm.PBM, bcpName string) error {
 	bcp, err := cn.GetBackupMeta(bcpName)
+	if errors.Is(err, pbm.ErrNotFound) {
+		return errors.Errorf("backup '%s' not found", bcpName)
+	}
 	if err != nil {
 		return errors.Wrap(err, "get backup data")
 	}
-	if bcp.Name != bcpName {
-		return errors.Errorf("backup '%s' not found", bcpName)
-	}
 	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup '%s' isn't finished successfully", bcpName)
+		return errors.Errorf("backup '%s' didn't finish successfully", bcpName)
 	}
 
 	locks, err := cn.GetLocks(&pbm.LockHeader{})

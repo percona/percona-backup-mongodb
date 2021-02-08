@@ -164,7 +164,7 @@ func (n *Node) Status() (*NodeStatus, error) {
 		}
 	}
 
-	return nil, errors.New("not found")
+	return nil, ErrNotFound
 }
 
 // ReplicationLag returns node replication lag in seconds

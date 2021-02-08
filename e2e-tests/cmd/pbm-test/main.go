@@ -46,13 +46,6 @@ func main() {
 	flushStore(storage)
 	tests.ApplyConfig(storage)
 
-	// tests.DeleteBallast()
-	// tests.GenerateBallastData(2e7)
-	// printStart("Basic Backup & Restore AWS S3")
-	// tests.BackupAndRestore()
-	// printDone("Basic Backup & Restore AWS S3")
-	// flushStore(storage)
-
 	tests.DeleteBallast()
 	tests.GenerateBallastData(1e5)
 
@@ -120,6 +113,10 @@ func main() {
 	printStart("Check Backup Cancellation")
 	tests.BackupCancellation(storage)
 	printDone("Check Backup Cancellation")
+
+	printStart("Leader lag during backup start")
+	tests.LeaderLag()
+	printDone("Leader lag during backup start")
 
 	printStart("Backup Data Bounds Check")
 	tests.BackupBoundsCheck()

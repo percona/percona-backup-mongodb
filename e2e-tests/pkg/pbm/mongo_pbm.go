@@ -28,6 +28,10 @@ func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
 	}, nil
 }
 
+func (m *MongoPBM) SendCmd(cmd pbm.Cmd) error {
+	return m.p.SendCmd(cmd)
+}
+
 func (m *MongoPBM) BackupsList(limit int64) ([]pbm.BackupMeta, error) {
 	return m.p.BackupsList(limit)
 }

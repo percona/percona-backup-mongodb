@@ -279,7 +279,7 @@ func (r *Restore) prepareChunks(from, to primitive.Timestamp) error {
 
 func (r *Restore) PrepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
-	if errors.Cause(err) == mongo.ErrNoDocuments {
+	if errors.Is(err, pbm.ErrNotFound) {
 		r.bcp, err = r.getMetaFromStore(backupName)
 	}
 

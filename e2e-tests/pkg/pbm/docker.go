@@ -55,6 +55,56 @@ func (d *Docker) StopAgents(rsName string) error {
 	return nil
 }
 
+// PauseAgents pause agent containers of the given replicaset
+func (d *Docker) PauseAgents(rsName string) error {
+	fltr := filters.NewArgs()
+	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+		Filters: fltr,
+	})
+	if err != nil {
+		return errors.Wrap(err, "container list")
+	}
+	if len(containers) == 0 {
+		return errors.Errorf("no containers found for replset %s", rsName)
+	}
+
+	for _, c := range containers {
+		log.Println("stopping container", c.ID)
+		err = d.cn.ContainerPause(d.ctx, c.ID)
+		if err != nil {
+			return errors.Wrapf(err, "stop container %s", c.ID)
+		}
+	}
+
+	return nil
+}
+
+// UnpauseAgents unpause agent containers of the given replicaset
+func (d *Docker) UnpauseAgents(rsName string) error {
+	fltr := filters.NewArgs()
+	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+		Filters: fltr,
+	})
+	if err != nil {
+		return errors.Wrap(err, "container list")
+	}
+	if len(containers) == 0 {
+		return errors.Errorf("no containers found for replset %s", rsName)
+	}
+
+	for _, c := range containers {
+		log.Println("stopping container", c.ID)
+		err = d.cn.ContainerUnpause(d.ctx, c.ID)
+		if err != nil {
+			return errors.Wrapf(err, "stop container %s", c.ID)
+		}
+	}
+
+	return nil
+}
+
 // StartAgents starts stopped agent containers of the given replicaset
 func (d *Docker) StartAgents(rsName string) error {
 	fltr := filters.NewArgs()
