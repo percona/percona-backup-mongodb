@@ -336,8 +336,7 @@ func (a *Agent) storStatus(log *log.Event) (sts pbm.SubsysStatus) {
 			sts.Err = fmt.Sprintf("storage: no init file, attempt to create failed: %v", err)
 			return sts
 		}
-	}
-	if err != nil {
+	} else if err != nil {
 		sts.Err = fmt.Sprintf("storage check failed with: %v", err)
 		return sts
 	}
