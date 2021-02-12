@@ -3,7 +3,7 @@
 Initial setup   
 ****************************************************************
 
-After you’ve installed |pbm-agent| on every server with the ``mongod`` node, perform initial setup to run |PBM|.
+After you’ve installed |pbm-agent| on every server with a ``mongod`` node that is not an arbiter node, perform initial setup to run |PBM|.
 
 The setup steps are the following:
 

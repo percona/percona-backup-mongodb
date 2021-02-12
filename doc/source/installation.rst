@@ -29,8 +29,10 @@ pbm-agent        An agent for running backup/restore actions on a database host
 
 |
 
-Install |pbm-agent| on every server that has mongod nodes in the
-MongoDB cluster (or non-sharded replica set). You can install |pbm.app| CLI 
+Install |pbm-agent| on every server that has ``mongod`` nodes in the
+MongoDB cluster (or non-sharded replica set). You don't need to install |pbm-agent| on arbiter nodes as they don't have the data set.
+
+You can install |pbm.app| CLI 
 on any or all servers or desktop computers you wish to use it from, so long as
 those computers aren't network-blocked from accessing the MongoDB cluster.
 
