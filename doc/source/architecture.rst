@@ -17,7 +17,7 @@ A |pbm-agent| instance must run on each
 |mongod| instance. This includes replica set nodes that are currently secondaries
 and config server replica set nodes in a sharded cluster.
 
-An operation is triggered when the |pbm.app| CLI makes an update to the PBM Control collection. All ``pbm-agents`` monitor changes to the PBM control collections but only one |pbm-agent| in a replica set is elected to execute an operation. The elections are done in a similar way replica set members elect a new primary.
+An operation is triggered when the |pbm.app| CLI makes an update to the PBM Control collection. All ``pbm-agents`` monitor changes to the PBM control collections but only one |pbm-agent| in each replica set will be elected to execute an operation. The elections are done in a similar way replica set members elect a new primary.
 
 The elected |pbm-agent| acquires a lock for an operation. This prevents mutually exclusive operations like backup and restore to be executed simultaneously.
 
