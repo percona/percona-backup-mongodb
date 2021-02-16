@@ -7,9 +7,9 @@ After you’ve installed |pbm-agent| on every server with a ``mongod`` node that
 
 The setup steps are the following:
 
-1.	Configure authentication in MongoDB
+1. Configure authentication in MongoDB
 #. Use ``pbm CLI`` to insert the config information for remote backup storage
-#.	Start |pbm-agent| process
+#. Start |pbm-agent| process
  	
 .. contents::
    :local:
@@ -163,8 +163,8 @@ Start |pbm-agent| on every server with the ``mongod`` node installed. It is best
    $ sudo systemctl start pbm-agent
    $ sudo systemctl status pbm-agent
 
-E.g. Imagine you put configsvr nodes (listen port 27019) colocated on the same
-servers as the first shard's mongod nodes (listen port 27018, replica set name
+E.g. Imagine you put configsvr nodes (listen port 27019) collocated on the same
+servers as the first shard's ``mongod`` nodes (listen port 27018, replica set name
 "sh1rs"). In this server there should be two 
 |pbm-agent| processes, one connected to the shard
 (e.g. "mongodb://username:password@localhost:27018/") and one to the configsvr
@@ -189,9 +189,9 @@ debug the startup from the log messages.
 How to see the pbm-agent log
 --------------------------------------------------------------------------------
 
-With the packaged systemd service the log output to stdout is captured by
+With the packaged systemd service, the log output to stdout is captured by
 systemd's default redirection to systemd-journald. You can view it with the
-command below. See `man journalctl` for useful options such as '--lines',
+command below. See :command:`man journalctl` for useful options such as '--lines',
 '--follow', etc.
 
 .. code-block:: bash
@@ -203,7 +203,7 @@ command below. See `man journalctl` for useful options such as '--lines',
    ...
    ...
 
-If you started pbm-agent manually, see the file you redirected stdout and stderr
+If you started |pbm-agent| manually, see the file you redirected stdout and stderr
 to.
 
 When a message *"pbm agent is listening for the commands"* is printed to the
