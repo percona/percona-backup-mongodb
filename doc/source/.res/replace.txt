@@ -10,14 +10,9 @@
 .. |opt-mongodb-uri| replace:: :option:`--mongodb-uri`
 .. |pbm-agent-help| replace:: :program:`pbm-agent --help`
 .. |pbm-agent| replace:: :program:`pbm-agent`
-.. |pbm-backup| replace:: ``pbm backup``
-.. |pbm-coordinator-help| replace:: :program:`pbm --help`
-.. |pbm-help| replace:: :program:`pbm --help`
-.. |pbm-list| replace:: ``pbm list``
-.. |pbm-restore| replace:: ``pbm restore``
-.. |pbm-config-set| replace:: :program:`pbm config --set`
-.. |pbm-config-file-set| replace:: :program:`pbm config --file`
-.. |pbm-config-list| replace:: :program:`pbm config --list`
+.. |pbm-restore| replace:: :command:`pbm restore`
+.. |pbm-list| replace:: :command:`pbm list`
+.. |pbm-backup| replace:: :command:`pbm backup`
 .. |pbm.app| replace:: ``pbm``
 .. |pbm| replace:: Percona Backup for MongoDB
 .. |percona-release| replace:: ``percona-release``
@@ -30,7 +25,6 @@
 .. |pbm-speed-test-storage| replace:: ``pbm-speed-test storage``
 .. |pbm-speed-test-storage-help| replace:: ``pbm-speed-test storage --help``
 .. |pbm-cancel-backup| replace:: ``pbm cancel-backup``
-.. |pbm-delete-backup| replace:: ``pbm delete-backup``
 .. |sudo| replace:: :program:`sudo`
 .. |PITR| replace:: Point-in-Time Recovery
 .. |AWS KMS| replace:: :abbr:`AWS KMS (AWS Key Management Service)`

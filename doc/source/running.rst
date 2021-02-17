@@ -14,13 +14,13 @@ This document provides examples of using |pbm.app| commands to operate your back
 Listing backups
 --------------------------------------------------------------------------------
 
-To view all completed backups, run the :command:`pbm list` command.
+To view all completed backups, run the |pbm-list| command.
 
 .. code-block:: bash
 
    $ pbm list
 
-As of version 1.4.0, the ``pbm list`` output shows the completion time.
+As of version 1.4.0, the |pbm-list| output shows the completion time.
 
 .. admonition:: Sample output
 
@@ -41,7 +41,7 @@ Starting a backup
    $ pbm backup 
 
 By default, |PBM| uses ``s2`` compression method when making a backup. 
-You can start a backup with a different compression method by passing the ``--compression`` flag to the :command:`pbm backup` command. 
+You can start a backup with a different compression method by passing the ``--compression`` flag to the |pbm-backup| command. 
 
 For example, to start a backup with gzip compression, use the following command
 
@@ -56,10 +56,10 @@ backup.
 
 .. important::
 
-   For PBM v1.0 (only) before running |pbm-backup| on a cluster stop the
+   For PBM v1.0 (only): before running |pbm-backup| on a cluster, stop the
    balancer.
 
-In sharded clusters, one of ``pbm-agent`` processes for every shard and the config server replica set writes backup snapshots and :term:`oplog slices <Oplog slice>` into the remote backup storage directly. To learn more about oplog slicing, see :ref:`pitr`.
+In sharded clusters, one of |pbm-agent| processes for every shard and the config server replica set writes backup snapshots and :term:`oplog slices <Oplog slice>` into the remote backup storage directly. To learn more about oplog slicing, see :ref:`pitr`.
 
 The ``mongos`` nodes are not involved in the backup process.
 
@@ -74,7 +74,7 @@ Checking an in-progress backup
 
 .. important::
 
-   As of version 1.4.0 the information about running backups is not available in the :command:`pbm list` output. Use the :command:`pbm status` command instead to check for running backups. See :ref:`pbm-status` for more information.
+   As of version 1.4.0, the information about running backups is not available in the |pbm-list| output. Use the :command:`pbm status` command instead to check for running backups. See :ref:`pbm-status` for more information.
 
 For |PBM| version 1.3.4 and earlier, run the |pbm-list| command and you will see the running backup listed with a
 'In progress' label. When that is absent, the backup is complete.
@@ -92,7 +92,7 @@ restore.
 
    Consider these important notes on restore operation:
 
-   1. |pbm| is designed to be a full-database restore tool. As of version <=1.x it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (i.e. all databases except "local", "config" and "admin") before running |pbm-restore|if you want to guarantee that the post-restore database only includes collections that are in the backup.
+   1. |pbm| is designed to be a full-database restore tool. As of version <=1.x, it performs a full all-databases, all collections restore and does not offer an option to restore only a subset of collections in the backup, as MongoDB's ``mongodump`` tool does. But to avoid surprising ``mongodump`` users, as of versions 1.x, |pbm| replicates mongodump's behavior to only drop collections in the backup. It does not drop collections that are created new after the time of the backup and before the restore. Run a ``db.dropDatabase()`` manually in all non-system databases (these are all databases except "local", "config" and "admin") before running |pbm-restore| if you want to guarantee that the post-restore database only includes collections that are in the backup.
    2. Whilst the restore is running, prevent clients from accessing the database. The data will naturally be incomplete whilst the restore is in progress, and writes the clients make cause the final restored data to differ from the backed-up data.
    3. If you enabled :term:`Point-in-Time Recovery`, disable it before running |pbm-restore|. This is because |PITR| incremental backups and restore are incompatible operations and cannot be run together.
 
@@ -128,7 +128,7 @@ The default values were adjusted to fit the setups with the memory allocation of
 
 Note that you can restore a sharded backup only into a sharded environment. It can be your existing cluster or a new one. To learn how to restore a backup into a new environment, see :ref:`pbm.restore-new-env`.
 
-During the restore, ``pbm-agents`` write data to primary nodes in the cluster. The following diagram shows the restore flow.
+During the restore, the |pbm-agent| processes write data to primary nodes in the cluster. The following diagram shows the restore flow.
 
 .. image:: _images/pbm-restore-shard.png
 
@@ -145,9 +145,9 @@ To restore a backup from one environment to another, consider the following key 
 
 * Replica set names (both the config servers and the shards) in your new destination cluster and in the cluster that was backed up must be exactly the same.
 
-* |PBM| configuration in the new environment must point to the same remote storage that is defined for the original environment, including the authentication credentials if it is an object store. Once you run ``pbm list`` and see the backups made from the original environment, then you can run the ``pbm restore`` command.
+* |PBM| configuration in the new environment must point to the same remote storage that is defined for the original environment, including the authentication credentials if it is an object store. Once you run |pbm-list| and see the backups made from the original environment, then you can run the |pbm-restore| command.
 
-  Of course, make sure not to run ``pbm backup`` from the new environment whilst the |PBM| config is pointing to the remote storage location of the original environment.
+  Of course, make sure not to run |pbm-backup| from the new environment whilst the |PBM| config is pointing to the remote storage location of the original environment.
 
 .. _pbm.cancel.backup:
 
@@ -157,7 +157,7 @@ Canceling a backup
 You can cancel a running backup if, for example, you want to do
 another maintenance of a server and don't want to wait for the large backup to finish first.
 
-To cancel the backup, use the |pbm-cancel-backup| command.
+To cancel the backup, use the :command:`pbm cancel-backup` command.
 
 .. code-block:: bash
 
@@ -177,7 +177,7 @@ After the command execution, the backup is marked as canceled in the |pbm-list| 
 Deleting backups
 --------------------------------------------------------------------------------
 
-Use the |pbm-delete-backup| command to delete a specified backup or all backups
+Use the :command:`pbm delete-backup` command to delete a specified backup or all backups
 older than the specified time.
 
 The command deletes the backup regardless of the remote storage used:
@@ -185,14 +185,18 @@ either S3-compatible or a filesystem-type remote storage.
 
 .. note::
 
-  You can only delete a backup that is not running (has the "done" or the "error" state).
+  You can only delete a backup that is not running (has the "done" or the "error" state). 
 
-To delete a backup, specify the ``<backup_name>`` from the the |pbm-list|
-output as an argument.
 
-.. include:: .res/code-block/bash/pbm-delete-backup.txt
+  As of version 1.4.0, |pbm-list| shows only successfully completed backups. To check for backups with other states, run :command:`pbm status`. 
 
-By default, the |pbm-delete-backup| command asks for your confirmation
+To delete a backup, specify the ``<backup_name>`` as an argument.
+
+.. code-block:: bash
+
+  $ pbm delete-backup 2020-12-20T13:45:59Z
+
+By default, the :command:`pbm delete-backup` command asks for your confirmation
 to proceed with the deletion. To bypass it, add the ``-f`` or
 ``--force`` flag.
 
@@ -200,14 +204,26 @@ to proceed with the deletion. To bypass it, add the ``-f`` or
 
   $ pbm delete-backup --force 2020-04-20T13:45:59Z
 
-To delete backups that were created before the specified time, pass the ``--older-than`` flag to the |pbm-delete-backup|
+To delete backups that were created before the specified time, pass the ``--older-than`` flag to the :command:`pbm delete-backup`
 command. Specify the timestamp as an argument
-for the |pbm-delete-backup| command in the following format:
+for :command:`pbm delete-backup` in the following format:
 
 * ``%Y-%M-%DT%H:%M:%S`` (for example, 2020-04-20T13:13:20) or
 * ``%Y-%M-%D`` (2020-04-20).
 
-.. include:: .res/code-block/bash/pbm-delete-backup-older-than-timestamp.txt
+.. code-block:: bash
+
+ $ #View backups
+ $ pbm list
+ Backup snapshots:
+   2020-04-20T20:55:42Z   
+   2020-04-20T23:47:34Z
+   2020-04-20T23:53:20Z
+   2020-04-21T02:16:33Z
+ $ #Delete backups created before the specified timestamp
+ $ pbm delete-backup -f --older-than 2020-04-21
+ Backup snapshots:
+   2020-04-21T02:16:33Z
 
 .. _pbm.logs:
 
@@ -216,7 +232,7 @@ Viewing backup logs
 
 As of version 1.4.0, you can see the logs from all ``pbm-agents`` in your MongoDB environment using ``pbm CLI``. This reduces time for finding required information when troubleshooting issues.
 
-To view |pbm-agent| logs, run the :program:`pbm logs` command and pass one or several flags to narrow down the search.
+To view |pbm-agent| logs, run the :command:`pbm logs` command and pass one or several flags to narrow down the search.
 
 The following flags are available:
 
@@ -224,11 +240,13 @@ The following flags are available:
 -	``-e``, ``--event`` - Filter logs by all backups or a specific backup
 -	``-n``, ``--node`` - Filter logs by a specific node  or a replica set
 -	``-s``, ``--severity`` - Filter logs by severity level. The following values are supported (from low to high):
+
    - D - Debug
    - I - Info
    - W - Warning
    - E - Error
    - F - Fatal
+   
 - ``-o``, ``--output`` - Show log information as text (default) or in JSON format.
 - ``-i``, ``--opid`` - Filter logs by the operation ID
 

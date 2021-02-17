@@ -1,3 +1,0 @@
-.. code-block:: bash
-
-   $ pbm-agent --mongodb-uri mongodb://172.17.0.3:27018

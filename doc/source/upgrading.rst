@@ -60,7 +60,7 @@ Upgrade to the latest version
    
    .. code-block:: bash
    
-      apt-get install percona-backup-mongodb
+      $ sudo apt-get install percona-backup-mongodb
 
 #. Start |pbm-agent|
 
