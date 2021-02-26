@@ -185,20 +185,30 @@ func (c cluster) String() (s string) {
 }
 
 func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
-	inf, err := cn.GetNodeInfo()
+	cstat, err := cn.GetReplsetStatus()
 	if err != nil {
-		return nil, errors.Wrap(err, "get cluster info")
+		return nil, errors.Wrap(err, "get replSetGetStatus info")
+	}
+	var rshosts []string
+	for _, n := range cstat.Members {
+		rshosts = append(rshosts, n.Name)
 	}
 
 	type clstr struct {
 		rs    string
 		nodes []string
 	}
+
 	topology := []clstr{
 		{
-			rs:    inf.SetName,
-			nodes: inf.Hosts,
+			rs:    cstat.Set,
+			nodes: rshosts,
 		},
+	}
+
+	inf, err := cn.GetNodeInfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster info")
 	}
 
 	if inf.IsSharded() {
