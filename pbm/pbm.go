@@ -43,17 +43,13 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
-	// PITRCollection represents current incremental backups state
-	PITRCollection = "pbmPITRState"
 	//PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
 	//PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
-	// StatusCollection stores pbm status
-	StatusCollection = "pbmStatus"
 	// PBMOpLogCollection contains log of aquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
-	// AgentsStatusCollection is a agents registry with its status/health checks
+	// AgentsStatusCollection is an agents registry with its status/health checks
 	AgentsStatusCollection = "pbmAgents"
 
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
@@ -294,7 +290,7 @@ func (p *PBM) Logger() *log.Logger {
 
 const (
 	cmdCollectionSizeBytes      = 1 << 20  // 1Mb
-	pbmOplogCollectionSizeBytes = 10 << 20 // 1Mb
+	pbmOplogCollectionSizeBytes = 10 << 20 // 10Mb
 	logsCollectionSizeBytes     = 50 << 20 // 50Mb
 )
 
