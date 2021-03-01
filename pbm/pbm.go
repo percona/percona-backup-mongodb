@@ -947,3 +947,14 @@ func (p *PBM) AgentStatusGC() error {
 
 	return errors.Wrap(err, "delete")
 }
+
+// GetReplsetStatus returns `replSetGetStatus` for the replset
+// or config server in case of sharded cluster
+func (p *PBM) GetReplsetStatus() (*ReplsetStatus, error) {
+	status := &ReplsetStatus{}
+	err := p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
+	}
+	return status, err
+}
