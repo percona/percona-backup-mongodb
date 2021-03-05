@@ -11,29 +11,29 @@ Architecture
 |pbm-agent|
 ================================================================================
 
-|pbm| requires one instance of |pbm-agent| to be attached locally to each
+|pbm-agent| is a process that runs backup, restore, delete and other operations available with |PBM|.  
+
+A |pbm-agent| instance must run on each
 |mongod| instance. This includes replica set nodes that are currently secondaries
 and config server replica set nodes in a sharded cluster.
 
-The backup and restore operations are triggered when the |pbm-agent| observes
-updates made to the PBM control collections by the |pbm.app| CLI. In a method similar to the way replica set members elect a new primary,
-the |pbm-agent| processes in the same replica set 'elect' the one to do the backup
-or restore for that replica set.
+An operation is triggered when the |pbm.app| CLI makes an update to the PBM Control collection. All ``pbm-agents`` monitor changes to the PBM control collections but only one |pbm-agent| in each replica set will be elected to execute an operation. The elections are done in a similar way replica set members elect a new primary.
+
+The elected |pbm-agent| acquires a lock for an operation. This prevents mutually exclusive operations like backup and restore to be executed simultaneously.
+
+When the operation is complete, the |pbm-agent| releases the lock and updates the PBM control collections.
 
 .. _pbm.architecture.pbmctl:
 
 PBM Command Line Utility (|pbm.app|)
 ================================================================================
 
-|pbm.app| is the command you will use manually in the shell, and it will also
+|pbm.app| CLI is the command line tool with which you operate |PBM|. |pbm.app| provides the :command:`pbm` command that you will use manually in the shell. It will also
 work as a command that can be executed in scripts (for example, by ``crond``).
-It manages your backups through a set of sub-commands:
 
-.. include:: .res/code-block/bash/pbm-help-output.txt
+The set of :ref:`pbm sub-commands <pbm-commands>` enables you to manage backups in your MongoDB environment.
 
-|pbm.app| modifies the PBM config by saving it in the PBM Control collection for
-config values. Likewise, it starts and monitors backup or restore operations by
-updating and reading other PBM control collections for operations, log, etc.
+|pbm.app| uses :ref:`PBM Control collections <pbm.architecture.pbm_control_collections>` to communicate with |pbm-agent| processes. It starts and monitors backup or restore operations by updating and reading the corresponding PBM control collections for operations, log, etc. Likewise, it modifies the PBM config by saving it in the PBM Control collection for config values.  
 
 |pbm.app| does not have its own config and/or cache files. Setting the
 |env-pbm-mongodb-uri| environment variable in your shell is a
@@ -87,7 +87,7 @@ storage. Using |pbm-list|, a user can scan this directory to find existing
 backups even if they never used |pbm.app| on their computer before.
 
 The files are prefixed with the (UTC) starting time of the backup. For each
-backup there is one metadata file. For each replicaset in the backup:
+backup there is one metadata file. For each replica set, a backup includes the following:
 
 - A mongodump-format compressed archive that is the dump of collections
 - A (compressed) BSON file dump of the oplog covering the timespan of the backup.
