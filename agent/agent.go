@@ -17,13 +17,14 @@ import (
 )
 
 type Agent struct {
-	pbm     *pbm.PBM
-	node    *pbm.Node
-	bcp     *currentBackup
-	pitrjob *currentPitr
-	mx      sync.Mutex
-	intent  uint32
-	log     *log.Logger
+	pbm      *pbm.PBM
+	node     *pbm.Node
+	bcp      *currentBackup
+	pitrjob  *currentPitr
+	pitrsync chan struct{} // to update pitr state on demand (not to wait for the tick)
+	mx       sync.Mutex
+	intent   uint32
+	log      *log.Logger
 }
 
 const (
@@ -79,6 +80,7 @@ func (a *Agent) Start() error {
 			case pbm.CmdCancelBackup:
 				a.CancelBackup()
 			case pbm.CmdRestore:
+				a.ResyncPITR() // TODO: resync pitr on config update?
 				a.Restore(cmd.Restore, cmd.OPID, ep)
 			case pbm.CmdResyncBackupList:
 				a.ResyncStorage(cmd.OPID, ep)

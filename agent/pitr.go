@@ -62,27 +62,54 @@ func (a *Agent) wakeupPitr() {
 	a.pitrjob.wakeup <- struct{}{}
 }
 
+func (a *Agent) ResyncPITR() {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+
+	a.pitrsync <- struct{}{}
+
+	<-a.pitrsync
+}
+
 const pitrCheckPeriod = time.Second * 15
 
 // PITR starts PITR prcessing routine
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
+	logError := func(err error) {
+		// we need epoch just to log pitr err with an extra context
+		// so not much care if we get it or not
+		ep, _ := a.pbm.GetEpoch()
+		a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
+	}
+
+	a.pitrsync = make(chan struct{})
+
+	ticker := time.NewTicker(pitrCheckPeriod)
+
 	for {
-		wait := pitrCheckPeriod
+		select {
+		case <-ticker.C:
+			err := a.pitr()
+			if err != nil {
+				logError(err)
 
-		err := a.pitr()
-		if err != nil {
-			// wee need epoch just to log pitr err with an extra context
-			// so not much care if we get it or not
-			ep, _ := a.pbm.GetEpoch()
-			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
+				// penalty to the failed node so healthy nodes would have priority on next try
+				time.Sleep(pitrCheckPeriod)
+			}
 
-			// penalty to the failed node so healthy nodes would have priority on next try
-			wait *= 2
+		case <-a.pitrsync:
+			err := a.pitr()
+			if err != nil { // TODO: send error to the caller through channel? retry a.pitr() call after delay?
+				logError(err)
+			}
+
+			a.pitrsync <- struct{}{}
+
+		default:
+
 		}
-
-		time.Sleep(wait)
 	}
 }
 
