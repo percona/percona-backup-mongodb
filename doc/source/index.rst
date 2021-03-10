@@ -88,6 +88,7 @@ How to
 .. toctree::
    :maxdepth: 2
       
+   schedule-backup
    Upgrade PBM <upgrading>
    Troubleshoot PBM <troubleshooting>   
    Remove PBM <uninstalling>
