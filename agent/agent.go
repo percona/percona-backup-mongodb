@@ -293,6 +293,16 @@ func (a *Agent) HbStatus() {
 		if err != nil {
 			l.Error("set status: %v", err)
 		}
+
+		hb.State = pbm.NodeStateUnknown
+		hb.StateStr = "unknown"
+		n, err := a.node.Status()
+		if err != nil {
+			l.Error("get replSetGetStatus", err)
+		} else {
+			hb.State = n.State
+			hb.StateStr = n.StateStr
+		}
 	}
 }
 

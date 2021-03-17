@@ -46,13 +46,49 @@ func (a *Agent) CancelBackup() {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name, opid.String(), ep.TS())
+func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdBackup), cmd.Name, opid.String(), ep.TS())
+
+	// workaround for pitr
+	//
+	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
+	// 2. wait at least for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
+	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
+	//    (nothing gonna be done if no PITR process run by current agent)
+	// 4. try to acquire a backup's lock and move further with the backup
+	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
+	// TODO: this communication should be via db
+	const waitForPITR = pitrCheckPeriod * 11 / 10
+	atomic.StoreUint32(&a.intent, intentBackup)
+	iat := time.Now()
+	defer func() {
+		if w := waitForPITR - time.Since(iat); w > 0 {
+			time.Sleep(w)
+		}
+		atomic.StoreUint32(&a.intent, intentNone)
+	}()
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		l.Error("get node info: %v", err)
 		return
+	}
+
+	bcp := backup.New(a.pbm, a.node)
+	if nodeInfo.IsClusterLeader() {
+		err = bcp.InitMeta(cmd.Name)
+		if err != nil {
+			l.Error("init meta: %v", err)
+			return
+		}
+		nodes, err := a.pbm.BcpNodesPriority()
+		if err != nil {
+			l.Error("get nodes priority: %v", err)
+			return
+		}
+		go func() {
+
+		}()
 	}
 
 	// In case there are some leftovers from the restore.
@@ -82,18 +118,11 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	// workaround for pitr
-	//
-	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
-	// 2. wait for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
-	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
-	//    (nothing gonna be done if no PITR process run by current agent)
-	// 4. try to acquire a backup's lock and move further with the backup
-	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
-	atomic.StoreUint32(&a.intent, intentBackup)
-	defer atomic.StoreUint32(&a.intent, intentNone)
-
-	time.Sleep(pitrCheckPeriod * 11 / 10)
+	// before removing the lock wait if it's needed for
+	// the PITR routine to observe a bcp intent
+	if w := waitForPITR - time.Since(iat); w > 0 {
+		time.Sleep(w)
+	}
 
 	err = a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITR,
@@ -126,11 +155,11 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.setBcp(&currentBackup{
-		header: &bcp,
+		header: &cmd,
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	err = backup.New(ctx, a.pbm, a.node).Run(bcp, opid, l)
+	err = bcp.Run(ctx, cmd, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {

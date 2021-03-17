@@ -429,20 +429,29 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
-	OPID             string              `bson:"opid" json:"opid"`
-	Name             string              `bson:"name" json:"name"`
-	Replsets         []BackupReplset     `bson:"replsets" json:"replsets"`
-	Compression      CompressionType     `bson:"compression" json:"compression"`
-	Store            StorageConf         `bson:"store" json:"store"`
-	MongoVersion     string              `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS          int64               `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
-	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
-	Status           Status              `bson:"status" json:"status"`
-	Conditions       []Condition         `bson:"conditions" json:"conditions"`
-	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string              `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	OPID             string               `bson:"opid" json:"opid"`
+	Name             string               `bson:"name" json:"name"`
+	Replsets         []BackupReplset      `bson:"replsets" json:"replsets"`
+	Compression      CompressionType      `bson:"compression" json:"compression"`
+	Store            StorageConf          `bson:"store" json:"store"`
+	MongoVersion     string               `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64                `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64                `bson:"last_transition_ts" json:"last_transition_ts"`
+	LastWriteTS      primitive.Timestamp  `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp  `bson:"hb" json:"hb"`
+	Status           Status               `bson:"status" json:"status"`
+	Conditions       []Condition          `bson:"conditions" json:"conditions"`
+	Nomination       []BackupRsNomination `bson:"n" json:"n"`
+	Error            string               `bson:"error,omitempty" json:"error,omitempty"`
+	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+}
+
+// BackupRsNomination is used to choose (nominate and elect) nodes for the backup
+// within a replica set
+type BackupRsNomination struct {
+	RS    string   `bson:"rs" json:"rs"`
+	Nodes []string `bson:"n" json:"n"`
+	Ack   string   `bson:"ack" json:"ack"`
 }
 
 type Condition struct {
@@ -850,111 +859,4 @@ func FileCompression(ext string) CompressionType {
 	case "snappy":
 		return CompressionTypeS2
 	}
-}
-
-type AgentStat struct {
-	Node          string              `bson:"n"`
-	RS            string              `bson:"rs"`
-	Ver           string              `bson:"v"`
-	PBMStatus     SubsysStatus        `bson:"pbms"`
-	NodeStatus    SubsysStatus        `bson:"nodes"`
-	StorageStatus SubsysStatus        `bson:"stors"`
-	Heartbeat     primitive.Timestamp `bson:"hb"`
-}
-
-type SubsysStatus struct {
-	OK  bool   `bson:"ok"`
-	Err string `bson:"e"`
-}
-
-func (s *AgentStat) OK() (ok bool, errs []string) {
-	ok = true
-	if !s.PBMStatus.OK {
-		ok = false
-		errs = append(errs, fmt.Sprintf("PBM connection: %s", s.PBMStatus.Err))
-	}
-	if !s.NodeStatus.OK {
-		ok = false
-		errs = append(errs, fmt.Sprintf("node connection: %s", s.NodeStatus.Err))
-	}
-	if !s.StorageStatus.OK {
-		ok = false
-		errs = append(errs, fmt.Sprintf("storage: %s", s.StorageStatus.Err))
-	}
-
-	return ok, errs
-}
-
-func (p *PBM) SetAgentStatus(stat AgentStat) error {
-	ct, err := p.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
-	stat.Heartbeat = ct
-
-	_, err = p.Conn.Database(DB).Collection(AgentsStatusCollection).ReplaceOne(
-		p.ctx,
-		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
-		stat,
-		options.Replace().SetUpsert(true),
-	)
-	return errors.Wrap(err, "write into db")
-}
-
-func (p *PBM) RmAgentStatus(stat AgentStat) error {
-	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteOne(
-		p.ctx,
-		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
-	)
-
-	return err
-}
-
-// GetAgentStatus returns agent status by given node and rs
-// it's up to user how to handle ErrNoDocuments
-func (p *PBM) GetAgentStatus(rs, node string) (s AgentStat, err error) {
-	res := p.Conn.Database(DB).Collection(AgentsStatusCollection).FindOne(
-		p.ctx,
-		bson.D{{"n", node}, {"rs", rs}},
-	)
-	if res.Err() != nil {
-		return s, errors.Wrap(res.Err(), "query mongo")
-	}
-
-	err = res.Decode(&s)
-	return s, errors.Wrap(err, "decode")
-}
-
-// AgentStatusGC cleans up stale agent statuses
-func (p *PBM) AgentStatusGC() error {
-	ct, err := p.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
-	// 30 secs is the connection time out for mongo. So if there are some connection issues the agent checker
-	// may stuck for 30 sec on ping (trying to connect), it's HB became stale and it would be collected.
-	// Which would lead to the false clamin "not found" in the status output. So stale range should at least 30 sec
-	// (+5 just in case).
-	stalesec := AgentsStatCheckRange.Seconds() * 3
-	if stalesec < 35 {
-		stalesec = 35
-	}
-	ct.T -= uint32(stalesec)
-	_, err = p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteMany(
-		p.ctx,
-		bson.M{"hb": bson.M{"$lt": ct}},
-	)
-
-	return errors.Wrap(err, "delete")
-}
-
-// GetReplsetStatus returns `replSetGetStatus` for the replset
-// or config server in case of sharded cluster
-func (p *PBM) GetReplsetStatus() (*ReplsetStatus, error) {
-	status := &ReplsetStatus{}
-	err := p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
-	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
-	}
-	return status, err
 }

@@ -55,6 +55,12 @@ func (i *NodeInfo) IsLeader() bool {
 	return !i.IsSharded() || i.ReplsetRole() == ReplRoleConfigSrv
 }
 
+// IsClusterLeader - cluster leader is a primary node on configsrv
+// or just primary node in non-sharded replicaset
+func (i *NodeInfo) IsClusterLeader() bool {
+	return i.IsPrimary && i.Me == i.Primary && i.IsLeader()
+}
+
 // ReplsetRole returns replset role in sharded clister
 func (i *NodeInfo) ReplsetRole() ReplRole {
 	switch {

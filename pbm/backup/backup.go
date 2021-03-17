@@ -36,21 +36,19 @@ func init() {
 type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
-	ctx  context.Context
 	opid string
 }
 
-func New(ctx context.Context, cn *pbm.PBM, node *pbm.Node) *Backup {
+func New(cn *pbm.PBM, node *pbm.Node) *Backup {
 	return &Backup{
 		cn:   cn,
 		node: node,
-		ctx:  ctx,
 	}
 }
 
 // Run runs the backup
-func (b *Backup) Run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
-	return b.run(bcp, opid, l)
+func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+	return b.run(ctx, bcp, opid, l)
 }
 
 type errSetMeta struct {
@@ -63,9 +61,22 @@ func (e *errSetMeta) Error() string {
 
 func (e *errSetMeta) Unwrap() error { return e.error }
 
+func (b *Backup) InitMeta(name string) error {
+	meta := &pbm.BackupMeta{
+		OPID:        b.opid,
+		Name:        name,
+		Status:      pbm.StatusStarting,
+		Replsets:    []pbm.BackupReplset{},
+		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		PBMVersion:  version.DefaultInfo.Version,
+	}
+
+	return b.cn.SetBackupMeta(meta)
+}
+
 // run the backup.
 // TODO: describe flow
-func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -226,7 +237,7 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 	}
 
 	dump := newDump(b.node.ConnURI(), b.node.DumpConns())
-	_, err = Upload(b.ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
+	_, err = Upload(ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -271,7 +282,7 @@ func (b *Backup) run(bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error
 
 	oplog.SetTailingSpan(oplogTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	_, err = Upload(b.ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
+	_, err = Upload(ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
