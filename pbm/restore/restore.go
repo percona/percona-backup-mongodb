@@ -378,7 +378,7 @@ func (r *Restore) prepareSnapshot() (err error) {
 }
 
 const (
-	preserveUUID = false
+	preserveUUID = true
 
 	batchSizeDefault           = 500
 	numInsertionWorkersDefault = 10
