@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 const defaultScore = 1.0
@@ -48,18 +49,16 @@ func (p *PBM) BcpNodesPriority() (*NodesPriority, error) {
 		return nil, errors.Wrap(err, "get agents list")
 	}
 
-	// by defaul nodes have only two types:
-	// - primary - defaultScore
-	// - the rest - defaultScore + 1
-	//
-	// if cfg.Backup.Priority is set - fully rely on config
-	// (don't downscore primaries)
+	// if cfg.Backup.Priority doesn't set apply defaults
 	f := func(a AgentStat) float64 {
-		if a.State == NodeStatePrimary {
+		switch {
+		case a.State == NodeStatePrimary:
+			return defaultScore / 0.5
+		case a.Hidden:
+			return defaultScore * 2
+		default:
 			return defaultScore
 		}
-
-		return defaultScore + 1
 	}
 
 	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
@@ -112,4 +111,54 @@ func (s nscores) list() [][]string {
 	}
 
 	return ret
+}
+
+func (p *PBM) SetRSNomination(bcpName, rs string) error {
+	n := BackupRsNomination{RS: rs, Nodes: []string{}}
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{{"$addToSet", bson.M{"n": n}}},
+	)
+
+	return err
+}
+
+func (p *PBM) GetRSNominees(bcpName, rsName string) (*BackupRsNomination, error) {
+	bcp, err := p.GetBackupMeta(bcpName)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, n := range bcp.Nomination {
+		if n.RS == rsName {
+			return &n, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+func (p *PBM) SetRSNominees(bcpName, rsName string, nodes []string) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"n.rs", rsName}},
+		bson.D{
+			{"$set", bson.M{"n.$.n": nodes}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetRSNomineeACK(bcpName, rsName, node string) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"n.rs", rsName}},
+		bson.D{
+			{"$set", bson.M{"n.$.ack": node}},
+		},
+	)
+
+	return err
 }

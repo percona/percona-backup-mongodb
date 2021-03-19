@@ -14,11 +14,14 @@ type AgentStat struct {
 	RS            string              `bson:"rs"`
 	State         NodeState           `bson:"s"`
 	StateStr      string              `bson:"str"`
+	Hidden        bool                `bson:"hdn"`
+	Passive       bool                `bson:"psv"`
 	Ver           string              `bson:"v"`
 	PBMStatus     SubsysStatus        `bson:"pbms"`
 	NodeStatus    SubsysStatus        `bson:"nodes"`
 	StorageStatus SubsysStatus        `bson:"stors"`
 	Heartbeat     primitive.Timestamp `bson:"hb"`
+	Err           string              `bson:"e"`
 }
 
 type SubsysStatus struct {

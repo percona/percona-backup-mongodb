@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"time"
@@ -47,28 +46,37 @@ func New(cn *pbm.PBM, node *pbm.Node) *Backup {
 }
 
 // Run runs the backup
-func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
-	return b.run(ctx, bcp, opid, l)
+func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err error) {
+	return b.run(ctx, bcp, l)
 }
 
-type errSetMeta struct {
-	error
-}
+func (b *Backup) Init(name string, opid pbm.OPID) error {
+	b.opid = opid.String()
 
-func (e *errSetMeta) Error() string {
-	return fmt.Sprintf("write backup meta to db: %v", e.error)
-}
-
-func (e *errSetMeta) Unwrap() error { return e.error }
-
-func (b *Backup) InitMeta(name string) error {
 	meta := &pbm.BackupMeta{
 		OPID:        b.opid,
 		Name:        name,
+		StartTS:     time.Now().Unix(),
 		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		PBMVersion:  version.DefaultInfo.Version,
+		Nomination:  []pbm.BackupRsNomination{},
+	}
+
+	cfg, err := b.cn.GetConfig()
+	if err == pbm.ErrStorageUndefined {
+		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
+	} else if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+	meta.Store = cfg.Storage
+	// Erase credentials data
+	meta.Store.S3.Credentials = s3.Credentials{}
+
+	ver, err := b.node.GetMongoVersion()
+	if err == nil {
+		meta.MongoVersion = ver.VersionString
 	}
 
 	return b.cn.SetBackupMeta(meta)
@@ -76,22 +84,10 @@ func (b *Backup) InitMeta(name string) error {
 
 // run the backup.
 // TODO: describe flow
-func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
-	}
-
-	b.opid = opid.String()
-	meta := &pbm.BackupMeta{
-		OPID:        b.opid,
-		Name:        bcp.Name,
-		StartTS:     time.Now().Unix(),
-		Compression: bcp.Compression,
-		Status:      pbm.StatusStarting,
-		Replsets:    []pbm.BackupReplset{},
-		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // (andrew) I dunno why, but the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		PBMVersion:  version.DefaultInfo.Version,
 	}
 
 	rsName := inf.SetName
@@ -113,17 +109,16 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
-			// nothing to mark if meta wasn't set
-			if _, ok := err.(*errSetMeta); ok {
-				return
-			}
-
 			status := pbm.StatusError
 			if errors.Is(err, ErrCancelled) {
 				status = pbm.StatusCancelled
 
-				meta.Status = pbm.StatusCancelled
-				meta.Replsets = append(meta.Replsets, rsMeta)
+				meta := &pbm.BackupMeta{
+					Name:     bcp.Name,
+					Status:   pbm.StatusCancelled,
+					Replsets: []pbm.BackupReplset{rsMeta},
+				}
+
 				l.Info("delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
@@ -137,27 +132,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		}
 	}()
 
-	ver, err := b.node.GetMongoVersion()
-	if err == nil {
-		meta.MongoVersion = ver.VersionString
-	}
-
-	cfg, err := b.cn.GetConfig()
-	if err == pbm.ErrStorageUndefined {
-		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
-	} else if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-	meta.Store = cfg.Storage
-	// Erase credentials data
-	meta.Store.S3.Credentials = s3.Credentials{}
-
 	if inf.IsLeader() {
-		err = b.cn.SetBackupMeta(meta)
-		if err != nil {
-			return &errSetMeta{err}
-		}
-
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 		go func() {
@@ -314,18 +289,6 @@ const maxReplicationLagTimeSec = 21
 func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
 	if inf.IsStandalone() {
 		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
-	}
-
-	// for the cases when no secondary was good enough for backup or there are no secondaries alive
-	// wait for 90% of WaitBackupStart and then try to acquire a lock.
-	// by that time healthy secondaries should have already acquired a lock.
-	//
-	// but no need to wait if this is the only node (the single-node replica set).
-	//
-	// TODO ? there is still a chance that the lock gonna be stolen from the healthy secondary node
-	// TODO ? (due tmp network issues node got the command later than the primary, but it's maybe for the good that the node with the faulty network doesn't start the backup)
-	if inf.IsPrimary && inf.Me == inf.Primary && len(inf.Hosts) > 1 {
-		time.Sleep(pbm.WaitBackupStart * 9 / 10)
 	}
 
 	status, err := node.Status()

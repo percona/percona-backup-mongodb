@@ -37,6 +37,7 @@ type NodeInfo struct {
 	IsPrimary                    bool                 `bson:"ismaster"`
 	Secondary                    bool                 `bson:"secondary,omitempty"`
 	Hidden                       bool                 `bson:"hidden,omitempty"`
+	Passive                      bool                 `bson:"passive,omitempty"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
 	LastWrite                    MongoLastWrite       `bson:"lastWrite"`

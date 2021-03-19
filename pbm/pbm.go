@@ -717,7 +717,7 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 	return backups, cur.Err()
 }
 
-// ClusterMembers returns list of replicasets current cluster consts of
+// ClusterMembers returns list of replicasets current cluster consists of
 // (shards + configserver). The list would consist of on rs if cluster is
 // a non-sharded rs. If `inf` is nil, method would request mongo to define it.
 func (p *PBM) ClusterMembers(inf *NodeInfo) ([]Shard, error) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
@@ -74,23 +75,6 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	bcp := backup.New(a.pbm, a.node)
-	if nodeInfo.IsClusterLeader() {
-		err = bcp.InitMeta(cmd.Name)
-		if err != nil {
-			l.Error("init meta: %v", err)
-			return
-		}
-		nodes, err := a.pbm.BcpNodesPriority()
-		if err != nil {
-			l.Error("get nodes priority: %v", err)
-			return
-		}
-		go func() {
-
-		}()
-	}
-
 	// In case there are some leftovers from the restore.
 	//
 	// There is no way to exclude some collections on mongodump stage
@@ -134,6 +118,64 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
 
+	bcp := backup.New(a.pbm, a.node)
+	if nodeInfo.IsClusterLeader() {
+		err = bcp.Init(cmd.Name, opid)
+		if err != nil {
+			l.Error("init meta: %v", err)
+			return
+		}
+		nodes, err := a.pbm.BcpNodesPriority()
+		if err != nil {
+			l.Error("get nodes priority: %v", err)
+			return
+		}
+		shrds, err := a.pbm.ClusterMembers(nodeInfo)
+		if err != nil {
+			l.Error("get cluster members: %v", err)
+			return
+		}
+		for _, sh := range shrds {
+			go func(rs string) {
+				err := a.elect(cmd.Name, rs, nodes.RS(rs), l)
+				if err != nil {
+					l.Error("nodes nominaition for %s: %v", rs, err)
+				}
+			}(sh.RS)
+		}
+	}
+
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+	stop := time.NewTimer(pbm.WaitActionStart)
+	defer stop.Stop()
+NLOOP:
+	for {
+		select {
+		case <-tk.C:
+			nm, err := a.pbm.GetRSNominees(cmd.Name, nodeInfo.SetName)
+			if err != nil {
+				if errors.Is(err, pbm.ErrNotFound) {
+					continue
+				}
+				l.Error("check nomination: %v", err)
+				return
+			}
+			if len(nm.Ack) > 0 {
+				l.Debug("skip: already taken")
+				return
+			}
+			for _, n := range nm.Nodes {
+				if n == nodeInfo.Me {
+					break NLOOP
+				}
+			}
+		case <-stop.C:
+			l.Debug("skip: nomination timeout")
+			return
+		}
+	}
+
 	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdBackup,
@@ -153,13 +195,18 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	err = a.pbm.SetRSNomineeACK(cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	if err != nil {
+		l.Warning("set nominee ack: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	a.setBcp(&currentBackup{
 		header: &cmd,
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	err = bcp.Run(ctx, cmd, opid, l)
+	err = bcp.Run(ctx, cmd, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
@@ -189,6 +236,34 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if err != nil {
 		l.Error("unable to release backup lock %v: %v", lock, err)
 	}
+}
+
+func (a *Agent) elect(bcp, rs string, nodes [][]string, l *log.Event) error {
+	l.Debug("nomination %s: %v", rs, nodes)
+	err := a.pbm.SetRSNomination(bcp, rs)
+	if err != nil {
+		return errors.Wrap(err, "set nomination meta")
+	}
+
+	for _, n := range nodes {
+		nms, err := a.pbm.GetRSNominees(bcp, rs)
+		if err != nil && err != pbm.ErrNotFound {
+			return errors.Wrap(err, "get nomination meta")
+		}
+		if nms != nil && len(nms.Ack) > 0 {
+			l.Debug("bcp nomination: %s won by %s", rs, nms.Ack)
+			return nil
+		}
+
+		err = a.pbm.SetRSNominees(bcp, rs, n)
+		if err != nil {
+			return errors.Wrap(err, "set nominees")
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	return nil
 }
 
 // Restore starts the restore
