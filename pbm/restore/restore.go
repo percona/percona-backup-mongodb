@@ -242,6 +242,9 @@ func (r *Restore) PreparePITR(ts int64) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "define last backup")
 	}
+	if r.bcp == nil {
+		return errors.Errorf("no backup found before ts %v", lastChunk.EndTS)
+	}
 
 	err = r.prepareChunks(r.bcp.LastWriteTS, lastChunk.StartTS)
 	if err != nil {
