@@ -35,7 +35,6 @@ func init() {
 type Backup struct {
 	cn   *pbm.PBM
 	node *pbm.Node
-	opid string
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {
@@ -46,16 +45,15 @@ func New(cn *pbm.PBM, node *pbm.Node) *Backup {
 }
 
 // Run runs the backup
-func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err error) {
-	return b.run(ctx, bcp, l)
+func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+	return b.run(ctx, bcp, opid, l)
 }
 
-func (b *Backup) Init(name string, opid pbm.OPID) error {
-	b.opid = opid.String()
-
+func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID) error {
 	meta := &pbm.BackupMeta{
-		OPID:        b.opid,
-		Name:        name,
+		OPID:        opid.String(),
+		Name:        bcp.Name,
+		Compression: bcp.Compression,
 		StartTS:     time.Now().Unix(),
 		Status:      pbm.StatusStarting,
 		Replsets:    []pbm.BackupReplset{},
@@ -84,7 +82,7 @@ func (b *Backup) Init(name string, opid pbm.OPID) error {
 
 // run the backup.
 // TODO: describe flow
-func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err error) {
+func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -174,7 +172,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusRunning, inf, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, inf, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -234,7 +232,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, pbm.StatusDumpDone, inf, nil)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, inf, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
@@ -267,7 +265,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, l *plog.Event) (err
 	}
 
 	if inf.IsLeader() {
-		err = b.reconcileStatus(bcp.Name, pbm.StatusDone, inf, nil)
+		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, inf, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
@@ -377,26 +375,26 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 	return n, nil
 }
 
-func (b *Backup) reconcileStatus(bcpName string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
+func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
 	shards, err := b.cn.ClusterMembers(ninf)
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
 
 	if timeout != nil {
-		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, shards, status, *timeout), "convergeClusterWithTimeout")
+		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout), "convergeClusterWithTimeout")
 	}
-	return errors.Wrap(b.convergeCluster(bcpName, shards, status), "convergeCluster")
+	return errors.Wrap(b.convergeCluster(bcpName, opid, shards, status), "convergeCluster")
 }
 
 // convergeCluster waits until all given shards reached `status` and updates a cluster status
-func (b *Backup) convergeCluster(bcpName string, shards []pbm.Shard, status pbm.Status) error {
+func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
 		select {
 		case <-tk.C:
-			ok, err := b.converged(bcpName, shards, status)
+			ok, err := b.converged(bcpName, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -412,7 +410,7 @@ func (b *Backup) convergeCluster(bcpName string, shards []pbm.Shard, status pbm.
 var errConvergeTimeOut = errors.New("reached converge timeout")
 
 // convergeClusterWithTimeout waits up to the geiven timeout until all given shards reached `status` and then updates the cluster status
-func (b *Backup) convergeClusterWithTimeout(bcpName string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+func (b *Backup) convergeClusterWithTimeout(bcpName, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	tout := time.NewTicker(t)
@@ -420,7 +418,7 @@ func (b *Backup) convergeClusterWithTimeout(bcpName string, shards []pbm.Shard, 
 	for {
 		select {
 		case <-tk.C:
-			ok, err := b.converged(bcpName, shards, status)
+			ok, err := b.converged(bcpName, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -435,7 +433,7 @@ func (b *Backup) convergeClusterWithTimeout(bcpName string, shards []pbm.Shard, 
 	}
 }
 
-func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status) (bool, error) {
+func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.Status) (bool, error) {
 	shardsToFinish := len(shards)
 	bmeta, err := b.cn.GetBackupMeta(bcpName)
 	if err != nil {
@@ -453,7 +451,7 @@ func (b *Backup) converged(bcpName string, shards []pbm.Shard, status pbm.Status
 				// check if node alive
 				lock, err := b.cn.GetLockData(&pbm.LockHeader{
 					Type:    pbm.CmdBackup,
-					OPID:    b.opid,
+					OPID:    opid,
 					Replset: shard.Name,
 				})
 

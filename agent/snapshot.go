@@ -120,7 +120,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	bcp := backup.New(a.pbm, a.node)
 	if nodeInfo.IsClusterLeader() {
-		err = bcp.Init(cmd.Name, opid)
+		err = bcp.Init(cmd, opid)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
@@ -206,7 +206,7 @@ NLOOP:
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	err = bcp.Run(ctx, cmd, l)
+	err = bcp.Run(ctx, cmd, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
