@@ -32,7 +32,7 @@ which is no longer actively developed or supported.
 .. hlist::
    :columns: 2
 
-   - Logical-style backup and restore. Physical-style (a.k.a. 'hot') backup and restore not supported
+   - Logical backup and restore. Physical (a.k.a. 'hot') backup and restore are not supported
    - Works for both for sharded clusters and classic, non-sharded replica sets.
    - Point-in-time Restore
    - Simple command-line management utility
@@ -116,4 +116,3 @@ Release notes
 
 .. include:: .res/replace.txt
 .. include:: .res/url.txt
-
