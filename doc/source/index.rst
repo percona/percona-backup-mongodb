@@ -32,13 +32,13 @@ which is no longer actively developed or supported.
 .. hlist::
    :columns: 2
 
-   - Backup and restore for both classic non-sharded replica sets and sharded clusters
+   - Logical-style backup and restore. Physical-style (a.k.a. 'hot') backup and restore not supported
+   - Works for both for sharded clusters and classic, non-sharded replica sets.
+   - Point-in-time Restore
    - Simple command-line management utility
-   - Replica set and sharded cluster consistency through oplog capture
-   - Distributed transaction consistency with MongoDB 4.2+
    - Simple, integrated-with-MongoDB authentication
-   - No need to install a coordination service on a separate server.
-   - Use any S3-compatible storage
+   - Distributed transaction consistency with MongoDB 4.2+
+   - Use with any S3-compatible storage
    - Users with classic, locally-mounted remote filesystem backup servers can
      use 'filesystem' instead of 's3' storage type.
 
