@@ -72,6 +72,7 @@ Building the project requires:
 - Go 1.11 or above
 - make
 - git
+- ``krb5-devel`` for Red Hat Enterprise Linux / CentOS or ``libkrb5-dev`` for Debian / Ubuntu. This package is required for Kerberos authentication in Percona Server for MongoDB.
 
 .. seealso::
 
@@ -82,8 +83,8 @@ To build the project (from the project dir):
 
 .. code-block:: bash
 
-   $ go get -d github.com/percona/percona-backup-mongodb
-   $ cd "$(go env GOPATH)/src/github.com/percona/percona-backup-mongodb"
+   $ git clone https://github.com/<your_name>/percona-backup-mongodb
+   $ cd percona-backup-mongodb
    $ make build
 
 After :program:`make` completes, you can find |pbm.app| and |pbm-agent| binaries
@@ -92,7 +93,7 @@ in the :dir:`./bin` directory:
 .. code-block:: bash
 
    $ cd bin
-   $ pbm version
+   $ ./pbm version
 
 By running :program:`pbm version`, you can verify if |pbm| has been built correctly and is ready for use.
 
@@ -106,6 +107,14 @@ By running :program:`pbm version`, you can verify if |pbm| has been built correc
       GitBranch: master
       BuildTime: [time when this version was produced in UTC format]
       GoVersion: [Go version number]
+
+.. tip::
+
+   Instead of specifying the path to pbm binaries, you can add it to the PATH environment variable:
+
+   .. code-block:: bash
+   
+      export PATH=/percona-backup-mongodb/bin:$PATH
 
 After |pbm| is successfully installed on your system, you have |pbm.app|
 and |pbm-agent| programs available. See :ref:`initial-setup` for guidelines how to set up |PBM|.  
