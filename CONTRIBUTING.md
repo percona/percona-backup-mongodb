@@ -8,7 +8,7 @@ Welcome to Percona Backup for MongoDB!
 
 We're glad that you would like to become a Percona community member and participate in keeping open source open.  
 
-Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB sharded clusters and replica sets.
+Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achieving consistent backups of MongoDB sharded clusters and replica sets.
 
 You can contribute in one of the following ways:
 
@@ -56,7 +56,7 @@ To build Percona Backup for MongoDB from source code, you require the following:
 * Go 1.11 or above. See [Installing and setting up Go tools](
 https://golang.org/doc/install) for more information
 * make
-[Are any dependencies required for Debian, RHEL, Mac?]
+* ``krb5-devel`` for Red Hat Enterprise Linux / CentOS or ``libkrb5-dev`` for Debian / Ubuntu. This package is required for Kerberos authentication in Percona Server for MongoDB.
 
 To build the project, run the following commands:
 
@@ -64,6 +64,32 @@ To build the project, run the following commands:
 $ git clone https://github.com/<your_name>/percona-backup-mongodb
 $ cd percona-backup-mongodb
 $ make build
+```
+
+After ``make`` completes, you can find ``pbm`` and ``pbm-agent`` binaries in the ``./bin`` directory:
+
+```sh
+$ cd bin
+$ ./pbm version
+```
+
+By running ``pbm version``, you can verify if Percona Backup for MongoDB has been built correctly and is ready for use.
+
+```
+Output
+
+Version:   [pbm version number]
+Platform:  linux/amd64
+GitCommit: [commit hash]
+GitBranch: master
+BuildTime: [time when this version was produced in UTC format]
+GoVersion: [Go version number]
+```
+
+**TIP**: instead of specifying the path to pbm binaries, you can add it to the PATH environment variable:
+
+```sh
+export PATH=/percona-backup-mongodb/bin:$PATH
 ```
 
 ### Running tests locally
