@@ -285,10 +285,6 @@ const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
 func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
-	if inf.IsStandalone() {
-		return false, errors.New("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
-	}
-
 	status, err := node.Status()
 	if err != nil {
 		return false, errors.Wrap(err, "get node status")

@@ -50,6 +50,16 @@ func (a *Agent) CancelBackup() {
 func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdBackup), cmd.Name, opid.String(), ep.TS())
 
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		l.Error("get node info: %v", err)
+		return
+	}
+	if nodeInfo.IsStandalone() {
+		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+		return
+	}
+
 	// workaround for pitr
 	//
 	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
@@ -63,17 +73,9 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	atomic.StoreUint32(&a.intent, intentBackup)
 	iat := time.Now()
 	defer func() {
-		if w := waitForPITR - time.Since(iat); w > 0 {
-			time.Sleep(w)
-		}
+		time.Sleep(waitForPITR - time.Since(iat))
 		atomic.StoreUint32(&a.intent, intentNone)
 	}()
-
-	nodeInfo, err := a.node.GetInfo()
-	if err != nil {
-		l.Error("get node info: %v", err)
-		return
-	}
 
 	// In case there are some leftovers from the restore.
 	//
@@ -137,7 +139,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 		for _, sh := range shrds {
 			go func(rs string) {
-				err := a.elect(cmd.Name, rs, nodes.RS(rs), l)
+				err := a.nominateRS(cmd.Name, rs, nodes.RS(rs), l)
 				if err != nil {
 					l.Error("nodes nominaition for %s: %v", rs, err)
 				}
@@ -145,35 +147,14 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}
 
-	tk := time.NewTicker(time.Millisecond * 500)
-	defer tk.Stop()
-	stop := time.NewTimer(pbm.WaitActionStart)
-	defer stop.Stop()
-NLOOP:
-	for {
-		select {
-		case <-tk.C:
-			nm, err := a.pbm.GetRSNominees(cmd.Name, nodeInfo.SetName)
-			if err != nil {
-				if errors.Is(err, pbm.ErrNotFound) {
-					continue
-				}
-				l.Error("check nomination: %v", err)
-				return
-			}
-			if len(nm.Ack) > 0 {
-				l.Debug("skip: already taken")
-				return
-			}
-			for _, n := range nm.Nodes {
-				if n == nodeInfo.Me {
-					break NLOOP
-				}
-			}
-		case <-stop.C:
-			l.Debug("skip: nomination timeout")
-			return
-		}
+	gotn, err := a.waitNomination(cmd.Name, nodeInfo.SetName, nodeInfo.Me, l)
+	if err != nil {
+		l.Error("wait for nomination: %v", err)
+	}
+
+	if !gotn {
+		l.Debug("skip after nomination, probably started by another node")
+		return
 	}
 
 	epts := ep.TS()
@@ -238,7 +219,9 @@ NLOOP:
 	}
 }
 
-func (a *Agent) elect(bcp, rs string, nodes [][]string, l *log.Event) error {
+const renominationFrame = 5 * time.Second
+
+func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error {
 	l.Debug("nomination %s: %v", rs, nodes)
 	err := a.pbm.SetRSNomination(bcp, rs)
 	if err != nil {
@@ -260,10 +243,41 @@ func (a *Agent) elect(bcp, rs string, nodes [][]string, l *log.Event) error {
 			return errors.Wrap(err, "set nominees")
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(renominationFrame)
 	}
 
 	return nil
+}
+
+func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, err error) {
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+	stop := time.NewTimer(pbm.WaitActionStart)
+	defer stop.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			nm, err := a.pbm.GetRSNominees(bcp, rs)
+			if err != nil {
+				if errors.Is(err, pbm.ErrNotFound) {
+					continue
+				}
+				return false, errors.Wrap(err, "check nomination")
+			}
+			if len(nm.Ack) > 0 {
+				return false, nil
+			}
+			for _, n := range nm.Nodes {
+				if n == node {
+					return true, nil
+				}
+			}
+		case <-stop.C:
+			l.Debug("nomination timeout")
+			return false, nil
+		}
+	}
 }
 
 // Restore starts the restore

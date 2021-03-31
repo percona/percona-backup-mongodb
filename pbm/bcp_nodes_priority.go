@@ -53,7 +53,7 @@ func (p *PBM) BcpNodesPriority() (*NodesPriority, error) {
 	f := func(a AgentStat) float64 {
 		switch {
 		case a.State == NodeStatePrimary:
-			return defaultScore / 0.5
+			return defaultScore / 2
 		case a.Hidden:
 			return defaultScore * 2
 		default:
