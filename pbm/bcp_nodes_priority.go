@@ -64,7 +64,7 @@ func (p *PBM) BcpNodesPriority() (*NodesPriority, error) {
 	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
 		f = func(a AgentStat) float64 {
 			sc, ok := cfg.Backup.Priority[a.Node]
-			if !ok {
+			if !ok || sc < 0 {
 				return defaultScore
 			}
 
