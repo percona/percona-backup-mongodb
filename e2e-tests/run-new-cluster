@@ -25,10 +25,10 @@ roles_og=$(mongo_run "db.getSiblingDB(\"admin\").system.roles.find({}, {_id: 1})
 users_og=$(mongo_run "db.getSiblingDB(\"admin\").system.users.find({}, {_id: 1}).sort({_id: -1})" rs1 | grep '{ "_id" : "' | awk -F\" '{print$4}')
 
 desc 'Configure PBM'
-pbm_run config --file=/etc/pbm/aws.yaml
+pbm_run config --file=/etc/pbm/minio.yaml
 sleep 1
 wait_rsync
-pbm_run list
+pbm_run status
 
 desc 'Backup'
 pbm_run backup
@@ -45,7 +45,7 @@ mongo_run "db.getSiblingDB(\"admin\").createRole({ \"role\": \"testRole2\",\"pri
 mongo_run "db.getSiblingDB(\"admin\").createUser({user: \"testUser2\",pwd: \"test1234\",\"roles\" : [{ \"db\" : \"admin\", \"role\" : \"testRole2\" }]});" "rs1"
 
 desc 'Configure PBM'
-pbm_run config --file=/etc/pbm/aws.yaml
+pbm_run config --file=/etc/pbm/minio.yaml
 sleep 1
 wait_rsync
 pbm_run list
