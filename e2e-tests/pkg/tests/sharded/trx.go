@@ -79,7 +79,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 		log.Fatalf("ERROR: delete data from %s: %v", dbcol, err)
 	}
 
-	err = c.mongos.GenData(trxdb, col, 5000)
+	err = c.mongos.GenData(trxdb, col, 0, 5000)
 	if err != nil {
 		log.Fatalln("ERROR: GenData:", err)
 	}

@@ -7,6 +7,7 @@ test_dir=$(realpath $(dirname $0))
 . ${test_dir}/functions
 
 MONGO_VERSION=${MONGODB_VERSION:-"3.6"}
+COMPOSE=$COMPOSE_PATH
 
 desc 'RUN CONSISTENCY TESTS'
 
@@ -14,12 +15,12 @@ desc 'Start cluster'
 start_cluster "$MONGO_VERSION"
 
 desc 'Run tests'
-docker-compose -f $COMPOSE_PATH start tests
-docker-compose -f $COMPOSE_PATH logs -f --no-color tests
-EXIT_CODE=$(docker-compose -f $COMPOSE_PATH ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
+docker-compose -f $COMPOSE start tests
+docker-compose -f $COMPOSE logs -f --no-color tests
+EXIT_CODE=$(docker-compose -f $COMPOSE ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
 if [ $EXIT_CODE != 0 ]; then
-    docker-compose -f $COMPOSE_PATH logs --no-color --tail=100
+    docker-compose -f $COMPOSE logs --no-color --tail=100
 fi
 
 desc 'Destroy cluster'

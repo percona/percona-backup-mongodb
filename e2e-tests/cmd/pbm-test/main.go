@@ -42,32 +42,37 @@ func main() {
 	})
 
 	storage := "/etc/pbm/aws.yaml"
+	if confExt(storage) {
+		flushStore(storage)
+		tests.ApplyConfig(storage)
 
-	flushStore(storage)
-	tests.ApplyConfig(storage)
+		tests.SetBallastData(1e5)
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e5)
-
-	printStart("Basic Backup & Restore AWS S3")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore AWS S3")
-	flushStore(storage)
+		printStart("Basic Backup & Restore AWS S3")
+		tests.BackupAndRestore()
+		printDone("Basic Backup & Restore AWS S3")
+		flushStore(storage)
+	}
 
 	storage = "/etc/pbm/gcs.yaml"
+	if confExt(storage) {
+		flushStore(storage)
+		tests.ApplyConfig(storage)
 
-	flushStore(storage)
-	tests.ApplyConfig(storage)
+		tests.SetBallastData(1e5)
 
-	printStart("Basic Backup & Restore GCS")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore GCS")
-	flushStore(storage)
+		printStart("Basic Backup & Restore GCS")
+		tests.BackupAndRestore()
+		printDone("Basic Backup & Restore GCS")
+		flushStore(storage)
+	}
 
 	storage = "/etc/pbm/fs.yaml"
 
 	flushStore(storage)
 	tests.ApplyConfig(storage)
+
+	tests.SetBallastData(1e5)
 
 	printStart("Basic Backup & Restore FS")
 	tests.BackupAndRestore()
@@ -84,8 +89,7 @@ func main() {
 	flushStore(storage)
 	tests.ApplyConfig(storage)
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e5)
+	tests.SetBallastData(1e5)
 
 	printStart("Basic Backup & Restore Minio")
 	tests.BackupAndRestore()
@@ -95,16 +99,14 @@ func main() {
 	tests.PITRbasic()
 	printDone("Basic PITR & Restore Minio")
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e3)
+	tests.SetBallastData(1e3)
 	flushStore(storage)
 
 	printStart("Check Backups deletion")
 	tests.BackupDelete(storage)
 	printDone("Check Backups deletion")
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e5)
+	tests.SetBallastData(1e5)
 
 	printStart("Check the Running Backup can't be deleted")
 	tests.BackupNotDeleteRunning()
@@ -126,15 +128,13 @@ func main() {
 	tests.RestartAgents()
 	printDone("Restart agents during the backup")
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e6)
+	tests.SetBallastData(1e6)
 
 	printStart("Cut network during the backup")
 	tests.NetworkCut()
 	printDone("Cut network during the backup")
 
-	tests.DeleteBallast()
-	tests.GenerateBallastData(1e5)
+	tests.SetBallastData(1e5)
 
 	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
 	v42 := version.Must(version.NewVersion("4.2"))
@@ -200,7 +200,7 @@ func flushStore(conf string) {
 		defer close(objectsCh)
 		for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
 			if object.Err != nil {
-				fmt.Println("Error: ListObjects: ", object.Err)
+				fmt.Fprintln(os.Stderr, "Error: ListObjects:", object.Err)
 				continue
 			}
 			objectsCh <- object.Key
@@ -208,6 +208,19 @@ func flushStore(conf string) {
 	}()
 
 	for rErr := range mc.RemoveObjects(stg.S3.Bucket, objectsCh) {
-		fmt.Println("Error detected during deletion: ", rErr)
+		fmt.Fprintln(os.Stderr, "Error detected during deletion:", rErr)
 	}
+}
+
+func confExt(f string) bool {
+	_, err := os.Stat(f)
+	if os.IsNotExist(err) {
+		return false
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error checking config %s: %v\n", f, err)
+		return false
+	}
+
+	return true
 }
