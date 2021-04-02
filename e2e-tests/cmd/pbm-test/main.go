@@ -1,23 +1,24 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
 	"log"
-	"net/url"
 	"os"
-
-	"github.com/hashicorp/go-version"
-	"github.com/minio/minio-go"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 )
 
+type testTyp string
+
 const (
+	testsUnknown testTyp = ""
+	testsSharded testTyp = "sharded"
+	testsRS      testTyp = "rs"
+	tests1NodeRS testTyp = "node"
+
 	defaultMongoUser = "bcp"
 	defaultMongoPass = "test1234"
+
+	dockerSocket = "unix:///var/run/docker.sock"
 )
 
 func main() {
@@ -30,6 +31,34 @@ func main() {
 		mPass = defaultMongoPass
 	}
 
+	typ := testTyp(os.Getenv("TESTS_TYPE"))
+
+	switch typ {
+	case testsUnknown, testsSharded:
+		runSharded(mUser, mPass)
+	case testsRS:
+		runRS(mUser, mPass)
+	default:
+		log.Fatalln("UNKNOWN TEST TYPE:", typ)
+	}
+}
+
+func runRS(mUser, mPass string) {
+	allTheNetworks := "mongodb://" + mUser + ":" + mPass + "@rs101:27017/"
+	tests := sharded.New(sharded.ClusterConf{
+		Mongos:          allTheNetworks,
+		Configsrv:       allTheNetworks,
+		ConfigsrvRsName: "rs1",
+		Shards: map[string]string{
+			"rs1": allTheNetworks,
+		},
+		DockerSocket: dockerSocket,
+	})
+
+	run(tests, testsRS)
+}
+
+func runSharded(mUser, mPass string) {
 	tests := sharded.New(sharded.ClusterConf{
 		Mongos:          "mongodb://" + mUser + ":" + mPass + "@mongos:27017/",
 		Configsrv:       "mongodb://" + mUser + ":" + mPass + "@cfg01:27017/",
@@ -38,189 +67,8 @@ func main() {
 			"rs1": "mongodb://" + mUser + ":" + mPass + "@rs101:27017/",
 			"rs2": "mongodb://" + mUser + ":" + mPass + "@rs201:27017/",
 		},
-		DockerSocket: "unix:///var/run/docker.sock",
+		DockerSocket: dockerSocket,
 	})
 
-	storage := "/etc/pbm/aws.yaml"
-	if confExt(storage) {
-		flushStore(storage)
-		tests.ApplyConfig(storage)
-
-		tests.SetBallastData(1e5)
-
-		printStart("Basic Backup & Restore AWS S3")
-		tests.BackupAndRestore()
-		printDone("Basic Backup & Restore AWS S3")
-		flushStore(storage)
-	}
-
-	storage = "/etc/pbm/gcs.yaml"
-	if confExt(storage) {
-		flushStore(storage)
-		tests.ApplyConfig(storage)
-
-		tests.SetBallastData(1e5)
-
-		printStart("Basic Backup & Restore GCS")
-		tests.BackupAndRestore()
-		printDone("Basic Backup & Restore GCS")
-		flushStore(storage)
-	}
-
-	storage = "/etc/pbm/fs.yaml"
-
-	flushStore(storage)
-	tests.ApplyConfig(storage)
-
-	tests.SetBallastData(1e5)
-
-	printStart("Basic Backup & Restore FS")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore FS")
-
-	printStart("Basic PITR & Restore FS")
-	tests.PITRbasic()
-	printDone("Basic PITR & Restore FS")
-
-	flushStore(storage)
-
-	storage = "/etc/pbm/minio.yaml"
-
-	flushStore(storage)
-	tests.ApplyConfig(storage)
-
-	tests.SetBallastData(1e5)
-
-	printStart("Basic Backup & Restore Minio")
-	tests.BackupAndRestore()
-	printDone("Basic Backup & Restore Minio")
-
-	printStart("Basic PITR & Restore Minio")
-	tests.PITRbasic()
-	printDone("Basic PITR & Restore Minio")
-
-	tests.SetBallastData(1e3)
-	flushStore(storage)
-
-	printStart("Check Backups deletion")
-	tests.BackupDelete(storage)
-	printDone("Check Backups deletion")
-
-	tests.SetBallastData(1e5)
-
-	printStart("Check the Running Backup can't be deleted")
-	tests.BackupNotDeleteRunning()
-	printDone("Check the Running Backup can't be deleted")
-
-	printStart("Check Backup Cancellation")
-	tests.BackupCancellation(storage)
-	printDone("Check Backup Cancellation")
-
-	printStart("Leader lag during backup start")
-	tests.LeaderLag()
-	printDone("Leader lag during backup start")
-
-	printStart("Backup Data Bounds Check")
-	tests.BackupBoundsCheck()
-	printDone("Backup Data Bounds Check")
-
-	printStart("Restart agents during the backup")
-	tests.RestartAgents()
-	printDone("Restart agents during the backup")
-
-	tests.SetBallastData(1e6)
-
-	printStart("Cut network during the backup")
-	tests.NetworkCut()
-	printDone("Cut network during the backup")
-
-	tests.SetBallastData(1e5)
-
-	cVersion := version.Must(version.NewVersion(tests.ServerVersion()))
-	v42 := version.Must(version.NewVersion("4.2"))
-	if cVersion.GreaterThanOrEqual(v42) {
-		printStart("Distributed Transactions backup")
-		tests.DistributedTrxSnapshot()
-		printDone("Distributed Transactions backup")
-
-		printStart("Distributed Transactions PITR")
-		tests.DistributedTrxPITR()
-		printDone("Distributed Transactions PITR")
-	}
-
-	printStart("Clock Skew Tests")
-	tests.ClockSkew()
-	printDone("Clock Skew Tests")
-
-	flushStore(storage)
-}
-
-func printStart(name string) {
-	log.Printf("[START] ======== %s ========\n", name)
-}
-func printDone(name string) {
-	log.Printf("[DONE] ======== %s ========\n", name)
-}
-
-const awsurl = "s3.amazonaws.com"
-
-func flushStore(conf string) {
-	buf, err := ioutil.ReadFile(conf)
-	if err != nil {
-		log.Fatalln("Error: unable to read config file:", err)
-	}
-
-	var cfg pbm.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("Error: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("Error: parse EndpointURL:", err)
-		}
-		endopintURL = eu.Host
-	}
-
-	log.Println("Flushing store", endopintURL, stg.S3.Bucket, stg.S3.Prefix)
-
-	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
-	if err != nil {
-		log.Fatalln("Error: NewWithRegion:", err)
-	}
-
-	objectsCh := make(chan string)
-
-	go func() {
-		defer close(objectsCh)
-		for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-			if object.Err != nil {
-				fmt.Fprintln(os.Stderr, "Error: ListObjects:", object.Err)
-				continue
-			}
-			objectsCh <- object.Key
-		}
-	}()
-
-	for rErr := range mc.RemoveObjects(stg.S3.Bucket, objectsCh) {
-		fmt.Fprintln(os.Stderr, "Error detected during deletion:", rErr)
-	}
-}
-
-func confExt(f string) bool {
-	_, err := os.Stat(f)
-	if os.IsNotExist(err) {
-		return false
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error checking config %s: %v\n", f, err)
-		return false
-	}
-
-	return true
+	run(tests, testsSharded)
 }

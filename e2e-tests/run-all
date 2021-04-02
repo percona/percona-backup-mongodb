@@ -12,4 +12,5 @@ fail() {
 }
 
 $dir/run-new-cluster || fail "restore-on-new-cluster"
-$dir/run-consistency || fail "consistency-tests"
+$dir/run-sharded || fail "sharded-cluster"
+$dir/run-rs || fail "replica-set-cluster"

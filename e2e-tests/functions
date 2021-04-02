@@ -6,6 +6,34 @@ BCP_NAME=""
 COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
 COMPOSE_RS_PATH="${test_dir}/docker/docker-compose-rs.yaml"
 
+
+run() {
+    local compose=$1
+    local mongo_version=$2
+
+
+    desc 'Start cluster'
+    if [ compose == $COMPOSE_PATH ] ; then
+        start_cluster "$mongo_version"
+    else 
+        start_replset "$mongo_version"
+    fi
+
+    desc 'Run tests'
+    docker-compose -f $compose start tests
+    docker-compose -f $compose logs -f --no-color tests
+    EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
+
+    if [ $EXIT_CODE != 0 ]; then
+        docker-compose -f $compose logs --no-color --tail=100
+    fi
+
+    desc 'Destroy cluster'
+    destroy_cluster $compose
+
+    exit $EXIT_CODE
+}
+
 pbm_run() {
     local cmd="$@"
 
@@ -170,6 +198,8 @@ genMongoKey() {
 }
 
 destroy_cluster() {
-    docker-compose -f $COMPOSE_PATH ps
-    docker-compose -f $COMPOSE_PATH down
+    local compose=$1
+
+    docker-compose -f $compose ps
+    docker-compose -f $compose down
 }
