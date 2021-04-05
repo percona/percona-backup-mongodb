@@ -98,19 +98,22 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")
 
-	printStart("Restart agents during the backup")
-	t.RestartAgents()
-	printDone("Restart agents during the backup")
-
-	t.SetBallastData(1e6)
-
-	printStart("Cut network during the backup")
-	t.NetworkCut()
-	printDone("Cut network during the backup")
-
-	t.SetBallastData(1e5)
-
 	if typ == testsSharded {
+		t.SetBallastData(1e6)
+
+		// TODO: in the case of non-sharded cluster there is no other agent to observe
+		// TODO: failed state during the backup. For such topology test should check if
+		// TODO: a sequential run (of the backup let's say) handles a situation.
+		printStart("Cut network during the backup")
+		t.NetworkCut()
+		printDone("Cut network during the backup")
+
+		t.SetBallastData(1e5)
+
+		printStart("Restart agents during the backup")
+		t.RestartAgents()
+		printDone("Restart agents during the backup")
+
 		cVersion := version.Must(version.NewVersion(t.ServerVersion()))
 		v42 := version.Must(version.NewVersion("4.2"))
 		if cVersion.GreaterThanOrEqual(v42) {
