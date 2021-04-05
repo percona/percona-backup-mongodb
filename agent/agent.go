@@ -289,7 +289,32 @@ func (a *Agent) HbStatus() {
 		hb.StorageStatus = a.storStatus(l)
 		logHbStatus("storage connecion", hb.StorageStatus, l)
 
-		err := a.pbm.SetAgentStatus(hb)
+		hb.Err = ""
+
+		hb.State = pbm.NodeStateUnknown
+		hb.StateStr = "unknown"
+		n, err := a.node.Status()
+		if err != nil {
+			l.Error("get replSetGetStatus: %v", err)
+			hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
+		} else {
+			hb.State = n.State
+			hb.StateStr = n.StateStr
+		}
+
+		hb.Hidden = false
+		hb.Passive = false
+
+		inf, err := a.node.GetInfo()
+		if err != nil {
+			l.Error("get NodeInfo: %v", err)
+			hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
+		} else {
+			hb.Hidden = inf.Hidden
+			hb.Passive = inf.Passive
+		}
+
+		err = a.pbm.SetAgentStatus(hb)
 		if err != nil {
 			l.Error("set status: %v", err)
 		}

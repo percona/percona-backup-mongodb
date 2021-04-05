@@ -25,6 +25,7 @@ type Config struct {
 	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
 	Storage StorageConf         `bson:"storage" json:"storage" yaml:"storage"`
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -54,6 +55,10 @@ type StorageConf struct {
 type RestoreConf struct {
 	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+}
+
+type BackupConf struct {
+	Priority map[string]float64 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 }
 
 type confMap map[string]reflect.Kind

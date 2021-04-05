@@ -9,6 +9,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
@@ -46,14 +47,35 @@ func (a *Agent) CancelBackup() {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdBackup), bcp.Name, opid.String(), ep.TS())
+func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdBackup), cmd.Name, opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		l.Error("get node info: %v", err)
 		return
 	}
+	if nodeInfo.IsStandalone() {
+		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+		return
+	}
+
+	// workaround for pitr
+	//
+	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
+	// 2. wait at least for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
+	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
+	//    (nothing gonna be done if no PITR process run by current agent)
+	// 4. try to acquire a backup's lock and move further with the backup
+	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
+	// TODO: this communication should be via db
+	const waitForPITR = pitrCheckPeriod * 11 / 10
+	atomic.StoreUint32(&a.intent, intentBackup)
+	iat := time.Now()
+	defer func() {
+		time.Sleep(waitForPITR - time.Since(iat))
+		atomic.StoreUint32(&a.intent, intentNone)
+	}()
 
 	// In case there are some leftovers from the restore.
 	//
@@ -82,18 +104,11 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	// workaround for pitr
-	//
-	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
-	// 2. wait for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
-	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
-	//    (nothing gonna be done if no PITR process run by current agent)
-	// 4. try to acquire a backup's lock and move further with the backup
-	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
-	atomic.StoreUint32(&a.intent, intentBackup)
-	defer atomic.StoreUint32(&a.intent, intentNone)
-
-	time.Sleep(pitrCheckPeriod * 11 / 10)
+	// before removing the lock wait if it's needed for
+	// the PITR routine to observe a bcp intent
+	if w := waitForPITR - time.Since(iat); w > 0 {
+		time.Sleep(w)
+	}
 
 	err = a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdPITR,
@@ -104,6 +119,43 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 	// wakeup the slicer not to wait for the tick
 	a.wakeupPitr()
+
+	bcp := backup.New(a.pbm, a.node)
+	if nodeInfo.IsClusterLeader() {
+		err = bcp.Init(cmd, opid)
+		if err != nil {
+			l.Error("init meta: %v", err)
+			return
+		}
+		nodes, err := a.pbm.BcpNodesPriority()
+		if err != nil {
+			l.Error("get nodes priority: %v", err)
+			return
+		}
+		shrds, err := a.pbm.ClusterMembers(nodeInfo)
+		if err != nil {
+			l.Error("get cluster members: %v", err)
+			return
+		}
+		for _, sh := range shrds {
+			go func(rs string) {
+				err := a.nominateRS(cmd.Name, rs, nodes.RS(rs), l)
+				if err != nil {
+					l.Error("nodes nominaition for %s: %v", rs, err)
+				}
+			}(sh.RS)
+		}
+	}
+
+	gotn, err := a.waitNomination(cmd.Name, nodeInfo.SetName, nodeInfo.Me, l)
+	if err != nil {
+		l.Error("wait for nomination: %v", err)
+	}
+
+	if !gotn {
+		l.Debug("skip after nomination, probably started by another node")
+		return
+	}
 
 	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
@@ -124,13 +176,18 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	err = a.pbm.SetRSNomineeACK(cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	if err != nil {
+		l.Warning("set nominee ack: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	a.setBcp(&currentBackup{
-		header: &bcp,
+		header: &cmd,
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	err = backup.New(ctx, a.pbm, a.node).Run(bcp, opid, l)
+	err = bcp.Run(ctx, cmd, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, backup.ErrCancelled) {
@@ -159,6 +216,67 @@ func (a *Agent) Backup(bcp pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	err = lock.Release()
 	if err != nil {
 		l.Error("unable to release backup lock %v: %v", lock, err)
+	}
+}
+
+const renominationFrame = 5 * time.Second
+
+func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error {
+	l.Debug("nomination %s: %v", rs, nodes)
+	err := a.pbm.SetRSNomination(bcp, rs)
+	if err != nil {
+		return errors.Wrap(err, "set nomination meta")
+	}
+
+	for _, n := range nodes {
+		nms, err := a.pbm.GetRSNominees(bcp, rs)
+		if err != nil && err != pbm.ErrNotFound {
+			return errors.Wrap(err, "get nomination meta")
+		}
+		if nms != nil && len(nms.Ack) > 0 {
+			l.Debug("bcp nomination: %s won by %s", rs, nms.Ack)
+			return nil
+		}
+
+		err = a.pbm.SetRSNominees(bcp, rs, n)
+		if err != nil {
+			return errors.Wrap(err, "set nominees")
+		}
+
+		time.Sleep(renominationFrame)
+	}
+
+	return nil
+}
+
+func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, err error) {
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+	stop := time.NewTimer(pbm.WaitActionStart)
+	defer stop.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			nm, err := a.pbm.GetRSNominees(bcp, rs)
+			if err != nil {
+				if errors.Is(err, pbm.ErrNotFound) {
+					continue
+				}
+				return false, errors.Wrap(err, "check nomination")
+			}
+			if len(nm.Ack) > 0 {
+				return false, nil
+			}
+			for _, n := range nm.Nodes {
+				if n == node {
+					return true, nil
+				}
+			}
+		case <-stop.C:
+			l.Debug("nomination timeout")
+			return false, nil
+		}
 	}
 }
 
