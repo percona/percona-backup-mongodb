@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -214,34 +213,40 @@ func (n *Node) CurrentUser() (*AuthInfo, error) {
 func (n *Node) DropTMPcoll() error {
 	err := n.cn.Database(DB).Collection(TmpRolesCollection).Drop(n.ctx)
 	if err != nil {
-		return errors.Wrapf(err, "drop tmp roles collection %s", TmpRolesCollection)
+		return errors.Wrapf(err, "drop collection %s", TmpRolesCollection)
 	}
 
 	err = n.cn.Database(DB).Collection(TmpUsersCollection).Drop(n.ctx)
 	if err != nil {
-		return errors.Wrapf(err, "drop tmp users collection %s", TmpUsersCollection)
+		return errors.Wrapf(err, "drop collection %s", TmpUsersCollection)
 	}
 
 	return nil
 }
 
-func (n *Node) EnsureNoTMPcoll() error {
-	cols, err := n.cn.Database(DB).ListCollectionNames(n.ctx, bson.D{})
+func (n *Node) CopyUsersNRolles() error {
+	err := n.DropTMPcoll()
 	if err != nil {
-		return errors.Wrapf(err, "list collections in %s", DB)
+		return errors.Wrap(err, "drop tmp collections before copy")
+
 	}
 
-	var ext []string
-	for _, n := range cols {
-		if n == TmpRolesCollection || n == TmpUsersCollection {
-			ext = append(ext, DB+"."+n)
-		}
+	_, err = CopyColl(n.ctx,
+		n.cn.Database("admin").Collection("system.roles"),
+		n.cn.Database(DB).Collection(TmpRolesCollection),
+		bson.M{},
+	)
+	if err != nil {
+		return errors.Wrap(err, "copy admin.system.roles")
 	}
-	if len(ext) > 0 {
-		return errors.Errorf(
-			"PBM temporary collections exist. It will lead to a failed restore. Please, drop next collections manually: %s",
-			strings.Join(ext, ", "),
-		)
+	_, err = CopyColl(n.ctx,
+		n.cn.Database("admin").Collection("system.users"),
+		n.cn.Database(DB).Collection(TmpUsersCollection),
+		bson.M{},
+	)
+	if err != nil {
+		return errors.Wrap(err, "copy admin.system.users")
 	}
+
 	return nil
 }

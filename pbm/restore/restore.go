@@ -378,7 +378,7 @@ func (r *Restore) prepareSnapshot() (err error) {
 }
 
 const (
-	preserveUUID = false
+	preserveUUID = true
 
 	batchSizeDefault           = 500
 	numInsertionWorkersDefault = 10
@@ -446,16 +446,12 @@ func (r *Restore) RunSnapshot() (err error) {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
 
-	defer func() {
-		err := r.node.DropTMPcoll()
-		if err != nil {
-			r.log.Error("dropping tmp collections: %v", err)
-		}
-	}()
-
 	mr := mongorestore.MongoRestore{
 		SessionProvider: rsession,
 		ToolOptions:     &topts,
+		// Have to handle users and roles on our own.
+		// see: https://jira.percona.com/browse/PBM-636 and comments.
+		SkipUsersAndRoles: true,
 		InputOptions: &mongorestore.InputOptions{
 			Archive: "-",
 		},
@@ -467,14 +463,10 @@ func (r *Restore) RunSnapshot() (err error) {
 			NumParallelCollections:   1,
 			PreserveUUID:             preserveUUID,
 			StopOnError:              true,
-			TempRolesColl:            "temproles",
-			TempUsersColl:            "tempusers",
 			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromRestore,
-			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
-			NSTo:      []string{pbm.DB + `.` + pbm.TmpUsersCollection, pbm.DB + `.` + pbm.TmpRolesCollection},
 		},
 		InputReader: dumpReader,
 	}
@@ -655,7 +647,17 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 }
 
 func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
-	return r.swapUsers(r.cn.Context(), exclude)
+	err := r.swapUsers(r.cn.Context(), exclude)
+	if err != nil {
+		return errors.Wrap(err, "swap users 'n' roles")
+	}
+
+	err = r.node.DropTMPcoll()
+	if err != nil {
+		return errors.Wrap(err, "drop tmp collections")
+	}
+
+	return nil
 }
 
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {

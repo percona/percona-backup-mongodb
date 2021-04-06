@@ -77,19 +77,17 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		atomic.StoreUint32(&a.intent, intentNone)
 	}()
 
-	// In case there are some leftovers from the restore.
-	//
-	// There is no way to exclude some collections on mongodump stage
-	// while it accepts "exclude..." option only if sole db specified (¯\_(ツ)_/¯)
-	// So we're trying to clean up on primary node but because there is no guarantee
-	// that primary node reaches this code before some of the secondaries starts backup
-	// we have to double-check in backup.run() before mongodump and fail on dirty state.
+	// Save users and roles to the tmp collections so the restore would copy that data
+	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
+	// see: https://jira.percona.com/browse/PBM-636 and comments
 	if nodeInfo.IsPrimary && nodeInfo.Me == nodeInfo.Primary {
-		err = a.node.DropTMPcoll()
+		err = a.node.CopyUsersNRolles()
 		if err != nil {
-			l.Error("ensure no tmp collections: %v", err)
+			l.Error("copy users and roles for the restore: %v", err)
 			return
 		}
+
+		defer l.Debug("drop tmp users and roles: %v", a.node.DropTMPcoll())
 	}
 
 	q, err := backup.NodeSuits(a.node, nodeInfo)
