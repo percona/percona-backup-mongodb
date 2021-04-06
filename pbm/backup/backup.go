@@ -157,14 +157,6 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	// A fallback. If there are some leftovers and main node
-	// hasn't cleaned up it yet we should stop and notify user
-	// since backup would be unrestorable.
-	err = b.node.EnsureNoTMPcoll()
-	if err != nil {
-		return errors.Wrap(err, "EnsureNoTMPcoll")
-	}
-
 	rsMeta.Status = pbm.StatusRunning
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
