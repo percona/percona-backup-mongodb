@@ -44,7 +44,7 @@ void prepareCluster(String CLUSTER_POSTFIX) {
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile
             sudo chown 1001:1001 ./e2e-tests/docker/keyFile
             sudo chmod 400 ./e2e-tests/docker/keyFile
-        '''
+        """
     }
 }
 
