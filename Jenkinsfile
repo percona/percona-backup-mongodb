@@ -18,9 +18,9 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     testsReportMap[mkey] = 'failed'
 
     sh """
-        export MONGODB_VERSION=$MONGO_VERSION
+        export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
-        ./e2e-tests/$TEST_SCRIPT
+        ./e2e-tests/${TEST_SCRIPT}
     """
 
     testsReportMap[mkey] = 'passed'
@@ -29,7 +29,7 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
 void prepareCluster(String CLUSTER_POSTFIX) {
     withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
         sh """
-            sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
             sudo chmod +x /usr/local/bin/docker-compose
 
             cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
