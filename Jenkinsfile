@@ -21,7 +21,7 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
         export MONGODB_VERSION=$MONGO_VERSION
         export PBM_TESTS_NO_BUILD=true
         ./e2e-tests/$TEST_SCRIPT
-    '''
+    """
 
     testsReportMap[mkey] = 'passed'
 }
