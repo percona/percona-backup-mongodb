@@ -76,7 +76,7 @@ func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
 func (fs *FS) List(prefix string) ([]storage.FileInfo, error) {
 	var files []storage.FileInfo
 
-	prefix = path.Join(fs.opts.Path, prefix)
+	prefix = filepath.Join(fs.opts.Path, prefix)
 
 	err := filepath.Walk(prefix, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
