@@ -64,4 +64,4 @@ compare_arrays "$roles_og" "$roles_re"
 compare_arrays "$users_og" "$users_re"
 
 desc 'Destroy cluster'
-destroy_cluster $COMPOSE_RS_PATH
+destroy_cluster $COMPOSE_PATH
