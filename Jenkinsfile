@@ -26,7 +26,14 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     testsReportMap[mkey] = 'passed'
 }
 
-void prepareCluster(String CLUSTER_POSTFIX) {
+void prepareCluster(String CLUSTER_TYPE, String MONGO_VERSION) {
+    def s3postfix = "${MONGO_VERSION}-${CLUSTER_TYPE}"
+
+    def compose = 'docker-compose.yaml'
+    if ( CLUSTER_TYPE == 'sharded') {
+        compose = 'docker-compose-rs.yaml'
+    }
+
     withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
         sh """
             sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
@@ -34,13 +41,13 @@ void prepareCluster(String CLUSTER_POSTFIX) {
 
             cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
             cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
-            sed -i s:pbme2etest:pbme2etest-${CLUSTER_POSTFIX}:g ./e2e-tests/docker/conf/aws.yaml
-            sed -i s:pbme2etest:pbme2etest-${CLUSTER_POSTFIX}:g ./e2e-tests/docker/conf/gcs.yaml
+            sed -i s:pbme2etest:pbme2etest-${s3postfix}:g ./e2e-tests/docker/conf/aws.yaml
+            sed -i s:pbme2etest:pbme2etest-${s3postfix}:g ./e2e-tests/docker/conf/gcs.yaml
 
             chmod 664 ./e2e-tests/docker/conf/aws.yaml
             chmod 664 ./e2e-tests/docker/conf/gcs.yaml
 
-            docker-compose -f ./e2e-tests/docker/docker-compose.yaml build
+            docker-compose -f ./e2e-tests/docker/${compose} build
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile
             sudo chown 1001:1001 ./e2e-tests/docker/keyFile
             sudo chmod 400 ./e2e-tests/docker/keyFile
@@ -74,7 +81,7 @@ pipeline {
                             }
                         }
 
-                        prepareCluster('36-newc')
+                        prepareCluster('36-newc', '')
                         runTest('Restore on new cluster', 'run-new-cluster', '3.6')
                     }
                 }
