@@ -26,11 +26,9 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     testsReportMap[mkey] = 'passed'
 }
 
-void prepareCluster(String CLUSTER_TYPE, String MONGO_VERSION) {
-    def s3postfix = "${MONGO_VERSION}-${CLUSTER_TYPE}"
-
+void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
     def compose = 'docker-compose.yaml'
-    if ( CLUSTER_TYPE == 'sharded') {
+    if ( CLUSTER_TYPE == 'rs') {
         compose = 'docker-compose-rs.yaml'
     }
 
@@ -41,8 +39,8 @@ void prepareCluster(String CLUSTER_TYPE, String MONGO_VERSION) {
 
             cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
             cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
-            sed -i s:pbme2etest:pbme2etest-${s3postfix}:g ./e2e-tests/docker/conf/aws.yaml
-            sed -i s:pbme2etest:pbme2etest-${s3postfix}:g ./e2e-tests/docker/conf/gcs.yaml
+            sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/aws.yaml
+            sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/gcs.yaml
 
             chmod 664 ./e2e-tests/docker/conf/aws.yaml
             chmod 664 ./e2e-tests/docker/conf/gcs.yaml
@@ -81,7 +79,7 @@ pipeline {
                             }
                         }
 
-                        prepareCluster('36-newc', '')
+                        prepareCluster('sharded', '36')
                         runTest('Restore on new cluster', 'run-new-cluster', '3.6')
                     }
                 }
@@ -90,7 +88,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('40-newc')
+                        prepareCluster('sharded', '40-newc')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.0')
                     }
                 }
@@ -99,7 +97,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('42-newc')
+                        prepareCluster('sharded', '42-newc')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.2')
                     }
                 }
@@ -109,7 +107,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('36-shrd')
+                        prepareCluster('sharded', '36-shrd')
                         runTest('Sharded cluster', 'run-sharded', '3.6')
                     }
                 }
@@ -118,7 +116,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('40-shrd')
+                        prepareCluster('sharded', '40-shrd')
                         runTest('Sharded cluster', 'run-sharded', '4.0')
                     }
                 }
@@ -127,7 +125,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('42-shrd')
+                        prepareCluster('sharded', '42-shrd')
                         runTest('Sharded cluster', 'run-sharded', '4.2')
                     }
                 }
@@ -137,7 +135,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('36-rs')
+                        prepareCluster('rs', '36-rs')
                         runTest('Non-sharded replicaset', 'run-rs', '3.6')
                     }
                 }
@@ -146,7 +144,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('40-rs')
+                        prepareCluster('rs', '40-rs')
                         runTest('Non-sharded replicaset', 'run-rs', '4.0')
                     }
                 }
@@ -155,7 +153,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('42-rs')
+                        prepareCluster('rs', '42-rs')
                         runTest('Non-sharded replicaset', 'run-rs', '4.2')
                     }
                 }
