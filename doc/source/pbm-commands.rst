@@ -115,6 +115,7 @@ The command accepts the following flags:
 .. list-table:: 
    :header-rows: 1
    :widths: 30 70
+   :align: right
 
    * - Flag
      - Description
@@ -142,7 +143,10 @@ The command accepts the following flags:
    * - Flag
      - Description
    * - ``--older-than=TIMESTAMP``
-     - Deletes backups older than date / time in the format ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or ``%Y-%M-%D`` (e.g. 2020-04-20)
+     - Deletes backups older than date / time specified in the format:
+     
+       - ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or 
+       - ``%Y-%M-%D`` (e.g. 2020-04-20)
    * - ``--force``
      - Forcibly deletes backups without asking for user's confirmation   
 
@@ -154,6 +158,7 @@ The command accepts the following flags:
 
 .. list-table:: 
    :header-rows: 1
+   :align: right
    :widths: 30 70
 
    * - Flag
@@ -162,5 +167,55 @@ The command accepts the following flags:
      - Shows only version info
    * - ``--commit``
      - Shows only git commit info
+
+.. _logs:
+
+.. rubric:: pbm logs
+
+Shows log information from all |pbm-agent| processes. 
+
+The command has the following syntax: 
+
+.. code-block:: bash
+
+   pbm logs [<flags>]
+
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Flag
+     - Description
+   * - ``-t``, ``--tail=20``        
+     - Shows last N entries. By default, the output shows last 20 entries. 
+       ``0`` means to show all log messages.
+   * - ``-e``, ``--event=EVENT``    
+     - Shows logs filtered by a specified event. Supported events:
+
+       - backup 
+       - restore
+       - cancelBackup
+       - resyncBcpList
+       - pitr 
+       - pitrestore
+       - delete
+
+   * - ``-o``, ``--out=text``
+     - Shows log information as text (default) or in JSON format. 
+       Supported values: text, json
+   * - ``-n``, ``--node=NODE``
+     - Shows logs for a specified node or a replica set. 
+       Specify the node in the format ``replset[/host:port]`` 
+   * - ``-s``, ``--severity=I``     
+     - Shows logs filtered by severity level. 
+       Supported levels are (from low to high): D - Debug, I - Info (default), W - Warning, E - Error, F - Fatal.
+
+       The output includes both the specified severity level and all higher ones
+   * - ``-i``, ``--opid=OPID``
+     - Show logs for an operation in progress. The operation is identified by the :term:`OpID`
+
+Find the usage examples in :ref:`pbm.logs`.
 
 .. include:: .res/replace.txt
