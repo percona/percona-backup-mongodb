@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	semver "github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -15,6 +16,7 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type statusSect struct {
@@ -437,11 +439,12 @@ type storageStat struct {
 }
 
 type snapshotStat struct {
-	Name    string     `json:"name"`
-	Size    int64      `json:"size"`
-	Status  pbm.Status `json:"status"`
-	Err     string     `json:"error,omitempty"`
-	StateTS int64      `json:"completeTS"`
+	Name       string     `json:"name"`
+	Size       int64      `json:"size"`
+	Status     pbm.Status `json:"status"`
+	Err        string     `json:"error,omitempty"`
+	StateTS    int64      `json:"completeTS"`
+	PBMVersion string     `json:"pbmVersion"`
 }
 
 type pitrRange struct {
@@ -464,18 +467,27 @@ func (s storageStat) String() string {
 
 	ret += fmt.Sprintln("  Snapshots:")
 	for _, sn := range s.Snapshot {
-		ret += fmt.Sprintf("    %s %s", sn.Name, fmtSize(sn.Size))
+		var status string
 		switch sn.Status {
 		case pbm.StatusDone:
-			ret += fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
-			ret += fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
-			ret += fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
 		default:
-			ret += fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
-		ret += "\n"
+
+		var v string
+		sv, err := semver.NewVersion(sn.PBMVersion)
+		if err != nil {
+			v = "(! PBM version UNDEFINED )"
+		}
+		if version.DefaultInfo.SemVer.GreaterThan(sv) {
+			v = fmt.Sprintf(" v%s", sn.PBMVersion)
+		}
+		ret += fmt.Sprintf("    %s %s%s%s\n", sn.Name, fmtSize(sn.Size), status, v)
 	}
 
 	if len(s.PITR) == 0 {
@@ -543,9 +555,10 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 
 	for _, bcp := range bcps {
 		snpsht := snapshotStat{
-			Name:    bcp.Name,
-			Status:  bcp.Status,
-			StateTS: bcp.LastTransitionTS,
+			Name:       bcp.Name,
+			Status:     bcp.Status,
+			StateTS:    bcp.LastTransitionTS,
+			PBMVersion: bcp.PBMVersion,
 		}
 
 		switch bcp.Status {
