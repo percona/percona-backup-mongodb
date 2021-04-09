@@ -522,6 +522,7 @@ func (r *Restore) RunSnapshot() (err error) {
 	}
 	defer oplogReader.Close()
 
+	r.oplog.SetEdge(r.bcp.LastWriteTS)
 	lts, err := r.oplog.Apply(oplogReader)
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
