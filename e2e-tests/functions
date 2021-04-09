@@ -4,6 +4,35 @@ BACKUP_USER="bcp"
 MONGO_PASS="test1234"
 BCP_NAME=""
 COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
+COMPOSE_RS_PATH="${test_dir}/docker/docker-compose-rs.yaml"
+
+
+run() {
+    local compose=$1
+    local mongo_version=$2
+
+
+    desc 'Start cluster'
+    if [ compose == $COMPOSE_PATH ] ; then
+        start_cluster "$mongo_version"
+    else 
+        start_replset "$mongo_version"
+    fi
+
+    desc 'Run tests'
+    docker-compose -f $compose start tests
+    docker-compose -f $compose logs -f --no-color tests
+    EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
+
+    if [ $EXIT_CODE != 0 ]; then
+        docker-compose -f $compose logs --no-color --tail=100
+    fi
+
+    desc 'Destroy cluster'
+    destroy_cluster $compose
+
+    exit $EXIT_CODE
+}
 
 pbm_run() {
     local cmd="$@"
@@ -98,6 +127,8 @@ desc() {
 start_cluster() {
     local mongo_version=$1
 
+    genMongoKey
+
     local no_build=${PBM_TESTS_NO_BUILD:-false}
     if $no_build ; then
         echo 'Skip builds'
@@ -127,7 +158,48 @@ start_cluster() {
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
 }
 
+start_replset() {
+    local mongo_version=$1
+
+    genMongoKey
+
+    local no_build=${PBM_TESTS_NO_BUILD:-false}
+    if $no_build ; then
+        echo 'Skip builds'
+    else 
+        echo 'Build agents and tests'
+        docker-compose -f $COMPOSE_RS_PATH build
+    fi
+
+    if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
+    mkdir "${test_dir}/docker/backups"
+    chmod -R 777 "${test_dir}/docker/backups"
+
+    export MONGODB_VERSION=${mongo_version:-"3.6"}
+    docker-compose -f $COMPOSE_RS_PATH up --quiet-pull --no-color -d
+
+    sleep 25
+    docker-compose -f $COMPOSE_RS_PATH ps
+    export COMPOSE_INTERACTIVE_NO_CLI=1
+    docker-compose -f $COMPOSE_RS_PATH exec -T rs101 /opt/start.sh
+    sleep 15
+
+    docker-compose -f $COMPOSE_RS_PATH up -d \
+            agent-rs101 agent-rs102 agent-rs103
+}
+
+genMongoKey() {
+    key_file="${test_dir}/docker/keyFile"
+
+    if [ ! -f $key_file ]; then 
+        openssl rand -base64 756 > $key_file
+        chmod 400 $key_file
+    fi
+}
+
 destroy_cluster() {
-    docker-compose -f $COMPOSE_PATH ps
-    docker-compose -f $COMPOSE_PATH down
+    local compose=$1
+
+    docker-compose -f $compose ps
+    docker-compose -f $compose down
 }

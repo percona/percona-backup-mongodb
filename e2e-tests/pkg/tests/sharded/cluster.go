@@ -161,13 +161,13 @@ func (c *Cluster) BackupWaitDone(bcpName string) {
 	log.Printf("backup finished '%s'\n", bcpName)
 }
 
-func (c *Cluster) GenerateBallastData(amount int) {
-	log.Println("generating ballast data")
-	err := c.mongos.GenBallast(amount)
+func (c *Cluster) SetBallastData(amount int64) {
+	log.Println("set ballast data to", amount)
+	cnt, err := c.mongos.SetBallast(amount)
 	if err != nil {
 		log.Fatalln("generating ballast:", err)
 	}
-	log.Println("ballast data generated")
+	log.Println("ballast data:", cnt)
 }
 
 func (c *Cluster) DataChecker() (check func()) {

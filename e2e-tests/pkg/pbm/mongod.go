@@ -63,12 +63,12 @@ const (
 	testDB = "test"
 )
 
-func (m *Mongo) GenBallast(ln int) error {
-	return m.GenData("test", "ballast", ln)
+func (m *Mongo) GenBallast(ln int64) error {
+	return m.GenData("test", "ballast", 0, ln)
 }
 
 type TestData struct {
-	IDX   int     `bson:"idx"`
+	IDX   int64   `bson:"idx"`
 	Num   []int64 `bson:"num"`
 	Data1 []byte  `bson:"data1"`
 	Data2 []byte  `bson:"data2"`
@@ -87,9 +87,9 @@ func (m *Mongo) ServerVersion() (string, error) {
 	return v.V, err
 }
 
-func (m *Mongo) GenData(db, collection string, ln int) error {
+func (m *Mongo) GenData(db, collection string, start, ln int64) error {
 	var data []interface{}
-	for i := 0; i < ln; i++ {
+	for i := start; i < ln; i++ {
 		data = append(data, genData(i, 64))
 		if i%100 == 0 {
 			_, err := m.cn.Database(db).Collection(collection).InsertMany(m.ctx, data)
@@ -107,12 +107,12 @@ func (m *Mongo) GenData(db, collection string, ln int) error {
 	return nil
 }
 
-func genData(idx, strLen int) TestData {
+func genData(idx, strLen int64) TestData {
 	l1 := make([]byte, strLen)
 	l2 := make([]byte, strLen)
 	d := make([]int64, strLen)
 
-	for i := 0; i < strLen; i++ {
+	for i := int64(0); i < strLen; i++ {
 		d[i] = rand.Int63()
 		l1[i] = byte(d[i]&25 + 'a')
 		l2[i] = byte(d[i]&25 + 'A')
@@ -133,6 +133,33 @@ func (m *Mongo) ResetBallast() (int, error) {
 		return 0, err
 	}
 	return int(r.DeletedCount), nil
+}
+
+// SetBallast sets ballast documents amount to be equal to given `size`
+// it removes execive documents or creates new if needed
+func (m *Mongo) SetBallast(size int64) (int64, error) {
+	r, err := m.cn.Database(testDB).Collection("ballast").CountDocuments(m.ctx, bson.M{})
+	if err != nil {
+		return 0, errors.Wrap(err, "count")
+	}
+
+	size -= r
+	switch {
+	case size == 0:
+		return r, nil
+	case size < 0:
+		_, err := m.cn.Database(testDB).Collection("ballast").DeleteMany(m.ctx, bson.M{"idx": bson.M{"$gt": size * -1}})
+		if err != nil {
+			return 0, errors.Wrap(err, "delete")
+		}
+	case size > 0:
+		err := m.GenData("test", "ballast", r, size)
+		if err != nil {
+			return 0, errors.Wrap(err, "add")
+		}
+	}
+
+	return m.cn.Database(testDB).Collection("ballast").CountDocuments(m.ctx, bson.M{})
 }
 
 func (m *Mongo) DBhashes() (map[string]string, error) {

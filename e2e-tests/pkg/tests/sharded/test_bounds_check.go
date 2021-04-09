@@ -112,15 +112,15 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 	for i, d := range *data {
 		if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %#v\n", name, i, d.Count, len(restored), lastc)
+				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n", name, i, d.Count, len(restored), lastc)
 			}
 			r := restored[i]
 			if d.Count != r.Count {
-				log.Fatalf("ERROR: %s unmatched backuped %#v and restored %#v\n", name, d, r)
+				log.Fatalf("ERROR: %s unmatched backuped %v and restored %v. Bcp last write: %v\n", name, d, r, bcpLastWrite)
 			}
 		} else if i < len(restored) {
 			r := restored[i]
-			log.Fatalf("ERROR: %s data %v souldn't be restored\n", name, r)
+			log.Fatalf("ERROR: %s data %v shouldn't be restored. Cmp to: %v. Bcp last write: %v\n", name, r, d, bcpLastWrite)
 		}
 
 		lastc = d

@@ -12,6 +12,47 @@ void makeReport() {
     }
 }
 
+void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
+    def mkey = "$TEST_NAME mongodb $MONGO_VERSION"
+
+    testsReportMap[mkey] = 'failed'
+
+    sh """
+        export MONGODB_VERSION=${MONGO_VERSION}
+        export PBM_TESTS_NO_BUILD=true
+        ./e2e-tests/${TEST_SCRIPT}
+    """
+
+    testsReportMap[mkey] = 'passed'
+}
+
+void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
+    def compose = 'docker-compose.yaml'
+    if ( CLUSTER_TYPE == 'rs') {
+        compose = 'docker-compose-rs.yaml'
+    }
+
+    withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
+        sh """
+            sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+
+            cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
+            cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
+            sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/aws.yaml
+            sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/gcs.yaml
+
+            chmod 664 ./e2e-tests/docker/conf/aws.yaml
+            chmod 664 ./e2e-tests/docker/conf/gcs.yaml
+
+            docker-compose -f ./e2e-tests/docker/${compose} build
+            openssl rand -base64 756 > ./e2e-tests/docker/keyFile
+            sudo chown 1001:1001 ./e2e-tests/docker/keyFile
+            sudo chmod 400 ./e2e-tests/docker/keyFile
+        """
+    }
+}
+
 pipeline {
     environment {
         AUTHOR_NAME  = sh(script: "echo ${CHANGE_AUTHOR_EMAIL} | awk -F'@' '{print \$1}'", , returnStdout: true).trim()
@@ -27,118 +68,93 @@ pipeline {
                 }
             }
             parallel {
-                stage('PBM tests mongodb 3.6') {
+                stage('Restore on new cluster 3.6') {
                     agent {
-                        label 'docker-32gb'
+                        label 'docker'
                     }
                     steps {
                         script {
                             if ( AUTHOR_NAME == 'null' )  {
                                  AUTHOR_NAME = sh(script: "git show -s --pretty=%ae | awk -F'@' '{print \$1}'", , returnStdout: true).trim()
                             }
-                            testsReportMap['mongodb 3.6'] = 'failed'
                         }
-                        withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
-                            sh '''
-                                sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-                                sudo chmod +x /usr/local/bin/docker-compose
 
-                                cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
-                                cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
-                                sed -i s:pbme2etest:pbme2etest-36:g ./e2e-tests/docker/conf/aws.yaml
-                                sed -i s:pbme2etest:pbme2etest-36:g ./e2e-tests/docker/conf/gcs.yaml
-
-                                chmod 664 ./e2e-tests/docker/conf/aws.yaml
-                                chmod 664 ./e2e-tests/docker/conf/gcs.yaml
-
-                                docker-compose -f ./e2e-tests/docker/docker-compose.yaml build
-                                openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-                                sudo chown 1001:1001 ./e2e-tests/docker/keyFile
-                                sudo chmod 400 ./e2e-tests/docker/keyFile
-                            '''
-                        }
-                        sh '''
-                            export MONGODB_VERSION=3.6
-                            export PBM_TESTS_NO_BUILD=true
-                            ./e2e-tests/run-all
-                        '''
-                        script {
-                            testsReportMap['mongodb 3.6'] = 'passed'
-                        }
+                        prepareCluster('sharded', '36')
+                        runTest('Restore on new cluster', 'run-new-cluster', '3.6')
                     }
                 }
-                stage('PBM tests mongodb 4.0') {
+                stage('Restore on new cluster 4.0') {
                     agent {
-                        label 'docker-32gb'
+                        label 'docker'
                     }
                     steps {
-                        script {
-                            testsReportMap['mongodb 4.0'] = 'failed'
-                        }
-                        withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
-                            sh '''
-                                sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-                                sudo chmod +x /usr/local/bin/docker-compose
-
-                                cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
-                                cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
-                                sed -i s:pbme2etest:pbme2etest-40:g ./e2e-tests/docker/conf/aws.yaml
-                                sed -i s:pbme2etest:pbme2etest-40:g ./e2e-tests/docker/conf/gcs.yaml
-
-                                chmod 664 ./e2e-tests/docker/conf/aws.yaml
-                                chmod 664 ./e2e-tests/docker/conf/gcs.yaml
-
-                                docker-compose -f ./e2e-tests/docker/docker-compose.yaml build
-                                openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-                                sudo chown 1001:1001 ./e2e-tests/docker/keyFile
-                                sudo chmod 400 ./e2e-tests/docker/keyFile
-                            '''
-                        }
-                        sh '''
-                            export MONGODB_VERSION=4.0
-                            export PBM_TESTS_NO_BUILD=true
-                            ./e2e-tests/run-all
-                        '''
-                        script {
-                            testsReportMap['mongodb 4.0'] = 'passed'
-                        }
+                        prepareCluster('sharded', '40-newc')
+                        runTest('Restore on new cluster', 'run-new-cluster', '4.0')
                     }
                 }
-                stage('PBM tests mongodb 4.2') {
+                stage('Restore on new cluster 4.2') {
                     agent {
-                        label 'docker-32gb'
+                        label 'docker'
                     }
                     steps {
-                        script {
-                            testsReportMap['mongodb 4.2'] = 'failed'
-                        }
-                        withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
-                            sh '''
-                                sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-                                sudo chmod +x /usr/local/bin/docker-compose
+                        prepareCluster('sharded', '42-newc')
+                        runTest('Restore on new cluster', 'run-new-cluster', '4.2')
+                    }
+                }
 
-                                cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
-                                cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
-                                sed -i s:pbme2etest:pbme2etest-42:g ./e2e-tests/docker/conf/aws.yaml
-                                sed -i s:pbme2etest:pbme2etest-42:g ./e2e-tests/docker/conf/gcs.yaml
+                stage('Sharded cluster 3.6') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '36-shrd')
+                        runTest('Sharded cluster', 'run-sharded', '3.6')
+                    }
+                }
+                stage('Sharded cluster 4.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '40-shrd')
+                        runTest('Sharded cluster', 'run-sharded', '4.0')
+                    }
+                }
+                stage('Sharded cluster 4.2') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '42-shrd')
+                        runTest('Sharded cluster', 'run-sharded', '4.2')
+                    }
+                }
 
-                                chmod 664 ./e2e-tests/docker/conf/aws.yaml
-                                chmod 664 ./e2e-tests/docker/conf/gcs.yaml
-
-                                docker-compose -f ./e2e-tests/docker/docker-compose.yaml build
-                                openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-                                sudo chown 1001:1001 ./e2e-tests/docker/keyFile
-                                sudo chmod 400 ./e2e-tests/docker/keyFile
-                            '''
-                        }
-                        sh '''
-                            export MONGODB_VERSION=4.2
-                            export PBM_TESTS_NO_BUILD=true
-                            ./e2e-tests/run-all
-                        '''
-                        script {
-                            testsReportMap['mongodb 4.2'] = 'passed'
-                        }
+                stage('Non-sharded replicaset 3.6') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '36-rs')
+                        runTest('Non-sharded replicaset', 'run-rs', '3.6')
+                    }
+                }
+                stage('Non-sharded replicaset 4.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '40-rs')
+                        runTest('Non-sharded replicaset', 'run-rs', '4.0')
+                    }
+                }
+                stage('Non-sharded replicaset 4.2') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '42-rs')
+                        runTest('Non-sharded replicaset', 'run-rs', '4.2')
                     }
                 }
             }
