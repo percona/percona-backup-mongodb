@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+
+	semver "github.com/hashicorp/go-version"
 )
 
 // current PBM version
-const version = "1.4.1"
+const version = "1.5.0"
 
 var (
 	platform  string
@@ -24,6 +26,7 @@ type Info struct {
 	GitBranch string
 	BuildTime string
 	GoVersion string
+	SemVer    *semver.Version
 }
 
 const plain = `Version:   %s
@@ -47,6 +50,7 @@ func init() {
 		DefaultInfo.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	DefaultInfo.GoVersion = runtime.Version()
+	DefaultInfo.SemVer = semver.Must(semver.NewVersion(version))
 }
 
 func (i Info) Short() string {

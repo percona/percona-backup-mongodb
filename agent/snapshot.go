@@ -77,19 +77,6 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		atomic.StoreUint32(&a.intent, intentNone)
 	}()
 
-	// Save users and roles to the tmp collections so the restore would copy that data
-	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
-	// see: https://jira.percona.com/browse/PBM-636 and comments
-	if nodeInfo.IsPrimary && nodeInfo.Me == nodeInfo.Primary {
-		err = a.node.CopyUsersNRolles()
-		if err != nil {
-			l.Error("copy users and roles for the restore: %v", err)
-			return
-		}
-
-		defer l.Debug("drop tmp users and roles: %v", a.node.DropTMPcoll())
-	}
-
 	q, err := backup.NodeSuits(a.node, nodeInfo)
 	if err != nil {
 		l.Error("node check: %v", err)
