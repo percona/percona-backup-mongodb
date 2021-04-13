@@ -5,8 +5,11 @@ import (
 	"io"
 )
 
-// ErrNotExist is an error for file isn't exists on storage
-var ErrNotExist = errors.New("no such file")
+var (
+	// ErrNotExist is an error for file doesn't exists on storage
+	ErrNotExist = errors.New("no such file")
+	ErrEmpty    = errors.New("file is empty")
+)
 
 type FileInfo struct {
 	Name string // with path
@@ -21,6 +24,6 @@ type Storage interface {
 	List(prefix string) ([]FileInfo, error)
 	Files(suffix string) ([][]byte, error)
 	// Delete deletes given file.
-	// It returns storage.ErrNotExist if a file isn't exists
+	// It returns storage.ErrNotExist if a file doesn't exists
 	Delete(name string) error
 }

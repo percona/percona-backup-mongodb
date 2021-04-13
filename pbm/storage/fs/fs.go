@@ -67,7 +67,7 @@ func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
 	inf.Size = f.Size()
 
 	if inf.Size == 0 {
-		return inf, errors.New("file empty")
+		return inf, storage.ErrEmpty
 	}
 
 	return inf, nil

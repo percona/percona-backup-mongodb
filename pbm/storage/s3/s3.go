@@ -309,7 +309,7 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	inf.Size = aws.Int64Value(h.ContentLength)
 
 	if inf.Size == 0 {
-		return inf, errors.New("file empty")
+		return inf, storage.ErrEmpty
 	}
 	if aws.BoolValue(h.DeleteMarker) {
 		return inf, errors.New("file has delete marker")
