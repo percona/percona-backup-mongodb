@@ -43,18 +43,18 @@ clean:
 #	@echo "Netlify build finished. The HTML pages are in $(BUILDDIR)/html."
 
 netlify:
-	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) -D html_theme='sphinx_material' -D html_theme_path='./_theme' -D html_logo='_images/percona-logo.' -D html_favicon='percona_favicon.ico' $(BUILDDIR)/html
+	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) -c source/conf-netlify $(BUILDDIR)/html
 	@echo
 	@echo "Netlify build finished. The HTML pages are in $(BUILDDIR)/html."
 
 html:
 	@echo "Downloading percona-theme ..."
-	@wget -O percona-theme.tar.gz https://www.percona.com/docs/theme-1-4
+	@wget -O source/percona-theme.tar.gz https://www.percona.com/docs/theme-1-4
 	@echo "Extracting theme."
-	@tar -mzxf percona-theme.tar.gz
+	@tar -C source -mzxf source/percona-theme.tar.gz
 	@rm -rf source/percona-theme
-	@mv percona-theme-1-4 source/percona-theme
-	@rm percona-theme.tar.gz
+	@mv source/percona-theme-1-4 source/percona-theme
+	@rm source/percona-theme.tar.gz
 	@echo "Building html doc"
 
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
