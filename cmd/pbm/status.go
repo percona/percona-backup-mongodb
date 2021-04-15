@@ -577,7 +577,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		return pr, errors.Wrap(err, "get cluster members")
 	}
 
-	fl, err := stg.List(pbm.PITRfsPrefix)
+	fl, err := stg.List(pbm.PITRfsPrefix, "")
 	if err != nil {
 		return pr, errors.Wrap(err, "get chunks list")
 	}

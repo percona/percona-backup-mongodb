@@ -21,8 +21,7 @@ type Storage interface {
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists
 	FileStat(name string) (FileInfo, error)
-	List(prefix string) ([]FileInfo, error)
-	Files(suffix string) ([][]byte, error)
+	List(prefix, suffix string) ([]FileInfo, error)
 	// Delete deletes given file.
 	// It returns storage.ErrNotExist if a file doesn't exists
 	Delete(name string) error

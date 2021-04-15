@@ -15,6 +15,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
@@ -40,6 +41,7 @@ type StorageType string
 const (
 	StorageUndef      StorageType = ""
 	StorageS3         StorageType = "s3"
+	StorageAzure      StorageType = "azure"
 	StorageFilesystem StorageType = "filesystem"
 	StorageBlackHole  StorageType = "blackhole"
 )
@@ -48,6 +50,7 @@ const (
 type StorageConf struct {
 	Type       StorageType `bson:"type" json:"type" yaml:"type"`
 	S3         s3.Conf     `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Azure      azure.Conf  `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem fs.Conf     `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
@@ -266,6 +269,8 @@ func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 	switch c.Storage.Type {
 	case StorageS3:
 		return s3.New(c.Storage.S3, l)
+	case StorageAzure:
+		return azure.New(c.Storage.Azure, l)
 	case StorageFilesystem:
 		return fs.New(c.Storage.Filesystem), nil
 	case StorageBlackHole:

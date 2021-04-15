@@ -4,15 +4,26 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+)
+
+const (
+	blobURL = "https://%s.blob.core.windows.net/%s"
+
+	defaultUploadBuff    = 10 * 1024 * 1024 // 10Mb
+	defaultUploadMaxBuff = 5
+
+	defaultRetries = 10
 )
 
 type Conf struct {
@@ -25,8 +36,6 @@ type Credentials struct {
 	AccountName string `bson:"account-name" json:"account-name,omitempty" yaml:"account-name,omitempty"`
 	AccountKey  string `bson:"account-key" json:"account-key,omitempty" yaml:"account-key,omitempty"`
 }
-
-const blobURL = "https://%s.blob.core.windows.net/%s"
 
 type Blob struct {
 	opts Conf
@@ -55,11 +64,6 @@ func New(opts Conf, l *log.Event) (*Blob, error) {
 	return b, nil
 }
 
-const (
-	defaultUploadBuff    = 10 * 1024 * 1024 // 10Mb
-	defaultUploadMaxBuff = 5
-)
-
 func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
 	_, err := azblob.UploadStreamToBlockBlob(
 		context.TODO(),
@@ -71,7 +75,7 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
 	return err
 }
 
-func (b *Blob) List(prefix string) ([]storage.FileInfo, error) {
+func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	prfx := b.opts.Prefix
 	if b.opts.Prefix != "" {
 		prfx = b.opts.Prefix
@@ -86,7 +90,6 @@ func (b *Blob) List(prefix string) ([]storage.FileInfo, error) {
 
 	var files []storage.FileInfo
 	for m := (azblob.Marker{}); m.NotDone(); {
-
 		l, err := b.c.ListBlobsFlatSegment(context.TODO(), m, azblob.ListBlobsSegmentOptions{Prefix: b.opts.Prefix})
 		if err != nil {
 			return nil, errors.Wrap(err, "list segment")
@@ -106,10 +109,13 @@ func (b *Blob) List(prefix string) ([]storage.FileInfo, error) {
 			if f[0] == '/' {
 				f = f[1:]
 			}
-			files = append(files, storage.FileInfo{
-				Name: f,
-				Size: sz,
-			})
+
+			if strings.HasSuffix(f, suffix) {
+				files = append(files, storage.FileInfo{
+					Name: f,
+					Size: sz,
+				})
+			}
 		}
 	}
 
@@ -119,8 +125,12 @@ func (b *Blob) List(prefix string) ([]storage.FileInfo, error) {
 func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 	p, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), azblob.BlobAccessConditions{}, azblob.ClientProvidedKeyOptions{})
 	if err != nil {
+		if p.StatusCode() == http.StatusNotFound {
+			return inf, storage.ErrNotExist
+		}
 		return inf, errors.Wrap(err, "get properties")
 	}
+
 	inf.Name = name
 	inf.Size = p.ContentLength()
 
@@ -131,13 +141,39 @@ func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 	return inf, nil
 }
 
+func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
+	o, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Download(context.TODO(), 0, 0, azblob.BlobAccessConditions{}, false, azblob.ClientProvidedKeyOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "download object")
+	}
+
+	return o.Body(azblob.RetryReaderOptions{MaxRetryRequests: defaultRetries}), nil
+}
+
+func (b *Blob) Delete(name string) error {
+	r, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Delete(context.TODO(), azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
+	if err != nil {
+		if r.StatusCode() == http.StatusNotFound {
+			return storage.ErrNotExist
+		}
+
+		return errors.Wrap(err, "delete object")
+	}
+
+	return nil
+}
+
 func (b *Blob) container() (azblob.ContainerURL, error) {
 	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.AccountKey)
 	if err != nil {
 		return azblob.ContainerURL{}, errors.Wrap(err, "create credentials")
 	}
-	// TODO: https://pkg.go.dev/github.com/Azure/azure-storage-blob-go/azblob#RetryOptions
-	p := azblob.NewPipeline(cred, azblob.PipelineOptions{})
+	p := azblob.NewPipeline(cred, azblob.PipelineOptions{
+		Retry: azblob.RetryOptions{
+			MaxTries:   defaultRetries,
+			TryTimeout: time.Minute * time.Duration(3*defaultUploadBuff/1024*1024),
+		},
+	})
 
 	//  azblob.NewServiceURL(*b.url, p).NewContainerURL(b.opts.Container)
 	curl := azblob.NewContainerURL(*b.url, p)
