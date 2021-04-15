@@ -96,15 +96,21 @@ export PATH=/percona-backup-mongodb/bin:$PATH
 
 When you work, you should periodically run tests to check that your changes don’t break existing code.
 
-The tests can be found in the ``e2e-tests`` directory.
+You can find the tests in the ``e2e-tests`` directory.
 
-To run all tests, use the following command:
+To save time on tests execution during development, we recommend running  general and consistency tests for a sharded cluster:
+
+```sh
+$ MONGODB_VERSION=3.6 ./run-sharded
+```
+
+``$ MONGODB_VERSION`` stands for the Percona Server for MongoDB version Percona Backup for MongoDB is running with. Default is 3.6.
+
+After the development is complete and you are ready to submit a pull request, run all tests using the following command:
 
 ```sh
 $ MONGODB_VERSION=3.6 ./run-all
 ```
-
-``$ MONGODB_VERSION`` stands for the Percona Server for MongoDB version PBM is running with. Default is 3.6.
 
 You can run tests on your local machine with whatever operating system you have. After you submit the pull request, we will check your patch on multiple operating systems.
 
