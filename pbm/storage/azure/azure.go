@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -18,9 +17,9 @@ import (
 )
 
 const (
-	blobURL = "https://%s.blob.core.windows.net/%s"
+	BlobURL = "https://%s.blob.core.windows.net/%s"
 
-	defaultUploadBuff    = 10 * 1024 * 1024 // 10Mb
+	defaultUploadBuff    = 10 << 20 // 10Mb
 	defaultUploadMaxBuff = 5
 
 	defaultRetries = 10
@@ -32,9 +31,9 @@ type Conf struct {
 	Prefix      string      `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
 }
+
 type Credentials struct {
-	AccountName string `bson:"account-name" json:"account-name,omitempty" yaml:"account-name,omitempty"`
-	AccountKey  string `bson:"account-key" json:"account-key,omitempty" yaml:"account-key,omitempty"`
+	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
 type Blob struct {
@@ -45,7 +44,7 @@ type Blob struct {
 }
 
 func New(opts Conf, l *log.Event) (*Blob, error) {
-	u, err := url.Parse(fmt.Sprintf(blobURL, opts.Account, opts.Container))
+	u, err := url.Parse(fmt.Sprintf(BlobURL, opts.Account, opts.Container))
 	if err != nil {
 		return nil, errors.Wrap(err, "parse options")
 	}
@@ -125,7 +124,7 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 	p, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), azblob.BlobAccessConditions{}, azblob.ClientProvidedKeyOptions{})
 	if err != nil {
-		if p.StatusCode() == http.StatusNotFound {
+		if isNotFound(err) {
 			return inf, storage.ErrNotExist
 		}
 		return inf, errors.Wrap(err, "get properties")
@@ -151,12 +150,11 @@ func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 }
 
 func (b *Blob) Delete(name string) error {
-	r, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Delete(context.TODO(), azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
+	_, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Delete(context.TODO(), azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
 	if err != nil {
-		if r.StatusCode() == http.StatusNotFound {
+		if isNotFound(err) {
 			return storage.ErrNotExist
 		}
-
 		return errors.Wrap(err, "delete object")
 	}
 
@@ -164,14 +162,14 @@ func (b *Blob) Delete(name string) error {
 }
 
 func (b *Blob) container() (azblob.ContainerURL, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.AccountKey)
+	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
 	if err != nil {
 		return azblob.ContainerURL{}, errors.Wrap(err, "create credentials")
 	}
 	p := azblob.NewPipeline(cred, azblob.PipelineOptions{
 		Retry: azblob.RetryOptions{
 			MaxTries:   defaultRetries,
-			TryTimeout: time.Minute * time.Duration(3*defaultUploadBuff/1024*1024),
+			TryTimeout: time.Minute * time.Duration(2*defaultUploadBuff/(1<<20)), //0.5Mb/sec
 		},
 	})
 
@@ -188,4 +186,12 @@ func (b *Blob) container() (azblob.ContainerURL, error) {
 	}
 
 	return curl, errors.Wrapf(err, "unknown error ensuring container %s", b.url)
+}
+
+func isNotFound(err error) bool {
+	if stgErr, ok := err.(azblob.StorageError); ok {
+		return stgErr.ServiceCode() == azblob.ServiceCodeBlobNotFound
+	}
+
+	return false
 }

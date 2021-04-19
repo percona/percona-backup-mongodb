@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -52,6 +53,47 @@ type StorageConf struct {
 	S3         s3.Conf     `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Azure      azure.Conf  `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem fs.Conf     `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+}
+
+func (s *StorageConf) Typ() string {
+	switch s.Type {
+	case StorageS3:
+		return "S3"
+	case StorageAzure:
+		return "Azure"
+	case StorageFilesystem:
+		return "FS"
+	case StorageBlackHole:
+		return "BlackHole"
+	default:
+		return "Unknown"
+	}
+}
+
+func (s *StorageConf) Path() string {
+	path := ""
+	switch s.Type {
+	case StorageS3:
+		path = "s3://"
+		if s.S3.EndpointURL != "" {
+			path += s.S3.EndpointURL + "/"
+		}
+		path += s.S3.Bucket
+		if s.S3.Prefix != "" {
+			path += "/" + s.S3.Prefix
+		}
+	case StorageAzure:
+		path = fmt.Sprintf(azure.BlobURL, s.Azure.Account, s.Azure.Container)
+		if s.Azure.Prefix != "" {
+			path += "/" + s.Azure.Prefix
+		}
+	case StorageFilesystem:
+		path = s.Filesystem.Path
+	case StorageBlackHole:
+		path = "BlackHole"
+	}
+
+	return path
 }
 
 // RestoreConf is config options for the restore
@@ -238,6 +280,9 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 		}
 		if c.Storage.S3.Credentials.Vault.Token != "" {
 			c.Storage.S3.Credentials.Vault.Token = "***"
+		}
+		if c.Storage.Azure.Credentials.Key != "" {
+			c.Storage.Azure.Credentials.Key = "***"
 		}
 	}
 

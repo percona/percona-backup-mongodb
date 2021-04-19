@@ -60,21 +60,7 @@ func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
 		return "", err
 	}
 
-	storeString := ""
-	switch cfg.Storage.Type {
-	case pbm.StorageS3:
-		storeString = "s3://"
-		if cfg.Storage.S3.EndpointURL != "" {
-			storeString += cfg.Storage.S3.EndpointURL + "/"
-		}
-		storeString += cfg.Storage.S3.Bucket
-		if cfg.Storage.S3.Prefix != "" {
-			storeString += "/" + cfg.Storage.S3.Prefix
-		}
-	case pbm.StorageFilesystem:
-		storeString = cfg.Storage.Filesystem.Path
-	}
-	return storeString, nil
+	return cfg.Storage.Path(), nil
 }
 
 func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
