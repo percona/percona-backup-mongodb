@@ -25,6 +25,15 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printStart("Basic Backup & Restore AWS S3")
 		t.BackupAndRestore()
 		printDone("Basic Backup & Restore AWS S3")
+
+		printStart("Basic PITR & Restore AWS")
+		t.PITRbasic()
+		printDone("Basic PITR & Restore AWS")
+
+		printStart("Check Backups deletion AWS")
+		t.BackupDelete(storage)
+		printDone("Check Backups deletion AWS")
+
 		flushStore(storage)
 	}
 
@@ -38,6 +47,37 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printStart("Basic Backup & Restore GCS")
 		t.BackupAndRestore()
 		printDone("Basic Backup & Restore GCS")
+
+		printStart("Basic PITR & Restore GCS")
+		t.PITRbasic()
+		printDone("Basic PITR & Restore GCS")
+
+		printStart("Check Backups deletion GCS")
+		t.BackupDelete(storage)
+		printDone("Check Backups deletion GCS")
+
+		flushStore(storage)
+	}
+
+	storage = "/etc/pbm/azure.yaml"
+	if confExt(storage) {
+		flushStore(storage)
+		t.ApplyConfig(storage)
+
+		t.SetBallastData(1e5)
+
+		printStart("Basic Backup & Restore Azure")
+		t.BackupAndRestore()
+		printDone("Basic Backup & Restore Azure")
+
+		printStart("Basic PITR & Restore Azure")
+		t.PITRbasic()
+		printDone("Basic PITR & Restore Azure")
+
+		printStart("Check Backups deletion Azure")
+		t.BackupDelete(storage)
+		printDone("Check Backups deletion Azure")
+
 		flushStore(storage)
 	}
 

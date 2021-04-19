@@ -89,7 +89,7 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 
 	var files []storage.FileInfo
 	for m := (azblob.Marker{}); m.NotDone(); {
-		l, err := b.c.ListBlobsFlatSegment(context.TODO(), m, azblob.ListBlobsSegmentOptions{Prefix: b.opts.Prefix})
+		l, err := b.c.ListBlobsFlatSegment(context.TODO(), m, azblob.ListBlobsSegmentOptions{Prefix: prfx})
 		if err != nil {
 			return nil, errors.Wrap(err, "list segment")
 		}

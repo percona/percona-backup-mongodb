@@ -22,6 +22,8 @@ func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
 		return nil, errors.Wrap(err, "connect")
 	}
 
+	cn.InitLogger("", "")
+
 	return &MongoPBM{
 		p:   cn,
 		ctx: ctx,
