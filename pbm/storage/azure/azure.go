@@ -75,16 +75,10 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
 }
 
 func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	prfx := b.opts.Prefix
-	if b.opts.Prefix != "" {
-		prfx = b.opts.Prefix
-		if b.opts.Prefix[len(b.opts.Prefix)-1] != '/' {
-			prfx += "/"
-		}
+	prfx := path.Join(b.opts.Prefix, prefix)
 
-		if prefix != "" {
-			prfx = path.Join(prfx, prefix)
-		}
+	if prfx != "" && !strings.HasSuffix(prfx, "/") {
+		prfx = prfx + "/"
 	}
 
 	var files []storage.FileInfo

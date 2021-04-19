@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -521,7 +522,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpMatchCluster(bcps, shards, inf.SetName)
 
-	stg, err := cn.GetStorage(nil)
+	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}

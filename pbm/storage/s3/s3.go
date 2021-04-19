@@ -186,18 +186,18 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
+	prfx := path.Join(s.opts.Prefix, prefix)
+
+	if prfx != "" && !strings.HasSuffix(prfx, "/") {
+		prfx = prfx + "/"
+	}
+
 	lparams := &s3.ListObjectsInput{
 		Bucket: aws.String(s.opts.Bucket),
 	}
-	if s.opts.Prefix != "" {
-		lparams.Prefix = aws.String(s.opts.Prefix)
-		if s.opts.Prefix[len(s.opts.Prefix)-1] != '/' {
-			*lparams.Prefix += "/"
-		}
-	}
 
-	if aws.StringValue(lparams.Prefix) != "" || prefix != "" {
-		lparams.Prefix = aws.String(path.Join(aws.StringValue(lparams.Prefix), prefix))
+	if prfx != "" {
+		lparams.Prefix = aws.String(prfx)
 	}
 
 	var files []storage.FileInfo
@@ -212,6 +212,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 				if f[0] == '/' {
 					f = f[1:]
 				}
+
 				if strings.HasSuffix(f, suffix) {
 					files = append(files, storage.FileInfo{
 						Name: f,
