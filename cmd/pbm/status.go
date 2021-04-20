@@ -256,12 +256,17 @@ func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 }
 
 type pitrStat struct {
-	Status string `json:"status"`
-	Err    string `json:"error,omitempty"`
+	InConf  bool   `json:"conf"`
+	Running bool   `json:"run"`
+	Err     string `json:"error,omitempty"`
 }
 
 func (p pitrStat) String() string {
-	s := fmt.Sprintf("Status [%s]", p.Status)
+	status := "OFF"
+	if p.InConf || p.Running {
+		status = "ON"
+	}
+	s := fmt.Sprintf("Status [%s]", status)
 	if p.Err != "" {
 		s += fmt.Sprintf("\n! ERROR while running PITR backup: %s", p.Err)
 	}
@@ -270,15 +275,16 @@ func (p pitrStat) String() string {
 
 func getPitrStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 	var p pitrStat
-	on, err := cn.IsPITR()
+	var err error
+	p.InConf, err = cn.IsPITR()
 	if err != nil {
-		return p, errors.Wrap(err, "unable check PITR status")
+		return p, errors.Wrap(err, "unable check PITR config status")
 	}
-	if !on {
-		p.Status = "OFF"
-		return p, nil
+
+	p.Running, err = cn.PITRrun()
+	if err != nil {
+		return p, errors.Wrap(err, "unable check PITR running status")
 	}
-	p.Status = "ON"
 
 	p.Err, err = getPitrErr(cn)
 
