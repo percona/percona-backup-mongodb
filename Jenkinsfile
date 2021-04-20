@@ -32,18 +32,21 @@ void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
         compose = 'docker-compose-rs.yaml'
     }
 
-    withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML')]) {
+    withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML'), file(credentialsId: 'PBM-AZURE', variable: 'PBM_AZURE_YML')]) {
         sh """
             sudo curl -L "https://github.com/docker/compose/releases/download/1.25.3/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
             sudo chmod +x /usr/local/bin/docker-compose
 
             cp $PBM_AWS_S3_YML ./e2e-tests/docker/conf/aws.yaml
             cp $PBM_GCS_S3_YML ./e2e-tests/docker/conf/gcs.yaml
+            cp $PBM_AZURE_YML ./e2e-tests/docker/conf/azure.yaml
             sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/aws.yaml
             sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/gcs.yaml
+            sed -i s:pbme2etest:pbme2etest-${TEST_TYPE}:g ./e2e-tests/docker/conf/azure.yaml
 
             chmod 664 ./e2e-tests/docker/conf/aws.yaml
             chmod 664 ./e2e-tests/docker/conf/gcs.yaml
+            chmod 664 ./e2e-tests/docker/conf/azure.yaml
 
             docker-compose -f ./e2e-tests/docker/${compose} build
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile

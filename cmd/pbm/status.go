@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -429,11 +430,11 @@ func getCurrOps(cn *pbm.PBM) (fmt.Stringer, error) {
 }
 
 type storageStat struct {
-	Type     pbm.StorageType `json:"type"`
-	Path     string          `json:"path"`
-	Region   string          `json:"region,omitempty"`
-	Snapshot []snapshotStat  `json:"snapshot"`
-	PITR     []pitrRange     `json:"pitrChunks,omitempty"`
+	Type     string         `json:"type"`
+	Path     string         `json:"path"`
+	Region   string         `json:"region,omitempty"`
+	Snapshot []snapshotStat `json:"snapshot"`
+	PITR     []pitrRange    `json:"pitrChunks,omitempty"`
 }
 
 type snapshotStat struct {
@@ -453,11 +454,7 @@ type pitrRange struct {
 }
 
 func (s storageStat) String() string {
-	typ := "S3"
-	if s.Type == pbm.StorageFilesystem {
-		typ = "FS"
-	}
-	ret := fmt.Sprintf("%s %s %s\n", typ, s.Region, s.Path)
+	ret := fmt.Sprintf("%s %s %s\n", s.Type, s.Region, s.Path)
 	if len(s.Snapshot) == 0 {
 		return ret + "  (none)"
 	}
@@ -499,23 +496,12 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		return s, errors.Wrap(err, "get config")
 	}
 
-	s.Type = cfg.Storage.Type
+	s.Type = cfg.Storage.Typ()
 
-	switch cfg.Storage.Type {
-	case pbm.StorageS3:
-		var url []string
-		if cfg.Storage.S3.EndpointURL != "" {
-			url = append(url, cfg.Storage.S3.EndpointURL)
-		}
-		url = append(url, cfg.Storage.S3.Bucket)
-		if cfg.Storage.S3.Prefix != "" {
-			url = append(url, cfg.Storage.S3.Prefix)
-		}
-		s.Path = strings.Join(url, "/")
+	if cfg.Storage.Type == pbm.StorageS3 {
 		s.Region = cfg.Storage.S3.Region
-	case pbm.StorageFilesystem:
-		s.Path = cfg.Storage.Filesystem.Path
 	}
+	s.Path = cfg.Storage.Path()
 
 	bcps, err := cn.BackupsList(0)
 	if err != nil {
@@ -536,7 +522,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpMatchCluster(bcps, shards, inf.SetName)
 
-	stg, err := cn.GetStorage(nil)
+	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}
@@ -577,7 +563,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		return pr, errors.Wrap(err, "get cluster members")
 	}
 
-	fl, err := stg.List(pbm.PITRfsPrefix)
+	fl, err := stg.List(pbm.PITRfsPrefix, "")
 	if err != nil {
 		return pr, errors.Wrap(err, "get chunks list")
 	}
