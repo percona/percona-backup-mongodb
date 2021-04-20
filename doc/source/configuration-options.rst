@@ -156,9 +156,36 @@ Point-in-time recovery options
    
    Enables point-in-time recovery
 
+.. _backup-config:
+
+Backup options
+===================================================
+
+
+.. code-block:: yaml
+
+   backup:
+     priority:
+       "localhost:28019": 2.5
+       "localhost:27018": 2.5
+       "localhost:27020": 2.0
+       "localhost:27017": 0.1
+
+.. option:: priority
+
+   :type: array of strings
+
+   The list of ``mongod`` nodes and their priority for making backups. The node with the highest priority is elected for making a backup. If several nodes have the same priority, the one among them is randomly elected to make a backup. 
+
+   If not set, the replica set nodes have the default priority as follows: 
+
+   - hidden nodes - 2.0, 
+   - secondary nodes - 1.0, 
+   - primary node - 0.5. 
+
 .. _restore.config:
 
-Backup restore options
+Restore options
 =================================================================================
 
 .. code-block:: yaml
