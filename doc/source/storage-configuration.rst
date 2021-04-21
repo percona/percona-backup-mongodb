@@ -10,6 +10,7 @@ Remote backup storage
 
 * S3-compatible storage
 * Filesystem type storage
+* Microsoft Azure Blob storage 
 
 .. rubric:: S3 compatible storage
 
@@ -19,11 +20,13 @@ Remote backup storage
 - `Google Cloud Storage <https://cloud.google.com/storage>`_
 - `MinIO <https://min.io/>`_
   
-Starting from v1.3.2, |PBM| supports :term:`server-side encryption <Server-side encryption>` for :term:`S3 buckets <Bucket>` with customer managed keys stored in |AWS KMS|.
+As of v1.3.2, |PBM| supports :term:`server-side encryption <Server-side encryption>` for :term:`S3 buckets <Bucket>` with customer managed keys stored in |AWS KMS|.
 
 .. seealso::
 
    `Protecting Data Using Server-Side Encryption with CMKs Stored in AWS Key Management Service (SSE-KMS) <https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingKMSEncryption.html>`_
+
+.. _filesystem-remote:
 
 .. rubric:: Remote Filesystem Server Storage
 
@@ -46,8 +49,16 @@ This cannot be used except if you have a single-node replica set. (See the warni
 note above as to why). We recommend using any object store you might be already
 familiar with for testing. If you don't have an object store yet, we recommend
 using MinIO for testing as it has simple setup. If you plan to use a remote
-filesytem-type backup server, please see the "Remote Filesystem Server Storage"
+filesytem-type backup server, please see the :ref:`filesystem-remote`
 above.
+
+.. _azure:
+
+.. rubric:: Microsoft Azure Blob Storage
+
+As of v1.5.0, you can use `Microsoft Azure Blob Storage <https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction>`_ as the remote backup storage for |PBM|. 
+
+This gives users a vendor choice. Companies with Microsoft-based infrastructure can set up |PBM| with less administrative efforts.
 
 .. _pbm.config.example_yaml:
 
@@ -73,6 +84,10 @@ MinIO
 .. rubric:: Remote filesystem server storage
 
 .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
+
+.. rubric:: Microsoft Azure Blob Storage
+
+.. include:: .res/code-block/yaml/example-azure-storage.yaml
 
 For the description of configuration options, see :ref:`pbm.config.options`.
 

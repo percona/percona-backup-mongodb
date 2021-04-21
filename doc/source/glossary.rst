@@ -17,6 +17,9 @@
      "all or nothing" rule. A transaction is either fully applied or not
      at all.
 
+  Blob
+    A blob stands for Binary Large Object, which includes objects such as images and multimedia files. In other words these are various data files that you store in Microsoft’s data storage platform. Blobs are organized in :term:`containers <Container>` which are kept in Azure Blob storage under your storage account.
+
   Bucket
      A bucket is a container on the s3 remote storage that stores backups.
 
@@ -25,6 +28,9 @@
 
   Consistency
      In the context of backup and restore, consistency means that the data restored will be consistent in a given point in time. Partial or incomplete writes to disk of atomic operations (for example, to table and index data structures separately) won't be served to the client after the restore. The same applies to multi-document transactions, that started but didn't complete by the time the backup was finished.
+
+  Container 
+    A container is like a directory in Azure Blob storage that contains a set of :term:`blobs <Blob>`.
 
   Durability
      Once a transaction is committed, it will remain so.

@@ -1,0 +1,8 @@
+storage:
+  type: azure
+  azure:
+    account: <your-account>
+    container: <your-container>
+    prefix: pbm
+    credentials:
+      key: <your-access-key>

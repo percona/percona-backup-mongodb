@@ -13,7 +13,12 @@ This page describes configuration file options available in |PBM|. For how to us
 Remote backup storage options
 ============================================================================
 
-|PBM| supports two types of remote storages: S3-compatible storages and filesystem. |PBM| should work with other S3-compatible storages but was only tested with the following ones: 
+|PBM| supports the following types of remote storages: 
+- S3-compatible storage,
+- `Microsoft Azure Blob storage <https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction>`_, and 
+- filesystem. 
+
+|PBM| should work with other S3-compatible storage but was only tested with the following ones: 
 
 - `Amazon Simple Storage Service <https://docs.aws.amazon.com/s3/index.html>`_, 
 - `Google Cloud Storage <https://cloud.google.com/storage>`_, 
@@ -24,7 +29,7 @@ Remote backup storage options
    :type: string
    :required: YES
 
-   Remote backup storage type. Supported values: s3, filesystem.
+   Remote backup storage type. Supported values: s3, filesystem, azure.
 
 S3 type storage options
 -------------------------------------------------------------------------------
@@ -139,6 +144,49 @@ Filesystem storage options
    :required: YES
    
    The path to the backup directory
+
+Microsoft Azure Blob storage options
+-------------------------------------
+
+.. code-block:: yaml
+
+   storage:
+     type: azure
+     azure:
+       account: <string>
+       container: <string>
+       prefix: <string>
+       credentials:
+         key: <your-access-key>
+
+.. option:: storage.azure.account  
+
+   :type: string      
+   :required: YES
+
+   The name of your storage account. 
+
+.. option:: storage.azure.container  
+
+   :type: string      
+   :required: YES
+
+   The name of the storage :term:`container <Container>`. See the  `Container names <https://docs.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata#container-names>`_ for naming conventions.
+
+.. option:: storage.azure.prefix  
+
+   :type: string      
+   :required: NO
+
+   The path (sub-folder) to the backups inside the container. If undefined, backups are stored in the container root directory.
+.
+
+.. option:: storage.azure.credentials.key  
+
+   :type: string      
+   :required: YES
+
+   Your access key to authorize access to data in your storage account. 
 
 .. _pitr.config:
 
