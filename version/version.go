@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"runtime"
 
-	semver "github.com/hashicorp/go-version"
+	"golang.org/x/mod/semver"
 )
 
 // current PBM version
 const version = "1.5.0"
+
+// !!! should be sorted in the ascending order
+var breaking = []string{
+	"1.5.0",
+}
 
 var (
 	platform  string
@@ -26,7 +31,6 @@ type Info struct {
 	GitBranch string
 	BuildTime string
 	GoVersion string
-	SemVer    *semver.Version
 }
 
 const plain = `Version:   %s
@@ -39,18 +43,23 @@ GoVersion: %s`
 var DefaultInfo Info
 
 func init() {
-	DefaultInfo.Version = version
-	DefaultInfo.Platform = platform
-	DefaultInfo.GitCommit = gitCommit
-	DefaultInfo.GitBranch = gitBranch
-	DefaultInfo.BuildTime = buildTime
-	DefaultInfo.GoVersion = goVersion
+	DefaultInfo = Current()
+}
 
-	if DefaultInfo.Platform == "" {
-		DefaultInfo.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+func Current() (v Info) {
+	v.Version = version
+	v.Platform = platform
+	v.GitCommit = gitCommit
+	v.GitBranch = gitBranch
+	v.BuildTime = buildTime
+	v.GoVersion = goVersion
+
+	if v.Platform == "" {
+		v.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	DefaultInfo.GoVersion = runtime.Version()
-	DefaultInfo.SemVer = semver.Must(semver.NewVersion(version))
+	v.GoVersion = runtime.Version()
+
+	return v
 }
 
 func (i Info) Short() string {
@@ -74,4 +83,58 @@ func (i Info) All(format string) string {
 	default:
 		return fmt.Sprintf("%#v", i)
 	}
+}
+
+type Version struct {
+	Info      Info
+	v         string
+	breakingV []string
+}
+
+func NewVersion(i Info, breakingVers []string) *Version {
+	return &Version{
+		Info:      i,
+		v:         majmin(i.Version),
+		breakingV: breakingVers,
+	}
+}
+
+func (v *Version) CompatibleWith(ver string) bool {
+	if len(v.breakingV) == 0 {
+		return true
+	}
+
+	ver = majmin(ver)
+
+	c := semver.Compare(v.v, ver)
+	if c == 0 {
+		return true
+	}
+
+	hV := ver
+	lV := v.v
+	if c == 1 {
+		hV, lV = lV, hV
+	}
+
+	for i := len(v.breakingV) - 1; i >= 0; i-- {
+		cb := majmin(v.breakingV[i])
+		if semver.Compare(hV, cb) >= 0 {
+			return semver.Compare(lV, cb) >= 0
+		}
+	}
+
+	return true
+}
+
+func majmin(v string) string {
+	if len(v) == 0 {
+		return v
+	}
+
+	if v[0] != 'v' {
+		v = "v" + v
+	}
+
+	return semver.MajorMinor(v)
 }

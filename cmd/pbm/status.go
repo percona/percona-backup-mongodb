@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	semver "github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -480,10 +479,10 @@ func (s storageStat) String() string {
 		}
 
 		var v string
-		sv, err := semver.NewVersion(sn.PBMVersion)
-		if err != nil {
-			v = "(! PBM version UNDEFINED )"
-		}
+		// sv, err := semver.NewVersion(sn.PBMVersion)
+		// if err != nil {
+		// 	v = "(! PBM version UNDEFINED )"
+		// }
 		if version.DefaultInfo.SemVer.GreaterThan(sv) {
 			v = fmt.Sprintf(" v%s", sn.PBMVersion)
 		}
