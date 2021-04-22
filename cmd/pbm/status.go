@@ -482,12 +482,8 @@ func (s storageStat) String() string {
 		}
 
 		var v string
-		// sv, err := semver.NewVersion(sn.PBMVersion)
-		// if err != nil {
-		// 	v = "(! PBM version UNDEFINED )"
-		// }
-		if version.DefaultInfo.SemVer.GreaterThan(sv) {
-			v = fmt.Sprintf(" v%s", sn.PBMVersion)
+		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
+			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
 		}
 		ret += fmt.Sprintf("    %s %s%s%s\n", sn.Name, fmtSize(sn.Size), status, v)
 	}

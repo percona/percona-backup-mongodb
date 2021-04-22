@@ -207,9 +207,9 @@ func main() {
 		case *restorePITRF != "":
 			err := pitrestore(pbmClient, *restorePITRF)
 			if err != nil {
-				log.Fatalln("Error:", err)
+				log.Fatalln("\nError:", err)
 			}
-			fmt.Printf("Restore to the point in time '%s' has started\n", *restorePITRF)
+			fmt.Printf("\nRestore to the point in time '%s' has started\n", *restorePITRF)
 		default:
 			log.Fatalln("Error: undefined restore state")
 		}

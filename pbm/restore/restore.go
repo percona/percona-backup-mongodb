@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func init() {
@@ -313,6 +314,10 @@ func (r *Restore) prepareSnapshot() (err error) {
 
 	if r.bcp.Status != pbm.StatusDone {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error)
+	}
+
+	if !version.Compatible(version.DefaultInfo.Version, r.bcp.PBMVersion) {
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
 	if r.nodeInfo.IsLeader() {
@@ -657,7 +662,7 @@ func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
 		return errors.Wrap(err, "swap users 'n' roles")
 	}
 
-	err = r.node.DropTMPcoll()
+	err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
 	if err != nil {
 		return errors.Wrap(err, "drop tmp collections")
 	}

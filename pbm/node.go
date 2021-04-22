@@ -73,18 +73,9 @@ func (n *Node) Name() string {
 }
 
 func (n *Node) Connect() error {
-	conn, err := mongo.NewClient(options.Client().ApplyURI(n.curi).SetAppName("pbm-agent-exec").SetDirect(true))
+	conn, err := n.connect(true)
 	if err != nil {
-		return errors.Wrap(err, "create mongo client")
-	}
-	err = conn.Connect(n.ctx)
-	if err != nil {
-		return errors.Wrap(err, "connect")
-	}
-
-	err = conn.Ping(n.ctx, nil)
-	if err != nil {
-		return errors.Wrap(err, "ping")
+		return err
 	}
 
 	if n.cn != nil {
@@ -96,6 +87,24 @@ func (n *Node) Connect() error {
 
 	n.cn = conn
 	return nil
+}
+
+func (n *Node) connect(direct bool) (*mongo.Client, error) {
+	conn, err := mongo.NewClient(options.Client().ApplyURI(n.curi).SetAppName("pbm-agent-exec").SetDirect(direct))
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo client")
+	}
+	err = conn.Connect(n.ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "connect")
+	}
+
+	err = conn.Ping(n.ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "ping")
+	}
+
+	return conn, nil
 }
 
 func (n *Node) GetInfo() (*NodeInfo, error) {
@@ -211,12 +220,27 @@ func (n *Node) CurrentUser() (*AuthInfo, error) {
 }
 
 func (n *Node) DropTMPcoll() error {
-	err := n.cn.Database(DB).Collection(TmpRolesCollection).Drop(n.ctx)
+	cn, err := n.connect(false)
+	if err != nil {
+		return errors.Wrap(err, "connect to primary")
+	}
+	defer cn.Disconnect(n.ctx)
+
+	err = DropTMPcoll(n.ctx, n.cn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func DropTMPcoll(ctx context.Context, cn *mongo.Client) error {
+	err := cn.Database(DB).Collection(TmpRolesCollection).Drop(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "drop collection %s", TmpRolesCollection)
 	}
 
-	err = n.cn.Database(DB).Collection(TmpUsersCollection).Drop(n.ctx)
+	err = cn.Database(DB).Collection(TmpUsersCollection).Drop(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "drop collection %s", TmpUsersCollection)
 	}
@@ -225,23 +249,29 @@ func (n *Node) DropTMPcoll() error {
 }
 
 func (n *Node) CopyUsersNRolles() error {
-	err := n.DropTMPcoll()
+	cn, err := n.connect(false)
+	if err != nil {
+		return errors.Wrap(err, "connect to primary")
+	}
+	defer cn.Disconnect(n.ctx)
+
+	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
 		return errors.Wrap(err, "drop tmp collections before copy")
 
 	}
 
 	_, err = CopyColl(n.ctx,
-		n.cn.Database("admin").Collection("system.roles"),
-		n.cn.Database(DB).Collection(TmpRolesCollection),
+		cn.Database("admin").Collection("system.roles"),
+		cn.Database(DB).Collection(TmpRolesCollection),
 		bson.M{},
 	)
 	if err != nil {
 		return errors.Wrap(err, "copy admin.system.roles")
 	}
 	_, err = CopyColl(n.ctx,
-		n.cn.Database("admin").Collection("system.users"),
-		n.cn.Database(DB).Collection(TmpUsersCollection),
+		cn.Database("admin").Collection("system.users"),
+		cn.Database(DB).Collection(TmpUsersCollection),
 		bson.M{},
 	)
 	if err != nil {

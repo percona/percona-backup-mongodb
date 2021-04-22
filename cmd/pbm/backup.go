@@ -13,6 +13,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
@@ -139,8 +140,12 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		if b.Status != pbm.StatusDone {
 			continue
 		}
+		var v string
+		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
+			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", b.PBMVersion, version.DefaultInfo.Version)
+		}
 
-		fmt.Printf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.LastWriteTS.T)))
+		fmt.Printf("  %s [complete: %s]%v\n", b.Name, fmtTS(int64(b.LastWriteTS.T)), v)
 	}
 }
 
