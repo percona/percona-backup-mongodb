@@ -12,7 +12,7 @@ import (
 const version = "1.5.0"
 
 // !!! should be sorted in the ascending order
-var breaking = []string{
+var breakingChangesV = []string{
 	"1.5.0",
 }
 
@@ -85,40 +85,32 @@ func (i Info) All(format string) string {
 	}
 }
 
-type Version struct {
-	Info      Info
-	v         string
-	breakingV []string
+// CompatibleWith tells if a given versions are compatible. Versions are not compatible
+// if one is crossed the breaking ponit (v1 >= breakingVersion) and the other isn't (v2 < breakingVersion)
+func Compatible(v1, v2 string) bool {
+	return compatible(v1, v2, breakingChangesV)
 }
 
-func NewVersion(i Info, breakingVers []string) *Version {
-	return &Version{
-		Info:      i,
-		v:         majmin(i.Version),
-		breakingV: breakingVers,
-	}
-}
-
-func (v *Version) CompatibleWith(ver string) bool {
-	if len(v.breakingV) == 0 {
+func compatible(v1, v2 string, breakingv []string) bool {
+	if len(breakingv) == 0 {
 		return true
 	}
 
-	ver = majmin(ver)
+	v1 = majmin(v1)
+	v2 = majmin(v2)
 
-	c := semver.Compare(v.v, ver)
+	c := semver.Compare(v2, v1)
 	if c == 0 {
 		return true
 	}
 
-	hV := ver
-	lV := v.v
+	hV, lV := v1, v2
 	if c == 1 {
 		hV, lV = lV, hV
 	}
 
-	for i := len(v.breakingV) - 1; i >= 0; i-- {
-		cb := majmin(v.breakingV[i])
+	for i := len(breakingv) - 1; i >= 0; i-- {
+		cb := majmin(breakingv[i])
 		if semver.Compare(hV, cb) >= 0 {
 			return semver.Compare(lV, cb) >= 0
 		}

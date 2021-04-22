@@ -1,9 +1,7 @@
-package version_test
+package version
 
 import (
 	"testing"
-
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func TestCompatibility(t *testing.T) {
@@ -18,8 +16,8 @@ func TestCompatibility(t *testing.T) {
 	}{
 		{
 			"v1.5.5",
-			"1.5.1",
-			true,
+			"1.4.1",
+			false,
 		},
 		{
 			"1.4.0",
@@ -79,8 +77,7 @@ func TestCompatibility(t *testing.T) {
 	}
 
 	for _, test := range cases {
-		v := version.NewVersion(version.Info{Version: test.v1}, breaking)
-		c := v.CompatibleWith(test.v2)
+		c := compatible(test.v1, test.v2, breaking)
 		if c != test.compatible {
 			t.Errorf("compatibility of %s & %s should be %v, got %v", test.v1, test.v2, test.compatible, c)
 		}
