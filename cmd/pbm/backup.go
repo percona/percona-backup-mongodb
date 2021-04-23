@@ -140,12 +140,11 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		if b.Status != pbm.StatusDone {
 			continue
 		}
-		var v string
 		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
-			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", b.PBMVersion, version.DefaultInfo.Version)
+			continue
 		}
 
-		fmt.Printf("  %s [complete: %s]%v\n", b.Name, fmtTS(int64(b.LastWriteTS.T)), v)
+		fmt.Printf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.LastWriteTS.T)))
 	}
 }
 
@@ -195,6 +194,7 @@ func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string) 
 	}
 }
 
+// printPITR shows only chunks derived from `Done` and compatible version's backups
 func printPITR(cn *pbm.PBM, size int, full bool) {
 	on, err := cn.IsPITR()
 	if err != nil {
@@ -245,6 +245,14 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 			fmt.Println("\nPITR <off>:")
 		}
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
+			bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+			if err != nil {
+				log.Printf("ERROR: get backup for timeline: %s", tl)
+				continue
+			}
+			if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+				continue
+			}
 			fmt.Println(" ", tl)
 		}
 	}
