@@ -505,6 +505,16 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
+	r.log.Info("restoring users and roles")
+	cusr, err := r.node.CurrentUser()
+	if err != nil {
+		return errors.Wrap(err, "get current user")
+	}
+	err = r.restoreUsers(cusr)
+	if err != nil {
+		return errors.Wrap(err, "restore users 'n' roles")
+	}
+
 	r.log.Info("starting oplog replay")
 
 	or, err := r.stg.SourceReader(r.oplogFile)
@@ -524,17 +534,6 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "oplog apply")
 	}
 	r.log.Info("oplog replay finished on %v", lts)
-
-	cusr, err := r.node.CurrentUser()
-	if err != nil {
-		return errors.Wrap(err, "get current user")
-	}
-
-	r.log.Info("restoring users and roles")
-	err = r.restoreUsers(cusr)
-	if err != nil {
-		return errors.Wrap(err, "restore users 'n' roles")
-	}
 
 	return nil
 }
