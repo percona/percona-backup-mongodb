@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -447,7 +448,8 @@ type snapshotStat struct {
 }
 
 type pitrRange struct {
-	Range struct {
+	PBMVersion string `json:"pbmVersion"` // vserion of backup
+	Range      struct {
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
 	} `json:"range"`
@@ -492,7 +494,11 @@ func (s storageStat) String() string {
 	ret += fmt.Sprintln("  PITR chunks:")
 
 	for _, sn := range s.PITR {
-		ret += fmt.Sprintf("    %s - %s %s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size))
+		var v string
+		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
+			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
+		}
+		ret += fmt.Sprintf("    %s - %s %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size), v)
 	}
 
 	return ret
@@ -613,6 +619,13 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		rng.Range.Start = int64(tl.Start)
 		rng.Range.End = int64(tl.End)
 		rng.Size = tl.Size
+
+		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+		if err != nil {
+			log.Printf("ERROR: get backup for timeline: %s", tl)
+			continue
+		}
+		rng.PBMVersion = bcp.PBMVersion
 		pr = append(pr, rng)
 	}
 
