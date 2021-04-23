@@ -7,10 +7,10 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/hashicorp/go-version"
 	"github.com/minio/minio-go"
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 )
 
@@ -154,9 +154,8 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.RestartAgents()
 		printDone("Restart agents during the backup")
 
-		cVersion := version.Must(version.NewVersion(t.ServerVersion()))
-		v42 := version.Must(version.NewVersion("4.2"))
-		if cVersion.GreaterThanOrEqual(v42) {
+		cVersion := majmin(t.ServerVersion())
+		if semver.Compare(cVersion, "v4.2") >= 0 {
 			printStart("Distributed Transactions backup")
 			t.DistributedTrxSnapshot()
 			printDone("Distributed Transactions backup")
@@ -242,4 +241,16 @@ func confExt(f string) bool {
 	}
 
 	return true
+}
+
+func majmin(v string) string {
+	if len(v) == 0 {
+		return v
+	}
+
+	if v[0] != 'v' {
+		v = "v" + v
+	}
+
+	return semver.MajorMinor(v)
 }

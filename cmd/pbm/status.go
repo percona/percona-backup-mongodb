@@ -454,8 +454,8 @@ type snapshotStat struct {
 }
 
 type pitrRange struct {
-	PBMVersion string `json:"pbmVersion"` // vserion of backup
-	Range      struct {
+	Err   string `json:"error,omitempty"`
+	Range struct {
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
 	} `json:"range"`
@@ -497,8 +497,8 @@ func (s storageStat) String() string {
 
 	for _, sn := range s.PITR {
 		var v string
-		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
-			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
+		if sn.Err != "" {
+			v = fmt.Sprintf(" !!! %s", sn.Err)
 		}
 		ret += fmt.Sprintf("    %s - %s %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size), v)
 	}
@@ -616,7 +616,11 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 			log.Printf("ERROR: get backup for timeline: %s", tl)
 			continue
 		}
-		rng.PBMVersion = bcp.PBMVersion
+		if bcp == nil {
+			rng.Err = "no backup found"
+		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+		}
 		pr = append(pr, rng)
 	}
 

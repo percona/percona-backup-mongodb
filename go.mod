@@ -17,7 +17,6 @@ require (
 	github.com/go-ini/ini v1.51.1 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/golang/snappy v0.0.1
-	github.com/hashicorp/go-version v1.2.0
 	github.com/jessevdk/go-flags v1.4.0 // indirect
 	github.com/klauspost/compress v1.10.3
 	github.com/klauspost/pgzip v1.2.3

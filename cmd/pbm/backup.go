@@ -250,7 +250,9 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 				log.Printf("ERROR: get backup for timeline: %s", tl)
 				continue
 			}
-			if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+			if bcp == nil ||
+				bcp.Status != pbm.StatusDone ||
+				!version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 				continue
 			}
 			fmt.Println(" ", tl)
