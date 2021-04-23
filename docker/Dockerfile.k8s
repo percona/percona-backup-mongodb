@@ -1,4 +1,5 @@
 FROM golang:1.14
+RUN apt-get update -y && apt-get install -y libkrb5-dev
 WORKDIR /opt/pbm
 COPY . .
 RUN make install
