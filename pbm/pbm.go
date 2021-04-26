@@ -444,6 +444,7 @@ type BackupMeta struct {
 	Nomination       []BackupRsNomination `bson:"n" json:"n"`
 	Error            string               `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	BalancerStatus   BalancerMode         `bson:"balancer" json:"balancer"`
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup
@@ -816,6 +817,36 @@ func (p *PBM) LogGet(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
 
 func (p *PBM) LogGetExactSeverity(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
 	return p.log.Get(r, limit, true)
+}
+
+// SetBalancerStatus sets balancer status
+func (p *PBM) SetBalancerStatus(m BalancerMode) error {
+	var cmd string
+
+	switch m {
+	case BalancerModeOn:
+		cmd = "_configsvrBalancerStart"
+	case BalancerModeOff:
+		cmd = "_configsvrBalancerStop"
+	default:
+		return errors.Errorf("unknown mode %s", m)
+	}
+
+	err := p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{cmd, 1}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "run mongo command")
+	}
+	return nil
+}
+
+// GetBalancerStatus returns balancer status
+func (p *PBM) GetBalancerStatus() (*BalancerStatus, error) {
+	inf := &BalancerStatus{}
+	err := p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{"_configsvrBalancerStatus", 1}}).Decode(inf)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command")
+	}
+	return inf, nil
 }
 
 type Epoch primitive.Timestamp
