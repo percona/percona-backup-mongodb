@@ -1,4 +1,4 @@
-FROM golang:1.14
+FROM golang:1.15
 RUN apt-get update -y && apt-get install -y libkrb5-dev
 WORKDIR /opt/pbm
 COPY . .
@@ -9,7 +9,7 @@ FROM registry.access.redhat.com/ubi7/ubi-minimal
 LABEL org.opencontainers.image.title="Percona Backup for MongoDB"
 LABEL org.opencontainers.image.vendor="Percona"
 LABEL org.opencontainers.image.description="Percona Backup for MongoDB is a distributed, \
-low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
+    low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets."
 LABEL org.opencontainers.image.authors="info@percona.com"
 
 COPY LICENSE /licenses/
