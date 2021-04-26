@@ -157,14 +157,6 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	// A fallback. If there are some leftovers and main node
-	// hasn't cleaned up it yet we should stop and notify user
-	// since backup would be unrestorable.
-	err = b.node.EnsureNoTMPcoll()
-	if err != nil {
-		return errors.Wrap(err, "EnsureNoTMPcoll")
-	}
-
 	rsMeta.Status = pbm.StatusRunning
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
@@ -197,6 +189,16 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if err != nil {
 		return errors.Wrap(err, "set shard's first write ts")
 	}
+
+	// Save users and roles to the tmp collections so the restore would copy that data
+	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
+	// see: https://jira.percona.com/browse/PBM-636 and comments
+	err = b.node.CopyUsersNRolles()
+	if err != nil {
+		return errors.Wrap(err, "copy users and roles for the restore")
+	}
+
+	defer l.Debug("drop tmp users and roles: %v", errors.Wrap(b.node.DropTMPcoll(), "error"))
 
 	sz, err := b.node.SizeDBs()
 	if err != nil {

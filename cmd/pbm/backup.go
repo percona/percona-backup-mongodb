@@ -13,6 +13,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func backup(cn *pbm.PBM, bcpName, compression string) (string, error) {
@@ -139,6 +140,9 @@ func printBackupList(cn *pbm.PBM, size int64) {
 		if b.Status != pbm.StatusDone {
 			continue
 		}
+		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
+			continue
+		}
 
 		fmt.Printf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.LastWriteTS.T)))
 	}
@@ -190,6 +194,7 @@ func bcpMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string) 
 	}
 }
 
+// printPITR shows only chunks derived from `Done` and compatible version's backups
 func printPITR(cn *pbm.PBM, size int, full bool) {
 	on, err := cn.IsPITR()
 	if err != nil {
@@ -240,6 +245,16 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 			fmt.Println("\nPITR <off>:")
 		}
 		for _, tl := range pbm.MergeTimelines(rstlines...) {
+			bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+			if err != nil {
+				log.Printf("ERROR: get backup for timeline: %s", tl)
+				continue
+			}
+			if bcp == nil ||
+				bcp.Status != pbm.StatusDone ||
+				!version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+				continue
+			}
 			fmt.Println(" ", tl)
 		}
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func init() {
@@ -315,6 +316,10 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error)
 	}
 
+	if !version.Compatible(version.DefaultInfo.Version, r.bcp.PBMVersion) {
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
+	}
+
 	if r.nodeInfo.IsLeader() {
 		s, err := r.cn.ClusterMembers(r.nodeInfo)
 		if err != nil {
@@ -383,7 +388,7 @@ func (r *Restore) prepareSnapshot() (err error) {
 }
 
 const (
-	preserveUUID = false
+	preserveUUID = true
 
 	batchSizeDefault           = 500
 	numInsertionWorkersDefault = 10
@@ -451,16 +456,12 @@ func (r *Restore) RunSnapshot() (err error) {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
 
-	defer func() {
-		err := r.node.DropTMPcoll()
-		if err != nil {
-			r.log.Error("dropping tmp collections: %v", err)
-		}
-	}()
-
 	mr := mongorestore.MongoRestore{
 		SessionProvider: rsession,
 		ToolOptions:     &topts,
+		// Have to handle users and roles on our own.
+		// see: https://jira.percona.com/browse/PBM-636 and comments.
+		SkipUsersAndRoles: true,
 		InputOptions: &mongorestore.InputOptions{
 			Archive: "-",
 		},
@@ -472,14 +473,10 @@ func (r *Restore) RunSnapshot() (err error) {
 			NumParallelCollections:   1,
 			PreserveUUID:             preserveUUID,
 			StopOnError:              true,
-			TempRolesColl:            "temproles",
-			TempUsersColl:            "tempusers",
 			WriteConcern:             "majority",
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromRestore,
-			NSFrom:    []string{`admin.system.users`, `admin.system.roles`},
-			NSTo:      []string{pbm.DB + `.` + pbm.TmpUsersCollection, pbm.DB + `.` + pbm.TmpRolesCollection},
 		},
 		InputReader: dumpReader,
 	}
@@ -508,6 +505,16 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
+	r.log.Info("restoring users and roles")
+	cusr, err := r.node.CurrentUser()
+	if err != nil {
+		return errors.Wrap(err, "get current user")
+	}
+	err = r.restoreUsers(cusr)
+	if err != nil {
+		return errors.Wrap(err, "restore users 'n' roles")
+	}
+
 	r.log.Info("starting oplog replay")
 
 	or, err := r.stg.SourceReader(r.oplogFile)
@@ -527,17 +534,6 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "oplog apply")
 	}
 	r.log.Info("oplog replay finished on %v", lts)
-
-	cusr, err := r.node.CurrentUser()
-	if err != nil {
-		return errors.Wrap(err, "get current user")
-	}
-
-	r.log.Info("restoring users and roles")
-	err = r.restoreUsers(cusr)
-	if err != nil {
-		return errors.Wrap(err, "restore users 'n' roles")
-	}
 
 	return nil
 }
@@ -660,7 +656,17 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 }
 
 func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
-	return r.swapUsers(r.cn.Context(), exclude)
+	err := r.swapUsers(r.cn.Context(), exclude)
+	if err != nil {
+		return errors.Wrap(err, "swap users 'n' roles")
+	}
+
+	err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
+	if err != nil {
+		return errors.Wrap(err, "drop tmp collections")
+	}
+
+	return nil
 }
 
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {

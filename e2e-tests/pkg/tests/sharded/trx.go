@@ -64,15 +64,15 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 	c.moveChunk(ctx, col, 110, "rs1")
 	c.moveChunk(ctx, col, 130, "rs1")
 	c.moveChunk(ctx, col, 131, "rs1")
-	c.moveChunk(ctx, col, 630, "rs2")
-	c.moveChunk(ctx, col, 530, "rs2")
-	c.moveChunk(ctx, col, 631, "rs2")
-	c.moveChunk(ctx, col, 730, "rs2")
-	c.moveChunk(ctx, col, 3000, "rs2")
-	c.moveChunk(ctx, col, 3001, "rs2")
-	c.moveChunk(ctx, col, 180, "rs2")
-	c.moveChunk(ctx, col, 199, "rs2")
-	c.moveChunk(ctx, col, 2001, "rs2")
+	c.moveChunk(ctx, col, 630, "rsx")
+	c.moveChunk(ctx, col, 530, "rsx")
+	c.moveChunk(ctx, col, 631, "rsx")
+	c.moveChunk(ctx, col, 730, "rsx")
+	c.moveChunk(ctx, col, 3000, "rsx")
+	c.moveChunk(ctx, col, 3001, "rsx")
+	c.moveChunk(ctx, col, 180, "rsx")
+	c.moveChunk(ctx, col, 199, "rsx")
+	c.moveChunk(ctx, col, 2001, "rsx")
 
 	_, err = conn.Database(trxdb).Collection(col).DeleteMany(ctx, bson.M{})
 	if err != nil {
@@ -101,7 +101,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 		bson.D{
 			{"moveChunk", dbcol},
 			{"find", bson.M{"idx": 2000}},
-			{"to", "rs2"},
+			{"to", "rsx"},
 		},
 	).Err()
 	if err != nil {
@@ -301,10 +301,10 @@ func (c *Cluster) setupTrxCollection(ctx context.Context, col string) {
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"addShardToZone", "rs2"}, {"zone", "R2"}},
+		bson.D{{"addShardToZone", "rsx"}, {"zone", "R2"}},
 	).Err()
 	if err != nil {
-		log.Fatalln("ERROR: addShardToZone rs2:", err)
+		log.Fatalln("ERROR: addShardToZone rsx:", err)
 	}
 
 	err = conn.Database("admin").RunCommand(

@@ -860,3 +860,22 @@ func FileCompression(ext string) CompressionType {
 		return CompressionTypeS2
 	}
 }
+
+// CopyColl copy documents matching the given filter and return number of copied documents
+func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{}) (n int, err error) {
+	cur, err := from.Find(ctx, filter)
+	if err != nil {
+		return 0, errors.Wrap(err, "create cursor")
+	}
+	defer cur.Close(ctx)
+
+	for cur.Next(ctx) {
+		_, err = to.InsertOne(ctx, cur.Current)
+		if err != nil {
+			return 0, errors.Wrap(err, "insert document")
+		}
+		n++
+	}
+
+	return n, nil
+}

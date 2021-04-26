@@ -16,6 +16,7 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type statusSect struct {
@@ -444,14 +445,16 @@ type storageStat struct {
 }
 
 type snapshotStat struct {
-	Name    string     `json:"name"`
-	Size    int64      `json:"size"`
-	Status  pbm.Status `json:"status"`
-	Err     string     `json:"error,omitempty"`
-	StateTS int64      `json:"completeTS"`
+	Name       string     `json:"name"`
+	Size       int64      `json:"size"`
+	Status     pbm.Status `json:"status"`
+	Err        string     `json:"error,omitempty"`
+	StateTS    int64      `json:"completeTS"`
+	PBMVersion string     `json:"pbmVersion"`
 }
 
 type pitrRange struct {
+	Err   string `json:"error,omitempty"`
 	Range struct {
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
@@ -467,18 +470,23 @@ func (s storageStat) String() string {
 
 	ret += fmt.Sprintln("  Snapshots:")
 	for _, sn := range s.Snapshot {
-		ret += fmt.Sprintf("    %s %s", sn.Name, fmtSize(sn.Size))
+		var status string
 		switch sn.Status {
 		case pbm.StatusDone:
-			ret += fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
-			ret += fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
-			ret += fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
 		default:
-			ret += fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
-		ret += "\n"
+
+		var v string
+		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
+			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
+		}
+		ret += fmt.Sprintf("    %s %s%s%s\n", sn.Name, fmtSize(sn.Size), status, v)
 	}
 
 	if len(s.PITR) == 0 {
@@ -488,7 +496,11 @@ func (s storageStat) String() string {
 	ret += fmt.Sprintln("  PITR chunks:")
 
 	for _, sn := range s.PITR {
-		ret += fmt.Sprintf("    %s - %s %s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size))
+		var v string
+		if sn.Err != "" {
+			v = fmt.Sprintf(" !!! %s", sn.Err)
+		}
+		ret += fmt.Sprintf("    %s - %s %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size), v)
 	}
 
 	return ret
@@ -535,9 +547,10 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 
 	for _, bcp := range bcps {
 		snpsht := snapshotStat{
-			Name:    bcp.Name,
-			Status:  bcp.Status,
-			StateTS: bcp.LastTransitionTS,
+			Name:       bcp.Name,
+			Status:     bcp.Status,
+			StateTS:    bcp.LastTransitionTS,
+			PBMVersion: bcp.PBMVersion,
 		}
 
 		switch bcp.Status {
@@ -597,6 +610,17 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		rng.Range.Start = int64(tl.Start)
 		rng.Range.End = int64(tl.End)
 		rng.Size = tl.Size
+
+		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+		if err != nil {
+			log.Printf("ERROR: get backup for timeline: %s", tl)
+			continue
+		}
+		if bcp == nil {
+			rng.Err = "no backup found"
+		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+		}
 		pr = append(pr, rng)
 	}
 
