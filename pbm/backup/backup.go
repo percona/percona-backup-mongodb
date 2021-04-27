@@ -271,9 +271,9 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			return errors.Wrap(err, "check cluster for dump done")
 		}
 
-		err = b.setClusterLastWrite(bcp.Name)
+		err = b.setClusterFirtsLastWrite(bcp.Name)
 		if err != nil {
-			return errors.Wrap(err, "set cluster last write ts")
+			return errors.Wrap(err, "set cluster first & last write ts")
 		}
 	}
 
@@ -282,12 +282,13 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for dump done")
 	}
 
-	lwTS, err := b.waitForLastWrite(bcp.Name)
+	fwTS, lwTS, err := b.waitForFirstLastWrite(bcp.Name)
 	if err != nil {
-		return errors.Wrap(err, "get cluster last write ts")
+		return errors.Wrap(err, "get cluster first & last write ts")
 	}
 
-	oplog.SetTailingSpan(oplogTS, lwTS)
+	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
+	oplog.SetTailingSpan(fwTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
 	_, err = Upload(ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
 	if err != nil {
@@ -565,7 +566,7 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	}
 }
 
-func (b *Backup) waitForLastWrite(bcpName string) (primitive.Timestamp, error) {
+func (b *Backup) waitForFirstLastWrite(bcpName string) (first, last primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
@@ -573,23 +574,23 @@ func (b *Backup) waitForLastWrite(bcpName string) (primitive.Timestamp, error) {
 		case <-tk.C:
 			bmeta, err := b.cn.GetBackupMeta(bcpName)
 			if err != nil {
-				return primitive.Timestamp{}, errors.Wrap(err, "get backup metadata")
+				return first, last, errors.Wrap(err, "get backup metadata")
 			}
 
 			clusterTime, err := b.cn.ClusterTime()
 			if err != nil {
-				return primitive.Timestamp{}, errors.Wrap(err, "read cluster time")
+				return first, last, errors.Wrap(err, "read cluster time")
 			}
 
 			if bmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
-				return primitive.Timestamp{}, errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
+				return first, last, errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
 			}
 
-			if bmeta.LastWriteTS.T > 0 {
-				return bmeta.LastWriteTS, nil
+			if bmeta.FirstWriteTS.T > 0 && bmeta.LastWriteTS.T > 0 {
+				return bmeta.FirstWriteTS, bmeta.LastWriteTS, nil
 			}
 		case <-b.cn.Context().Done():
-			return primitive.Timestamp{}, nil
+			return first, last, nil
 		}
 	}
 }
@@ -613,20 +614,24 @@ func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
 	return errors.Wrap(err, "write to store")
 }
 
-func (b *Backup) setClusterLastWrite(bcpName string) error {
+func (b *Backup) setClusterFirtsLastWrite(bcpName string) error {
 	bmeta, err := b.cn.GetBackupMeta(bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	lw := primitive.Timestamp{}
+	var fw, lw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
 		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
 			lw = rs.LastWriteTS
 		}
+
+		if fw.T == 0 || primitive.CompareTimestamp(fw, rs.FirstWriteTS) == 1 {
+			fw = rs.FirstWriteTS
+		}
 	}
 
-	err = b.cn.SetLastWrite(bcpName, lw)
+	err = b.cn.SetFirstLastWrite(bcpName, fw, lw)
 	return errors.Wrap(err, "set timestamp")
 }
 

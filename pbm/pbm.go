@@ -437,6 +437,7 @@ type BackupMeta struct {
 	MongoVersion     string               `bson:"mongodb_version" json:"mongodb_version,omitempty"`
 	StartTS          int64                `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     primitive.Timestamp  `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp  `bson:"last_write_ts" json:"last_write_ts"`
 	Hb               primitive.Timestamp  `bson:"hb" json:"hb"`
 	Status           Status               `bson:"status" json:"status"`
@@ -548,12 +549,13 @@ func (p *PBM) BackupHB(bcpName string) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func (p *PBM) SetLastWrite(bcpName string, ts primitive.Timestamp) error {
+func (p *PBM) SetFirstLastWrite(bcpName string, first, last primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{
-			{"$set", bson.M{"last_write_ts": ts}},
+			{"$set", bson.M{"first_write_ts": first}},
+			{"$set", bson.M{"last_write_ts": last}},
 		},
 	)
 
