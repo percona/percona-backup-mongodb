@@ -136,11 +136,11 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			}
 		}
 
-		// Eurn on the balancer back if needed
+		// Turn the balancer back on if needed
 		//
 		// Every agent will check if the balancer was on before the backup started.
-		// And will try to turn in on if so. So if the leader node went donw after turning off
-		// the ballancer some other node will bring it back.
+		// And will try to turn it on again if so. So if the leader node went down after turning off
+		// the balancer some other node will bring it back.
 		// TODO: what if all agents went down.
 		if bcpm.BalancerStatus != pbm.BalancerModeOn {
 			return
