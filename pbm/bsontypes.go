@@ -191,3 +191,21 @@ type AuthUserRoles struct {
 	Role string `bson:"role" json:"role"`
 	DB   string `bson:"db" json:"db"`
 }
+
+type BalancerMode string
+
+const (
+	BalancerModeOn  BalancerMode = "full"
+	BalancerModeOff BalancerMode = "off"
+)
+
+type BalancerStatus struct {
+	Mode              BalancerMode `bson:"mode" json:"mode"`
+	InBalancerRound   bool         `bson:"inBalancerRound" json:"inBalancerRound"`
+	NumBalancerRounds int64        `bson:"numBalancerRounds" json:"numBalancerRounds"`
+	Ok                int          `bson:"ok" json:"ok"`
+}
+
+func (b *BalancerStatus) IsOn() bool {
+	return b.Mode == BalancerModeOn
+}

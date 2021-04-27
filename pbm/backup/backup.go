@@ -49,17 +49,18 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	return b.run(ctx, bcp, opid, l)
 }
 
-func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID) error {
+func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
 	meta := &pbm.BackupMeta{
-		OPID:        opid.String(),
-		Name:        bcp.Name,
-		Compression: bcp.Compression,
-		StartTS:     time.Now().Unix(),
-		Status:      pbm.StatusStarting,
-		Replsets:    []pbm.BackupReplset{},
-		LastWriteTS: primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		PBMVersion:  version.DefaultInfo.Version,
-		Nomination:  []pbm.BackupRsNomination{},
+		OPID:           opid.String(),
+		Name:           bcp.Name,
+		Compression:    bcp.Compression,
+		StartTS:        time.Now().Unix(),
+		Status:         pbm.StatusStarting,
+		Replsets:       []pbm.BackupReplset{},
+		LastWriteTS:    primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		PBMVersion:     version.DefaultInfo.Version,
+		Nomination:     []pbm.BackupRsNomination{},
+		BalancerStatus: balancer,
 	}
 
 	cfg, err := b.cn.GetConfig()
@@ -104,6 +105,12 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
+
+	bcpm, err := b.cn.GetBackupMeta(bcp.Name)
+	if err != nil {
+		return errors.Wrap(err, "balancer status, get backup meta")
+	}
+
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
@@ -128,6 +135,23 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
+
+		// Turn the balancer back on if needed
+		//
+		// Every agent will check if the balancer was on before the backup started.
+		// And will try to turn it on again if so. So if the leader node went down after turning off
+		// the balancer some other node will bring it back.
+		// TODO: what if all agents went down.
+		if bcpm.BalancerStatus != pbm.BalancerModeOn {
+			return
+		}
+
+		err = b.cn.SetBalancerStatus(pbm.BalancerModeOn)
+		if err != nil {
+			l.Error("set balancer ON: %v", err)
+			return
+		}
+		l.Debug("set balancer on")
 	}()
 
 	if inf.IsLeader() {
@@ -148,6 +172,14 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 				}
 			}
 		}()
+
+		if bcpm.BalancerStatus == pbm.BalancerModeOn {
+			err = b.cn.SetBalancerStatus(pbm.BalancerModeOff)
+			if err != nil {
+				return errors.Wrap(err, "set balancer OFF")
+			}
+			l.Debug("set balancer off")
+		}
 	}
 
 	// Waiting for StatusStarting to move further.

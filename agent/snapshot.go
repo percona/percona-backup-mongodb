@@ -107,7 +107,18 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	bcp := backup.New(a.pbm, a.node)
 	if nodeInfo.IsClusterLeader() {
-		err = bcp.Init(cmd, opid)
+		balancer := pbm.BalancerModeOff
+		if nodeInfo.IsSharded() {
+			bs, err := a.pbm.GetBalancerStatus()
+			if err != nil {
+				l.Error("get balancer status: %v", err)
+				return
+			}
+			if bs.IsOn() {
+				balancer = pbm.BalancerModeOn
+			}
+		}
+		err = bcp.Init(cmd, opid, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
