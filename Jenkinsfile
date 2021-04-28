@@ -107,7 +107,7 @@ pipeline {
 
                 stage('Sharded cluster 3.6') {
                     agent {
-                        label 'docker'
+                        label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '36-shrd')
@@ -116,7 +116,7 @@ pipeline {
                 }
                 stage('Sharded cluster 4.0') {
                     agent {
-                        label 'docker'
+                        label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '40-shrd')
@@ -125,7 +125,7 @@ pipeline {
                 }
                 stage('Sharded cluster 4.2') {
                     agent {
-                        label 'docker'
+                        label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '42-shrd')
