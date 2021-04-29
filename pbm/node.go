@@ -226,7 +226,7 @@ func (n *Node) DropTMPcoll() error {
 	}
 	defer cn.Disconnect(n.ctx)
 
-	err = DropTMPcoll(n.ctx, n.cn)
+	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
 		return err
 	}

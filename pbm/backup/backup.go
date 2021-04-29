@@ -230,7 +230,13 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "copy users and roles for the restore")
 	}
 
-	defer l.Debug("drop tmp users and roles: %v", errors.Wrap(b.node.DropTMPcoll(), "error"))
+	defer func() {
+		l.Info("dropping tmp collections")
+		err := b.node.DropTMPcoll()
+		if err != nil {
+			l.Warning("drop tmp users and roles: %v", err)
+		}
+	}()
 
 	sz, err := b.node.SizeDBs()
 	if err != nil {
