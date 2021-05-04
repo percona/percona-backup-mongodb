@@ -1,0 +1,76 @@
+version: "3.4"
+services:
+  tests:
+    build: 
+      dockerfile: ./e2e-tests/Dockerfile
+      context: ../..
+    command: pbm-test
+    environment:
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
+      - TESTS_TYPE=rs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./conf:/etc/pbm
+      - ./backups:/opt/backups
+
+  rs101:
+    image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
+    hostname: rs101
+    environment:
+      - REPLSET_NAME=rs1
+      - MONGO_USER=dba
+      - BACKUP_USER=bcp
+      - MONGO_PASS=test1234
+      - SINGLE_NODE=true
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - ./scripts/start.sh:/opt/start.sh
+      - ./keyFile:/opt/keyFile
+
+  agent-rs101:
+    container_name: "pbmagent_rs101"
+    labels:
+      - "com.percona.pbm.app=agent"
+      - "com.percona.pbm.agent.rs=rs1"
+    environment: 
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
+    build: 
+      labels:
+        - "com.percona.pbm.app=agent"
+      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      context: ../..
+    volumes: 
+      - ./conf:/etc/pbm
+      - ./backups:/opt/backups
+    command: pbm-agent
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - rs101
+
+  minio:
+    image: minio/minio:RELEASE.2020-01-16T22-40-29Z
+    hostname: minio
+    # ports:
+    #   - "9000:9000"
+    volumes:
+      - backups:/backups
+    environment:
+      - "MINIO_ACCESS_KEY=minio1234"
+      - "MINIO_SECRET_KEY=minio1234"
+    command: server /backups
+  createbucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
+      /usr/bin/mc mb myminio/bcp;
+      exit 0;
+      "
+volumes: 
+  backups:
+  backupsfs:
