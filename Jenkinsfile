@@ -31,15 +31,14 @@ void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
 
     switch(CLUSTER_TYPE) {            
         case 'rs': 
-            compose = 'docker-compose-rs.yaml'; 
-            break; 
+            compose = 'docker-compose-rs.yaml'
+            break
         case 'single': 
-            compose = 'docker-compose-single.yaml'; 
-            break; 
+            compose = 'docker-compose-single.yaml'
+            break
         default: 
-            compose = 'docker-compose.yaml'; 
-            break; 
-      }
+            compose = 'docker-compose.yaml'
+            break 
    }
 
     withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML'), file(credentialsId: 'PBM-AZURE', variable: 'PBM_AZURE_YML')]) {
