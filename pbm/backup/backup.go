@@ -20,7 +20,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -70,8 +69,6 @@ func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMod
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 	meta.Store = cfg.Storage
-	// Erase credentials data
-	meta.Store.S3.Credentials = s3.Credentials{}
 
 	ver, err := b.node.GetMongoVersion()
 	if err == nil {
