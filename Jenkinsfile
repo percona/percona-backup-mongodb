@@ -28,9 +28,18 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
 
 void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
     def compose = 'docker-compose.yaml'
-    if ( CLUSTER_TYPE == 'rs') {
-        compose = 'docker-compose-rs.yaml'
-    }
+
+    switch(CLUSTER_TYPE) {            
+        case 'rs': 
+            compose = 'docker-compose-rs.yaml'
+            break
+        case 'single': 
+            compose = 'docker-compose-single.yaml'
+            break
+        default: 
+            compose = 'docker-compose.yaml'
+            break 
+   }
 
     withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML'), file(credentialsId: 'PBM-AZURE', variable: 'PBM_AZURE_YML')]) {
         sh """
@@ -158,6 +167,34 @@ pipeline {
                     steps {
                         prepareCluster('rs', '42-rs')
                         runTest('Non-sharded replicaset', 'run-rs', '4.2')
+                    }
+                }
+
+                stage('Single-node replicaset 3.6') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '36-single')
+                        runTest('Single-node replicaset', 'run-single', '3.6')
+                    }
+                }
+                stage('Single-node replicaset 4.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '40-single')
+                        runTest('Single-node replicaset', 'run-single', '4.0')
+                    }
+                }
+                stage('Single-node replicaset 4.2') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '42-single')
+                        runTest('Single-node replicaset', 'run-single', '4.2')
                     }
                 }
             }

@@ -5,6 +5,7 @@ MONGO_PASS="test1234"
 BCP_NAME=""
 COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
 COMPOSE_RS_PATH="${test_dir}/docker/docker-compose-rs.yaml"
+COMPOSE_SINGLE_PATH="${test_dir}/docker/docker-compose-single.yaml"
 
 
 run() {
@@ -13,11 +14,17 @@ run() {
 
 
     desc 'Start cluster'
-    if [ $compose == $COMPOSE_PATH ] ; then
-        start_cluster "$mongo_version"
-    else 
-        start_replset "$mongo_version"
-    fi
+    case $compose in
+        $COMPOSE_PATH)
+            start_cluster "$mongo_version"
+        ;;
+        $COMPOSE_RS_PATH)
+            start_replset "$mongo_version" "$COMPOSE_RS_PATH"
+        ;;
+        $COMPOSE_SINGLE_PATH)
+            start_replset "$mongo_version" "$COMPOSE_SINGLE_PATH"
+        ;;
+    esac
 
     desc 'Run tests'
     docker-compose -f $compose start tests
@@ -164,6 +171,7 @@ start_cluster() {
 
 start_replset() {
     local mongo_version=$1
+    local compose=$2
 
     genMongoKey
 
@@ -172,7 +180,7 @@ start_replset() {
         echo 'Skip builds'
     else 
         echo 'Build agents and tests'
-        docker-compose -f $COMPOSE_RS_PATH build
+        docker-compose -f $compose build
     fi
 
     if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
@@ -180,16 +188,15 @@ start_replset() {
     chmod -R 777 "${test_dir}/docker/backups"
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
-    docker-compose -f $COMPOSE_RS_PATH up --quiet-pull --no-color -d
+    docker-compose -f $compose up --quiet-pull --no-color -d
 
     sleep 25
-    docker-compose -f $COMPOSE_RS_PATH ps
+    docker-compose -f $compose ps
     export COMPOSE_INTERACTIVE_NO_CLI=1
-    docker-compose -f $COMPOSE_RS_PATH exec -T rs101 /opt/start.sh
+    docker-compose -f $compose exec -T rs101 /opt/start.sh
     sleep 15
 
-    docker-compose -f $COMPOSE_RS_PATH up -d \
-            agent-rs101 agent-rs102 agent-rs103
+    docker-compose -f $compose up -d
 }
 
 genMongoKey() {

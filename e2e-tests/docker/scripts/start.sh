@@ -6,6 +6,7 @@ MONGO_USER=${MONGO_USER:-"dba"}
 BACKUP_USER=${BACKUP_USER:-"bcp"}
 MONGO_PASS=${MONGO_PASS:-"test1234"}
 CONFIGSVR=${CONFIGSVR:-"false"}
+SINGLE_NODE=${SINGLE_NODE:-"false"}
 
 mongo <<EOF
 rs.initiate(
@@ -51,6 +52,10 @@ db.getSiblingDB("admin").createUser(
 );
 
 EOF
+
+if [ $SINGLE_NODE == "true" ] ; then
+    exit 0
+fi
 
 mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
 rs.reconfig(

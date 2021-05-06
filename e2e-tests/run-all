@@ -14,3 +14,4 @@ fail() {
 $dir/run-new-cluster || fail "restore-on-new-cluster"
 $dir/run-sharded || fail "sharded-cluster"
 $dir/run-rs || fail "replica-set-cluster"
+$dir/run-single || fail "single-node-replica-set"
