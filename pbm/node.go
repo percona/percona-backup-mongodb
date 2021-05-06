@@ -3,9 +3,11 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -248,16 +250,46 @@ func DropTMPcoll(ctx context.Context, cn *mongo.Client) error {
 	return nil
 }
 
-func (n *Node) CopyUsersNRolles() error {
+func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
+	var lw primitive.Timestamp
+	for i := 0; i < 21; i++ {
+		lw, err = LastWrite(n.cn)
+		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
+			return nil
+		}
+		time.Sleep(time.Second * 1)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return errors.New("run out of time")
+}
+
+func LastWrite(cn *mongo.Client) (primitive.Timestamp, error) {
+	inf := &NodeInfo{}
+	err := cn.Database("admin").RunCommand(context.Background(), bson.D{{"isMaster", 1}}).Decode(inf)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
+	}
+
+	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
+		return primitive.Timestamp{}, errors.New("last write timestamp is nil")
+	}
+	return inf.LastWrite.MajorityOpTime.TS, nil
+}
+
+func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	cn, err := n.connect(false)
 	if err != nil {
-		return errors.Wrap(err, "connect to primary")
+		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
 	defer cn.Disconnect(n.ctx)
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
-		return errors.Wrap(err, "drop tmp collections before copy")
+		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
 
 	}
 
@@ -267,7 +299,7 @@ func (n *Node) CopyUsersNRolles() error {
 		bson.M{},
 	)
 	if err != nil {
-		return errors.Wrap(err, "copy admin.system.roles")
+		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
 	}
 	_, err = CopyColl(n.ctx,
 		cn.Database("admin").Collection("system.users"),
@@ -275,8 +307,8 @@ func (n *Node) CopyUsersNRolles() error {
 		bson.M{},
 	)
 	if err != nil {
-		return errors.Wrap(err, "copy admin.system.users")
+		return lastWrite, errors.Wrap(err, "copy admin.system.users")
 	}
 
-	return nil
+	return LastWrite(cn)
 }

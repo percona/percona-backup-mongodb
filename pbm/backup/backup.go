@@ -225,7 +225,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	// Save users and roles to the tmp collections so the restore would copy that data
 	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 	// see: https://jira.percona.com/browse/PBM-636 and comments
-	err = b.node.CopyUsersNRolles()
+	lw, err := b.node.CopyUsersNRolles()
 	if err != nil {
 		return errors.Wrap(err, "copy users and roles for the restore")
 	}
@@ -237,6 +237,14 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			l.Warning("drop tmp users and roles: %v", err)
 		}
 	}()
+
+	// before proceeding any further we have to be sure that tmp users and roles
+	// have replicated to the node we're about to take a backup from
+	// *copying made on a primary but backup does a secondary node
+	err = b.node.WaitForWrite(lw)
+	if err != nil {
+		return errors.Wrap(err, "wait for tmp users and roles replication")
+	}
 
 	sz, err := b.node.SizeDBs()
 	if err != nil {

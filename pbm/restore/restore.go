@@ -510,10 +510,18 @@ func (r *Restore) RunSnapshot() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
-	err = r.restoreUsers(cusr)
+
+	err = r.swapUsers(r.cn.Context(), cusr)
 	if err != nil {
-		return errors.Wrap(err, "restore users 'n' roles")
+		return errors.Wrap(err, "swap users 'n' roles")
 	}
+
+	defer func() {
+		err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
+		if err != nil {
+			r.log.Warning("drop tmp collections: %v", err)
+		}
+	}()
 
 	r.log.Info("starting oplog replay")
 
@@ -650,20 +658,6 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		if err != nil {
 			return errors.Wrap(err, "insert user")
 		}
-	}
-
-	return nil
-}
-
-func (r *Restore) restoreUsers(exclude *pbm.AuthInfo) error {
-	err := r.swapUsers(r.cn.Context(), exclude)
-	if err != nil {
-		return errors.Wrap(err, "swap users 'n' roles")
-	}
-
-	err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
-	if err != nil {
-		return errors.Wrap(err, "drop tmp collections")
 	}
 
 	return nil

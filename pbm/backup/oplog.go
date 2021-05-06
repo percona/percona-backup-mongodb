@@ -121,18 +121,9 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 	return written, cur.Err()
 }
 
-var errMongoTimestampNil = errors.New("timestamp is nil")
-
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
-	inf, err := ot.node.GetInfo()
-	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
-	}
-	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
-		return primitive.Timestamp{}, errMongoTimestampNil
-	}
-	return inf.LastWrite.MajorityOpTime.TS, nil
+	return pbm.LastWrite(ot.node.Session())
 }
 
 func (ot *Oplog) collectionName() (string, error) {
