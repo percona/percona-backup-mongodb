@@ -52,11 +52,13 @@ A restore and |PITR| incremental backups are incompatible operations and cannot 
    
    $ pbm config --set pitr.enabled=false
 
-Run |pbm-restore| and specify the time stamp from the valid range:
+Run |pbm-restore| and specify the timestamp from the valid range:
 
 .. code-block:: bash
 
    $ pbm restore --time="2020-07-14T14:27:04"
+
+Restoring to the point in time requires both a backup snapshot and oplog slices that can be replayed on top of it (the time ranges in PITR section of ``pbm list`` output must be later then the selected backup snapshot). 
 
 .. seealso::
 
