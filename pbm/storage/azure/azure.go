@@ -29,7 +29,7 @@ type Conf struct {
 	Account     string      `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
 	Container   string      `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
 	Prefix      string      `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials Credentials `bson:"credentials" json:"credentials,omitempty" yaml:"credentials"`
+	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 }
 
 type Credentials struct {
