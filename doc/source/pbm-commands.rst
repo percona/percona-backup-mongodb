@@ -1,6 +1,5 @@
 .. _pbm-commands:
 
-
 |pbm.app| commands
 **********************************************************************
 
@@ -8,11 +7,15 @@
 
 For how to get started with |PBM|, see :ref:`initial-setup`.
 
-:command:`pbm help`
+.. _help:
+
+.. rubric:: pbm help
 
 Returns the help information about |pbm.app| commands.
 
-:command:`pbm config`
+.. _config:
+
+.. rubric:: pbm config
 
 Sets, changes or lists |PBM| configuration.
 
@@ -39,7 +42,9 @@ The command accepts the following flags:
    * - ``--set=SET``
      - Set a new config option value. Specify the option in the <key.name=value> format.
    
-:command:`pbm backup`
+.. _backup:
+
+.. rubric:: pbm backup
 
 Creates a backup snapshot and saves it in the remote backup storage. 
 
@@ -63,8 +68,10 @@ The command accepts the following flags:
      - Create a backup with compression. 
        Supported compression methods: ``gzip``, ``snappy``, ``lz4``, ``s2``, ``pgzip``. Default: ``s2``
        The ``none`` value means no compression is done during backup.
-   
-:command:`pbm restore`
+
+.. _restore:
+
+.. rubric:: pbm restore
 
 Restores database from a specified backup / to a specified point in time. 
 
@@ -87,20 +94,24 @@ The command accepts the following flags:
    * - ``--time=TIME``
      - Restores the database to the specified point in time. Available if :ref:`PITR` is enabled.
        
-:command:`pbm cancel-backup`
+.. _cancel:       
+
+.. rubric:: pbm cancel-backup
 
 Cancels a running backup. The backup is marked as canceled in the backup list.
 
-:command:`pbm list`
+.. _list:
 
-Provides the list of backups. In versions 1.3.4 and earlier, the command listed all backups and their states. Backup states are the following:
+.. rubric:: pbm list
+
+Provides the list of backups. In versions 1.3.4 and earlier, the command lists all backups and their states. Backup states are the following:
 
 - In progress - A backup is running
 - Canceled - A backup was canceled
 - Error - A backup was finished with an error
 - No status means a backup is complete
 
-As of version 1.4.0, only successfully completed backups are listed. To view currently running backup information, run `pbm status`.
+As of version 1.4.0, only successfully completed backups are listed. To view currently running backup information, run :ref:`status`.
   
 When :ref:`PITR` is enabled, the ``pbm list`` also provides the list of valid time ranges for recovery and point-in-time recovery status. 
 
@@ -124,7 +135,9 @@ The command accepts the following flags:
    * - ``--size=0``
      - Shows last N backups.
 
-:command:`pbm delete-backup`
+.. _delete:
+
+.. rubric:: pbm delete-backup
 
 Deletes the specified backup or all backups that are older than the specified time. The command deletes backups that are not running regardless of the remote backup storage being used.
 
@@ -149,8 +162,10 @@ The command accepts the following flags:
        - ``%Y-%M-%D`` (e.g. 2020-04-20)
    * - ``--force``
      - Forcibly deletes backups without asking for user's confirmation   
+     
+.. _version:
 
-:command:`pbm version`
+.. rubric:: pbm version
 
 Shows the version of |PBM|.
 
@@ -167,55 +182,21 @@ The command accepts the following flags:
      - Shows only version info
    * - ``--commit``
      - Shows only git commit info
+   * - ``--format=""``             
+     - Shows version info as a standard output or a JSON object. 
+       Supported values: ``""``, ``json``.
 
-.. _logs:
+.. _status:
 
-.. rubric:: pbm logs
+.. rubric:: pbm status
 
-Shows log information from all |pbm-agent| processes. 
+Shows the status of |PBM|. The output provides the following information:
 
-The command has the following syntax: 
-
-.. code-block:: bash
-
-   pbm logs [<flags>]
-
-The command accepts the following flags:
-
-.. list-table:: 
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Flag
-     - Description
-   * - ``-t``, ``--tail=20``        
-     - Shows last N entries. By default, the output shows last 20 entries. 
-       ``0`` means to show all log messages.
-   * - ``-e``, ``--event=EVENT``    
-     - Shows logs filtered by a specified event. Supported events:
-
-       - backup 
-       - restore
-       - cancelBackup
-       - resyncBcpList
-       - pitr 
-       - pitrestore
-       - delete
-
-   * - ``-o``, ``--out=text``
-     - Shows log information as text (default) or in JSON format. 
-       Supported values: text, json
-   * - ``-n``, ``--node=NODE``
-     - Shows logs for a specified node or a replica set. 
-       Specify the node in the format ``replset[/host:port]`` 
-   * - ``-s``, ``--severity=I``     
-     - Shows logs filtered by severity level. 
-       Supported levels are (from low to high): D - Debug, I - Info (default), W - Warning, E - Error, F - Fatal.
-
-       The output includes both the specified severity level and all higher ones
-   * - ``-i``, ``--opid=OPID``
-     - Show logs for an operation in progress. The operation is identified by the :term:`OpID`
-
-Find the usage examples in :ref:`pbm.logs`.
+- pbm-agent processes version and state, 
+- currently running backups or restores
+- backups stored in the remote storage
+- |PITR| status
+- Valid time ranges for point-in-time recovery and the data size
+  
 
 .. include:: .res/replace.txt

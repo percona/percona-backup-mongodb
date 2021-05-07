@@ -8,6 +8,7 @@ This document provides examples of using |pbm.app| commands to operate your back
 
 .. contents::
    :local:
+   :backlinks: top
 
 .. _pbm.running.backup.listing:
 
