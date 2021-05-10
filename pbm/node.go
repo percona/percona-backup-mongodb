@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/pkg/errors"
@@ -254,9 +253,8 @@ func DropTMPcoll(ctx context.Context, cn *mongo.Client) error {
 func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
 	var lw primitive.Timestamp
 	for i := 0; i < 21; i++ {
-		lw, err = LastWrite(n.cn)
+		lw, err = LastWrite(n.cn, false)
 		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
-			log.Printf("got cluster time %v", lw)
 			return nil
 		}
 		time.Sleep(time.Second * 1)
@@ -269,17 +267,20 @@ func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
 	return errors.New("run out of time")
 }
 
-func LastWrite(cn *mongo.Client) (primitive.Timestamp, error) {
+func LastWrite(cn *mongo.Client, majority bool) (primitive.Timestamp, error) {
 	inf := &NodeInfo{}
 	err := cn.Database("admin").RunCommand(context.Background(), bson.D{{"isMaster", 1}}).Decode(inf)
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
-
-	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
+	lw := inf.LastWrite.MajorityOpTime.TS
+	if !majority {
+		lw = inf.LastWrite.OpTime.TS
+	}
+	if lw.T == 0 {
 		return primitive.Timestamp{}, errors.New("last write timestamp is nil")
 	}
-	return inf.LastWrite.MajorityOpTime.TS, nil
+	return lw, nil
 }
 
 func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
@@ -312,5 +313,5 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 		return lastWrite, errors.Wrap(err, "copy admin.system.users")
 	}
 
-	return LastWrite(cn)
+	return LastWrite(cn, false)
 }
