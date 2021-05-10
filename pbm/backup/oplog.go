@@ -123,7 +123,7 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
-	return pbm.LastWrite(ot.node.Session())
+	return pbm.LastWrite(ot.node.Session(), true)
 }
 
 func (ot *Oplog) collectionName() (string, error) {
