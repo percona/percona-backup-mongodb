@@ -238,6 +238,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	// before proceeding any further we have to be sure that tmp users and roles
 	// have replicated to the node we're about to take a backup from
 	// *copying made on a primary but backup does a secondary node
+	l.Debug("wait for tmp users %v", lw)
 	err = b.node.WaitForWrite(lw)
 	if err != nil {
 		return errors.Wrap(err, "wait for tmp users and roles replication")

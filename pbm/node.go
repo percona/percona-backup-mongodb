@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/pkg/errors"
@@ -255,6 +256,7 @@ func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
 	for i := 0; i < 21; i++ {
 		lw, err = LastWrite(n.cn)
 		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
+			log.Printf("got cluster time %v", lw)
 			return nil
 		}
 		time.Sleep(time.Second * 1)
