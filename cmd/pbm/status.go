@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
@@ -40,14 +43,18 @@ const (
 	formatJSON
 )
 
-func status(cn *pbm.PBM, f outFormat) {
+func status(cn *pbm.PBM, curi string, f outFormat) {
 	var o []statusSect
 
 	sections := []struct {
 		name string
 		f    func(cn *pbm.PBM) (fmt.Stringer, error)
 	}{
-		{"Cluster", clusterStatus},
+		{"Cluster",
+			func(cn *pbm.PBM) (fmt.Stringer, error) {
+				return clusterStatus(cn, curi)
+			},
+		},
 		{"PITR incremental backup", getPitrStatus},
 		{"Currently running", getCurrOps},
 		{"Backups", getStorageStat},
@@ -186,60 +193,35 @@ func (c cluster) String() (s string) {
 	return s
 }
 
-func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
-	cstat, err := cn.GetReplsetStatus()
+func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
+	clstr, err := cn.ClusterMembers(nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "get replSetGetStatus info")
-	}
-	var rshosts []string
-	for _, n := range cstat.Members {
-		rshosts = append(rshosts, n.Name)
-	}
-
-	type clstr struct {
-		rs    string
-		nodes []string
-	}
-
-	topology := []clstr{
-		{
-			rs:    cstat.Set,
-			nodes: rshosts,
-		},
-	}
-
-	inf, err := cn.GetNodeInfo()
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster info")
-	}
-
-	if inf.IsSharded() {
-		shrd, err := cn.GetShards()
-		if err != nil {
-			return nil, errors.Wrap(err, "get cluster shards")
-		}
-		for _, s := range shrd {
-			topology = append(topology, clstr{
-				rs:    s.RS,
-				nodes: strings.Split(strings.TrimPrefix(s.Host, s.RS+"/"), ","),
-			})
-		}
-	}
-
-	err = cn.AgentStatusGC()
-	if err != nil {
-		return nil, errors.Wrap(err, "clean-up stale agent statuses")
+		return nil, errors.Wrap(err, "get cluster members")
 	}
 
 	var ret cluster
-	for _, shrd := range topology {
-		lrs := rs{Name: shrd.rs}
-		for i, n := range shrd.nodes {
-			lrs.Nodes = append(lrs.Nodes, node{Host: shrd.rs + "/" + n})
+
+	for _, c := range clstr {
+		rconn, err := connect(cn.Context(), uri, c.Host)
+		if err != nil {
+			return nil, errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
+		}
+
+		sstat, sterr := pbm.GetReplsetStatus(cn.Context(), rconn)
+
+		// don't need the connection anymore despite the result
+		rconn.Disconnect(cn.Context())
+
+		if sterr != nil {
+			return nil, errors.Wrapf(err, "get replset status for `%s`", c.RS)
+		}
+		lrs := rs{Name: c.RS}
+		for i, n := range sstat.Members {
+			lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Name})
 
 			nd := &lrs.Nodes[i]
 
-			stat, err := cn.GetAgentStatus(shrd.rs, n)
+			stat, err := cn.GetAgentStatus(c.RS, n.Name)
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				nd.Ver = "NOT FOUND"
 				continue
@@ -254,6 +236,43 @@ func clusterStatus(cn *pbm.PBM) (fmt.Stringer, error) {
 	}
 
 	return ret, nil
+}
+
+func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
+	var host string
+	chost := strings.Split(hosts, "/")
+	if len(chost) > 1 {
+		host = chost[1]
+	} else {
+		host = chost[0]
+	}
+
+	curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
+	}
+
+	// Preserving the `replicaSet` parameter will cause an error while connecting to the ConfigServer (mismatched replicaset names)
+	query := curi.Query()
+	query.Del("replicaSet")
+	curi.RawQuery = query.Encode()
+	curi.Host = host
+
+	conn, err := mongo.NewClient(options.Client().ApplyURI(curi.String()).SetAppName("pbm-status"))
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo client")
+	}
+	err = conn.Connect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "connect")
+	}
+
+	err = conn.Ping(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "ping")
+	}
+
+	return conn, nil
 }
 
 type pitrStat struct {

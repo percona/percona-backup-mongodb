@@ -30,11 +30,8 @@ const (
 	ReplRoleConfigSrv = "configsrv"
 
 	// TmpUsersCollection and TmpRoles are tmp collections used to avoid
-	// user related issues while resoring on new cluster.
-	// See https://jira.percona.com/browse/PBM-425
-	//
-	// Backup should ensure abscense of this collection to avoid
-	// restore conflicts. See https://jira.percona.com/browse/PBM-460
+	// user related issues while resoring on new cluster and preserving UUID
+	// See https://jira.percona.com/browse/PBM-425, https://jira.percona.com/browse/PBM-636
 	TmpUsersCollection = `pbmRUsers`
 	TmpRolesCollection = `pbmRRoles`
 )
@@ -152,12 +149,7 @@ func (n *Node) GetMongoVersion() (*MongoVersion, error) {
 }
 
 func (n *Node) GetReplsetStatus() (*ReplsetStatus, error) {
-	status := &ReplsetStatus{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
-	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
-	}
-	return status, err
+	return GetReplsetStatus(n.ctx, n.cn)
 }
 
 func (n *Node) Status() (*NodeStatus, error) {
