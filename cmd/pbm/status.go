@@ -204,12 +204,12 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 	for _, c := range clstr {
 		rconn, err := connect(cn.Context(), uri, c.Host)
 		if err != nil {
-			return nil, errors.Wrapf(err, "connect to %s [%s]", c.RS, c.Host)
+			return nil, errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
 		}
 
 		sstat, err := pbm.GetReplsetStatus(cn.Context(), rconn)
 		if err != nil {
-			return nil, errors.Wrapf(err, "get replset status for %s", c.RS)
+			return nil, errors.Wrapf(err, "get replset status for `%s`", c.RS)
 		}
 		lrs := rs{Name: c.RS}
 		for i, n := range sstat.Members {
@@ -243,7 +243,7 @@ func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
 		host = chost[0]
 	}
 
-	curi, err := url.Parse(uri)
+	curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
 	if err != nil {
 		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
