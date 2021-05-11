@@ -1,11 +1,13 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -138,8 +140,13 @@ func (p *PBM) AgentsStatus() (agents []AgentStat, err error) {
 // GetReplsetStatus returns `replSetGetStatus` for the replset
 // or config server in case of sharded cluster
 func (p *PBM) GetReplsetStatus() (*ReplsetStatus, error) {
+	return GetReplsetStatus(p.ctx, p.Conn)
+}
+
+// GetReplsetStatus returns `replSetGetStatus` for the given connection
+func GetReplsetStatus(ctx context.Context, cn *mongo.Client) (*ReplsetStatus, error) {
 	status := &ReplsetStatus{}
-	err := p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
+	err := cn.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
 	}

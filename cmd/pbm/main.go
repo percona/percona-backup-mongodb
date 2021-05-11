@@ -237,7 +237,7 @@ func main() {
 			frmt = formatJSON
 		}
 
-		status(pbmClient, frmt)
+		status(pbmClient, *mURL, frmt)
 	}
 }
 
