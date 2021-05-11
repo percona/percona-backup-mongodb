@@ -207,8 +207,12 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 			return nil, errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
 		}
 
-		sstat, err := pbm.GetReplsetStatus(cn.Context(), rconn)
-		if err != nil {
+		sstat, sterr := pbm.GetReplsetStatus(cn.Context(), rconn)
+
+		// don't need the connection anymore despite the result
+		rconn.Disconnect(cn.Context())
+
+		if sterr != nil {
 			return nil, errors.Wrapf(err, "get replset status for `%s`", c.RS)
 		}
 		lrs := rs{Name: c.RS}
