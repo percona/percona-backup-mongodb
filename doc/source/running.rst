@@ -85,6 +85,13 @@ For |PBM| version 1.3.4 and earlier, run the |pbm-list| command and you will see
 Restoring a backup
 --------------------------------------------------------------------------------
 
+.. warning::
+
+   Backups made with |PBM| prior to v1.5.0 are incompatible for restore with |PBM| v1.5.0 and later. This is because processing of system collections ``Users`` and ``Roles`` has changed: in v1.5.0, ``Users`` and ``Roles`` are copied to temporary collection during backup and must be present in the backup during restore. In earlier versions of |PBM|, ``Users`` and ``Roles`` are copied to a temporary collection during restore. Therefore, restoring from these backups with |PBM| v1.5.0 isn't possible. 
+
+   The recommended approach is to make a fresh backup after :ref:`upgrading Percona Backup for MongoDB <pbm.upgrade>` to version 1.5.0.
+
+
 To restore a backup that you have made using |pbm-backup|, use the
 |pbm-restore| command supplying the time stamp of the backup that you intend to
 restore.
