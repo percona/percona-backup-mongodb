@@ -129,6 +129,10 @@ The storage configuration itself is out of scope of the present document. We ass
    
    .. include:: .res/code-block/yaml/example-amazon-s3-storage.yaml
    
+   This is the sample configuration for Microsoft Azure Blob storage:
+
+   .. include:: .res/code-block/yaml/example-azure-storage.yaml
+
    This is the sample configuration for filesystem storage:
 
    .. include:: .res/code-block/yaml/example-local-file-system-store.yaml
