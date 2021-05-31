@@ -1,0 +1,18 @@
+
+skinparam {
+  roundcorner 10
+  defaultFontName Chivo
+  defaultFontSize 14 px
+  defaultTextAlignment center
+  ArrowColor #800404
+  ArrowHeadColor none
+  BackgroundColor #fff
+  ActivityBackgroundColor #cce6ff
+  activityDiamondBackgroundColor #cce6ff
+  activityBorderColor #0f2c47
+  legendBackgroundColor #0000
+  Padding 10
+  BoxPadding 20
+  ParticipantPadding 30
+}
+
