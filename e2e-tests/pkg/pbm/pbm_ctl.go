@@ -39,12 +39,18 @@ func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 func (c *Ctl) PITRon() error {
 	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=true")
 	if err != nil {
-		return err
+		return errors.Wrap(err, "config set pitr.enabled=true")
+	}
+
+	_, err = c.RunCmd("pbm", "config", "--set", "pitr.oplogSpanMin=0.5")
+	if err != nil {
+		return errors.Wrap(err, "config set pitr.oplogSpanMin=0.5")
 	}
 
 	fmt.Println("done", out)
 	return nil
 }
+
 func (c *Ctl) PITRoff() error {
 	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=false")
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,32 +17,33 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-var ibackupspan string
-
 // IBackup is an incremental backup object
 type IBackup struct {
 	pbm    *pbm.PBM
 	node   *pbm.Node
 	rs     string
-	span   time.Duration
+	span   int64
 	lastTS primitive.Timestamp
 }
 
 // NewBackup creates an incremental backup object
 func NewBackup(rs string, cn *pbm.PBM, node *pbm.Node) *IBackup {
-	b := &IBackup{
+	return &IBackup{
 		pbm:  cn,
 		node: node,
 		rs:   rs,
-		span: pbm.PITRdefaultSpan,
+		span: int64(pbm.PITRdefaultSpan),
 	}
-	if ibackupspan != "" {
-		s, err := strconv.Atoi(ibackupspan)
-		if err == nil {
-			b.span = time.Duration(s)
-		}
-	}
-	return b
+}
+
+// SetSpan sets span duration. Streaming will recognise the change and adjust on the next iteration.
+func (i *IBackup) SetSpan(d time.Duration) {
+	atomic.StoreInt64(&i.span, int64(d))
+}
+
+// SetSpan sets span duration. Streaming will recognise the change and adjust on the next iteration.
+func (i *IBackup) GetSpan() time.Duration {
+	return time.Duration(atomic.LoadInt64(&i.span))
 }
 
 // Catchup seeks for the last saved (backuped) TS - the starting point.  It should be run only
@@ -106,16 +108,17 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 	l.Debug(LogStartMsg)
 	l.Info("streaming started from %v / %v", time.Unix(int64(i.lastTS.T), 0).UTC(), i.lastTS.T)
 
-	tk := time.NewTicker(i.span)
+	cspan := i.GetSpan()
+	tk := time.NewTicker(cspan)
 	defer tk.Stop()
 
-	llock := &pbm.LockHeader{Replset: i.rs}
 	nodeInfo, err := i.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get NodeInfo data")
 	}
 
 	lastSlice := false
+	llock := &pbm.LockHeader{Replset: i.rs}
 
 	var sliceTo primitive.Timestamp
 	oplog := backup.NewOplog(i.node)
@@ -133,7 +136,9 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 		case <-tk.C:
 		}
 
-		// if it's last slice, epoch probably already changed (e.g. due to config changes) and it's ok
+		nextChunkT := time.Now().Add(cspan)
+
+		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
 		if !lastSlice {
 			cep, err := i.pbm.GetEpoch()
 			if err != nil {
@@ -143,8 +148,6 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", ep.TS(), cep.TS())
 			}
 		}
-
-		nextChunkT := time.Now().Add(i.span)
 
 		// check if the node is still any good to make backups
 		ninf, err := i.node.GetInfo()
@@ -251,6 +254,11 @@ func (i *IBackup) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan str
 		}
 
 		i.lastTS = sliceTo
+
+		if ispan := i.GetSpan(); cspan != ispan {
+			tk.Reset(ispan)
+			cspan = ispan
+		}
 	}
 }
 
