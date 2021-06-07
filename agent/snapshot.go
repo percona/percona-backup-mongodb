@@ -103,7 +103,9 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		l.Warning("clearing pitr locks: %v", err)
 	}
 	// wakeup the slicer not to wait for the tick
-	a.wakeupPitr()
+	if p := a.getPitr(); p != nil {
+		p.wakeup <- struct{}{}
+	}
 
 	bcp := backup.New(a.pbm, a.node)
 	if nodeInfo.IsClusterLeader() {

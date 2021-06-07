@@ -15,6 +15,7 @@ import (
 )
 
 type currentPitr struct {
+	slicer *pitr.IBackup
 	wakeup chan struct{} // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
 }
@@ -36,30 +37,10 @@ func (a *Agent) unsetPitr() {
 	a.mx.Unlock()
 }
 
-func (a *Agent) ispitr() bool {
+func (a *Agent) getPitr() *currentPitr {
 	a.mx.Lock()
 	defer a.mx.Unlock()
-	return a.pitrjob != nil
-}
-
-func (a *Agent) cancelPitr() {
-	a.mx.Lock()
-	defer a.mx.Unlock()
-	if a.pitrjob == nil {
-		return
-	}
-
-	a.pitrjob.cancel()
-}
-
-func (a *Agent) wakeupPitr() {
-	a.mx.Lock()
-	defer a.mx.Unlock()
-	if a.pitrjob == nil {
-		return
-	}
-
-	a.pitrjob.wakeup <- struct{}{}
+	return a.pitrjob
 }
 
 const pitrCheckPeriod = time.Second * 15
@@ -91,17 +72,46 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	on, err := a.pbm.IsPITR()
-	if err != nil {
-		return errors.Wrap(err, "check if on")
+	cfg, err := a.pbm.GetConfig()
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+		return errors.Wrap(err, "get conf")
 	}
-	if !on {
-		a.cancelPitr()
+
+	p := a.getPitr()
+
+	if !cfg.PITR.Enabled {
+		if p != nil {
+			p.cancel()
+		}
 		return nil
 	}
 
-	// we already do the job
-	if on && a.ispitr() {
+	ep, err := a.pbm.GetEpoch()
+	if err != nil {
+		return errors.Wrap(err, "get epoch")
+	}
+
+	l := a.log.NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
+
+	spant := time.Duration(cfg.PITR.OplogSpanMin * float64(time.Minute))
+	if spant == 0 {
+		spant = pbm.PITRdefaultSpan
+	}
+
+	// already do the job
+	if p != nil {
+		// update slicer span
+		cspan := p.slicer.GetSpan()
+		if p.slicer != nil && cspan != spant {
+			l.Debug("set pitr span to %v", spant)
+			p.slicer.SetSpan(spant)
+
+			// wake up slicer only if span became smaller
+			if spant < cspan {
+				a.pitrjob.wakeup <- struct{}{}
+			}
+		}
+
 		return nil
 	}
 
@@ -136,17 +146,12 @@ func (a *Agent) pitr() (err error) {
 	}
 
 	ibcp := pitr.NewBackup(a.node.RS(), a.pbm, a.node)
+	ibcp.SetSpan(spant)
 
 	err = ibcp.Catchup()
 	if err != nil {
 		return errors.Wrap(err, "defining starting point for the backup")
 	}
-
-	ep, err := a.pbm.GetEpoch()
-	if err != nil {
-		return errors.Wrap(err, "get epoch")
-	}
-	l := a.log.NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
 
 	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
@@ -175,6 +180,7 @@ func (a *Agent) pitr() (err error) {
 		w := make(chan struct{})
 
 		a.setPitr(&currentPitr{
+			slicer: ibcp,
 			cancel: cancel,
 			wakeup: w,
 		})

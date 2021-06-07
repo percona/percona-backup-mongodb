@@ -22,7 +22,7 @@ BUILD_FLAGS=-mod=vendor -tags gssapi
 versionpath?=github.com/percona/percona-backup-mongodb/version
 LDFLAGS= -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
-LDFLAGS_TESTS_BUILD=$(LDFLAGS) -X github.com/percona/percona-backup-mongodb/pbm/pitr.ibackupspan=30000000000
+LDFLAGS_TESTS_BUILD=$(LDFLAGS)
 
 test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all

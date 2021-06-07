@@ -33,7 +33,8 @@ type Config struct {
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Enabled      bool    `bson:"enabled" json:"enabled" yaml:"enabled"`
+	OplogSpanMin float64 `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 }
 
 // StorageType represents a type of the destination storage for backups
