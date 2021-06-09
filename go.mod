@@ -1,6 +1,6 @@
 module github.com/percona/percona-backup-mongodb
 
-go 1.13
+go 1.15
 
 require (
 	github.com/Azure/azure-storage-blob-go v0.13.0
