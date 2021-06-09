@@ -230,6 +230,16 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, nil
 }
 
+func (s *S3) Copy(src, dst string) error {
+	_, err := s.s3s.CopyObject(&s3.CopyObjectInput{
+		Bucket:     aws.String(s.opts.Bucket),
+		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
+		Key:        aws.String(path.Join(s.opts.Prefix, dst)),
+	})
+
+	return err
+}
+
 func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	h, err := s.s3s.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(s.opts.Bucket),

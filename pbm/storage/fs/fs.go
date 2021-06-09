@@ -104,6 +104,19 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, err
 }
 
+func (fs *FS) Copy(src, dst string) error {
+	from, err := os.Open(src)
+	if err != nil {
+		return errors.Wrap(err, "open src")
+	}
+	to, err := os.Create(dst)
+	if err != nil {
+		return errors.Wrap(err, "create dst")
+	}
+	_, err = io.Copy(to, from)
+	return err
+}
+
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
 func (fs *FS) Delete(name string) error {
