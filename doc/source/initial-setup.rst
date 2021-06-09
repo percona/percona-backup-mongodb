@@ -3,16 +3,21 @@
 Initial setup   
 ****************************************************************
 
-After you’ve installed |pbm-agent| on every server with a ``mongod`` node that is not an arbiter node, perform initial setup to run |PBM|.
+The following diagram shows the overview of the installation and setup steps: 
+
+.. uml:: _images/setup.puml
+   :align: center
+
+Refer to :ref:`install` for installation instructions. Remember to install |pbm-agent| on every server with a ``mongod`` node that is not an arbiter node.
 
 The setup steps are the following:
 
-1. Configure authentication in MongoDB
-#. Use ``pbm CLI`` to insert the config information for remote backup storage
-#. Start |pbm-agent| process
+1. :ref:`Configure authentication in MongoDB <authenticate>`
+#. :ref:`Insert the config information for remote backup storage <backup-config>`
+#. :ref:`Start pbm-agent process <start-pbm-agent>`
  	
-.. contents::
-   :local:
+
+.. _authenticate:
 
 Configure authentication in MongoDB
 ================================================================================
@@ -115,6 +120,8 @@ Use the following command:
 
 For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
 
+.. _backup-config:
+
 Configure remote backup storage
 ==================================
 
@@ -157,6 +164,8 @@ The storage configuration itself is out of scope of the present document. We ass
 
 To learn more about |PBM| configuration, see :ref:`pbm.config`.
  
+.. _start-pbm-agent:
+
 Start the |pbm-agent| process
 ==================================
 

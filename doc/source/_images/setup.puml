@@ -1,0 +1,45 @@
+@startuml "setup"
+
+!include ../_templates/plantuml/styles.puml
+
+title PBM Setup - Overview
+
+
+
+partition "Install pbm-agent on every node" {
+split
+   -[hidden]->
+   :from Percona repos;
+split again
+   -[hidden]->
+   :from source code;
+split again
+   -[hidden]->
+   :download \nfrom the web site;
+split again
+    -[hidden]->
+    :use Docker;
+end split
+}
+
+partition "Configure authentication" {
+   :Create user;
+   :Set MongoDB connection URI for pbm-agent;
+   :Set MongoDB connection URI for PBM CLI;
+}
+
+partition "Set up remote backup storage" {
+split
+   -[hidden]->
+   :S3 storage \n(AWS, GCP, MinIO);
+split again
+   -[hidden]->
+   :filesystem;
+split again
+   -[hidden]->
+   :Microsoft Azure;
+end split
+}
+:start pbm-agent;
+
+@enduml
