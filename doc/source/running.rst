@@ -101,7 +101,7 @@ This ability to adjust node priority helps you manage your backup strategy by se
 
 .. important::
 
-As soon as you adjust node priorities in the configuration file, it is assumed that you take manual control over them. The default rule to prefer secondary nodes over primary stops working.
+   As soon as you adjust node priorities in the configuration file, it is assumed that you take manual control over them. The default rule to prefer secondary nodes over primary stops working.
 
 Checking an in-progress backup
 --------------------------------------------------------------------------------
