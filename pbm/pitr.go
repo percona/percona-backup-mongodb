@@ -225,16 +225,16 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64, flist map[string]int
 
 func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	var tl Timeline
-	var prevEnd uint32
+	var prevEnd primitive.Timestamp
 	for _, s := range slices {
-		if prevEnd != 0 && prevEnd != s.StartTS.T {
+		if prevEnd.I != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
 			tlines = append(tlines, tl)
 			tl = Timeline{}
 		}
 		if tl.Start == 0 {
 			tl.Start = s.StartTS.T
 		}
-		prevEnd = s.EndTS.T
+		prevEnd = s.EndTS
 		tl.End = s.EndTS.T
 		tl.Size += s.size
 	}
