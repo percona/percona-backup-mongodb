@@ -143,7 +143,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		return err
 	}
 
-	err = r.PreparePITR(cmd.TS)
+	err = r.PreparePITR(cmd.TS, cmd.Bcp)
 	if err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	return nil
 }
 
-func (r *Restore) PreparePITR(ts int64) (err error) {
+func (r *Restore) PreparePITR(ts int64, bcp string) (err error) {
 	r.pitrLastTS = ts
 
 	if r.nodeInfo.IsLeader() {
@@ -239,20 +239,14 @@ func (r *Restore) PreparePITR(ts int64) (err error) {
 
 	pts := primitive.Timestamp{T: uint32(ts), I: 0}
 
-	lastChunk, err := r.cn.PITRGetChunkContains(r.nodeInfo.SetName, pts)
+	err = r.setBcp(bcp, pts)
 	if err != nil {
-		return errors.Wrap(err, "define last oplog slice")
+		return errors.Wrap(err, "set snapshot")
 	}
 
-	r.bcp, err = r.cn.GetLastBackup(&lastChunk.EndTS)
-	if err != nil {
-		return errors.Wrap(err, "define last backup")
-	}
-	if r.bcp == nil {
-		return errors.Errorf("no backup found before ts %v", lastChunk.EndTS)
-	}
+	r.log.Info("snapshot %s", r.bcp.Name)
 
-	err = r.prepareChunks(r.bcp.LastWriteTS, lastChunk.StartTS)
+	err = r.prepareChunks(pts)
 	if err != nil {
 		return errors.Wrap(err, "verify oplog slices chain")
 	}
@@ -260,20 +254,44 @@ func (r *Restore) PreparePITR(ts int64) (err error) {
 	return r.prepareSnapshot()
 }
 
-// prepareChunks ensures integrity of oplog slices (timeline is continuous)
+func (r *Restore) setBcp(bcp string, targetTS primitive.Timestamp) (err error) {
+	if bcp != "" {
+		r.bcp, err = r.cn.GetBackupMeta(bcp)
+		if err != nil {
+			return errors.Wrap(err, "get backup")
+		}
+		if primitive.CompareTimestamp(r.bcp.LastWriteTS, targetTS) >= 0 {
+			return errors.Wrap(err, "snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+		}
+
+		return nil
+	}
+
+	r.bcp, err = r.cn.GetLastBackup(&targetTS)
+	if err != nil {
+		return errors.Wrap(err, "define last backup")
+	}
+	if r.bcp == nil {
+		return errors.Errorf("no backup found before ts %v", targetTS)
+	}
+
+	return nil
+}
+
+// prepareChunks ensures integrity of oplog slices (timeline is contiguous - there are no gaps)
 // and chunks exists on the storage
-func (r *Restore) prepareChunks(from, to primitive.Timestamp) error {
-	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, from, to)
+func (r *Restore) prepareChunks(target primitive.Timestamp) error {
+	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, r.bcp.LastWriteTS, target)
 	if err != nil {
 		return errors.Wrap(err, "get chunks index")
 	}
 
-	nextStart := from
+	last := r.bcp.LastWriteTS
 	for _, c := range chunks {
-		if primitive.CompareTimestamp(nextStart, c.StartTS) != 0 {
-			return errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", nextStart, c.StartTS)
+		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
+			return errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
 		}
-		nextStart = c.EndTS
+		last = c.EndTS
 
 		_, err := r.stg.FileStat(c.FName)
 		if err != nil {

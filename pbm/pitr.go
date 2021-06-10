@@ -99,26 +99,6 @@ func (p *PBM) pitrChunk(rs string, sort int) (*PITRChunk, error) {
 	return chnk, errors.Wrap(err, "decode")
 }
 
-// PITRGetChunkContains returns a pitr slice chunk that belongs to the
-// given replica set and contains the given timestamp
-func (p *PBM) PITRGetChunkContains(rs string, ts primitive.Timestamp) (*PITRChunk, error) {
-	res := p.Conn.Database(DB).Collection(PITRChunksCollection).FindOne(
-		p.ctx,
-		bson.D{
-			{"rs", rs},
-			{"start_ts", bson.M{"$lte": ts}},
-			{"end_ts", bson.M{"$gte": ts}},
-		},
-	)
-	if res.Err() != nil {
-		return nil, errors.Wrap(res.Err(), "get")
-	}
-
-	chnk := new(PITRChunk)
-	err := res.Decode(chnk)
-	return chnk, errors.Wrap(err, "decode")
-}
-
 // PITRGetChunksSlice returns slice of PITR oplog chunks which Start TS
 // lies in a given time frame
 func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PITRChunk, error) {

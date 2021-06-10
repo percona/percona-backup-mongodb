@@ -169,9 +169,13 @@ func (r RestoreCmd) String() string {
 type PITRestoreCmd struct {
 	Name string `bson:"name"`
 	TS   int64  `bson:"ts"`
+	Bcp  string `bson:"bcp"`
 }
 
 func (p PITRestoreCmd) String() string {
+	if p.Bcp != "" {
+		return fmt.Sprintf("name: %s, point-in-time ts: %d, base-snapshot: %s", p.Name, p.TS, p.Bcp)
+	}
 	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
 }
 

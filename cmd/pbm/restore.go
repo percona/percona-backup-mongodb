@@ -60,7 +60,7 @@ func restore(cn *pbm.PBM, bcpName string) error {
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t string) error {
+func pitrestore(cn *pbm.PBM, t, base string) error {
 	tsto, err := parseDateT(t)
 	if err != nil {
 		return errors.Wrap(err, "parse date")
@@ -91,6 +91,7 @@ func pitrestore(cn *pbm.PBM, t string) error {
 		PITRestore: pbm.PITRestoreCmd{
 			Name: name,
 			TS:   tsto.Unix(),
+			Bcp:  base,
 		},
 	})
 	if err != nil {
