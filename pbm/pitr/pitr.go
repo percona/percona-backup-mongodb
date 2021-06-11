@@ -143,7 +143,7 @@ func (s *Slicer) Catchup() error {
 		}
 	}
 
-	if prevb == nil && primitive.CompareTimestamp(chnk.EndTS, prevb.FirstWriteTS) >= 0 {
+	if prevb == nil || primitive.CompareTimestamp(chnk.EndTS, prevb.FirstWriteTS) >= 0 {
 		return nil
 	}
 
