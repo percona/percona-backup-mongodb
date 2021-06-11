@@ -167,7 +167,7 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg)
+	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg, ep)
 	ibcp.SetSpan(spant)
 
 	err = ibcp.Catchup()
@@ -188,7 +188,7 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		streamErr := ibcp.Stream(ctx, ep, w, pbm.CompressionTypeS2)
+		streamErr := ibcp.Stream(ctx, w, pbm.CompressionTypeS2)
 		if streamErr != nil {
 			switch streamErr.(type) {
 			case pitr.ErrOpMoved:

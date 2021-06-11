@@ -14,6 +14,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -25,16 +26,22 @@ type Slicer struct {
 	span    int64
 	lastTS  primitive.Timestamp
 	storage storage.Storage
+	oplog   *backup.Oplog
+	l       *log.Event
+	ep      pbm.Epoch
 }
 
 // NewSlicer creates an incremental backup object
-func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage) *Slicer {
+func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage, ep pbm.Epoch) *Slicer {
 	return &Slicer{
 		pbm:     cn,
 		node:    node,
 		rs:      rs,
 		span:    int64(pbm.PITRdefaultSpan),
 		storage: to,
+		oplog:   backup.NewOplog(node),
+		l:       cn.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS()),
+		ep:      ep,
 	}
 }
 
@@ -54,39 +61,123 @@ func (s *Slicer) GetSpan() time.Duration {
 // It also checks if there is no restore intercepted the timeline
 // (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
-	bcp, err := s.pbm.GetLastBackup(nil)
+	baseBcp, err := s.pbm.GetLastBackup(nil)
 	if err != nil {
 		return errors.Wrap(err, "get last backup")
 	}
-	if bcp == nil {
+	if baseBcp == nil {
 		return errors.New("no backup found, a new backup is required to start PITR")
 	}
+
+	defer func() {
+		s.l.Debug("lastTS set to %v", s.lastTS)
+	}()
+
+	s.l.Debug("BCP %v", baseBcp.Name)
 
 	rstr, err := s.pbm.GetLastRestore()
 	if err != nil {
 		return errors.Wrap(err, "get last restore")
 	}
-	if rstr != nil && rstr.StartTS > bcp.StartTS {
+	if rstr != nil && rstr.StartTS > baseBcp.StartTS {
 		return errors.Errorf("no backup found after the restored %s, a new backup is required to resume PITR", rstr.Backup)
 	}
 
 	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
 	if err != nil {
-		return errors.Wrap(err, "get last backup")
+		return errors.Wrap(err, "get last slice")
 	}
 
-	// PITR chunk is the most recent oplog lisce
-	if chnk != nil && primitive.CompareTimestamp(chnk.EndTS, bcp.LastWriteTS) >= 0 {
+	s.lastTS = baseBcp.LastWriteTS
+
+	if chnk == nil {
+		return nil
+	}
+
+	// PITR chunk after the recent backup is the most recent oplog slice
+	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.LastWriteTS) >= 0 {
 		s.lastTS = chnk.EndTS
 		return nil
 	}
 
-	err = s.copyFromBcp(bcp)
+	// If there is a chunk before the snapshot we would fill the gaps between snapshot(s)
+	// and copy a spanpshot's oplog as a pitr slice.
+	blist, err := s.pbm.BackupsDoneList(&s.lastTS, 0, -1)
 	if err != nil {
-		return errors.Wrapf(err, "copy snapshot [%s] oplog", bcp.Name)
+		return errors.Wrap(err, "get backups list")
+	}
+	s.l.Debug("blist %v", len(blist))
+
+	var prevb *pbm.BackupMeta
+	for _, b := range blist {
+		if rstr.StartTS > b.StartTS {
+			s.l.Info("backup %s is followed by the restore %s", b.Name, rstr.Backup)
+			return nil
+		}
+		if primitive.CompareTimestamp(chnk.EndTS, b.FirstWriteTS) == -1 {
+			if prevb != nil {
+				ok, err := s.oplog.IsSufficient(b.LastWriteTS)
+				if err != nil {
+					return errors.Wrap(err, "check oplog sufficiency")
+				}
+				if !ok {
+					s.l.Info("insufficient range since %v", b.LastWriteTS)
+					return nil
+				}
+
+				err = s.upload(b.FirstWriteTS, prevb.FirstWriteTS, b.Compression)
+				if err != nil {
+					return err
+				}
+				s.l.Info("created chunk %s - %s", formatts(b.FirstWriteTS), formatts(prevb.FirstWriteTS))
+			}
+			prevb = &b
+
+			s.lastTS = b.LastWriteTS
+
+			err = s.copyFromBcp(&b)
+			if err != nil {
+				return errors.Wrapf(err, "copy snapshot [%s] oplog", b.Name)
+			}
+			s.l.Info("copied chunk %s - %s", formatts(b.FirstWriteTS), formatts(b.LastWriteTS))
+		}
 	}
 
-	s.lastTS = bcp.LastWriteTS
+	if prevb == nil && primitive.CompareTimestamp(chnk.EndTS, prevb.FirstWriteTS) >= 0 {
+		return nil
+	}
+
+	bcp, err := s.pbm.GetLastBackup(&chnk.StartTS)
+	if err != nil {
+		s.l.Warning("get last backup before %v err: %v", chnk, err)
+		return nil
+	}
+	if bcp == nil {
+		s.l.Info("no backup found for %v", chnk)
+		return nil
+	}
+
+	if rstr.StartTS > bcp.StartTS {
+		s.l.Info("backup %s is followed by the restore %s", bcp.Name, rstr.Backup)
+		return nil
+	}
+
+	ok, err := s.oplog.IsSufficient(chnk.EndTS)
+	if err != nil {
+		s.l.Warning("check oplog sufficiency %v", err)
+		return nil
+	}
+	if !ok {
+		s.l.Info("insufficient range since %v", chnk.EndTS)
+		return nil
+	}
+
+	err = s.upload(chnk.EndTS, prevb.FirstWriteTS, prevb.Compression)
+	if err != nil {
+		return err
+	}
+	s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(prevb.FirstWriteTS))
+	s.lastTS = chnk.EndTS
 
 	return nil
 }
@@ -138,13 +229,12 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan struct{}, compression pbm.CompressionType) error {
+func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compression pbm.CompressionType) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
-	l := s.pbm.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS())
-	l.Debug(LogStartMsg)
-	l.Info("streaming started from %v / %v", time.Unix(int64(s.lastTS.T), 0).UTC(), s.lastTS.T)
+	s.l.Debug(LogStartMsg)
+	s.l.Info("streaming started from %v / %v", time.Unix(int64(s.lastTS.T), 0).UTC(), s.lastTS.T)
 
 	cspan := s.GetSpan()
 	tk := time.NewTicker(cspan)
@@ -159,18 +249,17 @@ func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan stru
 	llock := &pbm.LockHeader{Replset: s.rs}
 
 	var sliceTo primitive.Timestamp
-	oplog := backup.NewOplog(s.node)
 	for {
 		// waiting for a trigger
 		select {
 		// wrapping up at the current point-in-time
 		// upload the chunks up to the current time and return
 		case <-ctx.Done():
-			l.Info("got done signal, stopping")
+			s.l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
 		case <-wakeupSig:
-			l.Info("got wake_up signal")
+			s.l.Info("got wake_up signal")
 		case <-tk.C:
 		}
 
@@ -182,8 +271,8 @@ func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan stru
 			if err != nil {
 				return errors.Wrap(err, "get epoch")
 			}
-			if primitive.CompareTimestamp(ep.TS(), cep.TS()) != 0 {
-				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", ep.TS(), cep.TS())
+			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
+				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
 			}
 		}
 
@@ -235,7 +324,7 @@ func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan stru
 			if ld.Node != nodeInfo.Me {
 				return ErrOpMoved{ld.Node}
 			}
-			sliceTo, err = oplog.LastWrite()
+			sliceTo, err = s.oplog.LastWrite()
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
@@ -251,43 +340,19 @@ func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan stru
 			return errors.Errorf("another operation is running: %#v", ld)
 		}
 
-		oplog.SetTailingSpan(s.lastTS, sliceTo)
-		fname := s.chunkPath(s.lastTS, sliceTo, compression)
-		// if use parent ctx, upload will be canceled on the "done" signal
-		_, err = backup.Upload(context.Background(), oplog, s.storage, compression, fname, -1)
+		err = s.upload(s.lastTS, sliceTo, compression)
 		if err != nil {
-			// PITR chunks have no metadata to indicate any failed state and if something went
-			// wrong during the data read we may end up with an already created file. Although
-			// the failed range won't be saved in db as the available for restore. It would get
-			// in there after the storage resync. see: https://jira.percona.com/browse/PBM-602
-			l.Debug("remove %s due to upload errors", fname)
-			derr := s.storage.Delete(fname)
-			if derr != nil {
-				l.Error("remove %s: %v", fname, derr)
-			}
-			return errors.Wrapf(err, "unable to upload chunk %v.%v", s.lastTS.T, sliceTo.T)
+			return err
 		}
 
-		meta := pbm.PITRChunk{
-			RS:          s.rs,
-			FName:       fname,
-			Compression: compression,
-			StartTS:     s.lastTS,
-			EndTS:       sliceTo,
-		}
-		err = s.pbm.PITRAddChunk(meta)
-		if err != nil {
-			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
-		}
-
-		logm := fmt.Sprintf("created chunk %s - %s", formatts(meta.StartTS), formatts(meta.EndTS))
+		logm := fmt.Sprintf("created chunk %s - %s", formatts(s.lastTS), formatts(sliceTo))
 		if !lastSlice {
 			logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT.Format("2006-01-02T15:04:05"))
 		}
-		l.Info(logm)
+		s.l.Info(logm)
 
 		if lastSlice {
-			l.Info("pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
+			s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(sliceTo.T), 0).UTC())
 			return nil
 		}
 
@@ -298,6 +363,39 @@ func (s *Slicer) Stream(ctx context.Context, ep pbm.Epoch, wakeupSig <-chan stru
 			cspan = ispan
 		}
 	}
+}
+
+func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType) error {
+	s.oplog.SetTailingSpan(from, to)
+	fname := s.chunkPath(from, to, compression)
+	// if use parent ctx, upload will be canceled on the "done" signal
+	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, fname, -1)
+	if err != nil {
+		// PITR chunks have no metadata to indicate any failed state and if something went
+		// wrong during the data read we may end up with an already created file. Although
+		// the failed range won't be saved in db as the available for restore. It would get
+		// in there after the storage resync. see: https://jira.percona.com/browse/PBM-602
+		s.l.Debug("remove %s due to upload errors", fname)
+		derr := s.storage.Delete(fname)
+		if derr != nil {
+			s.l.Error("remove %s: %v", fname, derr)
+		}
+		return errors.Wrapf(err, "unable to upload chunk %v.%v", from, to)
+	}
+
+	meta := pbm.PITRChunk{
+		RS:          s.rs,
+		FName:       fname,
+		Compression: compression,
+		StartTS:     from,
+		EndTS:       to,
+	}
+	err = s.pbm.PITRAddChunk(meta)
+	if err != nil {
+		return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+	}
+
+	return nil
 }
 
 func formatts(t primitive.Timestamp) string {
