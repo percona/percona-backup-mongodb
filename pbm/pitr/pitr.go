@@ -102,20 +102,20 @@ func (s *Slicer) Catchup() error {
 
 	// If there is a chunk before the snapshot we would fill the gaps between snapshot(s)
 	// and copy a spanpshot's oplog as a pitr slice.
-	blist, err := s.pbm.BackupsDoneList(&s.lastTS, 0, -1)
+	blist, err := s.pbm.BackupsDoneList(&chnk.EndTS, 0, -1)
 	if err != nil {
 		return errors.Wrap(err, "get backups list")
 	}
 	s.l.Debug("blist %v", len(blist))
 
-	var prevb *pbm.BackupMeta
+	var prevb primitive.Timestamp
 	for _, b := range blist {
 		if rstr.StartTS > b.StartTS {
 			s.l.Info("backup %s is followed by the restore %s", b.Name, rstr.Backup)
 			return nil
 		}
 		if primitive.CompareTimestamp(chnk.EndTS, b.FirstWriteTS) == -1 {
-			if prevb != nil {
+			if prevb.T != 0 {
 				ok, err := s.oplog.IsSufficient(b.LastWriteTS)
 				if err != nil {
 					return errors.Wrap(err, "check oplog sufficiency")
@@ -125,15 +125,13 @@ func (s *Slicer) Catchup() error {
 					return nil
 				}
 
-				err = s.upload(b.FirstWriteTS, prevb.FirstWriteTS, b.Compression)
+				err = s.upload(b.LastWriteTS, prevb, b.Compression)
 				if err != nil {
 					return err
 				}
-				s.l.Info("created chunk %s - %s", formatts(b.FirstWriteTS), formatts(prevb.FirstWriteTS))
+				s.l.Info("created chunk %s - %s", formatts(b.LastWriteTS), formatts(prevb))
 			}
-			prevb = &b
-
-			s.lastTS = b.LastWriteTS
+			prevb = b.FirstWriteTS
 
 			err = s.copyFromBcp(&b)
 			if err != nil {
@@ -143,7 +141,7 @@ func (s *Slicer) Catchup() error {
 		}
 	}
 
-	if prevb == nil || primitive.CompareTimestamp(chnk.EndTS, prevb.FirstWriteTS) >= 0 {
+	if primitive.CompareTimestamp(chnk.EndTS, prevb) >= 0 {
 		return nil
 	}
 
@@ -172,12 +170,11 @@ func (s *Slicer) Catchup() error {
 		return nil
 	}
 
-	err = s.upload(chnk.EndTS, prevb.FirstWriteTS, prevb.Compression)
+	err = s.upload(chnk.EndTS, prevb, bcp.Compression)
 	if err != nil {
 		return err
 	}
-	s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(prevb.FirstWriteTS))
-	s.lastTS = chnk.EndTS
+	s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(prevb))
 
 	return nil
 }
