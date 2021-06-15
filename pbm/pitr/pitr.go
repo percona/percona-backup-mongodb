@@ -55,9 +55,11 @@ func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
-// Catchup seeks for the last saved (backuped) TS - the starting point.  It should be run only
-// if the timeline was lost (e.g. on (re)start or another node's fail).
+// Catchup seeks for the last saved (backuped) TS - the starting point. It should be run only
+// if the timeline was lost (e.g. on (re)start, restart after backup, node's fail).
 // The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
+// If there is a chunk behind backup(s) it will try to fill the gaps from the chunk to the starting point.
+// While filling gaps it checks the oplog for sufficiency.
 // It also checks if there is no restore intercepted the timeline
 // (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
@@ -70,10 +72,8 @@ func (s *Slicer) Catchup() error {
 	}
 
 	defer func() {
-		s.l.Debug("lastTS set to %v", s.lastTS)
+		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
 	}()
-
-	s.l.Debug("BCP %v", baseBcp.Name)
 
 	rstr, err := s.pbm.GetLastRestore()
 	if err != nil {
@@ -114,31 +114,29 @@ func (s *Slicer) Catchup() error {
 			s.l.Info("backup %s is followed by the restore %s", b.Name, rstr.Backup)
 			return nil
 		}
-		if primitive.CompareTimestamp(chnk.EndTS, b.FirstWriteTS) == -1 {
-			if prevb.T != 0 {
-				ok, err := s.oplog.IsSufficient(b.LastWriteTS)
-				if err != nil {
-					return errors.Wrap(err, "check oplog sufficiency")
-				}
-				if !ok {
-					s.l.Info("insufficient range since %v", b.LastWriteTS)
-					return nil
-				}
-
-				err = s.upload(b.LastWriteTS, prevb, b.Compression)
-				if err != nil {
-					return err
-				}
-				s.l.Info("created chunk %s - %s", formatts(b.LastWriteTS), formatts(prevb))
-			}
-			prevb = b.FirstWriteTS
-
-			err = s.copyFromBcp(&b)
+		if prevb.T != 0 {
+			ok, err := s.oplog.IsSufficient(b.LastWriteTS)
 			if err != nil {
-				return errors.Wrapf(err, "copy snapshot [%s] oplog", b.Name)
+				return errors.Wrap(err, "check oplog sufficiency")
 			}
-			s.l.Info("copied chunk %s - %s", formatts(b.FirstWriteTS), formatts(b.LastWriteTS))
+			if !ok {
+				s.l.Info("insufficient range since %v", b.LastWriteTS)
+				return nil
+			}
+
+			err = s.upload(b.LastWriteTS, prevb, b.Compression)
+			if err != nil {
+				return err
+			}
+			s.l.Info("created chunk %s - %s", formatts(b.LastWriteTS), formatts(prevb))
 		}
+		prevb = b.FirstWriteTS
+
+		err = s.copyFromBcp(&b)
+		if err != nil {
+			return errors.Wrapf(err, "copy snapshot [%s] oplog", b.Name)
+		}
+		s.l.Info("copied chunk %s - %s", formatts(b.FirstWriteTS), formatts(b.LastWriteTS))
 	}
 
 	if primitive.CompareTimestamp(chnk.EndTS, prevb) >= 0 {
