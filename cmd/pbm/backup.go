@@ -206,7 +206,11 @@ func printPITR(cn *pbm.PBM, size int, full bool) {
 		log.Fatalf("Error: get cluster members: %v", err)
 	}
 
-	now := time.Now().Unix()
+	now, err := cn.ClusterTime()
+	if err != nil {
+		log.Fatalf("Error: get cluster time: %v", err)
+	}
+
 	var pitrList string
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {

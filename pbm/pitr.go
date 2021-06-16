@@ -180,7 +180,7 @@ func (t Timeline) String() string {
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise.
 // `flist` is a cache of chunk sizes.
-func (p *PBM) PITRGetValidTimelines(rs string, until int64, flist map[string]int64) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist map[string]int64) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -189,7 +189,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64, flist map[string]int
 		return nil, nil
 	}
 
-	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, primitive.Timestamp{T: uint32(until), I: 0})
+	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
 	}
@@ -201,6 +201,32 @@ func (p *PBM) PITRGetValidTimelines(rs string, until int64, flist map[string]int
 	}
 
 	return gettimelines(slices), nil
+}
+
+// PITRTimelines returns cluster-wide time ranges valid for PITR restore
+func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
+	shards, err := p.ClusterMembers(nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster members")
+	}
+
+	now, err := p.ClusterTime()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster time")
+	}
+
+	var tlns [][]Timeline
+	for _, s := range shards {
+		t, err := p.PITRGetValidTimelines(s.RS, now, nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
+		}
+		if len(t) != 0 {
+			tlns = append(tlns, t)
+		}
+	}
+
+	return MergeTimelines(tlns...), nil
 }
 
 func gettimelines(slices []PITRChunk) (tlines []Timeline) {

@@ -610,7 +610,12 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 	for _, f := range fl {
 		flist[pbm.PITRfsPrefix+"/"+f.Name] = f.Size
 	}
-	now := time.Now().Unix()
+
+	now, err := cn.ClusterTime()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster time")
+	}
+
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(s.RS, now, flist)
