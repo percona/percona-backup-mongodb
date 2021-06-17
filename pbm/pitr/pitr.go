@@ -120,7 +120,6 @@ func (s *Slicer) Catchup() error {
 	if err != nil {
 		return errors.Wrap(err, "get backups list")
 	}
-	s.l.Debug("blist %v", len(blist))
 
 	fbcp, err := s.pbm.GetLastBackup(&chnk.StartTS)
 	if err != nil {
@@ -166,9 +165,8 @@ func (s *Slicer) Catchup() error {
 				return errors.Wrapf(err, "copy snapshot [%s] oplog", pbcp.Name)
 			}
 			s.l.Info("copied chunk %s - %s", formatts(pbcp.FirstWriteTS), formatts(pbcp.LastWriteTS))
-
-			pbcp = b
 		}
+		pbcp = b
 	}
 
 	return nil

@@ -727,13 +727,13 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 func (p *PBM) BackupsDoneList(after *primitive.Timestamp, limit int64, order int) ([]BackupMeta, error) {
 	q := bson.D{{"status", StatusDone}}
 	if after != nil {
-		q = append(q, bson.E{"first_write_ts", bson.M{"$gte": after}})
+		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
 	}
 
 	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
 		p.ctx,
 		q,
-		options.Find().SetLimit(limit).SetSort(bson.D{{"first_write_ts", order}}),
+		options.Find().SetLimit(limit).SetSort(bson.D{{"last_write_ts", order}}),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
