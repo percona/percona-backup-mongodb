@@ -428,6 +428,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 				s.log.Info("session recreated, resuming download")
 			}
 			s.log.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
+			w.CloseWithError(errors.Wrapf(err, "download '%s/%s'", s.opts.Bucket, name))
 			return
 		}
 	}()

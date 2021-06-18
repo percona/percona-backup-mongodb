@@ -108,7 +108,7 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 		lts = oe.Timestamp
 	}
 
-	return lts, nil
+	return lts, bsonSource.Err()
 }
 
 func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
