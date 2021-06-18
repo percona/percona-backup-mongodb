@@ -169,9 +169,13 @@ func (r RestoreCmd) String() string {
 type PITRestoreCmd struct {
 	Name string `bson:"name"`
 	TS   int64  `bson:"ts"`
+	Bcp  string `bson:"bcp"`
 }
 
 func (p PITRestoreCmd) String() string {
+	if p.Bcp != "" {
+		return fmt.Sprintf("name: %s, point-in-time ts: %d, base-snapshot: %s", p.Name, p.TS, p.Bcp)
+	}
 	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
 }
 
@@ -700,6 +704,36 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 		p.ctx,
 		bson.M{},
 		options.Find().SetLimit(limit).SetSort(bson.D{{"start_ts", -1}}),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "query mongo")
+	}
+
+	defer cur.Close(p.ctx)
+
+	backups := []BackupMeta{}
+	for cur.Next(p.ctx) {
+		b := BackupMeta{}
+		err := cur.Decode(&b)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		backups = append(backups, b)
+	}
+
+	return backups, cur.Err()
+}
+
+func (p *PBM) BackupsDoneList(after *primitive.Timestamp, limit int64, order int) ([]BackupMeta, error) {
+	q := bson.D{{"status", StatusDone}}
+	if after != nil {
+		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
+	}
+
+	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
+		p.ctx,
+		q,
+		options.Find().SetLimit(limit).SetSort(bson.D{{"last_write_ts", order}}),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")

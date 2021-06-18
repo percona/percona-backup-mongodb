@@ -15,7 +15,7 @@ import (
 )
 
 type currentPitr struct {
-	slicer *pitr.IBackup
+	slicer *pitr.Slicer
 	wakeup chan struct{} // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
 }
@@ -145,14 +145,6 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	ibcp := pitr.NewBackup(a.node.RS(), a.pbm, a.node)
-	ibcp.SetSpan(spant)
-
-	err = ibcp.Catchup()
-	if err != nil {
-		return errors.Wrap(err, "defining starting point for the backup")
-	}
-
 	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get storage configuration")
@@ -175,6 +167,17 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
+	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg, ep)
+	ibcp.SetSpan(spant)
+
+	err = ibcp.Catchup()
+	if err != nil {
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+		return errors.Wrap(err, "defining starting point for the backup")
+	}
+
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		w := make(chan struct{})
@@ -185,7 +188,7 @@ func (a *Agent) pitr() (err error) {
 			wakeup: w,
 		})
 
-		streamErr := ibcp.Stream(ctx, ep, w, stg, pbm.CompressionTypeS2)
+		streamErr := ibcp.Stream(ctx, w, pbm.CompressionTypeS2)
 		if streamErr != nil {
 			switch streamErr.(type) {
 			case pitr.ErrOpMoved:

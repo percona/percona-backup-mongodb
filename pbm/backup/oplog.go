@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -16,6 +17,7 @@ import (
 // Oplog is used for reading the Mongodb oplog
 type Oplog struct {
 	node  *pbm.Node
+	cl    *mongo.Collection
 	start primitive.Timestamp
 	end   primitive.Timestamp
 }
@@ -24,6 +26,7 @@ type Oplog struct {
 func NewOplog(node *pbm.Node) *Oplog {
 	return &Oplog{
 		node: node,
+		cl:   node.Session().Database("local").Collection("oplog.rs"),
 	}
 }
 
@@ -34,11 +37,11 @@ func (ot *Oplog) SetTailingSpan(start, end primitive.Timestamp) {
 }
 
 type ErrInsuffRange struct {
-	t primitive.Timestamp
+	primitive.Timestamp
 }
 
 func (e ErrInsuffRange) Error() string {
-	return fmt.Sprintf("oplog has insufficient range, some records since the last saved ts %v are missing. Run `pbm backup` to create a valid starting point for the PITR", e.t)
+	return fmt.Sprintf("oplog has insufficient range, some records since the last saved ts %v are missing. Run `pbm backup` to create a valid starting point for the PITR", e.Timestamp)
 }
 
 // WriteTo writes an oplog slice between start and end timestamps into the given io.Writer
@@ -53,13 +56,7 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 
 	ctx := context.Background()
 
-	clName, err := ot.collectionName()
-	if err != nil {
-		return 0, errors.Wrap(err, "determine oplog collection name")
-	}
-	cl := ot.node.Session().Database("local").Collection(clName)
-
-	cur, err := cl.Find(ctx,
+	cur, err := ot.cl.Find(ctx,
 		bson.M{
 			"ts": bson.M{"$gte": ot.start},
 		},
@@ -92,11 +89,11 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 		// the first record retrieval due to ongoing write traffic (i.e. oplog append).
 		// There's a chance of false-negative though.
 		if !rcheck {
-			c, err := cl.CountDocuments(ctx, bson.M{"ts": bson.M{"$lte": ot.start}}, options.Count().SetLimit(1))
+			ok, err := ot.IsSufficient(ot.start)
 			if err != nil {
-				return 0, errors.Wrap(err, "check oplog range: count preceding documents")
+				return 0, errors.Wrap(err, "check oplog sufficiency")
 			}
-			if c == 0 {
+			if !ok {
 				return 0, ErrInsuffRange{ot.start}
 			}
 			rcheck = true
@@ -121,22 +118,17 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 	return written, cur.Err()
 }
 
+// IsSufficient check is oplog is sufficient back from the given date
+func (ot *Oplog) IsSufficient(from primitive.Timestamp) (bool, error) {
+	c, err := ot.cl.CountDocuments(context.Background(), bson.M{"ts": bson.M{"$lte": from}}, options.Count().SetLimit(1))
+	if err != nil {
+		return false, err
+	}
+
+	return c != 0, nil
+}
+
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *Oplog) LastWrite() (primitive.Timestamp, error) {
 	return pbm.LastWrite(ot.node.Session(), true)
-}
-
-func (ot *Oplog) collectionName() (string, error) {
-	inf, err := ot.node.GetInfo()
-	if err != nil {
-		return "", errors.Wrap(err, "get NodeInfo document")
-	}
-
-	if len(inf.Hosts) > 0 {
-		return "oplog.rs", nil
-	}
-	if !inf.IsPrimary {
-		return "", errors.New("not connected to primary")
-	}
-	return "oplog.$main", nil
 }

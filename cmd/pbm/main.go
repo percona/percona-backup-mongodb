@@ -40,9 +40,10 @@ var (
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
 		)
 
-	restoreCmd     = pbmCmd.Command("restore", "Restore backup")
-	restoreBcpName = restoreCmd.Arg("backup_name", "Backup name to restore").String()
-	restorePITRF   = restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String()
+	restoreCmd      = pbmCmd.Command("restore", "Restore backup")
+	restoreBcpName  = restoreCmd.Arg("backup_name", "Backup name to restore").String()
+	restorePITRF    = restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String()
+	restorePITRBase = restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").String()
 
 	cancelBcpCmd = pbmCmd.Command("cancel-backup", "Cancel backup")
 
@@ -205,7 +206,7 @@ func main() {
 			}
 			fmt.Printf("Restore of the snapshot from '%s' has started\n", *restoreBcpName)
 		case *restorePITRF != "":
-			err := pitrestore(pbmClient, *restorePITRF)
+			err := pitrestore(pbmClient, *restorePITRF, *restorePITRBase)
 			if err != nil {
 				log.Fatalln("\nError:", err)
 			}
