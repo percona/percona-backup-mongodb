@@ -19,6 +19,20 @@ type backupDelete struct {
 }
 
 func (c *Cluster) BackupDelete(storage string) {
+	// leftvers from the prev tests
+	// the last backup shouldn't be deleted as it is a base for the PITR timeline
+	bl, err := c.mongopbm.BackupsList(1)
+	if err != nil {
+		log.Fatalf("Error: get backups list: %v", err)
+	}
+	if len(bl) == 0 {
+		log.Fatalln("Error: no backups, expected to have some")
+	}
+
+	left := map[string]struct{}{
+		bl[0].Name: {},
+	}
+
 	checkData := c.DataChecker()
 
 	backups := make([]backupDelete, 5)
@@ -37,7 +51,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Println("delete backup", backups[4].name)
-	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
+	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", backups[4].name, err)
 	}
@@ -63,16 +77,19 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	c.printBcpList()
 
-	log.Println("should be only backup", backups[3])
-	checkArtefacts(backups[3].name, storage)
+	left[backups[3].name] = struct{}{}
+	log.Println("should be only backup", left)
+	checkArtefacts(storage, left)
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
 		log.Fatalln("Error: get backups list", err)
 	}
 
-	if len(blist) != 1 || blist[0].Name != backups[3].name {
-		log.Fatalf("Error: wrong backups list. Should has been left only backup %s. But have:\n%v", backups[3].name, blist)
+	for _, b := range blist {
+		if _, ok := left[b.Name]; !ok {
+			log.Fatalf("Error: backup %s should be deleted", b.Name)
+		}
 	}
 
 	log.Println("trying to restore from", backups[3])
@@ -85,7 +102,7 @@ const awsurl = "s3.amazonaws.com"
 
 // checkArtefacts checks if all backups artefacts removed
 // except for the shouldStay
-func checkArtefacts(shouldStay, conf string) {
+func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artefacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
@@ -123,7 +140,14 @@ func checkArtefacts(shouldStay, conf string) {
 			continue
 		}
 
-		if !strings.Contains(object.Key, shouldStay) {
+		var ok bool
+		for b := range shouldStay {
+			if strings.Contains(object.Key, b) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
 			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
