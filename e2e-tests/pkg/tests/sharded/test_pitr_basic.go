@@ -40,6 +40,9 @@ func (c *Cluster) PITRbasic() {
 
 	c.BackupWaitDone(bcpName)
 
+	bcp2 := c.Backup()
+	c.BackupWaitDone(bcp2)
+
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
 	log.Printf("Generating data for %v", ds)
 	time.Sleep(ds)
@@ -67,6 +70,14 @@ func (c *Cluster) PITRbasic() {
 	for name, shard := range c.shards {
 		c.bcheckClear(name, shard)
 	}
+
+	log.Printf("Deleting backup %v", bcp2)
+	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcp2)
+	if err != nil {
+		log.Fatalf("Error: delete backup %s: %v", bcp2, err)
+	}
+
+	c.printBcpList()
 
 	// +1 sec since we are PITR restore done up to < time (not <=)
 	c.PITRestore(time.Unix(int64(lastt.T), 0).Add(time.Second * 1))
