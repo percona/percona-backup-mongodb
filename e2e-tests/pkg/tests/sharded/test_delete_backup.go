@@ -19,7 +19,7 @@ type backupDelete struct {
 }
 
 func (c *Cluster) BackupDelete(storage string) {
-	// leftvers from the prev tests
+	// leftovers from the prev tests
 	// the last backup shouldn't be deleted as it is a base for the PITR timeline
 	bl, err := c.mongopbm.BackupsList(1)
 	if err != nil {
@@ -86,6 +86,9 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalln("Error: get backups list", err)
 	}
 
+	if len(blist) != len(left) {
+		log.Fatalf("Error: backups list mismatch, expect: %v, have: %v", left, blist)
+	}
 	for _, b := range blist {
 		if _, ok := left[b.Name]; !ok {
 			log.Fatalf("Error: backup %s should be deleted", b.Name)
