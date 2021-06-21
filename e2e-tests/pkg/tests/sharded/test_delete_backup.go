@@ -132,7 +132,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	}
 
 	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if strings.Contains(object.Key, pbm.StorInitFile) {
+		if strings.Contains(object.Key, pbm.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
 			continue
 		}
 		if object.Err != nil {
