@@ -30,6 +30,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.PITRbasic()
 		printDone("Basic PITR & Restore AWS")
 
+		t.SetBallastData(1e3)
+		flushStore(storage)
+		t.ApplyConfig(storage)
+
 		printStart("Check Backups deletion AWS")
 		t.BackupDelete(storage)
 		printDone("Check Backups deletion AWS")
@@ -52,6 +56,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.PITRbasic()
 		printDone("Basic PITR & Restore GCS")
 
+		t.SetBallastData(1e3)
+		flushStore(storage)
+		t.ApplyConfig(storage)
+
 		printStart("Check Backups deletion GCS")
 		t.BackupDelete(storage)
 		printDone("Check Backups deletion GCS")
@@ -73,6 +81,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printStart("Basic PITR & Restore Azure")
 		t.PITRbasic()
 		printDone("Basic PITR & Restore Azure")
+
+		t.SetBallastData(1e3)
+		flushStore(storage)
+		t.ApplyConfig(storage)
 
 		printStart("Check Backups deletion Azure")
 		t.BackupDelete(storage)
