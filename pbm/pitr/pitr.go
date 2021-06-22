@@ -90,12 +90,8 @@ func (s *Slicer) Catchup() error {
 
 	s.lastTS = baseBcp.LastWriteTS
 
-	if chnk == nil {
-		return nil
-	}
-
 	// PITR chunk after the recent backup is the most recent oplog slice
-	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.LastWriteTS) >= 0 {
+	if chnk != nil && primitive.CompareTimestamp(chnk.EndTS, baseBcp.LastWriteTS) >= 0 {
 		s.lastTS = chnk.EndTS
 		return nil
 	}
@@ -116,18 +112,27 @@ func (s *Slicer) Catchup() error {
 	//                  since such chunk should be backed by some previous backup and chunks
 	//                  after it. Otherwise recovery to that time will be impossible.
 
-	blist, err := s.pbm.BackupsDoneList(&chnk.EndTS, 0, -1)
-	if err != nil {
-		return errors.Wrap(err, "get backups list")
-	}
+	var blist []pbm.BackupMeta
 
-	fbcp, err := s.pbm.GetLastBackup(&chnk.StartTS)
-	if err != nil {
-		return errors.Wrapf(err, "get the last backup before %v", chnk)
-	}
+	if chnk != nil {
+		blist, err = s.pbm.BackupsDoneList(&chnk.EndTS, 0, -1)
+		if err != nil {
+			return errors.Wrapf(err, "get backups list from %v", chnk.EndTS)
+		}
 
-	if fbcp != nil {
-		blist = append(blist, *fbcp)
+		fbcp, err := s.pbm.GetLastBackup(&chnk.StartTS)
+		if err != nil {
+			return errors.Wrapf(err, "get the last backup before %v", chnk)
+		}
+
+		if fbcp != nil {
+			blist = append(blist, *fbcp)
+		}
+	} else {
+		blist, err = s.pbm.BackupsDoneList(nil, 0, -1)
+		if err != nil {
+			return errors.Wrap(err, "get backups list")
+		}
 	}
 
 	var pbcp pbm.BackupMeta
@@ -139,7 +144,7 @@ func (s *Slicer) Catchup() error {
 
 		if pbcp.Name != "" {
 			start := b.LastWriteTS
-			if primitive.CompareTimestamp(chnk.EndTS, start) > 0 {
+			if chnk != nil && primitive.CompareTimestamp(chnk.EndTS, start) > 0 {
 				start = chnk.EndTS
 			}
 
