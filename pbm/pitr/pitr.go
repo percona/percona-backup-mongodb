@@ -132,7 +132,7 @@ func (s *Slicer) Catchup() error {
 
 	var pbcp pbm.BackupMeta
 	for _, b := range blist {
-		if rstr.StartTS > b.StartTS {
+		if rstr != nil && rstr.StartTS > b.StartTS {
 			s.l.Info("backup %s is followed by the restore %s", b.Name, rstr.Backup)
 			return nil
 		}
