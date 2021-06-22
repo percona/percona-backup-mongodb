@@ -115,6 +115,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	t.SetBallastData(1e3)
 	flushStore(storage)
+	t.ApplyConfig(storage)
 
 	printStart("Check Backups deletion")
 	t.BackupDelete(storage)

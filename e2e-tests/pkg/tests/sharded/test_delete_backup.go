@@ -19,20 +19,8 @@ type backupDelete struct {
 }
 
 func (c *Cluster) BackupDelete(storage string) {
-	// leftovers from the prev tests
-	// the last backup shouldn't be deleted as it is a base for the PITR timeline
-	bl, err := c.mongopbm.BackupsList(0)
-	if err != nil {
-		log.Fatalf("Error: get backups list: %v", err)
-	}
-	if len(bl) == 0 {
-		log.Fatalln("Error: no backups, expected to have some")
-	}
-
-	left := map[string]struct{}{
-		bl[len(bl)-1].Name: {},
-	}
-	log.Println("should stay", left)
+	c.pitrOn()
+	defer c.pitrOff()
 
 	checkData := c.DataChecker()
 
@@ -52,7 +40,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Println("delete backup", backups[4].name)
-	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
+	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", backups[4].name, err)
 	}
@@ -76,10 +64,15 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
 
+	c.pitrOff()
+
 	c.printBcpList()
 
-	left[backups[3].name] = struct{}{}
-	log.Println("should be only backup", left)
+	left := map[string]struct{}{
+		backups[0].name: {}, // is a base for the pitr timeline, shouldn't be deleted
+		backups[3].name: {},
+	}
+	log.Println("should be only backups", left)
 	checkArtefacts(storage, left)
 
 	blist, err := c.mongopbm.BackupsList(0)

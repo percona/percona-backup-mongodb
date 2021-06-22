@@ -51,6 +51,8 @@ func (c *Cluster) PITRbasic() {
 	log.Printf("Generating data for %v", ds)
 	time.Sleep(ds)
 
+	c.printBcpList()
+
 	log.Println("Get reference time")
 	var lastt primitive.Timestamp
 	for name, c := range counters {
