@@ -115,10 +115,12 @@ func (s *Slicer) Catchup() error {
 	}
 
 	// if there is a gap between chunk and the backup - fill it
+	// failed gap shouldn't prevent further chunk creation
 	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.FirstWriteTS) < 0 {
 		ok, err := s.oplog.IsSufficient(chnk.EndTS)
 		if err != nil {
-			return errors.Wrapf(err, "check oplog sufficiency for %s", chnk)
+			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+			return nil
 		}
 		if !ok {
 			s.l.Info("insufficient range since %v", chnk.EndTS)
@@ -127,16 +129,18 @@ func (s *Slicer) Catchup() error {
 
 		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, chnk.Compression)
 		if err != nil {
-			return err
+			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
+			return nil
 		}
 		s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
 	}
 
 	err = s.copyFromBcp(baseBcp)
 	if err != nil {
-		return errors.Wrapf(err, "copy snapshot [%s] oplog", baseBcp.Name)
+		s.l.Warning("copy snapshot [%s] oplog: %v", baseBcp.Name, err)
+	} else {
+		s.l.Info("copied chunk %s - %s", formatts(baseBcp.FirstWriteTS), formatts(baseBcp.LastWriteTS))
 	}
-	s.l.Info("copied chunk %s - %s", formatts(baseBcp.FirstWriteTS), formatts(baseBcp.LastWriteTS))
 
 	return nil
 }

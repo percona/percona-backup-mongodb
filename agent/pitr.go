@@ -175,7 +175,7 @@ func (a *Agent) pitr() (err error) {
 		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "defining starting point for the backup")
+		return errors.Wrap(err, "catchup")
 	}
 
 	go func() {

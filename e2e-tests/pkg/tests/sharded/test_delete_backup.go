@@ -63,7 +63,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
-
+	time.Sleep(time.Second * 5)
 	c.pitrOff()
 
 	c.printBcpList()

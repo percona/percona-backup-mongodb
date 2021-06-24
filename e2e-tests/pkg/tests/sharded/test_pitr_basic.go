@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	opbm "github.com/percona/percona-backup-mongodb/pbm"
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -78,15 +77,9 @@ func (c *Cluster) PITRbasic() {
 	}
 
 	log.Printf("Deleting backup %v", bcp2)
-	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcp2)
+	err := c.mongopbm.DeleteBackup(bcp2)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", bcp2, err)
-	}
-
-	log.Println("wait for delete")
-	err = c.mongopbm.WaitConcurentOp(&opbm.LockHeader{Type: opbm.CmdDeleteBackup}, time.Minute*5)
-	if err != nil {
-		log.Fatalf("waiting for the delete: %v", err)
 	}
 
 	c.printBcpList()
