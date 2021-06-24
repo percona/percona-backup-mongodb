@@ -214,6 +214,29 @@ func (c *Cluster) Flush() error {
 	return nil
 }
 
+func (c *Cluster) FlushStorage() error {
+	stg, err := c.mongopbm.Storage()
+	if err != nil {
+		return errors.Wrap(err, "get storage")
+	}
+
+	fls, err := stg.List("", "")
+	if err != nil {
+		return errors.Wrap(err, "get files list")
+	}
+
+	for _, f := range fls {
+		err = stg.Delete(f.Name)
+		if err != nil {
+			log.Println("Warning: unable to delete", f.Name)
+		} else {
+			log.Println("removed", f.Name)
+		}
+	}
+
+	return nil
+}
+
 func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 	tmr := time.NewTimer(waitFor)
 	tkr := time.NewTicker(500 * time.Millisecond)

@@ -2,101 +2,53 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/url"
 	"os"
 
-	"github.com/minio/minio-go"
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"golang.org/x/mod/semver"
-	"gopkg.in/yaml.v2"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
-	storage := "/etc/pbm/aws.yaml"
-	if confExt(storage) {
-		flush(t, storage)
-		t.ApplyConfig(storage)
-
-		t.SetBallastData(1e5)
-
-		printStart("Basic Backup & Restore AWS S3")
-		t.BackupAndRestore()
-		printDone("Basic Backup & Restore AWS S3")
-
-		printStart("Basic PITR & Restore AWS")
-		t.PITRbasic()
-		printDone("Basic PITR & Restore AWS")
-
-		t.SetBallastData(1e3)
-		flush(t, storage)
-		t.ApplyConfig(storage)
-
-		printStart("Check Backups deletion AWS")
-		t.BackupDelete(storage)
-		printDone("Check Backups deletion AWS")
-
-		flushStore(storage)
+	remoteStg := []struct {
+		name string
+		conf string
+	}{
+		{"AWS", "/etc/pbm/aws.yaml"},
+		{"GCS", "/etc/pbm/gcs.yaml"},
+		{"Azure", "/etc/pbm/azure.yaml"},
 	}
 
-	storage = "/etc/pbm/gcs.yaml"
-	if confExt(storage) {
-		flush(t, storage)
-		t.ApplyConfig(storage)
+	for _, stg := range remoteStg {
+		if confExt(stg.conf) {
+			t.ApplyConfig(stg.conf)
+			flush(t)
 
-		t.SetBallastData(1e5)
+			t.SetBallastData(1e5)
 
-		printStart("Basic Backup & Restore GCS")
-		t.BackupAndRestore()
-		printDone("Basic Backup & Restore GCS")
+			printStart("Basic Backup & Restore " + stg.name)
+			t.BackupAndRestore()
+			printDone("Basic Backup & Restore " + stg.name)
 
-		printStart("Basic PITR & Restore GCS")
-		t.PITRbasic()
-		printDone("Basic PITR & Restore GCS")
+			printStart("Basic PITR & Restore " + stg.name)
+			t.PITRbasic()
+			printDone("Basic PITR & Restore " + stg.name)
 
-		t.SetBallastData(1e3)
-		flush(t, storage)
-		t.ApplyConfig(storage)
+			t.SetBallastData(1e3)
+			flush(t)
 
-		printStart("Check Backups deletion GCS")
-		t.BackupDelete(storage)
-		printDone("Check Backups deletion GCS")
+			printStart("Check Backups deletion " + stg.name)
+			t.BackupDelete(stg.conf)
+			printDone("Check Backups deletion " + stg.name)
 
-		flushStore(storage)
+			flushStore(t)
+		}
 	}
 
-	storage = "/etc/pbm/azure.yaml"
-	if confExt(storage) {
-		flush(t, storage)
-		t.ApplyConfig(storage)
+	storage := "/etc/pbm/fs.yaml"
 
-		t.SetBallastData(1e5)
-
-		printStart("Basic Backup & Restore Azure")
-		t.BackupAndRestore()
-		printDone("Basic Backup & Restore Azure")
-
-		printStart("Basic PITR & Restore Azure")
-		t.PITRbasic()
-		printDone("Basic PITR & Restore Azure")
-
-		t.SetBallastData(1e3)
-		flush(t, storage)
-		t.ApplyConfig(storage)
-
-		printStart("Check Backups deletion Azure")
-		t.BackupDelete(storage)
-		printDone("Check Backups deletion Azure")
-
-		flushStore(storage)
-	}
-
-	storage = "/etc/pbm/fs.yaml"
-
-	flush(t, storage)
-	t.ApplyConfig(storage)
+	t.ApplyConfig("/etc/pbm/fs.yaml")
+	flush(t)
 
 	t.SetBallastData(1e5)
 
@@ -110,8 +62,8 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage = "/etc/pbm/minio.yaml"
 
-	flush(t, storage)
 	t.ApplyConfig(storage)
+	flush(t)
 
 	printStart("Basic Backup & Restore Minio")
 	t.BackupAndRestore()
@@ -122,8 +74,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printDone("Basic PITR & Restore Minio")
 
 	t.SetBallastData(1e3)
-	flush(t, storage)
-	t.ApplyConfig(storage)
+	flush(t)
 
 	printStart("Check Backups deletion")
 	t.BackupDelete(storage)
@@ -179,7 +130,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.ClockSkew()
 	printDone("Clock Skew Tests")
 
-	flushStore(storage)
+	flushStore(t)
 }
 
 func printStart(name string) {
@@ -191,8 +142,8 @@ func printDone(name string) {
 
 const awsurl = "s3.amazonaws.com"
 
-func flush(t *sharded.Cluster, conf string) {
-	flushStore(conf)
+func flush(t *sharded.Cluster) {
+	flushStore(t)
 	flushPbm(t)
 }
 
@@ -203,51 +154,10 @@ func flushPbm(t *sharded.Cluster) {
 	}
 }
 
-func flushStore(conf string) {
-	buf, err := ioutil.ReadFile(conf)
+func flushStore(t *sharded.Cluster) {
+	err := t.FlushStorage()
 	if err != nil {
-		log.Fatalln("Error: unable to read config file:", err)
-	}
-
-	var cfg pbm.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("Error: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("Error: parse EndpointURL:", err)
-		}
-		endopintURL = eu.Host
-	}
-
-	log.Println("Flushing store", endopintURL, stg.S3.Bucket, stg.S3.Prefix)
-
-	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
-	if err != nil {
-		log.Fatalln("Error: NewWithRegion:", err)
-	}
-
-	objectsCh := make(chan string)
-
-	go func() {
-		defer close(objectsCh)
-		for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-			if object.Err != nil {
-				fmt.Fprintln(os.Stderr, "Error: ListObjects:", object.Err)
-				continue
-			}
-			objectsCh <- object.Key
-		}
-	}()
-
-	for rErr := range mc.RemoveObjects(stg.S3.Bucket, objectsCh) {
-		fmt.Fprintln(os.Stderr, "Error detected during deletion:", rErr)
+		log.Fatalln("Error: unable flush storage:", err)
 	}
 }
 

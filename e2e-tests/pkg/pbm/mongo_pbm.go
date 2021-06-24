@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type MongoPBM struct {
@@ -40,6 +41,10 @@ func (m *MongoPBM) BackupsList(limit int64) ([]pbm.BackupMeta, error) {
 
 func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 	return m.p.GetBackupMeta(bcpName)
+}
+
+func (m *MongoPBM) Storage() (storage.Storage, error) {
+	return m.p.GetStorage(m.p.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 }
 
 func (m *MongoPBM) StoreResync() error {
