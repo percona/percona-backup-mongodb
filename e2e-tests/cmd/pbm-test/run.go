@@ -17,7 +17,7 @@ import (
 func run(t *sharded.Cluster, typ testTyp) {
 	storage := "/etc/pbm/aws.yaml"
 	if confExt(storage) {
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		t.SetBallastData(1e5)
@@ -31,7 +31,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printDone("Basic PITR & Restore AWS")
 
 		t.SetBallastData(1e3)
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		printStart("Check Backups deletion AWS")
@@ -43,7 +43,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage = "/etc/pbm/gcs.yaml"
 	if confExt(storage) {
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		t.SetBallastData(1e5)
@@ -57,7 +57,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printDone("Basic PITR & Restore GCS")
 
 		t.SetBallastData(1e3)
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		printStart("Check Backups deletion GCS")
@@ -69,7 +69,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage = "/etc/pbm/azure.yaml"
 	if confExt(storage) {
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		t.SetBallastData(1e5)
@@ -83,7 +83,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		printDone("Basic PITR & Restore Azure")
 
 		t.SetBallastData(1e3)
-		flushStore(storage)
+		flush(t, storage)
 		t.ApplyConfig(storage)
 
 		printStart("Check Backups deletion Azure")
@@ -95,7 +95,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage = "/etc/pbm/fs.yaml"
 
-	flushStore(storage)
+	flush(t, storage)
 	t.ApplyConfig(storage)
 
 	t.SetBallastData(1e5)
@@ -110,7 +110,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage = "/etc/pbm/minio.yaml"
 
-	flushStore(storage)
+	flush(t, storage)
 	t.ApplyConfig(storage)
 
 	printStart("Basic Backup & Restore Minio")
@@ -122,8 +122,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printDone("Basic PITR & Restore Minio")
 
 	t.SetBallastData(1e3)
-	flushStore(storage)
-	flushPbm(t)
+	flush(t, storage)
 	t.ApplyConfig(storage)
 
 	printStart("Check Backups deletion")
@@ -191,6 +190,11 @@ func printDone(name string) {
 }
 
 const awsurl = "s3.amazonaws.com"
+
+func flush(t *sharded.Cluster, conf string) {
+	flushStore(conf)
+	flushPbm(t)
+}
 
 func flushPbm(t *sharded.Cluster) {
 	err := t.Flush()
