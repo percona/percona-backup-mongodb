@@ -13,7 +13,7 @@
   publish = "build/html"
 
   # Default build command.
-  command = "make netlify"
+  command = "make clean netlify"
 
   # Directory with the serverless functions, including background functions,
   # to deploy to AWS. This is relative to the base directory if one has been set,
