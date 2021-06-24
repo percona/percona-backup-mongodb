@@ -35,6 +35,12 @@ func (c *Cluster) BackupDelete(storage string) {
 			ts:   ts,
 		}
 		c.BackupWaitDone(bcpName)
+
+		// to be sure pitr actually started before second backup
+		// test relies that the timeline derives from the first backup
+		if i == 0 {
+			time.Sleep(time.Second * 16)
+		}
 	}
 
 	c.printBcpList()
