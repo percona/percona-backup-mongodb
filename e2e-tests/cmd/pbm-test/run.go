@@ -108,14 +108,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.PITRbasic()
 	printDone("Basic PITR & Restore FS")
 
-	flushStore(storage)
-
 	storage = "/etc/pbm/minio.yaml"
 
 	flushStore(storage)
 	t.ApplyConfig(storage)
-
-	t.SetBallastData(1e5)
 
 	printStart("Basic Backup & Restore Minio")
 	t.BackupAndRestore()
@@ -127,6 +123,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	t.SetBallastData(1e3)
 	flushStore(storage)
+	flushPbm(t)
 	t.ApplyConfig(storage)
 
 	printStart("Check Backups deletion")
@@ -194,6 +191,13 @@ func printDone(name string) {
 }
 
 const awsurl = "s3.amazonaws.com"
+
+func flushPbm(t *sharded.Cluster) {
+	err := t.Flush()
+	if err != nil {
+		log.Fatalln("Error: unable flush pbm db:", err)
+	}
+}
 
 func flushStore(conf string) {
 	buf, err := ioutil.ReadFile(conf)
