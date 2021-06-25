@@ -233,7 +233,7 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 	var tl Timeline
 	var prevEnd primitive.Timestamp
 	for _, s := range slices {
-		if prevEnd.I != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
+		if prevEnd.T != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) != 0 {
 			tlines = append(tlines, tl)
 			tl = Timeline{}
 		}

@@ -16,6 +16,10 @@ func TestPITRTimelines(t *testing.T) {
 		},
 		{
 			StartTS: primitive.Timestamp{10, 0},
+			EndTS:   primitive.Timestamp{10, 0},
+		},
+		{
+			StartTS: primitive.Timestamp{10, 0},
 			EndTS:   primitive.Timestamp{20, 0},
 		},
 		{
