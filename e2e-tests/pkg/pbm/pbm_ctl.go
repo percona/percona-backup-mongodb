@@ -42,9 +42,9 @@ func (c *Ctl) PITRon() error {
 		return errors.Wrap(err, "config set pitr.enabled=true")
 	}
 
-	_, err = c.RunCmd("pbm", "config", "--set", "pitr.oplogSpanMin=0.5")
+	_, err = c.RunCmd("pbm", "config", "--set", "pitr.oplogSpanMin=1")
 	if err != nil {
-		return errors.Wrap(err, "config set pitr.oplogSpanMin=0.5")
+		return errors.Wrap(err, "config set pitr.oplogSpanMin=1")
 	}
 
 	fmt.Println("done", out)
