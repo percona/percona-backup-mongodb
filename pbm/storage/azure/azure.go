@@ -136,7 +136,7 @@ func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 
 func (b *Blob) Copy(src, dst string) error {
 	to := b.c.NewBlobURL(path.Join(b.opts.Prefix, dst))
-	from := b.c.NewBlobURL(path.Join(b.opts.Prefix, dst))
+	from := b.c.NewBlobURL(path.Join(b.opts.Prefix, src))
 
 	r, err := to.StartCopyFromURL(context.TODO(), from.URL(), nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{}, azblob.DefaultAccessTier, nil)
 	if err != nil {

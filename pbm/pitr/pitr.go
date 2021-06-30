@@ -58,10 +58,9 @@ func (s *Slicer) GetSpan() time.Duration {
 // Catchup seeks for the last saved (backuped) TS - the starting point. It should be run only
 // if the timeline was lost (e.g. on (re)start, restart after backup, node's fail).
 // The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
-// If there is a chunk behind backup(s) it will try to fill the gaps from the chunk to the starting point.
-// While filling gaps it checks the oplog for sufficiency.
-// It also checks if there is no restore intercepted the timeline
-// (hence there are no restores after the most recent backup)
+// If there is a chunk behind the last backup it will try to fill the gaps from the chunk to the starting point.
+// While filling gaps it checks the oplog for sufficiency. It also checks if there is no restore intercepted
+// the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
 	baseBcp, err := s.pbm.GetLastBackup(nil)
 	if err != nil {
@@ -100,73 +99,47 @@ func (s *Slicer) Catchup() error {
 		return nil
 	}
 
-	// Reaching here means there is a chunk and it's behind the last backup. So we'll try
-	// to fill the gap from the chunk to the pitr starting point. By doing next:
-	// 1. Get the list of all backups between the chunk and starting point. Plus the backup
-	//    preceding the starting point.
-	// 2. Moving backwards (from the newest to oldest):
-	// 		2.1. Check if there is no restore happened after the backup. Stop if so.
-	// 		2.2. If there is a newer backup (made after the current one) - `pbcp`:
-	// 		     2.2.1. Define starting time for the gap. Either backup's or chunk's start
-	//                  time, which happened later (select the oldest one).
-	// 		     2.2.2. If the starting time is less than `pbcp` first write, check if there
-	//                  is sufficient oplog and make a chunk up to `pbcp` first write if so.
-	// 		     2.2.3. If the oplog is insufficient, stop.
-	//  	     2.2.4. Copy the oplog chunk of the previous backup. That step is the last
-	//                  since such chunk should be backed by some previous backup and chunks
-	//                  after it. Otherwise recovery to that time will be impossible.
+	if rstr != nil && rstr.StartTS > int64(chnk.StartTS.T) {
+		s.l.Info("restore after %s the chunk %s, skip", rstr.Backup, chnk)
+		return nil
+	}
 
-	blist, err := s.pbm.BackupsDoneList(&chnk.EndTS, 0, -1)
+	bl, err := s.pbm.BackupsDoneList(&chnk.EndTS, 0, -1)
 	if err != nil {
-		return errors.Wrap(err, "get backups list")
+		return errors.Wrapf(err, "get backups list from %v", chnk.EndTS)
 	}
 
-	fbcp, err := s.pbm.GetLastBackup(&chnk.StartTS)
-	if err != nil {
-		return errors.Wrapf(err, "get the last backup before %v", chnk)
+	if len(bl) > 1 {
+		s.l.Debug("chunk too far (more than a one snapshot)")
+		return nil
 	}
 
-	if fbcp != nil {
-		blist = append(blist, *fbcp)
-	}
-
-	var pbcp pbm.BackupMeta
-	for _, b := range blist {
-		if rstr.StartTS > b.StartTS {
-			s.l.Info("backup %s is followed by the restore %s", b.Name, rstr.Backup)
+	// if there is a gap between chunk and the backup - fill it
+	// failed gap shouldn't prevent further chunk creation
+	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.FirstWriteTS) < 0 {
+		ok, err := s.oplog.IsSufficient(chnk.EndTS)
+		if err != nil {
+			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+			return nil
+		}
+		if !ok {
+			s.l.Info("insufficient range since %v", chnk.EndTS)
 			return nil
 		}
 
-		if pbcp.Name != "" {
-			start := b.LastWriteTS
-			if primitive.CompareTimestamp(chnk.EndTS, start) > 0 {
-				start = chnk.EndTS
-			}
-
-			if primitive.CompareTimestamp(start, pbcp.FirstWriteTS) < 0 {
-				ok, err := s.oplog.IsSufficient(b.LastWriteTS)
-				if err != nil {
-					return errors.Wrapf(err, "check oplog sufficiency for %s", b.Name)
-				}
-				if !ok {
-					s.l.Info("insufficient range since %v for %s", b.LastWriteTS, b.Name)
-					return nil
-				}
-
-				err = s.upload(start, pbcp.FirstWriteTS, b.Compression)
-				if err != nil {
-					return err
-				}
-				s.l.Info("created chunk %s - %s", formatts(start), formatts(pbcp.FirstWriteTS))
-			}
-
-			err = s.copyFromBcp(&pbcp)
-			if err != nil {
-				return errors.Wrapf(err, "copy snapshot [%s] oplog", pbcp.Name)
-			}
-			s.l.Info("copied chunk %s - %s", formatts(pbcp.FirstWriteTS), formatts(pbcp.LastWriteTS))
+		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, chnk.Compression)
+		if err != nil {
+			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
+			return nil
 		}
-		pbcp = b
+		s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
+	}
+
+	err = s.copyFromBcp(baseBcp)
+	if err != nil {
+		s.l.Warning("copy snapshot [%s] oplog: %v", baseBcp.Name, err)
+	} else {
+		s.l.Info("copied chunk %s - %s", formatts(baseBcp.FirstWriteTS), formatts(baseBcp.LastWriteTS))
 	}
 
 	return nil
@@ -255,17 +228,6 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 
 		nextChunkT := time.Now().Add(cspan)
 
-		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
-		if !lastSlice {
-			cep, err := s.pbm.GetEpoch()
-			if err != nil {
-				return errors.Wrap(err, "get epoch")
-			}
-			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
-				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
-			}
-		}
-
 		// check if the node is still any good to make backups
 		ninf, err := s.node.GetInfo()
 		if err != nil {
@@ -328,6 +290,17 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 			return errors.New("undefinded behaviour operation is running")
 		default:
 			return errors.Errorf("another operation is running: %#v", ld)
+		}
+
+		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
+		if !lastSlice {
+			cep, err := s.pbm.GetEpoch()
+			if err != nil {
+				return errors.Wrap(err, "get epoch")
+			}
+			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
+				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
+			}
 		}
 
 		err = s.upload(s.lastTS, sliceTo, compression)

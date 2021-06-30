@@ -105,11 +105,11 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (fs *FS) Copy(src, dst string) error {
-	from, err := os.Open(src)
+	from, err := os.Open(path.Join(fs.opts.Path, src))
 	if err != nil {
 		return errors.Wrap(err, "open src")
 	}
-	to, err := os.Create(dst)
+	to, err := os.Create(path.Join(fs.opts.Path, dst))
 	if err != nil {
 		return errors.Wrap(err, "create dst")
 	}

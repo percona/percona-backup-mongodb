@@ -7,6 +7,7 @@ import (
 
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -194,6 +195,44 @@ func (c *Cluster) DataChecker() (check func()) {
 			}
 		}
 	}
+}
+
+// Flush removes all backups, restores and PITR chunks metadata from the PBM db
+func (c *Cluster) Flush() error {
+	cols := []string{
+		pbmt.BcpCollection,
+		pbmt.PITRChunksCollection,
+		pbmt.RestoresCollection,
+	}
+	for _, cl := range cols {
+		_, err := c.mongopbm.Conn().Database(pbmt.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
+		if err != nil {
+			return errors.Wrapf(err, "delete many from %s", cl)
+		}
+	}
+
+	return nil
+}
+
+func (c *Cluster) FlushStorage() error {
+	stg, err := c.mongopbm.Storage()
+	if err != nil {
+		return errors.Wrap(err, "get storage")
+	}
+
+	fls, err := stg.List("", "")
+	if err != nil {
+		return errors.Wrap(err, "get files list")
+	}
+
+	for _, f := range fls {
+		err = stg.Delete(f.Name)
+		if err != nil {
+			log.Println("Warning: unable to delete", f.Name)
+		}
+	}
+
+	return nil
 }
 
 func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {

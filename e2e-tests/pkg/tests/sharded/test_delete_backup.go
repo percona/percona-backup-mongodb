@@ -19,6 +19,9 @@ type backupDelete struct {
 }
 
 func (c *Cluster) BackupDelete(storage string) {
+	c.pitrOn()
+	defer c.pitrOff()
+
 	checkData := c.DataChecker()
 
 	backups := make([]backupDelete, 5)
@@ -32,6 +35,12 @@ func (c *Cluster) BackupDelete(storage string) {
 			ts:   ts,
 		}
 		c.BackupWaitDone(bcpName)
+
+		// to be sure pitr actually started before second backup
+		// test relies that the timeline derives from the first backup
+		if i == 0 {
+			time.Sleep(time.Second * 16)
+		}
 	}
 
 	c.printBcpList()
@@ -60,19 +69,30 @@ func (c *Cluster) BackupDelete(storage string) {
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
+	time.Sleep(time.Second * 5)
+	c.pitrOff()
 
 	c.printBcpList()
 
-	log.Println("should be only backup", backups[3])
-	checkArtefacts(backups[3].name, storage)
+	left := map[string]struct{}{
+		backups[0].name: {}, // is a base for the pitr timeline, shouldn't be deleted
+		backups[3].name: {},
+	}
+	log.Println("should be only backups", left)
+	checkArtefacts(storage, left)
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
 		log.Fatalln("Error: get backups list", err)
 	}
 
-	if len(blist) != 1 || blist[0].Name != backups[3].name {
-		log.Fatalf("Error: wrong backups list. Should has been left only backup %s. But have:\n%v", backups[3].name, blist)
+	if len(blist) != len(left) {
+		log.Fatalf("Error: backups list mismatch, expect: %v, have: %v", left, blist)
+	}
+	for _, b := range blist {
+		if _, ok := left[b.Name]; !ok {
+			log.Fatalf("Error: backup %s should be deleted", b.Name)
+		}
 	}
 
 	log.Println("trying to restore from", backups[3])
@@ -85,7 +105,7 @@ const awsurl = "s3.amazonaws.com"
 
 // checkArtefacts checks if all backups artefacts removed
 // except for the shouldStay
-func checkArtefacts(shouldStay, conf string) {
+func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artefacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
@@ -115,7 +135,7 @@ func checkArtefacts(shouldStay, conf string) {
 	}
 
 	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if strings.Contains(object.Key, pbm.StorInitFile) {
+		if strings.Contains(object.Key, pbm.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
 			continue
 		}
 		if object.Err != nil {
@@ -123,7 +143,14 @@ func checkArtefacts(shouldStay, conf string) {
 			continue
 		}
 
-		if !strings.Contains(object.Key, shouldStay) {
+		var ok bool
+		for b := range shouldStay {
+			if strings.Contains(object.Key, b) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
 			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
