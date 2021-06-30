@@ -27,7 +27,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	backups := make([]backupDelete, 5)
 	for i := 0; i < len(backups); i++ {
 		ts := time.Now()
-		time.Sleep(1 * time.Second)
+		time.Sleep(30 * time.Second)
 		c.printBcpList()
 		bcpName := c.Backup()
 		backups[i] = backupDelete{

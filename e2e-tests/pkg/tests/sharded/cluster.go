@@ -229,8 +229,6 @@ func (c *Cluster) FlushStorage() error {
 		err = stg.Delete(f.Name)
 		if err != nil {
 			log.Println("Warning: unable to delete", f.Name)
-		} else {
-			log.Println("removed", f.Name)
 		}
 	}
 

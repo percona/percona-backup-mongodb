@@ -460,7 +460,7 @@ type storageStat struct {
 	Path     string         `json:"path"`
 	Region   string         `json:"region,omitempty"`
 	Snapshot []snapshotStat `json:"snapshot"`
-	PITR     []pitrRange    `json:"pitrChunks,omitempty"`
+	PITR     *pitrRanges    `json:"pitrChunks,omitempty"`
 }
 
 type snapshotStat struct {
@@ -472,13 +472,18 @@ type snapshotStat struct {
 	PBMVersion string     `json:"pbmVersion"`
 }
 
+type pitrRanges struct {
+	Ranges []pitrRange `json:"pitrChunks,omitempty"`
+	Size   int64       `json:"size"`
+}
+
 type pitrRange struct {
 	Err   string `json:"error,omitempty"`
 	Range struct {
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
 	} `json:"range"`
-	Size int64 `json:"size"`
+	Size int64 `json:"size,omitempty"`
 }
 
 func (s storageStat) String() string {
@@ -508,18 +513,18 @@ func (s storageStat) String() string {
 		ret += fmt.Sprintf("    %s %s%s%s\n", sn.Name, fmtSize(sn.Size), status, v)
 	}
 
-	if len(s.PITR) == 0 {
+	if len(s.PITR.Ranges) == 0 {
 		return ret
 	}
 
-	ret += fmt.Sprintln("  PITR chunks:")
+	ret += fmt.Sprintf("  PITR chunks [%s]:\n", fmtSize(s.PITR.Size))
 
-	for _, sn := range s.PITR {
+	for _, sn := range s.PITR.Ranges {
 		var v string
 		if sn.Err != "" {
 			v = fmt.Sprintf(" !!! %s", sn.Err)
 		}
-		ret += fmt.Sprintf("    %s - %s %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), fmtSize(sn.Size), v)
+		ret += fmt.Sprintf("    %s - %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), v)
 	}
 
 	return ret
@@ -595,15 +600,15 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 	return s, nil
 }
 
-func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error) {
+func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 	shards, err := cn.ClusterMembers(nil)
 	if err != nil {
-		return pr, errors.Wrap(err, "get cluster members")
+		return nil, errors.Wrap(err, "get cluster members")
 	}
 
 	fl, err := stg.List(pbm.PITRfsPrefix, "")
 	if err != nil {
-		return pr, errors.Wrap(err, "get chunks list")
+		return nil, errors.Wrap(err, "get chunks list")
 	}
 
 	flist := make(map[string]int64)
@@ -616,6 +621,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		return nil, errors.Wrap(err, "get cluster time")
 	}
 
+	var size int64
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(s.RS, now, flist)
@@ -624,10 +630,15 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 			continue
 		}
 		rstlines = append(rstlines, tlns)
+
+		for _, t := range tlns {
+			size += t.Size
+		}
 	}
 
 	merged := pbm.MergeTimelines(rstlines...)
 
+	var pr []pitrRange
 	for i := len(merged) - 1; i >= 0; i-- {
 		tl := merged[i]
 		var rng pitrRange
@@ -648,7 +659,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (pr []pitrRange, err error)
 		pr = append(pr, rng)
 	}
 
-	return pr, nil
+	return &pitrRanges{Ranges: pr, Size: size}, nil
 }
 
 func getSnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {

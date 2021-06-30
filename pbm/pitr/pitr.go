@@ -228,17 +228,6 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 
 		nextChunkT := time.Now().Add(cspan)
 
-		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
-		if !lastSlice {
-			cep, err := s.pbm.GetEpoch()
-			if err != nil {
-				return errors.Wrap(err, "get epoch")
-			}
-			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
-				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
-			}
-		}
-
 		// check if the node is still any good to make backups
 		ninf, err := s.node.GetInfo()
 		if err != nil {
@@ -301,6 +290,17 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 			return errors.New("undefinded behaviour operation is running")
 		default:
 			return errors.Errorf("another operation is running: %#v", ld)
+		}
+
+		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
+		if !lastSlice {
+			cep, err := s.pbm.GetEpoch()
+			if err != nil {
+				return errors.Wrap(err, "get epoch")
+			}
+			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
+				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
+			}
 		}
 
 		err = s.upload(s.lastTS, sliceTo, compression)
