@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/url"
 	"os"
@@ -22,7 +21,7 @@ func setarg(i int, as string) {
 	}
 }
 
-// hidecreds erases creds (user & pass) if there are any in mongo connection flags
+// hidecreds replaces creds (user & pass) with bunch of `x` if there are any in mongo connection flags
 func hidecreds() {
 	for k, v := range os.Args {
 		if strings.HasPrefix(v, mauthPrefix) {
@@ -36,9 +35,23 @@ func hidecreds() {
 				return
 			}
 
-			u.User = nil
-			fmt.Println(u.String())
+			var xuser, xpass []byte
+			xuser = make([]byte, len(u.User.Username()))
+			p, _ := u.User.Password()
+			xpass = make([]byte, len(p))
+
+			padx(xuser)
+			padx(xpass)
+
+			u.User = url.UserPassword(string(xuser), string(xpass))
+
 			setarg(k, mauthPrefix+u.String())
 		}
+	}
+}
+
+func padx(s []byte) {
+	for i := 0; i < len(s); i++ {
+		s[i] = 'x'
 	}
 }
