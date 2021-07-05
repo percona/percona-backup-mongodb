@@ -363,7 +363,8 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.Subs
 	if err != nil {
 		log.Warning("get current storage status: %v", err)
 	}
-	if !check && stat.StorageStatus.OK {
+	if !forceCheckStorage && stat.StorageStatus.OK {
+
 		sts.OK = true
 		return sts
 	}
