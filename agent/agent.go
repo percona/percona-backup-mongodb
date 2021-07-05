@@ -279,6 +279,10 @@ func (a *Agent) HbStatus() {
 
 	l := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 
+	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
+	const checkStoreIn = int(60 / (pbm.AgentsStatCheckRange / time.Second))
+	var cc int
+
 	for range tk.C {
 		hb.PBMStatus = a.pbmStatus()
 		logHbStatus("PBM connecion", hb.PBMStatus, l)
@@ -286,8 +290,12 @@ func (a *Agent) HbStatus() {
 		hb.NodeStatus = a.nodeStatus()
 		logHbStatus("node connecion", hb.NodeStatus, l)
 
-		hb.StorageStatus = a.storStatus(l)
+		cc++
+		hb.StorageStatus = a.storStatus(l, cc == checkStoreIn)
 		logHbStatus("storage connecion", hb.StorageStatus, l)
+		if cc == checkStoreIn {
+			cc = 0
+		}
 
 		hb.Err = ""
 
@@ -345,8 +353,21 @@ func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
 	return
 }
 
-func (a *Agent) storStatus(log *log.Event) (sts pbm.SubsysStatus) {
+func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
+
 	sts.OK = false
+
+	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
+	// but if storage was(is) failed, check it always
+	stat, err := a.pbm.GetAgentStatus(a.node.RS(), a.node.Name())
+	if err != nil {
+		log.Warning("get current storage status: %v", err)
+	}
+	if !forceCheckStorage && stat.StorageStatus.OK {
+
+		sts.OK = true
+		return sts
+	}
 
 	stg, err := a.pbm.GetStorage(log)
 	if err != nil {
