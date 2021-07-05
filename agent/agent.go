@@ -353,7 +353,8 @@ func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
 	return
 }
 
-func (a *Agent) storStatus(log *log.Event, check bool) (sts pbm.SubsysStatus) {
+func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
+
 	sts.OK = false
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
