@@ -16,6 +16,14 @@ type Conf struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
+func (c *Conf) Cast() error {
+	if c.Path == "" {
+		return errors.New("path can't be empty")
+	}
+
+	return nil
+}
+
 type FS struct {
 	opts Conf
 }
