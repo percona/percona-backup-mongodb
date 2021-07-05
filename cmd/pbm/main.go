@@ -67,7 +67,7 @@ var (
 	logsOutF   = logsCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Enum("json", "text")
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
-	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resyncBcpList, pitr, pitrestore, delete").Short('e').String()
+	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, resyncBcpList, pitr, pitrestore, delete").Short('e').String()
 	logsOPIDF  = logsCmd.Flag("opid", "Operation ID").Short('i').String()
 
 	statusCmd  = pbmCmd.Command("status", "Show PBM status")
