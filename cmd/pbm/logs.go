@@ -9,7 +9,7 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
-func logs(cn *pbm.PBM) {
+func logs(cn *pbm.PBM, f outFormat) {
 	r := &plog.LogRequest{}
 
 	if *logsNodeF != "" {
@@ -47,12 +47,12 @@ func logs(cn *pbm.PBM) {
 		r.Severity = plog.Info
 	}
 
-	f := plog.FormatText
-	if *logsOutF == "json" {
-		f = plog.FormatJSON
+	fl := plog.FormatText
+	if f == formatJSON {
+		fl = plog.FormatJSON
 	}
 
-	err := cn.Logger().PrintLogs(os.Stdout, f, r, *logsTailF, r.Node == "")
+	err := cn.Logger().PrintLogs(os.Stdout, fl, r, *logsTailF, r.Node == "")
 
 	if err != nil {
 		log.Fatalf("Error: get logs: %v", err)

@@ -465,7 +465,7 @@ type storageStat struct {
 
 type snapshotStat struct {
 	Name       string     `json:"name"`
-	Size       int64      `json:"size"`
+	Size       int64      `json:"size,omitempty"`
 	Status     pbm.Status `json:"status"`
 	Err        string     `json:"error,omitempty"`
 	StateTS    int64      `json:"completeTS"`

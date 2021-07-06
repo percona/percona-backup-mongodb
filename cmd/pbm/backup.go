@@ -113,6 +113,11 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 	}
 }
 
+type ListOutput struct {
+	Backups []snapshotStat `json:"snapshot"`
+	PITR    []pitrRange    `json:"pitrChunks,omitempty"`
+}
+
 func printBackupList(cn *pbm.PBM, size int64) {
 	bcps, err := cn.BackupsList(size)
 	if err != nil {

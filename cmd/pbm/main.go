@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
-	mURL   = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").String()
+	pbmCmd  = kingpin.New("pbm", "Percona Backup for MongoDB")
+	mURL    = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").String()
+	pbmOutF = pbmCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Enum("json", "text")
 
 	configCmd           = pbmCmd.Command("config", "Set, change or list the config")
 	configRsyncBcpListF = configCmd.Flag("force-resync", "Resync backup list with the current store").Bool()
@@ -64,16 +65,12 @@ var (
 
 	logsCmd    = pbmCmd.Command("logs", "PBM logs")
 	logsTailF  = logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64()
-	logsOutF   = logsCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Enum("json", "text")
 	logsNodeF  = logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').String()
 	logsTypeF  = logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").Enum("D", "I", "W", "E", "F")
 	logsEventF = logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resyncBcpList, pitr, pitrestore, delete").Short('e').String()
 	logsOPIDF  = logsCmd.Flag("opid", "Operation ID").Short('i').String()
 
-	statusCmd  = pbmCmd.Command("status", "Show PBM status")
-	statusOutF = statusCmd.Flag("out", "Output format <text>/<json>").Short('o').Default("text").Hidden().Enum("json", "text")
-
-	client *mongo.Client
+	statusCmd = pbmCmd.Command("status", "Show PBM status")
 )
 
 func main() {
@@ -112,6 +109,11 @@ func main() {
 	}
 	// TODO: need to decouple "logger" and "logs printer"
 	pbmClient.InitLogger("", "")
+
+	frmt := formatText
+	if *pbmOutF == "json" {
+		frmt = formatJSON
+	}
 
 	switch cmd {
 	case configCmd.FullCommand():
@@ -231,13 +233,8 @@ func main() {
 	case deleteBcpCmd.FullCommand():
 		deleteBackup(pbmClient)
 	case logsCmd.FullCommand():
-		logs(pbmClient)
+		logs(pbmClient, frmt)
 	case statusCmd.FullCommand():
-		frmt := formatText
-		if *statusOutF == "json" {
-			frmt = formatJSON
-		}
-
 		status(pbmClient, *mURL, frmt)
 	}
 }
