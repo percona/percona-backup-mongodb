@@ -17,12 +17,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
+const mongoConnFlag = "mongodb-uri"
+
 func main() {
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
 
-		mURI      = pbmAgentCmd.Flag("mongodb-uri", "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
+		mURI      = pbmAgentCmd.Flag(mongoConnFlag, "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
 		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU() / 2)).Int()
 
 		versionCmd    = pbmCmd.Command("version", "PBM version info")
@@ -49,12 +51,15 @@ func main() {
 		return
 	}
 
-	log.Println(runAgent(*mURI, *dumpConns))
+	// hidecreds() will rewrite the flag content, so we have to make a copy before passing it on
+	url := "mongodb://" + strings.Replace(*mURI, "mongodb://", "", 1)
+
+	hidecreds()
+
+	log.Println(runAgent(url, *dumpConns))
 }
 
 func runAgent(mongoURI string, dumpConns int) error {
-	mongoURI = "mongodb://" + strings.Replace(mongoURI, "mongodb://", "", 1)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
