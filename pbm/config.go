@@ -31,6 +31,31 @@ type Config struct {
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
+func (c Config) String() string {
+	if c.Storage.S3.Credentials.AccessKeyID != "" {
+		c.Storage.S3.Credentials.AccessKeyID = "***"
+	}
+	if c.Storage.S3.Credentials.SecretAccessKey != "" {
+		c.Storage.S3.Credentials.SecretAccessKey = "***"
+	}
+	if c.Storage.S3.Credentials.Vault.Secret != "" {
+		c.Storage.S3.Credentials.Vault.Secret = "***"
+	}
+	if c.Storage.S3.Credentials.Vault.Token != "" {
+		c.Storage.S3.Credentials.Vault.Token = "***"
+	}
+	if c.Storage.Azure.Credentials.Key != "" {
+		c.Storage.Azure.Credentials.Key = "***"
+	}
+
+	b, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Sprintln("error:", err)
+	}
+
+	return string(b)
+}
+
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
 	Enabled      bool    `bson:"enabled" json:"enabled" yaml:"enabled"`
