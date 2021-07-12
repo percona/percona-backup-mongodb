@@ -483,7 +483,6 @@ type pitrRange struct {
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
 	} `json:"range"`
-	Size int64 `json:"size,omitempty"`
 }
 
 func (s storageStat) String() string {
@@ -644,7 +643,6 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 		var rng pitrRange
 		rng.Range.Start = int64(tl.Start)
 		rng.Range.End = int64(tl.End)
-		rng.Size = tl.Size
 
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
 		if err != nil {

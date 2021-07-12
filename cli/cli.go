@@ -1,17 +1,21 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 const (
@@ -25,6 +29,12 @@ const (
 	outJSON outFormat = "json"
 	outText outFormat = "text"
 )
+
+type deleteBcpOpts struct {
+	name      string
+	olderThan string
+	force     bool
+}
 
 func Main() {
 	var (
@@ -64,7 +74,14 @@ func Main() {
 		list    = listOpts{
 			restore: *listCmd.Flag("restore", "Show last N restores").Default("false").Bool(),
 			full:    *listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool(),
-			size:    *listCmd.Flag("size", "Show last N backups").Default("0").Int64(),
+			size:    *listCmd.Flag("size", "Show last N backups").Default("0").Int(),
+		}
+
+		deleteBcpCmd = pbmCmd.Command("delete-backup", "Delete a backup")
+		deleteBcp    = deleteBcpOpts{
+			name:      *deleteBcpCmd.Arg("name", "Backup name").String(),
+			olderThan: *deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).String(),
+			force:     *deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool(),
 		}
 	)
 
@@ -106,6 +123,8 @@ func Main() {
 		out, err = runRestore(pbmClient, &restore)
 	case listCmd.FullCommand():
 		out, err = runList(pbmClient, &list)
+	case deleteBcpCmd.FullCommand():
+		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
 	}
 
 	if err != nil {
@@ -123,25 +142,71 @@ func Main() {
 	}
 }
 
-func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
-	if l.restore {
-		return restoreList(cn, l.size, l.full)
-	}
-	// show message ans skip when resync is running
-	lk, err := findLock(cn, cn.GetLocks)
-	if err == nil && lk != nil && lk.Type == pbm.CmdResyncBackupList {
-		return outMsg("Storage resync is running. Backups list will be available after sync finishes."), nil
+func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
+	if !d.force && isTTY() {
+		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		switch strings.TrimSpace(scanner.Text()) {
+		case "yes", "Yes", "YES", "Y", "y":
+		default:
+			return nil, nil
+		}
 	}
 
-	return backupList(cn, l.size, l.full)
-}
+	cmd := pbm.Cmd{
+		Cmd: pbm.CmdDeleteBackup,
+	}
+	if len(d.olderThan) > 0 {
+		t, err := parseDateT(d.olderThan)
+		if err != nil {
+			return nil, errors.Wrap(err, "parse date")
+		}
+		cmd.Delete.OlderThan = t.UTC().Unix()
+	} else {
+		if len(d.name) == 0 {
+			return nil, errors.New("backup name should be specified")
+		}
+		cmd.Delete.Backup = d.name
+	}
+	tsop := time.Now().UTC().Unix()
+	err := pbmClient.SendCmd(cmd)
+	if err != nil {
+		return nil, errors.Wrap(err, "schedule delete")
+	}
+	if outf != outText {
+		return nil, nil
+	}
 
-type backupListOut struct {
-	Snapshots []snapshotStat `json:"snapshots"`
-	PITR      struct {
-		On     bool        `json:"on"`
-		Ranges []pitrRange `json:"ranges"`
-	} `json:"pitr"`
+	fmt.Print("Waiting for delete to be done ")
+	err = waitOp(pbmClient,
+		&pbm.LockHeader{
+			Type: pbm.CmdDeleteBackup,
+		},
+		time.Second*60)
+	if err != nil && err != errTout {
+		return nil, err
+	}
+
+	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
+	if err != nil {
+		return nil, errors.Wrap(err, "read agents log")
+	}
+
+	if errl != "" {
+		return nil, errors.New(errl)
+	}
+
+	if err == errTout {
+		fmt.Println("\nOperation is still in progress, please check status in a while")
+	} else {
+		time.Sleep(time.Second)
+		fmt.Print(".")
+		time.Sleep(time.Second)
+		fmt.Println("[done]")
+	}
+
+	return runList(pbmClient, &listOpts{})
 }
 
 type snapshotStat struct {
@@ -154,37 +219,8 @@ type snapshotStat struct {
 }
 
 type pitrRange struct {
-	Err   string `json:"error,omitempty"`
-	Range struct {
-		Start int64 `json:"start"`
-		End   int64 `json:"end"`
-	} `json:"range"`
-	Size int64 `json:"size,omitempty"`
-}
-
-func (bl backupListOut) String() string {
-	s := fmt.Sprintln("Backup snapshots:")
-	for _, b := range bl.Snapshots {
-		s += fmt.Sprintf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.StateTS)))
-	}
-	if bl.PITR.On {
-		s += fmt.Sprintln("\nPITR <on>:")
-	} else {
-		s += fmt.Sprintln("\nPITR <off>:")
-	}
-
-	for _, r := range bl.PITR.Ranges {
-		s += fmt.Sprintf("  %s - %s\n", fmtTS(r.Range.Start), fmtTS(r.Range.End))
-	}
-
-	return s
-}
-
-func backupList(cn *pbm.PBM, size int64, full bool) (list backupListOut, err error) {
-	list.Snapshots, err = getSnapshotList(cn, size)
-	if err != nil {
-		return nil, err
-	}
+	Err   string       `json:"error,omitempty"`
+	Range pbm.Timeline `json:"range"`
 }
 
 func fmtTS(ts int64) string {
@@ -256,4 +292,69 @@ func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*p
 	}
 
 	return lk, nil
+}
+
+var errTout = errors.Errorf("timeout reached")
+
+// waitOp waits up to waitFor duration until operations which acquires a given lock are finished
+func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) error {
+	// just to be sure the check hasn't started before the lock were created
+	time.Sleep(1 * time.Second)
+	fmt.Print(".")
+
+	tmr := time.NewTimer(waitFor)
+	defer tmr.Stop()
+	tkr := time.NewTicker(1 * time.Second)
+	defer tkr.Stop()
+	for {
+		select {
+		case <-tmr.C:
+			return errTout
+		case <-tkr.C:
+			fmt.Print(".")
+			lock, err := pbmClient.GetLockData(lock)
+			if err != nil {
+				// No lock, so operation has finished
+				if err == mongo.ErrNoDocuments {
+					return nil
+				}
+				return errors.Wrap(err, "get lock data")
+			}
+			clusterTime, err := pbmClient.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+			if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("operation stale, last beat ts: %d", lock.Heartbeat.T)
+			}
+		}
+	}
+}
+
+func isTTY() bool {
+	fi, err := os.Stdin.Stat()
+	return (fi.Mode()&os.ModeCharDevice) != 0 && err == nil
+}
+
+func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
+	l, err := cn.LogGet(
+		&plog.LogRequest{
+			LogKeys: plog.LogKeys{
+				Severity: plog.Error,
+				Event:    string(op),
+			},
+		}, 1)
+
+	if err != nil {
+		return "", errors.Wrap(err, "get log records")
+	}
+	if len(l) == 0 {
+		return "", nil
+	}
+
+	if l[0].TS < after {
+		return "", nil
+	}
+
+	return l[0].Msg, nil
 }

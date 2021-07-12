@@ -5,13 +5,15 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type listOpts struct {
 	restore bool
 	full    bool
-	size    int64
+	size    int
 }
 
 type restoreStatus struct {
@@ -60,6 +62,19 @@ func (r restoreListOut) String() string {
 	return s
 }
 
+func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
+	if l.restore {
+		return restoreList(cn, int64(l.size), l.full)
+	}
+	// show message ans skip when resync is running
+	lk, err := findLock(cn, cn.GetLocks)
+	if err == nil && lk != nil && lk.Type == pbm.CmdResyncBackupList {
+		return outMsg("Storage resync is running. Backups list will be available after sync finishes."), nil
+	}
+
+	return backupList(cn, l.size, l.full)
+}
+
 func restoreList(cn *pbm.PBM, size int64, full bool) (restoreListOut, error) {
 	rlist, err := cn.RestoresList(size)
 	if err != nil {
@@ -88,4 +103,158 @@ func restoreList(cn *pbm.PBM, size int64, full bool) (restoreListOut, error) {
 	}
 
 	return rout, nil
+}
+
+type backupListOut struct {
+	Snapshots []snapshotStat `json:"snapshots"`
+	PITR      struct {
+		On       bool                   `json:"on"`
+		Ranges   []pitrRange            `json:"ranges"`
+		RsRanges map[string][]pitrRange `json:"rsRanges,omitempty"`
+	} `json:"pitr"`
+}
+
+func (bl backupListOut) String() string {
+	s := fmt.Sprintln("Backup snapshots:")
+	for _, b := range bl.Snapshots {
+		s += fmt.Sprintf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.StateTS)))
+	}
+	if bl.PITR.On {
+		s += fmt.Sprintln("\nPITR <on>:")
+	} else {
+		s += fmt.Sprintln("\nPITR <off>:")
+	}
+
+	for _, r := range bl.PITR.Ranges {
+		s += fmt.Sprintf("  %s - %s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)))
+	}
+
+	return s
+}
+
+func backupList(cn *pbm.PBM, size int, full bool) (list backupListOut, err error) {
+	list.Snapshots, err = getSnapshotList(cn, size)
+	if err != nil {
+		return list, errors.Wrap(err, "get snapshots")
+	}
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full)
+	if err != nil {
+		return list, errors.Wrap(err, "get PITR ranges")
+	}
+
+	list.PITR.On, err = cn.IsPITR()
+	if err != nil {
+		return list, errors.Wrap(err, "check if PITR is on")
+	}
+
+	return list, nil
+}
+
+func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
+	bcps, err := cn.BackupsList(int64(size))
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to get backups list")
+	}
+
+	inf, err := cn.GetNodeInfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "define cluster state")
+	}
+
+	shards, err := cn.ClusterMembers(inf)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster members")
+	}
+
+	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
+	// which the `confsrv` param in `bcpMatchCluster` is all about
+	bcpsMatchCluster(bcps, shards, inf.SetName)
+
+	for i := len(bcps) - 1; i >= 0; i-- {
+		b := bcps[i]
+
+		if b.Status != pbm.StatusDone {
+			continue
+		}
+		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
+			continue
+		}
+
+		s = append(s, snapshotStat{
+			Name:       b.Name,
+			Status:     b.Status,
+			StateTS:    int64(b.LastWriteTS.T),
+			PBMVersion: b.PBMVersion,
+		})
+	}
+
+	return s, nil
+}
+
+// getPitrList shows only chunks derived from `Done` and compatible version's backups
+func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+	inf, err := cn.GetNodeInfo()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "define cluster state")
+	}
+
+	shards, err := cn.ClusterMembers(inf)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get cluster members")
+	}
+
+	now, err := cn.ClusterTime()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get cluster time")
+	}
+
+	rsRanges = make(map[string][]pitrRange)
+	var rstlines [][]pbm.Timeline
+	for _, s := range shards {
+		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
+		}
+
+		if len(tlns) == 0 {
+			continue
+		}
+
+		if size > 0 && size < len(tlns) {
+			tlns = tlns[len(tlns)-size:]
+		}
+
+		if full {
+			var rsrng []pitrRange
+			for _, tln := range tlns {
+				rsrng = append(rsrng, pitrRange{Range: tln})
+			}
+			rsRanges[s.RS] = rsrng
+		}
+		rstlines = append(rstlines, tlns)
+	}
+
+	sh := make(map[string]struct{}, len(shards))
+	for _, s := range shards {
+		sh[s.RS] = struct{}{}
+	}
+	var nomatch []string
+
+	for _, tl := range pbm.MergeTimelines(rstlines...) {
+		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
+		}
+		if bcp == nil {
+			continue
+		}
+		bcpMatchCluster(bcp, sh, inf.SetName, nomatch[:0])
+
+		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+			continue
+		}
+		ranges = append(ranges, pitrRange{Range: tl})
+	}
+
+	return ranges, rsRanges, nil
 }

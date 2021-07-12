@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type backupOpts struct {
@@ -121,5 +123,53 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string, outf out
 
 			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
 		}
+	}
+}
+
+// bcpMatchCluster checks if given backups match shards in the cluster. Match means that
+// each replset in backup have respective replset on the target cluster. It's ok if cluster
+// has more shards than there are currently in backup. But in the case of sharded cluster
+// backup has to have data for the current config server or for the sole RS in case of non-sharded rs.
+//
+// If some backup doesn't match cluster, the status of the backup meta in given `bcps` would be
+// changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
+// storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
+// in given `bcps`.
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string) {
+	sh := make(map[string]struct{}, len(shards))
+	for _, s := range shards {
+		sh[s.RS] = struct{}{}
+	}
+
+	var nomatch []string
+	for i := 0; i < len(bcps); i++ {
+		bcpMatchCluster(&bcps[i], sh, confsrv, nomatch[:0])
+	}
+}
+
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch []string) {
+	hasconfsrv := false
+	for _, rs := range bcp.Replsets {
+		if _, ok := shards[rs.Name]; !ok {
+			nomatch = append(nomatch, rs.Name)
+		}
+		if rs.Name == confsrv {
+			hasconfsrv = true
+		}
+	}
+
+	if len(nomatch) > 0 {
+		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
+			"Extra shards in the backup will cause this, for a simple example. " +
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
+		bcp.Status = pbm.StatusError
+	}
+
+	if !hasconfsrv {
+		if bcp.Error != "" {
+			bcp.Error += ". "
+		}
+		bcp.Error += "Backup has no data for the config server or sole replicaset"
+		bcp.Status = pbm.StatusError
 	}
 }
