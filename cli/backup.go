@@ -142,27 +142,28 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string)
 		sh[s.RS] = struct{}{}
 	}
 
-	var nomatch []string
+	var buf []string
 	for i := 0; i < len(bcps); i++ {
-		bcpMatchCluster(&bcps[i], sh, confsrv, nomatch[:0])
+		buf = buf[:0]
+		bcpMatchCluster(&bcps[i], sh, confsrv, &buf)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch []string) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string) {
 	hasconfsrv := false
 	for _, rs := range bcp.Replsets {
 		if _, ok := shards[rs.Name]; !ok {
-			nomatch = append(nomatch, rs.Name)
+			*nomatch = append(*nomatch, rs.Name)
 		}
 		if rs.Name == confsrv {
 			hasconfsrv = true
 		}
 	}
 
-	if len(nomatch) > 0 {
+	if len(*nomatch) > 0 {
 		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
 			"Extra shards in the backup will cause this, for a simple example. " +
-			"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(*nomatch, ", ")
 		bcp.Status = pbm.StatusError
 	}
 

@@ -244,8 +244,8 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 	for _, s := range shards {
 		sh[s.RS] = struct{}{}
 	}
-	var nomatch []string
 
+	var buf []string
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
 		if err != nil {
@@ -254,7 +254,8 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		if bcp == nil {
 			continue
 		}
-		bcpMatchCluster(bcp, sh, inf.SetName, nomatch[:0])
+		buf = buf[:0]
+		bcpMatchCluster(bcp, sh, inf.SetName, &buf)
 
 		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 			continue
