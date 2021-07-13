@@ -128,6 +128,12 @@ func (bl backupListOut) String() string {
 	for _, r := range bl.PITR.Ranges {
 		s += fmt.Sprintf("  %s - %s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)))
 	}
+	if bl.PITR.RsRanges != nil {
+		s += "\n"
+		for n, r := range bl.PITR.RsRanges {
+			s += fmt.Sprintf("  %s: %s\n", n, r)
+		}
+	}
 
 	return s
 }

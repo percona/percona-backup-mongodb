@@ -15,7 +15,8 @@ import (
 
 type backupOpts struct {
 	name        string
-	compression pbm.CompressionType
+	compression string
+	// compression pbm.CompressionType
 }
 
 type backupOut struct {

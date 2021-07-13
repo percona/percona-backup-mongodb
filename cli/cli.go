@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -26,68 +24,85 @@ const (
 type outFormat string
 
 const (
-	outJSON outFormat = "json"
-	outText outFormat = "text"
+	outJSON       outFormat = "json"
+	outJSONpretty outFormat = "json-pretty"
+	outText       outFormat = "text"
 )
 
-type deleteBcpOpts struct {
-	name      string
-	olderThan string
-	force     bool
+type logsOpts struct {
+	tail     int64
+	node     string
+	severity string
+	event    string
+	opid     string
 }
 
 func Main() {
 	var (
-		pbmCmd  = kingpin.New("pbm", "Percona Backup for MongoDB")
-		mURL    = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").String()
-		pbmOutF = outFormat(*pbmCmd.Flag("out", "Output format <text>/<json>").Short('o').Default(string(outText)).Enum(string(outJSON), string(outText)))
-
-		configCmd = pbmCmd.Command("config", "Set, change or list the config")
-		cfg       = configOpts{
-			rsync: *configCmd.Flag("force-resync", "Resync backup list with the current store").Bool(),
-			list:  *configCmd.Flag("list", "List current settings").Bool(),
-			file:  *configCmd.Flag("file", "Upload config from YAML file").String(),
-			set:   *configCmd.Flag("set", "Set the option value <key.name=value>").StringMap(),
-			key:   *configCmd.Arg("key", "Show the value of a specified key").String(),
-		}
-
-		backupCmd = pbmCmd.Command("backup", "Make backup")
-		backup    = backupOpts{
-			compression: pbm.CompressionType(*backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
-				Default(string(pbm.CompressionTypeS2)).
-				Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
-					string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
-					string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
-				)),
-		}
-
-		cancelBcpCmd = pbmCmd.Command("cancel-backup", "Cancel backup")
-
-		restoreCmd = pbmCmd.Command("restore", "Restore backup")
-		restore    = restoreOpts{
-			bcp:      *restoreCmd.Arg("backup_name", "Backup name to restore").String(),
-			pitr:     *restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).String(),
-			pitrBase: *restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").String(),
-		}
-
-		listCmd = pbmCmd.Command("list", "Backup list")
-		list    = listOpts{
-			restore: *listCmd.Flag("restore", "Show last N restores").Default("false").Bool(),
-			full:    *listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().Bool(),
-			size:    *listCmd.Flag("size", "Show last N backups").Default("0").Int(),
-		}
-
-		deleteBcpCmd = pbmCmd.Command("delete-backup", "Delete a backup")
-		deleteBcp    = deleteBcpOpts{
-			name:      *deleteBcpCmd.Arg("name", "Backup name").String(),
-			olderThan: *deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).String(),
-			force:     *deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').Bool(),
-		}
+		pbmCmd       = kingpin.New("pbm", "Percona Backup for MongoDB")
+		mURL         = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").Envar("PBM_MONGODB_URI").String()
+		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").Short('o').Default(string(outText)).Enum(string(outJSON), string(outJSONpretty), string(outText))
 	)
 
+	configCmd := pbmCmd.Command("config", "Set, change or list the config")
+	cfg := configOpts{}
+	configCmd.Flag("force-resync", "Resync backup list with the current store").BoolVar(&cfg.rsync)
+	configCmd.Flag("list", "List current settings").BoolVar(&cfg.list)
+	configCmd.Flag("file", "Upload config from YAML file").StringVar(&cfg.file)
+	configCmd.Flag("set", "Set the option value <key.name=value>").StringMapVar(&cfg.set)
+	configCmd.Arg("key", "Show the value of a specified key").StringVar(&cfg.key)
+
+	backupCmd := pbmCmd.Command("backup", "Make backup")
+	backup := backupOpts{}
+	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+		Default(string(pbm.CompressionTypeS2)).
+		EnumVar(&backup.compression,
+			string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
+			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
+			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
+		)
+
+	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
+
+	restoreCmd := pbmCmd.Command("restore", "Restore backup")
+	restore := restoreOpts{}
+	restoreCmd.Arg("backup_name", "Backup name to restore").StringVar(&restore.bcp)
+	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
+	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
+
+	listCmd := pbmCmd.Command("list", "Backup list")
+	list := listOpts{}
+	listCmd.Flag("restore", "Show last N restores").Default("false").BoolVar(&list.restore)
+	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
+	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
+
+	deleteBcpCmd := pbmCmd.Command("delete-backup", "Delete a backup")
+	deleteBcp := deleteBcpOpts{}
+	deleteBcpCmd.Arg("name", "Backup name").StringVar(&deleteBcp.name)
+	deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deleteBcp.olderThan)
+	deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deleteBcp.force)
+
+	logsCmd := pbmCmd.Command("logs", "PBM logs")
+	logs := logsOpts{}
+	logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64Var(&logs.tail)
+	logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').StringVar(&logs.node)
+	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
+	logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resyncBcpList, pitr, pitrestore, delete").Short('e').StringVar(&logs.event)
+	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
+
+	statusCmd := pbmCmd.Command("status", "Show PBM status")
+	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
+
+	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: parse command line parameters:", err)
+		os.Exit(1)
+	}
+	pbmOutF := outFormat(*pbmOutFormat)
+
 	if *mURL == "" {
-		log.Println("Error: no mongodb connection URI supplied")
-		log.Println("       Usual practice is the set it by the PBM_MONGODB_URI environment variable. It can also be set with commandline argument --mongodb-uri.")
+		fmt.Fprintln(os.Stderr, "Error: no mongodb connection URI supplied")
+		fmt.Fprintln(os.Stderr, "       Usual practice is the set it by the PBM_MONGODB_URI environment variable. It can also be set with commandline argument --mongodb-uri.")
 		pbmCmd.Usage(os.Args[1:])
 		os.Exit(1)
 	}
@@ -97,14 +112,8 @@ func Main() {
 
 	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
 	if err != nil {
-		log.Fatalln("Error: connect to mongodb:", err)
-	}
-	// TODO: need to decouple "logger" and "logs printer"
-	pbmClient.InitLogger("", "")
-
-	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
-	if err != nil {
-		log.Fatalln("Error: parse command line parameters:", err)
+		fmt.Fprintln(os.Stderr, "Error: connect to mongodb:", err)
+		os.Exit(1)
 	}
 
 	var out fmt.Stringer
@@ -125,88 +134,87 @@ func Main() {
 		out, err = runList(pbmClient, &list)
 	case deleteBcpCmd.FullCommand():
 		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
+	case logsCmd.FullCommand():
+		out, err = runLogs(pbmClient, &logs)
+	case statusCmd.FullCommand():
+		out, err = status(pbmClient, *mURL, statusSection, pbmOutF == outJSONpretty)
 	}
 
 	if err != nil {
-		log.Fatalln("ERROR:", err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+
+	if out == nil {
+		return
 	}
 
 	switch pbmOutF {
 	case outJSON:
 		err := json.NewEncoder(os.Stdout).Encode(out)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ERROR: encode output:", err)
+			fmt.Fprintln(os.Stderr, "Error: encode output:", err)
+			os.Exit(1)
+		}
+	case outJSONpretty:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		err := enc.Encode(out)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: encode output:", err)
+			os.Exit(1)
 		}
 	default:
-		fmt.Println(out)
+		fmt.Println(strings.TrimSpace(out.String()))
 	}
 }
 
-func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
-	if !d.force && isTTY() {
-		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		switch strings.TrimSpace(scanner.Text()) {
-		case "yes", "Yes", "YES", "Y", "y":
-		default:
-			return nil, nil
+func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
+	r := &plog.LogRequest{}
+
+	if l.node != "" {
+		n := strings.Split(l.node, "/")
+		r.RS = n[0]
+		if len(n) > 1 {
+			r.Node = n[1]
 		}
 	}
 
-	cmd := pbm.Cmd{
-		Cmd: pbm.CmdDeleteBackup,
-	}
-	if len(d.olderThan) > 0 {
-		t, err := parseDateT(d.olderThan)
-		if err != nil {
-			return nil, errors.Wrap(err, "parse date")
+	if l.event != "" {
+		e := strings.Split(l.event, "/")
+		r.Event = e[0]
+		if len(e) > 1 {
+			r.ObjName = e[1]
 		}
-		cmd.Delete.OlderThan = t.UTC().Unix()
-	} else {
-		if len(d.name) == 0 {
-			return nil, errors.New("backup name should be specified")
-		}
-		cmd.Delete.Backup = d.name
 	}
-	tsop := time.Now().UTC().Unix()
-	err := pbmClient.SendCmd(cmd)
+
+	if l.opid != "" {
+		r.OPID = l.opid
+	}
+
+	switch l.severity {
+	case "F":
+		r.Severity = plog.Fatal
+	case "E":
+		r.Severity = plog.Error
+	case "W":
+		r.Severity = plog.Warning
+	case "I":
+		r.Severity = plog.Info
+	case "D":
+		r.Severity = plog.Debug
+	default:
+		r.Severity = plog.Info
+	}
+
+	o, err := cn.LogGet(r, l.tail)
 	if err != nil {
-		return nil, errors.Wrap(err, "schedule delete")
-	}
-	if outf != outText {
-		return nil, nil
+		return nil, errors.Wrap(err, "get logs")
 	}
 
-	fmt.Print("Waiting for delete to be done ")
-	err = waitOp(pbmClient,
-		&pbm.LockHeader{
-			Type: pbm.CmdDeleteBackup,
-		},
-		time.Second*60)
-	if err != nil && err != errTout {
-		return nil, err
-	}
+	o.ShowNode = r.Node == ""
 
-	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteBackup, tsop)
-	if err != nil {
-		return nil, errors.Wrap(err, "read agents log")
-	}
-
-	if errl != "" {
-		return nil, errors.New(errl)
-	}
-
-	if err == errTout {
-		fmt.Println("\nOperation is still in progress, please check status in a while")
-	} else {
-		time.Sleep(time.Second)
-		fmt.Print(".")
-		time.Sleep(time.Second)
-		fmt.Println("[done]")
-	}
-
-	return runList(pbmClient, &listOpts{})
+	return o, nil
 }
 
 type snapshotStat struct {
@@ -348,13 +356,13 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}
-	if len(l) == 0 {
+	if len(l.Data) == 0 {
 		return "", nil
 	}
 
-	if l[0].TS < after {
+	if l.Data[0].TS < after {
 		return "", nil
 	}
 
-	return l[0].Msg, nil
+	return l.Data[0].Msg, nil
 }

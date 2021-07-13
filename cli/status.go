@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -22,105 +21,88 @@ import (
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
-type statusSect struct {
-	Name string
-	Obj  fmt.Stringer
+type statusOut struct {
+	data   []*statusSect
+	pretty bool
 }
 
-func (f statusSect) String() string {
-	return fmt.Sprintf("%s\n%s\n", sprinth(f.Name), f.Obj)
+func (o statusOut) String() (s string) {
+	for _, sc := range o.data {
+		if sc.Obj != nil {
+			s += sc.String() + "\n"
+		}
+	}
+
+	return s
 }
 
-func (f statusSect) MarshalJSON() ([]byte, error) {
-	s := map[string]fmt.Stringer{f.Name: f.Obj}
+func (o statusOut) MarshalJSON() ([]byte, error) {
+	s := make(map[string]fmt.Stringer)
+	for _, sc := range o.data {
+		if sc.Obj != nil {
+			s[sc.Name] = sc.Obj
+		}
+	}
+
+	if o.pretty {
+		return json.MarshalIndent(s, "", "  ")
+	}
 	return json.Marshal(s)
 }
 
-type outFormat int
-
-const (
-	formatText outFormat = iota
-	formatJSON
-)
-
-func status(cn *pbm.PBM, curi string, f outFormat) {
-	var o []statusSect
-
-	sections := []struct {
-		name string
-		f    func(cn *pbm.PBM) (fmt.Stringer, error)
-	}{
-		{"Cluster",
-			func(cn *pbm.PBM) (fmt.Stringer, error) {
-				return clusterStatus(cn, curi)
-			},
-		},
-		{"PITR incremental backup", getPitrStatus},
-		{"Currently running", getCurrOps},
-		{"Backups", getStorageStat},
-	}
-
-	for _, s := range sections {
-		obj, err := s.f(cn)
-		if err != nil {
-			log.Printf("ERROR: get status of %s: %v", s.name, err)
-			continue
-		}
-
-		o = append(o, statusSect{s.name, obj})
-	}
-
-	switch f {
-	case formatJSON:
-		err := json.NewEncoder(os.Stdout).Encode(o)
-		if err != nil {
-			log.Println("ERROR: encode status:", err)
-		}
-	default:
-		for _, s := range o {
-			fmt.Printf("\n%s\n", strings.TrimSpace(s.String()))
-		}
-	}
+type statusSect struct {
+	Name     string
+	longName string
+	Obj      fmt.Stringer
+	f        func(cn *pbm.PBM) (fmt.Stringer, error)
 }
 
-func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*pbm.LockData, error) {
-	locks, err := fn(&pbm.LockHeader{})
-	if err != nil {
-		return nil, errors.Wrap(err, "get locks")
-	}
+func (f statusSect) String() string {
+	return fmt.Sprintf("%s\n%s\n", sprinth(f.longName), f.Obj)
+}
 
-	ct, err := cn.ClusterTime()
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster time")
-	}
-
-	var lk *pbm.LockData
-	for _, l := range locks {
-		// We don't care about the PITR slicing here. It is a subject of other status sections
-		if l.Type == pbm.CmdPITR || l.Heartbeat.T+pbm.StaleFrameSec < ct.T {
+func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err error) {
+	for _, se := range s.data {
+		if sfilter != nil && !sfilter[se.Name] {
+			se.Obj = nil
 			continue
 		}
 
-		// Just check if all locks are for the same op
-		//
-		// It could happen that the healthy `lk` became stale by the time this check
-		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
-		// would be true but for the legit reason (no error).
-		// But chances for that are quite low and on the next run of `pbm status` everythin
-		//  would be ok. So no reason to complicate code to avoid that.
-		if lk != nil && l.OPID != lk.OPID {
-			if err != nil {
-				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. This conflict may naturally resolve after 10 seconds",
-					l.Replset, l.Node, l.Type, l.OPID,
-					lk.Replset, lk.Node, lk.Type, lk.OPID,
-				)
-			}
+		se.Obj, err = se.f(cn)
+		if err != nil {
+			return errors.Wrapf(err, "get status of %s", se.Name)
 		}
-
-		lk = &l
 	}
 
-	return lk, nil
+	return nil
+}
+
+func status(cn *pbm.PBM, curi string, showSection *[]string, pretty bool) (fmt.Stringer, error) {
+	out := statusOut{
+		data: []*statusSect{
+			{"cluster", "Cluster", nil,
+				func(cn *pbm.PBM) (fmt.Stringer, error) {
+					return clusterStatus(cn, curi)
+				},
+			},
+			{"pitr", "PITR incremental backup", nil, getPitrStatus},
+			{"running", "Currently running", nil, getCurrOps},
+			{"backups", "Backups", nil, getStorageStat},
+		},
+		pretty: pretty,
+	}
+
+	var sfilter map[string]bool
+	if showSection != nil && len(*showSection) > 0 {
+		sfilter = make(map[string]bool)
+		for _, s := range *showSection {
+			sfilter[s] = true
+		}
+	}
+
+	err := out.set(cn, curi, sfilter)
+
+	return out, err
 }
 
 func fmtSize(size int64) string {
@@ -147,10 +129,6 @@ func fmtSize(size int64) string {
 	return fmt.Sprintf("%.2fB", s)
 }
 
-func fmtTS(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format("2006-01-02T15:04:05")
-}
-
 func sprinth(s string) string {
 	return fmt.Sprintf("%s:\n%s", s, strings.Repeat("=", len(s)+1))
 }
@@ -172,10 +150,10 @@ type node struct {
 func (n node) String() (s string) {
 	s += fmt.Sprintf("%s: pbm-agent %v", n.Host, n.Ver)
 	if n.OK {
-		s += fmt.Sprintf(" OK")
+		s += " OK"
 		return s
 	}
-	s += fmt.Sprintf(" FAILED status:")
+	s += " FAILED status:"
 	for _, e := range n.Errs {
 		s += fmt.Sprintf("\n      > ERROR with %s", e)
 	}
@@ -339,7 +317,7 @@ LOOP:
 			return "", errors.Wrap(err, "get log records")
 		}
 
-		if len(l) == 0 {
+		if len(l.Data) == 0 {
 			continue
 		}
 
@@ -357,13 +335,13 @@ LOOP:
 		if err != nil {
 			return "", errors.Wrap(err, "get debug log records")
 		}
-		for _, r := range nl {
-			if r.Msg == pitr.LogStartMsg && r.ObjID.Timestamp().After(l[0].ObjID.Timestamp()) {
+		for _, r := range nl.Data {
+			if r.Msg == pitr.LogStartMsg && r.ObjID.Timestamp().After(l.Data[0].ObjID.Timestamp()) {
 				continue LOOP
 			}
 		}
 
-		errs = append(errs, l[0].StringNode())
+		errs = append(errs, l.Data[0].StringNode())
 	}
 
 	return strings.Join(errs, "; "), nil
@@ -463,26 +441,9 @@ type storageStat struct {
 	PITR     *pitrRanges    `json:"pitrChunks,omitempty"`
 }
 
-type snapshotStat struct {
-	Name       string     `json:"name"`
-	Size       int64      `json:"size,omitempty"`
-	Status     pbm.Status `json:"status"`
-	Err        string     `json:"error,omitempty"`
-	StateTS    int64      `json:"completeTS"`
-	PBMVersion string     `json:"pbmVersion"`
-}
-
 type pitrRanges struct {
 	Ranges []pitrRange `json:"pitrChunks,omitempty"`
 	Size   int64       `json:"size"`
-}
-
-type pitrRange struct {
-	Err   string `json:"error,omitempty"`
-	Range struct {
-		Start int64 `json:"start"`
-		End   int64 `json:"end"`
-	} `json:"range"`
 }
 
 func (s storageStat) String() string {
@@ -523,7 +484,7 @@ func (s storageStat) String() string {
 		if sn.Err != "" {
 			v = fmt.Sprintf(" !!! %s", sn.Err)
 		}
-		ret += fmt.Sprintf("    %s - %s%s\n", fmtTS(sn.Range.Start), fmtTS(sn.Range.End), v)
+		ret += fmt.Sprintf("    %s - %s%s\n", fmtTS(int64(sn.Range.Start)), fmtTS(int64(sn.Range.End)), v)
 	}
 
 	return ret
@@ -561,7 +522,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpMatchCluster(bcps, shards, inf.SetName)
+	bcpsMatchCluster(bcps, shards, inf.SetName)
 
 	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
@@ -641,8 +602,8 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 	for i := len(merged) - 1; i >= 0; i-- {
 		tl := merged[i]
 		var rng pitrRange
-		rng.Range.Start = int64(tl.Start)
-		rng.Range.End = int64(tl.End)
+		rng.Range.Start = tl.Start
+		rng.Range.End = tl.End
 
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
 		if err != nil {
