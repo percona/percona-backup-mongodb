@@ -16,7 +16,17 @@ Incremental backups
 
 When |PITR| is enabled, |pbm-agent| periodically saves consecutive slices of the :term:`oplog <Oplog>`. A method similar to the way replica set nodes elect a new primary is used to select the |pbm-agent| that saves the oplog slices. (Find more information in :ref:`pbm.architecture.agent`.)
 
-A slice covers a 10 minute span of oplog events. It can be shorter if |PITR| is disabled or interrupted by the start of a backup snapshot operation.
+By default, a slice covers a 10 minute span of oplog events. It can be shorter if |PITR| is disabled or interrupted by the start of a backup snapshot operation.
+
+As of version 1.6.0, you can change the duration of an oplog span via the configuration file. Specify the new value (in minutes) for the ``pitr.oplogSpanMin`` option.
+
+.. code-block:: bash
+
+   $ pbm config --set pitr.oplogSpanMin=5
+
+If you set the new duration when the |pbm-agent| is making an oplog slice, the slice’s span is updated right away.  
+
+If the new duration is shorter, this triggers the |pbm-agent| to make a new slice with the updated span immediately. If the new duration is larger,  the |pbm-agent| makes the next slice with the updated span in its scheduled time.
 
 The oplog slices are stored in the :file:`pbmPitr` subdirectory in the :ref:`remote storage defined in the config <storage.config>`. A slice name reflects the start and end time this slice covers. 
 
