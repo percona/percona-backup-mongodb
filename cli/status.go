@@ -348,7 +348,7 @@ LOOP:
 }
 
 type currOp struct {
-	Type    pbm.Command `json:"type"`
+	Type    pbm.Command `json:"type,omitempty"`
 	Name    string      `json:"name,omitempty"`
 	StartTS int64       `json:"startTS,omitempty"`
 	Status  string      `json:"status,omitempty"`

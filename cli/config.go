@@ -72,7 +72,7 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 		if err != nil {
 			return nil, err
 		}
-		return outMsg("Storage resync started"), nil
+		return outMsg{"Storage resync started"}, nil
 	case len(c.file) > 0:
 		buf, err := ioutil.ReadFile(c.file)
 		if err != nil {

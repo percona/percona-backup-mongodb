@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/pkg/errors"
@@ -33,20 +32,20 @@ func (r restoreRet) String() string {
 	return ""
 }
 
-func runRestore(cn *pbm.PBM, o *restoreOpts) (fmt.Stringer, error) {
+func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
 	if o.pitr != "" && o.bcp != "" {
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
 	switch {
 	case o.bcp != "":
-		err := restore(cn, o.bcp)
+		err := restore(cn, o.bcp, outf)
 		if err != nil {
 			return nil, err
 		}
 		return restoreRet{Snapshot: o.bcp}, nil
 	case o.pitr != "":
-		err := pitrestore(cn, o.pitr, o.pitrBase)
+		err := pitrestore(cn, o.pitr, o.pitrBase, outf)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +55,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts) (fmt.Stringer, error) {
 	}
 }
 
-func restore(cn *pbm.PBM, bcpName string) error {
+func restore(cn *pbm.PBM, bcpName string, outf outFormat) error {
 	bcp, err := cn.GetBackupMeta(bcpName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		return errors.Errorf("backup '%s' not found", bcpName)
@@ -68,23 +67,9 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		return errors.Errorf("backup '%s' didn't finish successfully", bcpName)
 	}
 
-	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	err = checkConcurrentOp(cn)
 	if err != nil {
-		log.Println("get locks", err)
-	}
-
-	ts, err := cn.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-
-	// Stop if there is some live operation.
-	// But in case of stale lock just move on
-	// and leave it for agents to deal with.
-	for _, l := range locks {
-		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
-		}
+		return err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -99,35 +84,25 @@ func restore(cn *pbm.PBM, bcpName string) error {
 		return errors.Wrap(err, "send command")
 	}
 
+	if outf != outText {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t, base string) error {
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
 	tsto, err := parseDateT(t)
 	if err != nil {
 		return errors.Wrap(err, "parse date")
 	}
 
-	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	err = checkConcurrentOp(cn)
 	if err != nil {
-		log.Println("get locks", err)
-	}
-
-	ts, err := cn.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-
-	// Stop if there is some live operation.
-	// But in case of stale lock just move on
-	// and leave it for agents to deal with.
-	for _, l := range locks {
-		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
-		}
+		return err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -141,6 +116,10 @@ func pitrestore(cn *pbm.PBM, t, base string) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "send command")
+	}
+
+	if outf != outText {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)

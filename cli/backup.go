@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -16,35 +15,21 @@ import (
 type backupOpts struct {
 	name        string
 	compression string
-	// compression pbm.CompressionType
 }
 
 type backupOut struct {
-	name    string
-	storage string
+	Name    string `json:"name"`
+	Storage string `json:"storage"`
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.name, b.storage)
+	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
 }
 
 func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
-	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	err := checkConcurrentOp(cn)
 	if err != nil {
-		log.Println("get locks", err)
-	}
-
-	ts, err := cn.ClusterTime()
-	if err != nil {
-		return nil, errors.Wrap(err, "read cluster time")
-	}
-
-	// Stop if there is some live operation.
-	// But if there is some stale lock leave it for agents to deal with.
-	for _, l := range locks {
-		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T && l.Type != pbm.CmdPITR {
-			return nil, errors.Errorf("another operation in progress, %s/%s [%s/%s]", l.Type, l.OPID, l.Replset, l.Node)
-		}
+		return nil, err
 	}
 
 	cfg, err := cn.GetConfig()
@@ -66,17 +51,23 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, errors.Wrap(err, "send command")
 	}
 
+	if outf != outText {
+		return backupOut{b.name, cfg.Storage.Path()}, nil
+	}
+
+	fmt.Printf("Starting backup '%s'", b.name)
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitBackupStart)
 	defer cancel()
-	err = waitForBcpStatus(ctx, cn, b.name, outf)
+	err = waitForBcpStatus(ctx, cn, b.name)
 	if err != nil {
 		return nil, err
 	}
 
+	fmt.Println()
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
-func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string, outf outFormat) (err error) {
+func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
@@ -84,9 +75,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string, outf out
 	for {
 		select {
 		case <-tk.C:
-			if outf == outText {
-				fmt.Print(".")
-			}
+			fmt.Print(".")
 			bmeta, err = cn.GetBackupMeta(bcpName)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue

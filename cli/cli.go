@@ -112,8 +112,7 @@ func Main() {
 
 	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error: connect to mongodb:", err)
-		os.Exit(1)
+		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
 
 	var out fmt.Stringer
@@ -122,14 +121,11 @@ func Main() {
 		out, err = runConfig(pbmClient, &cfg)
 	case backupCmd.FullCommand():
 		backup.name = time.Now().UTC().Format(time.RFC3339)
-		if pbmOutF == outJSON {
-			fmt.Printf("Starting backup '%s'\n", backup.name)
-		}
 		out, err = runBackup(pbmClient, &backup, pbmOutF)
 	case cancelBcpCmd.FullCommand():
 		out, err = cancelBcp(pbmClient)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(pbmClient, &restore)
+		out, err = runRestore(pbmClient, &restore, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(pbmClient, &list)
 	case deleteBcpCmd.FullCommand():
@@ -141,8 +137,7 @@ func Main() {
 	}
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		exitErr(err, pbmOutF)
 	}
 
 	if out == nil {
@@ -153,20 +148,43 @@ func Main() {
 	case outJSON:
 		err := json.NewEncoder(os.Stdout).Encode(out)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error: encode output:", err)
-			os.Exit(1)
+			exitErr(errors.Wrap(err, "encode output"), pbmOutF)
 		}
 	case outJSONpretty:
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		err := enc.Encode(out)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error: encode output:", err)
-			os.Exit(1)
+			exitErr(errors.Wrap(err, "encode output"), pbmOutF)
 		}
 	default:
 		fmt.Println(strings.TrimSpace(out.String()))
 	}
+}
+
+func exitErr(e error, f outFormat) {
+	switch f {
+	case outJSON, outJSONpretty:
+		var m interface{}
+		m = e
+		if _, ok := e.(json.Marshaler); !ok {
+			m = map[string]error{"Error": e}
+		}
+		var err error
+		if f == outJSONpretty {
+			err = json.NewEncoder(os.Stdout).Encode(m)
+		} else {
+			err = json.NewEncoder(os.Stdout).Encode(m)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: encoding error \"%v\": %v", m, err)
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "Error:", e)
+	}
+
+	os.Exit(1)
 }
 
 func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
@@ -235,10 +253,12 @@ func fmtTS(ts int64) string {
 	return time.Unix(ts, 0).UTC().Format("2006-01-02T15:04:05")
 }
 
-type outMsg string
+type outMsg struct {
+	Msg string `json:"msg"`
+}
 
 func (m outMsg) String() (s string) {
-	return string(m)
+	return m.Msg
 }
 
 func cancelBcp(cn *pbm.PBM) (fmt.Stringer, error) {
@@ -248,7 +268,7 @@ func cancelBcp(cn *pbm.PBM) (fmt.Stringer, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}
-	return outMsg("Backup cancellation has started"), nil
+	return outMsg{"Backup cancellation has started"}, nil
 }
 
 func parseDateT(v string) (time.Time, error) {
@@ -282,10 +302,10 @@ func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*p
 
 		// Just check if all locks are for the same op
 		//
-		// It could happen that the healthy `lk` became stale by the time this check
+		// It could happen that the healthy `lk` became stale by the time of this check
 		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
 		// would be true but for the legit reason (no error).
-		// But chances for that are quite low and on the next run of `pbm status` everythin
+		// But chances for that are quite low and on the next run of `pbm status` everything
 		//  would be ok. So no reason to complicate code to avoid that.
 		if lk != nil && l.OPID != lk.OPID {
 			if err != nil {
@@ -365,4 +385,42 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	}
 
 	return l.Data[0].Msg, nil
+}
+
+type concurentOpErr struct {
+	op *pbm.LockHeader
+}
+
+func (e concurentOpErr) Error() string {
+	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
+}
+
+func (e concurentOpErr) MarshalJSON() ([]byte, error) {
+	s := make(map[string]interface{})
+	s["error"] = "another operation in progress"
+	s["operation"] = e.op
+	return json.Marshal(s)
+}
+
+func checkConcurrentOp(cn *pbm.PBM) error {
+	locks, err := cn.GetLocks(&pbm.LockHeader{})
+	if err != nil {
+		return errors.Wrap(err, "get locks")
+	}
+
+	ts, err := cn.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	// Stop if there is some live operation.
+	// But in case of stale lock just move on
+	// and leave it for agents to deal with.
+	for _, l := range locks {
+		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
+			return concurentOpErr{&l.LockHeader}
+		}
+	}
+
+	return nil
 }
