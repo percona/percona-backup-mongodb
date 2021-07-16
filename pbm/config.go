@@ -172,10 +172,16 @@ func (p *PBM) SetConfigByte(buf []byte) error {
 }
 
 func (p *PBM) SetConfig(cfg Config) error {
-	if cfg.Storage.Type == StorageS3 {
+	switch cfg.Storage.Type {
+	case StorageS3:
 		err := cfg.Storage.S3.Cast()
 		if err != nil {
 			return errors.Wrap(err, "cast storage")
+		}
+	case StorageFilesystem:
+		err := cfg.Storage.Filesystem.Cast()
+		if err != nil {
+			return errors.Wrap(err, "check config")
 		}
 	}
 	ct, err := p.ClusterTime()
@@ -228,8 +234,13 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	}
 
 	// TODO: how to be with special case options like pitr.enabled
-	if key == "pitr.enabled" {
+	switch key {
+	case "pitr.enabled":
 		return errors.Wrap(p.confSetPITR(key, v.(bool)), "write to db")
+	case "storage.filesystem.path":
+		if v.(string) == "" {
+			return errors.New("storage.filesystem.path can't be empty")
+		}
 	}
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(

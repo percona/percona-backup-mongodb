@@ -237,7 +237,7 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdPITR), time.Unix(r.TS, 0).UTC().Format(time.RFC3339), opid.String(), ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdPITRestore), time.Unix(r.TS, 0).UTC().Format(time.RFC3339), opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
