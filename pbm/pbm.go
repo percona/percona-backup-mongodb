@@ -847,12 +847,12 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	return inf.ClusterTime.ClusterTime, nil
 }
 
-func (p *PBM) LogGet(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
-	return p.log.Get(r, limit, false)
+func (p *PBM) LogGet(r *log.LogRequest, limit int64) (*log.Entries, error) {
+	return log.Get(p.Conn.Database(DB).Collection(LogCollection), r, limit, false)
 }
 
-func (p *PBM) LogGetExactSeverity(r *log.LogRequest, limit int64) ([]log.LogEntry, error) {
-	return p.log.Get(r, limit, true)
+func (p *PBM) LogGetExactSeverity(r *log.LogRequest, limit int64) (*log.Entries, error) {
+	return log.Get(p.Conn.Database(DB).Collection(LogCollection), r, limit, true)
 }
 
 // SetBalancerStatus sets balancer status

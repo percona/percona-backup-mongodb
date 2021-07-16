@@ -162,9 +162,9 @@ func (p *PBM) PITRAddChunk(c PITRChunk) error {
 }
 
 type Timeline struct {
-	Start uint32
-	End   uint32
-	Size  int64
+	Start uint32 `json:"start"`
+	End   uint32 `json:"end"`
+	Size  int64  `json:"-"`
 }
 
 const tlTimeFormat = "2006-01-02T15:04:05"
