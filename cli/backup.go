@@ -29,7 +29,11 @@ func (b backupOut) String() string {
 func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
 	err := checkConcurrentOp(cn)
 	if err != nil {
-		return nil, err
+		// PITR slicing can be run along with the backup start - agents will resolve it.
+		op, ok := err.(concurentOpErr)
+		if !ok || op.op.Type != pbm.CmdPITR {
+			return nil, err
+		}
 	}
 
 	cfg, err := cn.GetConfig()

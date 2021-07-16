@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -33,11 +34,14 @@ const (
 	restoreSnapshot restoreListType = "snapshot"
 )
 
-type restoreListOut []restoreStatus
+type restoreListOut struct {
+	list []restoreStatus
+	full bool
+}
 
 func (r restoreListOut) String() string {
 	s := fmt.Sprintln("Restores history:")
-	for _, v := range r {
+	for _, v := range r.list {
 		var rprint, name string
 
 		if v.Type == restoreSnapshot {
@@ -45,7 +49,7 @@ func (r restoreListOut) String() string {
 		} else {
 			name = "PITR: " + time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
 		}
-		if v.Name != "" {
+		if r.full {
 			name += fmt.Sprintf(" [%s]", v.Name)
 		}
 
@@ -62,6 +66,10 @@ func (r restoreListOut) String() string {
 	return s
 }
 
+func (r restoreListOut) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.list)
+}
+
 func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	if l.restore {
 		return restoreList(cn, int64(l.size), l.full)
@@ -75,13 +83,13 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	return backupList(cn, l.size, l.full)
 }
 
-func restoreList(cn *pbm.PBM, size int64, full bool) (restoreListOut, error) {
+func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
 	rlist, err := cn.RestoresList(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get restore list")
 	}
 
-	var rout restoreListOut
+	rout := &restoreListOut{full: full}
 	for i := len(rlist) - 1; i >= 0; i-- {
 		r := rlist[i]
 
@@ -99,7 +107,7 @@ func restoreList(cn *pbm.PBM, size int64, full bool) (restoreListOut, error) {
 			rs.Type = restorePITR
 		}
 
-		rout = append(rout, rs)
+		rout.list = append(rout.list, rs)
 	}
 
 	return rout, nil

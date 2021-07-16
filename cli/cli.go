@@ -45,7 +45,7 @@ func Main() {
 	)
 
 	configCmd := pbmCmd.Command("config", "Set, change or list the config")
-	cfg := configOpts{}
+	cfg := configOpts{set: make(map[string]string)}
 	configCmd.Flag("force-resync", "Resync backup list with the current store").BoolVar(&cfg.rsync)
 	configCmd.Flag("list", "List current settings").BoolVar(&cfg.list)
 	configCmd.Flag("file", "Upload config from YAML file").StringVar(&cfg.file)
