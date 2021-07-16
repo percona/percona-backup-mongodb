@@ -71,6 +71,7 @@ const (
 	CmdPITR             Command = "pitr"
 	CmdPITRestore       Command = "pitrestore"
 	CmdDeleteBackup     Command = "delete"
+	CmdDeletePITR       Command = "deletePitr"
 )
 
 func (c Command) String() string {
@@ -89,6 +90,8 @@ func (c Command) String() string {
 		return "PITR restore"
 	case CmdDeleteBackup:
 		return "Delete"
+	case CmdDeletePITR:
+		return "Delete PITR chunks"
 	default:
 		return "Undefined"
 	}
@@ -102,6 +105,7 @@ type Cmd struct {
 	Restore    RestoreCmd      `bson:"restore,omitempty"`
 	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
+	DeletePITR DeletePITRCmd   `bson:"deletePitr,omitempty"`
 	TS         int64           `bson:"ts"`
 	OPID       OPID            `bson:"-"`
 }
@@ -182,6 +186,10 @@ func (p PITRestoreCmd) String() string {
 type DeleteBackupCmd struct {
 	Backup    string `bson:"backup"`
 	OlderThan int64  `bson:"olderthan"`
+}
+
+type DeletePITRCmd struct {
+	OlderThan int64 `bson:"olderthan"`
 }
 
 func (d DeleteBackupCmd) String() string {
@@ -649,7 +657,7 @@ func (p *PBM) GetFirstBackup() (*BackupMeta, error) {
 }
 
 // GetLastBackup returns last successfully finished backup
-// and nil if there is no such backup yet. If ts isn't nil it will
+// or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 	return p.getRecentBackup(before, -1)
