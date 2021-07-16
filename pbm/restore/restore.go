@@ -492,6 +492,7 @@ func (r *Restore) RunSnapshot() (err error) {
 			PreserveUUID:             preserveUUID,
 			StopOnError:              true,
 			WriteConcern:             "majority",
+			ConvertLegacyIndexes:     cfg.Restore.ConvertLegacyIndexes,
 		},
 		NSOptions: &mongorestore.NSOptions{
 			NSExclude: excludeFromRestore,
