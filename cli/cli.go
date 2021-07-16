@@ -44,6 +44,8 @@ func Main() {
 		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").Short('o').Default(string(outText)).Enum(string(outJSON), string(outJSONpretty), string(outText))
 	)
 
+	pbmCmd.HelpFlag.Short('h')
+
 	configCmd := pbmCmd.Command("config", "Set, change or list the config")
 	cfg := configOpts{set: make(map[string]string)}
 	configCmd.Flag("force-resync", "Resync backup list with the current store").BoolVar(&cfg.rsync)
@@ -81,6 +83,12 @@ func Main() {
 	deleteBcpCmd.Arg("name", "Backup name").StringVar(&deleteBcp.name)
 	deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deleteBcp.olderThan)
 	deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deleteBcp.force)
+
+	deletePitrCmd := pbmCmd.Command("delete-pitr", "Delete PITR chunks")
+	deletePitr := deletePitrOpts{}
+	deletePitrCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deletePitr.olderThan)
+	deletePitrCmd.Flag("all", "Delete all chunks").Short('a').BoolVar(&deletePitr.all)
+	deletePitrCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deletePitr.force)
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
@@ -130,6 +138,8 @@ func Main() {
 		out, err = runList(pbmClient, &list)
 	case deleteBcpCmd.FullCommand():
 		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
+	case deletePitrCmd.FullCommand():
+		out, err = deletePITR(pbmClient, &deletePitr, pbmOutF)
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
