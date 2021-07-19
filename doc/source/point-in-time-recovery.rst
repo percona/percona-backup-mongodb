@@ -56,9 +56,15 @@ Run |pbm-restore| and specify the timestamp from the valid range:
 
 .. code-block:: bash
 
-   $ pbm restore --time="2020-07-14T14:27:04"
+   $ pbm restore --time="2020-12-14T14:27:04"
 
-Restoring to the point in time requires both a backup snapshot and oplog slices that can be replayed on top of it (the time ranges in PITR section of ``pbm list`` output must be later then the selected backup snapshot). 
+Restoring to the point in time requires both a backup snapshot and oplog slices that can be replayed on top of this backup. The time stamp you specify for the restore must meet the following conditions:
+
+* It must be from the time ranges in the PITR section of ``pbm list`` output
+* It must be later than the backup snapshot used for the restore. 
+
+To illustrate this behavior, let’s use the ``pbm list`` output from the previous example. For timestamp ``2020-12-14T14:27:04``, 
+the backup snapshot ``2020-12-14T14:26:20Z [complete: 2020-12-14T14:34:39]`` is used as the base for the restore as it is the most recent one.
 
 .. seealso::
 
@@ -76,16 +82,20 @@ Re-enable |PITR| to resume saving oplog slices:
 
    $ pbm config --set pitr.enabled=true
 
+As of version 1.6.0, you can recover your database to the specific point in time using any backup snapshot, and not only the most recent one. Run the ``pbm restore`` command with the ``--base-snapshot=<backup_name>`` flag where you specify the desired backup snapshot. 
+
+To restore from any backup snapshot, |PBM| requires continuous oplog. After the backup snapshot is made and |PITR| is re-enabled, it copies the oplog saved with the backup snapshot and creates oplog slices from the end time of the latest slice to the new starting point thus making the oplog continuous.
+
 
 .. rubric:: Delete a backup
 
-When you :ref:`delete a backup <pbm.backup.delete>`, all oplog slices that relate to this backup will be deleted too. For example, you delete a backup snapshot 2020-07-24T18:13:09 while there is another snapshot
-2020-08-05T04:27:55 created after it.  |pbm-agent| deletes only oplog slices that relate to 2020-07-24T18:13:09.
+When you :ref:`delete a backup <pbm.backup.delete>`, all oplog slices that relate to this backup will be deleted too. For example, you delete a backup snapshot 2020-07-24T18:13:09 while there is another snapshot 2020-08-05T04:27:55 created after it.  |pbm-agent| deletes only oplog slices that relate to 2020-07-24T18:13:09.
 
-The same applies if you delete backups older than the specified time.
+ The same applies if you delete backups older than the specified time.
 
 .. note::
 
    When |PITR| is enabled, the most recent backup snapshot and oplog slices that relate to it won't be deleted.
+
 
 .. include:: .res/replace.txt
