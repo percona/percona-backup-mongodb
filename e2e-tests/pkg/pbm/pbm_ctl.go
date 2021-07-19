@@ -115,12 +115,21 @@ func (c *Ctl) List() (*ListOut, error) {
 		return nil, errors.Wrap(err, "run pbm list -o json")
 	}
 	l := new(ListOut)
-	err = json.Unmarshal(stripCtl(o), l)
+	err = json.Unmarshal(skipCtl(o), l)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal list")
 	}
 
 	return l, nil
+}
+
+func skipCtl(str string) []byte {
+	for i := 0; i < len(str); i++ {
+		if str[i] == '{' {
+			return []byte(str[i:])
+		}
+	}
+	return []byte(str)
 }
 
 func stripCtl(str string) []byte {
