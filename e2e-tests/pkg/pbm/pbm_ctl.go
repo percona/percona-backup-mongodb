@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"regexp"
@@ -83,6 +84,56 @@ func (c *Ctl) Backup() (string, error) {
 		return "", errors.Errorf("no backup name found in output:\n%s", out)
 	}
 	return name[1], nil
+}
+
+type ListOut struct {
+	Snapshots []SnapshotStat `json:"snapshots"`
+	PITR      struct {
+		On       bool                   `json:"on"`
+		Ranges   []PitrRange            `json:"ranges"`
+		RsRanges map[string][]PitrRange `json:"rsRanges,omitempty"`
+	} `json:"pitr"`
+}
+
+type SnapshotStat struct {
+	Name       string     `json:"name"`
+	Size       int64      `json:"size,omitempty"`
+	Status     pbm.Status `json:"status"`
+	Err        string     `json:"error,omitempty"`
+	StateTS    int64      `json:"completeTS"`
+	PBMVersion string     `json:"pbmVersion"`
+}
+
+type PitrRange struct {
+	Err   string       `json:"error,omitempty"`
+	Range pbm.Timeline `json:"range"`
+}
+
+func (c *Ctl) List() (*ListOut, error) {
+	o, err := c.RunCmd("pbm", "list", "-o", "json")
+	if err != nil {
+		return nil, errors.Wrap(err, "run pbm list -o json")
+	}
+	l := new(ListOut)
+	err = json.Unmarshal(stripCtl(o), l)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal list")
+	}
+
+	return l, nil
+}
+
+func stripCtl(str string) []byte {
+	b := make([]byte, len(str))
+	var bl int
+	for i := 0; i < len(str); i++ {
+		c := str[i]
+		if c >= 32 && c != 127 {
+			b[bl] = c
+			bl++
+		}
+	}
+	return b[:bl]
 }
 
 func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {

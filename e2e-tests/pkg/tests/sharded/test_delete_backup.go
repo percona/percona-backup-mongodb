@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -36,11 +37,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		}
 		c.BackupWaitDone(bcpName)
 
-		// to be sure pitr actually started before second backup
-		// test relies that the timeline derives from the first backup
-		if i == 0 {
-			time.Sleep(time.Second * 16)
-		}
+		time.Sleep(time.Second * 60)
 	}
 
 	c.printBcpList()
@@ -48,9 +45,8 @@ func (c *Cluster) BackupDelete(storage string) {
 	log.Println("delete backup", backups[4].name)
 	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
 	if err != nil {
-		log.Fatalf("Error: delete backup %s: %v", backups[4].name, err)
+		log.Fatalf("ERROR: delete backup %s: %v", backups[4].name, err)
 	}
-
 	log.Println("wait for delete")
 	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
 	if err != nil {
@@ -62,7 +58,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[3].ts.Format("2006-01-02T15:04:05"))
 	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
 	if err != nil {
-		log.Fatalf("Error: delete backups older than %s: %v", backups[3].name, err)
+		log.Fatalf("ERROR: delete backups older than %s: %v", backups[3].name, err)
 	}
 	log.Println("wait for delete")
 	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
@@ -83,16 +79,80 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	blist, err := c.mongopbm.BackupsList(0)
 	if err != nil {
-		log.Fatalln("Error: get backups list", err)
+		log.Fatalln("ERROR: get backups list", err)
 	}
 
 	if len(blist) != len(left) {
-		log.Fatalf("Error: backups list mismatch, expect: %v, have: %v", left, blist)
+		log.Fatalf("ERROR: backups list mismatch, expect: %v, have: %v", left, blist)
 	}
 	for _, b := range blist {
 		if _, ok := left[b.Name]; !ok {
-			log.Fatalf("Error: backup %s should be deleted", b.Name)
+			log.Fatalf("ERROR: backup %s should be deleted", b.Name)
 		}
+	}
+
+	list, err := c.pbm.List()
+	if err != nil {
+		log.Fatalf("ERROR: get backups/pitr list: %v", err)
+	}
+
+	if len(list.Snapshots) == 0 {
+		log.Println("ERROR: empty spanpshots list")
+		c.printBcpList()
+		os.Exit(1)
+	}
+
+	tsp := time.Unix(list.Snapshots[len(list.Snapshots)-1].StateTS, 0).Add(time.Second * 10)
+
+	log.Printf("delete pitr older than %s \n", tsp.Format("2006-01-02T15:04:05"))
+	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--older-than", tsp.Format("2006-01-02T15:04:05"))
+	if err != nil {
+		log.Fatalf("ERROR: delete pitr older than %s: %v", tsp.Format("2006-01-02T15:04:05"), err)
+	}
+	log.Println("wait for delete-pitr")
+	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeletePITR}, time.Minute*5)
+	if err != nil {
+		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
+	}
+
+	list, err = c.pbm.List()
+	if err != nil {
+		log.Fatalf("ERROR: get backups/pitr list: %v", err)
+	}
+
+	if len(list.PITR.Ranges) == 0 {
+		log.Fatalf("ERROR: empty pitr list, expected range after the last backup")
+	}
+	if len(list.Snapshots) == 0 {
+		log.Fatalf("ERROR: empty spanpshots list")
+	}
+
+	if list.PITR.Ranges[0].Range.Start != uint32(list.Snapshots[len(list.Snapshots)-1].StateTS) {
+		log.Println("ERROR: expected range match the last backup complete time")
+		c.printBcpList()
+		os.Exit(1)
+	}
+
+	log.Println("delete pitr all")
+	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--all")
+	if err != nil {
+		log.Fatalf("ERROR: delete all pitr")
+	}
+	log.Println("wait for delete-pitr all")
+	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeletePITR}, time.Minute*5)
+	if err != nil {
+		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
+	}
+
+	list, err = c.pbm.List()
+	if err != nil {
+		log.Fatalf("ERROR: get backups/pitr list: %v", err)
+	}
+
+	if len(list.PITR.Ranges) != 0 {
+		log.Println("ERROR: expected empty pitr list but got:")
+		c.printBcpList()
+		os.Exit(1)
 	}
 
 	log.Println("trying to restore from", backups[3])
@@ -109,13 +169,13 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artefacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
-		log.Fatalln("Error: unable to read config file:", err)
+		log.Fatalln("ERROR: unable to read config file:", err)
 	}
 
 	var cfg pbm.Config
 	err = yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
-		log.Fatalln("Error: unmarshal yaml:", err)
+		log.Fatalln("ERROR: unmarshal yaml:", err)
 	}
 
 	stg := cfg.Storage
@@ -124,14 +184,14 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	if stg.S3.EndpointURL != "" {
 		eu, err := url.Parse(stg.S3.EndpointURL)
 		if err != nil {
-			log.Fatalln("Error: parse EndpointURL:", err)
+			log.Fatalln("ERROR: parse EndpointURL:", err)
 		}
 		endopintURL = eu.Host
 	}
 
 	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
 	if err != nil {
-		log.Fatalln("Error: NewWithRegion:", err)
+		log.Fatalln("ERROR: NewWithRegion:", err)
 	}
 
 	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
@@ -139,7 +199,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 			continue
 		}
 		if object.Err != nil {
-			fmt.Println("Error: ListObjects: ", object.Err)
+			fmt.Println("ERROR: ListObjects: ", object.Err)
 			continue
 		}
 
@@ -151,7 +211,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 			}
 		}
 		if !ok {
-			log.Fatalln("Error: failed to delete lefover", object.Key)
+			log.Fatalln("ERROR: failed to delete lefover", object.Key)
 		}
 	}
 }
@@ -163,13 +223,13 @@ func (c *Cluster) BackupNotDeleteRunning() {
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
 	if err == nil || !strings.Contains(err.Error(), "unable to delete backup in running state") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
-		log.Fatalf("Error: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%v\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
+		log.Fatalf("ERROR: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%v\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
 	}
 	c.BackupWaitDone(bcpName)
 	time.Sleep(time.Second * 2)
 }
 
 func (c *Cluster) printBcpList() {
-	listo, _ := c.pbm.RunCmd("pbm", "list")
+	listo, _ := c.pbm.RunCmd("pbm", "list", "--full")
 	fmt.Printf("backup list:\n%s\n", listo)
 }
