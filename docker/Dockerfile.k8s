@@ -17,8 +17,8 @@ LABEL name="Percona Backup for MongoDB" \
 COPY LICENSE /licenses/
 
 # kubectl needed for Percona Operator for PSMDB
-ENV KUBECTL_VERSION=v1.14.1
-ENV KUBECTL_MD5SUM=223668b6d47121a9011645b04f5ef349
+ENV KUBECTL_VERSION=v1.19.12
+ENV KUBECTL_MD5SUM=9a9123b58e3287fdca20db45ab003426d30e7a77ec57605fa25947bc68f6cabf
 RUN curl -Lf -o /usr/bin/kubectl \
     https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
     && chmod +x /usr/bin/kubectl \
