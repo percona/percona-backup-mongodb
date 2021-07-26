@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 const (
@@ -43,8 +45,11 @@ func Main() {
 		mURL         = pbmCmd.Flag("mongodb-uri", "MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").Envar("PBM_MONGODB_URI").String()
 		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").Short('o').Default(string(outText)).Enum(string(outJSON), string(outJSONpretty), string(outText))
 	)
-
 	pbmCmd.HelpFlag.Short('h')
+
+	versionCmd := pbmCmd.Command("version", "PBM version info")
+	versionShort := versionCmd.Flag("short", "Show only version info").Short('s').Default("false").Bool()
+	versionCommit := versionCmd.Flag("commit", "Show only git commit info").Short('c').Default("false").Bool()
 
 	configCmd := pbmCmd.Command("config", "Set, change or list the config")
 	cfg := configOpts{set: make(map[string]string)}
@@ -107,6 +112,20 @@ func Main() {
 		os.Exit(1)
 	}
 	pbmOutF := outFormat(*pbmOutFormat)
+	var out fmt.Stringer
+
+	if cmd == versionCmd.FullCommand() {
+		switch {
+		case *versionCommit:
+			out = outCaption{"GitCommit", version.DefaultInfo.GitCommit}
+		case *versionShort:
+			out = outCaption{"Version", version.DefaultInfo.Version}
+		default:
+			out = version.DefaultInfo
+		}
+		printo(out, pbmOutF)
+		return
+	}
 
 	if *mURL == "" {
 		fmt.Fprintln(os.Stderr, "Error: no mongodb connection URI supplied")
@@ -123,7 +142,6 @@ func Main() {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
 
-	var out fmt.Stringer
 	switch cmd {
 	case configCmd.FullCommand():
 		out, err = runConfig(pbmClient, &cfg)
@@ -150,22 +168,26 @@ func Main() {
 		exitErr(err, pbmOutF)
 	}
 
+	printo(out, pbmOutF)
+}
+
+func printo(out fmt.Stringer, f outFormat) {
 	if out == nil {
 		return
 	}
 
-	switch pbmOutF {
+	switch f {
 	case outJSON:
 		err := json.NewEncoder(os.Stdout).Encode(out)
 		if err != nil {
-			exitErr(errors.Wrap(err, "encode output"), pbmOutF)
+			exitErr(errors.Wrap(err, "encode output"), f)
 		}
 	case outJSONpretty:
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		err := enc.Encode(out)
 		if err != nil {
-			exitErr(errors.Wrap(err, "encode output"), pbmOutF)
+			exitErr(errors.Wrap(err, "encode output"), f)
 		}
 	default:
 		fmt.Println(strings.TrimSpace(out.String()))
@@ -269,6 +291,24 @@ type outMsg struct {
 
 func (m outMsg) String() (s string) {
 	return m.Msg
+}
+
+type outCaption struct {
+	k string
+	v interface{}
+}
+
+func (c outCaption) String() (s string) {
+	return fmt.Sprint(c.v)
+}
+
+func (c outCaption) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteString("{")
+	b.WriteString(fmt.Sprintf("\"%s\":", c.k))
+	json.NewEncoder(&b).Encode(c.v)
+	b.WriteString("}")
+	return b.Bytes(), nil
 }
 
 func cancelBcp(cn *pbm.PBM) (fmt.Stringer, error) {
