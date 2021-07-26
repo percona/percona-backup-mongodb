@@ -255,7 +255,10 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		sz *= 4
 	}
 
-	dump := newDump(b.node.ConnURI(), b.node.DumpConns())
+	dump, err := newDump(b.node.ConnURI(), b.node.DumpConns())
+	if err != nil {
+		return errors.Wrap(err, "init mongodump options")
+	}
 	_, err = Upload(ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
@@ -652,22 +655,30 @@ type mdump struct {
 	conns int
 }
 
-func newDump(curi string, conns int) *mdump {
+func newDump(curi string, conns int) (*mdump, error) {
 	if conns <= 0 {
 		conns = 1
 	}
-	return &mdump{
-		opts: &options.ToolOptions{
-			AppName:    "mongodump",
-			VersionStr: "0.0.1",
-			URI:        &options.URI{ConnectionString: curi},
-			Auth:       &options.Auth{},
-			Namespace:  &options.Namespace{},
-			Connection: &options.Connection{},
-			Direct:     true,
-		},
-		conns: conns,
+
+	var err error
+
+	opts := options.New("mongodump", "0.0.1", "none", "", true, options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
+	opts.URI, err = options.NewURI(curi)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse connection string")
 	}
+
+	err = opts.NormalizeOptionsAndURI()
+	if err != nil {
+		return nil, errors.Wrap(err, "parse opts")
+	}
+
+	opts.Direct = true
+
+	return &mdump{
+		opts:  opts,
+		conns: conns,
+	}, nil
 }
 
 // "logger" for the mongodup's ProgressManager.
@@ -692,7 +703,7 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 			NumParallelCollections: d.conns,
 		},
 		InputOptions:    &mongodump.InputOptions{},
-		SessionProvider: &db.SessionProvider{}, //db.NewSessionProvider()//db.SessionProvider{},
+		SessionProvider: &db.SessionProvider{},
 		OutputWriter:    w,
 		ProgressManager: pm,
 	}

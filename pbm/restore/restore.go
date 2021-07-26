@@ -3,17 +3,18 @@ package restore
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"time"
 
 	mlog "github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -445,64 +446,10 @@ func (r *Restore) RunSnapshot() (err error) {
 	}
 	defer dumpReader.Close()
 
-	topts := options.ToolOptions{
-		AppName:    "mongodump",
-		VersionStr: "0.0.1",
-		URI:        &options.URI{ConnectionString: r.node.ConnURI()},
-		Auth:       &options.Auth{},
-		Namespace:  &options.Namespace{},
-		Connection: &options.Connection{},
-		Direct:     true,
-	}
-
-	rsession, err := db.NewSessionProvider(topts)
+	// Restore snapshot (mongorestore)
+	err = r.snapshot(dumpReader)
 	if err != nil {
-		return errors.Wrap(err, "create session for the dump restore")
-	}
-
-	cfg, err := r.cn.GetConfig()
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-
-	batchSize := batchSizeDefault
-	if cfg.Restore.BatchSize > 0 {
-		batchSize = cfg.Restore.BatchSize
-	}
-	numInsertionWorkers := numInsertionWorkersDefault
-	if cfg.Restore.NumInsertionWorkers > 0 {
-		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
-	}
-
-	mr := mongorestore.MongoRestore{
-		SessionProvider: rsession,
-		ToolOptions:     &topts,
-		// Have to handle users and roles on our own.
-		// see: https://jira.percona.com/browse/PBM-636 and comments.
-		SkipUsersAndRoles: true,
-		InputOptions: &mongorestore.InputOptions{
-			Archive: "-",
-		},
-		OutputOptions: &mongorestore.OutputOptions{
-			BulkBufferSize:           batchSize,
-			BypassDocumentValidation: true,
-			Drop:                     true,
-			NumInsertionWorkers:      numInsertionWorkers,
-			NumParallelCollections:   1,
-			PreserveUUID:             preserveUUID,
-			StopOnError:              true,
-			WriteConcern:             "majority",
-		},
-		NSOptions: &mongorestore.NSOptions{
-			NSExclude: excludeFromRestore,
-		},
-		InputReader: dumpReader,
-	}
-
-	rdumpResult := mr.Restore()
-	mr.Close()
-	if rdumpResult.Err != nil {
-		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
+		return errors.Wrap(err, "mongorestore")
 	}
 
 	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDumpDone, "")
@@ -560,6 +507,70 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "oplog apply")
 	}
 	r.log.Info("oplog replay finished on %v", lts)
+
+	return nil
+}
+
+func (r *Restore) snapshot(input io.Reader) (err error) {
+	topts := options.New("mongorestore", "0.0.1", "none", "", true, options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
+	topts.URI, err = options.NewURI(r.node.ConnURI())
+	if err != nil {
+		return errors.Wrap(err, "parse connection string")
+	}
+
+	err = topts.NormalizeOptionsAndURI()
+	if err != nil {
+		return errors.Wrap(err, "parse opts")
+	}
+
+	topts.Direct = true
+	topts.WriteConcern = writeconcern.New(writeconcern.WMajority())
+
+	cfg, err := r.cn.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+
+	batchSize := batchSizeDefault
+	if cfg.Restore.BatchSize > 0 {
+		batchSize = cfg.Restore.BatchSize
+	}
+	numInsertionWorkers := numInsertionWorkersDefault
+	if cfg.Restore.NumInsertionWorkers > 0 {
+		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
+	}
+
+	mopts := mongorestore.Options{}
+	mopts.ToolOptions = topts
+	mopts.InputOptions = &mongorestore.InputOptions{
+		Archive: "-",
+	}
+	mopts.OutputOptions = &mongorestore.OutputOptions{
+		BulkBufferSize:           batchSize,
+		BypassDocumentValidation: true,
+		Drop:                     true,
+		NumInsertionWorkers:      numInsertionWorkers,
+		NumParallelCollections:   1,
+		PreserveUUID:             preserveUUID,
+		StopOnError:              true,
+		WriteConcern:             "majority",
+	}
+	mopts.NSOptions = &mongorestore.NSOptions{
+		NSExclude: excludeFromRestore,
+	}
+
+	mr, err := mongorestore.New(mopts)
+	if err != nil {
+		return errors.Wrap(err, "create mongorestore obj")
+	}
+	mr.SkipUsersAndRoles = true
+	mr.InputReader = input
+
+	rdumpResult := mr.Restore()
+	mr.Close()
+	if rdumpResult.Err != nil {
+		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
+	}
 
 	return nil
 }
