@@ -6,6 +6,7 @@ sys.path.append(os.path.abspath("../"))
 from conf import *
 extensions.append('sphinx_gitstamp')
 extensions.append('sphinx_copybutton')
+extensions.append('sphinx_togglebutton')
 html_theme = 'sphinx_material'
 html_sidebars['**']=['globaltoc.html', 'searchbox.html', 'localtoc.html', 'logo-text.html']
 html_theme_options = {
@@ -21,4 +22,6 @@ pygments_style = 'emacs'
 gitstamp_fmt = "%b %d, %Y"
 copybutton_prompt_text = '$'
 plantuml = 'java -jar ../../bin/plantuml.jar'
+togglebutton_hint = "JSON output"
+
 #html_last_updated_fmt = ''

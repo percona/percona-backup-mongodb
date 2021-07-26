@@ -12,3 +12,4 @@ sphinxcontrib-qthelp==1.0.3
 sphinxcontrib-serializinghtml==1.1.4
 sphinx-gitstamp==0.3.1
 sphinxcontrib-plantuml==0.21
+sphinx-togglebutton==0.2.3
