@@ -3,6 +3,33 @@
 |pbm.app| commands
 **********************************************************************
 
+.. raw:: html
+
+   <style>
+   
+   .toggle {
+        background: none repeat scroll 0 0 #f5f5f5;
+        padding: 12px;
+        max-width: 850px;
+        line-height: 24px;
+        margin-bottom: 24px;
+    }
+   
+   .toggle .header {
+       display: block;
+       clear: both;
+       cursor: pointer;
+   }
+   
+   .toggle .header:after {
+       content: " ▶";
+   }
+   
+   .toggle .header.open:after {
+       content: " ▼";
+   }
+   </style>
+
 ``pbm CLI`` is the command line utility to control the backup system. This page describes |pbm.app| commands available in |PBM|.
 
 For how to get started with |PBM|, see :ref:`initial-setup`.
@@ -41,7 +68,41 @@ The command accepts the following flags:
      - Upload the config information from a YAML file
    * - ``--set=SET``
      - Set a new config option value. Specify the option in the <key.name=value> format.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json, json-pretty
    
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "pitr": {
+          "enabled": false,
+          "oplogSpanMin": 0
+        },
+        "storage": {
+          "type": "filesystem",
+          "s3": {
+            "region": "",
+            "endpointUrl": "",
+            "bucket": ""
+          },
+          "azure": {},
+          "filesystem": {
+            "path": "<my-backup-dir>"
+          }
+        },
+        "restore": {
+          "batchSize": 500,
+          "numInsertionWorkers": 10
+        },
+        "backup": {}
+      }
+
 .. _backup:
 
 .. rubric:: pbm backup
@@ -68,6 +129,22 @@ The command accepts the following flags:
      - Create a backup with compression. 
        Supported compression methods: ``gzip``, ``snappy``, ``lz4``, ``s2``, ``pgzip``. Default: ``s2``
        The ``none`` value means no compression is done during backup.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json, json-pretty
+
+.. container:: toggle
+ 
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "name": Timestamp,
+        "storage": "<my-backup-dir>"
+      }
+
 
 .. _restore:
 
@@ -93,12 +170,49 @@ The command accepts the following flags:
      - Description
    * - ``--time=TIME``
      - Restores the database to the specified point in time. Available if :ref:`PITR` is enabled.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json, json-pretty
+       
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "point-in-time": Timestamp
+      }
        
 .. _cancel:       
 
 .. rubric:: pbm cancel-backup
 
 Cancels a running backup. The backup is marked as canceled in the backup list.
+
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Flag
+     - Description
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json, json-pretty
+
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "msg": "Backup cancellation has started"
+      }
 
 .. _list:
 
@@ -198,5 +312,19 @@ Shows the status of |PBM|. The output provides the following information:
 - |PITR| status
 - Valid time ranges for point-in-time recovery and the data size
   
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :align: right
+   :widths: 30 70
+
+   * - Flag
+     - Description
+   * - ``-o``, ``--out=text``
+     - Shows the status as either plain text or a JSON object. Supported values: text, json, json-pretty
+   * - ``-s``, ``--sections=SECTIONS``
+     - Shows the status for the specified section. You can pass several flags to view the status for multiple sections. Supported values: cluster, pitr, running, backups. 
+   
 
 .. include:: .res/replace.txt
