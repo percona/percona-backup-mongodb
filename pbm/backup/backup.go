@@ -8,10 +8,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/mongodb/mongo-tools-common/db"
 	mlog "github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/options"
-	"github.com/mongodb/mongo-tools-common/progress"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -692,7 +692,7 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 			NumParallelCollections: d.conns,
 		},
 		InputOptions:    &mongodump.InputOptions{},
-		SessionProvider: &db.SessionProvider{},
+		SessionProvider: &db.SessionProvider{}, //db.NewSessionProvider()//db.SessionProvider{},
 		OutputWriter:    w,
 		ProgressManager: pm,
 	}

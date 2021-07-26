@@ -7,23 +7,25 @@
 package mongorestore
 
 import (
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/options"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/util"
 
 	"fmt"
 )
 
 // Usage describes basic usage of mongorestore
-var Usage = `<options> <directory or file to restore>
+var Usage = `<options> <connection-string> <directory or file to restore>
 
 Restore backups generated with mongodump to a running server.
 
 Specify a database with -d to restore a single database from the target directory,
 or use -d and -c to restore a single collection from a single .bson file.
 
-See http://docs.mongodb.org/manual/reference/program/mongorestore/ for more information.`
+Connection strings must begin with mongodb:// or mongodb+srv://.
+
+See http://docs.mongodb.com/database-tools/mongorestore/ for more information.`
 
 // Options defines the set of all options for configuring mongorestore.
 type Options struct {
@@ -81,6 +83,7 @@ const (
 	TempUsersCollOption            = "--tempUsersColl"
 	TempRolesCollOption            = "--tempRolesColl"
 	BulkBufferSizeOption           = "--batchSize"
+	FixDottedHashedIndexesOption   = "--fixDottedHashIndex"
 )
 
 // OutputOptions defines the set of options for restoring dump data.
@@ -95,14 +98,15 @@ type OutputOptions struct {
 	NoOptionsRestore         bool   `long:"noOptionsRestore" description:"don't restore collection options"`
 	KeepIndexVersion         bool   `long:"keepIndexVersion" description:"don't update index version"`
 	MaintainInsertionOrder   bool   `long:"maintainInsertionOrder" description:"restore the documents in the order of their appearance in the input source. By default the insertions will be performed in an arbitrary order. Setting this flag also enables the behavior of --stopOnError and restricts NumInsertionWorkersPerCollection to 1."`
-	NumParallelCollections   int    `long:"numParallelCollections" short:"j" description:"number of collections to restore in parallel (4 by default)" default:"4" default-mask:"-"`
-	NumInsertionWorkers      int    `long:"numInsertionWorkersPerCollection" description:"number of insert operations to run concurrently per collection (1 by default)" default:"1" default-mask:"-"`
+	NumParallelCollections   int    `long:"numParallelCollections" short:"j" description:"number of collections to restore in parallel" default:"4" default-mask:"-"`
+	NumInsertionWorkers      int    `long:"numInsertionWorkersPerCollection" description:"number of insert operations to run concurrently per collection" default:"1" default-mask:"-"`
 	StopOnError              bool   `long:"stopOnError" description:"halt after encountering any error during insertion. By default, mongorestore will attempt to continue through document validation and DuplicateKey errors, but with this option enabled, the tool will stop instead. A small number of documents may be inserted after encountering an error even with this option enabled; use --maintainInsertionOrder to halt immediately after an error"`
 	BypassDocumentValidation bool   `long:"bypassDocumentValidation" description:"bypass document validation"`
 	PreserveUUID             bool   `long:"preserveUUID" description:"preserve original collection UUIDs (off by default, requires drop)"`
 	TempUsersColl            string `long:"tempUsersColl" default:"tempusers" hidden:"true"`
 	TempRolesColl            string `long:"tempRolesColl" default:"temproles" hidden:"true"`
 	BulkBufferSize           int    `long:"batchSize" default:"1000" hidden:"true"`
+	FixDottedHashedIndexes   bool   `long:"fixDottedHashIndex" description:"when enabled, all the hashed indexes on dotted fields will be created as single field ascending indexes on the destination"`
 }
 
 // Name returns a human-readable group name for output options.
@@ -124,8 +128,6 @@ const (
 
 // NSOptions defines the set of options for configuring involved namespaces
 type NSOptions struct {
-	DB                         string   `short:"d" long:"db" value-name:"<database-name>" description:"database to use when restoring from a BSON file"`
-	Collection                 string   `short:"c" long:"collection" value-name:"<collection-name>" description:"collection to use when restoring from a BSON file"`
 	ExcludedCollections        []string `long:"excludeCollection" value-name:"<collection-name>" description:"DEPRECATED; collection to skip over during restore (may be specified multiple times to exclude additional collections)"`
 	ExcludedCollectionPrefixes []string `long:"excludeCollectionsWithPrefix" value-name:"<collection-prefix>" description:"DEPRECATED; collections to skip over during restore that have the given prefix (may be specified multiple times to exclude additional prefixes)"`
 	NSExclude                  []string `long:"nsExclude" value-name:"<namespace-pattern>" description:"exclude matching namespaces"`
@@ -141,8 +143,8 @@ func (*NSOptions) Name() string {
 
 // ParseOptions reads the command line arguments and converts them into options used to configure a MongoRestore instance
 func ParseOptions(rawArgs []string, versionStr, gitCommit string) (Options, error) {
-	opts := options.New("mongorestore", versionStr, gitCommit, Usage,
-		options.EnabledOptions{Auth: true, Connection: true, URI: true})
+	opts := options.New("mongorestore", versionStr, gitCommit, Usage, true,
+		options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
 	nsOpts := &NSOptions{}
 	opts.AddOptions(nsOpts)
 
@@ -152,16 +154,17 @@ func ParseOptions(rawArgs []string, versionStr, gitCommit string) (Options, erro
 	outputOpts := &OutputOptions{}
 	opts.AddOptions(outputOpts)
 
-	opts.URI.AddKnownURIParameters(options.KnownURIOptionsWriteConcern)
-
 	extraArgs, err := opts.ParseArgs(rawArgs)
 	if err != nil {
-		return Options{}, fmt.Errorf("error parsing command line options: %v", err)
+		return Options{}, err
 	}
 
-	// Allow the db connector to fall back onto the current database when no
-	// auth database is given; the standard -d/-c options go into nsOpts now
-	opts.Namespace = &options.Namespace{DB: nsOpts.DB}
+	if len(extraArgs) > 1 {
+		return Options{}, fmt.Errorf("error parsing positional arguments: " +
+			"provide only one polling interval in seconds and only one MongoDB connection string. " +
+			"Connection strings must begin with mongodb:// or mongodb+srv:// schemes",
+		)
+	}
 
 	log.SetVerbosity(opts.Verbosity)
 
@@ -170,7 +173,7 @@ func ParseOptions(rawArgs []string, versionStr, gitCommit string) (Options, erro
 
 	targetDir, err := getTargetDirFromArgs(extraArgs, inputOpts.Directory)
 	if err != nil {
-		return Options{}, fmt.Errorf("error parsing target dir: %v", err)
+		return Options{}, fmt.Errorf("error parsing positional arguments: %v", err)
 	}
 	targetDir = util.ToUniversalPath(targetDir)
 
@@ -190,10 +193,6 @@ func getTargetDirFromArgs(extraArgs []string, dirFlag string) (string, error) {
 	// We start by handling error cases, and then handle the different ways the target
 	// directory can be legally set.
 	switch {
-	case len(extraArgs) > 1:
-		// error on cases when there are too many positional arguments
-		return "", fmt.Errorf("too many positional arguments")
-
 	case dirFlag != "" && len(extraArgs) > 0:
 		// error when positional arguments and --dir are used
 		return "", fmt.Errorf(

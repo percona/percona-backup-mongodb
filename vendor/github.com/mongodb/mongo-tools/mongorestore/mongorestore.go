@@ -14,17 +14,19 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/mongodb/mongo-tools-common/archive"
-	"github.com/mongodb/mongo-tools-common/auth"
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/intents"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/options"
-	"github.com/mongodb/mongo-tools-common/progress"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/archive"
+	"github.com/mongodb/mongo-tools/common/auth"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/intents"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/progress"
+	"github.com/mongodb/mongo-tools/common/util"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -32,6 +34,12 @@ import (
 const (
 	progressBarLength   = 24
 	progressBarWaitTime = time.Second * 3
+)
+
+const (
+	deprecatedDBAndCollectionsOptionsWarning = "The --db and --collection flags are deprecated for " +
+		"this use-case; please use --nsInclude instead, " +
+		"i.e. with --nsInclude=${DATABASE}.${COLLECTION}"
 )
 
 // MongoRestore is a container for the user-specified options and
@@ -70,10 +78,12 @@ type MongoRestore struct {
 	// indexes belonging to dbs and collections
 	dbCollectionIndexes map[string]collectionIndexes
 
+	indexCatalog *idx.IndexCatalog
+
 	archive *archive.Reader
 
-	// channel on which to notify if/when a termination signal is received
-	termChan chan struct{}
+	// boolean set if termination signal received; false by default
+	terminate bool
 
 	// Reader to take care of BSON input if not reading from the local filesystem.
 	// This is initialized to os.Stdin if unset.
@@ -83,7 +93,7 @@ type MongoRestore struct {
 	serverVersion db.Version
 }
 
-type collectionIndexes map[string][]IndexDocument
+type collectionIndexes map[string][]*idx.IndexDocument
 
 // New initializes an instance of MongoRestore according to the provided options.
 func New(opts Options) (*MongoRestore, error) {
@@ -110,8 +120,9 @@ func New(opts Options) (*MongoRestore, error) {
 		SessionProvider: provider,
 		ProgressManager: progressManager,
 		serverVersion:   serverVersion,
+		terminate:       false,
+		indexCatalog:    idx.NewIndexCatalog(),
 	}
-
 	return restore, nil
 }
 
@@ -157,24 +168,24 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		log.Logv(log.DebugHigh, "\tdumping with object check disabled")
 	}
 
-	if restore.NSOptions.DB == "" && restore.NSOptions.Collection != "" {
+	if restore.ToolOptions.Namespace.DB == "" && restore.ToolOptions.Namespace.Collection != "" {
 		return fmt.Errorf("cannot restore a collection without a specified database")
 	}
 
-	if restore.NSOptions.DB != "" {
-		if err := util.ValidateDBName(restore.NSOptions.DB); err != nil {
+	if restore.ToolOptions.Namespace.DB != "" {
+		if err := util.ValidateDBName(restore.ToolOptions.Namespace.DB); err != nil {
 			return fmt.Errorf("invalid db name: %v", err)
 		}
 	}
-	if restore.NSOptions.Collection != "" {
-		if err := util.ValidateCollectionGrammar(restore.NSOptions.Collection); err != nil {
+	if restore.ToolOptions.Namespace.Collection != "" {
+		if err := util.ValidateCollectionGrammar(restore.ToolOptions.Namespace.Collection); err != nil {
 			return fmt.Errorf("invalid collection name: %v", err)
 		}
 	}
-	if restore.InputOptions.RestoreDBUsersAndRoles && restore.NSOptions.DB == "" {
+	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.Namespace.DB == "" {
 		return fmt.Errorf("cannot use --restoreDbUsersAndRoles without a specified database")
 	}
-	if restore.InputOptions.RestoreDBUsersAndRoles && restore.NSOptions.DB == "admin" {
+	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.Namespace.DB == "admin" {
 		return fmt.Errorf("cannot use --restoreDbUsersAndRoles with the admin database")
 	}
 
@@ -214,17 +225,9 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 	log.Logvf(log.DebugLow, "connected to node type: %v", nodeType)
 
 	// deprecations with --nsInclude --nsExclude
-	if restore.NSOptions.DB != "" || restore.NSOptions.Collection != "" {
-		// these are only okay if restoring from a bson file
-		_, fileType, err := restore.getInfoFromFilename(restore.TargetDirectory)
-		if err != nil {
-			return err
-		}
-
-		if fileType != BSONFileType {
-			log.Logvf(log.Always, "the --db and --collection args should only be used when "+
-				"restoring from a BSON file. Other uses are deprecated and will not exist "+
-				"in the future; use --nsInclude instead")
+	if restore.ToolOptions.Namespace.DB != "" || restore.ToolOptions.Namespace.Collection != "" {
+		if filepath.Ext(restore.TargetDirectory) != ".bson" {
+			log.Logvf(log.Always, deprecatedDBAndCollectionsOptionsWarning)
 		}
 	}
 	if len(restore.NSOptions.ExcludedCollections) > 0 ||
@@ -233,7 +236,7 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 			"are deprecated and will not exist in the future; use --nsExclude instead")
 	}
 	if restore.InputOptions.OplogReplay {
-		if len(restore.NSOptions.NSInclude) > 0 || restore.NSOptions.DB != "" {
+		if len(restore.NSOptions.NSInclude) > 0 || restore.ToolOptions.Namespace.DB != "" {
 			return fmt.Errorf("cannot use --oplogReplay with includes specified")
 		}
 		if len(restore.NSOptions.NSExclude) > 0 || len(restore.NSOptions.ExcludedCollections) > 0 ||
@@ -246,11 +249,11 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 	}
 
 	includes := restore.NSOptions.NSInclude
-	if restore.NSOptions.DB != "" && restore.NSOptions.Collection != "" {
-		includes = append(includes, ns.Escape(restore.NSOptions.DB)+"."+
-			restore.NSOptions.Collection)
-	} else if restore.NSOptions.DB != "" {
-		includes = append(includes, ns.Escape(restore.NSOptions.DB)+".*")
+	if restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "" {
+		includes = append(includes, ns.Escape(restore.ToolOptions.Namespace.DB)+"."+
+			restore.ToolOptions.Namespace.Collection)
+	} else if restore.ToolOptions.Namespace.DB != "" {
+		includes = append(includes, ns.Escape(restore.ToolOptions.Namespace.DB)+".*")
 	}
 	if len(includes) == 0 {
 		includes = []string{"*"}
@@ -260,10 +263,10 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		return fmt.Errorf("invalid includes: %v", err)
 	}
 
-	if len(restore.NSOptions.ExcludedCollections) > 0 && restore.NSOptions.Collection != "" {
+	if len(restore.NSOptions.ExcludedCollections) > 0 && restore.ToolOptions.Namespace.Collection != "" {
 		return fmt.Errorf("--collection is not allowed when --excludeCollection is specified")
 	}
-	if len(restore.NSOptions.ExcludedCollectionPrefixes) > 0 && restore.NSOptions.Collection != "" {
+	if len(restore.NSOptions.ExcludedCollectionPrefixes) > 0 && restore.ToolOptions.Namespace.Collection != "" {
 		return fmt.Errorf("--collection is not allowed when --excludeCollectionsWithPrefix is specified")
 	}
 	excludes := restore.NSOptions.NSExclude
@@ -316,7 +319,7 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 			return fmt.Errorf(
 				"cannot restore from \"-\" when --archive is specified")
 		}
-		if restore.NSOptions.Collection == "" {
+		if restore.ToolOptions.Namespace.Collection == "" {
 			return fmt.Errorf("cannot restore from stdin without a specified collection")
 		}
 	}
@@ -389,7 +392,7 @@ func (restore *MongoRestore) Restore() Result {
 			log.Logv(log.DebugLow, "mongorestore target is a directory, not a file")
 		}
 	}
-	if restore.NSOptions.Collection != "" &&
+	if restore.ToolOptions.Namespace.Collection != "" &&
 		restore.OutputOptions.NumParallelCollections > 1 &&
 		restore.OutputOptions.NumInsertionWorkers == 1 &&
 		!restore.OutputOptions.MaintainInsertionOrder {
@@ -420,25 +423,25 @@ func (restore *MongoRestore) Restore() Result {
 	case restore.InputOptions.Archive != "":
 		log.Logvf(log.Always, "preparing collections to restore from")
 		err = restore.CreateAllIntents(target)
-	case restore.NSOptions.DB != "" && restore.NSOptions.Collection == "":
+	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection == "":
 		log.Logvf(log.Always,
 			"building a list of collections to restore from %v dir",
 			target.Path())
 		err = restore.CreateIntentsForDB(
-			restore.NSOptions.DB,
+			restore.ToolOptions.Namespace.DB,
 			target,
 		)
-	case restore.NSOptions.DB != "" && restore.NSOptions.Collection != "" && restore.TargetDirectory == "-":
+	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "" && restore.TargetDirectory == "-":
 		log.Logvf(log.Always, "setting up a collection to be read from standard input")
 		err = restore.CreateStdinIntentForCollection(
-			restore.NSOptions.DB,
-			restore.NSOptions.Collection,
+			restore.ToolOptions.Namespace.DB,
+			restore.ToolOptions.Namespace.Collection,
 		)
-	case restore.NSOptions.DB != "" && restore.NSOptions.Collection != "":
+	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "":
 		log.Logvf(log.Always, "checking for collection data in %v", target.Path())
 		err = restore.CreateIntentForCollection(
-			restore.NSOptions.DB,
-			restore.NSOptions.Collection,
+			restore.ToolOptions.Namespace.DB,
+			restore.ToolOptions.Namespace.Collection,
 			target,
 		)
 	default:
@@ -449,7 +452,7 @@ func (restore *MongoRestore) Restore() Result {
 		return Result{Err: fmt.Errorf("error scanning filesystem: %v", err)}
 	}
 
-	if restore.isMongos && restore.manager.HasConfigDBIntent() && restore.NSOptions.DB == "" {
+	if restore.isMongos && restore.manager.HasConfigDBIntent() && restore.ToolOptions.Namespace.DB == "" {
 		return Result{Err: fmt.Errorf("cannot do a full restore on a sharded system - " +
 			"remove the 'config' directory from the dump directory first")}
 	}
@@ -501,9 +504,12 @@ func (restore *MongoRestore) Restore() Result {
 			ns, ok := <-namespaceChan
 			// the archive can have only special collections. In that case we keep reading until
 			// the namespaces are exhausted, indicated by the namespaceChan being closed.
+			log.Logvf(log.DebugLow, "received %v from namespaceChan", ns)
 			if !ok {
 				break
 			}
+			dbName, collName := util.SplitNamespace(ns)
+			ns = dbName + "." + strings.TrimPrefix(collName, "system.buckets.")
 			intent := restore.manager.IntentForNamespace(ns)
 			if intent == nil {
 				return Result{Err: fmt.Errorf("no intent for collection in archive: %v", ns)}
@@ -549,17 +555,34 @@ func (restore *MongoRestore) Restore() Result {
 		return Result{Err: fmt.Errorf("restore error: %v", err)}
 	}
 
+	err = restore.PopulateMetadataForIntents()
+	if err != nil {
+		return Result{Err: fmt.Errorf("restore error: %v", err)}
+	}
+
+	err = restore.preFlightChecks()
+	if err != nil {
+		return Result{Err: fmt.Errorf("restore error: %v", err)}
+	}
+
 	// Restore the regular collections
 	if restore.InputOptions.Archive != "" {
 		restore.manager.UsePrioritizer(restore.archive.Demux.NewPrioritizer(restore.manager))
 	} else if restore.OutputOptions.NumParallelCollections > 1 {
-		restore.manager.Finalize(intents.MultiDatabaseLTF)
+		// 3.0+ has collection-level locking for writes, so it is most efficient to
+		// prioritize by collection size. Pre-3.0 we try to avoid inserting into collections
+		// in the same database simultaneously due to the database-level locking.
+		// Up to 4.2, foreground index builds take a database-level lock for the entire build,
+		// but this prioritizer is not used for index builds so we don't need to worry about that here.
+		if restore.serverVersion.GTE(db.Version{3, 0, 0}) {
+			restore.manager.Finalize(intents.LongestTaskFirst)
+		} else {
+			restore.manager.Finalize(intents.MultiDatabaseLTF)
+		}
 	} else {
 		// use legacy restoration order if we are single-threaded
 		restore.manager.Finalize(intents.Legacy)
 	}
-
-	restore.termChan = make(chan struct{})
 
 	result := restore.RestoreIntents()
 	if result.Err != nil {
@@ -582,12 +605,71 @@ func (restore *MongoRestore) Restore() Result {
 		}
 	}
 
+	if !restore.OutputOptions.NoIndexRestore {
+		err = restore.RestoreIndexes()
+		if err != nil {
+			return result.withErr(err)
+		}
+	}
+
 	if restore.InputOptions.Archive != "" {
 		<-demuxFinished
 		return result.withErr(demuxErr)
 	}
 
 	return result
+}
+
+func (restore *MongoRestore) preFlightChecks() error {
+
+	for _, intent := range restore.manager.Intents() {
+		if intent.Type == "timeseries" {
+
+			if !restore.OutputOptions.Drop {
+				timeseriesExists, err := restore.CollectionExists(intent.DB, intent.C)
+				if err != nil {
+					return err
+				}
+
+				if timeseriesExists {
+					return fmt.Errorf("timeseries collection `%s` already exists on the destination. "+
+						"You must remove this collection from the destination or use --drop", intent.Namespace())
+				}
+
+				bucketExists, err := restore.CollectionExists(intent.DB, intent.DataCollection())
+				if err != nil {
+					return err
+				}
+
+				if bucketExists {
+					return fmt.Errorf("system.buckets collection `%v` already exists on the destination. "+
+						"You must remove this collection from the destination in order to restore %s", intent.DataNamespace(), intent.Namespace())
+				}
+			}
+
+			if restore.OutputOptions.NoOptionsRestore {
+				return fmt.Errorf("cannot specify --noOptionsRestore when restoring timeseries collections")
+			}
+		}
+	}
+
+	if restore.serverVersion.GTE(db.Version{4, 9, 0}) && !restore.OutputOptions.NoIndexRestore {
+		namespaces := restore.indexCatalog.Namespaces()
+		for _, ns := range namespaces {
+			indexes := restore.indexCatalog.GetIndexes(ns.DB, ns.Collection)
+			for _, index := range indexes {
+				for _, keyElement := range index.Key {
+					if keyElement.Value == "geoHaystack" {
+						return fmt.Errorf("found a geoHaystack index: %v on %s. "+
+							"geoHaystack indexes are not supported by the destination cluster. "+
+							"Remove the index from the source or use --noIndexRestore to skip all indexes.", index.Key, ns.String())
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (restore *MongoRestore) getArchiveReader() (rc io.ReadCloser, err error) {
@@ -625,7 +707,5 @@ func (restore *MongoRestore) getArchiveReader() (rc io.ReadCloser, err error) {
 }
 
 func (restore *MongoRestore) HandleInterrupt() {
-	if restore.termChan != nil {
-		close(restore.termChan)
-	}
+	restore.terminate = true
 }

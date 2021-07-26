@@ -9,10 +9,11 @@ package mongodump
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/util"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -116,7 +117,7 @@ func (dump *MongoDump) checkOplogTimestampExists(ts primitive.Timestamp) (bool, 
 
 	log.Logvf(log.DebugHigh, "oldest oplog entry has timestamp %v", oldestOplogEntry.Timestamp)
 	if util.TimestampGreaterThan(oldestOplogEntry.Timestamp, ts) {
-		log.Logvf(log.Info, "oldest oplog entry of timestamp %v is older than %v",
+		log.Logvf(log.Info, "oldest oplog entry of timestamp %v is newer than %v",
 			oldestOplogEntry.Timestamp, ts)
 		return false, nil
 	}
@@ -125,14 +126,39 @@ func (dump *MongoDump) checkOplogTimestampExists(ts primitive.Timestamp) (bool, 
 
 func oplogDocumentValidator(in []byte) error {
 	raw := bson.Raw(in)
-	if nsVal, err := raw.LookupErr("ns"); err == nil {
-		if nsStr, ok := nsVal.StringValueOK(); ok && nsStr == "admin.system.version" {
-			return fmt.Errorf("cannot dump with oplog if admin.system.version is modified")
-		}
+
+	var nsStr string
+	var ok bool
+
+	nsVal, err := raw.LookupErr("ns")
+
+	if err == nil {
+		nsStr, ok = nsVal.StringValueOK()
+	}
+
+	if ok && nsStr == "admin.system.version" {
+		return fmt.Errorf("cannot dump with oplog if admin.system.version is modified")
 	}
 
 	if _, err := raw.LookupErr("o", "renameCollection"); err == nil {
 		return fmt.Errorf("cannot dump with oplog while renames occur")
+	}
+
+	if _, err := raw.LookupErr("o", "importCollection"); err == nil {
+		return fmt.Errorf("cannot dump with oplog while importCollection occurs")
+	}
+
+	if ok {
+		dbName := strings.SplitN(nsStr, ".", 2)[0]
+
+		if dbName == "config" {
+			if collNameRaw, err := raw.LookupErr("o", "create"); err == nil {
+				collName, ok := collNameRaw.StringValueOK()
+				if ok && isReshardingCollection(collName) {
+					return fmt.Errorf("cannot dump with oplog while resharding")
+				}
+			}
+		}
 	}
 
 	return nil
