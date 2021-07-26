@@ -48,8 +48,8 @@ func Main() {
 	pbmCmd.HelpFlag.Short('h')
 
 	versionCmd := pbmCmd.Command("version", "PBM version info")
-	versionShort := versionCmd.Flag("short", "Only version info").Short('s').Default("false").Bool()
-	versionCommit := versionCmd.Flag("commit", "Only git commit info").Short('c').Default("false").Bool()
+	versionShort := versionCmd.Flag("short", "Show only version info").Short('s').Default("false").Bool()
+	versionCommit := versionCmd.Flag("commit", "Show only git commit info").Short('c').Default("false").Bool()
 
 	configCmd := pbmCmd.Command("config", "Set, change or list the config")
 	cfg := configOpts{set: make(map[string]string)}
