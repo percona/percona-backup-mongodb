@@ -9,16 +9,17 @@ package mongodump
 
 import (
 	"context"
+	"strings"
 
-	"github.com/mongodb/mongo-tools-common/archive"
-	"github.com/mongodb/mongo-tools-common/auth"
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/failpoint"
-	"github.com/mongodb/mongo-tools-common/intents"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/options"
-	"github.com/mongodb/mongo-tools-common/progress"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/archive"
+	"github.com/mongodb/mongo-tools/common/auth"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/failpoint"
+	"github.com/mongodb/mongo-tools/common/intents"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/progress"
+	"github.com/mongodb/mongo-tools/common/util"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -109,6 +110,9 @@ func (dump *MongoDump) ValidateOptions() error {
 		return fmt.Errorf("must specify a database when running with dumpDbUsersAndRoles")
 	case dump.OutputOptions.DumpDBUsersAndRoles && dump.ToolOptions.Namespace.Collection != "":
 		return fmt.Errorf("cannot specify a collection when running with dumpDbUsersAndRoles")
+	case strings.HasPrefix(dump.ToolOptions.Namespace.Collection, "system.buckets."):
+		return fmt.Errorf("cannot specify a system.buckets collection in --collection. " +
+			"Specifying the timeseries collection will dump the system.buckets collection")
 	case dump.OutputOptions.Oplog && dump.ToolOptions.Namespace.DB != "":
 		return fmt.Errorf("--oplog mode only supported on full dumps")
 	case len(dump.OutputOptions.ExcludedCollections) > 0 && dump.ToolOptions.Namespace.Collection != "":
@@ -334,11 +338,6 @@ func (dump *MongoDump) Dump() (err error) {
 		}
 	}
 
-	err = dump.DumpSystemIndexes()
-	if err != nil {
-		return fmt.Errorf("error dumping system indexes: %v", err)
-	}
-
 	if !dump.SkipUsersAndRoles {
 		if dump.ToolOptions.DB == "admin" || dump.ToolOptions.DB == "" {
 			err = dump.DumpUsersAndRoles()
@@ -527,13 +526,21 @@ func (dump *MongoDump) DumpIntent(intent *intents.Intent, buffer resettableOutpu
 		return err
 	}
 	intendedDB := session.Database(intent.DB)
-	coll := intendedDB.Collection(intent.C)
+	var coll *mongo.Collection
+	if intent.IsTimeseries() {
+		coll = intendedDB.Collection("system.buckets." + intent.C)
+	} else {
+		coll = intendedDB.Collection(intent.C)
+	}
+
 	// it is safer to assume that a collection is a view, if we cannot determine that it is not.
 	isView := true
 	// failure to get CollectionInfo should not cause the function to exit. We only use this to
 	// determine if a collection is a view.
 	collInfo, err := db.GetCollectionInfo(coll)
 	if err != nil {
+		return err
+	} else if collInfo != nil {
 		isView = collInfo.IsView()
 	}
 	// The storage engine cannot change from namespace to namespace,
@@ -563,6 +570,25 @@ func (dump *MongoDump) DumpIntent(intent *intents.Intent, buffer resettableOutpu
 	findQuery := &db.DeferredQuery{Coll: coll}
 	switch {
 	case len(dump.query) > 0:
+		if intent.IsTimeseries() {
+			metaKey, ok := intent.Options["timeseries"].(bson.M)["metaField"].(string)
+			if !ok {
+				return fmt.Errorf("could not determine the metaField for %s", intent.Namespace())
+			}
+			for i, predicate := range dump.query {
+				splitPredicateKey := strings.SplitN(predicate.Key, ".", 2)
+				if splitPredicateKey[0] != metaKey {
+					return fmt.Errorf("cannot process query %v for timeseries collection %s. "+
+						"mongodump only processes queries on metadata fields for timeseries collections.", dump.query, intent.Namespace())
+				}
+				if len(splitPredicateKey) > 1 {
+					dump.query[i].Key = "meta." + splitPredicateKey[1]
+				} else {
+					dump.query[i].Key = "meta"
+				}
+
+			}
+		}
 		findQuery.Filter = dump.query
 	// we only want to hint _id when the storage engine is MMAPV1 and this isn't a view, a
 	// special collection, the oplog, and the user is not asking to force table scans.
@@ -577,7 +603,7 @@ func (dump *MongoDump) DumpIntent(intent *intents.Intent, buffer resettableOutpu
 	var dumpCount int64
 
 	if dump.OutputOptions.Out == "-" {
-		log.Logvf(log.Always, "writing %v to stdout", intent.Namespace())
+		log.Logvf(log.Always, "writing %v to stdout", intent.DataNamespace())
 		dumpCount, err = dump.dumpQueryToIntent(findQuery, intent, buffer)
 		if err == nil {
 			// on success, print the document count
@@ -586,21 +612,12 @@ func (dump *MongoDump) DumpIntent(intent *intents.Intent, buffer resettableOutpu
 		return err
 	}
 
-	// set where the intent will be written to
-	if dump.OutputOptions.Archive != "" {
-		if dump.OutputOptions.Archive == "-" {
-			intent.Location = "archive on stdout"
-		} else {
-			intent.Location = fmt.Sprintf("archive '%v'", dump.OutputOptions.Archive)
-		}
-	}
-
-	log.Logvf(log.Always, "writing %v to %v", intent.Namespace(), intent.Location)
+	log.Logvf(log.Always, "writing %v to %v", intent.DataNamespace(), intent.Location)
 	if dumpCount, err = dump.dumpQueryToIntent(findQuery, intent, buffer); err != nil {
 		return err
 	}
 
-	log.Logvf(log.Always, "done dumping %v (%v %v)", intent.Namespace(), dumpCount, docPlural(dumpCount))
+	log.Logvf(log.Always, "done dumping %v (%v %v)", intent.DataNamespace(), dumpCount, docPlural(dumpCount))
 	return nil
 }
 
@@ -624,7 +641,11 @@ func (dump *MongoDump) getCount(query *db.DeferredQuery, intent *intents.Intent)
 		return 0, nil
 	}
 
-	total, err := query.EstimatedDocumentCount()
+	log.Logvf(log.DebugHigh, "Getting estimated count for %v.%v", query.Coll.Database().Name(), query.Coll.Name())
+	// We call getCount() when we are dumping a collection. If we are dumping views as collections, we need to run a
+	// count instead of an estimatedDocumentCount which uses collStats. We don't do this if the intent is timeseries because
+	// we would be dumping system.buckets.X which can use collStats.
+	total, err := query.Count(intent.IsView())
 	if err != nil {
 		return 0, fmt.Errorf("error getting count from db: %v", err)
 	}
@@ -826,18 +847,6 @@ func (dump *MongoDump) DumpUsersAndRoles() error {
 		}
 	}
 
-	return nil
-}
-
-// DumpSystemIndexes dumps all of the system.indexes
-func (dump *MongoDump) DumpSystemIndexes() error {
-	buffer := dump.getResettableOutputBuffer()
-	for _, dbName := range dump.manager.SystemIndexDBs() {
-		err := dump.DumpIntent(dump.manager.SystemIndexes(dbName), buffer)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

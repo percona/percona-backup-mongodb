@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/auth"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
@@ -31,8 +32,11 @@ type config struct {
 	replicaSetName         string
 	seedList               []string
 	serverOpts             []ServerOption
-	cs                     connstring.ConnString
+	cs                     connstring.ConnString // This must not be used for any logic in topology.Topology.
+	uri                    string
 	serverSelectionTimeout time.Duration
+	serverMonitor          *event.ServerMonitor
+	loadBalanced           bool
 }
 
 func newConfig(opts ...Option) (*config, error) {
@@ -64,11 +68,10 @@ func WithConnString(fn func(connstring.ConnString) connstring.ConnString) Option
 		var connOpts []ConnectionOption
 
 		if cs.AppName != "" {
-			connOpts = append(connOpts, WithAppName(func(string) string { return cs.AppName }))
+			c.serverOpts = append(c.serverOpts, WithServerAppName(func(string) string { return cs.AppName }))
 		}
 
-		switch cs.Connect {
-		case connstring.SingleConnect:
+		if cs.Connect == connstring.SingleConnect || (cs.DirectConnectionSet && cs.DirectConnection) {
 			c.mode = SingleMode
 		}
 
@@ -205,15 +208,31 @@ func WithConnString(fn func(connstring.ConnString) connstring.ConnString) Option
 			}))
 
 			for _, comp := range cs.Compressors {
-				if comp == "zlib" {
+				switch comp {
+				case "zlib":
 					connOpts = append(connOpts, WithZlibLevel(func(level *int) *int {
 						return &cs.ZlibLevel
+					}))
+				case "zstd":
+					connOpts = append(connOpts, WithZstdLevel(func(level *int) *int {
+						return &cs.ZstdLevel
 					}))
 				}
 			}
 
 			c.serverOpts = append(c.serverOpts, WithCompressionOptions(func(opts ...string) []string {
 				return append(opts, cs.Compressors...)
+			}))
+		}
+
+		// LoadBalanced
+		if cs.LoadBalancedSet {
+			c.loadBalanced = cs.LoadBalanced
+			c.serverOpts = append(c.serverOpts, WithServerLoadBalanced(func(bool) bool {
+				return cs.LoadBalanced
+			}))
+			connOpts = append(connOpts, WithConnectionLoadBalanced(func(bool) bool {
+				return cs.LoadBalanced
 			}))
 		}
 
@@ -265,6 +284,22 @@ func WithServerOptions(fn func(...ServerOption) []ServerOption) Option {
 func WithServerSelectionTimeout(fn func(time.Duration) time.Duration) Option {
 	return func(cfg *config) error {
 		cfg.serverSelectionTimeout = fn(cfg.serverSelectionTimeout)
+		return nil
+	}
+}
+
+// WithTopologyServerMonitor configures the monitor for all SDAM events
+func WithTopologyServerMonitor(fn func(*event.ServerMonitor) *event.ServerMonitor) Option {
+	return func(cfg *config) error {
+		cfg.serverMonitor = fn(cfg.serverMonitor)
+		return nil
+	}
+}
+
+// WithURI specifies the URI that was used to create the topology.
+func WithURI(fn func(string) string) Option {
+	return func(cfg *config) error {
+		cfg.uri = fn(cfg.uri)
 		return nil
 	}
 }
@@ -386,4 +421,12 @@ func addClientCertFromFile(cfg *tls.Config, clientFile, keyPasswd string) (strin
 	}
 
 	return x509CertSubject(crt), nil
+}
+
+// WithLoadBalanced specifies whether or not the cluster is behind a load balancer.
+func WithLoadBalanced(fn func(bool) bool) Option {
+	return func(cfg *config) error {
+		cfg.loadBalanced = fn(cfg.loadBalanced)
+		return nil
+	}
 }

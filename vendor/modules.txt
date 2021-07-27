@@ -17,7 +17,7 @@ github.com/alecthomas/template/parse
 # github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 ## explicit
 github.com/alecthomas/units
-# github.com/aws/aws-sdk-go v1.28.9
+# github.com/aws/aws-sdk-go v1.40.7
 ## explicit
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/arn
@@ -30,6 +30,7 @@ github.com/aws/aws-sdk-go/aws/credentials
 github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds
 github.com/aws/aws-sdk-go/aws/credentials/endpointcreds
 github.com/aws/aws-sdk-go/aws/credentials/processcreds
+github.com/aws/aws-sdk-go/aws/credentials/ssocreds
 github.com/aws/aws-sdk-go/aws/credentials/stscreds
 github.com/aws/aws-sdk-go/aws/csm
 github.com/aws/aws-sdk-go/aws/defaults
@@ -38,27 +39,35 @@ github.com/aws/aws-sdk-go/aws/endpoints
 github.com/aws/aws-sdk-go/aws/request
 github.com/aws/aws-sdk-go/aws/session
 github.com/aws/aws-sdk-go/aws/signer/v4
+github.com/aws/aws-sdk-go/internal/context
 github.com/aws/aws-sdk-go/internal/ini
-github.com/aws/aws-sdk-go/internal/s3err
+github.com/aws/aws-sdk-go/internal/s3shared
+github.com/aws/aws-sdk-go/internal/s3shared/arn
+github.com/aws/aws-sdk-go/internal/s3shared/s3err
 github.com/aws/aws-sdk-go/internal/sdkio
 github.com/aws/aws-sdk-go/internal/sdkmath
 github.com/aws/aws-sdk-go/internal/sdkrand
 github.com/aws/aws-sdk-go/internal/sdkuri
 github.com/aws/aws-sdk-go/internal/shareddefaults
 github.com/aws/aws-sdk-go/internal/strings
+github.com/aws/aws-sdk-go/internal/sync/singleflight
+github.com/aws/aws-sdk-go/private/checksum
 github.com/aws/aws-sdk-go/private/protocol
 github.com/aws/aws-sdk-go/private/protocol/eventstream
 github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi
 github.com/aws/aws-sdk-go/private/protocol/json/jsonutil
+github.com/aws/aws-sdk-go/private/protocol/jsonrpc
 github.com/aws/aws-sdk-go/private/protocol/query
 github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 github.com/aws/aws-sdk-go/private/protocol/rest
+github.com/aws/aws-sdk-go/private/protocol/restjson
 github.com/aws/aws-sdk-go/private/protocol/restxml
 github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil
 github.com/aws/aws-sdk-go/service/s3
-github.com/aws/aws-sdk-go/service/s3/internal/arn
 github.com/aws/aws-sdk-go/service/s3/s3iface
 github.com/aws/aws-sdk-go/service/s3/s3manager
+github.com/aws/aws-sdk-go/service/sso
+github.com/aws/aws-sdk-go/service/sso/ssoiface
 github.com/aws/aws-sdk-go/service/sts
 github.com/aws/aws-sdk-go/service/sts/stsiface
 # github.com/docker/distribution v2.7.1+incompatible
@@ -97,7 +106,6 @@ github.com/docker/go-units
 ## explicit
 github.com/go-ini/ini
 # github.com/go-stack/stack v1.8.0
-## explicit
 github.com/go-stack/stack
 # github.com/golang/snappy v0.0.1
 ## explicit
@@ -105,14 +113,18 @@ github.com/golang/snappy
 # github.com/google/uuid v1.1.1
 github.com/google/uuid
 # github.com/jessevdk/go-flags v1.4.0
-## explicit
 github.com/jessevdk/go-flags
-# github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af
+# github.com/jmespath/go-jmespath v0.4.0
 github.com/jmespath/go-jmespath
 # github.com/klauspost/compress v1.10.3
 ## explicit
 github.com/klauspost/compress/flate
+github.com/klauspost/compress/fse
+github.com/klauspost/compress/huff0
 github.com/klauspost/compress/s2
+github.com/klauspost/compress/snappy
+github.com/klauspost/compress/zstd
+github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/pgzip v1.2.3
 ## explicit
 github.com/klauspost/pgzip
@@ -144,25 +156,35 @@ github.com/mmcloughlin/avo/printer
 github.com/mmcloughlin/avo/reg
 github.com/mmcloughlin/avo/src
 github.com/mmcloughlin/avo/x86
-# github.com/mongodb/mongo-tools v0.0.0-20200115210417-786081105685
+# github.com/mongodb/mongo-tools v0.0.0-20210723181737-9fcadb98cca5
 ## explicit
+github.com/mongodb/mongo-tools/common/archive
+github.com/mongodb/mongo-tools/common/auth
+github.com/mongodb/mongo-tools/common/bsonutil
+github.com/mongodb/mongo-tools/common/db
+github.com/mongodb/mongo-tools/common/failpoint
+github.com/mongodb/mongo-tools/common/idx
+github.com/mongodb/mongo-tools/common/intents
+github.com/mongodb/mongo-tools/common/json
+github.com/mongodb/mongo-tools/common/log
+github.com/mongodb/mongo-tools/common/options
+github.com/mongodb/mongo-tools/common/password
+github.com/mongodb/mongo-tools/common/progress
+github.com/mongodb/mongo-tools/common/text
+github.com/mongodb/mongo-tools/common/txn
+github.com/mongodb/mongo-tools/common/util
 github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
 github.com/mongodb/mongo-tools/mongorestore/ns
 # github.com/mongodb/mongo-tools-common v2.0.1+incompatible
 ## explicit
-github.com/mongodb/mongo-tools-common/archive
-github.com/mongodb/mongo-tools-common/auth
 github.com/mongodb/mongo-tools-common/bsonutil
 github.com/mongodb/mongo-tools-common/db
 github.com/mongodb/mongo-tools-common/failpoint
-github.com/mongodb/mongo-tools-common/intents
 github.com/mongodb/mongo-tools-common/json
 github.com/mongodb/mongo-tools-common/log
 github.com/mongodb/mongo-tools-common/options
 github.com/mongodb/mongo-tools-common/password
-github.com/mongodb/mongo-tools-common/progress
-github.com/mongodb/mongo-tools-common/text
 github.com/mongodb/mongo-tools-common/txn
 github.com/mongodb/mongo-tools-common/util
 # github.com/opencontainers/go-digest v1.0.0-rc1
@@ -175,26 +197,27 @@ github.com/pierrec/lz4/internal/xxh32
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
-# github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337
-## explicit
-# github.com/tidwall/pretty v1.0.0
-## explicit
-# github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
-## explicit
-github.com/xdg/scram
-# github.com/xdg/stringprep v1.0.0
-## explicit
-github.com/xdg/stringprep
-# go.mongodb.org/mongo-driver v1.1.3
+# github.com/xdg-go/pbkdf2 v1.0.0
+github.com/xdg-go/pbkdf2
+# github.com/xdg-go/scram v1.0.2
+github.com/xdg-go/scram
+# github.com/xdg-go/stringprep v1.0.2
+github.com/xdg-go/stringprep
+# github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d
+github.com/youmark/pkcs8
+# go.mongodb.org/mongo-driver v1.6.0
 ## explicit
 go.mongodb.org/mongo-driver/bson
 go.mongodb.org/mongo-driver/bson/bsoncodec
+go.mongodb.org/mongo-driver/bson/bsonoptions
 go.mongodb.org/mongo-driver/bson/bsonrw
 go.mongodb.org/mongo-driver/bson/bsontype
 go.mongodb.org/mongo-driver/bson/primitive
 go.mongodb.org/mongo-driver/event
 go.mongodb.org/mongo-driver/internal
 go.mongodb.org/mongo-driver/mongo
+go.mongodb.org/mongo-driver/mongo/address
+go.mongodb.org/mongo-driver/mongo/description
 go.mongodb.org/mongo-driver/mongo/options
 go.mongodb.org/mongo-driver/mongo/readconcern
 go.mongodb.org/mongo-driver/mongo/readpref
@@ -204,12 +227,14 @@ go.mongodb.org/mongo-driver/version
 go.mongodb.org/mongo-driver/x/bsonx
 go.mongodb.org/mongo-driver/x/bsonx/bsoncore
 go.mongodb.org/mongo-driver/x/mongo/driver
-go.mongodb.org/mongo-driver/x/mongo/driver/address
 go.mongodb.org/mongo-driver/x/mongo/driver/auth
+go.mongodb.org/mongo-driver/x/mongo/driver/auth/internal/awsv4
 go.mongodb.org/mongo-driver/x/mongo/driver/auth/internal/gssapi
 go.mongodb.org/mongo-driver/x/mongo/driver/connstring
-go.mongodb.org/mongo-driver/x/mongo/driver/description
 go.mongodb.org/mongo-driver/x/mongo/driver/dns
+go.mongodb.org/mongo-driver/x/mongo/driver/mongocrypt
+go.mongodb.org/mongo-driver/x/mongo/driver/mongocrypt/options
+go.mongodb.org/mongo-driver/x/mongo/driver/ocsp
 go.mongodb.org/mongo-driver/x/mongo/driver/operation
 go.mongodb.org/mongo-driver/x/mongo/driver/session
 go.mongodb.org/mongo-driver/x/mongo/driver/topology
@@ -218,12 +243,13 @@ go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage
 # golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 golang.org/x/crypto/argon2
 golang.org/x/crypto/blake2b
+golang.org/x/crypto/ocsp
 golang.org/x/crypto/pbkdf2
 golang.org/x/crypto/ssh/terminal
 # golang.org/x/mod v0.4.2
 ## explicit
 golang.org/x/mod/semver
-# golang.org/x/net v0.0.0-20191112182307-2180aed22343
+# golang.org/x/net v0.0.0-20210614182718-04defd469f4e
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts
@@ -233,15 +259,16 @@ golang.org/x/net/internal/socks
 golang.org/x/net/proxy
 golang.org/x/net/publicsuffix
 # golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
-## explicit
+golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.0.0-20200828194041-157a740278f4
+# golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
+## explicit
 golang.org/x/sys/cpu
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/text v0.3.2
+# golang.org/x/text v0.3.6
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
@@ -261,6 +288,6 @@ golang.org/x/tools/internal/span
 ## explicit
 gopkg.in/mgo.v2/bson
 gopkg.in/mgo.v2/internal/json
-# gopkg.in/yaml.v2 v2.2.4
+# gopkg.in/yaml.v2 v2.4.0
 ## explicit
 gopkg.in/yaml.v2
