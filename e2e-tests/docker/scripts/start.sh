@@ -72,3 +72,10 @@ rs.reconfig(
     }
 )
 EOF
+
+# create view collection to test https://jira.percona.com/browse/PBM-694
+if [ $REPLSET_NAME != "cfg" ] ; then
+    mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
+db.getSiblingDB("test").createView("view", "coll",   [ { \$project: {"field1": 1 } } ] )
+EOF
+fi
