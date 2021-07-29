@@ -1,0 +1,55 @@
+.. _PBM-1.6.0:
+
+================================================================================
+*Percona Backup for MongoDB* 1.6.0
+================================================================================
+
+:Date: August 16, 2021
+:Installation: `Installing Percona Backup for MongoDB <https://www.percona.com/doc/percona-backup-mongodb/installation.html>`_
+
+Percona Backup for MongoDB is a distributed, low-impact solution for consistent backups of MongoDB
+sharded clusters and replica sets. This is a tool for creating consistent backups
+across a MongoDB sharded cluster (or a single replica set), and for restoring
+those backups to a specific point in time. 
+
+Release highlights:
+
+- Support for Percona Server for MongoDB and MongoDB Community 5.0
+- Point-in-time recovery enhancements: ability to restore from any previous snapshot and configurable span of oplog events
+- JSON output for PBM commands to simplify interfacing PBM with applications
+
+
+New Features
+================================================================================
+
+* :jirabug:`PBM-617`: Ability to restore from previous snapshots to point-in-time
+
+
+
+Improvements
+================================================================================
+
+* :jirabug:`PBM-543`: Configure the size of the span of oplog events for point-in-time recovery
+* :jirabug:`PBM-403`: Mask user credentials in ``ps`` output of ``pbm-agent``
+* :jirabug:`PBM-700`: Improve backup/pitr tasks synchronization and align oplogs creation
+* :jirabug:`PBM-697`: Add support of MongoDB 5.0 TS collections
+* :jirabug:`PBM-686`: Do not show the starting second of a PITR range which cannot be used for PITR restore
+* :jirabug:`PBM-652`: Add a command to delete PITR chunks
+* :jirabug:`PBM-632`: Add JSON output for all commands
+
+
+
+Bugs Fixed
+================================================================================
+
+* :jirabug:`PBM-694`: Fix restoring from a backup when it contains VIEWS collection (Thanks to Danish Qamar for reporting this issue)
+* :jirabug:`PBM-647`: Reduce frequency of S3 header GET requests during agent health checks (Thanks to Ryan Gunner for reporting this issue)
+* :jirabug:`PBM-708`: Ignore config.system.indexBuilds collection
+* :jirabug:`PBM-705`: Avoid writing the "Read/Write on closed pipe" error in logs on expected connection closure
+* :jirabug:`PBM-703`: PITR restore fails due to error "Failed to apply operation due to missing collection config.transactions"
+* :jirabug:`PBM-701`: Prevent restore to time which is not covered by PITR chunks
+* :jirabug:`PBM-683`: Show PITR restore as failed if an error occurred during data retrieval from storage
+* :jirabug:`PBM-640`: Remove ``cancelBackup`` and fix ``pitrestore`` filters for ``pbm logs`` command
+* :jirabug:`PBM-480`: Make ``path`` attribute mandatory for backups on local storage
+
+
