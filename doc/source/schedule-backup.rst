@@ -21,7 +21,7 @@ The steps are the following:
 
 #. Specify the environment variable in :file:`pbm-cron`:
    
-   .. code-block:: guess
+   .. code-block:: bash
    
       export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018?/replSetName=xxxx" 
 
@@ -29,7 +29,7 @@ The steps are the following:
 #. Create a ``crontab`` file. Let's name it ``pbm-backup``. 
 #. Specify the command in the file:
    
-   .. code-block:: guess
+   .. code-block:: bash
    
       30 23 * * sun <user-to-execute-cron-task> . /etc/default/pbm-cron; /usr/bin/pbm backup 
 
@@ -37,7 +37,7 @@ The steps are the following:
 
 #. Verify that backups are running in :file:`/var/log/cron` or :file:`/var/log/syslog` logs:
    
-   .. code-block:: guess
+   .. code-block:: bash
    
       $ grep CRON /var/log/syslog
 
@@ -48,7 +48,7 @@ The steps are the following:
 
    We recommend using the :command:`pbm delete backup --older-than <timestamp>` command. You can configure a ``cron`` task to automate backup deletion by specifying the following command in the :file:`crontab` file:
 
-   .. code-block:: guess
+   .. code-block:: bash
 
       /usr/bin/pbm delete-backup -f --older-than $(date -d '-1 month' +\%Y-\%m-\%d)
 
