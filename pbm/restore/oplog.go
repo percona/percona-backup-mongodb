@@ -452,10 +452,7 @@ func (o *Oplog) applyOps(entries []interface{}) error {
 // It also modifies ops that rely on 'ui'.
 func (o *Oplog) filterUUIDs(op db.Oplog) (db.Oplog, error) {
 	// Remove UUIDs from oplog entries
-	//
-	// If there is no UIID we should generate one despite o.preserveUUID option
-	// this happens with with timseries events for example
-	if !o.preserveUUID || op.UI == nil {
+	if !o.preserveUUID {
 		op.UI = nil
 
 		// The createIndexes oplog command requires 'ui' for some server versions, so
