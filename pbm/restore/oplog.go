@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
+	"github.com/mongodb/mongo-tools/common/util"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -52,10 +53,13 @@ type Oplog struct {
 	ver               *db.Version
 	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
-	preserveUUID      bool
+	preserveUUIDopt   bool
 	lastTS            primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	m                 *ns.Matcher
+
+	preserveUUID bool
+	cnamespase   string
 }
 
 // NewOplog creates an object for an oplog applying
@@ -75,6 +79,7 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) (*Oplog, e
 	return &Oplog{
 		dst:               dst,
 		ver:               ver,
+		preserveUUIDopt:   preserveUUID,
 		preserveUUID:      preserveUUID,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      idx.NewIndexCatalog(),
@@ -142,6 +147,19 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 	// skip no-ops
 	if oe.Operation == "n" {
 		return nil
+	}
+
+	// optimization not to parse namespace if it remains the same
+	if o.cnamespase != oe.Namespace {
+		o.preserveUUID = o.preserveUUIDopt
+
+		// don't preserve UUID for timeseries
+		_, coll := util.SplitNamespace(oe.Namespace)
+		if strings.HasPrefix(coll, "system.buckets.") {
+			o.preserveUUID = false
+		}
+
+		o.cnamespase = oe.Namespace
 	}
 
 	meta, err := txn.NewMeta(oe)
@@ -434,7 +452,10 @@ func (o *Oplog) applyOps(entries []interface{}) error {
 // It also modifies ops that rely on 'ui'.
 func (o *Oplog) filterUUIDs(op db.Oplog) (db.Oplog, error) {
 	// Remove UUIDs from oplog entries
-	if !o.preserveUUID {
+	//
+	// If there is no UIID we should generate one despite o.preserveUUID option
+	// this happens with with timseries events for example
+	if !o.preserveUUID || op.UI == nil {
 		op.UI = nil
 
 		// The createIndexes oplog command requires 'ui' for some server versions, so
