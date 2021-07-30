@@ -7,26 +7,30 @@ S2 is aimed for high throughput, which is why it features concurrent compression
 Decoding is compatible with Snappy compressed content, but content compressed with S2 cannot be decompressed by Snappy.
 This means that S2 can seamlessly replace Snappy without converting compressed content.
 
+S2 can produce Snappy compatible output, faster and better than Snappy.
+If you want full benefit of the changes you should use s2 without Snappy compatibility. 
+
 S2 is designed to have high throughput on content that cannot be compressed.
-This is important so you don't have to worry about spending CPU cycles on already compressed data. 
+This is important, so you don't have to worry about spending CPU cycles on already compressed data. 
 
 ## Benefits over Snappy
 
 * Better compression
+* Adjustable compression (3 levels) 
 * Concurrent stream compression
-* Faster decompression
+* Faster decompression, even for Snappy compatible content
 * Ability to quickly skip forward in compressed stream
 * Compatible with reading Snappy compressed content
-* Offers alternative, more efficient, but slightly slower compression mode.
-* Smaller block size overhead on incompressible blocks.
+* Smaller block size overhead on incompressible blocks
 * Block concatenation
-* Automatic stream size padding.
-* Snappy compatible block compression.
+* Uncompressed stream mode
+* Automatic stream size padding
+* Snappy compatible block compression
 
 ## Drawbacks over Snappy
 
 * Not optimized for 32 bit systems.
-* Uses slightly more memory (4MB per core) due to larger blocks and concurrency (configurable).
+* Streams use slightly more memory due to larger blocks and concurrency (configurable).
 
 # Usage
 
@@ -90,7 +94,7 @@ If you need to write several blocks, you should use the regular io.Writer interf
 ## Decompression
 
 ```Go
-func DecodeStream(src io.Reader, dst io.Writer) error        
+func DecodeStream(src io.Reader, dst io.Writer) error {
     dec := s2.NewReader(src)
     _, err := io.Copy(dst, dec)
     return err
@@ -112,12 +116,20 @@ For big skips the decompressor is able to skip blocks without decompressing them
 ## Single Blocks
 
 Similar to Snappy S2 offers single block compression. 
-Blocks do not offer the same flexibility and safety as streams, but may be preferable for very small payloads, less than 100K.
+Blocks do not offer the same flexibility and safety as streams,
+but may be preferable for very small payloads, less than 100K.
 
-Using a simple `dst := s2.Encode(nil, src)` will compress `src` and return the compressed result. It is possible to provide a destination buffer. If the buffer has a capacity of `s2.MaxEncodedLen(len(src))` it will be used. If not a new will be allocated. Alternatively `EncodeBetter` can also be used for better, but slightly slower compression.
+Using a simple `dst := s2.Encode(nil, src)` will compress `src` and return the compressed result. 
+It is possible to provide a destination buffer. 
+If the buffer has a capacity of `s2.MaxEncodedLen(len(src))` it will be used. 
+If not a new will be allocated. 
 
-Similarly to decompress a block you can use `dst, err := s2.Decode(nil, src)`. Again an optional destination buffer can be supplied. 
-The `s2.DecodedLen(src)` can be used to get the minimum capacity needed. If that is not satisfied a new buffer will be allocated.
+Alternatively `EncodeBetter`/`EncodeBest` can also be used for better, but slightly slower compression.
+
+Similarly to decompress a block you can use `dst, err := s2.Decode(nil, src)`. 
+Again an optional destination buffer can be supplied. 
+The `s2.DecodedLen(src)` can be used to get the minimum capacity needed. 
+If that is not satisfied a new buffer will be allocated.
 
 Block function always operate on a single goroutine since it should only be used for small payloads.
 
@@ -142,12 +154,15 @@ To build binaries to the current folder use:
 Usage: s2c [options] file1 file2
 
 Compresses all files supplied as input separately.
-Output files are written as 'filename.ext.s2'.
+Output files are written as 'filename.ext.s2' or 'filename.ext.snappy'.
 By default output files will be overwritten.
 Use - as the only file name to read from stdin and write to stdout.
 
 Wildcards are accepted: testdir/*.txt will compress all files in testdir ending with .txt
 Directories can be wildcards as well. testdir/*/*.txt will match testdir/subdir/b.txt
+
+File names beginning with 'http://' and 'https://' will be downloaded and compressed.
+Only http response code 200 is accepted.
 
 Options:
   -bench int
@@ -156,11 +171,13 @@ Options:
     	Max  block size. Examples: 64K, 256K, 1M, 4M. Must be power of two and <= 4MB (default "4M")
   -c	Write all output to stdout. Multiple input files will be concatenated
   -cpu int
-    	Compress using this amount of threads (default CPU_THREADS])
+    	Compress using this amount of threads (default 32)
   -faster
     	Compress faster, but with a minor compression loss
   -help
     	Display help
+  -o string
+        Write output to another file. Single input file only
   -pad string
     	Pad size to a multiple of this value, Examples: 500, 64K, 256K, 1M, 4M, etc (default "1")
   -q	Don't write any output to terminal, except errors
@@ -168,6 +185,13 @@ Options:
     	Delete source file(s) after successful compression
   -safe
     	Do not overwrite output files
+  -slower
+    	Compress more, but a lot slower
+  -snappy
+        Generate Snappy compatible output stream
+  -verify
+    	Verify written files  
+
 ```
 
 ## s2d
@@ -182,19 +206,100 @@ Use - as the only file name to read from stdin and write to stdout.
 Wildcards are accepted: testdir/*.txt will compress all files in testdir ending with .txt
 Directories can be wildcards as well. testdir/*/*.txt will match testdir/subdir/b.txt
 
+File names beginning with 'http://' and 'https://' will be downloaded and decompressed.
+Extensions on downloaded files are ignored. Only http response code 200 is accepted.
+
 Options:
   -bench int
     	Run benchmark n times. No output will be written
   -c	Write all output to stdout. Multiple input files will be concatenated
   -help
     	Display help
+  -o string
+        Write output to another file. Single input file only
   -q	Don't write any output to terminal, except errors
   -rm
     	Delete source file(s) after successful decompression
   -safe
     	Do not overwrite output files
+  -verify
+    	Verify files, but do not write output                                      
+```
+
+## s2sx: self-extracting archives
+
+s2sx allows creating self-extracting archives with no dependencies.
+
+By default, executables are created for the same platforms as the host os, 
+but this can be overridden with `-os` and `-arch` parameters.
+
+Extracted files have 0666 permissions, except when untar option used.
 
 ```
+Usage: s2sx [options] file1 file2
+
+Compresses all files supplied as input separately.
+If files have '.s2' extension they are assumed to be compressed already.
+Output files are written as 'filename.s2sx' and with '.exe' for windows targets.
+If output is big, an additional file with ".more" is written. This must be included as well.
+By default output files will be overwritten.
+
+Wildcards are accepted: testdir/*.txt will compress all files in testdir ending with .txt
+Directories can be wildcards as well. testdir/*/*.txt will match testdir/subdir/b.txt
+
+Options:
+  -arch string
+        Destination architecture (default "amd64")
+  -c    Write all output to stdout. Multiple input files will be concatenated
+  -cpu int
+        Compress using this amount of threads (default 32)
+  -help
+        Display help
+  -max string
+        Maximum executable size. Rest will be written to another file. (default "1G")
+  -os string
+        Destination operating system (default "windows")
+  -q    Don't write any output to terminal, except errors
+  -rm
+        Delete source file(s) after successful compression
+  -safe
+        Do not overwrite output files
+  -untar
+        Untar on destination
+```
+
+Available platforms are:
+
+ * darwin-amd64
+ * darwin-arm64
+ * linux-amd64
+ * linux-arm
+ * linux-arm64
+ * linux-mips64
+ * linux-ppc64le
+ * windows-386
+ * windows-amd64                                                                             
+
+By default, there is a size limit of 1GB for the output executable.
+
+When this is exceeded the remaining file content is written to a file called
+output+`.more`. This file must be included for a successful extraction and 
+placed alongside the executable for a successful extraction.
+
+This file *must* have the same name as the executable, so if the executable is renamed, 
+so must the `.more` file. 
+
+This functionality is disabled with stdin/stdout. 
+
+### Self-extracting TAR files
+
+If you wrap a TAR file you can specify `-untar` to make it untar on the destination host.
+
+Files are extracted to the current folder with the path specified in the tar file.
+
+Note that tar files are not validated before they are wrapped.
+
+For security reasons files that move below the root folder are not allowed.
 
 # Performance
 
@@ -315,21 +420,34 @@ In rare, worst case scenario Snappy blocks could be significantly bigger than th
 ### Mixed content blocks
 
 The most reliable is a wide dataset. 
-For this we use `webdevdata.org-2015-01-07-subset`, 53927 files, total input size: 4,014,526,923 bytes. 
-Single goroutine used.
+For this we use [`webdevdata.org-2015-01-07-subset`](https://files.klauspost.com/compress/webdevdata.org-2015-01-07-4GB-subset.7z),
+53927 files, total input size: 4,014,735,833 bytes. Single goroutine used.
 
 | *                 | Input      | Output     | Reduction | MB/s   |
 |-------------------|------------|------------|-----------|--------|
-| S2                | 4014526923 | 1062282489 | 73.54%    | **861.44** |
-| S2 Better         | 4014526923 | 981221284  | **75.56%** | 399.54 |
-| Snappy            | 4014526923 | 1128667736 | 71.89%    | 741.29 |
-| S2, Snappy Output | 4014526923 | 1093784815 | 72.75%    | 843.66 |
+| S2                | 4014735833 | 1059723369 | 73.60%    | **934.34** |
+| S2 Better         | 4014735833 | 969670507  | 75.85%    | 532.70 |
+| S2 Best           | 4014735833 | 906625668  | **77.85%** | 46.84 |
+| Snappy            | 4014735833 | 1128706759 | 71.89%    | 762.59 |
+| S2, Snappy Output | 4014735833 | 1093821420 | 72.75%    | 908.60 |
+| LZ4               | 4014735833 | 1079259294 | 73.12%    | 526.94 |
 
-S2 delivers both the best single threaded throuhput with regular mode and the best compression rate with "better" mode. 
+S2 delivers both the best single threaded throughput with regular mode and the best compression rate with "best".
+"Better" mode provides the same compression speed as LZ4 with better compression ratio. 
 
-When outputting Snappy compatible output it still delivers better throughput (100MB/s more) and better compression.
+When outputting Snappy compatible output it still delivers better throughput (150MB/s more) and better compression.
 
-As can be seen from the other benchmarks decompression should also be easier on the S2 generated output.  
+As can be seen from the other benchmarks decompression should also be easier on the S2 generated output.
+
+Though they cannot be compared due to different decompression speeds here are the speed/size comparisons for
+other Go compressors:
+
+| *                 | Input      | Output     | Reduction | MB/s   |
+|-------------------|------------|------------|-----------|--------|
+| Zstd Fastest (Go) | 4014735833 | 794608518  | 80.21%    | 236.04 |
+| Zstd Best (Go)    | 4014735833 | 704603356  | 82.45%    | 35.63  |
+| Deflate (Go) l1   | 4014735833 | 871294239  | 78.30%    | 214.04 |
+| Deflate (Go) l9   | 4014735833 | 730389060  | 81.81%    | 41.17  |
 
 ### Standard block compression
 
@@ -442,11 +560,112 @@ The PDF sample shows a significant slowdown compared to Snappy, as this mode tri
 to compress the data. Very small blocks are also not favorable for better compression, so throughput is way down.
 
 This mode aims to provide better compression at the expense of performance and achieves that 
-without a huge performance pentalty, except on very small blocks. 
+without a huge performance penalty, except on very small blocks. 
 
 Decompression speed suffers a little compared to the regular S2 mode, 
 but still manages to be close to Snappy in spite of increased compression.  
  
+# Best compression mode
+
+S2 offers a "best" compression mode. 
+
+This will compress as much as possible with little regard to CPU usage.
+
+Mainly for offline compression, but where decompression speed should still
+be high and compatible with other S2 compressed data.
+
+Some examples compared on 16 core CPU, amd64 assembly used:
+
+```
+* enwik10
+Default... 10000000000 -> 4761467548 [47.61%]; 1.098s, 8685.6MB/s
+Better...  10000000000 -> 4219438251 [42.19%]; 1.925s, 4954.2MB/s
+Best...    10000000000 -> 3627364337 [36.27%]; 43.051s, 221.5MB/s
+
+* github-june-2days-2019.json
+Default... 6273951764 -> 1043196283 [16.63%]; 431ms, 13882.3MB/s
+Better...  6273951764 -> 949146808 [15.13%]; 547ms, 10938.4MB/s
+Best...    6273951764 -> 832855506 [13.27%]; 9.455s, 632.8MB/s
+
+* nyc-taxi-data-10M.csv
+Default... 3325605752 -> 1095998837 [32.96%]; 324ms, 9788.7MB/s
+Better...  3325605752 -> 954776589 [28.71%]; 491ms, 6459.4MB/s
+Best...    3325605752 -> 779098746 [23.43%]; 8.29s, 382.6MB/s
+
+* 10gb.tar
+Default... 10065157632 -> 5916578242 [58.78%]; 1.028s, 9337.4MB/s
+Better...  10065157632 -> 5649207485 [56.13%]; 1.597s, 6010.6MB/s
+Best...    10065157632 -> 5208719802 [51.75%]; 32.78s, 292.8MB/
+
+* consensus.db.10gb
+Default... 10737418240 -> 4562648848 [42.49%]; 882ms, 11610.0MB/s
+Better...  10737418240 -> 4542428129 [42.30%]; 1.533s, 6679.7MB/s
+Best...    10737418240 -> 4244773384 [39.53%]; 42.96s, 238.4MB/s
+```
+
+Decompression speed should be around the same as using the 'better' compression mode. 
+
+# Snappy Compatibility
+
+S2 now offers full compatibility with Snappy.
+
+This means that the efficient encoders of S2 can be used to generate fully Snappy compatible output.
+
+## Blocks
+
+Snappy compatible blocks can be generated with the S2 encoder. 
+Compression and speed is typically a bit better `MaxEncodedLen` is also smaller for smaller memory usage. Replace 
+
+| Snappy                     | S2 replacement          |
+|----------------------------|-------------------------|
+| snappy.Encode(...)         | s2.EncodeSnappy(...)`   |
+| snappy.MaxEncodedLen(...)  | s2.MaxEncodedLen(...)   |
+
+`s2.EncodeSnappy` can be replaced with `s2.EncodeSnappyBetter` or `s2.EncodeSnappyBest` to get more efficiently compressed snappy compatible output. 
+
+`s2ConcatBlocks` is compatible with snappy blocks.
+
+Comparison of [`webdevdata.org-2015-01-07-subset`](https://files.klauspost.com/compress/webdevdata.org-2015-01-07-4GB-subset.7z),
+53927 files, total input size: 4,014,735,833 bytes. amd64, single goroutine used:
+
+| Encoder               | Size       | MB/s   |
+|-----------------------|------------|--------|
+| snappy.Encode         | 1128706759 | 725.59 |
+| s2.EncodeSnappy       | 1093823291 | 899.16 |
+| s2.EncodeSnappyBetter | 1001158548 | 578.49 |
+| s2.EncodeSnappyBest   | 944507998  | 66.00  |
+
+## Streams
+
+For streams, replace `enc = snappy.NewWriter(w)` with `enc = s2.NewWriter(w, s2.WriterSnappyCompat())`.
+All other options are available, but note that block size limit is different for snappy.
+
+Comparison of different streams, AMD Ryzen 3950x, 16 cores. Size and throughput: 
+
+| File                        | snappy.NewWriter         | S2 Snappy                 | S2 Snappy, Better        | S2 Snappy, Best         |
+|-----------------------------|--------------------------|---------------------------|--------------------------|-------------------------|
+| nyc-taxi-data-10M.csv       | 1316042016 - 517.54MB/s  | 1307003093 - 8406.29MB/s  | 1174534014 - 4984.35MB/s | 1115904679 - 177.81MB/s |
+| enwik10                     | 5088294643 - 433.45MB/s  | 5175840939 - 8454.52MB/s  | 4560784526 - 4403.10MB/s | 4340299103 - 159.71MB/s |
+| 10gb.tar                    | 6056946612 - 703.25MB/s  | 6208571995 - 9035.75MB/s  | 5741646126 - 2402.08MB/s | 5548973895 - 171.17MB/s |
+| github-june-2days-2019.json | 1525176492 - 908.11MB/s  | 1476519054 - 12625.93MB/s | 1400547532 - 6163.61MB/s | 1321887137 - 200.71MB/s |
+| consensus.db.10gb           | 5412897703 - 1054.38MB/s | 5354073487 - 12634.82MB/s | 5335069899 - 2472.23MB/s | 5201000954 - 166.32MB/s |
+
+# Decompression
+
+All decompression functions map directly to equivalent s2 functions.
+
+| Snappy                 | S2 replacement     |
+|------------------------|--------------------|
+| snappy.Decode(...)     | s2.Decode(...)     |
+| snappy.DecodedLen(...) | s2.DecodedLen(...) |
+| snappy.NewReader(...)  | s2.NewReader(...)  |
+
+Features like [quick forward skipping without decompression](https://pkg.go.dev/github.com/klauspost/compress/s2#Reader.Skip)
+are also available for Snappy streams.
+
+If you know you are only decompressing snappy streams, setting [`ReaderMaxBlockSize(64<<10)`](https://pkg.go.dev/github.com/klauspost/compress/s2#ReaderMaxBlockSize)
+on your Reader will reduce memory consumption.
+
 # Concatenating blocks and streams.
 
 Concatenating streams will concatenate the output of both without recompressing them. 

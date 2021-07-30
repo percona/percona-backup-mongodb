@@ -35,6 +35,7 @@
 package s2
 
 import (
+	"bytes"
 	"hash/crc32"
 )
 
@@ -89,6 +90,9 @@ const (
 	// Default block size
 	defaultBlockSize = 1 << 20
 
+	// maxSnappyBlockSize is the maximum snappy block size.
+	maxSnappyBlockSize = 1 << 16
+
 	obufHeaderLen = checksumSize + chunkHeaderSize
 )
 
@@ -101,13 +105,11 @@ const (
 
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-var avxAvailable bool
-
 // crc implements the checksum specified in section 3 of
 // https://github.com/google/snappy/blob/master/framing_format.txt
 func crc(b []byte) uint32 {
 	c := crc32.Update(0, crcTable, b)
-	return uint32(c>>15|c<<17) + 0xa282ead8
+	return c>>15 | c<<17 + 0xa282ead8
 }
 
 // literalExtraSize returns the extra size of encoding n literals.
@@ -129,3 +131,9 @@ func literalExtraSize(n int64) int64 {
 		return 5
 	}
 }
+
+type byter interface {
+	Bytes() []byte
+}
+
+var _ byter = &bytes.Buffer{}

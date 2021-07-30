@@ -35,21 +35,22 @@ type encoder interface {
 	AppendCRC([]byte) []byte
 	WindowSize(size int) int32
 	UseBlock(*blockEnc)
-	Reset()
+	Reset(d *dict, singleBlock bool)
 }
 
 type encoderState struct {
-	w             io.Writer
-	filling       []byte
-	current       []byte
-	previous      []byte
-	encoder       encoder
-	writing       *blockEnc
-	err           error
-	writeErr      error
-	nWritten      int64
-	headerWritten bool
-	eofWritten    bool
+	w                io.Writer
+	filling          []byte
+	current          []byte
+	previous         []byte
+	encoder          encoder
+	writing          *blockEnc
+	err              error
+	writeErr         error
+	nWritten         int64
+	headerWritten    bool
+	eofWritten       bool
+	fullFrameWritten bool
 
 	// This waitgroup indicates an encode is running.
 	wg sync.WaitGroup
@@ -81,7 +82,8 @@ func (e *Encoder) initialize() {
 	}
 	e.encoders = make(chan encoder, e.o.concurrent)
 	for i := 0; i < e.o.concurrent; i++ {
-		e.encoders <- e.o.encoder()
+		enc := e.o.encoder()
+		e.encoders <- enc
 	}
 }
 
@@ -104,16 +106,17 @@ func (e *Encoder) Reset(w io.Writer) {
 		s.encoder = e.o.encoder()
 	}
 	if s.writing == nil {
-		s.writing = &blockEnc{}
+		s.writing = &blockEnc{lowMem: e.o.lowMem}
 		s.writing.init()
 	}
 	s.writing.initNewEncode()
 	s.filling = s.filling[:0]
 	s.current = s.current[:0]
 	s.previous = s.previous[:0]
-	s.encoder.Reset()
+	s.encoder.Reset(e.o.dict, false)
 	s.headerWritten = false
 	s.eofWritten = false
+	s.fullFrameWritten = false
 	s.w = w
 	s.err = nil
 	s.nWritten = 0
@@ -172,14 +175,38 @@ func (e *Encoder) nextBlock(final bool) error {
 		return fmt.Errorf("block > maxStoreBlockSize")
 	}
 	if !s.headerWritten {
+		// If we have a single block encode, do a sync compression.
+		if final && len(s.filling) == 0 && !e.o.fullZero {
+			s.headerWritten = true
+			s.fullFrameWritten = true
+			s.eofWritten = true
+			return nil
+		}
+		if final && len(s.filling) > 0 {
+			s.current = e.EncodeAll(s.filling, s.current[:0])
+			var n2 int
+			n2, s.err = s.w.Write(s.current)
+			if s.err != nil {
+				return s.err
+			}
+			s.nWritten += int64(n2)
+			s.current = s.current[:0]
+			s.filling = s.filling[:0]
+			s.headerWritten = true
+			s.fullFrameWritten = true
+			s.eofWritten = true
+			return nil
+		}
+
 		var tmp [maxHeaderSize]byte
 		fh := frameHeader{
 			ContentSize:   0,
 			WindowSize:    uint32(s.encoder.WindowSize(0)),
 			SingleSegment: false,
 			Checksum:      e.o.crc,
-			DictID:        0,
+			DictID:        e.o.dict.ID(),
 		}
+
 		dst, err := fh.appendTo(tmp[:0])
 		if err != nil {
 			return err
@@ -218,7 +245,7 @@ func (e *Encoder) nextBlock(final bool) error {
 	s.filling, s.current, s.previous = s.previous[:0], s.filling, s.current
 	s.wg.Add(1)
 	go func(src []byte) {
-		if debug {
+		if debugEncoder {
 			println("Adding block,", len(src), "bytes, final:", final)
 		}
 		defer func() {
@@ -259,11 +286,11 @@ func (e *Encoder) nextBlock(final bool) error {
 			// If we got the exact same number of literals as input,
 			// assume the literals cannot be compressed.
 			if len(src) != len(blk.literals) || len(src) != e.o.blockSize {
-				err = blk.encode(e.o.noEntropy)
+				err = blk.encode(src, e.o.noEntropy, !e.o.allLitEntropy)
 			}
 			switch err {
 			case errIncompressible:
-				if debug {
+				if debugEncoder {
 					println("Storing incompressible block as raw")
 				}
 				blk.encodeRaw(src)
@@ -286,35 +313,43 @@ func (e *Encoder) nextBlock(final bool) error {
 //
 // The Copy function uses ReaderFrom if available.
 func (e *Encoder) ReadFrom(r io.Reader) (n int64, err error) {
-	if debug {
+	if debugEncoder {
 		println("Using ReadFrom")
 	}
-	// Maybe handle stuff queued?
+
+	// Flush any current writes.
+	if len(e.state.filling) > 0 {
+		if err := e.nextBlock(false); err != nil {
+			return 0, err
+		}
+	}
 	e.state.filling = e.state.filling[:e.o.blockSize]
 	src := e.state.filling
 	for {
 		n2, err := r.Read(src)
-		_, _ = e.state.encoder.CRC().Write(src[:n2])
+		if e.o.crc {
+			_, _ = e.state.encoder.CRC().Write(src[:n2])
+		}
 		// src is now the unfilled part...
 		src = src[n2:]
 		n += int64(n2)
 		switch err {
 		case io.EOF:
 			e.state.filling = e.state.filling[:len(e.state.filling)-len(src)]
-			if debug {
+			if debugEncoder {
 				println("ReadFrom: got EOF final block:", len(e.state.filling))
 			}
-			return n, e.nextBlock(true)
+			return n, nil
+		case nil:
 		default:
-			if debug {
+			if debugEncoder {
 				println("ReadFrom: got error:", err)
 			}
 			e.state.err = err
 			return n, err
-		case nil:
 		}
 		if len(src) > 0 {
-			if debug {
+			if debugEncoder {
 				println("ReadFrom: got space left in source:", len(src))
 			}
 			continue
@@ -358,6 +393,9 @@ func (e *Encoder) Close() error {
 	err := e.nextBlock(true)
 	if err != nil {
 		return err
+	}
+	if e.state.fullFrameWritten {
+		return s.err
 	}
 	s.wg.Wait()
 	s.wWg.Wait()
@@ -422,11 +460,9 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 	enc := <-e.encoders
 	defer func() {
 		// Release encoder reference to last block.
-		enc.Reset()
+		// If a non-single block is needed the encoder will reset again.
 		e.encoders <- enc
 	}()
-	enc.Reset()
-	blk := enc.Block()
 	// Use single segments when above minimum window and below 1MB.
 	single := len(src) < 1<<20 && len(src) > MinWindowSize
 	if e.o.single != nil {
@@ -437,11 +473,11 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 		WindowSize:    uint32(enc.WindowSize(len(src))),
 		SingleSegment: single,
 		Checksum:      e.o.crc,
-		DictID:        0,
+		DictID:        e.o.dict.ID(),
 	}
 
 	// If less than 1MB, allocate a buffer up front.
-	if len(dst) == 0 && cap(dst) == 0 && len(src) < 1<<20 {
+	if len(dst) == 0 && cap(dst) == 0 && len(src) < 1<<20 && !e.o.lowMem {
 		dst = make([]byte, 0, len(src))
 	}
 	dst, err := fh.appendTo(dst)
@@ -449,14 +485,20 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 		panic(err)
 	}
 
-	if len(src) <= e.o.blockSize && len(src) <= maxBlockSize {
+	// If we can do everything in one block, prefer that.
+	if len(src) <= maxCompressedBlockSize {
+		enc.Reset(e.o.dict, true)
 		// Slightly faster with no history and everything in one block.
 		if e.o.crc {
 			_, _ = enc.CRC().Write(src)
 		}
-		blk.reset(nil)
+		blk := enc.Block()
 		blk.last = true
-		enc.EncodeNoHist(blk, src)
+		if e.o.dict == nil {
+			enc.EncodeNoHist(blk, src)
+		} else {
+			enc.Encode(blk, src)
+		}
 
 		// If we got the exact same number of literals as input,
 		// assume the literals cannot be compressed.
@@ -465,12 +507,12 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 		if len(blk.literals) != len(src) || len(src) != e.o.blockSize {
 			// Output directly to dst
 			blk.output = dst
-			err = blk.encode(e.o.noEntropy)
+			err = blk.encode(src, e.o.noEntropy, !e.o.allLitEntropy)
 		}
 
 		switch err {
 		case errIncompressible:
-			if debug {
+			if debugEncoder {
 				println("Storing incompressible block as raw")
 			}
 			dst = blk.encodeRawTo(dst, src)
@@ -481,6 +523,8 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 		}
 		blk.output = oldout
 	} else {
+		enc.Reset(e.o.dict, false)
+		blk := enc.Block()
 		for len(src) > 0 {
 			todo := src
 			if len(todo) > e.o.blockSize {
@@ -490,7 +534,6 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 			if e.o.crc {
 				_, _ = enc.CRC().Write(todo)
 			}
-			blk.reset(nil)
 			blk.pushOffsets()
 			enc.Encode(blk, todo)
 			if len(src) == 0 {
@@ -500,12 +543,12 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 			// If we got the exact same number of literals as input,
 			// assume the literals cannot be compressed.
 			if len(blk.literals) != len(todo) || len(todo) != e.o.blockSize {
-				err = blk.encode(e.o.noEntropy)
+				err = blk.encode(todo, e.o.noEntropy, !e.o.allLitEntropy)
 			}
 
 			switch err {
 			case errIncompressible:
-				if debug {
+				if debugEncoder {
 					println("Storing incompressible block as raw")
 				}
 				dst = blk.encodeRawTo(dst, todo)
@@ -515,6 +558,7 @@ func (e *Encoder) EncodeAll(src, dst []byte) []byte {
 			default:
 				panic(err)
 			}
+			blk.reset(nil)
 		}
 	}
 	if e.o.crc {

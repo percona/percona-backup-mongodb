@@ -14,10 +14,10 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/txn"
 	"github.com/mongodb/mongo-tools/common/bsonutil"
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -96,8 +96,6 @@ func (o *Oplog) SetEdgeUnix(ts int64) {
 
 // Apply applys an oplog from a given source
 func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
-	// TODO: matcher should be created once since the exclude list always remains the same
-
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
@@ -222,12 +220,12 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
-			return fmt.Errorf("Empty object value for op: %v", op)
+			return errors.Errorf("empty object value for op: %v", op)
 		}
 		cmdName := op.Object[0].Key
 
 		if _, ok := knownCommands[cmdName]; !ok {
-			return fmt.Errorf("unknown oplog command name %v: %v", cmdName, op)
+			return errors.Errorf("unknown oplog command name %v: %v", cmdName, op)
 		}
 
 		ns := strings.Split(op.Namespace, ".")
@@ -239,7 +237,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 			// indexes, we need to convert the command to "createIndexes" command for each single index and apply
 			collectionName, indexes := extractIndexDocumentFromCommitIndexBuilds(op)
 			if indexes == nil {
-				return fmt.Errorf("failed to parse IndexDocument from commitIndexBuild in %s, %v", collectionName, op)
+				return errors.Errorf("failed to parse IndexDocument from commitIndexBuild in %s, %v", collectionName, op)
 			}
 
 			// if restore.OutputOptions.ConvertLegacyIndexes {
@@ -248,7 +246,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
 			o.indexCatalog.AddIndexes(dbName, collName, indexes)
@@ -258,7 +256,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 			// server > 4.4 no longer supports applying createIndexes oplog, we need to convert the oplog to createIndexes command and execute it
 			collectionName, index := extractIndexDocumentFromCreateIndexes(op)
 			if index.Key == nil {
-				return fmt.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
+				return errors.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
 			}
 
 			indexes := []*idx.IndexDocument{index}
@@ -268,7 +266,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
 			o.indexCatalog.AddIndexes(dbName, collName, indexes)
@@ -280,30 +278,30 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 		case "drop":
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			o.indexCatalog.DropCollection(dbName, collName)
 
 		case "applyOps":
 			rawOps, ok := op.Object[0].Value.(bson.A)
 			if !ok {
-				return fmt.Errorf("unknown format for applyOps: %#v", op.Object)
+				return errors.Errorf("unknown format for applyOps: %#v", op.Object)
 			}
 
 			for _, rawOp := range rawOps {
 				bytesOp, err := bson.Marshal(rawOp)
 				if err != nil {
-					return fmt.Errorf("could not marshal applyOps operation: %v: %v", rawOp, err)
+					return errors.Wrapf(err, "could not marshal applyOps operation: %v", rawOp)
 				}
 				var nestedOp db.Oplog
 				err = bson.Unmarshal(bytesOp, &nestedOp)
 				if err != nil {
-					return fmt.Errorf("could not unmarshal applyOps command: %v: %v", rawOp, err)
+					return errors.Wrapf(err, "could not unmarshal applyOps command: %v", rawOp)
 				}
 
 				err = o.handleOp(nestedOp)
 				if err != nil {
-					return fmt.Errorf("error applying nested op from applyOps: %v", err)
+					return errors.Wrap(err, "error applying nested op from applyOps")
 				}
 			}
 
@@ -312,7 +310,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 		case "deleteIndex", "deleteIndexes", "dropIndex", "dropIndexes":
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
 			return nil
@@ -328,7 +326,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 			}
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			err := o.indexCatalog.CollMod(dbName, collName, indexModValue)
 			if err != nil {
@@ -341,7 +339,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 		case "create":
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
-				return fmt.Errorf("could not parse collection name from op: %v", op)
+				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			collation, err := bsonutil.FindSubdocumentByKey("collation", &op.Object)
 			if err != nil {

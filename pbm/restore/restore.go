@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	mlog "github.com/mongodb/mongo-tools-common/log"
+	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
