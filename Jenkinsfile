@@ -17,7 +17,14 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
 
     testsReportMap[mkey] = 'failed'
 
+    // we don't have psmdb 5.0 images for the time being
+    def mongo_img = 'percona/percona-server-mongodb'
+    if ( MONGO_VERSION == '5.0' )  {
+        mongo_img = 'mongo'
+    }
+
     sh """
+        export MONGODB_IMAGE=${mongo_img}
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
         ./e2e-tests/${TEST_SCRIPT}
@@ -113,6 +120,15 @@ pipeline {
                         runTest('Restore on new cluster', 'run-new-cluster', '4.2')
                     }
                 }
+                stage('Restore on new cluster 5.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '50-newc')
+                        runTest('Restore on new cluster', 'run-new-cluster', '5.0')
+                    }
+                }
 
                 stage('Sharded cluster 3.6') {
                     agent {
@@ -139,6 +155,15 @@ pipeline {
                     steps {
                         prepareCluster('sharded', '42-shrd')
                         runTest('Sharded cluster', 'run-sharded', '4.2')
+                    }
+                }
+                stage('Sharded cluster 5.0') {
+                    agent {
+                        label 'docker-32gb'
+                    }
+                    steps {
+                        prepareCluster('sharded', '50-shrd')
+                        runTest('Sharded cluster', 'run-sharded', '5.0')
                     }
                 }
 
@@ -169,6 +194,15 @@ pipeline {
                         runTest('Non-sharded replicaset', 'run-rs', '4.2')
                     }
                 }
+                stage('Non-sharded replicaset 5.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '50-rs')
+                        runTest('Non-sharded replicaset', 'run-rs', '5.0')
+                    }
+                }
 
                 stage('Single-node replicaset 3.6') {
                     agent {
@@ -195,6 +229,15 @@ pipeline {
                     steps {
                         prepareCluster('single', '42-single')
                         runTest('Single-node replicaset', 'run-single', '4.2')
+                    }
+                }
+                stage('Single-node replicaset 5.0') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '50-single')
+                        runTest('Single-node replicaset', 'run-single', '5.0')
                     }
                 }
             }
