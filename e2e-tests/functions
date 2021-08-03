@@ -153,6 +153,7 @@ start_cluster() {
     chmod -R 777 "${test_dir}/docker/backups"
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
+    export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
     sleep 25
     docker-compose -f $COMPOSE_PATH ps
@@ -188,6 +189,7 @@ start_replset() {
     chmod -R 777 "${test_dir}/docker/backups"
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
+    export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $compose up --quiet-pull --no-color -d
 
     sleep 25
