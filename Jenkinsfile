@@ -24,6 +24,7 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     }
 
     sh """
+        set -o xtrace
         export MONGODB_IMAGE=${mongo_img}
         export MONGODB_VERSION=${MONGO_VERSION}
         ./e2e-tests/${TEST_SCRIPT}
