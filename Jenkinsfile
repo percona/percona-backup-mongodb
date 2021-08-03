@@ -120,6 +120,15 @@ pipeline {
                         runTest('Restore on new cluster', 'run-new-cluster', '4.2')
                     }
                 }
+                stage('Restore on new cluster 4.4') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '44-newc')
+                        runTest('Restore on new cluster', 'run-new-cluster', '4.4')
+                    }
+                }
                 stage('Restore on new cluster 5.0') {
                     agent {
                         label 'docker'
@@ -155,6 +164,15 @@ pipeline {
                     steps {
                         prepareCluster('sharded', '42-shrd')
                         runTest('Sharded cluster', 'run-sharded', '4.2')
+                    }
+                }
+                stage('Sharded cluster 4.4') {
+                    agent {
+                        label 'docker-32gb'
+                    }
+                    steps {
+                        prepareCluster('sharded', '44-shrd')
+                        runTest('Sharded cluster', 'run-sharded', '4.4')
                     }
                 }
                 stage('Sharded cluster 5.0') {
@@ -194,6 +212,15 @@ pipeline {
                         runTest('Non-sharded replicaset', 'run-rs', '4.2')
                     }
                 }
+                stage('Non-sharded replicaset 4.4') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '44-rs')
+                        runTest('Non-sharded replicaset', 'run-rs', '4.4')
+                    }
+                }
                 stage('Non-sharded replicaset 5.0') {
                     agent {
                         label 'docker'
@@ -229,6 +256,15 @@ pipeline {
                     steps {
                         prepareCluster('single', '42-single')
                         runTest('Single-node replicaset', 'run-single', '4.2')
+                    }
+                }
+                stage('Single-node replicaset 4.4') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '44-single')
+                        runTest('Single-node replicaset', 'run-single', '4.4')
                     }
                 }
                 stage('Single-node replicaset 5.0') {
