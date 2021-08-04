@@ -589,6 +589,10 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.RS, err)
 			continue
 		}
+		if tlns == nil {
+			continue
+		}
+
 		rstlines = append(rstlines, tlns)
 
 		for _, t := range tlns {
