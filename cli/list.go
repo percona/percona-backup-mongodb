@@ -268,6 +268,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 			continue
 		}
+		tl.Start++
 		ranges = append(ranges, pitrRange{Range: tl})
 	}
 

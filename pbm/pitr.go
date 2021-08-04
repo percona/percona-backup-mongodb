@@ -256,7 +256,7 @@ func gettimelines(slices []PITRChunk) (tlines []Timeline) {
 			tl = Timeline{}
 		}
 		if tl.Start == 0 {
-			tl.Start = s.StartTS.T + 1
+			tl.Start = s.StartTS.T
 		}
 		prevEnd = s.EndTS
 		tl.End = s.EndTS.T
