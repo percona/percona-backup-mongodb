@@ -17,14 +17,8 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
 
     testsReportMap[mkey] = 'failed'
 
-    // we don't have psmdb 5.0 images for the time being
-    def mongo_img = 'percona/percona-server-mongodb'
-    if ( MONGO_VERSION == '5.0' )  {
-        mongo_img = 'mongo'
-    }
 
     sh """
-        export MONGODB_IMAGE=${mongo_img}
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
         ./e2e-tests/${TEST_SCRIPT}

@@ -15,7 +15,7 @@ services:
       - ./backups:/opt/backups
 
   rs101:
-    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
     hostname: rs101
     environment:
       - REPLSET_NAME=rs1
@@ -27,13 +27,13 @@ services:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   rs102:
-    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
     hostname: rs102
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   rs103:
-    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
     hostname: rs103
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
