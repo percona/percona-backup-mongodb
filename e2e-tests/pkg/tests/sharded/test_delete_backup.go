@@ -127,8 +127,8 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: empty spanpshots list")
 	}
 
-	if list.PITR.Ranges[0].Range.Start != uint32(list.Snapshots[len(list.Snapshots)-1].StateTS) {
-		log.Println("ERROR: expected range match the last backup complete time")
+	if list.PITR.Ranges[0].Range.Start+1 != uint32(list.Snapshots[len(list.Snapshots)-1].StateTS) {
+		log.Println("ERROR: expected range starts the next second after the backup complete time")
 		c.printBcpList()
 		os.Exit(1)
 	}
