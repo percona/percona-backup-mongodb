@@ -7,16 +7,20 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 type Mongo struct {
 	cn  *mongo.Client
@@ -133,6 +137,26 @@ func (m *Mongo) ResetBallast() (int, error) {
 		return 0, err
 	}
 	return int(r.DeletedCount), nil
+}
+
+func (m *Mongo) CreateTS(name string) error {
+	return m.cn.Database(testDB).RunCommand(
+		m.ctx,
+		bson.D{{"create", name}, {"timeseries", bson.M{"timeField": "timestamp"}}},
+	).Err()
+}
+
+func (m *Mongo) InsertTS(col string) error {
+	_, err := m.cn.Database(testDB).Collection(col).InsertOne(m.ctx, bson.M{"timestamp": time.Now(), "x": rand.Int()})
+	return err
+}
+
+func (m *Mongo) Count(col string) (int64, error) {
+	return m.cn.Database(testDB).Collection(col).CountDocuments(m.ctx, bson.M{})
+}
+
+func (m *Mongo) Drop(col string) error {
+	return m.cn.Database(testDB).Collection(col).Drop(m.ctx)
 }
 
 // SetBallast sets ballast documents amount to be equal to given `size`

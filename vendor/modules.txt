@@ -107,7 +107,7 @@ github.com/docker/go-units
 github.com/go-ini/ini
 # github.com/go-stack/stack v1.8.0
 github.com/go-stack/stack
-# github.com/golang/snappy v0.0.1
+# github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
 # github.com/google/uuid v1.1.1
@@ -116,13 +116,12 @@ github.com/google/uuid
 github.com/jessevdk/go-flags
 # github.com/jmespath/go-jmespath v0.4.0
 github.com/jmespath/go-jmespath
-# github.com/klauspost/compress v1.10.3
+# github.com/klauspost/compress v1.13.1
 ## explicit
 github.com/klauspost/compress/flate
 github.com/klauspost/compress/fse
 github.com/klauspost/compress/huff0
 github.com/klauspost/compress/s2
-github.com/klauspost/compress/snappy
 github.com/klauspost/compress/zstd
 github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/pgzip v1.2.3
@@ -143,19 +142,6 @@ github.com/minio/minio-go/pkg/set
 github.com/mitchellh/go-homedir
 # github.com/mmcloughlin/avo v0.0.0-20200303042253-6df701fe672f
 ## explicit
-github.com/mmcloughlin/avo/attr
-github.com/mmcloughlin/avo/build
-github.com/mmcloughlin/avo/buildtags
-github.com/mmcloughlin/avo/gotypes
-github.com/mmcloughlin/avo/internal/prnt
-github.com/mmcloughlin/avo/internal/stack
-github.com/mmcloughlin/avo/ir
-github.com/mmcloughlin/avo/operand
-github.com/mmcloughlin/avo/pass
-github.com/mmcloughlin/avo/printer
-github.com/mmcloughlin/avo/reg
-github.com/mmcloughlin/avo/src
-github.com/mmcloughlin/avo/x86
 # github.com/mongodb/mongo-tools v0.0.0-20210723181737-9fcadb98cca5
 ## explicit
 github.com/mongodb/mongo-tools/common/archive
@@ -176,17 +162,6 @@ github.com/mongodb/mongo-tools/common/util
 github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
 github.com/mongodb/mongo-tools/mongorestore/ns
-# github.com/mongodb/mongo-tools-common v2.0.1+incompatible
-## explicit
-github.com/mongodb/mongo-tools-common/bsonutil
-github.com/mongodb/mongo-tools-common/db
-github.com/mongodb/mongo-tools-common/failpoint
-github.com/mongodb/mongo-tools-common/json
-github.com/mongodb/mongo-tools-common/log
-github.com/mongodb/mongo-tools-common/options
-github.com/mongodb/mongo-tools-common/password
-github.com/mongodb/mongo-tools-common/txn
-github.com/mongodb/mongo-tools-common/util
 # github.com/opencontainers/go-digest v1.0.0-rc1
 ## explicit
 github.com/opencontainers/go-digest
@@ -203,9 +178,10 @@ github.com/xdg-go/pbkdf2
 github.com/xdg-go/scram
 # github.com/xdg-go/stringprep v1.0.2
 github.com/xdg-go/stringprep
-# github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d
+# github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
+## explicit
 github.com/youmark/pkcs8
-# go.mongodb.org/mongo-driver v1.6.0
+# go.mongodb.org/mongo-driver v1.7.0
 ## explicit
 go.mongodb.org/mongo-driver/bson
 go.mongodb.org/mongo-driver/bson/bsoncodec
@@ -240,11 +216,13 @@ go.mongodb.org/mongo-driver/x/mongo/driver/session
 go.mongodb.org/mongo-driver/x/mongo/driver/topology
 go.mongodb.org/mongo-driver/x/mongo/driver/uuid
 go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage
-# golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+# golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
+## explicit
 golang.org/x/crypto/argon2
 golang.org/x/crypto/blake2b
 golang.org/x/crypto/ocsp
 golang.org/x/crypto/pbkdf2
+golang.org/x/crypto/scrypt
 golang.org/x/crypto/ssh/terminal
 # golang.org/x/mod v0.4.2
 ## explicit
@@ -258,30 +236,25 @@ golang.org/x/net/idna
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
 golang.org/x/net/publicsuffix
-# golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
+# golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+## explicit
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
 # golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
 ## explicit
 golang.org/x/sys/cpu
 golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
+# golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
+golang.org/x/term
 # golang.org/x/text v0.3.6
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e
-golang.org/x/tools/go/gcexportdata
-golang.org/x/tools/go/internal/gcimporter
-golang.org/x/tools/go/internal/packagesdriver
-golang.org/x/tools/go/packages
-golang.org/x/tools/internal/fastwalk
-golang.org/x/tools/internal/gopathwalk
-golang.org/x/tools/internal/semver
-golang.org/x/tools/internal/span
 # gopkg.in/ini.v1 v1.42.0
 ## explicit
 # gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22

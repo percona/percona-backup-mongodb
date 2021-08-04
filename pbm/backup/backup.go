@@ -8,8 +8,8 @@ import (
 	"log"
 	"time"
 
-	mlog "github.com/mongodb/mongo-tools-common/log"
 	"github.com/mongodb/mongo-tools/common/db"
+	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
