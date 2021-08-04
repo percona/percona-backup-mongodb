@@ -17,7 +17,7 @@ services:
       - mongos
 
   cfg01:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: cfg01
     environment:
       - REPLSET_NAME=cfg
@@ -30,13 +30,13 @@ services:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   cfg02:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: cfg02
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   cfg03:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: cfg03
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
@@ -100,7 +100,7 @@ services:
       - ./backups:/opt/backups
 
   rs101:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs101
     environment:
       - REPLSET_NAME=rs1
@@ -113,13 +113,13 @@ services:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   rs102:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs102
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   rs103:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs103
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
@@ -184,7 +184,7 @@ services:
       - ./backups:/opt/backups
     
   rs201:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs201
     environment:
       - REPLSET_NAME=rs2
@@ -197,13 +197,13 @@ services:
       - ./scripts/start.sh:/opt/start.sh
       - ./keyFile:/opt/keyFile
   rs202:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs202
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./keyFile:/opt/keyFile
   rs203:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs203
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
@@ -267,7 +267,7 @@ services:
       - ./backups:/opt/backups
 
   mongos:
-    image: ${MONGODB_IMAGE:-mongo}:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: mongos
     command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017
     ports:

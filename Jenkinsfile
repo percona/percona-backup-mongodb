@@ -17,7 +17,6 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
 
     testsReportMap[mkey] = 'failed'
 
-
     sh """
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
