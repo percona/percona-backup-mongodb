@@ -264,6 +264,12 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 
 	o.ShowNode = r.Node == ""
 
+	// reverse list
+	for i := len(o.Data)/2 - 1; i >= 0; i-- {
+		opp := len(o.Data) - 1 - i
+		o.Data[i], o.Data[opp] = o.Data[opp], o.Data[i]
+	}
+
 	return o, nil
 }
 
