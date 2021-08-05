@@ -606,7 +606,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 	for i := len(merged) - 1; i >= 0; i-- {
 		tl := merged[i]
 		var rng pitrRange
-		rng.Range.Start = tl.Start
+		rng.Range.Start = tl.Start + 1
 		rng.Range.End = tl.End
 
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
