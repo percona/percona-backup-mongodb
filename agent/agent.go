@@ -282,15 +282,13 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	}
 	l.Info("succeed")
 
-	if nodeInfo.IsLeader() {
-		epch, err := a.pbm.ResetEpoch()
-		if err != nil {
-			l.Error("reset epoch: %v", err)
-			return
-		}
-
-		l.Debug("epoch set to %v", epch)
+	epch, err := a.pbm.ResetEpoch()
+	if err != nil {
+		l.Error("reset epoch: %v", err)
+		return
 	}
+
+	l.Debug("epoch set to %v", epch)
 }
 
 // aquireLock tries to aquire the lock. If there is a stale lock
