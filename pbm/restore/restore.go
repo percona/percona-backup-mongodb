@@ -291,6 +291,14 @@ func (r *Restore) prepareChunks(target primitive.Timestamp) error {
 		return errors.Wrap(err, "get chunks index")
 	}
 
+	if len(chunks) == 0 {
+		return errors.New("no chunks found")
+	}
+
+	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, target) == -1 {
+		return errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
+	}
+
 	last := r.bcp.LastWriteTS
 	for _, c := range chunks {
 		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
