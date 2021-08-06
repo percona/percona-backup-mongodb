@@ -285,6 +285,13 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 			if err != nil {
 				return errors.Wrap(err, "get backup start TS")
 			}
+
+			// it can happen that prevoius slice >= backup's fisrt write
+			// in that case we have to just back off.
+			if primitive.CompareTimestamp(s.lastTS, sliceTo) >= 0 {
+				s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
+				return nil
+			}
 			lastSlice = true
 		case pbm.CmdUndefined:
 			return errors.New("undefinded behaviour operation is running")
@@ -390,10 +397,8 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 		if err != nil {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
-		for _, rs := range b.Replsets {
-			if rs.Name == s.rs && rs.FirstWriteTS.T > 1 {
-				return rs.FirstWriteTS, nil
-			}
+		if b.FirstWriteTS.T > 1 {
+			return b.FirstWriteTS, nil
 		}
 		<-tk.C
 	}

@@ -561,12 +561,23 @@ func (p *PBM) BackupHB(bcpName string) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func (p *PBM) SetFirstLastWrite(bcpName string, first, last primitive.Timestamp) error {
+func (p *PBM) SetFirstWrite(bcpName string, first primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{
 			{"$set", bson.M{"first_write_ts": first}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetLastWrite(bcpName string, last primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
 			{"$set", bson.M{"last_write_ts": last}},
 		},
 	)
