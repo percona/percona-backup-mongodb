@@ -53,6 +53,7 @@ var excludeFromRestore = []string{
 	"config.system.sessions",
 	"config.cache.*",
 	"config.shards",
+	"config.transactions",
 	"admin.system.version",
 }
 
