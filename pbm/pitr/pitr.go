@@ -62,6 +62,7 @@ func (s *Slicer) GetSpan() time.Duration {
 // While filling gaps it checks the oplog for sufficiency. It also checks if there is no restore intercepted
 // the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
+	s.l.Debug("start_catchup")
 	baseBcp, err := s.pbm.GetLastBackup(nil)
 	if err != nil {
 		return errors.Wrap(err, "get last backup")
@@ -196,7 +197,6 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
-	s.l.Debug(LogStartMsg)
 	s.l.Info("streaming started from %v / %v", time.Unix(int64(s.lastTS.T), 0).UTC(), s.lastTS.T)
 
 	cspan := s.GetSpan()
@@ -207,6 +207,8 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 	if err != nil {
 		return errors.Wrap(err, "get NodeInfo data")
 	}
+
+	s.l.Debug(LogStartMsg)
 
 	lastSlice := false
 	llock := &pbm.LockHeader{Replset: s.rs}

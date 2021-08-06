@@ -307,6 +307,7 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock
+		a.log.Debug("", "", l.OPID, *l.Epoch, "stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
 		case pbm.CmdBackup:

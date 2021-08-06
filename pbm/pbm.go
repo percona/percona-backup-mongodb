@@ -616,18 +616,6 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
-func (p *PBM) SetRSFirstWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.first_write_ts": ts}},
-		},
-	)
-
-	return err
-}
-
 func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,

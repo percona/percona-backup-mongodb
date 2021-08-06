@@ -192,12 +192,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "define oplog start position")
 	}
 
-	err = b.cn.SetRSFirstWrite(bcp.Name, rsMeta.Name, oplogTS)
-	if err != nil {
-		return errors.Wrap(err, "set shard's first write ts")
-	}
-
 	rsMeta.Status = pbm.StatusRunning
+	rsMeta.FirstWriteTS = oplogTS
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
