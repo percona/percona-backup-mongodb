@@ -195,19 +195,6 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	} else {
 		l.Info("backup finished")
-
-		// Update PITR "changed" option to "reset" observation by pbm list of
-		// any PITR related errors in the log since some of the errors might
-		// be fixed by the backup. If not (errors wasn't fixed by bcp) PITR will
-		// generate new errors so we won't miss anything
-		if nodeInfo.IsLeader() {
-			epch, err := a.pbm.ResetEpoch()
-			if err != nil {
-				l.Error("reset epoch")
-			} else {
-				l.Debug("epoch set to %v", epch)
-			}
-		}
 	}
 
 	l.Debug("releasing lock")

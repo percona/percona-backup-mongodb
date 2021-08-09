@@ -17,6 +17,7 @@ func (c *Cluster) PITRbasic() {
 	bcpName := c.Backup()
 
 	c.pitrOn()
+	log.Println("turn on PITR")
 	defer c.pitrOff()
 
 	rand.Seed(time.Now().UnixNano())
@@ -39,6 +40,8 @@ func (c *Cluster) PITRbasic() {
 	}
 
 	c.BackupWaitDone(bcpName)
+
+	c.printBcpList()
 
 	time.Sleep(time.Second * 30)
 	log.Printf("Sleep for %v", time.Second*30)

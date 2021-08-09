@@ -186,7 +186,14 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for start")
 	}
 
+	oplog := NewOplog(b.node)
+	oplogTS, err := oplog.LastWrite()
+	if err != nil {
+		return errors.Wrap(err, "define oplog start position")
+	}
+
 	rsMeta.Status = pbm.StatusRunning
+	rsMeta.FirstWriteTS = oplogTS
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
@@ -200,23 +207,17 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			}
 			return errors.Wrap(err, "check cluster for backup started")
 		}
+
+		err = b.setClusterFirstWrite(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "set cluster last write ts")
+		}
 	}
 
 	// Waiting for cluster's StatusRunning to move further.
 	err = b.waitForStatus(bcp.Name, pbm.StatusRunning, nil)
 	if err != nil {
 		return errors.Wrap(err, "waiting for running")
-	}
-
-	oplog := NewOplog(b.node)
-	oplogTS, err := oplog.LastWrite()
-	if err != nil {
-		return errors.Wrap(err, "define oplog start position")
-	}
-
-	err = b.cn.SetRSFirstWrite(bcp.Name, rsMeta.Name, oplogTS)
-	if err != nil {
-		return errors.Wrap(err, "set shard's first write ts")
 	}
 
 	// Save users and roles to the tmp collections so the restore would copy that data
@@ -286,9 +287,9 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			return errors.Wrap(err, "check cluster for dump done")
 		}
 
-		err = b.setClusterFirtsLastWrite(bcp.Name)
+		err = b.setClusterLastWrite(bcp.Name)
 		if err != nil {
-			return errors.Wrap(err, "set cluster first & last write ts")
+			return errors.Wrap(err, "set cluster last write ts")
 		}
 	}
 
@@ -315,6 +316,13 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	}
 
 	if inf.IsLeader() {
+		epch, err := b.cn.ResetEpoch()
+		if err != nil {
+			l.Error("reset epoch")
+		} else {
+			l.Debug("epoch set to %v", epch)
+		}
+
 		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, inf, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
@@ -629,24 +637,37 @@ func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
 	return errors.Wrap(err, "write to store")
 }
 
-func (b *Backup) setClusterFirtsLastWrite(bcpName string) error {
+func (b *Backup) setClusterFirstWrite(bcpName string) error {
 	bmeta, err := b.cn.GetBackupMeta(bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	var fw, lw primitive.Timestamp
+	var fw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
-		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
-			lw = rs.LastWriteTS
-		}
-
 		if fw.T == 0 || primitive.CompareTimestamp(fw, rs.FirstWriteTS) == 1 {
 			fw = rs.FirstWriteTS
 		}
 	}
 
-	err = b.cn.SetFirstLastWrite(bcpName, fw, lw)
+	err = b.cn.SetFirstWrite(bcpName, fw)
+	return errors.Wrap(err, "set timestamp")
+}
+
+func (b *Backup) setClusterLastWrite(bcpName string) error {
+	bmeta, err := b.cn.GetBackupMeta(bcpName)
+	if err != nil {
+		return errors.Wrap(err, "get backup metadata")
+	}
+
+	var lw primitive.Timestamp
+	for _, rs := range bmeta.Replsets {
+		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
+			lw = rs.LastWriteTS
+		}
+	}
+
+	err = b.cn.SetLastWrite(bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
 }
 

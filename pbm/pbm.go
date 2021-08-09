@@ -561,12 +561,23 @@ func (p *PBM) BackupHB(bcpName string) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func (p *PBM) SetFirstLastWrite(bcpName string, first, last primitive.Timestamp) error {
+func (p *PBM) SetFirstWrite(bcpName string, first primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{
 			{"$set", bson.M{"first_write_ts": first}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetLastWrite(bcpName string, last primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
 			{"$set", bson.M{"last_write_ts": last}},
 		},
 	)
@@ -599,18 +610,6 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
 			{"$set", bson.M{"replsets.$.error": msg}},
 			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
-		},
-	)
-
-	return err
-}
-
-func (p *PBM) SetRSFirstWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.first_write_ts": ts}},
 		},
 	)
 
