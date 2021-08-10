@@ -354,8 +354,16 @@ func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 		return 0, io.EOF
 	}
 
+	// The last chunk during the PITR restore usually won't be read fully
+	// (high chances that the targeted time will be in the middle of the chunk)
+	// so in this case the reader (oplog.Apply) will close the pipe once reaching the
+	// targeted time.
+	if err != nil && errors.Is(err, io.ErrClosedPipe) {
+		return n, nil
+	}
+
 	if err != nil {
-		pr.l.Warning("errReadObj Err: %v", err)
+		pr.l.Warning("io.copy: %v", err)
 		return n, errReadObj(err)
 	}
 
@@ -413,7 +421,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					return
 				}
 				if errors.Is(err, io.ErrClosedPipe) {
-					s.log.Warning("reader closed pipe, stopping download")
+					s.log.Info("reader closed pipe, stopping download")
 					return
 				}
 
