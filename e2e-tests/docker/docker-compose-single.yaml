@@ -15,7 +15,12 @@ services:
       - ./backups:/opt/backups
 
   rs101:
-    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
+    build:
+      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
     environment:
       - REPLSET_NAME=rs1
@@ -26,10 +31,10 @@ services:
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
-      - ./keyFile:/opt/keyFile
 
   agent-rs101:
     container_name: "pbmagent_rs101"
+    user: ${USER_ID}
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
