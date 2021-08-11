@@ -55,6 +55,7 @@ var excludeFromRestore = []string{
 	"config.shards",
 	"config.transactions",
 	"admin.system.version",
+	"config.system.indexBuilds",
 }
 
 type Restore struct {
