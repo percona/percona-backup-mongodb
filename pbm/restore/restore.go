@@ -494,9 +494,9 @@ func (r *Restore) RunSnapshot() (err error) {
 	}
 
 	defer func() {
-		err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
-		if err != nil {
-			r.log.Warning("drop tmp collections: %v", err)
+		errd := pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
+		if errd != nil {
+			r.log.Warning("drop tmp collections: %v", errd)
 		}
 	}()
 
