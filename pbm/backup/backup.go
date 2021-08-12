@@ -143,9 +143,9 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			return
 		}
 
-		err = b.cn.SetBalancerStatus(pbm.BalancerModeOn)
-		if err != nil {
-			l.Error("set balancer ON: %v", err)
+		errd := b.cn.SetBalancerStatus(pbm.BalancerModeOn)
+		if errd != nil {
+			l.Error("set balancer ON: %v", errd)
 			return
 		}
 		l.Debug("set balancer on")
