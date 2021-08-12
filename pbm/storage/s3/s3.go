@@ -291,7 +291,7 @@ func (s *S3) newPartReader(fname string) *partReader {
 }
 
 func (pr *partReader) setSession(s *s3.S3) {
-	s.Client.Config.HTTPClient.Timeout = time.Second * 30
+	s.Client.Config.HTTPClient.Timeout = time.Second * 60
 	pr.sess = s
 }
 
