@@ -100,7 +100,6 @@ To illustrate this, let’s take the following ``pbm list`` output:
 
    PITR <on>:
    2021-07-21T22:36:59-2021-07-22T12:20:23
-   2021-07-22T12:32:36-2021-07-25T19:16:09
    2021-07-24T23:09:03-2021-07-26T17:52:21
 
 You can delete a backup ``2021-07-20T03:10:59Z`` since it has no time ranges for point-in-time recovery deriving from it. You cannot delete ``2021-07-21T22:27:09Z`` as it can be the base for recovery to any point in time from the ``PITR`` time range ``2021-07-21T22:36:59-2021-07-22T12:20:23``. Nor can you delete ``2021-07-26T17:42:04Z`` backup since there are no oplog slices following it yet. 
