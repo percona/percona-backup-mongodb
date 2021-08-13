@@ -77,6 +77,17 @@ func (c *Cluster) Timeseries() {
 	if ts2.count() != uint64(ts2c) {
 		log.Fatalf("ERROR: wrong timeseries count, expect %d got %d", ts2.count(), ts2c)
 	}
+
+	// cleanup
+	err = c.mongos.Drop("ts1")
+	if err != nil {
+		log.Fatalf("ERROR: drop ts1: %v", err)
+	}
+
+	err = c.mongos.Drop("ts2")
+	if err != nil {
+		log.Fatalf("ERROR: drop ts2: %v", err)
+	}
 }
 
 type ts struct {
