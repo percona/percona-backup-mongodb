@@ -9,6 +9,7 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
@@ -146,6 +147,11 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 
 	// skip no-ops
 	if oe.Operation == "n" {
+		return nil
+	}
+
+	if oe.Operation == "c" && len(oe.Object) > 0 &&
+		(oe.Object[0].Key == "startIndexBuild" || oe.Object[0].Key == "abortIndexBuild") {
 		return nil
 	}
 
@@ -370,7 +376,13 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 		}
 	}
 
-	return o.applyOps([]interface{}{op})
+	err = o.applyOps([]interface{}{op})
+	if err != nil {
+		opb, errm := json.Marshal(op)
+		return errors.Wrapf(err, "op: %s | merr %v", opb, errm)
+	}
+
+	return nil
 }
 
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "createIndexes" oplog entry and convert to IndexDocument
