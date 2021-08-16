@@ -7,7 +7,7 @@ Installing |pbm|
 .. contents::
    :local:
 
-|percona| provides and supports |pbm| installation packages for Debian, Ubuntu, Red Hat Enterprise Linux and CentOS Linux distributions. Find detailed information about supported Linux distributions on the`Percona Software and Platform Lifecycle <https://www.percona.com/services/policies/percona-software-platform-lifecycle#mongodb>`_ page.
+|percona| provides and supports |pbm| installation packages for Debian, Ubuntu, Red Hat Enterprise Linux and CentOS Linux distributions. Find detailed information about supported Linux distributions on the `Percona Software and Platform Lifecycle <https://www.percona.com/services/policies/percona-software-platform-lifecycle#mongodb>`_ page.
 
 You can install |pbm| in one of the following ways:
 
