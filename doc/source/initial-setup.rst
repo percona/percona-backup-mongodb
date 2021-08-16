@@ -116,7 +116,7 @@ Use the following command:
 
 .. code-block:: bash
  
-   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018?/replSetName=xxxx"
+   export PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018/?replSetName=xxxx"
 
 For more information what connection string to specify, refer to :ref:`pbm.auth.pbm.app_conn_string` section.
 

@@ -3,6 +3,33 @@
 |pbm.app| commands
 **********************************************************************
 
+.. raw:: html
+
+   <style>
+   
+   .toggle {
+        background: none repeat scroll 0 0 #f5f5f5;
+        padding: 12px;
+        max-width: 850px;
+        line-height: 24px;
+        margin-bottom: 24px;
+    }
+   
+   .toggle .header {
+       display: block;
+       clear: both;
+       cursor: pointer;
+   }
+   
+   .toggle .header:after {
+       content: " ▶";
+   }
+   
+   .toggle .header.open:after {
+       content: " ▼";
+   }
+   </style>
+
 ``pbm CLI`` is the command line utility to control the backup system. This page describes |pbm.app| commands available in |PBM|.
 
 For how to get started with |PBM|, see :ref:`initial-setup`.
@@ -41,7 +68,56 @@ The command accepts the following flags:
      - Upload the config information from a YAML file
    * - ``--set=SET``
      - Set a new config option value. Specify the option in the <key.name=value> format.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json
    
+.. container:: toggle
+
+   .. container:: header
+
+      **pbm config JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "pitr": {
+          "enabled": false,
+          "oplogSpanMin": 0
+        },
+        "storage": {
+          "type": "filesystem",
+          "s3": {
+            "region": "",
+            "endpointUrl": "",
+            "bucket": ""
+          },
+          "azure": {},
+          "filesystem": {
+            "path": "<my-backup-dir>"
+          }
+        },
+        "restore": {
+          "batchSize": 500,
+          "numInsertionWorkers": 10
+        },
+        "backup": {}
+      }
+
+.. container:: toggle
+
+   .. container:: header
+
+      **Setting a config value**
+
+   .. code-block:: javascript
+
+      [
+        {
+          "key": "pitr.enabled",
+          "value": "true"
+        }
+      ]
+
 .. _backup:
 
 .. rubric:: pbm backup
@@ -68,6 +144,22 @@ The command accepts the following flags:
      - Create a backup with compression. 
        Supported compression methods: ``gzip``, ``snappy``, ``lz4``, ``s2``, ``pgzip``. Default: ``s2``
        The ``none`` value means no compression is done during backup.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json
+
+.. container:: toggle
+ 
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "name": "<backup_name>",
+        "storage": "<my-backup-dir>"
+      }
+
 
 .. _restore:
 
@@ -93,14 +185,63 @@ The command accepts the following flags:
      - Description
    * - ``--time=TIME``
      - Restores the database to the specified point in time. Available if :ref:`PITR` is enabled.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json
    * - ``--base-snapshot``
      - Restores the database from a specified backup to the specified point in time. Without this flag, the most recent backup preceding the timestamp is used for point in recovery. Available in |PBM| starting from version 1.6.0.
        
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "snapshot": "<backup_name>"
+      }
+  
+.. container:: toggle
+
+   .. container:: header
+
+      **Point-in-time restore**
+
+   .. code-block:: javascript
+
+      {
+        "point-in-time": "<backup_name>"
+      }
+
 .. _cancel:       
 
 .. rubric:: pbm cancel-backup
 
 Cancels a running backup. The backup is marked as canceled in the backup list.
+
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Flag
+     - Description
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json
+
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "msg": "Backup cancellation has started"
+      }
 
 .. _list:
 
@@ -136,6 +277,71 @@ The command accepts the following flags:
      - Shows last N restores.
    * - ``--size=0``
      - Shows last N backups.
+   * - ``-o``, ``--out=text``
+     - Shows the output format as either plain text or a JSON object. Supported values: text, json
+
+.. container:: toggle
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "snapshots": [
+          {
+            "name": "<backup_name>",
+            "status": "done",
+            "completeTS": Timestamp,
+            "pbmVersion": "1.6.0"
+          }
+        ],
+        "pitr": {
+          "on": false,
+          "ranges": [
+            {
+              "range": {
+                "start": Timestamp,
+                "end": Timestamp
+              }
+            },
+            {
+              "range": {
+                "start": Timestamp,
+                "end": Timestamp
+              }
+            }
+          ]
+        }
+      }
+
+.. container:: toggle
+
+   .. container:: header
+
+      **Restores history**
+
+   .. code-block:: javascript
+
+      [
+        {
+          "start": Timestamp,
+          "status": "done",
+          "type": "snapshot",
+          "snapshot": "<backup_name>",
+          "name": "2021-07-26T10:08:54.0867213Z"
+        },
+        {
+          "start": Timestamp,
+          "status": "done",
+          "type": "pitr",
+          "snapshot": "<backup_name>",
+          "point-in-time": Timestamp,
+          "name": "2021-07-26T11:09:53.7500545Z"
+        }
+      ]
+
 
 .. _delete:
 
@@ -210,7 +416,7 @@ The command accepts the following flags:
      - Forcibly deletes oplog slices without asking a user's confirmation
    * - ``-o``, ``--out=json``
      - Shows the output as either the plain text (default) or a JSON object. Supported values: ``text``, ``json``.
-     
+
 .. _version:
 
 .. rubric:: pbm version
@@ -230,9 +436,25 @@ The command accepts the following flags:
      - Shows only version info
    * - ``--commit``
      - Shows only git commit info
-   * - ``--format=""``             
-     - Shows version info as a standard output or a JSON object. 
-       Supported values: ``""``, ``json``.
+   * - ``-o``, ``--out=text``
+     - Shows the output as either plain text or a JSON object. Supported values: text, json
+       
+.. container:: toggle "JSON"
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "Version": "1.6.0",
+        "Platform": "linux/amd64",
+        "GitCommit": "f9b9948bb8201ba1a6400f6558496934a0685efd",
+        "GitBranch": "main",
+        "BuildTime": "2021-07-28_15:24_UTC",
+        "GoVersion": "go1.16.6"
+      }
 
 .. _status:
 
@@ -246,6 +468,81 @@ Shows the status of |PBM|. The output provides the following information:
 - |PITR| status
 - Valid time ranges for point-in-time recovery and the data size
   
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :widths: auto
+
+   * - Flag
+     - Description
+   * - ``-o``, ``--out=text``
+     - Shows the status as either plain text or a JSON object. Supported values: text, json
+   * - ``-s``, ``--sections=SECTIONS``
+     - Shows the status for the specified section. You can pass several flags to view the status for multiple sections. Supported values: cluster, pitr, running, backups. 
+   
+.. container:: toggle "JSON"
+
+   .. container:: header
+
+      **JSON output**
+
+   .. code-block:: javascript
+
+      {
+        "backups": {
+          "type": "FS",
+          "path": "<my-backup-dir>",
+          "snapshot": [
+             ...
+            {
+              "name": "<backup_name>",
+              "size": 3143396168,
+              "status": "done",
+              "completeTS": Timestamp,
+              "pbmVersion": "1.6.0"
+            },
+          ],
+          "pitrChunks": {
+            "pitrChunks": [
+               ...
+              {
+                "range": {
+                  "start": Timestamp,
+                  "end": Timestamp
+                }
+              },
+            ],
+            "size": 677901884
+          }
+        },
+        "cluster": [
+          {
+            "rs": "<replSet_name>",
+            "nodes": [
+              {
+                "host": "<replSet_name>/example.mongodb:27017",
+                "agent": "v1.6.0",
+                "ok": true
+              }
+            ]
+          }
+        ],
+        "pitr": {
+          "conf": true,
+          "run": false,
+          "error": "Timestamp.000+0000 E [<replSet_name>/example.mongodb:27017] [pitr] <error_message>"
+        },
+        "running": {
+            "type": "backup",
+            "name": "<backup_name>",
+            "startTS": Timestamp,
+            "status": "oplog backup",
+            "opID": "6113b631ea9ba5b815fee7c6"
+          }
+      }
+
+
 .. _logs:
 
 .. rubric:: pbm logs
@@ -257,7 +554,7 @@ The command has the following syntax:
 .. code-block:: bash
 
    pbm logs [<flags>]
-   
+
 The command accepts the following flags:
 
 .. list-table:: 
