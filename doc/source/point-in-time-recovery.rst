@@ -77,15 +77,53 @@ Re-enable |PITR| to resume saving oplog slices:
    $ pbm config --set pitr.enabled=true
 
 
-.. rubric:: Delete a backup
+Delete backups
+========================
 
-When you :ref:`delete a backup <pbm.backup.delete>`, all oplog slices that relate to this backup will be deleted too. For example, you delete a backup snapshot 2020-07-24T18:13:09 while there is another snapshot
+As of version 1.6.0, backup snapshots and incremental backups (oplog slices) are deleted using separate commands: :command:`pbm delete-backup` and :command:`pbm delete-pitr`  respectively.
+
+Running :command:`pbm delete-backup` deletes any backup snapshot but for the following ones:
+
+-  A backup that can serve as the base for any point in time recovery and has |PITR| time ranges deriving from it
+-  The most recent backup if |PITR| is enabled and there are no oplog slices following this backup yet.
+
+To illustrate this, let’s take the following ``pbm list`` output:
+
+.. code-block:: bash
+
+   $ pbm list
+   Backup snapshots:
+   2021-07-20T03:10:59Z [complete: 2021-07-20T03:21:19]
+   2021-07-21T22:27:09Z [complete: 2021-07-21T22:36:58]
+   2021-07-24T23:00:01Z [complete: 2021-07-24T23:09:02]
+   2021-07-26T17:42:04Z [complete: 2021-07-26T17:52:21]
+
+   PITR <on>:
+   2021-07-21T22:36:59-2021-07-22T12:20:23
+   2021-07-24T23:09:03-2021-07-26T17:52:21
+
+You can delete a backup ``2021-07-20T03:10:59Z`` since it has no time ranges for point-in-time recovery deriving from it. You cannot delete ``2021-07-21T22:27:09Z`` as it can be the base for recovery to any point in time from the ``PITR`` time range ``2021-07-21T22:36:59-2021-07-22T12:20:23``. Nor can you delete ``2021-07-26T17:42:04Z`` backup since there are no oplog slices following it yet. 
+
+
+Running :command:`pbm delete-pitr` allows you to delete old and/or unnecessary slices and save storage space. You can either delete all chunks by passing the  ``--all`` flag. Or you can delete all slices that are made earlier than the specified time by passing the ``--older-than`` flag. In this case, specify the timestamp as an argument for :command:`pbm delete-pitr` in the following format:
+
+* ``%Y-%M-%DT%H:%M:%S`` (for example, 2021-07-20T10:01:18) or
+* ``%Y-%M-%D`` (2021-07-20).
+
+.. code-block:: bash 
+
+   $ pbm delete-pitr --older-than 2021-07-20T10:01:18
+
+.. note::
+
+   To enable point in time recovery from the most recent backup snapshot, |PBM| does not delete slices that were made after that snapshot. For example, if the most recent snapshot is ``2021-07-20T07:05:23Z [complete: 2021-07-21T07:05:44]`` and you specify the timestamp ``2021-07-20T07:05:44``, |PBM| deletes only slices that were made before ``2021-07-20T07:05:23Z``.
+
+
+For |PBM| 1.5.0 and earlier versions, when you :ref:`delete a backup <pbm.backup.delete>`, all oplog slices that relate to this backup are deleted too. For example, you delete a backup snapshot 2020-07-24T18:13:09 while there is another snapshot
 2020-08-05T04:27:55 created after it.  |pbm-agent| deletes only oplog slices that relate to 2020-07-24T18:13:09.
 
 The same applies if you delete backups older than the specified time.
 
-.. note::
-
-   When |PITR| is enabled, the most recent backup snapshot and oplog slices that relate to it won't be deleted.
+Note that when |PITR| is enabled, the most recent backup snapshot and oplog slices that relate to it are not deleted.
 
 .. include:: .res/replace.txt

@@ -139,7 +139,7 @@ The command accepts the following flags:
 
 .. rubric:: pbm delete-backup
 
-Deletes the specified backup or all backups that are older than the specified time. The command deletes backups that are not running regardless of the remote backup storage being used.
+Deletes the specified backup snapshot or all backup snapshots that are older than the specified time. The command deletes backups that are not running regardless of the remote backup storage being used.
 
 The following is the command syntax:
 
@@ -162,6 +162,52 @@ The command accepts the following flags:
        - ``%Y-%M-%D`` (e.g. 2020-04-20)
    * - ``--force``
      - Forcibly deletes backups without asking for user's confirmation   
+
+.. _delete-pitr:
+
+.. rubric:: pbm delete-pitr
+
+Deletes :term:`oplog slices <Oplog slice>` produced for :ref:`pitr`. 
+
+The command has the following syntax:
+
+.. code-block:: bash
+
+   $ pbm delete-pitr [<flags>] 
+
+The command accepts the following flags:
+
+.. list-table:: 
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Flag
+     - Description
+   * - ``-a``, ``--all``
+     - Deletes all oplog slices
+   * - ``--older-than=TIMESTAMP``
+     - Deletes oplog slices older than date / time specified in the format:
+     
+       - ``%Y-%M-%DT%H:%M:%S`` (e.g. 2020-04-20T13:13:20) or 
+       - ``%Y-%M-%D`` (e.g. 2020-04-20)
+    
+       When you specify a timestamp, |PBM| rounds it down to align with the completion time of the closest backup snapshot and deletes oplog slices that precede this time. Thus, extra slices remain. This is done to ensure oplog continuity. To illustrate, the PITR time range is ``2021-08-11T11:16:21 - 2021-08-12T08:55:25`` and backup snapshots are:
+
+       .. code-block:: text
+
+          2021-08-12T08:49:46Z 13.49MB [complete: 2021-08-12T08:50:06]
+          2021-08-11T11:36:17Z 7.37MB [complete: 2021-08-11T11:36:38] 
+
+       Say you specify the timestamp ``2021-08-11T19:16:21``. The closest backup is ``2021-08-11T11:36:17Z 7.37KB [complete: 2021-08-11T11:36:38]``. PBM rounds down the timestamp to ``2021-08-11T11:36:38`` and deletes all slices that precede this time. As a result, your PITR time range is ``2021-08-11T11:36:38 - 2021-08-12T09:00:25``.
+
+       .. note::
+
+          |PBM| doesn't delete the oplog slices that follow the most recent backup. This is done to ensure point in time recovery from that backup snapshot. For example, if the snapshot is ``2021-07-20T07:05:23Z [complete: 2021-07-21T07:05:44]`` and you specify the timestamp ``2021-07-20T07:05:45``, |PBM| deletes only slices that were made before ``2021-07-20T07:05:23Z``.
+
+   * - ``--force``
+     - Forcibly deletes oplog slices without asking a user's confirmation
+   * - ``-o``, ``--out=json``
+     - Shows the output as either the plain text (default) or a JSON object. Supported values: ``text``, ``json``.
      
 .. _version:
 
