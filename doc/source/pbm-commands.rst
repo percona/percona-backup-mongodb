@@ -93,6 +93,8 @@ The command accepts the following flags:
      - Description
    * - ``--time=TIME``
      - Restores the database to the specified point in time. Available if :ref:`PITR` is enabled.
+   * - ``--base-snapshot``
+     - Restores the database from a specified backup to the specified point in time. Without this flag, the most recent backup preceding the timestamp is used for point in recovery. Available in |PBM| starting from version 1.6.0.
        
 .. _cancel:       
 
