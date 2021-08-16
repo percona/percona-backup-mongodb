@@ -9,11 +9,13 @@ package mongorestore
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
 
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/intents"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/intents"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/util"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -35,16 +37,10 @@ type authVersionPair struct {
 
 // Metadata holds information about a collection's options and indexes.
 type Metadata struct {
-	Options bson.D          `bson:"options,omitempty"`
-	Indexes []IndexDocument `bson:"indexes"`
-	UUID    string          `bson:"uuid"`
-}
-
-// IndexDocument holds information about a collection's index.
-type IndexDocument struct {
-	Options                 bson.M `bson:",inline"`
-	Key                     bson.D `bson:"key"`
-	PartialFilterExpression bson.D `bson:"partialFilterExpression,omitempty"`
+	Options        bson.D               `bson:"options,omitempty"`
+	Indexes        []*idx.IndexDocument `bson:"indexes"`
+	UUID           string               `bson:"uuid"`
+	CollectionName string               `bson:"collectionName"`
 }
 
 // MetadataFromJSON takes a slice of JSON bytes and unmarshals them into usable
@@ -84,7 +80,7 @@ func (restore *MongoRestore) LoadIndexesFromBSON() error {
 
 		// iterate over stored indexes, saving all that match the collection
 		for {
-			indexDocument := IndexDocument{}
+			indexDocument := &idx.IndexDocument{}
 			if !bsonSource.Next(&indexDocument) {
 				break
 			}
@@ -106,7 +102,7 @@ func stripDBFromNS(ns string) string {
 }
 
 // CollectionExists returns true if the given intent's collection exists.
-func (restore *MongoRestore) CollectionExists(intent *intents.Intent) (bool, error) {
+func (restore *MongoRestore) CollectionExists(dbName, coll string) (bool, error) {
 	restore.knownCollectionsMutex.Lock()
 	defer restore.knownCollectionsMutex.Unlock()
 
@@ -116,14 +112,14 @@ func (restore *MongoRestore) CollectionExists(intent *intents.Intent) (bool, err
 	}
 
 	// first check if we haven't done listCollections for this database already
-	if restore.knownCollections[intent.DB] == nil {
+	if restore.knownCollections[dbName] == nil {
 		// if the database name isn't in the cache, grab collection
 		// names from the server
 		session, err := restore.SessionProvider.GetSession()
 		if err != nil {
 			return false, fmt.Errorf("error establishing connection: %v", err)
 		}
-		collections, err := session.Database(intent.DB).ListCollections(nil, bson.M{})
+		collections, err := session.Database(dbName).ListCollections(nil, bson.M{})
 		if err != nil {
 			return false, err
 		}
@@ -134,12 +130,12 @@ func (restore *MongoRestore) CollectionExists(intent *intents.Intent) (bool, err
 			if !ok {
 				return false, fmt.Errorf("invalid collection name: %v", colNameRaw)
 			}
-			restore.knownCollections[intent.DB] = append(restore.knownCollections[intent.DB], colName)
+			restore.knownCollections[dbName] = append(restore.knownCollections[dbName], colName)
 		}
 	}
 
 	// now check the cache for the given collection name
-	exists := util.StringSliceContains(restore.knownCollections[intent.DB], intent.C)
+	exists := util.StringSliceContains(restore.knownCollections[dbName], coll)
 	return exists, nil
 }
 
@@ -155,30 +151,28 @@ func (restore *MongoRestore) addToKnownCollections(intent *intents.Intent) {
 // CreateIndexes takes in an intent and an array of index documents and
 // attempts to create them using the createIndexes command. If that command
 // fails, we fall back to individual index creation.
-func (restore *MongoRestore) CreateIndexes(intent *intents.Intent, indexes []IndexDocument, hasNonSimpleCollation bool) error {
+func (restore *MongoRestore) CreateIndexes(dbName string, collectionName string, indexes []*idx.IndexDocument) error {
 	// first, sanitize the indexes
+	var indexNames []string
 	for _, index := range indexes {
 		// update the namespace of the index before inserting
-		index.Options["ns"] = intent.Namespace()
+		index.Options["ns"] = dbName + "." + collectionName
 
 		// check for length violations before building the command
-		fullIndexName := fmt.Sprintf("%v.$%v", index.Options["ns"], index.Options["name"])
-		if len(fullIndexName) > 127 {
-			return fmt.Errorf(
-				"cannot restore index with namespace '%v': "+
-					"namespace is too long (max size is 127 bytes)", fullIndexName)
+		if restore.serverVersion.LT(db.Version{4, 2, 0}) {
+			fullIndexName := fmt.Sprintf("%v.$%v", index.Options["ns"], index.Options["name"])
+			if len(fullIndexName) > 127 {
+				return fmt.Errorf(
+					"cannot restore index with namespace '%v': "+
+						"namespace is too long (max size is 127 bytes)", fullIndexName)
+			}
 		}
+		indexNames = append(indexNames, index.Options["name"].(string))
 
 		// remove the index version, forcing an update,
 		// unless we specifically want to keep it
 		if !restore.OutputOptions.KeepIndexVersion {
 			delete(index.Options, "v")
-		}
-
-		// for non-simple default collation on the collection, indexes without
-		// a collation option need to add "collation:{locale:"simple"}}
-		if _, ok := index.Options["collation"]; hasNonSimpleCollation && !ok {
-			index.Options["collation"] = bson.D{{"locale", "simple"}}
 		}
 	}
 
@@ -189,10 +183,17 @@ func (restore *MongoRestore) CreateIndexes(intent *intents.Intent, indexes []Ind
 
 	// then attempt the createIndexes command
 	rawCommand := bson.D{
-		{"createIndexes", intent.C},
+		{"createIndexes", collectionName},
 		{"indexes", indexes},
 	}
-	err = session.Database(intent.DB).RunCommand(nil, rawCommand).Err()
+
+	log.Logvf(log.Info, "\trun create Index command for indexes: %v", strings.Join(indexNames, ", "))
+
+	if restore.serverVersion.GTE(db.Version{4, 1, 9}) {
+		rawCommand = append(rawCommand, bson.E{"ignoreUnknownIndexOptions", true})
+	}
+
+	err = session.Database(dbName).RunCommand(nil, rawCommand).Err()
 	if err == nil {
 		return nil
 	}
@@ -204,7 +205,7 @@ func (restore *MongoRestore) CreateIndexes(intent *intents.Intent, indexes []Ind
 	log.Logv(log.Info, "\tcreateIndexes command not supported, attemping legacy index insertion")
 	for _, idx := range indexes {
 		log.Logvf(log.Info, "\tmanually creating index %v", idx.Options["name"])
-		err = restore.LegacyInsertIndex(intent, idx)
+		err = restore.LegacyInsertIndex(dbName, idx)
 		if err != nil {
 			return fmt.Errorf("error creating index %v: %v", idx.Options["name"], err)
 		}
@@ -214,13 +215,13 @@ func (restore *MongoRestore) CreateIndexes(intent *intents.Intent, indexes []Ind
 
 // LegacyInsertIndex takes in an intent and an index document and attempts to
 // create the index on the "system.indexes" collection.
-func (restore *MongoRestore) LegacyInsertIndex(intent *intents.Intent, index IndexDocument) error {
+func (restore *MongoRestore) LegacyInsertIndex(dbName string, index *idx.IndexDocument) error {
 	session, err := restore.SessionProvider.GetSession()
 	if err != nil {
 		return fmt.Errorf("error establishing connection: %v", err)
 	}
 
-	indexCollection := session.Database(intent.DB).Collection("system.indexes")
+	indexCollection := session.Database(dbName).Collection("system.indexes")
 	_, err = indexCollection.InsertOne(nil, index)
 	if err != nil {
 		return fmt.Errorf("insert error: %v", err)
@@ -247,7 +248,22 @@ func (restore *MongoRestore) CreateCollection(intent *intents.Intent, options bs
 
 }
 
+// UpdateAutoIndexId updates {autoIndexId: false} to {autoIndexId: true} if the server version is
+// >= 4.0 and the database is not `local`.
+func (restore *MongoRestore) UpdateAutoIndexId(options bson.D) {
+	if restore.serverVersion.GTE(db.Version{4, 0, 0}) {
+		for i, elem := range options {
+			if elem.Key == "autoIndexId" && elem.Value == false && restore.ToolOptions.Namespace.DB != "local" {
+				options[i].Value = true
+				log.Logvf(log.Always, "{autoIndexId: false} is not allowed in server versions >= 4.0. Changing to {autoIndexId: true}.")
+			}
+		}
+	}
+}
+
 func (restore *MongoRestore) createCollectionWithCommand(session *mongo.Client, intent *intents.Intent, options bson.D) error {
+	restore.UpdateAutoIndexId(options)
+
 	command := createCollectionCommand(intent, options)
 
 	// If there is no error, the result doesnt matter
@@ -266,6 +282,8 @@ func (restore *MongoRestore) createCollectionWithCommand(session *mongo.Client, 
 }
 
 func (restore *MongoRestore) createCollectionWithApplyOps(session *mongo.Client, intent *intents.Intent, options bson.D, uuidHex string) error {
+	restore.UpdateAutoIndexId(options)
+
 	command := createCollectionCommand(intent, options)
 	uuid, err := hex.DecodeString(uuidHex)
 	if err != nil {
@@ -379,7 +397,7 @@ func (restore *MongoRestore) RestoreUsersOrRoles(users, roles *intents.Intent) e
 		bsonSource := db.NewDecodedBSONSource(db.NewBSONSource(arg.intent.BSONFile))
 		defer bsonSource.Close()
 
-		tempCollectionNameExists, err := restore.CollectionExists(&intents.Intent{DB: "admin", C: arg.tempCollectionName})
+		tempCollectionNameExists, err := restore.CollectionExists("admin", arg.tempCollectionName)
 		if err != nil {
 			return err
 		}
@@ -392,7 +410,7 @@ func (restore *MongoRestore) RestoreUsersOrRoles(users, roles *intents.Intent) e
 		}
 
 		log.Logvf(log.DebugLow, "restoring %v to temporary collection", arg.intentType)
-		result := restore.RestoreCollectionToDB("admin", arg.tempCollectionName, bsonSource, arg.intent.BSONFile, 0)
+		result := restore.RestoreCollectionToDB("admin", arg.tempCollectionName, bsonSource, arg.intent.BSONFile, 0, "")
 		if result.Err != nil {
 			return fmt.Errorf("error restoring %v: %v", arg.intentType, result.Err)
 		}
@@ -470,7 +488,7 @@ func (restore *MongoRestore) GetDumpAuthVersion() (int, error) {
 			// If we are using --restoreDbUsersAndRoles, we cannot guarantee an
 			// $admin.system.version collection from a 2.6 server,
 			// so we can assume up to version 3.
-			log.Logvf(log.Always, "no system.version bson file found in '%v' database dump", restore.NSOptions.DB)
+			log.Logvf(log.Always, "no system.version bson file found in '%v' database dump", restore.ToolOptions.Namespace.DB)
 			log.Logv(log.Always, "warning: assuming users and roles collections are of auth version 3")
 			log.Logv(log.Always, "if users are from an earlier version of MongoDB, they may not restore properly")
 			return 3, nil
@@ -576,8 +594,8 @@ func (restore *MongoRestore) ShouldRestoreUsersAndRoles() bool {
 	// is doing a full restore), then we check if users or roles BSON files
 	// actually exist in the dump dir. If they do, return true.
 	if restore.InputOptions.RestoreDBUsersAndRoles ||
-		restore.NSOptions.DB == "" ||
-		restore.NSOptions.DB == "admin" {
+		restore.ToolOptions.Namespace.DB == "" ||
+		restore.ToolOptions.Namespace.DB == "admin" {
 		if restore.manager.Users() != nil || restore.manager.Roles() != nil {
 			return true
 		}

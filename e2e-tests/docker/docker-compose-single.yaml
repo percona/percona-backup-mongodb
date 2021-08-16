@@ -15,7 +15,7 @@ services:
       - ./backups:/opt/backups
 
   rs101:
-    image: percona/percona-server-mongodb:${MONGODB_VERSION:-3.6}
+    image: ${MONGODB_IMAGE:-percona/percona-server-mongodb}:${MONGODB_VERSION:-3.6}
     hostname: rs101
     environment:
       - REPLSET_NAME=rs1

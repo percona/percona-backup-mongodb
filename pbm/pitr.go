@@ -101,14 +101,32 @@ func (p *PBM) pitrChunk(rs string, sort int) (*PITRChunk, error) {
 }
 
 // PITRGetChunksSlice returns slice of PITR oplog chunks which Start TS
-// lies in a given time frame
+// lies in a given time frame. Returns all chunks if `to` is 0.
 func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PITRChunk, error) {
 	q := bson.D{}
 	if rs != "" {
 		q = bson.D{{"rs", rs}}
 	}
-	q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
+	if to.T > 0 {
+		q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
+	}
 
+	return p.pitrGetChunksSlice(rs, q)
+}
+
+// PITRGetChunksSliceUntil returns slice of PITR oplog chunks that starts up until timestamp (exclusively)
+func (p *PBM) PITRGetChunksSliceUntil(rs string, t primitive.Timestamp) ([]PITRChunk, error) {
+	q := bson.D{}
+	if rs != "" {
+		q = bson.D{{"rs", rs}}
+	}
+
+	q = append(q, bson.E{"start_ts", bson.M{"$lt": t}})
+
+	return p.pitrGetChunksSlice(rs, q)
+}
+
+func (p *PBM) pitrGetChunksSlice(rs string, q bson.D) ([]PITRChunk, error) {
 	cur, err := p.Conn.Database(DB).Collection(PITRChunksCollection).Find(
 		p.ctx,
 		q,
@@ -121,7 +139,6 @@ func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]PIT
 	defer cur.Close(p.ctx)
 
 	chnks := []PITRChunk{}
-
 	for cur.Next(p.ctx) {
 		var chnk PITRChunk
 		err := cur.Decode(&chnk)
@@ -162,9 +179,9 @@ func (p *PBM) PITRAddChunk(c PITRChunk) error {
 }
 
 type Timeline struct {
-	Start uint32
-	End   uint32
-	Size  int64
+	Start uint32 `json:"start"`
+	End   uint32 `json:"end"`
+	Size  int64  `json:"-"`
 }
 
 const tlTimeFormat = "2006-01-02T15:04:05"

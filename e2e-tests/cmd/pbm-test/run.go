@@ -10,6 +10,8 @@ import (
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
+	cVersion := majmin(t.ServerVersion())
+
 	remoteStg := []struct {
 		name string
 		conf string
@@ -76,6 +78,13 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.SetBallastData(1e3)
 	flush(t)
 
+	if semver.Compare(cVersion, "v5.0") >= 0 {
+		printStart("Check timeseries")
+		t.Timeseries()
+		printDone("Check timeseries")
+		flush(t)
+	}
+
 	printStart("Check Backups deletion")
 	t.BackupDelete(storage)
 	printDone("Check Backups deletion")
@@ -114,7 +123,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.RestartAgents()
 		printDone("Restart agents during the backup")
 
-		cVersion := majmin(t.ServerVersion())
 		if semver.Compare(cVersion, "v4.2") >= 0 {
 			printStart("Distributed Transactions backup")
 			t.DistributedTrxSnapshot()

@@ -86,6 +86,8 @@ func (a *Agent) Start() error {
 				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
 				a.Delete(cmd.Delete, cmd.OPID, ep)
+			case pbm.CmdDeletePITR:
+				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
 			}
 		case err := <-cerr:
 			switch err.(type) {
@@ -107,7 +109,6 @@ func (a *Agent) Start() error {
 
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
-	const waitAtLeast = time.Second * 5
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
@@ -173,6 +174,65 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("done")
 }
 
+// DeletePITR deletes PITR chunks from the store and cleans up its metadata
+func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeletePITR), "", opid.String(), ep.TS())
+
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		l.Error("get node info data: %v", err)
+		return
+	}
+
+	if !nodeInfo.IsLeader() {
+		l.Info("not a member of the leader rs, skipping")
+		return
+	}
+
+	epts := ep.TS()
+	lock := a.pbm.NewLockCol(pbm.LockHeader{
+		Replset: a.node.RS(),
+		Node:    a.node.Name(),
+		Type:    pbm.CmdDeletePITR,
+		OPID:    opid.String(),
+		Epoch:   &epts,
+	}, pbm.LockOpCollection)
+
+	got, err := a.aquireLock(lock)
+	if err != nil {
+		l.Error("acquire lock: %v", err)
+		return
+	}
+	if !got {
+		l.Debug("skip: lock not acquired")
+		return
+	}
+	defer func() {
+		err := lock.Release()
+		if err != nil {
+			l.Error("release lock: %v", err)
+		}
+	}()
+
+	if d.OlderThan > 0 {
+		t := time.Unix(d.OlderThan, 0).UTC()
+		obj := t.Format("2006-01-02T15:04:05Z")
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeletePITR), obj, opid.String(), ep.TS())
+		l.Info("deleting pitr chunks older than %v", t)
+		err = a.pbm.DeletePITR(&t, l)
+	} else {
+		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeletePITR), "_all_", opid.String(), ep.TS())
+		l.Info("deleting all pitr chunks")
+		err = a.pbm.DeletePITR(nil, l)
+	}
+	if err != nil {
+		l.Error("deleting: %v", err)
+		return
+	}
+
+	l.Info("done")
+}
+
 // ResyncStorage uploads a backup list from the remote store
 func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", opid.String(), ep.TS())
@@ -222,15 +282,13 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	}
 	l.Info("succeed")
 
-	if nodeInfo.IsLeader() {
-		epch, err := a.pbm.ResetEpoch()
-		if err != nil {
-			l.Error("reset epoch: %v", err)
-			return
-		}
-
-		l.Debug("epoch set to %v", epch)
+	epch, err := a.pbm.ResetEpoch()
+	if err != nil {
+		l.Error("reset epoch: %v", err)
+		return
 	}
+
+	l.Debug("epoch set to %v", epch)
 }
 
 // aquireLock tries to aquire the lock. If there is a stale lock
@@ -247,6 +305,7 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock
+		a.log.Debug("", "", l.OPID, *l.Epoch, "stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
 		case pbm.CmdBackup:

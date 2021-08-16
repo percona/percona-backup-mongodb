@@ -179,7 +179,6 @@ Microsoft Azure Blob storage options
    :required: NO
 
    The path (sub-folder) to the backups inside the container. If undefined, backups are stored in the container root directory.
-.
 
 .. option:: storage.azure.credentials.key  
 
@@ -205,6 +204,7 @@ Point-in-time recovery options
    
    Enables point-in-time recovery
 
+
 .. option:: pitr.oplogSpanMin
 
    :type: float64
@@ -215,6 +215,7 @@ Point-in-time recovery options
    If the new duration is smaller than the previous one, the |pbm-agent| is triggered to save a new slice with the updated span. If the duration is larger, then the next slice is saved with the updated span in scheduled time.  
 
 .. _backup-config:
+.. _backup-options:
 
 Backup options
 ===================================================
