@@ -127,7 +127,7 @@ Restoring a backup
 
 To restore a backup that you have made using |pbm-backup|, use the
 |pbm-restore| command supplying the time stamp of the backup that you intend to
-restore.
+restore. The database is restored up to the backup completion time (available in :ref:`pbm list output <pbm.running.backup.listing>` as of version 1.4.0)
 
 .. important::
 

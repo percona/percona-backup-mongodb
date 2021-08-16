@@ -187,6 +187,8 @@ The command accepts the following flags:
      - Restores the database to the specified point in time. Available if :ref:`PITR` is enabled.
    * - ``-o``, ``--out=text``
      - Shows the output format as either plain text or a JSON object. Supported values: text, json
+   * - ``--base-snapshot``
+     - Restores the database from a specified backup to the specified point in time. Without this flag, the most recent backup preceding the timestamp is used for point in recovery. Available in |PBM| starting from version 1.6.0.
        
 .. container:: toggle
 
@@ -345,7 +347,7 @@ The command accepts the following flags:
 
 .. rubric:: pbm delete-backup
 
-Deletes the specified backup or all backups that are older than the specified time. The command deletes backups that are not running regardless of the remote backup storage being used.
+Deletes the specified backup snapshot or all backup snapshots that are older than the specified time. The command deletes backups that are not running regardless of the remote backup storage being used.
 
 The following is the command syntax:
 
@@ -414,7 +416,7 @@ The command accepts the following flags:
      - Forcibly deletes oplog slices without asking a user's confirmation
    * - ``-o``, ``--out=json``
      - Shows the output as either the plain text (default) or a JSON object. Supported values: ``text``, ``json``.
-          
+
 .. _version:
 
 .. rubric:: pbm version
@@ -540,6 +542,7 @@ The command accepts the following flags:
           }
       }
 
+
 .. _logs:
 
 .. rubric:: pbm logs
@@ -556,7 +559,7 @@ The command accepts the following flags:
 
 .. list-table:: 
    :header-rows: 1
-   :widths: auto
+   :widths: 30 70
 
    * - Flag
      - Description
@@ -589,9 +592,9 @@ The command accepts the following flags:
 
 Find the usage examples in :ref:`pbm.logs`.
 
-.. container:: toggle "JSON"
+.. container:: toggle
 
-   .. container:: header
+   .. container :: header
 
       **JSON output**
 

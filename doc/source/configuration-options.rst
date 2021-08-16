@@ -179,7 +179,6 @@ Microsoft Azure Blob storage options
    :required: NO
 
    The path (sub-folder) to the backups inside the container. If undefined, backups are stored in the container root directory.
-.
 
 .. option:: storage.azure.credentials.key  
 
@@ -197,6 +196,7 @@ Point-in-time recovery options
 
    pitr:
      enabled: <boolean> 
+     oplogSpanMin: <float64>
 
 .. option:: pitr.enabled
   
@@ -204,7 +204,18 @@ Point-in-time recovery options
    
    Enables point-in-time recovery
 
+
+.. option:: pitr.oplogSpanMin
+
+   :type: float64
+   :default: 10
+
+   The duration of an oplog span in minutes. If set when the |pbm-agent| is making an oplog slice, the slice’s span is updated right away.
+
+   If the new duration is smaller than the previous one, the |pbm-agent| is triggered to save a new slice with the updated span. If the duration is larger, then the next slice is saved with the updated span in scheduled time.  
+
 .. _backup-config:
+.. _backup-options:
 
 Backup options
 ===================================================

@@ -80,10 +80,12 @@ func (r *Resolver) fetchSeedlistFromSRV(host string, stopOnErr bool) ([]string, 
 		return nil, err
 	}
 
+	trimmedHost := strings.TrimSuffix(host, ".")
+
 	var parsedHosts []string
 	for _, address := range addresses {
 		trimmedAddressTarget := strings.TrimSuffix(address.Target, ".")
-		err := validateSRVResult(trimmedAddressTarget, host)
+		err := validateSRVResult(trimmedAddressTarget, trimmedHost)
 		if err != nil {
 			if stopOnErr {
 				return nil, err
@@ -118,8 +120,9 @@ func validateSRVResult(recordFromSRV, inputHostName string) error {
 }
 
 var allowedTXTOptions = map[string]struct{}{
-	"authsource": {},
-	"replicaset": {},
+	"authsource":   {},
+	"replicaset":   {},
+	"loadbalanced": {},
 }
 
 func validateTXTResult(paramsFromTXT []string) error {
