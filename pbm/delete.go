@@ -156,8 +156,39 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 	return nil
 }
 
-func (p *PBM) deleteChunks(start, end primitive.Timestamp, stg storage.Storage) error {
-	chunks, err := p.PITRGetChunksSlice("", start, end)
+// DeletePITR deletes backups which older than given `until` Time. It will round `until` down
+// to the last write of the closest preceding backup in order not to make gaps. So usually it
+// gonna leave some extra chunks. E.g. if `until = 13` and the last write of the closest preceding
+// backup is `10` it will leave `11` and `12` chunks as well since `13` won't be restorable
+// without `11` and `12` (contiguous timeline from the backup).
+// It deletes all chunks if `until` is nil.
+func (p *PBM) DeletePITR(until *time.Time, l *log.Event) error {
+	stg, err := p.GetStorage(l)
+	if err != nil {
+		return errors.Wrap(err, "get storage")
+	}
+
+	var zerots primitive.Timestamp
+	if until == nil {
+		return p.deleteChunks(zerots, zerots, stg)
+	}
+
+	bcp, err := p.GetLastBackup(&primitive.Timestamp{T: uint32(until.Unix()), I: 0})
+	if err != nil {
+		return errors.Wrap(err, "get recent backup")
+	}
+
+	return p.deleteChunks(zerots, bcp.LastWriteTS, stg)
+}
+
+func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage) (err error) {
+	var chunks []PITRChunk
+
+	if until.T > 0 {
+		chunks, err = p.PITRGetChunksSliceUntil("", until)
+	} else {
+		chunks, err = p.PITRGetChunksSlice("", start, until)
+	}
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}

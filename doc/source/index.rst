@@ -93,6 +93,14 @@ How to
    Troubleshoot PBM <troubleshooting>   
    Remove PBM <uninstalling>
 
+FAQ
+***********************************************
+
+.. toctree::
+   :maxdepth: 1
+
+   faq
+
 Reference
 ***********************************************
    

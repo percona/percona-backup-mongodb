@@ -13,10 +13,10 @@ import (
 	"errors"
 
 	"go.mongodb.org/mongo-driver/event"
+	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/session"
 )
 
@@ -27,11 +27,13 @@ type CommitTransaction struct {
 	session       *session.Client
 	clock         *session.ClusterClock
 	monitor       *event.CommandMonitor
+	crypt         *driver.Crypt
 	database      string
 	deployment    driver.Deployment
 	selector      description.ServerSelector
 	writeConcern  *writeconcern.WriteConcern
 	retry         *driver.RetryMode
+	serverAPI     *driver.ServerAPIOptions
 }
 
 // NewCommitTransaction constructs and returns a new CommitTransaction.
@@ -39,7 +41,7 @@ func NewCommitTransaction() *CommitTransaction {
 	return &CommitTransaction{}
 }
 
-func (ct *CommitTransaction) processResponse(response bsoncore.Document, srvr driver.Server, desc description.Server) error {
+func (ct *CommitTransaction) processResponse(driver.ResponseInfo) error {
 	var err error
 	return err
 }
@@ -58,10 +60,12 @@ func (ct *CommitTransaction) Execute(ctx context.Context) error {
 		Client:            ct.session,
 		Clock:             ct.clock,
 		CommandMonitor:    ct.monitor,
+		Crypt:             ct.crypt,
 		Database:          ct.database,
 		Deployment:        ct.deployment,
 		Selector:          ct.selector,
 		WriteConcern:      ct.writeConcern,
+		ServerAPI:         ct.serverAPI,
 	}.Execute(ctx, nil)
 
 }
@@ -128,6 +132,16 @@ func (ct *CommitTransaction) CommandMonitor(monitor *event.CommandMonitor) *Comm
 	return ct
 }
 
+// Crypt sets the Crypt object to use for automatic encryption and decryption.
+func (ct *CommitTransaction) Crypt(crypt *driver.Crypt) *CommitTransaction {
+	if ct == nil {
+		ct = new(CommitTransaction)
+	}
+
+	ct.crypt = crypt
+	return ct
+}
+
 // Database sets the database to run this operation against.
 func (ct *CommitTransaction) Database(database string) *CommitTransaction {
 	if ct == nil {
@@ -176,5 +190,15 @@ func (ct *CommitTransaction) Retry(retry driver.RetryMode) *CommitTransaction {
 	}
 
 	ct.retry = &retry
+	return ct
+}
+
+// ServerAPI sets the server API version for this operation.
+func (ct *CommitTransaction) ServerAPI(serverAPI *driver.ServerAPIOptions) *CommitTransaction {
+	if ct == nil {
+		ct = new(CommitTransaction)
+	}
+
+	ct.serverAPI = serverAPI
 	return ct
 }

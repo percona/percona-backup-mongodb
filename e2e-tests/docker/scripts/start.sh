@@ -60,7 +60,7 @@ fi
 mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
 rs.reconfig(
     {
-        _id: '$REPLSET_NAME',
+        _id: "${REPLSET_NAME}",
         configsvr: $CONFIGSVR,
         protocolVersion: NumberLong(1),
         version: 2,
@@ -69,6 +69,10 @@ rs.reconfig(
             { _id: 1, host: "${REPLSET_NAME}02:27017" },
             { _id: 2, host: "${REPLSET_NAME}03:27017" }
         ]
+    },
+    {
+        "force" : true,
     }
 )
 EOF
+

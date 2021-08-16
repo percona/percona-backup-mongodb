@@ -9,4 +9,4 @@ test_dir=$(realpath $(dirname $0))
 MONGO_VERSION=${MONGODB_VERSION:-"3.6"}
 
 desc 'Start replicaset'
-start_replset $MONGO_VERSION
+start_replset $MONGO_VERSION "$COMPOSE_RS_PATH"

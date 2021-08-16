@@ -9,17 +9,19 @@ package mongodump
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/mongodb/mongo-tools-common/archive"
-	"github.com/mongodb/mongo-tools-common/db"
-	"github.com/mongodb/mongo-tools-common/intents"
-	"github.com/mongodb/mongo-tools-common/log"
-	"github.com/mongodb/mongo-tools-common/util"
+	"github.com/mongodb/mongo-tools/common/archive"
+	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/intents"
+	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/util"
 )
 
 type NilPos struct{}
@@ -149,7 +151,7 @@ func shouldSkipSystemNamespace(dbName, collName string) bool {
 			return true
 		}
 	case "config":
-		if collName == "transactions" || collName == "system.sessions" || collName == "transaction_coordinators" {
+		if collName == "transactions" || collName == "system.sessions" || collName == "transaction_coordinators" || collName == "system.indexBuilds" {
 			return true
 		}
 	default:
@@ -167,6 +169,15 @@ func shouldSkipSystemNamespace(dbName, collName string) bool {
 	}
 
 	return false
+}
+
+func isReshardingCollection(collName string) bool {
+	switch collName {
+	case "reshardingOperations", "localReshardingOperations.donor", "localReshardingOperations.recipient":
+		return true
+	default:
+		return false
+	}
 }
 
 // shouldSkipCollection returns true when a collection name is excluded
@@ -194,16 +205,21 @@ func (dump *MongoDump) outputPath(dbName, colName string) string {
 		root = dump.OutputOptions.Out
 	}
 
-	return filepath.Join(root, dbName, util.EscapeCollectionName(colName))
-}
+	// Encode a new output path for collection names that would result in a file name greater
+	// than 255 bytes long. This includes the longest possible file extension: .metadata.json.gz
+	// The new format is <truncated-url-encoded-collection-name>%24<collection-name-hash-base64>
+	// where %24 represents a $ symbol delimiter (e.g. aVeryVery...VeryLongName%24oPpXMQ...).
+	escapedColName := util.EscapeCollectionName(colName)
+	if len(escapedColName) > 238 {
+		colNameTruncated := escapedColName[:208]
+		colNameHashBytes := sha1.Sum([]byte(colName))
+		colNameHashBase64 := base64.RawURLEncoding.EncodeToString(colNameHashBytes[:])
 
-func checkStringForPathSeparator(s string, c *rune) bool {
-	for _, *c = range s {
-		if os.IsPathSeparator(uint8(*c)) {
-			return true
-		}
+		// First 208 bytes of col name + 3 bytes delimiter + 27 bytes base64 hash = 238 bytes max.
+		escapedColName = colNameTruncated + "%24" + colNameHashBase64
 	}
-	return false
+
+	return filepath.Join(root, dbName, escapedColName)
 }
 
 // CreateOplogIntents creates an intents.Intent for the oplog and adds it to the manager
@@ -261,7 +277,8 @@ func (dump *MongoDump) CreateUsersRolesVersionIntentsForDB(db string) error {
 }
 
 // CreateCollectionIntent builds an intent for a given collection and
-// puts it into the intent manager.
+// puts it into the intent manager. It should only be called when a specific
+// collection is specified by --db and --collection.
 func (dump *MongoDump) CreateCollectionIntent(dbName, colName string) error {
 	if dump.shouldSkipCollection(colName) {
 		log.Logvf(log.DebugLow, "skipping dump of %v.%v, it is excluded", dbName, colName)
@@ -292,6 +309,7 @@ func (dump *MongoDump) NewIntentFromOptions(dbName string, ci *db.CollectionInfo
 		DB:      dbName,
 		C:       ci.Name,
 		Options: ci.Options,
+		Type:    ci.Type,
 	}
 
 	// Populate the intent with the collection UUID or the empty string
@@ -306,37 +324,38 @@ func (dump *MongoDump) NewIntentFromOptions(dbName string, ci *db.CollectionInfo
 			// if archive mode, then the output should be written using an output
 			// muxer.
 			intent.BSONFile = &archive.MuxIn{Intent: intent, Mux: dump.archive.Mux}
-		} else if dump.OutputOptions.ViewsAsCollections || !ci.IsView() {
+			if dump.OutputOptions.Archive == "-" {
+				intent.Location = "archive on stdout"
+			} else {
+				intent.Location = fmt.Sprintf("archive '%v'", dump.OutputOptions.Archive)
+			}
+		} else if ci.IsTimeseries() {
+			path := nameGz(dump.OutputOptions.Gzip, dump.outputPath(dbName, "system.buckets."+ci.Name)+".bson")
+			intent.BSONFile = &realBSONFile{path: path, intent: intent}
+			intent.Location = path
+		} else if ci.IsView() && !dump.OutputOptions.ViewsAsCollections {
+			log.Logvf(log.DebugLow, "not dumping data for %v.%v because it is a view", dbName, ci.Name)
+		} else {
 			// otherwise, if it's either not a view or we're treating views as collections
 			// then create a standard filesystem path for this collection.
-			var c rune
-			if checkStringForPathSeparator(dbName, &c) {
-				return nil, fmt.Errorf(`database "%v" contains a path separator '%c' `+
-					`and can't be dumped to the filesystem`, dbName, c)
-			}
-
 			path := nameGz(dump.OutputOptions.Gzip, dump.outputPath(dbName, ci.Name)+".bson")
 			intent.BSONFile = &realBSONFile{path: path, intent: intent}
-		} else {
-			// otherwise, it's a view and the options specify not dumping a view
-			// so don't dump it.
-			log.Logvf(log.DebugLow, "not dumping data for %v.%v because it is a view", dbName, ci.Name)
+			intent.Location = path
+		}
+
+		if dump.OutputOptions.ViewsAsCollections && ci.IsView() {
+			delete(intent.Options, "viewOn")
+			delete(intent.Options, "pipeline")
 		}
 		//Set the MetadataFile path.
-		if dump.OutputOptions.ViewsAsCollections && ci.IsView() {
-			log.Logvf(log.DebugLow, "not dumping metadata for %v.%v because it is a view", dbName, ci.Name)
-		} else {
-			if !intent.IsSystemIndexes() {
-				if dump.OutputOptions.Archive != "" {
-					intent.MetadataFile = &archive.MetadataFile{
-						Intent: intent,
-						Buffer: &bytes.Buffer{},
-					}
-				} else {
-					path := nameGz(dump.OutputOptions.Gzip, dump.outputPath(dbName, ci.Name+".metadata.json"))
-					intent.MetadataFile = &realMetadataFile{path: path, intent: intent}
-				}
+		if dump.OutputOptions.Archive != "" {
+			intent.MetadataFile = &archive.MetadataFile{
+				Intent: intent,
+				Buffer: &bytes.Buffer{},
 			}
+		} else {
+			path := nameGz(dump.OutputOptions.Gzip, dump.outputPath(dbName, ci.Name)+".metadata.json")
+			intent.MetadataFile = &realMetadataFile{path: path, intent: intent}
 		}
 	}
 
@@ -344,7 +363,7 @@ func (dump *MongoDump) NewIntentFromOptions(dbName string, ci *db.CollectionInfo
 	// skips this if it is a view, as it may be incredibly slow if the
 	// view is based on a slow query.
 
-	if ci.IsView() {
+	if ci.IsView() || ci.IsTimeseries() {
 		return intent, nil
 	}
 
@@ -352,6 +371,7 @@ func (dump *MongoDump) NewIntentFromOptions(dbName string, ci *db.CollectionInfo
 	if err != nil {
 		return nil, err
 	}
+	log.Logvf(log.DebugHigh, "Getting estimated count for %v.%v", dbName, ci.Name)
 	count, err := session.Database(dbName).Collection(ci.Name).EstimatedDocumentCount(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("error counting %v: %v", intent.Namespace(), err)
@@ -385,6 +405,9 @@ func (dump *MongoDump) CreateIntentsForDatabase(dbName string) error {
 		if shouldSkipSystemNamespace(dbName, collInfo.Name) {
 			log.Logvf(log.DebugHigh, "will not dump system collection '%s.%s'", dbName, collInfo.Name)
 			continue
+		}
+		if dbName == "config" && dump.OutputOptions.Oplog && isReshardingCollection(collInfo.Name) {
+			return fmt.Errorf("detected resharding in progress. Cannot dump with --oplog while resharding")
 		}
 		if dump.shouldSkipCollection(collInfo.Name) {
 			log.Logvf(log.DebugLow, "skipping dump of %v.%v, it is excluded", dbName, collInfo.Name)

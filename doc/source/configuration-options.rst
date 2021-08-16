@@ -179,7 +179,6 @@ Microsoft Azure Blob storage options
    :required: NO
 
    The path (sub-folder) to the backups inside the container. If undefined, backups are stored in the container root directory.
-.
 
 .. option:: storage.azure.credentials.key  
 
@@ -204,7 +203,7 @@ Point-in-time recovery options
    
    Enables point-in-time recovery
 
-.. _backup-config:
+.. _backup-options:
 
 Backup options
 ===================================================
