@@ -57,10 +57,8 @@ void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
             chmod 664 ./e2e-tests/docker/conf/gcs.yaml
             chmod 664 ./e2e-tests/docker/conf/azure.yaml
 
-            docker-compose -f ./e2e-tests/docker/${compose} build
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-            sudo chown 1001:1001 ./e2e-tests/docker/keyFile
-            sudo chmod 400 ./e2e-tests/docker/keyFile
+            docker-compose -f ./e2e-tests/docker/${compose} build
         """
     }
 }
