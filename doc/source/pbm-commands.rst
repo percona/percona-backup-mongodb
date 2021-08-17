@@ -269,7 +269,6 @@ The command accepts the following flags:
 .. list-table:: 
    :header-rows: 1
    :widths: 30 70
-   :align: right
 
    * - Flag
      - Description
