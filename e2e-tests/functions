@@ -12,7 +12,6 @@ run() {
     local compose=$1
     local mongo_version=$2
 
-
     desc 'Start cluster'
     case $compose in
         $COMPOSE_PATH)
@@ -139,6 +138,7 @@ start_cluster() {
     local mongo_version=$1
 
     genMongoKey
+    export USER_ID=$(id -u)
 
     local no_build=${PBM_TESTS_NO_BUILD:-false}
     if $no_build ; then
@@ -151,7 +151,7 @@ start_cluster() {
     if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
     mkdir "${test_dir}/docker/backups"
     chmod -R 777 "${test_dir}/docker/backups"
-
+    
     export MONGODB_VERSION=${mongo_version:-"3.6"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
@@ -175,6 +175,7 @@ start_replset() {
     local compose=$2
 
     genMongoKey
+    export USER_ID=$(id -u)    
 
     local no_build=${PBM_TESTS_NO_BUILD:-false}
     if $no_build ; then
@@ -189,6 +190,7 @@ start_replset() {
     chmod -R 777 "${test_dir}/docker/backups"
 
     export MONGODB_VERSION=${mongo_version:-"3.6"}
+    export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $compose up --quiet-pull --no-color -d
 
     sleep 25
@@ -210,6 +212,7 @@ genMongoKey() {
 }
 
 destroy_cluster() {
+    export USER_ID=$(id -u)
     local compose=$1
 
     docker-compose -f $compose ps
