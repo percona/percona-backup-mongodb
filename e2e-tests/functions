@@ -6,7 +6,7 @@ BCP_NAME=""
 COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
 COMPOSE_RS_PATH="${test_dir}/docker/docker-compose-rs.yaml"
 COMPOSE_SINGLE_PATH="${test_dir}/docker/docker-compose-single.yaml"
-
+PBM_TEST_CLEANUP=${PBM_TEST_CLEANUP:-true}
 
 run() {
     local compose=$1
@@ -30,16 +30,18 @@ run() {
     docker-compose -f $compose logs -f --no-color tests
     EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
-    if [ $EXIT_CODE != 0 ]; then
-        docker-compose -f $compose logs --no-color --tail=100
-        desc 'PBM logs'
-        docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D
-        desc 'PBM status'
-        docker-compose -f $compose exec -T agent-rs101 pbm status
-    fi
+    if [ $PBM_TEST_CLEANUP == true ]; then
+        if [ $EXIT_CODE != 0 ]; then
+            docker-compose -f $compose logs --no-color --tail=100
+            desc 'PBM logs'
+            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D
+            desc 'PBM status'
+            docker-compose -f $compose exec -T agent-rs101 pbm status
+        fi
 
-    desc 'Destroy cluster'
-    destroy_cluster $compose
+        desc 'Destroy cluster'
+        destroy_cluster $compose
+    fi
 
     exit $EXIT_CODE
 }
