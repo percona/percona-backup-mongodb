@@ -31,13 +31,15 @@ func (c *Cluster) Timeseries() {
 
 	ts2.gen()
 
-	ds := time.Second * 15
+	ds := time.Second * 35
 	log.Printf("Generating data for %v", ds)
 	time.Sleep(ds)
 
 	ts1.stop()
 	ts2.stop()
 	c.pitrOff()
+
+	time.Sleep(time.Second * 5)
 
 	err = c.mongos.Drop("ts1")
 	if err != nil {
