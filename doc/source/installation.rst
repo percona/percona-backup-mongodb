@@ -45,7 +45,7 @@ Installing from Percona repositories
 
 This is the recommended installation method. Percona provides the ``percona-release`` configuration tool that simplifies operating repositories and enables to install and update both |pbm| packages and required dependencies smoothly.
 
-Install |percona-release| tool using the package manager of your operating system. Follow the instructions in `Percona Software repositories documentation <https://www.percona.com/doc/percona-repo-config/percona-release.html>`_ to install |percona-release|.
+Install |percona-release| tool using the package manager of your operating system. Follow the instructions in `Percona Software repositories documentation <https://www.percona.com/doc/percona-repo-config/installing.html>`_ to install |percona-release|.
 
 Enable the repository. As of version 1.3.0, |pbm| packages are stored in the *pbm* repository.
 
