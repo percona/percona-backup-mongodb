@@ -26,8 +26,7 @@ type Logger struct {
 
 type Entry struct {
 	ObjID   primitive.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
-	Time    string             `bson:"-" json:"t"`
-	TS      int64              `bson:"ts" json:"-"`
+	TS      int64              `bson:"ts" json:"ts"`
 	Tns     int                `bson:"ns" json:"-"`
 	TZone   int                `bson:"tz" json:"-"`
 	LogKeys `bson:",inline" json:",inline"`
