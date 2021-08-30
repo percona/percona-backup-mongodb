@@ -158,7 +158,7 @@ func (a *Agent) pitr() (err error) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -258,7 +258,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return

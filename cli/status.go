@@ -529,6 +529,11 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		return s, errors.Wrap(err, "get storage")
 	}
 
+	now, err := cn.ClusterTime()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster time")
+	}
+
 	for _, bcp := range bcps {
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
@@ -548,6 +553,11 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 			snpsht.Size = sz
 		case pbm.StatusError:
 			snpsht.Err = bcp.Error
+		default:
+			if bcp.Hb.T+pbm.StaleFrameSec < now.T {
+				snpsht.Err = fmt.Sprintf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				snpsht.Status = pbm.StatusError
+			}
 		}
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}

@@ -143,6 +143,10 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string)
 }
 
 func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string) {
+	if bcp.Status != pbm.StatusDone {
+		return
+	}
+
 	hasconfsrv := false
 	for _, rs := range bcp.Replsets {
 		if _, ok := shards[rs.Name]; !ok {
