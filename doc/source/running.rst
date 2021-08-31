@@ -72,7 +72,7 @@ The following diagram illustrates the backup flow.
 
 .. rubric:: Adjust node priority for backups
 
-In |PBM| prior to version 1.5.0, the ``pbm-agent`` to do a backup is elected randomly among secondary nodes in a replica set. If no secondary node responds in a defined period, then the ``pbm-agent`` on the primary node is elected to do a backup. 
+In |PBM| prior to version 1.5.0, the ``pbm-agent`` to do a backup is elected randomly among secondary nodes in a replica set / a shard in a sharded cluster. If no secondary node responds in a defined period, then the ``pbm-agent`` on the primary node is elected to do a backup. 
 
 As of version 1.5.0, you can influence the ``pbm-agent`` election by assigning a priority to ``mongod`` nodes in the |PBM| :ref:`configuration file <pbm.config>`. 
 
@@ -87,7 +87,17 @@ As of version 1.5.0, you can influence the ``pbm-agent`` election by assigning a
 
 The format of the `priority` array is ``<hostname:port>``:``<priority>``.
 
-Note that if you listed only specific nodes, the remaining nodes will be automatically assigned priority 1.0. For example, you assigned  priority 2.5 to only one secondary node. Then both the remaining secondaries and the primary node receive priority 1.0.
+Note that if you listed only specific nodes, the remaining nodes will be automatically assigned priority 1.0. For example, you assigned priority 2.5 to only one secondary node in every shard and config server replica set of the sharded cluster. 
+
+.. code-block:: yaml
+
+   backup:
+     priority:
+       "localhost:27027": 2.5  # config server replica set
+       "localhost:27018": 2.5  # shard 1
+       "localhost:28018": 2.0  # shard 2
+
+The remaining secondaries and the primary nodes in the cluster receive priority 1.0.
 
 The ``mongod`` node with the highest priority makes the backup. If this node is unavailable, next priority node is selected. If there are several nodes with the same priority, one of them is randomly elected to make the backup. 
 
