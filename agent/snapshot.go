@@ -230,6 +230,11 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 		}
 		l.Debug("nomination %s, set candidates %v", rs, n)
 
+		err = a.pbm.BackupHB(bcp)
+		if err != nil {
+			l.Warning("send heartbeat: %v", err)
+		}
+
 		time.Sleep(renominationFrame)
 	}
 

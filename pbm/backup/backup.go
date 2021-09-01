@@ -210,7 +210,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 
 		err = b.setClusterFirstWrite(bcp.Name)
 		if err != nil {
-			return errors.Wrap(err, "set cluster last write ts")
+			return errors.Wrap(err, "set cluster first write ts")
 		}
 	}
 
