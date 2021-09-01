@@ -37,6 +37,7 @@ type logsOpts struct {
 	severity string
 	event    string
 	opid     string
+	extr     bool
 }
 
 func Main() {
@@ -102,6 +103,7 @@ func Main() {
 	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
 	logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resyncBcpList, pitr, pitrestore, delete").Short('e').StringVar(&logs.event)
 	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
+	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
 	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
@@ -263,6 +265,7 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 	}
 
 	o.ShowNode = r.Node == ""
+	o.Extr = l.extr
 
 	// reverse list
 	for i := len(o.Data)/2 - 1; i >= 0; i-- {
