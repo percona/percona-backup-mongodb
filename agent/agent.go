@@ -131,7 +131,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -198,7 +198,7 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -257,7 +257,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -293,7 +293,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 
 // aquireLock tries to aquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
+func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event) (got bool, err error) {
 	got, err = l.Acquire()
 	if err == nil {
 		return got, nil
@@ -301,11 +301,11 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 
 	switch err.(type) {
 	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
-		a.log.Debug("", "", l.OPID, *l.Epoch, "get lock: %v", err)
+		lg.Debug("get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
 		lk := err.(pbm.ErrWasStaleLock).Lock
-		a.log.Debug("", "", l.OPID, *l.Epoch, "stale lock: %v", lk)
+		lg.Debug("stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
 		case pbm.CmdBackup:
@@ -317,7 +317,7 @@ func (a *Agent) aquireLock(l *pbm.Lock) (got bool, err error) {
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
-			a.log.Warning("", "", "", *l.Epoch, "failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
+			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
 		return l.Acquire()
 	default:

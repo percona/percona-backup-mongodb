@@ -125,6 +125,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 			l.Error("init meta: %v", err)
 			return
 		}
+		l.Debug("init backup meta")
 		nodes, err := a.pbm.BcpNodesPriority()
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
@@ -164,7 +165,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -207,7 +208,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 const renominationFrame = 5 * time.Second
 
 func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error {
-	l.Debug("nomination %s: %v", rs, nodes)
+	l.Debug("nomination list for %s: %v", rs, nodes)
 	err := a.pbm.SetRSNomination(bcp, rs)
 	if err != nil {
 		return errors.Wrap(err, "set nomination meta")
@@ -226,6 +227,12 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 		err = a.pbm.SetRSNominees(bcp, rs, n)
 		if err != nil {
 			return errors.Wrap(err, "set nominees")
+		}
+		l.Debug("nomination %s, set candidates %v", rs, n)
+
+		err = a.pbm.BackupHB(bcp)
+		if err != nil {
+			l.Warning("send heartbeat: %v", err)
 		}
 
 		time.Sleep(renominationFrame)
@@ -288,7 +295,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock)
+	got, err := a.aquireLock(lock, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
