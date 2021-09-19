@@ -18,7 +18,7 @@ COPY LICENSE /licenses/
 
 # kubectl needed for Percona Operator for PSMDB
 ENV KUBECTL_VERSION=v1.19.12
-ENV KUBECTL_MD5SUM=9a9123b58e3287fdca20db45ab003426d30e7a77ec57605fa25947bc68f6cabf
+ENV KUBECTL_MD5SUM=7c6a25afdec07da2cf1e1c1caf9e4381
 RUN curl -Lf -o /usr/bin/kubectl \
     https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
     && chmod +x /usr/bin/kubectl \
