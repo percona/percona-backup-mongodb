@@ -56,6 +56,7 @@ var excludeFromRestore = []string{
 	"config.transactions",
 	"admin.system.version",
 	"config.system.indexBuilds",
+	"config.rangeDeletions",
 }
 
 type Restore struct {
