@@ -1,6 +1,17 @@
 #!/bin/bash
 
-export PBM_MONGODB_URI="mongodb://${PBM_AGENT_MONGODB_USERNAME}:${PBM_AGENT_MONGODB_PASSWORD}@localhost:${PBM_MONGODB_PORT}/?replicaSet=${PBM_MONGODB_REPLSET}"
+function percent_encode() {
+    local length="${#1}"
+    for (( i = 0; i < length; i++ )); do
+        local c="${1:$i:1}"
+        case $c in
+            [a-zA-Z0-9]) printf '%s' "$c" ;;
+            *) printf '%%%02X' "'$c" ;;
+        esac
+    done
+}
+
+export PBM_MONGODB_URI="mongodb://${PBM_AGENT_MONGODB_USERNAME}:$(percent_encode ${PBM_AGENT_MONGODB_PASSWORD})@localhost:${PBM_MONGODB_PORT}/?replicaSet=${PBM_MONGODB_REPLSET}"
 
 set -o xtrace
 
