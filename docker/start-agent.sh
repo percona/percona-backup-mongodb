@@ -1,17 +1,18 @@
 #!/bin/bash
 
-function percent_encode() {
+urlencode() {
+    # urlencode <string>
     local length="${#1}"
     for (( i = 0; i < length; i++ )); do
-        local c="${1:$i:1}"
+        local c="${1:i:1}"
         case $c in
-            [a-zA-Z0-9]) printf '%s' "$c" ;;
+            [a-zA-Z0-9._-]) printf "$c" ;;
             *) printf '%%%02X' "'$c" ;;
         esac
     done
 }
 
-export PBM_MONGODB_URI="mongodb://${PBM_AGENT_MONGODB_USERNAME}:$(percent_encode ${PBM_AGENT_MONGODB_PASSWORD})@localhost:${PBM_MONGODB_PORT}/?replicaSet=${PBM_MONGODB_REPLSET}"
+export PBM_MONGODB_URI="mongodb://${PBM_AGENT_MONGODB_USERNAME}:$(urlencode "$PBM_AGENT_MONGODB_PASSWORD")@localhost:${PBM_MONGODB_PORT}/?replicaSet=${PBM_MONGODB_REPLSET}"
 
 set -o xtrace
 
