@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,7 +15,7 @@ import (
 
 type currentPitr struct {
 	slicer *pitr.Slicer
-	wakeup chan struct{} // to wake up a slicer on demand (not to wait for the tick)
+	w      chan *pbm.OPID // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
 }
 
@@ -68,10 +67,6 @@ func (a *Agent) PITR() {
 }
 
 func (a *Agent) pitr() (err error) {
-	if atomic.LoadUint32(&a.intent) == intentBackup {
-		return nil
-	}
-
 	cfg, err := a.pbm.GetConfig()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return errors.Wrap(err, "get conf")
@@ -108,7 +103,7 @@ func (a *Agent) pitr() (err error) {
 
 			// wake up slicer only if span became smaller
 			if spant < cspan {
-				a.pitrjob.wakeup <- struct{}{}
+				a.pitrjob.w <- nil
 			}
 		}
 
@@ -158,7 +153,7 @@ func (a *Agent) pitr() (err error) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -180,12 +175,12 @@ func (a *Agent) pitr() (err error) {
 
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
-		w := make(chan struct{})
 
+		w := make(chan *pbm.OPID, 1)
 		a.setPitr(&currentPitr{
 			slicer: ibcp,
 			cancel: cancel,
-			wakeup: w,
+			w:      w,
 		})
 
 		streamErr := ibcp.Stream(ctx, w, pbm.CompressionTypeS2)
@@ -258,7 +253,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
