@@ -20,13 +20,13 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     sh """
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
-        MONGODB_VERSION=${MONGO_VERSION} ./e2e-tests/${TEST_SCRIPT}
+        ./e2e-tests/${TEST_SCRIPT}
     """
 
     testsReportMap[mkey] = 'passed'
 }
 
-void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
+void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE, String MONGO_VERSION) {
     def compose = 'docker-compose.yaml'
 
     switch(CLUSTER_TYPE) {            
@@ -58,7 +58,7 @@ void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE) {
             chmod 664 ./e2e-tests/docker/conf/azure.yaml
 
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-            docker-compose -f ./e2e-tests/docker/${compose} build
+            MONGODB_VERSION=${MONGO_VERSION} docker-compose -f ./e2e-tests/docker/${compose} build
         """
     }
 }
@@ -89,7 +89,7 @@ pipeline {
                             }
                         }
 
-                        prepareCluster('sharded', '40-newc')
+                        prepareCluster('sharded', '40-newc', '4.0')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.0')
                     }
                 }
@@ -98,7 +98,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '42-newc')
+                        prepareCluster('sharded', '42-newc', '4.2')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.2')
                     }
                 }
@@ -107,7 +107,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '44-newc')
+                        prepareCluster('sharded', '44-newc', '4.4')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.4')
                     }
                 }
@@ -116,7 +116,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '50-newc')
+                        prepareCluster('sharded', '50-newc', '5.0')
                         runTest('Restore on new cluster', 'run-new-cluster', '5.0')
                     }
                 }
@@ -126,7 +126,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '40-shrd')
+                        prepareCluster('sharded', '40-shrd', '4.0')
                         runTest('Sharded cluster', 'run-sharded', '4.0')
                     }
                 }
@@ -135,7 +135,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '42-shrd')
+                        prepareCluster('sharded', '42-shrd', '4.2')
                         runTest('Sharded cluster', 'run-sharded', '4.2')
                     }
                 }
@@ -144,7 +144,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '44-shrd')
+                        prepareCluster('sharded', '44-shrd', '4.4')
                         runTest('Sharded cluster', 'run-sharded', '4.4')
                     }
                 }
@@ -153,7 +153,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '50-shrd')
+                        prepareCluster('sharded', '50-shrd', '5.0')
                         runTest('Sharded cluster', 'run-sharded', '5.0')
                     }
                 }
@@ -163,7 +163,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '40-rs')
+                        prepareCluster('rs', '40-rs', '4.0')
                         runTest('Non-sharded replicaset', 'run-rs', '4.0')
                     }
                 }
@@ -172,7 +172,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '42-rs')
+                        prepareCluster('rs', '42-rs', '4.2')
                         runTest('Non-sharded replicaset', 'run-rs', '4.2')
                     }
                 }
@@ -181,7 +181,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '44-rs')
+                        prepareCluster('rs', '44-rs', '4.4')
                         runTest('Non-sharded replicaset', 'run-rs', '4.4')
                     }
                 }
@@ -190,7 +190,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '50-rs')
+                        prepareCluster('rs', '50-rs', '5.0')
                         runTest('Non-sharded replicaset', 'run-rs', '5.0')
                     }
                 }
@@ -200,7 +200,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '40-single')
+                        prepareCluster('single', '40-single', '4.0')
                         runTest('Single-node replicaset', 'run-single', '4.0')
                     }
                 }
@@ -209,7 +209,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '42-single')
+                        prepareCluster('single', '42-single', '4.2')
                         runTest('Single-node replicaset', 'run-single', '4.2')
                     }
                 }
@@ -218,7 +218,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '44-single')
+                        prepareCluster('single', '44-single', '4.4')
                         runTest('Single-node replicaset', 'run-single', '4.4')
                     }
                 }
@@ -227,7 +227,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '50-single')
+                        prepareCluster('single', '50-single', '5.0')
                         runTest('Single-node replicaset', 'run-single', '5.0')
                     }
                 }
