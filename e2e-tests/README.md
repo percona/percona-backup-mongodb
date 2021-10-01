@@ -3,9 +3,9 @@
 ## Run tests
 Run all tests
 ```
-$ MONGODB_VERSION=3.6 ./run-all
+$ MONGODB_VERSION=4.2 ./run-all
 ```
-`MONGODB_VERSION` is a PSMDB version (e.g. 3.6/4.0/4.2). Default is `3.6`
+`MONGODB_VERSION` is a PSMDB version (e.g. 4.0/4.2/4.4). Default is `4.2`
 
 `./run-all` would run all tests both on a sharded cluster and a non-sharded replica set.
 
@@ -20,9 +20,9 @@ $ MONGODB_VERSION=3.6 ./run-all
 ## Start test cluster
 To start a tests with running pbm-agent and minio store:
 ```
-$ MONGODB_VERSION=3.6 ./start-cluster
+$ MONGODB_VERSION=4.4 ./start-cluster
 ```
-`MONGODB_VERSION` is a PSMDB version (e.g. 3.6/4.0/4.2). Default is `3.6`
+`MONGODB_VERSION` is a PSMDB version (e.g. 4.0/4.2/4.4). Default is `4.2`
 
 `./start-replset` - to start a non-sharded replica set.
 

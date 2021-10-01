@@ -20,7 +20,7 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     sh """
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
-        ./e2e-tests/${TEST_SCRIPT}
+        MONGODB_VERSION=${MONGO_VERSION} ./e2e-tests/${TEST_SCRIPT}
     """
 
     testsReportMap[mkey] = 'passed'
@@ -78,7 +78,7 @@ pipeline {
                 }
             }
             parallel {
-                stage('Restore on new cluster 3.6') {
+                stage('Restore on new cluster 4.0') {
                     agent {
                         label 'docker'
                     }
@@ -89,15 +89,6 @@ pipeline {
                             }
                         }
 
-                        prepareCluster('sharded', '36')
-                        runTest('Restore on new cluster', 'run-new-cluster', '3.6')
-                    }
-                }
-                stage('Restore on new cluster 4.0') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
                         prepareCluster('sharded', '40-newc')
                         runTest('Restore on new cluster', 'run-new-cluster', '4.0')
                     }
@@ -130,15 +121,6 @@ pipeline {
                     }
                 }
 
-                stage('Sharded cluster 3.6') {
-                    agent {
-                        label 'docker-32gb'
-                    }
-                    steps {
-                        prepareCluster('sharded', '36-shrd')
-                        runTest('Sharded cluster', 'run-sharded', '3.6')
-                    }
-                }
                 stage('Sharded cluster 4.0') {
                     agent {
                         label 'docker-32gb'
@@ -176,15 +158,6 @@ pipeline {
                     }
                 }
 
-                stage('Non-sharded replicaset 3.6') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('rs', '36-rs')
-                        runTest('Non-sharded replicaset', 'run-rs', '3.6')
-                    }
-                }
                 stage('Non-sharded replicaset 4.0') {
                     agent {
                         label 'docker'
@@ -222,15 +195,6 @@ pipeline {
                     }
                 }
 
-                stage('Single-node replicaset 3.6') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('single', '36-single')
-                        runTest('Single-node replicaset', 'run-single', '3.6')
-                    }
-                }
                 stage('Single-node replicaset 4.0') {
                     agent {
                         label 'docker'

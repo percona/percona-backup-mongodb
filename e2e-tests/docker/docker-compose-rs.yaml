@@ -19,7 +19,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
     environment:
@@ -35,7 +35,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
@@ -44,7 +44,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
