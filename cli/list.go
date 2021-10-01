@@ -256,11 +256,11 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 	var buf []string
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+		if errors.Is(err, pbm.ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
-		}
-		if bcp == nil {
-			continue
 		}
 		buf = buf[:0]
 		bcpMatchCluster(bcp, sh, inf.SetName, &buf)

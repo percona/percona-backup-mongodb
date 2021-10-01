@@ -620,11 +620,11 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 		rng.Range.End = tl.End
 
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if err != nil {
+		if err != nil && errors.Is(err, pbm.ErrNotFound) {
 			log.Printf("ERROR: get backup for timeline: %s", tl)
 			continue
 		}
-		if bcp == nil {
+		if errors.Is(err, pbm.ErrNotFound) {
 			rng.Err = "no backup found"
 		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)

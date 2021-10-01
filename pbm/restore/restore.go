@@ -274,11 +274,11 @@ func (r *Restore) setBcp(bcp string, targetTS primitive.Timestamp) (err error) {
 	}
 
 	r.bcp, err = r.cn.GetLastBackup(&targetTS)
+	if errors.Is(err, pbm.ErrNotFound) {
+		return errors.Errorf("no backup found before ts %v", targetTS)
+	}
 	if err != nil {
 		return errors.Wrap(err, "define last backup")
-	}
-	if r.bcp == nil {
-		return errors.Errorf("no backup found before ts %v", targetTS)
 	}
 
 	return nil

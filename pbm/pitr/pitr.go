@@ -64,11 +64,11 @@ func (s *Slicer) GetSpan() time.Duration {
 func (s *Slicer) Catchup() error {
 	s.l.Debug("start_catchup")
 	baseBcp, err := s.pbm.GetLastBackup(nil)
+	if errors.Is(err, pbm.ErrNotFound) {
+		return errors.New("no backup found, a new backup is required to start PITR")
+	}
 	if err != nil {
 		return errors.Wrap(err, "get last backup")
-	}
-	if baseBcp == nil {
-		return errors.New("no backup found, a new backup is required to start PITR")
 	}
 
 	defer func() {
