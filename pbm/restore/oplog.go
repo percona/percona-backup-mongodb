@@ -237,6 +237,12 @@ Loop:
 }
 
 func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
+	// have to handle it here one more time because before the op gets thru
+	// txnBuffer its namespace is `collection.$cmd` instead of the real one
+	if o.m.Has(op.Namespace) {
+		return nil
+	}
+
 	op, err := o.filterUUIDs(op)
 	if err != nil {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
