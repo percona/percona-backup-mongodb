@@ -65,7 +65,7 @@ type Oplog struct {
 
 // NewOplog creates an object for an oplog applying
 func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) (*Oplog, error) {
-	m, err := ns.NewMatcher(excludeFromRestore)
+	m, err := ns.NewMatcher(append(excludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
 	}

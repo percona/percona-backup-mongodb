@@ -58,6 +58,10 @@ var excludeFromRestore = []string{
 	"config.system.indexBuilds",
 }
 
+var excludeFromOplog = []string{
+	"config.rangeDeletions",
+}
+
 type Restore struct {
 	name     string
 	cn       *pbm.PBM
