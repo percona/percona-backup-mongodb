@@ -190,6 +190,11 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
 		}
+		err := r.cn.RestoreHB(r.name)
+		if err != nil {
+			return errors.Wrap(err, "init heartbeat")
+		}
+
 		r.stopHB = make(chan struct{})
 		go func() {
 			tk := time.NewTicker(time.Second * 5)

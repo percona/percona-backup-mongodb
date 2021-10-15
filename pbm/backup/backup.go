@@ -155,6 +155,10 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if inf.IsLeader() {
 		hbstop := make(chan struct{})
 		defer close(hbstop)
+		err := b.cn.BackupHB(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "init heartbeat")
+		}
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()
