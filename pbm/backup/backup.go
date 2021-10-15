@@ -57,6 +57,7 @@ func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMod
 		Status:         pbm.StatusStarting,
 		Replsets:       []pbm.BackupReplset{},
 		LastWriteTS:    primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		PBMVersion:     version.DefaultInfo.Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
