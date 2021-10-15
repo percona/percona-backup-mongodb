@@ -179,20 +179,22 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 
 	r.opid = opid.String()
 	if r.nodeInfo.IsLeader() {
+		ts, err := r.cn.ClusterTime()
+		if err != nil {
+			return errors.Wrap(err, "init restore meta, read cluster time")
+		}
+
 		meta := &pbm.RestoreMeta{
 			OPID:     r.opid,
 			Name:     r.name,
 			StartTS:  time.Now().Unix(),
 			Status:   pbm.StatusStarting,
 			Replsets: []pbm.RestoreReplset{},
+			Hb:       ts,
 		}
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
-		}
-		err := r.cn.RestoreHB(r.name)
-		if err != nil {
-			return errors.Wrap(err, "init heartbeat")
 		}
 
 		r.stopHB = make(chan struct{})
@@ -822,12 +824,16 @@ func (r *Restore) converged(shards []pbm.Shard, status pbm.Status) (bool, error)
 }
 
 func (r *Restore) waitForStatus(status pbm.Status) error {
+	r.log.Debug("waiting for '%s' status", status)
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
 		select {
 		case <-tk.C:
 			meta, err := r.cn.GetRestoreMeta(r.name)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return errors.Wrap(err, "get restore metadata")
 			}

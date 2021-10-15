@@ -49,6 +49,11 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 }
 
 func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
+	ts, err := b.cn.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
 	meta := &pbm.BackupMeta{
 		OPID:           opid.String(),
 		Name:           bcp.Name,
@@ -61,6 +66,7 @@ func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMod
 		PBMVersion:     version.DefaultInfo.Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
+		Hb:             ts,
 	}
 
 	cfg, err := b.cn.GetConfig()
