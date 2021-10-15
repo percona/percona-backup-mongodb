@@ -10,10 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 const StaleFrameSec uint32 = 30
@@ -257,26 +253,12 @@ func (l *Lock) rewrite(old *LockHeader) (bool, error) {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	sess, err := l.p.Conn.StartSession(
-		options.Session().
-			SetDefaultReadPreference(readpref.Primary()).
-			SetCausalConsistency(true).
-			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.New(writeconcern.WMajority())),
-	)
+	_, err = l.c.DeleteOne(l.p.Context(), old)
 	if err != nil {
-		return false, errors.Wrap(err, "start session")
+		return false, errors.Wrap(err, "rewrite: delete old")
 	}
-	defer sess.EndSession(l.p.Context())
 
-	_, err = sess.WithTransaction(l.p.Context(), func(sc mongo.SessionContext) (interface{}, error) {
-		_, err := l.c.DeleteOne(sc, old)
-		if err != nil {
-			return nil, errors.Wrap(err, "rewrite: delete")
-		}
-
-		return l.c.InsertOne(sc, l.LockData)
-	})
+	_, err = l.c.InsertOne(l.p.Context(), l.LockData)
 
 	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
 		return false, errors.Wrap(err, "acquire lock")
