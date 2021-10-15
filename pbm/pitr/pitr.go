@@ -406,7 +406,7 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 		if err != nil && err != pbm.ErrNotFound {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
-		if b.FirstWriteTS.T > 1 {
+		if b != nil && b.FirstWriteTS.T > 1 {
 			return b.FirstWriteTS, nil
 		}
 		<-tk.C
