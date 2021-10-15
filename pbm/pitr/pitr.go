@@ -403,7 +403,7 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 	defer tk.Stop()
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
-		if err != nil {
+		if err != nil && err != pbm.ErrNotFound {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
 		if b.FirstWriteTS.T > 1 {
