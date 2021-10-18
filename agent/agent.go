@@ -344,14 +344,14 @@ func (a *Agent) HbStatus() {
 
 	for range tk.C {
 		hb.PBMStatus = a.pbmStatus()
-		logHbStatus("PBM connecion", hb.PBMStatus, l)
+		logHbStatus("PBM connection", hb.PBMStatus, l)
 
 		hb.NodeStatus = a.nodeStatus()
-		logHbStatus("node connecion", hb.NodeStatus, l)
+		logHbStatus("node connection", hb.NodeStatus, l)
 
 		cc++
 		hb.StorageStatus = a.storStatus(l, cc == checkStoreIn)
-		logHbStatus("storage connecion", hb.StorageStatus, l)
+		logHbStatus("storage connection", hb.StorageStatus, l)
 		if cc == checkStoreIn {
 			cc = 0
 		}
