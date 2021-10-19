@@ -175,7 +175,9 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
-			l.Debug("set balancer off")
+			l.Debug("waiting for balancer off")
+			bs := waitForBalancerOff(b.cn, time.Second*30, l)
+			l.Debug("balancer status: %s", bs)
 		}
 	}
 
@@ -337,6 +339,37 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	// to be sure the locks released only after the "done" status had written
 	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
+}
+
+func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
+	dn := time.NewTimer(t)
+	defer dn.Stop()
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+
+	var bs *pbm.BalancerStatus
+	var err error
+Loop:
+	for {
+		select {
+		case <-tk.C:
+			bs, err = cn.GetBalancerStatus()
+			if err != nil {
+				l.Error("get balancer status: %v", err)
+				continue
+			}
+			if bs.Mode == pbm.BalancerModeOff {
+				return pbm.BalancerModeOff
+			}
+		case <-dn.C:
+			break Loop
+		}
+	}
+	if bs != nil {
+		return pbm.BalancerMode("")
+	}
+
+	return bs.Mode
 }
 
 const maxReplicationLagTimeSec = 21
