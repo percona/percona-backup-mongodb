@@ -21,7 +21,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg01
     environment:
@@ -38,7 +38,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg02
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
@@ -47,7 +47,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg03
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
@@ -117,7 +117,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
     environment:
@@ -134,7 +134,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
@@ -143,7 +143,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
@@ -214,7 +214,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs201
     environment:
@@ -231,7 +231,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs202
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
@@ -240,7 +240,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs203
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
@@ -310,7 +310,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-3.6}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: mongos
     command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017

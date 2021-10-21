@@ -49,6 +49,11 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 }
 
 func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
+	ts, err := b.cn.ClusterTime()
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
 	meta := &pbm.BackupMeta{
 		OPID:           opid.String(),
 		Name:           bcp.Name,
@@ -57,9 +62,11 @@ func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMod
 		Status:         pbm.StatusStarting,
 		Replsets:       []pbm.BackupReplset{},
 		LastWriteTS:    primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		PBMVersion:     version.DefaultInfo.Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
+		Hb:             ts,
 	}
 
 	cfg, err := b.cn.GetConfig()
@@ -154,6 +161,10 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if inf.IsLeader() {
 		hbstop := make(chan struct{})
 		defer close(hbstop)
+		err := b.cn.BackupHB(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "init heartbeat")
+		}
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()

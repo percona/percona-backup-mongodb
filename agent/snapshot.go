@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -60,23 +59,6 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	// workaround for pitr
-	//
-	// 1. set a backup's intent so the PITR routine won't try to proceed, hence acquire a lock
-	// 2. wait at least for pitrCheckPeriod * 1.1 to be sure PITR routine observed the state
-	// 3. remove PITR lock and wake up PITR backup process so it may finish its PITR-stuff
-	//    (nothing gonna be done if no PITR process run by current agent)
-	// 4. try to acquire a backup's lock and move further with the backup
-	// 5. despite any further plot development - clear the backup's intent to unblock PITR routine before return
-	// TODO: this communication should be via db
-	const waitForPITR = pitrCheckPeriod * 11 / 10
-	atomic.StoreUint32(&a.intent, intentBackup)
-	iat := time.Now()
-	defer func() {
-		time.Sleep(waitForPITR - time.Since(iat))
-		atomic.StoreUint32(&a.intent, intentNone)
-	}()
-
 	q, err := backup.NodeSuits(a.node, nodeInfo)
 	if err != nil {
 		l.Error("node check: %v", err)
@@ -89,22 +71,9 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	// before removing the lock wait if it's needed for
-	// the PITR routine to observe a bcp intent
-	if w := waitForPITR - time.Since(iat); w > 0 {
-		time.Sleep(w)
-	}
-
-	err = a.pbm.NewLock(pbm.LockHeader{
-		Type:    pbm.CmdPITR,
-		Replset: nodeInfo.SetName,
-	}).Release()
-	if err != nil {
-		l.Warning("clearing pitr locks: %v", err)
-	}
 	// wakeup the slicer not to wait for the tick
 	if p := a.getPitr(); p != nil {
-		p.wakeup <- struct{}{}
+		p.w <- &opid
 	}
 
 	bcp := backup.New(a.pbm, a.node)
@@ -165,7 +134,13 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l)
+	// install a backup lock despite having PITR one
+	got, err := a.aquireLock(lock, l, func() (bool, error) {
+		return lock.Rewrite(&pbm.LockHeader{
+			Replset: a.node.RS(),
+			Type:    pbm.CmdPITR,
+		})
+	})
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -295,7 +270,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return

@@ -193,7 +193,7 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compression pbm.CompressionType) error {
+func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -223,8 +223,23 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 			s.l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
-		case <-wakeupSig:
+		case bcp := <-backupSig:
 			s.l.Info("got wake_up signal")
+			if bcp != nil {
+				s.l.Info("wake_up for bcp %s", bcp.String())
+				sliceTo, err = s.backupStartTS(bcp.String())
+				if err != nil {
+					return errors.Wrap(err, "get backup start TS")
+				}
+
+				// it can happen that prevoius slice >= backup's fisrt_write
+				// in that case we have to just back off.
+				if primitive.CompareTimestamp(s.lastTS, sliceTo) >= 0 {
+					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
+					return nil
+				}
+				lastSlice = true
+			}
 		case <-tk.C:
 		}
 
@@ -282,21 +297,13 @@ func (s *Slicer) Stream(ctx context.Context, wakeupSig <-chan struct{}, compress
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
-		case pbm.CmdBackup:
-			sliceTo, err = s.backupStartTS(ld.OPID)
-			if err != nil {
-				return errors.Wrap(err, "get backup start TS")
-			}
-
-			// it can happen that prevoius slice >= backup's fisrt write
-			// in that case we have to just back off.
-			if primitive.CompareTimestamp(s.lastTS, sliceTo) >= 0 {
-				s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
-				return nil
-			}
-			lastSlice = true
 		case pbm.CmdUndefined:
 			return errors.New("undefinded behaviour operation is running")
+		case pbm.CmdBackup:
+			// continue only if we had `backupSig`
+			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
+				return errors.Errorf("another operation is running: %#v", ld)
+			}
 		default:
 			return errors.Errorf("another operation is running: %#v", ld)
 		}
@@ -396,10 +403,10 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 	defer tk.Stop()
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
-		if err != nil {
+		if err != nil && err != pbm.ErrNotFound {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
-		if b.FirstWriteTS.T > 1 {
+		if b != nil && b.FirstWriteTS.T > 1 {
 			return b.FirstWriteTS, nil
 		}
 		<-tk.C

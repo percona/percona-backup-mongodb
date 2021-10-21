@@ -138,6 +138,9 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) error {
 		case <-tk.C:
 			fmt.Print(".")
 			meta, err = cn.GetRestoreMeta(name)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return errors.Wrap(err, "get metadata")
 			}

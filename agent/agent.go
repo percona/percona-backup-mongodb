@@ -22,14 +22,8 @@ type Agent struct {
 	bcp     *currentBackup
 	pitrjob *currentPitr
 	mx      sync.Mutex
-	intent  uint32
 	log     *log.Logger
 }
-
-const (
-	intentNone uint32 = iota
-	intentBackup
-)
 
 func New(pbm *pbm.PBM) *Agent {
 	return &Agent{
@@ -131,7 +125,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -198,7 +192,7 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -257,7 +251,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l)
+	got, err := a.aquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -291,10 +285,16 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	l.Debug("epoch set to %v", epch)
 }
 
+type lockAquireFn func() (bool, error)
+
 // aquireLock tries to aquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event) (got bool, err error) {
-	got, err = l.Acquire()
+func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got bool, err error) {
+	if aquire == nil {
+		aquire = l.Acquire
+	}
+
+	got, err = aquire()
 	if err == nil {
 		return got, nil
 	}
@@ -313,13 +313,13 @@ func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event) (got bool, err error) {
 		case pbm.CmdRestore, pbm.CmdPITRestore:
 			fn = a.pbm.MarkRestoreStale
 		default:
-			return l.Acquire()
+			return aquire()
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
 			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
-		return l.Acquire()
+		return aquire()
 	default:
 		return false, err
 	}
