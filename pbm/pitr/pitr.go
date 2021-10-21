@@ -131,9 +131,14 @@ func (s *Slicer) Catchup() error {
 		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, chnk.Compression)
 		if err != nil {
 			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
-			return nil
+			// duplicate key means chunk is already created by probably another routine
+			// so we're safe to continue
+			if !mongo.IsDuplicateKeyError(err) {
+				return nil
+			}
+		} else {
+			s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
 		}
-		s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
 	}
 
 	err = s.copyFromBcp(baseBcp)
