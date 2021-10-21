@@ -260,26 +260,22 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 
 		// before any action check if we still got a lock. if no:
 		//
-		// - if there is another lock and it is the backup operation - wait for the backup
-		//   to start, make the last slice up unlit backup StartTS and return;
+		// - if there is another lock for a backup operation and we've got a
+		//   `backupSig`- wait for the backup to start, make the last slice up
+		//   unlit backup StartTS and return;
 		// - if there is no other lock, we have to wait for the snapshot backup - see above
-		//   (snapshot cmd can delete pitr lock but might not yet acquire the own one)
-		// - if there another lock and that is pitr - return, probably the split happened
-		//   and a new worker was elected
-		// - any other case (including no lock) is the undefined behaviour - return
-		//
-		// if there is no lock, we should wait a bit for a backup lock
-		// because this routine is run concurently with the snapshot
-		// we don't mind to wait here and there, since in during normal (usual) flow
-		// no extra waits won't occure
+		//   (snapshot cmd can delete pitr lock but might not yet acquire the own one);
+		// - if there is another lock and it is for pitr - return, probably split happened
+		//   and a new worker was elected;
+		// - any other case (including no lock) is the undefined behaviour - return.
 		//
 		ld, err := s.getOpLock(llock)
 		if err != nil {
 			return errors.Wrap(err, "check lock")
 		}
 
-		// in case there is a lock, even legit (our own, or backup's one) but it is stale
-		// we sould return so the slicer whould get thru the lock aquisition again.
+		// in case there is a lock, even a legit one (our own, or backup's one) but it is stale
+		// we should return so the slicer would get thru the lock acquisition again.
 		ts, err := s.pbm.ClusterTime()
 		if err != nil {
 			return errors.Wrap(err, "read cluster time")
