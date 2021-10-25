@@ -168,11 +168,11 @@ get_system(){
 }
 
 install_golang() {
-    wget https://dl.google.com/go/go1.15.11.linux-amd64.tar.gz -O /tmp/golang1.15.tar.gz
-    tar --transform=s,go,go1.15, -zxf /tmp/golang1.15.tar.gz
+    wget https://golang.org/dl/go1.16.9.linux-amd64.tar.gz -O /tmp/golang1.16.tar.gz
+    tar --transform=s,go,go1.16, -zxf /tmp/golang1.16.tar.gz
     rm -rf /usr/local/go*
-    mv go1.15 /usr/local/
-    ln -s /usr/local/go1.15 /usr/local/go
+    mv go1.16 /usr/local/
+    ln -s /usr/local/go1.16 /usr/local/go
 }
 
 install_deps() {

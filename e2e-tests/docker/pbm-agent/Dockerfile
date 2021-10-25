@@ -1,4 +1,4 @@
-FROM golang:1.15
+FROM golang:1.16
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	libfaketime \
 	iproute2 \
