@@ -64,7 +64,7 @@ copyright = 'Percona LLC and/or its affiliates 2009-2021'
 # The short X.Y version.
 version = '1.6'
 # The full version, including alpha/beta/rc tags.
-release = "0"
+release = "1"
 release = ".".join([version, release])
 
 # PlantUML configuration settings
