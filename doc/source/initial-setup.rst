@@ -75,7 +75,7 @@ Set the MongoDB connection URI for ``pbm-agent``
 
 A |pbm-agent| process connects to its localhost ``mongod`` node with a standalone type of connection. To set the MongoDB URI connection string means to configure a service init script (:file:`pbm-agent.service` systemd unit file) that runs a |pbm-agent|.
 
-The :file:`pbm-agent.service` systemd unit file includes the environment file. You set the MongoDB URI connection string for the  "PBM_MONGODB_URI" variable within the environment file.
+The :file:`pbm-agent.service` systemd unit file includes the environment file. You set the MongoDB URI connection string for the  ``PBM_MONGODB_URI`` variable within the environment file.
 
 The environment file for Debian and Ubuntu is :file:`/etc/default/pbm-agent`. For Redhat and CentOS, it is :file:`/etc/sysconfig/pbm-agent`. 
 
@@ -85,9 +85,17 @@ Edit the environment file and specify MongoDB connection URI string for the ``pb
 
    PBM_MONGODB_URI="mongodb://pbmuser:secretpwd@localhost:27018"
 
+.. note:: 
+
+   If the password includes special characters like ``#``, ``@``, ``/`` and so on, you must convert these characters using the `percent-encoding mechanism <https://datatracker.ietf.org/doc/html/rfc3986#section-2.1>`_ when passing them to |PBM|. For example, the password ``secret#pwd`` should be passed as follows in ``PBM_MONGODB_URI``:
+
+   .. code-block:: text
+
+      PBM_MONGODB_URI="mongodb://pbmuser:secret%23pwd@localhost:27018"
+
 Configure the service init script for every |pbm-agent|. 
 
-.. hint:: How to find the environment file
+.. hint:: **How to find the environment file**
 
    The path to the environment file is specified in the :file:`pbm-agent.service` systemd unit file. 
 
