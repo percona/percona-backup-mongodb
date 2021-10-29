@@ -439,8 +439,16 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	return client, nil
 }
 
+type BackupType string
+
+const (
+	PhysicalBackup BackupType = "physical"
+	LogicalBackup  BackupType = "logical"
+)
+
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
+	Type             BackupType           `bson:"type" json:"type"`
 	OPID             string               `bson:"opid" json:"opid"`
 	Name             string               `bson:"name" json:"name"`
 	Replsets         []BackupReplset      `bson:"replsets" json:"replsets"`
@@ -476,6 +484,7 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
+	PhyData          []string            `bson:"phy_data" json:"phy_data" `
 	DumpName         string              `bson:"dump_name" json:"backup_name" `
 	OplogName        string              `bson:"oplog_name" json:"oplog_name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
