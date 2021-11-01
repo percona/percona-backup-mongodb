@@ -60,13 +60,13 @@ Reload the local package database:
 
 .. code-block:: bash
 
-   $ sudo apt-get update
+   $ sudo apt update
 
 Install |pbm|:
 
 .. code-block:: bash
 
-   $ sudo apt-get install percona-backup-mongodb
+   $ sudo apt install percona-backup-mongodb
 
 Install |pbm| on Red Hat Enterprise Linux and CentOS 
 ----------------------------------------------------------

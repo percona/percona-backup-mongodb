@@ -110,7 +110,7 @@ Configure the service init script for every |pbm-agent|.
 Set the MongoDB connection URI for ``pbm CLI``
 ------------------------------------------------------------------
 
-Provide the MongoDB URI connection string for |pbm.app| in your shell. This allows you to call |pbm.app| commands without the :option:`--mongodb-uri` flag.
+Provide the MongoDB URI connection string for |pbm.app| in your shell. This allows you to call |pbm.app| commands without the ``--mongodb-uri`` flag.
 
 Use the following command:
 

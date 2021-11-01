@@ -39,7 +39,7 @@ Enable the repository running the command as root or via |sudo|
 
 .. note:: 
 
-   For ``apt``-based systems, run :command:`apt-get update` to update the local cache.
+   For ``apt``-based systems, run :command:`apt update` to update the local cache.
 
 Upgrade |PBM| using ``apt``
 ================================================================================
@@ -61,7 +61,7 @@ Upgrade to the latest version
    
    .. code-block:: bash
    
-      $ sudo apt-get install percona-backup-mongodb
+      $ sudo apt install percona-backup-mongodb
 
 #. Start |pbm-agent|
 
@@ -93,7 +93,7 @@ Upgrade to a specific version
 
    .. code-block:: bash
    
-      $ sudo apt-get install percona-backup-mongodb=1.3.1-1.stretch
+      $ sudo apt install percona-backup-mongodb=1.3.1-1.stretch
 
 #. Start |pbm-agent|: 
 
