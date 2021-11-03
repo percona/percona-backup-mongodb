@@ -110,7 +110,8 @@ github.com/go-stack/stack
 # github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
-# github.com/google/uuid v1.1.1
+# github.com/google/uuid v1.3.0
+## explicit
 github.com/google/uuid
 # github.com/jessevdk/go-flags v1.4.0
 github.com/jessevdk/go-flags
@@ -259,8 +260,6 @@ golang.org/x/text/unicode/norm
 ## explicit
 # gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 ## explicit
-gopkg.in/mgo.v2/bson
-gopkg.in/mgo.v2/internal/json
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit
 gopkg.in/yaml.v2

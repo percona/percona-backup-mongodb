@@ -9,4 +9,4 @@ WORKDIR /opt/pbm
 COPY . .
 RUN make install-tests
 
-USER nobody
+USER 1001

@@ -153,6 +153,7 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
+	Type        BackupType      `bson:"type"`
 	Name        string          `bson:"name"`
 	Compression CompressionType `bson:"compression"`
 }

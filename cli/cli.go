@@ -69,6 +69,11 @@ func Main() {
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
 		)
+	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup)).Required().
+		EnumVar(&backup.typ,
+			string(pbm.PhysicalBackup),
+			string(pbm.LogicalBackup),
+		)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 
