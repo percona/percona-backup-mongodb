@@ -91,7 +91,9 @@ How to
    schedule-backup
    Upgrade PBM <upgrading>
    Troubleshoot PBM <troubleshooting>   
+   automate-s3-access
    Remove PBM <uninstalling>
+
 
 FAQ
 ***********************************************

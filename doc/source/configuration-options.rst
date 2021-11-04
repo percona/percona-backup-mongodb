@@ -90,14 +90,14 @@ S3 type storage options
    :type: string
    :required: YES
    
-   Your access key to the storage bucket
+   Your access key to the storage bucket. This option can be ommitted when you run |PBM| using an EC2 instance profile. To learn more, refer to :ref:`automate-s3-access`
    
 .. option:: storage.s3.credentials.secret-access-key
 
   :type: string
   :required: YES
   
-  The key to sign your programmatic requests to the storage bucket 
+  The key to sign your programmatic requests to the storage bucket. This option can be ommitted when you run |PBM| using an EC2 instance profile. To learn more, refer to :ref:`automate-s3-access` 
 
 .. option:: storage.s3.uploadPartSize
     
