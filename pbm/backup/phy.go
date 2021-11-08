@@ -99,16 +99,18 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 
 	bc.close = make(chan struct{})
 	go func() {
-		for cur.Next(ctx) {
+		tk := time.NewTicker(time.Minute * 1)
+		defer tk.Stop()
+		for {
 			select {
 			case <-bc.close:
-				bc.l.Debug("stop cursor polling: %v",
-					cur.Close(ctx))
+				bc.l.Debug("stop cursor polling: %v, cursor err: %v",
+					cur.Close(ctx), cur.Err())
 				return
-			default:
-				bc.l.Debug("pol")
+			case <-tk.C:
+				cur.TryNext(ctx)
+				bc.l.Debug("do_cursor_poll")
 			}
-			time.Sleep(time.Minute)
 		}
 	}()
 
@@ -319,6 +321,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 			return errors.Wrapf(err, "upload data file %s", bd.File)
 		}
 	}
+	l.Debug("finished uploading data")
 
 	for _, jf := range jrnls {
 		l.Debug("uploading journal: %s", jf.File)
@@ -327,6 +330,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 			return errors.Wrapf(err, "upload journal file %s", jf.File)
 		}
 	}
+	l.Debug("finished uploading journals")
 
 	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
 	if err != nil {
@@ -352,6 +356,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		}
 	}
 
+	l.Debug("waiting status: %s", pbm.StatusDone)
 	// to be sure the locks released only after the "done" status had written
 	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
