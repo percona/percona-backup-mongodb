@@ -23,5 +23,10 @@ gitstamp_fmt = "%b %d, %Y"
 copybutton_prompt_text = '$'
 plantuml = 'java -jar ../../bin/plantuml.jar'
 togglebutton_hint = "JSON output"
-
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ['../_templates/material-theme']
+# Path to custom css files. These will override the default css attribute if they exist
+html_css_files = [
+    '../_static/custom.css',
+]
 #html_last_updated_fmt = ''
