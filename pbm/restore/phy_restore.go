@@ -239,7 +239,7 @@ func (r *PhysRestore) PrepareBackup(backupName string) (err error) {
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == r.nodeInfo.SetName {
-			r.stgpath = r.nodeInfo.SetName
+			r.stgpath = filepath.Join(r.bcp.Name, r.nodeInfo.SetName)
 			ok = true
 			break
 		}
