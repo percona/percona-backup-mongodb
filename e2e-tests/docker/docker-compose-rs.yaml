@@ -29,6 +29,7 @@ services:
       - MONGO_PASS=test1234
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
+      - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
   rs102:
     build:
@@ -39,6 +40,8 @@ services:
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs102:/data/db
   rs103:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -48,9 +51,11 @@ services:
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs103:/data/db
   agent-rs101:
     container_name: "pbmagent_rs101"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
@@ -67,11 +72,11 @@ services:
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
+    volumes_from:
       - rs101
   agent-rs102:
     container_name: "pbmagent_rs102"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
@@ -85,13 +90,13 @@ services:
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs102
     volumes: 
       - ./backups:/opt/backups
+    volumes_from:
+      - rs102
   agent-rs103:
     container_name: "pbmagent_rs103"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
@@ -105,10 +110,10 @@ services:
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs103
     volumes: 
       - ./backups:/opt/backups
+    volumes_from:
+      - rs103
 
   minio:
     image: minio/minio:RELEASE.2020-01-16T22-40-29Z
@@ -132,6 +137,8 @@ services:
       /usr/bin/mc mb myminio/bcp;
       exit 0;
       "
-volumes: 
+volumes:
   backups:
-  backupsfs:
+  data-rs101:
+  data-rs102:
+  data-rs103:

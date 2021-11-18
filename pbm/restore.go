@@ -11,6 +11,7 @@ import (
 )
 
 type RestoreMeta struct {
+	Type             BackupType          `bson:"type" json:"type"`
 	OPID             string              `bson:"opid" json:"opid"`
 	Name             string              `bson:"name" json:"name"`
 	Backup           string              `bson:"backup" json:"backup"`

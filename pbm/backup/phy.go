@@ -34,14 +34,9 @@ type BCoplogTS struct {
 	T  int64               `bson:"t"`
 }
 
-type BCfiles struct {
-	File string `bson:"filename"`
-	Size int64  `bson:"fileSize"`
-}
-
 type BackupCursorData struct {
 	Meta *Meta
-	Data []BCfiles
+	Data []pbm.BCfile
 }
 type BackupCursor struct {
 	id    UUID
@@ -71,7 +66,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 	}()
 
 	var m *Meta
-	var files []BCfiles
+	var files []pbm.BCfile
 	for cur.TryNext(ctx) {
 		// metadata is the first
 		if m == nil {
@@ -86,7 +81,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 			continue
 		}
 
-		var d BCfiles
+		var d pbm.BCfile
 		err = cur.Decode(&d)
 		if err != nil {
 			return nil, errors.Wrap(err, "decode filename")
@@ -117,7 +112,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]BCfiles, error) {
+func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.BCfile, error) {
 	ctx := context.Background()
 	cur, err := bc.n.Session().Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
@@ -128,7 +123,7 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]BCfiles, error) {
 	}
 	defer cur.Close(ctx)
 
-	var j []BCfiles
+	var j []pbm.BCfile
 
 	err = cur.All(ctx, &j)
 	return j, err
@@ -269,7 +264,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
-
+	// rsMeta.PhyData = bcur.Data // TODO: need to add journals
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")

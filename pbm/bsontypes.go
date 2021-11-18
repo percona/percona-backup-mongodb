@@ -53,7 +53,7 @@ func (i *NodeInfo) IsSharded() bool {
 
 // IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
 func (i *NodeInfo) IsLeader() bool {
-	return !i.IsSharded() || i.ReplsetRole() == ReplRoleConfigSrv
+	return !i.IsSharded() || i.ReplsetRole() == RoleConfigSrv
 }
 
 // IsClusterLeader - cluster leader is a primary node on configsrv
@@ -63,14 +63,14 @@ func (i *NodeInfo) IsClusterLeader() bool {
 }
 
 // ReplsetRole returns replset role in sharded clister
-func (i *NodeInfo) ReplsetRole() ReplRole {
+func (i *NodeInfo) ReplsetRole() ReplsetRole {
 	switch {
 	case i.ConfigSvr == 2:
-		return ReplRoleConfigSrv
+		return RoleConfigSrv
 	case i.ConfigServerState != nil:
-		return ReplRoleShard
+		return RoleShard
 	default:
-		return ReplRoleUnknown
+		return RoleUnknown
 	}
 }
 
@@ -219,4 +219,40 @@ type BalancerStatus struct {
 
 func (b *BalancerStatus) IsOn() bool {
 	return b.Mode == BalancerModeOn
+}
+
+type CmdLineOpts struct {
+	Parsed struct {
+		Storage struct {
+			DBpath string `bson:"dbPath" json:"dbPath"`
+		} `bson:"storage" json:"storage"`
+	} `bson:"parsed" json:"parsed"`
+}
+
+type RSConfig struct {
+	ID                      string      `bson:"_id" json:"_id"`
+	CSRS                    bool        `bson:"configsvr" json:"configsvr"`
+	Protocol                int64       `bson:"protocolVersion" json:"protocolVersion"`
+	Version                 int         `bson:"version" json:"version"`
+	Members                 []RSMembers `bson:"members" json:"members"`
+	WConcernMajorityJournal bool        `bson:"writeConcernMajorityJournalDefault" json:"writeConcernMajorityJournalDefault"`
+	Settings                struct {
+		ChainingAllowed         bool `bson:"chainingAllowed" json:"chainingAllowed"`
+		HeartbeatIntervalMillis int  `bson:"heartbeatIntervalMillis" json:"heartbeatIntervalMillis"`
+		HeartbeatTimeoutSecs    int  `bson:"heartbeatTimeoutSecs" json:"heartbeatTimeoutSecs"`
+		ElectionTimeoutMillis   int  `bson:"electionTimeoutMillis" json:"electionTimeoutMillis"`
+		CatchUpTimeoutMillis    int  `bson:"catchUpTimeoutMillis" json:"catchUpTimeoutMillis"`
+	} `bson:"settings" json:"settings"`
+}
+
+type RSMembers struct {
+	ID                 int               `bson:"_id" json:"_id"`
+	Host               string            `bson:"host" json:"host"`
+	ArbiterOnly        bool              `bson:"arbiterOnly" json:"arbiterOnly"`
+	BuildIndexes       bool              `bson:"buildIndexes" json:"buildIndexes"`
+	Hidden             bool              `bson:"hidden" json:"hidden"`
+	Priority           int64             `bson:"priority" json:"priority"`
+	Tags               map[string]string `bson:"tags" json:"tags"`
+	SecondaryDelaySecs int               `bson:"secondaryDelaySecs" json:"secondaryDelaySecs"`
+	Votes              int64             `bson:"votes" json:"votes"`
 }

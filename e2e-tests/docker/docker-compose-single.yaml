@@ -30,11 +30,12 @@ services:
       - SINGLE_NODE=true
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
+      - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
 
   agent-rs101:
     container_name: "pbmagent_rs101"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
@@ -51,7 +52,7 @@ services:
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
+    volumes_from:
       - rs101
 
   minio:
@@ -76,6 +77,6 @@ services:
       /usr/bin/mc mb myminio/bcp;
       exit 0;
       "
-volumes: 
+volumes:
   backups:
-  backupsfs:
+  data-rs101:

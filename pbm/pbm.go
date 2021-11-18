@@ -252,7 +252,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrap(err, "get topology")
 	}
 
-	if !inf.IsSharded() || inf.ReplsetRole() == ReplRoleConfigSrv {
+	if !inf.IsSharded() || inf.ReplsetRole() == RoleConfigSrv {
 		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
@@ -485,7 +485,7 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
-	PhyData          []string            `bson:"phy_data" json:"phy_data" `
+	PhyData          []BCfile            `bson:"phy_data" json:"phy_data" `
 	DumpName         string              `bson:"dump_name" json:"backup_name" `
 	OplogName        string              `bson:"oplog_name" json:"oplog_name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
@@ -497,10 +497,18 @@ type BackupReplset struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 }
 
+type BCfile struct {
+	File string `bson:"filename"`
+	Size int64  `bson:"fileSize"`
+}
+
 // Status is a backup current status
 type Status string
 
 const (
+	StatusInit  Status = "init"
+	StatusReady Status = "ready"
+
 	StatusStarting  Status = "starting"
 	StatusRunning   Status = "running"
 	StatusDumpDone  Status = "dumpDone"

@@ -366,9 +366,8 @@ services:
       /usr/bin/mc mb myminio/bcp;
       exit 0;
       "
-volumes: 
+volumes:
   backups:
-  backupsfs:
   data-cfg01:
   data-cfg02:
   data-cfg03:

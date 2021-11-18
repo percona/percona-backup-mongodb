@@ -21,13 +21,13 @@ type Node struct {
 	dumpConns int
 }
 
-// ReplRole is a replicaset role in sharded cluster
-type ReplRole string
+// ReplsetRole is a replicaset role in sharded cluster
+type ReplsetRole string
 
 const (
-	ReplRoleUnknown   = "unknown"
-	ReplRoleShard     = "shard"
-	ReplRoleConfigSrv = "configsrv"
+	RoleUnknown   ReplsetRole = "unknown"
+	RoleShard     ReplsetRole = "shard"
+	RoleConfigSrv ReplsetRole = "configsrv"
 
 	// TmpUsersCollection and TmpRoles are tmp collections used to avoid
 	// user related issues while resoring on new cluster and preserving UUID
@@ -306,4 +306,26 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	}
 
 	return LastWrite(cn, false)
+}
+
+func (n *Node) GetDBpath() (string, error) {
+	opts := &CmdLineOpts{}
+	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(opts)
+	if err != nil {
+		return "", errors.Wrap(err, "run mongo command")
+	}
+	return opts.Parsed.Storage.DBpath, nil
+}
+
+func (n *Node) GetRSconf() (*RSConfig, error) {
+	rsc := &RSConfig{}
+	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(rsc)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command")
+	}
+	return rsc, nil
+}
+
+func (n *Node) Shutdown() error {
+	return n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
 }
