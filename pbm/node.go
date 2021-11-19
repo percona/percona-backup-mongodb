@@ -308,18 +308,20 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	return LastWrite(cn, false)
 }
 
-func (n *Node) GetDBpath() (string, error) {
-	opts := &CmdLineOpts{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(opts)
+func (n *Node) GetOpts() (*MongodOpts, error) {
+	opts := struct {
+		Parsed MongodOpts `bson:"parsed" json:"parsed"`
+	}{}
+	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(&opts)
 	if err != nil {
-		return "", errors.Wrap(err, "run mongo command")
+		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return opts.Parsed.Storage.DBpath, nil
+	return &opts.Parsed, nil
 }
 
 func (n *Node) GetRSconf() (*RSConfig, error) {
 	rsc := &RSConfig{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(rsc)
+	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(rsc)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")
 	}
@@ -327,5 +329,5 @@ func (n *Node) GetRSconf() (*RSConfig, error) {
 }
 
 func (n *Node) Shutdown() error {
-	return n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	return n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
 }

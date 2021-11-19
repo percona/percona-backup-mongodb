@@ -1,12 +1,19 @@
 package restore
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -17,12 +24,16 @@ import (
 const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
+
+	defaultPort = 27017
 )
 
 type PhysRestore struct {
 	cn     *pbm.PBM
 	node   *pbm.Node
 	dbpath string
+	port   int
+	efport string
 	rsConf *pbm.RSConfig
 
 	name     string
@@ -42,11 +53,11 @@ type PhysRestore struct {
 }
 
 func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestore, error) {
-	// db.adminCommand( { getCmdLineOpts: 1  } )
-	p, err := node.GetDBpath()
+	opts, err := node.GetOpts()
 	if err != nil {
-		return nil, errors.Wrap(err, "get dbPath")
+		return nil, errors.Wrap(err, "get mongo options")
 	}
+	p := opts.Storage.DBpath
 	if p == "" {
 		switch role {
 		case pbm.RoleConfigSrv:
@@ -54,6 +65,9 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestor
 		default:
 			p = defaultRSdbpath
 		}
+	}
+	if opts.Net.Port == 0 {
+		opts.Net.Port = defaultPort
 	}
 
 	rcf, err := node.GetRSconf()
@@ -66,6 +80,8 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestor
 		node:   node,
 		dbpath: p,
 		rsConf: rcf,
+		port:   opts.Net.Port,
+		efport: strconv.Itoa(opts.Net.Port + 1111),
 	}, nil
 }
 
@@ -96,7 +112,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "init")
 	}
 
-	err = r.PrepareBackup(cmd.BackupName)
+	err = r.prepareBackup(cmd.BackupName)
 	if err != nil {
 		return err
 	}
@@ -126,7 +142,86 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return err
 	}
 
+	err = startMongo("--dbpath", r.dbpath, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo phase 1")
+	}
+
+	c, err := conn(r.efport)
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo phase 1")
+	}
+
+	ctx := context.Background()
+
+	// err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(i)
+	err = c.Database("local").Collection("replset.minvalid").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop replset.minvalid")
+	}
+	err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop replset.oplogTruncateAfterPoint")
+	}
+	err = c.Database("local").Collection("replset.election").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop replset.election")
+	}
+	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
+	if err != nil {
+		return errors.Wrap(err, "delete from system.replset")
+	}
+
+	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
+		bson.M{"_id": primitive.NewObjectID(), "t": -1, "ts": primitive.Timestamp{0, 1}},
+	)
+	if err != nil {
+		return errors.Wrap(err, "insert to replset.minvalid")
+	}
+
+	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").InsertOne(ctx,
+		bson.M{"_id": "oplogTruncateAfterPoint", "oplogTruncateAfterPoint": r.bcp.LastWriteTS},
+	)
+	if err != nil {
+		return errors.Wrap(err, "set oplogTruncateAfterPoint")
+	}
+
+	err = c.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo phase1")
+	}
+
 	return nil
+}
+
+func conn(port string) (*mongo.Client, error) {
+	ctx := context.Background()
+
+	conn, err := mongo.NewClient(options.Client().
+		SetHosts([]string{"localhost:" + port}).
+		SetAppName("pbm-physical-restore").
+		SetDirect(true).
+		SetConnectTimeout(time.Second * 60))
+	if err != nil {
+		return nil, errors.Wrap(err, "create mongo client")
+	}
+
+	err = conn.Connect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "connect")
+	}
+
+	err = conn.Ping(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "ping")
+	}
+
+	return conn, nil
+}
+
+func startMongo(opts ...string) error {
+	cmd := exec.Command("mongod", opts...)
+	return cmd.Start()
 }
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
@@ -177,7 +272,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	return nil
 }
 
-func (r *PhysRestore) PrepareBackup(backupName string) (err error) {
+func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		r.bcp, err = getMetaFromStore(r.stg, backupName)

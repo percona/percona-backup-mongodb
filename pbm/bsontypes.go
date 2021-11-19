@@ -221,12 +221,14 @@ func (b *BalancerStatus) IsOn() bool {
 	return b.Mode == BalancerModeOn
 }
 
-type CmdLineOpts struct {
-	Parsed struct {
-		Storage struct {
-			DBpath string `bson:"dbPath" json:"dbPath"`
-		} `bson:"storage" json:"storage"`
-	} `bson:"parsed" json:"parsed"`
+type MongodOpts struct {
+	Net struct {
+		BindIp string `bson:"bindIp" json:"bindIp"`
+		Port   int    `bson:"port" json:"port"`
+	} `bson:"net" json:"net"`
+	Storage struct {
+		DBpath string `bson:"dbPath" json:"dbPath"`
+	} `bson:"storage" json:"storage"`
 }
 
 type RSConfig struct {
