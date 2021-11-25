@@ -31,8 +31,18 @@ type RestoreReplset struct {
 	Status           Status              `bson:"status" json:"status"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Nodes            []RestoreNode       `bson:"nodes,omitempty" json:"nodes,omitempty"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
+}
+
+type RestoreNode struct {
+	Name             string      `bson:"name" json:"name"`
+	Status           Status      `bson:"status" json:"status"`
+	LastTransitionTS int64       `bson:"last_transition_ts" json:"last_transition_ts"`
+	Error            string      `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       []Condition `bson:"conditions" json:"conditions"`
 }
 
 func (p *PBM) SetRestoreMeta(m *RestoreMeta) error {

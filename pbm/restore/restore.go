@@ -332,7 +332,7 @@ func (r *Restore) prepareChunks(target primitive.Timestamp) error {
 func (r *Restore) PrepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
-		r.bcp, err = getMetaFromStore(r.stg, backupName)
+		r.bcp, err = GetMetaFromStore(r.stg, backupName)
 	}
 
 	if err != nil {
@@ -877,7 +877,7 @@ func (r *Restore) MarkFailed(e error) error {
 	return errors.Wrap(err, "set replset state")
 }
 
-func getMetaFromStore(stg storage.Storage, bcpName string) (*pbm.BackupMeta, error) {
+func GetMetaFromStore(stg storage.Storage, bcpName string) (*pbm.BackupMeta, error) {
 	rd, err := stg.SourceReader(bcpName + pbm.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get from store")

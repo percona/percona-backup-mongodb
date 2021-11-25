@@ -1,6 +1,8 @@
+ARG MONGODB_VERSION=4.2
 FROM golang:1.16
-RUN wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add - && \
-	echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/4.4 main" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list && \
+ENV VERSION=${MONGODB_VERSION:-4.2}
+RUN wget -qO - https://www.mongodb.org/static/pgp/server-${VERSION}.asc | apt-key add - && \
+	echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/$VERSION main" | tee /etc/apt/sources.list.d/mongodb-org-$VERSION.list && \
 	apt-get update && apt-get install -y --no-install-recommends \
 	libfaketime \
 	iproute2 \

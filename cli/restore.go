@@ -144,6 +144,9 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) error {
 			if err != nil {
 				return errors.Wrap(err, "get metadata")
 			}
+			if meta == nil {
+				continue
+			}
 			switch meta.Status {
 			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
 				return nil

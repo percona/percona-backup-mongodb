@@ -232,29 +232,27 @@ type MongodOpts struct {
 }
 
 type RSConfig struct {
-	ID                      string      `bson:"_id" json:"_id"`
-	CSRS                    bool        `bson:"configsvr" json:"configsvr"`
-	Protocol                int64       `bson:"protocolVersion" json:"protocolVersion"`
-	Version                 int         `bson:"version" json:"version"`
-	Members                 []RSMembers `bson:"members" json:"members"`
-	WConcernMajorityJournal bool        `bson:"writeConcernMajorityJournalDefault" json:"writeConcernMajorityJournalDefault"`
+	ID                      string     `bson:"_id" json:"_id"`
+	CSRS                    bool       `bson:"configsvr,omitempty" json:"configsvr"`
+	Protocol                int64      `bson:"protocolVersion,omitempty" json:"protocolVersion"`
+	Version                 int        `bson:"version" json:"version"`
+	Members                 []RSMember `bson:"members" json:"members"`
+	WConcernMajorityJournal bool       `bson:"writeConcernMajorityJournalDefault,omitempty" json:"writeConcernMajorityJournalDefault"`
 	Settings                struct {
-		ChainingAllowed         bool `bson:"chainingAllowed" json:"chainingAllowed"`
-		HeartbeatIntervalMillis int  `bson:"heartbeatIntervalMillis" json:"heartbeatIntervalMillis"`
-		HeartbeatTimeoutSecs    int  `bson:"heartbeatTimeoutSecs" json:"heartbeatTimeoutSecs"`
-		ElectionTimeoutMillis   int  `bson:"electionTimeoutMillis" json:"electionTimeoutMillis"`
-		CatchUpTimeoutMillis    int  `bson:"catchUpTimeoutMillis" json:"catchUpTimeoutMillis"`
-	} `bson:"settings" json:"settings"`
+		ChainingAllowed         bool `bson:"chainingAllowed,omitempty" json:"chainingAllowed"`
+		HeartbeatIntervalMillis int  `bson:"heartbeatIntervalMillis,omitempty" json:"heartbeatIntervalMillis"`
+		HeartbeatTimeoutSecs    int  `bson:"heartbeatTimeoutSecs,omitempty" json:"heartbeatTimeoutSecs"`
+		ElectionTimeoutMillis   int  `bson:"electionTimeoutMillis,omitempty" json:"electionTimeoutMillis"`
+		CatchUpTimeoutMillis    int  `bson:"catchUpTimeoutMillis,omitempty" json:"catchUpTimeoutMillis"`
+	} `bson:"settings,omitempty" json:"settings"`
 }
 
-type RSMembers struct {
-	ID                 int               `bson:"_id" json:"_id"`
-	Host               string            `bson:"host" json:"host"`
-	ArbiterOnly        bool              `bson:"arbiterOnly" json:"arbiterOnly"`
-	BuildIndexes       bool              `bson:"buildIndexes" json:"buildIndexes"`
-	Hidden             bool              `bson:"hidden" json:"hidden"`
-	Priority           int64             `bson:"priority" json:"priority"`
-	Tags               map[string]string `bson:"tags" json:"tags"`
-	SecondaryDelaySecs int               `bson:"secondaryDelaySecs" json:"secondaryDelaySecs"`
-	Votes              int64             `bson:"votes" json:"votes"`
+type RSMember struct {
+	ID           int               `bson:"_id" json:"_id"`
+	Host         string            `bson:"host" json:"host"`
+	ArbiterOnly  bool              `bson:"arbiterOnly,omitempty" json:"arbiterOnly"`
+	BuildIndexes bool              `bson:"buildIndexes,omitempty" json:"buildIndexes"`
+	Hidden       bool              `bson:"hidden,omitempty" json:"hidden"`
+	Priority     int64             `bson:"priority,omitempty" json:"priority"`
+	Tags         map[string]string `bson:"tags,omitempty" json:"tags"`
 }

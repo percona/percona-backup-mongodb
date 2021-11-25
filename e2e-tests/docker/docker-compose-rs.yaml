@@ -1,7 +1,7 @@
 version: "3.4"
 services:
   tests:
-    build: 
+    build:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
     command: pbm-test
@@ -27,7 +27,8 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile
+      /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -39,7 +40,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile
+      /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs102:/data/db
   rs103:
@@ -50,7 +52,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile
+      /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs103:/data/db
   agent-rs101:
@@ -59,14 +62,17 @@ services:
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
-    build: 
+    environment:
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
+        rs101:27017"
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    volumes: 
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+    volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
     command: pbm-agent
@@ -80,17 +86,20 @@ services:
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
-    build: 
+    environment:
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
+        rs102:27017"
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
     volumes_from:
       - rs102
@@ -100,17 +109,20 @@ services:
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
-    build: 
+    environment:
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
+        rs103:27017"
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
     volumes_from:
       - rs103
@@ -131,14 +143,11 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c "
-      sleep 5;
-      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
-      /usr/bin/mc mb myminio/bcp;
-      exit 0;
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio
+      http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0;
       "
 volumes:
-  backups:
-  data-rs101:
-  data-rs102:
-  data-rs103:
+  backups: null
+  data-rs101: null
+  data-rs102: null
+  data-rs103: null

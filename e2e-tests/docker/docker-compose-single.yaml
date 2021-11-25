@@ -1,7 +1,7 @@
 version: "3.4"
 services:
   tests:
-    build: 
+    build:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
     command: pbm-test
@@ -28,7 +28,8 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - SINGLE_NODE=true
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile
+      /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -39,14 +40,17 @@ services:
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
-    build: 
+    environment:
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
+        rs101:27017"
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    volumes: 
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+    volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
     command: pbm-agent
@@ -71,12 +75,9 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c "
-      sleep 5;
-      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
-      /usr/bin/mc mb myminio/bcp;
-      exit 0;
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio
+      http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0;
       "
 volumes:
-  backups:
-  data-rs101:
+  backups: null
+  data-rs101: null

@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -320,14 +321,22 @@ func (n *Node) GetOpts() (*MongodOpts, error) {
 }
 
 func (n *Node) GetRSconf() (*RSConfig, error) {
-	rsc := &RSConfig{}
-	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(rsc)
+	rsc := struct {
+		Conf RSConfig `bson:"config" json:"config"`
+	}{}
+	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(&rsc)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")
 	}
-	return rsc, nil
+	return &rsc.Conf, nil
 }
 
 func (n *Node) Shutdown() error {
-	return n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	// mongod --dbpath /path/to/your/db --shutdown
+	// n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}}).Err()
+	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
+		return nil
+	}
+	return err
 }

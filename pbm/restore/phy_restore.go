@@ -2,6 +2,8 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
+	slog "log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,6 +77,10 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestor
 		return nil, errors.Wrap(err, "get replset config")
 	}
 
+	rscs, _ := json.Marshal(rcf)
+	slog.Printf("RS_CONF:\n%s", rscs)
+	slog.Printf("OPTS: %v", opts)
+
 	return &PhysRestore{
 		cn:     cn,
 		node:   node,
@@ -85,16 +91,16 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestor
 	}, nil
 }
 
-func (r *PhysRestore) Flush() error {
+func (r *PhysRestore) flush() error {
 	err := r.node.Shutdown()
 	if err != nil {
 		return errors.Wrap(err, "shutdown server")
 	}
 
-	err = removeAll(r.dbpath)
-	if err != nil {
-		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
-	}
+	// err = removeAll(r.dbpath)
+	// if err != nil {
+	// 	return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	// }
 
 	return nil
 }
@@ -103,6 +109,12 @@ func (r *PhysRestore) Follower(bcp string) error {
 	// - wait for `init`
 	// - flush & shutdown
 	// - set in metadata.followers["name"] = {ts, ready}
+	return nil
+	err := r.flush()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -137,24 +149,74 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	err = r.Flush()
+	l.Debug("flushing old data")
+	err = r.flush()
 	if err != nil {
 		return err
 	}
 
-	err = startMongo("--dbpath", r.dbpath, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	// !!! copy files
+
+	l.Debug("running stage 1")
+	err = r.stage1()
 	if err != nil {
-		return errors.Wrap(err, "start mongo phase 1")
+		return errors.Wrap(err, "run stage_1")
+	}
+
+	l.Debug("running stage 2")
+	err = r.stage2()
+	if err != nil {
+		return errors.Wrap(err, "run stage_2")
+	}
+
+	l.Debug("running stage 3")
+	err = r.stage3()
+	if err != nil {
+		return errors.Wrap(err, "run stage_3")
+	}
+
+	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDumpDone, "")
+	if err != nil {
+		return errors.Wrap(err, "set shard's StatusDumpDone")
+	}
+
+	if r.nodeInfo.IsLeader() {
+		err = r.reconcileStatus(pbm.StatusDumpDone, nil)
+		if err != nil {
+			if errors.Cause(err) == errConvergeTimeOut {
+				return errors.Wrap(err, "couldn't get response from all shards")
+			}
+			return errors.Wrap(err, "check cluster for restore started")
+		}
+	}
+
+	err = r.waitForStatus(pbm.StatusDumpDone)
+	if err != nil {
+		return errors.Wrap(err, "waiting for dumpDone")
+	}
+
+	// l.Debug("running stage 4")
+	// err = r.stage4()
+	// if err != nil {
+	// 	return errors.Wrap(err, "run stage_4")
+	// }
+
+	return nil
+}
+
+func (r *PhysRestore) stage1() error {
+	err := startMongo("--dbpath", r.dbpath, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
 	}
 
 	c, err := conn(r.efport)
 	if err != nil {
-		return errors.Wrap(err, "connect to mongo phase 1")
+		return errors.Wrap(err, "connect to mongo")
 	}
 
 	ctx := context.Background()
 
-	// err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(i)
 	err = c.Database("local").Collection("replset.minvalid").Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop replset.minvalid")
@@ -186,9 +248,137 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
 	}
 
-	err = c.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	// remove pbm locks -- no more need as database run on ephemeral port
+	// if r.nodeInfo.IsLeader() {
+	// 	_, err = c.Database(pbm.DB).Collection(pbm.LockCollection).DeleteMany(ctx, bson.D{})
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "delete from pbm.LockCollection")
+	// 	}
+	// }
+
+	err = shutdown(c)
 	if err != nil {
-		return errors.Wrap(err, "shutdown mongo phase1")
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	return nil
+}
+
+func shutdown(c *mongo.Client) error {
+	// n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
+	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
+		return nil
+	}
+	return err
+}
+
+func (r *PhysRestore) stage2() error {
+	err := startMongo("--dbpath", r.dbpath, "--replSet", r.rsConf.ID, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	c, err := conn(r.efport)
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	for i, m := range r.rsConf.Members {
+		if m.Host == r.nodeInfo.Me {
+			r.rsConf.Members[i].Host = "localhost:" + r.efport
+		}
+	}
+
+	err = c.Database("admin").RunCommand(context.Background(),
+		bson.D{{"replSetInitiate", pbm.RSConfig{
+			ID:       r.rsConf.ID,
+			CSRS:     false,
+			Version:  1,
+			Members:  []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
+			Settings: r.rsConf.Settings,
+		}}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "replSetInitiate")
+	}
+
+	err = shutdown(c)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	return nil
+}
+
+func (r *PhysRestore) stage3() error {
+	err := startMongo("--dbpath", r.dbpath, "--port", r.efport)
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	c, err := conn(r.efport)
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+
+	_, err = c.Database("admin").Collection("system.version").DeleteOne(ctx, bson.D{{"_id", "minOpTimeRecovery"}})
+	if err != nil {
+		return errors.Wrap(err, "delete minOpTimeRecovery from admin.system.version")
+	}
+	err = c.Database("config").Collection("cache.collections").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.collections")
+	}
+	err = c.Database("config").Collection("cache.databases").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.databases")
+	}
+	err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
+	}
+
+	// ! Insert All RS Members <-> r.rsConf.Members
+	_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
+		bson.D{{"_id", r.rsConf.ID}, {"members._id", 0}},
+		bson.D{{"$set", bson.M{"members.$.host": r.nodeInfo.Me}}},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+	}
+
+	err = shutdown(c)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	return nil
+}
+
+func (r *PhysRestore) stage4() error {
+	err := startMongo("--dbpath", r.dbpath, "--replSet", r.rsConf.ID, "--port", r.efport)
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	c, err := conn(r.efport)
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	rscs, _ := json.Marshal(r.rsConf)
+	slog.Printf("RS_CONF:\n%s", rscs)
+
+	err = c.Database("admin").RunCommand(context.Background(), bson.D{{"replSetReconfig", r.rsConf}, {"force", true}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "replSetReconfig")
+	}
+
+	err = shutdown(c)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
 	}
 
 	return nil
@@ -275,9 +465,8 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
-		r.bcp, err = getMetaFromStore(r.stg, backupName)
+		r.bcp, err = GetMetaFromStore(r.stg, backupName)
 	}
-
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
@@ -375,6 +564,46 @@ func (r *PhysRestore) waitForStatus(status pbm.Status) error {
 	return waitForStatus(r.cn, r.name, status)
 }
 
+func (r *PhysRestore) waitRSStatus(status pbm.Status) error {
+	r.log.Debug("waiting for RS status  '%s'", status)
+	return waitRSStatus(r.cn, r.name, r.rsConf.ID, status)
+}
+
+func waitRSStatus(cn *pbm.PBM, restore, rs string, status pbm.Status) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			meta, err := cn.GetRestoreMeta(restore)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return errors.Wrap(err, "get restore metadata")
+			}
+
+			clusterTime, err := cn.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+
+			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
+			}
+
+			switch meta.Status {
+			case status:
+				return nil
+			case pbm.StatusError:
+				return errors.Errorf("cluster failed: %s", meta.Error)
+			}
+		case <-cn.Context().Done():
+			return nil
+		}
+	}
+}
+
 func (r *PhysRestore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	if timeout != nil {
 		return errors.Wrap(convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout), "convergeClusterWithTimeout")
@@ -398,6 +627,7 @@ func removeAll(dir string) error {
 		if err != nil {
 			return errors.Wrapf(err, "remove '%s'", n)
 		}
+		slog.Println("RM", filepath.Join(dir, n))
 	}
 	return nil
 }
