@@ -36,7 +36,7 @@ type BCoplogTS struct {
 
 type BackupCursorData struct {
 	Meta *Meta
-	Data []pbm.BCfile
+	Data []pbm.File
 }
 type BackupCursor struct {
 	id    UUID
@@ -66,7 +66,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 	}()
 
 	var m *Meta
-	var files []pbm.BCfile
+	var files []pbm.File
 	for cur.TryNext(ctx) {
 		// metadata is the first
 		if m == nil {
@@ -81,7 +81,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 			continue
 		}
 
-		var d pbm.BCfile
+		var d pbm.File
 		err = cur.Decode(&d)
 		if err != nil {
 			return nil, errors.Wrap(err, "decode filename")
@@ -112,7 +112,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.BCfile, error) {
+func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.File, error) {
 	ctx := context.Background()
 	cur, err := bc.n.Session().Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
@@ -123,7 +123,7 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.BCfile, error)
 	}
 	defer cur.Close(ctx)
 
-	var j []pbm.BCfile
+	var j []pbm.File
 
 	err = cur.All(ctx, &j)
 	return j, err
@@ -308,24 +308,34 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get journal files")
 	}
 
+	var files []pbm.File
 	subd := bcp.Name + "/" + rsName
 	for _, bd := range bcur.Data {
-		l.Debug("uploading data: %s", bd.File)
-		err = writeFile(bd.File, subd+"/"+strings.TrimPrefix(bd.File, bcur.Meta.DBpath+"/"), stg)
+		l.Debug("uploading data: %s", bd.Name)
+		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg)
 		if err != nil {
-			return errors.Wrapf(err, "upload data file %s", bd.File)
+			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
 		}
+		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
+		files = append(files, *f)
 	}
 	l.Debug("finished uploading data")
 
 	for _, jf := range jrnls {
-		l.Debug("uploading journal: %s", jf.File)
-		err = writeFile(jf.File, subd+"/"+strings.TrimPrefix(jf.File, bcur.Meta.DBpath+"/"), stg)
+		l.Debug("uploading journal: %s", jf.Name)
+		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg)
 		if err != nil {
-			return errors.Wrapf(err, "upload journal file %s", jf.File)
+			return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
 		}
+		f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
+		files = append(files, *f)
 	}
 	l.Debug("finished uploading journals")
+
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, files)
+	if err != nil {
+		return errors.Wrap(err, "set shard's files list")
+	}
 
 	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
 	if err != nil {
@@ -386,20 +396,24 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(src, dst string, stg storage.Storage) error {
+func writeFile(src, dst string, stg storage.Storage) (*pbm.File, error) {
 	f, err := os.Open(src)
 	if err != nil {
-		return errors.Wrap(err, "open file for reading")
+		return nil, errors.Wrap(err, "open file for reading")
 	}
 	defer f.Close()
 	fstat, err := os.Stat(src)
 	if err != nil {
-		return errors.Wrap(err, "get file stat")
+		return nil, errors.Wrap(err, "get file stat")
 	}
 	err = stg.Save(dst, f, int(fstat.Size()))
 	if err != nil {
-		return errors.Wrap(err, "upload file")
+		return nil, errors.Wrap(err, "upload file")
 	}
 
-	return nil
+	return &pbm.File{
+		Name:  src,
+		Size:  fstat.Size(),
+		Fmode: fstat.Mode(),
+	}, nil
 }

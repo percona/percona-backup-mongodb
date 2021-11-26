@@ -3,9 +3,11 @@ package restore
 import (
 	"context"
 	"encoding/json"
+	"io"
 	slog "log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -97,20 +99,26 @@ func (r *PhysRestore) flush() error {
 		return errors.Wrap(err, "shutdown server")
 	}
 
-	// err = removeAll(r.dbpath)
-	// if err != nil {
-	// 	return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
-	// }
+	// !!!!!!!!
+	time.Sleep(time.Second * 20)
+
+	err = removeAll(r.dbpath)
+	if err != nil {
+		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	}
 
 	return nil
 }
 
-func (r *PhysRestore) Follower(bcp string) error {
-	// - wait for `init`
-	// - flush & shutdown
-	// - set in metadata.followers["name"] = {ts, ready}
-	return nil
-	err := r.flush()
+func (r *PhysRestore) Follower(bcp string, l *log.Event) error {
+	r.log = l
+
+	err := r.waitForStatus(pbm.StatusDumpDone)
+	if err != nil {
+		return errors.Wrap(err, "waiting for dumpDone")
+	}
+
+	err = r.flush()
 	if err != nil {
 		return err
 	}
@@ -152,10 +160,14 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	l.Debug("flushing old data")
 	err = r.flush()
 	if err != nil {
+		l.Error("FLUSH: %v", err)
 		return err
 	}
 
-	// !!! copy files
+	err = r.copyFiles()
+	if err != nil {
+		return errors.Wrap(err, "copy files")
+	}
 
 	l.Debug("running stage 1")
 	err = r.stage1()
@@ -201,6 +213,46 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	// 	return errors.Wrap(err, "run stage_4")
 	// }
 
+	return nil
+}
+
+func (r *PhysRestore) copyFiles() error {
+	for _, rs := range r.bcp.Replsets {
+		if rs.Name == r.nodeInfo.SetName {
+			for _, f := range rs.Files {
+				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name)
+				dst := filepath.Join(r.dbpath, f.Name)
+
+				err := os.MkdirAll(path.Dir(dst), os.ModeDir|0700)
+				if err != nil {
+					return errors.Wrapf(err, "create path %s", path.Dir(dst))
+				}
+
+				r.log.Info("copy <%s> to <%s>", src, dst)
+				// copy files: copy file <2021-11-26T16:34:39Z/rs1/index-40-7668660307985647982.wt> to </data/db/index-40-7668660307985647982.wt>: create dst: open /opt/backups/data/db/index-40-7668660307985647982.wt: no such file or directory
+				sr, err := r.stg.SourceReader(src)
+				if err != nil {
+					return errors.Wrapf(err, "create source reader for <%s>", src)
+				}
+				defer sr.Close()
+
+				fw, err := os.Create(dst)
+				if err != nil {
+					return errors.Wrapf(err, "create destination file <%s>", dst)
+				}
+				defer fw.Close()
+				err = os.Chmod(dst, f.Fmode)
+				if err != nil {
+					return errors.Wrapf(err, "change permissions for file <%s>", dst)
+				}
+
+				_, err = io.Copy(fw, sr)
+				if err != nil {
+					return errors.Wrapf(err, "copy file <%s>", dst)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -340,10 +392,13 @@ func (r *PhysRestore) stage3() error {
 		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
-	// ! Insert All RS Members <-> r.rsConf.Members
+	// _, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
+	// 	bson.D{{"_id", r.rsConf.ID}, {"members._id", 0}},
+	// 	bson.D{{"$set", bson.M{"members.$.host": r.nodeInfo.Me}}},
+	// )
 	_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
-		bson.D{{"_id", r.rsConf.ID}, {"members._id", 0}},
-		bson.D{{"$set", bson.M{"members.$.host": r.nodeInfo.Me}}},
+		bson.D{{"_id", r.rsConf.ID}},
+		bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
 	)
 	if err != nil {
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)

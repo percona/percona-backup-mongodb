@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -485,9 +486,9 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
-	PhyData          []BCfile            `bson:"phy_data" json:"phy_data" `
-	DumpName         string              `bson:"dump_name" json:"backup_name" `
-	OplogName        string              `bson:"oplog_name" json:"oplog_name"`
+	Files            []File              `bson:"files,omitempty" json:"files,omitempty" `
+	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty" `
+	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
@@ -497,9 +498,10 @@ type BackupReplset struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 }
 
-type BCfile struct {
-	File string `bson:"filename"`
-	Size int64  `bson:"fileSize"`
+type File struct {
+	Name  string      `bson:"filename" json:"filename"`
+	Size  int64       `bson:"fileSize" json:"fileSize"`
+	Fmode os.FileMode `bson:"fmode" json:"fmode"`
 }
 
 // Status is a backup current status
@@ -628,6 +630,18 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
 			{"$set", bson.M{"replsets.$.error": msg}},
 			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.files": f}},
 		},
 	)
 

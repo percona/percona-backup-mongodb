@@ -366,7 +366,7 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 	if !nodeInfo.IsPrimary {
 		l.Debug("follower")
 		go func() {
-			err = rstr.Follower(r.BackupName)
+			err = rstr.Follower(r.BackupName, l)
 			if err != nil {
 				l.Error("run as follower: %v", err)
 				return
