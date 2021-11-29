@@ -53,6 +53,8 @@ type PhysRestore struct {
 
 	stgpath string
 
+	stopHB chan struct{}
+
 	log *log.Event
 }
 
@@ -93,6 +95,14 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, role pbm.ReplsetRole) (*PhysRestor
 	}, nil
 }
 
+// Close releases object resources.
+// Should be run to avoid leaks.
+func (r *PhysRestore) Close() {
+	if r.stopHB != nil {
+		close(r.stopHB)
+	}
+}
+
 func (r *PhysRestore) flush() error {
 	err := r.node.Shutdown()
 	if err != nil {
@@ -110,8 +120,9 @@ func (r *PhysRestore) flush() error {
 	return nil
 }
 
-func (r *PhysRestore) Follower(bcp string, l *log.Event) error {
+func (r *PhysRestore) Follower(cmd pbm.RestoreCmd, l *log.Event) error {
 	r.log = l
+	r.name = cmd.Name
 
 	err := r.waitForStatus(pbm.StatusDumpDone)
 	if err != nil {
@@ -126,8 +137,19 @@ func (r *PhysRestore) Follower(bcp string, l *log.Event) error {
 	return nil
 }
 
-func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
-	err := r.init(cmd.Name, opid, l)
+func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+	defer func() {
+		if err != nil && !errors.Is(err, ErrNoDatForShard) {
+			ferr := r.MarkFailed(err)
+			if ferr != nil {
+				l.Error("mark restore as failed `%v`: %v", err, ferr)
+			}
+		}
+
+		r.Close()
+	}()
+
+	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -202,6 +224,8 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		}
 	}
 
+	// !! pbmagent_rs101  | 2021-11-29T06:29:23.000+0000 E [restore/2021-11-29T06:26:43Z] waiting for dumpDone: restore stuck, last beat ts: 1638167330
+	// ! need defer with hs and post errors
 	err = r.waitForStatus(pbm.StatusDumpDone)
 	if err != nil {
 		return errors.Wrap(err, "waiting for dumpDone")
@@ -336,12 +360,6 @@ func (r *PhysRestore) stage2() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	for i, m := range r.rsConf.Members {
-		if m.Host == r.nodeInfo.Me {
-			r.rsConf.Members[i].Host = "localhost:" + r.efport
-		}
-	}
-
 	err = c.Database("admin").RunCommand(context.Background(),
 		bson.D{{"replSetInitiate", pbm.RSConfig{
 			ID:       r.rsConf.ID,
@@ -396,6 +414,7 @@ func (r *PhysRestore) stage3() error {
 	// 	bson.D{{"_id", r.rsConf.ID}, {"members._id", 0}},
 	// 	bson.D{{"$set", bson.M{"members.$.host": r.nodeInfo.Me}}},
 	// )
+
 	_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
 		bson.D{{"_id", r.rsConf.ID}},
 		bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
@@ -501,6 +520,23 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
 		}
+
+		r.stopHB = make(chan struct{})
+		go func() {
+			tk := time.NewTicker(time.Second * 5)
+			defer tk.Stop()
+			for {
+				select {
+				case <-tk.C:
+					err := r.cn.RestoreHB(r.name)
+					if err != nil {
+						l.Error("send heartbeat: %v", err)
+					}
+				case <-r.stopHB:
+					return
+				}
+			}
+		}()
 	}
 
 	// Waiting for StatusStarting to move further.
@@ -614,50 +650,60 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	return nil
 }
 
+// MarkFailed sets the restore and rs state as failed with the given message
+func (r *PhysRestore) MarkFailed(e error) error {
+	err := r.cn.ChangeRestoreState(r.name, pbm.StatusError, e.Error())
+	if err != nil {
+		return errors.Wrap(err, "set backup state")
+	}
+	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusError, e.Error())
+	return errors.Wrap(err, "set replset state")
+}
+
 func (r *PhysRestore) waitForStatus(status pbm.Status) error {
 	r.log.Debug("waiting for '%s' status", status)
 	return waitForStatus(r.cn, r.name, status)
 }
 
-func (r *PhysRestore) waitRSStatus(status pbm.Status) error {
-	r.log.Debug("waiting for RS status  '%s'", status)
-	return waitRSStatus(r.cn, r.name, r.rsConf.ID, status)
-}
+// func (r *PhysRestore) waitRSStatus(status pbm.Status) error {
+// 	r.log.Debug("waiting for RS status  '%s'", status)
+// 	return waitRSStatus(r.cn, r.name, r.rsConf.ID, status)
+// }
 
-func waitRSStatus(cn *pbm.PBM, restore, rs string, status pbm.Status) error {
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-	for {
-		select {
-		case <-tk.C:
-			meta, err := cn.GetRestoreMeta(restore)
-			if errors.Is(err, pbm.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return errors.Wrap(err, "get restore metadata")
-			}
+// func waitRSStatus(cn *pbm.PBM, restore, rs string, status pbm.Status) error {
+// 	tk := time.NewTicker(time.Second * 1)
+// 	defer tk.Stop()
+// 	for {
+// 		select {
+// 		case <-tk.C:
+// 			meta, err := cn.GetRestoreMeta(restore)
+// 			if errors.Is(err, pbm.ErrNotFound) {
+// 				continue
+// 			}
+// 			if err != nil {
+// 				return errors.Wrap(err, "get restore metadata")
+// 			}
 
-			clusterTime, err := cn.ClusterTime()
-			if err != nil {
-				return errors.Wrap(err, "read cluster time")
-			}
+// 			clusterTime, err := cn.ClusterTime()
+// 			if err != nil {
+// 				return errors.Wrap(err, "read cluster time")
+// 			}
 
-			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
-				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
-			}
+// 			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+// 				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
+// 			}
 
-			switch meta.Status {
-			case status:
-				return nil
-			case pbm.StatusError:
-				return errors.Errorf("cluster failed: %s", meta.Error)
-			}
-		case <-cn.Context().Done():
-			return nil
-		}
-	}
-}
+// 			switch meta.Status {
+// 			case status:
+// 				return nil
+// 			case pbm.StatusError:
+// 				return errors.Errorf("cluster failed: %s", meta.Error)
+// 			}
+// 		case <-cn.Context().Done():
+// 			return nil
+// 		}
+// 	}
+// }
 
 func (r *PhysRestore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	if timeout != nil {
