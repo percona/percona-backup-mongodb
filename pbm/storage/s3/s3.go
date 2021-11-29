@@ -45,6 +45,7 @@ type Conf struct {
 	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 }
 
 type AWSsse struct {
@@ -143,6 +144,10 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			}
 		}
 
+		maxUploadParts := s3manager.MaxUploadParts
+		if s.opts.MaxUploadParts > 0 {
+			maxUploadParts = s.opts.MaxUploadParts
+		}
 		// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
 		// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
 		// so PartSize * MaxUploadParts could fit the file.
@@ -158,7 +163,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			partSize = s.opts.UploadPartSize
 		}
 		if sizeb > 0 {
-			ps := sizeb / s3manager.MaxUploadParts * 9 / 10 // shed 10% just in case
+			ps := sizeb / maxUploadParts * 9 / 10 // shed 10% just in case
 			if ps > partSize {
 				partSize = ps
 			}
@@ -166,10 +171,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 
 		if s.log != nil {
 			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
+			s.log.Info("s3.maxUploadParts is set to %d", maxUploadParts)
 		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-			u.MaxUploadParts = s3manager.MaxUploadParts
+			u.MaxUploadParts = maxUploadParts
 			u.PartSize = int64(partSize) // 10MB part size
 			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
