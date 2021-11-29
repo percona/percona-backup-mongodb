@@ -358,7 +358,7 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 		return errors.Wrap(err, "get node info")
 	}
 
-	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo.ReplsetRole())
+	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo)
 	if err != nil {
 		return errors.Wrap(err, "init physical backup")
 	}
@@ -366,7 +366,7 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 	if !nodeInfo.IsPrimary {
 		l.Debug("follower")
 		go func() {
-			err = rstr.Follower(r.BackupName, l)
+			err = rstr.Follower(r, l)
 			if err != nil {
 				l.Error("run as follower: %v", err)
 				return

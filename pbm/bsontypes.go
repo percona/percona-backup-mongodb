@@ -56,6 +56,11 @@ func (i *NodeInfo) IsLeader() bool {
 	return !i.IsSharded() || i.ReplsetRole() == RoleConfigSrv
 }
 
+// IsConfigSrv returns true if node belongs to the CSRS in a sharded cluster
+func (i *NodeInfo) IsConfigSrv() bool {
+	return i.IsSharded() && i.ReplsetRole() == RoleConfigSrv
+}
+
 // IsClusterLeader - cluster leader is a primary node on configsrv
 // or just primary node in non-sharded replicaset
 func (i *NodeInfo) IsClusterLeader() bool {
