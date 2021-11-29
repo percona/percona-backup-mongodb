@@ -112,6 +112,19 @@ S3 type storage options
 
    By setting this option, you can manually adjust the size of data chunks if |PBM| failed to do it for some reason. The defined ``uploadPartSize`` value overrides the default value and is used for calculating the max allowed file size
 
+.. option:: storage.s3.maxUploadParts
+
+   :type: int
+   :required: NO
+
+   The maximum number of data chunks be uploaded to the storage bucket. Default: 10,000
+
+   By setting this option, you can override the value defined in the `AWS SDK <https://docs.aws.amazon.com/sdk-for-go/api/service/s3/s3manager/#MaxUploadParts>`_.
+
+   It can be useful when using an S3 provider that supports a smaller number of chunks for multipart uploads.
+
+   The ``maxUploadParts`` value is printed in the :ref:`pbm-agent log <pbm-agent.log>`.
+
 .. rubric:: Server-side encryption options
 
 .. option:: serverSideEncryption.sseAlgorythm
