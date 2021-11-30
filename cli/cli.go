@@ -291,7 +291,7 @@ type pitrRange struct {
 }
 
 func fmtTS(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format("2006-01-02T15:04:05")
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
 
 type outMsg struct {
