@@ -44,7 +44,7 @@ func (a *Agent) getPitr() *currentPitr {
 
 const pitrCheckPeriod = time.Second * 15
 
-// PITR starts PITR prcessing routine
+// PITR starts PITR processing routine
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
@@ -67,6 +67,11 @@ func (a *Agent) PITR() {
 }
 
 func (a *Agent) pitr() (err error) {
+	// pausing for physical restore
+	if !a.HbIsRun() {
+		return nil
+	}
+
 	cfg, err := a.pbm.GetConfig()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return errors.Wrap(err, "get conf")

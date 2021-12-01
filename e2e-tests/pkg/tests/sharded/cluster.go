@@ -72,7 +72,7 @@ func (c *Cluster) ApplyConfig(file string) {
 
 	log.Println("waiting for the new storage to resync")
 	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
-		Type: pbmt.CmdResyncBackupList,
+		Type: pbmt.CmdResync,
 	},
 		time.Minute*5,
 	)

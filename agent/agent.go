@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,6 +24,8 @@ type Agent struct {
 	pitrjob *currentPitr
 	mx      sync.Mutex
 	log     *log.Logger
+
+	pauseHB int32
 }
 
 func New(pbm *pbm.PBM) *Agent {
@@ -74,8 +77,8 @@ func (a *Agent) Start() error {
 				a.CancelBackup()
 			case pbm.CmdRestore:
 				a.Restore(cmd.Restore, cmd.OPID, ep)
-			case pbm.CmdResyncBackupList:
-				a.ResyncStorage(cmd.OPID, ep)
+			case pbm.CmdResync:
+				a.Resync(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
@@ -227,9 +230,12 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("done")
 }
 
-// ResyncStorage uploads a backup list from the remote store
-func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", opid.String(), ep.TS())
+// Resync uploads a backup list from the remote store
+func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdResync), "", opid.String(), ep.TS())
+
+	a.HbResume()
+	a.pbm.Logger().ResumeMgo()
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -244,7 +250,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 
 	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:    pbm.CmdResyncBackupList,
+		Type:    pbm.CmdResync,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
@@ -325,6 +331,16 @@ func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got
 	}
 }
 
+func (a *Agent) HbPause() {
+	atomic.StoreInt32(&a.pauseHB, 1)
+}
+func (a *Agent) HbResume() {
+	atomic.StoreInt32(&a.pauseHB, 0)
+}
+func (a *Agent) HbIsRun() bool {
+	return atomic.LoadInt32(&a.pauseHB) == 0
+}
+
 func (a *Agent) HbStatus() {
 	hb := pbm.AgentStat{
 		Node: a.node.Name(),
@@ -343,6 +359,11 @@ func (a *Agent) HbStatus() {
 	var cc int
 
 	for range tk.C {
+		// don't check if on pause (e.g. physical restore)
+		if !a.HbIsRun() {
+			continue
+		}
+
 		hb.PBMStatus = a.pbmStatus()
 		logHbStatus("PBM connection", hb.PBMStatus, l)
 

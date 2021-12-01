@@ -76,7 +76,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	}
 	// show message ans skip when resync is running
 	lk, err := findLock(cn, cn.GetLocks)
-	if err == nil && lk != nil && lk.Type == pbm.CmdResyncBackupList {
+	if err == nil && lk != nil && lk.Type == pbm.CmdResync {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 

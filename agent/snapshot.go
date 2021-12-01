@@ -279,6 +279,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	case pbm.LogicalBackup:
 		err = a.restoreLogical(r, opid, ep, l)
 	case pbm.PhysicalBackup:
+		a.HbPause()
 		err = a.restorePhysical(r, opid, ep, l)
 	default:
 		err = errors.New("undefined backup type")

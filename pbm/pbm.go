@@ -64,15 +64,15 @@ var ErrNotFound = errors.New("not found")
 type Command string
 
 const (
-	CmdUndefined        Command = ""
-	CmdBackup           Command = "backup"
-	CmdRestore          Command = "restore"
-	CmdCancelBackup     Command = "cancelBackup"
-	CmdResyncBackupList Command = "resyncBcpList"
-	CmdPITR             Command = "pitr"
-	CmdPITRestore       Command = "pitrestore"
-	CmdDeleteBackup     Command = "delete"
-	CmdDeletePITR       Command = "deletePitr"
+	CmdUndefined    Command = ""
+	CmdBackup       Command = "backup"
+	CmdRestore      Command = "restore"
+	CmdCancelBackup Command = "cancelBackup"
+	CmdResync       Command = "resync"
+	CmdPITR         Command = "pitr"
+	CmdPITRestore   Command = "pitrestore"
+	CmdDeleteBackup Command = "delete"
+	CmdDeletePITR   Command = "deletePitr"
 )
 
 func (c Command) String() string {
@@ -83,7 +83,7 @@ func (c Command) String() string {
 		return "Snapshot restore"
 	case CmdCancelBackup:
 		return "Backup cancelation"
-	case CmdResyncBackupList:
+	case CmdResync:
 		return "Resync storage"
 	case CmdPITR:
 		return "PITR incremental backup"

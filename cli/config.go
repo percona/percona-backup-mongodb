@@ -113,6 +113,6 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 
 func rsync(cn *pbm.PBM) error {
 	return cn.SendCmd(pbm.Cmd{
-		Cmd: pbm.CmdResyncBackupList,
+		Cmd: pbm.CmdResync,
 	})
 }
