@@ -173,6 +173,8 @@ type ReplsetStatus struct {
 }
 
 // Shard represent config.shard https://docs.mongodb.com/manual/reference/config-database/#config.shards
+// _id may differ from the rs name, so extract rs name from the host (format like "rs2/localhost:27017")
+// see https://jira.percona.com/browse/PBM-595
 type Shard struct {
 	ID   string `bson:"_id"`
 	RS   string `bson:"-"`

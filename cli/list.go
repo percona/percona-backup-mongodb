@@ -125,7 +125,7 @@ type backupListOut struct {
 func (bl backupListOut) String() string {
 	s := fmt.Sprintln("Backup snapshots:")
 	for _, b := range bl.Snapshots {
-		s += fmt.Sprintf("  %s [complete: %s]\n", b.Name, fmtTS(int64(b.StateTS)))
+		s += fmt.Sprintf("  %s <%s> [complete: %s]\n", b.Name, b.Type, fmtTS(int64(b.StateTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -199,6 +199,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 			Status:     b.Status,
 			StateTS:    int64(b.LastWriteTS.T),
 			PBMVersion: b.PBMVersion,
+			Type:       b.Type,
 		})
 	}
 

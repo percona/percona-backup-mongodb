@@ -177,6 +177,11 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
+	clusterTime, err := cn.ClusterTime()
+	if err != nil {
+		return nil, errors.Wrap(err, "read cluster time")
+	}
+
 	var ret cluster
 
 	for _, c := range clstr {
@@ -205,6 +210,10 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 				continue
 			} else if err != nil {
 				nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: get agent status: %v", err))
+				continue
+			}
+			if stat.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+				nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
 				continue
 			}
 			nd.Ver = "v" + stat.Ver
@@ -457,7 +466,7 @@ func (s storageStat) String() string {
 		var status string
 		switch sn.Status {
 		case pbm.StatusDone:
-			status = fmt.Sprintf(" [complete: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf(" <%s> [complete: %s]", sn.Type, fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
 			status = fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
@@ -540,17 +549,23 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 			Status:     bcp.Status,
 			StateTS:    bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
+			Type:       bcp.Type,
 		}
 
 		switch bcp.Status {
 		case pbm.StatusDone:
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
-			sz, err := getSnapshotSize(bcp.Replsets, stg)
-			if err != nil {
-				snpsht.Err = err.Error()
-				snpsht.Status = pbm.StatusError
+			switch bcp.Type {
+			case pbm.LogicalBackup:
+				var err error
+				snpsht.Size, err = getSnapshotSize(bcp.Replsets, stg)
+				if err != nil {
+					snpsht.Err = err.Error()
+					snpsht.Status = pbm.StatusError
+				}
+			case pbm.PhysicalBackup:
+				snpsht.Size = getPhysSnapshotSize(&bcp)
 			}
-			snpsht.Size = sz
 		case pbm.StatusError:
 			snpsht.Err = bcp.Error
 		default:
@@ -646,4 +661,14 @@ func getSnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, e
 	}
 
 	return s, nil
+}
+
+func getPhysSnapshotSize(meta *pbm.BackupMeta) (s int64) {
+	for _, rs := range meta.Replsets {
+		for _, f := range rs.Files {
+			s += f.Size
+		}
+	}
+
+	return s
 }

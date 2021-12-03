@@ -11,18 +11,19 @@ import (
 )
 
 type RestoreMeta struct {
-	Type             BackupType          `bson:"type" json:"type"`
-	OPID             string              `bson:"opid" json:"opid"`
+	Status           Status              `bson:"status" json:"status"`
+	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Name             string              `bson:"name" json:"name"`
+	OPID             string              `bson:"opid" json:"opid"`
 	Backup           string              `bson:"backup" json:"backup"`
 	PITR             int64               `bson:"pitr" json:"pitr"`
 	Replsets         []RestoreReplset    `bson:"replsets" json:"replsets"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
-	Status           Status              `bson:"status" json:"status"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
-	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
+	Type             BackupType          `bson:"type" json:"type"`
+	Leader           string              `bson:"l,omitempty" json:"l,omitempty"`
 }
 
 type RestoreReplset struct {

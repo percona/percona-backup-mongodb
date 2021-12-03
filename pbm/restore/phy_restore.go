@@ -1,7 +1,10 @@
 package restore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	slog "log"
 	"os"
@@ -145,7 +148,14 @@ func (r *PhysRestore) Follower(cmd pbm.RestoreCmd, l *log.Event) error {
 	r.log = l
 	r.name = cmd.Name
 
-	err := r.waitForStatus(pbm.StatusDumpDone)
+	var err error
+	r.stg, err = r.cn.GetStorage(r.log)
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
+	}
+
+	l.Info("waiting for dumpDone")
+	err = r.waitFiles(fmt.Sprintf("%s/%s/%s.dumpDone", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID))
 	if err != nil {
 		return errors.Wrap(err, "waiting for dumpDone")
 	}
@@ -158,15 +168,59 @@ func (r *PhysRestore) Follower(cmd pbm.RestoreCmd, l *log.Event) error {
 		return err
 	}
 
+	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID, r.nodeInfo.Me),
+		bytes.NewReader([]byte{'1'}), 1)
+	if err != nil {
+		return errors.Wrap(err, "finish restore: write restore meta")
+	}
+
 	return nil
 }
 
+func (r *PhysRestore) waitFiles(n ...string) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for range tk.C {
+		n2 := append([]string{}, n...)
+		for i := range n2 {
+			f, err := r.stg.FileStat(n2[i])
+			if err != nil && err != storage.ErrNotExist {
+				return errors.Wrapf(err, "get file %s", n[i])
+			}
+			if err == nil && f.Size > 0 {
+				n = append(n2[:i], n2[i+1:]...)
+			}
+		}
+
+		if len(n) == 0 {
+			return nil
+		}
+	}
+
+	return storage.ErrNotExist
+}
+
 func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+	meta := &pbm.RestoreMeta{
+		Type: pbm.PhysicalBackup,
+		OPID: opid.String(),
+		Name: r.name,
+	}
+
 	defer func() {
-		if err != nil && !errors.Is(err, ErrNoDatForShard) {
-			ferr := r.MarkFailed(err)
-			if ferr != nil {
-				l.Error("mark restore as failed `%v`: %v", err, ferr)
+		if err != nil {
+			if !errors.Is(err, ErrNoDatForShard) {
+				ferr := r.MarkFailed(err)
+				if ferr != nil {
+					l.Error("mark restore as failed `%v`: %v", err, ferr)
+				}
+			}
+
+			if r.nodeInfo.IsLeader() {
+				ferr := r.dumpMeta(meta, pbm.StatusError, err.Error())
+				if ferr != nil {
+					l.Error("write restore meta to storage `%v`: %v", err, ferr)
+				}
 			}
 		}
 
@@ -189,7 +243,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	}
 
 	if r.nodeInfo.IsLeader() {
-		err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart)
+		meta, err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -203,40 +257,40 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	l.Debug("flushing old data")
+	l.Info("flushing old data")
 	err = r.flush()
 	if err != nil {
 		l.Error("FLUSH: %v", err)
 		return err
 	}
 
-	l.Debug("copying backup data")
+	l.Info("copying backup data")
 	err = r.copyFiles()
 	if err != nil {
 		return errors.Wrap(err, "copy files")
 	}
 
-	l.Debug("setting restore timestamp")
+	l.Info("setting restore timestamp")
 	err = r.stage1()
 	if err != nil {
 		return errors.Wrap(err, "set restore timestamp")
 	}
 
-	l.Debug("recover oplog as single-node replicaset")
+	l.Info("recover oplog as single-node replicaset")
 	err = r.stage2()
 	if err != nil {
 		return errors.Wrap(err, "recover oplog as rs")
 	}
 
 	if r.nodeInfo.IsConfigSrv() {
-		l.Debug("recovering oplog as standalone")
+		l.Info("recovering oplog as standalone")
 		err = r.recoverStandalone()
 		if err != nil {
 			return errors.Wrap(err, "recover oplog as standalone")
 		}
 	}
 
-	l.Debug("clean-up and reset replicaset config")
+	l.Info("clean-up and reset replicaset config")
 	err = r.stage3()
 	if err != nil {
 		return errors.Wrap(err, "clean-up, rs_reset")
@@ -245,24 +299,72 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	// don't write logs to the mongo anymore
 	r.cn.Logger().PauseMgo()
 
-	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDumpDone, "")
+	l.Debug("set replset dumpDone")
+	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.dumpDone", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID),
+		bytes.NewReader([]byte{'1'}), 1)
 	if err != nil {
-		return errors.Wrap(err, "set shard's StatusDumpDone")
+		return errors.Wrap(err, "set replset dumpDone")
 	}
 
-	if r.nodeInfo.IsLeader() {
-		err = r.reconcileStatus(pbm.StatusDumpDone, nil)
-		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
-				return errors.Wrap(err, "couldn't get response from all shards")
-			}
-			return errors.Wrap(err, "check cluster for restore started")
+	var flwrs []string
+	for _, m := range r.rsConf.Members {
+		if m.Host != r.nodeInfo.Me {
+			flwrs = append(flwrs, fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID, m.Host))
 		}
 	}
 
-	err = r.waitForStatus(pbm.StatusDumpDone)
+	r.log.Info("waiting for followers %v", flwrs)
+	err = r.waitFiles(flwrs...)
 	if err != nil {
-		return errors.Wrap(err, "waiting for dumpDone")
+		return errors.Wrap(err, "waiting for followers")
+	}
+
+	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.done", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID),
+		bytes.NewReader([]byte{'1'}), 1)
+	if err != nil {
+		return errors.Wrap(err, "finish restore: write replset confirmation")
+	}
+
+	if r.nodeInfo.IsLeader() {
+		var shrds []string
+		for _, s := range r.shards {
+			shrds = append(shrds, fmt.Sprintf("%s/%s/%s.done", pbm.PhysRestoresDir, cmd.Name, s.RS))
+		}
+
+		r.log.Info("waiting for shards %v", shrds)
+		err = r.waitFiles(shrds...)
+		if err != nil {
+			return errors.Wrap(err, "waiting for shards")
+		}
+
+		r.log.Info("writing restore meta")
+		err = r.dumpMeta(meta, pbm.StatusDone, "")
+		if err != nil {
+			return errors.Wrap(err, "writing restore meta to storage")
+		}
+	}
+
+	return nil
+}
+
+func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) error {
+	ts := time.Now().Unix()
+
+	meta.Status = pbm.StatusDone
+	meta.Conditions = append(meta.Conditions, pbm.Condition{Timestamp: ts, Status: s})
+	meta.LastTransitionTS = ts
+	meta.Error = msg
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "\t")
+	err := enc.Encode(meta)
+	if err != nil {
+		return errors.Wrap(err, "encode restore meta")
+	}
+	err = r.stg.Save(fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, meta.Name), &buf, buf.Len())
+	if err != nil {
+		return errors.Wrap(err, "write restore meta")
 	}
 
 	return nil
@@ -531,6 +633,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 			Status:   pbm.StatusStarting,
 			Replsets: []pbm.RestoreReplset{},
 			Hb:       ts,
+			Leader:   r.nodeInfo.Me + "/" + r.rsConf.ID,
 		}
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
@@ -672,11 +775,13 @@ func (r *PhysRestore) waitForStatus(status pbm.Status) error {
 	return waitForStatus(r.cn, r.name, status)
 }
 
-func (r *PhysRestore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
+func (r *PhysRestore) reconcileStatus(status pbm.Status, timeout *time.Duration) (*pbm.RestoreMeta, error) {
 	if timeout != nil {
-		return errors.Wrap(convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout), "convergeClusterWithTimeout")
+		m, err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
+		return m, errors.Wrap(err, "convergeClusterWithTimeout")
 	}
-	return errors.Wrap(convergeCluster(r.cn, r.name, r.opid, r.shards, status), "convergeCluster")
+	m, err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
+	return m, errors.Wrap(err, "convergeCluster")
 }
 
 func removeAll(dir string, l *log.Event) error {

@@ -718,27 +718,29 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 
 func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	if timeout != nil {
-		return errors.Wrap(convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout), "convergeClusterWithTimeout")
+		_, err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
+		return errors.Wrap(err, "convergeClusterWithTimeout")
 	}
-	return errors.Wrap(convergeCluster(r.cn, r.name, r.opid, r.shards, status), "convergeCluster")
+	_, err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
+	return errors.Wrap(err, "convergeCluster")
 }
 
 // convergeCluster waits until all participating shards reached `status` and updates a cluster status
-func convergeCluster(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) error {
+func convergeCluster(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	for {
 		select {
 		case <-tk.C:
-			ok, err := converged(cn, name, opid, shards, status)
+			ok, meta, err := converged(cn, name, opid, shards, status)
 			if err != nil {
-				return err
+				return meta, err
 			}
 			if ok {
-				return nil
+				return meta, nil
 			}
 		case <-cn.Context().Done():
-			return nil
+			return nil, nil
 		}
 	}
 }
@@ -747,7 +749,7 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 
 // convergeClusterWithTimeout waits up to the geiven timeout until all participating shards reached
 // `status` and then updates the cluster status
-func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	tout := time.NewTicker(t)
@@ -755,31 +757,31 @@ func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Sha
 	for {
 		select {
 		case <-tk.C:
-			ok, err := converged(cn, name, opid, shards, status)
+			ok, meta, err := converged(cn, name, opid, shards, status)
 			if err != nil {
-				return err
+				return meta, err
 			}
 			if ok {
-				return nil
+				return meta, nil
 			}
 		case <-tout.C:
-			return errConvergeTimeOut
+			return nil, errConvergeTimeOut
 		case <-cn.Context().Done():
-			return nil
+			return nil, nil
 		}
 	}
 }
 
-func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) (bool, error) {
+func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) (bool, *pbm.RestoreMeta, error) {
 	shardsToFinish := len(shards)
 	bmeta, err := cn.GetRestoreMeta(name)
 	if err != nil {
-		return false, errors.Wrap(err, "get backup metadata")
+		return false, nil, errors.Wrap(err, "get backup metadata")
 	}
 
 	clusterTime, err := cn.ClusterTime()
 	if err != nil {
-		return false, errors.Wrap(err, "read cluster time")
+		return false, nil, errors.Wrap(err, "read cluster time")
 	}
 
 	for _, sh := range shards {
@@ -796,10 +798,10 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 				// so no lock is ok and not need to ckech the heartbeats
 				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
 					if err != nil {
-						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+						return false, nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}
 					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+						return false, nil, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
 					}
 				}
 
@@ -810,7 +812,7 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 				case pbm.StatusError:
 					bmeta.Status = pbm.StatusError
 					bmeta.Error = shard.Error
-					return false, errors.Errorf("restore on the shard %s failed with: %s", shard.Name, shard.Error)
+					return false, nil, errors.Errorf("restore on the shard %s failed with: %s", shard.Name, shard.Error)
 				}
 			}
 		}
@@ -819,12 +821,12 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 	if shardsToFinish == 0 {
 		err := cn.ChangeRestoreState(name, status, "")
 		if err != nil {
-			return false, errors.Wrapf(err, "update backup meta with %s", status)
+			return false, nil, errors.Wrapf(err, "update backup meta with %s", status)
 		}
-		return true, nil
+		return true, bmeta, nil
 	}
 
-	return false, nil
+	return false, bmeta, nil
 }
 
 func (r *Restore) waitForStatus(status pbm.Status) error {
