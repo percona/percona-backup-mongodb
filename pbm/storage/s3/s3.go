@@ -69,6 +69,9 @@ func (c *Conf) Cast() error {
 			}
 		}
 	}
+	if c.MaxUploadParts <= 0 {
+		c.MaxUploadParts = s3manager.MaxUploadParts
+	}
 
 	return nil
 }
@@ -144,10 +147,6 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			}
 		}
 
-		maxUploadParts := s3manager.MaxUploadParts
-		if s.opts.MaxUploadParts > 0 {
-			maxUploadParts = s.opts.MaxUploadParts
-		}
 		// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
 		// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
 		// so PartSize * MaxUploadParts could fit the file.
@@ -163,7 +162,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			partSize = s.opts.UploadPartSize
 		}
 		if sizeb > 0 {
-			ps := sizeb / maxUploadParts * 9 / 10 // shed 10% just in case
+			ps := sizeb / s.opts.MaxUploadParts * 9 / 10 // shed 10% just in case
 			if ps > partSize {
 				partSize = ps
 			}
@@ -171,11 +170,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 
 		if s.log != nil {
 			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
-			s.log.Info("s3.maxUploadParts is set to %d", maxUploadParts)
+			s.log.Info("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
 		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-			u.MaxUploadParts = maxUploadParts
+			u.MaxUploadParts = s.opts.MaxUploadParts
 			u.PartSize = int64(partSize) // 10MB part size
 			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
