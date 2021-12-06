@@ -153,7 +153,7 @@ func (a *Agent) pitr() (err error) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -226,7 +226,7 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 		return false, errors.Wrap(err, "get lock")
 	}
 
-	// stale lock means we should move on and clean it up during the lock.Aquire
+	// stale lock means we should move on and clean it up during the lock.Acquire
 	return tl.Heartbeat.T+pbm.StaleFrameSec < ts.T, nil
 }
 
@@ -253,7 +253,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
