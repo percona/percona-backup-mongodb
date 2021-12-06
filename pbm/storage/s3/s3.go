@@ -73,6 +73,9 @@ func (c *Conf) Cast() error {
 	if c.MaxUploadParts <= 0 {
 		c.MaxUploadParts = s3manager.MaxUploadParts
 	}
+	if c.StorageClass == "" {
+		c.StorageClass = s3.StorageClassStandard
+	}
 
 	return nil
 }
@@ -123,10 +126,6 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 const defaultPartSize = 10 * 1024 * 1024 // 10Mb
 
 func (s *S3) Save(name string, data io.Reader, sizeb int) error {
-	storageClass := s.opts.StorageClass
-	if storageClass == "" {
-		storageClass = s3.StorageClassStandard
-	}
 	switch s.opts.Provider {
 	default:
 		awsSession, err := s.session()
@@ -142,7 +141,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			Bucket:       aws.String(s.opts.Bucket),
 			Key:          aws.String(path.Join(s.opts.Prefix, name)),
 			Body:         data,
-			StorageClass: &storageClass,
+			StorageClass: &s.opts.StorageClass,
 		}
 
 		sse := s.opts.ServerSideEncryption
@@ -194,7 +193,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			return errors.Wrap(err, "NewWithRegion")
 		}
 		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{
-			StorageClass: storageClass,
+			StorageClass: s.opts.StorageClass,
 		})
 		return errors.Wrap(err, "upload to GCS")
 	}
