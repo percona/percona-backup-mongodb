@@ -125,15 +125,10 @@ func (r *PhysRestore) flush() error {
 			return errors.Wrapf(err, "check for lock file %s", path.Join(r.dbpath, mongofslock))
 		}
 
-		// r.log.Debug("FSIZE %s : %d", path.Join(r.dbpath, mongofslock), f.Size())
-
 		if f.Size() == 0 {
 			break
 		}
 	}
-
-	// r.log.Debug("SLEEP")
-	// time.Sleep(time.Second * 5)
 
 	r.log.Debug("revome old data")
 	err = removeAll(r.dbpath, r.log)
@@ -144,35 +139,60 @@ func (r *PhysRestore) flush() error {
 	return nil
 }
 
-func (r *PhysRestore) Follower(cmd pbm.RestoreCmd, l *log.Event) error {
-	r.log = l
-	r.name = cmd.Name
+func (r *PhysRestore) toState(status pbm.Status) error {
+	r.log.Info("moving to state %s", status)
 
-	var err error
-	r.stg, err = r.cn.GetStorage(r.log)
-	if err != nil {
-		return errors.Wrap(err, "get backup storage")
-	}
-
-	l.Info("waiting for dumpDone")
-	err = r.waitFiles(fmt.Sprintf("%s/%s/%s.dumpDone", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID))
-	if err != nil {
-		return errors.Wrap(err, "waiting for dumpDone")
-	}
-
-	// don't write logs to the mongo anymore
-	r.cn.Logger().PauseMgo()
-
-	err = r.flush()
-	if err != nil {
-		return err
-	}
-
-	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID, r.nodeInfo.Me),
+	err := r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me, status),
 		bytes.NewReader([]byte{'1'}), 1)
 	if err != nil {
-		return errors.Wrap(err, "finish restore: write restore meta")
+		return errors.Wrap(err, "write node state")
 	}
+
+	if r.nodeInfo.IsPrimary {
+		var flwrs []string
+		for _, m := range r.rsConf.Members {
+			flwrs = append(flwrs, fmt.Sprintf("%s/%s/%s.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host, status))
+		}
+
+		r.log.Info("waiting for nodes in rs %v", flwrs)
+		err = r.waitFiles(flwrs...)
+		if err != nil {
+			return errors.Wrap(err, "waite for nodes in rs")
+		}
+
+		err = r.stg.Save(fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, status),
+			bytes.NewReader([]byte{'1'}), 1)
+		if err != nil {
+			return errors.Wrap(err, "write replset state")
+		}
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		var shrds []string
+		for _, s := range r.shards {
+			shrds = append(shrds, fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, r.name, s.RS, status))
+		}
+
+		r.log.Info("waiting for shards %v", shrds)
+		err = r.waitFiles(shrds...)
+		if err != nil {
+			return errors.Wrap(err, "wait for shards")
+		}
+
+		err = r.stg.Save(fmt.Sprintf("%s/%s/cluster.%s", pbm.PhysRestoresDir, r.name, status),
+			bytes.NewReader([]byte{'1'}), 1)
+		if err != nil {
+			return errors.Wrap(err, "write replset state")
+		}
+	}
+
+	r.log.Info("waiting for cluster")
+	err = r.waitFiles(fmt.Sprintf("%s/%s/cluster.%s", pbm.PhysRestoresDir, r.name, status))
+	if err != nil {
+		return errors.Wrap(err, "wait for shards")
+	}
+
+	r.log.Debug("converged to state %s", status)
 
 	return nil
 }
@@ -216,7 +236,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 				}
 			}
 
-			if r.nodeInfo.IsLeader() {
+			if r.nodeInfo.IsClusterLeader() && meta != nil {
 				ferr := r.dumpMeta(meta, pbm.StatusError, err.Error())
 				if ferr != nil {
 					l.Error("write restore meta to storage `%v`: %v", err, ferr)
@@ -252,15 +272,22 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		}
 	}
 
-	err = r.waitForStatus(pbm.StatusRunning)
+	err = r.waitForStatus(pbm.StatusRunning, &pbm.WaitActionStart)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
+	}
+
+	// don't write logs to the mongo anymore
+	r.cn.Logger().PauseMgo()
+
+	err = r.toState(pbm.StatusRunning)
+	if err != nil {
+		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
 
 	l.Info("flushing old data")
 	err = r.flush()
 	if err != nil {
-		l.Error("FLUSH: %v", err)
 		return err
 	}
 
@@ -296,47 +323,12 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "clean-up, rs_reset")
 	}
 
-	// don't write logs to the mongo anymore
-	r.cn.Logger().PauseMgo()
-
-	l.Debug("set replset dumpDone")
-	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.dumpDone", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID),
-		bytes.NewReader([]byte{'1'}), 1)
+	err = r.toState(pbm.StatusDone)
 	if err != nil {
-		return errors.Wrap(err, "set replset dumpDone")
+		return errors.Wrapf(err, "moving to state %s", pbm.StatusDone)
 	}
 
-	var flwrs []string
-	for _, m := range r.rsConf.Members {
-		if m.Host != r.nodeInfo.Me {
-			flwrs = append(flwrs, fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID, m.Host))
-		}
-	}
-
-	r.log.Info("waiting for followers %v", flwrs)
-	err = r.waitFiles(flwrs...)
-	if err != nil {
-		return errors.Wrap(err, "waiting for followers")
-	}
-
-	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.done", pbm.PhysRestoresDir, cmd.Name, r.rsConf.ID),
-		bytes.NewReader([]byte{'1'}), 1)
-	if err != nil {
-		return errors.Wrap(err, "finish restore: write replset confirmation")
-	}
-
-	if r.nodeInfo.IsLeader() {
-		var shrds []string
-		for _, s := range r.shards {
-			shrds = append(shrds, fmt.Sprintf("%s/%s/%s.done", pbm.PhysRestoresDir, cmd.Name, s.RS))
-		}
-
-		r.log.Info("waiting for shards %v", shrds)
-		err = r.waitFiles(shrds...)
-		if err != nil {
-			return errors.Wrap(err, "waiting for shards")
-		}
-
+	if r.nodeInfo.IsClusterLeader() {
 		r.log.Info("writing restore meta")
 		err = r.dumpMeta(meta, pbm.StatusDone, "")
 		if err != nil {
@@ -350,7 +342,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) error {
 	ts := time.Now().Unix()
 
-	meta.Status = pbm.StatusDone
+	meta.Status = s
 	meta.Conditions = append(meta.Conditions, pbm.Condition{Timestamp: ts, Status: s})
 	meta.LastTransitionTS = ts
 	meta.Error = msg
@@ -568,12 +560,19 @@ func (r *PhysRestore) stage3() error {
 		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
-	_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
-		bson.D{{"_id", r.rsConf.ID}},
-		bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
-	)
-	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+	if r.nodeInfo.IsPrimary {
+		_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
+			bson.D{{"_id", r.rsConf.ID}},
+			bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
+		)
+		if err != nil {
+			return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+		}
+	} else {
+		_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
+		if err != nil {
+			return errors.Wrap(err, "delete from system.replset")
+		}
 	}
 
 	err = shutdown(c)
@@ -619,7 +618,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 
 	r.name = name
 	r.opid = opid.String()
-	if r.nodeInfo.IsLeader() {
+	if r.nodeInfo.IsClusterLeader() {
 		ts, err := r.cn.ClusterTime()
 		if err != nil {
 			return errors.Wrap(err, "init restore meta, read cluster time")
@@ -659,7 +658,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	}
 
 	// Waiting for StatusStarting to move further.
-	err = r.waitForStatus(pbm.StatusStarting)
+	err = r.waitForStatus(pbm.StatusStarting, &pbm.WaitActionStart)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
@@ -703,7 +702,11 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.PBMVersion, mgoV.VersionString)
 	}
 
-	if r.nodeInfo.IsLeader() {
+	if !r.nodeInfo.IsPrimary {
+		return nil
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
 		s, err := r.cn.ClusterMembers(r.nodeInfo)
 		if err != nil {
 			return errors.Wrap(err, "get cluster members")
@@ -770,8 +773,11 @@ func (r *PhysRestore) MarkFailed(e error) error {
 	return errors.Wrap(err, "set replset state")
 }
 
-func (r *PhysRestore) waitForStatus(status pbm.Status) error {
+func (r *PhysRestore) waitForStatus(status pbm.Status, tout *time.Duration) error {
 	r.log.Debug("waiting for '%s' status", status)
+	if tout != nil {
+		return waitForStatusT(r.cn, r.name, status, *tout)
+	}
 	return waitForStatus(r.cn, r.name, status)
 }
 

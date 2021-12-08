@@ -364,44 +364,25 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 		return errors.Wrap(err, "init physical backup")
 	}
 
-	if !nodeInfo.IsPrimary {
-		l.Debug("follower")
-		go func() {
-			err = rstr.Follower(r, l)
-			if err != nil {
-				l.Error("run as follower: %v", err)
-				return
-			}
-			l.Info("done")
-		}()
-		return nil
-	}
+	if nodeInfo.IsPrimary {
+		epts := ep.TS()
+		lock := a.pbm.NewLock(pbm.LockHeader{
+			Type:    pbm.CmdRestore,
+			Replset: nodeInfo.SetName,
+			Node:    nodeInfo.Me,
+			OPID:    opid.String(),
+			Epoch:   &epts,
+		})
 
-	epts := ep.TS()
-	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:    pbm.CmdRestore,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
-		OPID:    opid.String(),
-		Epoch:   &epts,
-	})
-
-	got, err := a.aquireLock(lock, l, nil)
-	if err != nil {
-		return errors.Wrap(err, "acquiring lock")
-	}
-	if !got {
-		l.Debug("skip: lock not acquired")
-		return errors.New("unbale to run the restore while another operation running")
-	}
-
-	defer func() {
-		l.Debug("releasing lock")
-		err := lock.Release()
+		got, err := a.aquireLock(lock, l, nil)
 		if err != nil {
-			l.Error("release lock: %v", err)
+			return errors.Wrap(err, "acquiring lock")
 		}
-	}()
+		if !got {
+			l.Debug("skip: lock not acquired")
+			return errors.New("unbale to run the restore while another operation running")
+		}
+	}
 
 	l.Info("restore started")
 	err = rstr.Snapshot(r, opid, l)
@@ -414,15 +395,6 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 		return err
 	}
 	l.Info("restore finished successfully")
-
-	if nodeInfo.IsLeader() {
-		epch, err := a.pbm.ResetEpoch()
-		if err != nil {
-			return errors.Wrap(err, "reset epoch")
-		}
-
-		l.Debug("epoch set to %v", epch)
-	}
 
 	return nil
 }

@@ -749,7 +749,7 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 
 // convergeClusterWithTimeout waits up to the geiven timeout until all participating shards reached
 // `status` and then updates the cluster status
-func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) (*pbm.RestoreMeta, error) {
+func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) (meta *pbm.RestoreMeta, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	tout := time.NewTicker(t)
@@ -757,7 +757,8 @@ func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Sha
 	for {
 		select {
 		case <-tk.C:
-			ok, meta, err := converged(cn, name, opid, shards, status)
+			var ok bool
+			ok, meta, err = converged(cn, name, opid, shards, status)
 			if err != nil {
 				return meta, err
 			}
@@ -765,7 +766,7 @@ func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Sha
 				return meta, nil
 			}
 		case <-tout.C:
-			return nil, errConvergeTimeOut
+			return meta, errConvergeTimeOut
 		case <-cn.Context().Done():
 			return nil, nil
 		}
@@ -863,6 +864,45 @@ func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 			case pbm.StatusError:
 				return errors.Errorf("cluster failed: %s", meta.Error)
 			}
+		case <-cn.Context().Done():
+			return nil
+		}
+	}
+}
+
+func waitForStatusT(cn *pbm.PBM, name string, status pbm.Status, t time.Duration) error {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	tout := time.NewTicker(t)
+	defer tout.Stop()
+	for {
+		select {
+		case <-tk.C:
+			meta, err := cn.GetRestoreMeta(name)
+			if errors.Is(err, pbm.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return errors.Wrap(err, "get restore metadata")
+			}
+
+			clusterTime, err := cn.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+
+			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
+			}
+
+			switch meta.Status {
+			case status:
+				return nil
+			case pbm.StatusError:
+				return errors.Errorf("cluster failed: %s", meta.Error)
+			}
+		case <-tout.C:
+			return errConvergeTimeOut
 		case <-cn.Context().Done():
 			return nil
 		}
