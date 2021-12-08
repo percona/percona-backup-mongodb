@@ -125,6 +125,13 @@ S3 type storage options
 
    The ``maxUploadParts`` value is printed in the :ref:`pbm-agent log <pbm-agent.log>`.
 
+.. option:: storage.s3.storageClass
+
+  :type: string
+  :required: NO
+
+  The storage class assigned to objects stored in the S3 bucket. If not provided, the ``STANDARD`` storage class will be used.
+
 .. rubric:: Server-side encryption options
 
 .. option:: serverSideEncryption.sseAlgorythm

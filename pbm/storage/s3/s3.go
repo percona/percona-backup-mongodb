@@ -46,6 +46,7 @@ type Conf struct {
 	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 }
 
 type AWSsse struct {
@@ -71,6 +72,9 @@ func (c *Conf) Cast() error {
 	}
 	if c.MaxUploadParts <= 0 {
 		c.MaxUploadParts = s3manager.MaxUploadParts
+	}
+	if c.StorageClass == "" {
+		c.StorageClass = s3.StorageClassStandard
 	}
 
 	return nil
@@ -134,9 +138,10 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		}
 
 		uplInput := &s3manager.UploadInput{
-			Bucket: aws.String(s.opts.Bucket),
-			Key:    aws.String(path.Join(s.opts.Prefix, name)),
-			Body:   data,
+			Bucket:       aws.String(s.opts.Bucket),
+			Key:          aws.String(path.Join(s.opts.Prefix, name)),
+			Body:         data,
+			StorageClass: &s.opts.StorageClass,
 		}
 
 		sse := s.opts.ServerSideEncryption
@@ -187,7 +192,9 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{})
+		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{
+			StorageClass: s.opts.StorageClass,
+		})
 		return errors.Wrap(err, "upload to GCS")
 	}
 }
