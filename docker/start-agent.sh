@@ -13,11 +13,15 @@ if [ "${1:0:9}" = "pbm-agent" ]; then
 			echo "waiting for sharded scluster"
 
 			# check in case if shard has role 'shardsrv'
+			set +o xtrace
 			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().\$configServerState.opTime.ts" --quiet | tee "$OUT"
+			set -o xtrace
 			exit_status=$?
 
 			# check in case if shard has role 'configsrv'
+			set +o xtrace
 			mongo "${PBM_MONGODB_URI}" --eval="db.isMaster().configsvr" --quiet | tail -n 1 | tee "$OUT_CFG"
+			set -o xtrace
 			exit_status_cfg=$?
 
 			ts=$(grep -E '^Timestamp\([0-9]+, [0-9]+\)$' "$OUT")
@@ -29,7 +33,9 @@ if [ "${1:0:9}" = "pbm-agent" ]; then
 				sleep "$((timeout * i))"
 			fi
 		else
+			set +o xtrace
 			mongo "${PBM_MONGODB_URI}" --eval="(db.isMaster().hosts).length" --quiet | tee "$OUT"
+			set -o xtrace
 			exit_status=$?
 			rs_size=$(grep -E '^([0-9]+)$' "$OUT")
 			if [[ "${exit_status}" == 0 ]] && [[ $rs_size -ge 1 ]]; then
