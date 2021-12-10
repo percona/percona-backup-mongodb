@@ -203,13 +203,16 @@ func (r *PhysRestore) waitFiles(n ...string) error {
 	for range tk.C {
 		n2 := append([]string{}, n...)
 		for i := range n2 {
-			f, err := r.stg.FileStat(n2[i])
-			if err != nil && err != storage.ErrNotExist {
+			_, err := r.stg.FileStat(n2[i])
+			if err == storage.ErrNotExist {
+				continue
+			}
+
+			if err != nil && err != storage.ErrEmpty {
 				return errors.Wrapf(err, "get file %s", n[i])
 			}
-			if err == nil && f.Size > 0 {
-				n = append(n2[:i], n2[i+1:]...)
-			}
+
+			n = append(n2[:i], n2[i+1:]...)
 		}
 
 		if len(n) == 0 {
@@ -366,7 +369,7 @@ func (r *PhysRestore) copyFiles() error {
 	for _, rs := range r.bcp.Replsets {
 		if rs.Name == r.nodeInfo.SetName {
 			for _, f := range rs.Files {
-				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name)
+				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
 				dst := filepath.Join(r.dbpath, f.Name)
 
 				err := os.MkdirAll(path.Dir(dst), os.ModeDir|0700)
@@ -381,6 +384,12 @@ func (r *PhysRestore) copyFiles() error {
 				}
 				defer sr.Close()
 
+				data, err := Decompress(sr, r.bcp.Compression)
+				if err != nil {
+					return errors.Wrapf(err, "decompress object %s", src)
+				}
+				defer data.Close()
+
 				fw, err := os.Create(dst)
 				if err != nil {
 					return errors.Wrapf(err, "create destination file <%s>", dst)
@@ -391,7 +400,7 @@ func (r *PhysRestore) copyFiles() error {
 					return errors.Wrapf(err, "change permissions for file <%s>", dst)
 				}
 
-				_, err = io.Copy(fw, sr)
+				_, err = io.Copy(fw, data)
 				if err != nil {
 					return errors.Wrapf(err, "copy file <%s>", dst)
 				}

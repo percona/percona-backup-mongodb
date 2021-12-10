@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -312,7 +313,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	subd := bcp.Name + "/" + rsName
 	for _, bd := range bcur.Data {
 		l.Debug("uploading data: %s", bd.Name)
-		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg)
+		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
 		if err != nil {
 			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
 		}
@@ -323,7 +324,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 
 	for _, jf := range jrnls {
 		l.Debug("uploading journal: %s", jf.Name)
-		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg)
+		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
 		if err != nil {
 			return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
 		}
@@ -396,7 +397,7 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(src, dst string, stg storage.Storage) (*pbm.File, error) {
+func writeFile(src, dst string, stg storage.Storage, compression pbm.CompressionType) (*pbm.File, error) {
 	f, err := os.Open(src)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file for reading")
@@ -406,7 +407,18 @@ func writeFile(src, dst string, stg storage.Storage) (*pbm.File, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
-	err = stg.Save(dst, f, int(fstat.Size()))
+
+	pr, pw := io.Pipe()
+
+	w := Compress(pw, compression)
+
+	go func() {
+		_, err = io.Copy(w, f)
+		w.Close()
+		pw.Close()
+	}()
+
+	err = stg.Save(dst+compression.Suffix(), pr, int(fstat.Size()))
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}

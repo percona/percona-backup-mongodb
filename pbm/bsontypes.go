@@ -260,6 +260,6 @@ type RSMember struct {
 	ArbiterOnly  bool              `bson:"arbiterOnly,omitempty" json:"arbiterOnly"`
 	BuildIndexes bool              `bson:"buildIndexes,omitempty" json:"buildIndexes"`
 	Hidden       bool              `bson:"hidden,omitempty" json:"hidden"`
-	Priority     int64             `bson:"priority,omitempty" json:"priority"`
+	Priority     float64           `bson:"priority,omitempty" json:"priority"`
 	Tags         map[string]string `bson:"tags,omitempty" json:"tags"`
 }

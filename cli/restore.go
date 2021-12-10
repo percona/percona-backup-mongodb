@@ -272,10 +272,12 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.R
 			}
 		case <-ctx.Done():
 			rs := ""
-			for _, s := range meta.Replsets {
-				rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-				if s.Error != "" {
-					rs += ": " + s.Error
+			if meta != nil {
+				for _, s := range meta.Replsets {
+					rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
+					if s.Error != "" {
+						rs += ": " + s.Error
+					}
 				}
 			}
 			if rs == "" {

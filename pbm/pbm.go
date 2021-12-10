@@ -209,6 +209,21 @@ const (
 	CompressionTypeS2     CompressionType = "s2"
 )
 
+func (c CompressionType) Suffix() string {
+	switch c {
+	case CompressionTypeGZIP, CompressionTypePGZIP:
+		return ".gz"
+	case CompressionTypeLZ4:
+		return ".lz4"
+	case CompressionTypeSNAPPY:
+		return ".snappy"
+	case CompressionTypeS2:
+		return ".s2"
+	default:
+		return ""
+	}
+}
+
 const (
 	PITRcheckRange       = time.Second * 15
 	AgentsStatCheckRange = time.Second * 5
