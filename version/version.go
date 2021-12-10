@@ -9,7 +9,7 @@ import (
 )
 
 // current PBM version
-const version = "1.6.0"
+const version = "2.0.0"
 
 // !!! should be sorted in the ascending order
 var breakingChangesV = []string{

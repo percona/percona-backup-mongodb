@@ -8,6 +8,7 @@ RUN wget -qO - https://www.mongodb.org/static/pgp/server-${VERSION}.asc | apt-ke
 	iproute2 \
 	libkrb5-dev \
 	mongodb-org \
+	vim \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/pbm
