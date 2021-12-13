@@ -332,7 +332,7 @@ func (n *Node) GetRSconf() (*RSConfig, error) {
 }
 
 func (n *Node) Shutdown() error {
-	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}, {"force", true}}).Err()
+	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"shutdown", 1}}).Err()
 	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return nil
 	}

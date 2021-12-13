@@ -110,14 +110,25 @@ func (r *PhysRestore) Close() {
 
 func (r *PhysRestore) flush() error {
 	r.log.Debug("shutdown server")
-	err := r.node.Shutdown()
-	if err != nil {
-		return errors.Wrap(err, "shutdown server")
+
+	for {
+		inf, err := r.node.GetInfo()
+		if err != nil {
+			return errors.Wrap(err, "get node info")
+		}
+		if !inf.IsPrimary {
+			err = r.node.Shutdown()
+			if err != nil {
+				return errors.Wrap(err, "shutdown server")
+			}
+			break
+		}
+		r.log.Debug("waiting to became secondary")
+		time.Sleep(time.Second * 1)
 	}
 
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-
 	r.log.Debug("waiting for the node to shutdown")
 	for range tk.C {
 		f, err := os.Stat(path.Join(r.dbpath, mongofslock))
@@ -131,7 +142,7 @@ func (r *PhysRestore) flush() error {
 	}
 
 	r.log.Debug("revome old data")
-	err = removeAll(r.dbpath, r.log)
+	err := removeAll(r.dbpath, r.log)
 	if err != nil {
 		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
 	}
