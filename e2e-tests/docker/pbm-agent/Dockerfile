@@ -1,5 +1,6 @@
 ARG MONGODB_VERSION=4.2
 FROM golang:1.16
+ARG MONGODB_VERSION=4.2
 ENV VERSION=${MONGODB_VERSION:-4.2}
 RUN wget -qO - https://www.mongodb.org/static/pgp/server-${VERSION}.asc | apt-key add - && \
 	echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/$VERSION main" | tee /etc/apt/sources.list.d/mongodb-org-$VERSION.list && \

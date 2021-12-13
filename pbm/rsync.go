@@ -142,6 +142,11 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 }
 
 func checkBackupFiles(bcp *BackupMeta, stg storage.Storage) error {
+	// !!! TODO: Check physical files ?
+	if bcp.Type == PhysicalBackup {
+		return nil
+	}
+
 	for _, rs := range bcp.Replsets {
 		f, err := stg.FileStat(rs.DumpName)
 		if err != nil {
