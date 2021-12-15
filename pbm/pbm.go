@@ -153,12 +153,13 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
-	Name        string          `bson:"name"`
-	Compression CompressionType `bson:"compression"`
+	Name             string          `bson:"name"`
+	Compression      CompressionType `bson:"compression"`
+	CompressionLevel *int            `bson:"level,omitempty"`
 }
 
 func (b BackupCmd) String() string {
-	return fmt.Sprintf("name: %s, compression: %s", b.Name, b.Compression)
+	return fmt.Sprintf("name: %s, compression: %s (level: %d)", b.Name, b.Compression, *b.CompressionLevel) // FIX what if b.CompressionLevel is nil? FIXME
 }
 
 type RestoreCmd struct {

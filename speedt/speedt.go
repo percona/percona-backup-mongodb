@@ -142,7 +142,7 @@ func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionT
 
 	r := &Results{}
 	ts := time.Now()
-	size, err := backup.Upload(context.Background(), src, stg, compression, fileName, -1)
+	size, err := backup.Upload(context.Background(), src, stg, compression, nil, fileName, -1)
 	r.Size = Byte(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload")

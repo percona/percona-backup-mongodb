@@ -69,6 +69,8 @@ func Main() {
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
 		)
+	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
+		IntsVar(&backup.compressionLevel)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 

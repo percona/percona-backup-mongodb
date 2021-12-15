@@ -23,29 +23,63 @@ type NopCloser struct {
 func (NopCloser) Close() error { return nil }
 
 // Compress makes a compressed writer from the given one
-func Compress(w io.Writer, compression pbm.CompressionType) io.WriteCloser {
+func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.WriteCloser, error) {
 	switch compression {
 	case pbm.CompressionTypeGZIP:
-		return gzip.NewWriter(w)
+		if level == nil {
+			*level = gzip.DefaultCompression
+		}
+		gw, err := gzip.NewWriterLevel(w, *level)
+		if err != nil {
+			return nil, err
+		}
+		return gw, nil
 	case pbm.CompressionTypePGZIP:
-		pgw := pgzip.NewWriter(w)
+		if level == nil {
+			*level = pgzip.DefaultCompression
+		}
+		pgw, err := pgzip.NewWriterLevel(w, *level)
+		if err != nil {
+			return nil, err
+		}
 		cc := runtime.NumCPU() / 2
 		if cc == 0 {
 			cc = 1
 		}
-		pgw.SetConcurrency(1<<20, cc)
-		return pgw
+		err = pgw.SetConcurrency(1<<20, cc)
+		if err != nil {
+			return nil, err
+		}
+		return pgw, nil
 	case pbm.CompressionTypeLZ4:
-		return lz4.NewWriter(w)
+		lz4w := lz4.NewWriter(w)
+		if level != nil {
+			lz4w.Header.CompressionLevel = *level
+		}
+		return lz4w, nil
 	case pbm.CompressionTypeSNAPPY:
-		return snappy.NewBufferedWriter(w)
+		return snappy.NewBufferedWriter(w), nil
 	case pbm.CompressionTypeS2:
 		cc := runtime.NumCPU() / 3
 		if cc == 0 {
 			cc = 1
 		}
-		return s2.NewWriter(w, s2.WriterConcurrency(cc))
+		writerOptions := []s2.WriterOption{s2.WriterConcurrency(cc)}
+		if level != nil {
+			switch *level {
+			case 1:
+				writerOptions = append(writerOptions, s2.WriterUncompressed())
+				break
+			case 3:
+				writerOptions = append(writerOptions, s2.WriterBetterCompression())
+				break
+			case 4:
+				writerOptions = append(writerOptions, s2.WriterBestCompression())
+				break
+			}
+		}
+		return s2.NewWriter(w, writerOptions...), nil
 	default:
-		return NopCloser{w}
+		return NopCloser{w}, nil
 	}
 }
