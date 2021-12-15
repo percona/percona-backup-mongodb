@@ -265,7 +265,6 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
-	// rsMeta.PhyData = bcur.Data // TODO: need to add journals
 	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")

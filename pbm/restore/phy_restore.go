@@ -127,9 +127,25 @@ func (r *PhysRestore) flush() error {
 		time.Sleep(time.Second * 1)
 	}
 
+	err := r.waitMgoShutdown()
+	if err != nil {
+		return errors.Wrap(err, "shutdown")
+	}
+
+	r.log.Debug("revome old data")
+	err = removeAll(r.dbpath, r.log)
+	if err != nil {
+		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	}
+
+	return nil
+}
+
+func (r *PhysRestore) waitMgoShutdown() error {
+	r.log.Debug("waiting for the node to shutdown")
+
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-	r.log.Debug("waiting for the node to shutdown")
 	for range tk.C {
 		f, err := os.Stat(path.Join(r.dbpath, mongofslock))
 		if err != nil {
@@ -137,14 +153,8 @@ func (r *PhysRestore) flush() error {
 		}
 
 		if f.Size() == 0 {
-			break
+			return nil
 		}
-	}
-
-	r.log.Debug("revome old data")
-	err := removeAll(r.dbpath, r.log)
-	if err != nil {
-		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
 	}
 
 	return nil
@@ -383,9 +393,9 @@ func (r *PhysRestore) copyFiles() error {
 				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
 				dst := filepath.Join(r.dbpath, f.Name)
 
-				err := os.MkdirAll(path.Dir(dst), os.ModeDir|0700)
+				err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0700)
 				if err != nil {
-					return errors.Wrapf(err, "create path %s", path.Dir(dst))
+					return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
 				}
 
 				r.log.Info("copy <%s> to <%s>", src, dst)
@@ -475,10 +485,11 @@ func (r *PhysRestore) stage1() error {
 
 func shutdown(c *mongo.Client) error {
 	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
-	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
-		return nil
+	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
+		return err
 	}
-	return err
+
+	return nil
 }
 
 func (r *PhysRestore) stage2() error {
@@ -630,7 +641,19 @@ func conn(port string) (*mongo.Client, error) {
 
 func startMongo(opts ...string) error {
 	cmd := exec.Command("mongod", opts...)
-	return cmd.Start()
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	// release process resources
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			slog.Println("wait/release mongod process:", err)
+		}
+	}()
+	return nil
 }
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
