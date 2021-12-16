@@ -364,9 +364,10 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 		return errors.Wrap(err, "init physical backup")
 	}
 
+	var lock *pbm.Lock
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
-		lock := a.pbm.NewLock(pbm.LockHeader{
+		lock = a.pbm.NewLock(pbm.LockHeader{
 			Type:    pbm.CmdRestore,
 			Replset: nodeInfo.SetName,
 			Node:    nodeInfo.Me,
@@ -382,6 +383,16 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 			l.Debug("skip: lock not acquired")
 			return errors.New("unbale to run the restore while another operation running")
 		}
+	}
+
+	// not to logs flood with errors when mongo went down
+	a.closeCMD <- struct{}{}
+	if lock != nil {
+		// Don't care about errors. Anyway, the lock gonna disappear after the
+		// restore. And the commands stream is down as well.
+		// The lock also updates its heartbeats but Restore waits only for one state
+		// with the timeout twice as short pbm.StaleFrameSec.
+		lock.Release()
 	}
 
 	l.Info("restore started")

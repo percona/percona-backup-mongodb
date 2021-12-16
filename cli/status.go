@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -555,16 +556,16 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		switch bcp.Status {
 		case pbm.StatusDone:
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
+			var err error
 			switch bcp.Type {
 			case pbm.LogicalBackup:
-				var err error
 				snpsht.Size, err = getSnapshotSize(bcp.Replsets, stg)
-				if err != nil {
-					snpsht.Err = err.Error()
-					snpsht.Status = pbm.StatusError
-				}
 			case pbm.PhysicalBackup:
-				snpsht.Size = getPhysSnapshotSize(&bcp)
+				snpsht.Size, err = getPhysSnapshotSize(&bcp, stg)
+			}
+			if err != nil {
+				snpsht.Err = err.Error()
+				snpsht.Status = pbm.StatusError
 			}
 		case pbm.StatusError:
 			snpsht.Err = bcp.Error
@@ -656,19 +657,29 @@ func getSnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, e
 		if err != nil {
 			return s, errors.Wrapf(err, "get file %s", rs.DumpName)
 		}
+		op, err := stg.FileStat(rs.OplogName)
+		if err != nil {
+			return s, errors.Wrapf(err, "get file %s", rs.OplogName)
+		}
 
-		s += ds.Size
+		s += ds.Size + op.Size
 	}
 
 	return s, nil
 }
 
-func getPhysSnapshotSize(meta *pbm.BackupMeta) (s int64) {
-	for _, rs := range meta.Replsets {
+func getPhysSnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	for _, rs := range bcp.Replsets {
 		for _, f := range rs.Files {
-			s += f.Size
+			fn := filepath.Join(bcp.Name, rs.Name, f.Name+bcp.Compression.Suffix())
+			ds, err := stg.FileStat(fn)
+			if err != nil {
+				return s, errors.Wrapf(err, "get file %s", fn)
+			}
+
+			s += ds.Size
 		}
 	}
 
-	return s
+	return s, nil
 }

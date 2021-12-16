@@ -25,12 +25,14 @@ type Agent struct {
 	mx      sync.Mutex
 	log     *log.Logger
 
-	pauseHB int32
+	closeCMD chan struct{}
+	pauseHB  int32
 }
 
 func New(pbm *pbm.PBM) *Agent {
 	return &Agent{
-		pbm: pbm,
+		pbm:      pbm,
+		closeCMD: make(chan struct{}),
 	}
 }
 
@@ -49,16 +51,18 @@ func (a *Agent) Start() error {
 	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
 	a.log.Printf("node: %s", a.node.ID())
 
-	c, cerr, err := a.pbm.ListenCmd()
-	if err != nil {
-		return err
-	}
+	c, cerr := a.pbm.ListenCmd(a.closeCMD)
 
 	a.log.Printf("listening for the commands")
 
 	for {
 		select {
-		case cmd := <-c:
+		case cmd, ok := <-c:
+			if !ok {
+				a.log.Printf("change stream was closed")
+				return nil
+			}
+
 			a.log.Printf("got command %s", cmd)
 
 			ep, err := a.pbm.GetEpoch()
@@ -86,16 +90,16 @@ func (a *Agent) Start() error {
 			case pbm.CmdDeletePITR:
 				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
 			}
-		case err := <-cerr:
+		case err, ok := <-cerr:
+			if !ok {
+				a.log.Printf("change stream was closed")
+				return nil
+			}
+
 			switch err.(type) {
 			case pbm.ErrorCursor:
 				return errors.Wrap(err, "stop listening")
 			default:
-				// channel closed / cursor is empty
-				if err == nil {
-					return errors.New("change stream was closed")
-				}
-
 				ep, _ := a.pbm.GetEpoch()
 
 				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)

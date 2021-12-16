@@ -24,20 +24,24 @@ type restoreRet struct {
 	PITR     string `json:"point-in-time,omitempty"`
 	Leader   string `json:"leader,omitempty"`
 	done     bool
+	physical bool
 	err      string
 }
 
 func (r restoreRet) String() string {
 	switch {
 	case r.done:
-		return "\nRestore successfully finished!\n" +
-			"Restart the cluster and run `pbm config --force-resync`"
+		m := "\nRestore successfully finished!\n"
+		if r.physical {
+			m += "Restart the cluster and pbm-agents, and run `pbm config --force-resync`"
+		}
+		return m
 	case r.err != "":
 		return "\n Error: " + r.err
 	case r.Snapshot != "":
 		var l string
 		if r.Leader != "" {
-			l = ". Leader: " + r.Leader
+			l = ". Leader: " + r.Leader + "\n"
 		}
 		return fmt.Sprintf("Restore of the snapshot from '%s' has started%s", r.Snapshot, l)
 	case r.PITR != "":
@@ -63,14 +67,17 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return restoreRet{Snapshot: o.bcp, Leader: m.Leader}, nil
 		}
 
-		typ := " logical restore"
+		typ := " logical restore.\nWaiting to finish"
 		if m.Type == pbm.PhysicalBackup {
-			typ = " physical restore"
+			typ = fmt.Sprintf(" physical restore. Leader: %s\nWaiting to finish", m.Leader)
 		}
-		fmt.Printf("Started%s.\nWaiting to finish", typ)
+		fmt.Printf("Started%s", typ)
 		err = waitRestore(cn, m)
 		if err == nil {
-			return restoreRet{done: true}, nil
+			return restoreRet{
+				done:     true,
+				physical: m.Type == pbm.PhysicalBackup,
+			}, nil
 		}
 
 		if serr, ok := err.(errRestoreFailed); ok {
@@ -98,11 +105,12 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	fname := fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
+	fname := m.Name
 	var rmeta *pbm.RestoreMeta
 
 	getMeta := cn.GetRestoreMeta
 	if m.Type == pbm.PhysicalBackup {
+		fname = fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
 			return getRestoreMetaStg(cn, name, stg)
 		}
