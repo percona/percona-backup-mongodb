@@ -209,7 +209,7 @@ func exitErr(e error, f outFormat) {
 		var m interface{}
 		m = e
 		if _, ok := e.(json.Marshaler); !ok {
-			m = map[string]error{"Error": e}
+			m = map[string]string{"Error": e.Error()}
 		}
 		var err error
 		if f == outJSONpretty {
