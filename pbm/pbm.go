@@ -159,7 +159,13 @@ type BackupCmd struct {
 }
 
 func (b BackupCmd) String() string {
-	return fmt.Sprintf("name: %s, compression: %s (level: %d)", b.Name, b.Compression, *b.CompressionLevel) // FIX what if b.CompressionLevel is nil? FIXME
+	var level string
+	if b.CompressionLevel == nil {
+		level = "default"
+	} else {
+		level = strconv.Itoa(*b.CompressionLevel)
+	}
+	return fmt.Sprintf("name: %s, compression: %s (level: %s)", b.Name, b.Compression, level)
 }
 
 type RestoreCmd struct {

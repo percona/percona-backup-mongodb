@@ -10,6 +10,7 @@ import (
 	"github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
@@ -27,7 +28,7 @@ func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.Writ
 	switch compression {
 	case pbm.CompressionTypeGZIP:
 		if level == nil {
-			*level = gzip.DefaultCompression
+			level = aws.Int(gzip.DefaultCompression)
 		}
 		gw, err := gzip.NewWriterLevel(w, *level)
 		if err != nil {
@@ -36,7 +37,7 @@ func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.Writ
 		return gw, nil
 	case pbm.CompressionTypePGZIP:
 		if level == nil {
-			*level = pgzip.DefaultCompression
+			level = aws.Int(pgzip.DefaultCompression)
 		}
 		pgw, err := pgzip.NewWriterLevel(w, *level)
 		if err != nil {
