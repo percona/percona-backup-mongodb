@@ -105,7 +105,6 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)
-				bc.l.Debug("do_cursor_poll")
 			}
 		}
 	}()
@@ -311,7 +310,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	var files []pbm.File
 	subd := bcp.Name + "/" + rsName
 	for _, bd := range bcur.Data {
-		l.Debug("uploading data: %s", bd.Name)
+		l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
 		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
 		if err != nil {
 			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
@@ -427,4 +426,28 @@ func writeFile(src, dst string, stg storage.Storage, compression pbm.Compression
 		Size:  fstat.Size(),
 		Fmode: fstat.Mode(),
 	}, nil
+}
+
+func fmtSize(size int64) string {
+	const (
+		_          = iota
+		KB float64 = 1 << (10 * iota)
+		MB
+		GB
+		TB
+	)
+
+	s := float64(size)
+
+	switch {
+	case s >= TB:
+		return fmt.Sprintf("%.2fTB", s/TB)
+	case s >= GB:
+		return fmt.Sprintf("%.2fGB", s/GB)
+	case s >= MB:
+		return fmt.Sprintf("%.2fMB", s/MB)
+	case s >= KB:
+		return fmt.Sprintf("%.2fKB", s/KB)
+	}
+	return fmt.Sprintf("%.2fB", s)
 }
