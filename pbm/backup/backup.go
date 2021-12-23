@@ -805,6 +805,8 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 		name += ".snappy"
 	case pbm.CompressionTypeS2:
 		name += ".s2"
+	case pbm.CompressionTypeZstandard:
+		name += ".zst"
 	}
 
 	return name

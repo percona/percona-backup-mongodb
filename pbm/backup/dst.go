@@ -2,6 +2,7 @@ package backup
 
 import (
 	"compress/gzip"
+	"github.com/klauspost/compress/zstd"
 	"io"
 	"runtime"
 
@@ -77,6 +78,8 @@ func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.Writ
 			}
 		}
 		return s2.NewWriter(w, writerOptions...), nil
+	case pbm.CompressionTypeZstandard:
+		return zstd.NewWriter(w)
 	default:
 		return NopCloser{w}, nil
 	}

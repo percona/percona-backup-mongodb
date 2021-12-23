@@ -451,6 +451,8 @@ func csuffix(c pbm.CompressionType) string {
 		return ".lz4"
 	case pbm.CompressionTypeSNAPPY, pbm.CompressionTypeS2:
 		return ".snappy"
+	case pbm.CompressionTypeZstandard:
+		return ".zst"
 	default:
 		return ""
 	}
