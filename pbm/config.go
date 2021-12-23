@@ -58,8 +58,18 @@ func (c Config) String() string {
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled      bool    `bson:"enabled" json:"enabled" yaml:"enabled"`
-	OplogSpanMin float64 `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Enabled          bool            `bson:"enabled" json:"enabled" yaml:"enabled"`
+	OplogSpanMin     float64         `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Compression      CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel *int            `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+}
+
+func (c *PITRConf) Cast() error {
+	if c.Compression == "" {
+		c.Compression = CompressionTypeS2
+	}
+
+	return nil
 }
 
 // StorageType represents a type of the destination storage for backups
@@ -334,7 +344,14 @@ func (p *PBM) GetConfig() (Config, error) {
 		return Config{}, errors.Wrap(res.Err(), "get")
 	}
 	err := res.Decode(&c)
-	return c, errors.Wrap(err, "decode")
+	if err != nil {
+		return c, errors.Wrap(err, "decode")
+	}
+	err = c.PITR.Cast()
+	if err != nil {
+		return c, errors.Wrap(err, "cast options")
+	}
+	return c, nil
 }
 
 // ErrStorageUndefined is an error for undefined storage
