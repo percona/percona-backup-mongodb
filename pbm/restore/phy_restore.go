@@ -437,7 +437,7 @@ func (r *PhysRestore) stage1() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport)
+	c, err := conn(r.efport, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -459,6 +459,20 @@ func (r *PhysRestore) stage1() error {
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "delete from system.replset")
+	}
+
+	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+		pbm.RSConfig{
+			ID:      r.rsConf.ID,
+			CSRS:    r.nodeInfo.IsConfigSrv(),
+			Version: 1,
+			Members: []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
+			// Settings: r.rsConf.Settings,
+		},
+	)
+
+	if err != nil {
+		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
 
 	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
@@ -504,21 +518,29 @@ func (r *PhysRestore) stage2() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport)
+	c, err := conn(r.efport, r.rsConf.ID)
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	err = c.Database("admin").RunCommand(context.Background(),
-		bson.D{{"replSetInitiate", pbm.RSConfig{
-			ID:       r.rsConf.ID,
-			CSRS:     r.nodeInfo.IsConfigSrv(),
-			Version:  1,
-			Members:  []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
-			Settings: r.rsConf.Settings,
-		}}}).Err()
-	if err != nil {
-		return errors.Wrap(err, "replSetInitiate")
+	// err = c.Database("admin").RunCommand(context.Background(),
+	// 	bson.D{{"replSetInitiate", pbm.RSConfig{
+	// 		ID:       r.rsConf.ID,
+	// 		CSRS:     r.nodeInfo.IsConfigSrv(),
+	// 		Version:  1,
+	// 		Members:  []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
+	// 		Settings: r.rsConf.Settings,
+	// 	}}}).Err()
+	// if err != nil {
+	// 	return errors.Wrap(err, "replSetInitiate")
+	// }
+
+	rsStatus, rerr := pbm.GetReplsetStatus(context.Background(), c)
+	if rerr == nil {
+		b, _ := json.Marshal(rsStatus)
+		r.log.Debug("RS_STATUS:\n%s", b)
+	} else {
+		r.log.Error("get RS_STATUS: %v", rerr)
 	}
 
 	err = shutdown(c)
@@ -537,7 +559,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport)
+	c, err := conn(r.efport, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -556,7 +578,7 @@ func (r *PhysRestore) stage3() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport)
+	c, err := conn(r.efport, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -591,20 +613,35 @@ func (r *PhysRestore) stage3() error {
 		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
+	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
+	if err != nil {
+		return errors.Wrap(err, "delete from system.replset")
+	}
+
 	if r.nodeInfo.IsPrimary {
-		_, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
-			bson.D{{"_id", r.rsConf.ID}},
-			bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
+		// _, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
+		// 	bson.D{{"_id", r.rsConf.ID}},
+		// 	bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
+		// )
+		_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+			pbm.RSConfig{
+				ID:       r.rsConf.ID,
+				CSRS:     r.nodeInfo.IsConfigSrv(),
+				Version:  1,
+				Members:  r.rsConf.Members,
+				Settings: r.rsConf.Settings,
+			},
 		)
 		if err != nil {
 			return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 		}
-	} else {
-		_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
-		if err != nil {
-			return errors.Wrap(err, "delete from system.replset")
-		}
 	}
+	// else {
+	// 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
+	// 	if err != nil {
+	// 		return errors.Wrap(err, "delete from system.replset")
+	// 	}
+	// }
 
 	err = shutdown(c)
 	if err != nil {
@@ -614,14 +651,20 @@ func (r *PhysRestore) stage3() error {
 	return nil
 }
 
-func conn(port string) (*mongo.Client, error) {
+func conn(port string, rs string) (*mongo.Client, error) {
 	ctx := context.Background()
 
-	conn, err := mongo.NewClient(options.Client().
+	opts := options.Client().
 		SetHosts([]string{"localhost:" + port}).
 		SetAppName("pbm-physical-restore").
 		SetDirect(true).
-		SetConnectTimeout(time.Second * 60))
+		SetConnectTimeout(time.Second * 60)
+
+	if rs != "" {
+		opts = opts.SetReplicaSet(rs)
+	}
+
+	conn, err := mongo.NewClient(opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo client")
 	}

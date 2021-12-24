@@ -66,7 +66,6 @@ func New(opts Conf, l *log.Event) (*Blob, error) {
 }
 
 func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
-
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {
 		ps := sizeb / maxBlocks * 9 / 10 // shed 10% just in case
