@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -429,19 +427,11 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.Subs
 
 	stg, err := a.pbm.GetStorage(log)
 	if err != nil {
-		sts.Err = fmt.Sprintf("unable to get storage: %v", err)
+		sts.Err = errors.WithMessage(err, "unable to get storage").Error()
 		return sts
 	}
-
-	_, err = stg.FileStat(pbm.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
-		if err != nil {
-			sts.Err = fmt.Sprintf("storage: no init file, attempt to create failed: %v", err)
-			return sts
-		}
-	} else if err != nil {
-		sts.Err = fmt.Sprintf("storage check failed with: %v", err)
+	if err := pbm.EnsureInitFile(stg); err != nil {
+		sts.Err = err.Error()
 		return sts
 	}
 

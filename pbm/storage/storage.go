@@ -1,8 +1,9 @@
 package storage
 
 import (
-	"errors"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -29,4 +30,18 @@ type Storage interface {
 	Delete(name string) error
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
+}
+
+func EnsureFile(stg Storage, filename string, rdr io.Reader) error {
+	if _, err := stg.FileStat(filename); err != nil {
+		if errors.Is(err, ErrNotExist) {
+			if err := stg.Save(filename, rdr, 0); err != nil {
+				return errors.WithMessage(err, "init failed")
+			}
+		}
+
+		return errors.WithMessage(err, "check failed")
+	}
+
+	return nil
 }

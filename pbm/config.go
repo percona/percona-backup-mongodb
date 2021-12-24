@@ -21,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 // Config is a pbm config
@@ -30,6 +31,23 @@ type Config struct {
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+}
+
+func (c Config) GetStorage(l *log.Event) (storage.Storage, error) {
+	switch c.Storage.Type {
+	case StorageS3:
+		return s3.New(c.Storage.S3, l)
+	case StorageAzure:
+		return azure.New(c.Storage.Azure, l)
+	case StorageFilesystem:
+		return fs.New(c.Storage.Filesystem), nil
+	case StorageBlackHole:
+		return blackhole.New(), nil
+	case StorageUndef:
+		return nil, ErrStorageUndefined
+	default:
+		return nil, errors.Errorf("unknown storage type %s", c.Storage.Type)
+	}
 }
 
 func (c Config) String() string {
@@ -192,6 +210,16 @@ func (p *PBM) SetConfig(cfg Config) error {
 			return errors.Wrap(err, "check config")
 		}
 	}
+
+	log := p.log.NewEvent("config", "", "", cfg.Epoch)
+	store, err := cfg.GetStorage(log)
+	if err != nil {
+		return errors.WithMessage(err, "unable to get storage")
+	}
+	if err := EnsureInitFile(store); err != nil {
+		return errors.WithMessage(err, "check config")
+	}
+
 	ct, err := p.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
@@ -385,18 +413,10 @@ func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "get config")
 	}
 
-	switch c.Storage.Type {
-	case StorageS3:
-		return s3.New(c.Storage.S3, l)
-	case StorageAzure:
-		return azure.New(c.Storage.Azure, l)
-	case StorageFilesystem:
-		return fs.New(c.Storage.Filesystem), nil
-	case StorageBlackHole:
-		return blackhole.New(), nil
-	case StorageUndef:
-		return nil, ErrStorageUndefined
-	default:
-		return nil, errors.Errorf("unknown storage type %s", c.Storage.Type)
-	}
+	return c.GetStorage(l)
+}
+
+func EnsureInitFile(store storage.Storage) error {
+	rdr := strings.NewReader(version.DefaultInfo.Version)
+	return storage.EnsureFile(store, StorInitFile, rdr)
 }
