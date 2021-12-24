@@ -618,24 +618,24 @@ func (r *PhysRestore) stage3() error {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
-	if r.nodeInfo.IsPrimary {
-		// _, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
-		// 	bson.D{{"_id", r.rsConf.ID}},
-		// 	bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
-		// )
-		_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
-			pbm.RSConfig{
-				ID:       r.rsConf.ID,
-				CSRS:     r.nodeInfo.IsConfigSrv(),
-				Version:  1,
-				Members:  r.rsConf.Members,
-				Settings: r.rsConf.Settings,
-			},
-		)
-		if err != nil {
-			return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
-		}
+	// if r.nodeInfo.IsPrimary {
+	// _, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
+	// 	bson.D{{"_id", r.rsConf.ID}},
+	// 	bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
+	// )
+	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+		pbm.RSConfig{
+			ID:       r.rsConf.ID,
+			CSRS:     r.nodeInfo.IsConfigSrv(),
+			Version:  1,
+			Members:  r.rsConf.Members,
+			Settings: r.rsConf.Settings,
+		},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
+	// }
 	// else {
 	// 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
 	// 	if err != nil {
