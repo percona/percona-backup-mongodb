@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -178,6 +179,13 @@ func (p *PBM) SetConfig(cfg Config) error {
 		if err != nil {
 			return errors.Wrap(err, "cast storage")
 		}
+
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+
+		if err := p.checkConfig(ctx, p.log.NewEvent("config", "", "", cfg.Epoch), cfg); err != nil {
+			return errors.Wrap(err, "check config")
+		}
 	case StorageFilesystem:
 		err := cfg.Storage.Filesystem.Cast()
 		if err != nil {
@@ -204,13 +212,31 @@ func (p *PBM) SetConfig(cfg Config) error {
 	return errors.Wrap(err, "mongo ConfigCollection UpdateOne")
 }
 
+func (p *PBM) checkConfig(ctx context.Context, l *log.Event, cfg Config) error {
+	s3c, err := s3.New(cfg.Storage.S3, p.log.NewEvent("config", "", "", cfg.Epoch))
+	if err != nil {
+		return err
+	}
+
+	ok, err := s3c.BucketExists(ctx)
+	if err != nil {
+		return errors.WithMessage(err, "unable to check bucket")
+	}
+
+	if !ok {
+		return errors.Errorf(`bucket "%s" does not exist`, cfg.Storage.S3.Bucket)
+	}
+
+	return nil
+}
+
 func (p *PBM) SetConfigVar(key, val string) error {
 	if !ValidateConfigKey(key) {
 		return errors.New("invalid config key")
 	}
 
 	// just check if config was set
-	_, err := p.GetConfig()
+	cfg, err := p.GetConfig()
 	if err != nil {
 		if errors.Cause(err) == mongo.ErrNoDocuments {
 			return errors.New("config doesn't set")
@@ -240,6 +266,17 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	case "storage.filesystem.path":
 		if v.(string) == "" {
 			return errors.New("storage.filesystem.path can't be empty")
+		}
+	case "storage.s3.bucket":
+		cfg := cfg
+		cfg.Storage.S3.Bucket = v.(string)
+
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+
+		err := p.checkConfig(ctx, p.log.NewEvent("config", "", "", cfg.Epoch), cfg)
+		if err != nil {
+			return errors.Wrap(err, "check config")
 		}
 	}
 

@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -259,6 +260,19 @@ func (s *S3) Copy(src, dst string) error {
 	})
 
 	return err
+}
+
+func (s *S3) BucketExists(ctx context.Context) (bool, error) {
+	hbi := &s3.HeadBucketInput{Bucket: aws.String(s.opts.Bucket)}
+	if _, err := s.s3s.HeadBucketWithContext(ctx, hbi); err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
