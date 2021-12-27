@@ -441,12 +441,12 @@ func sendFiles(fl []pbm.File, stg storage.Storage, comp pbm.CompressionType, sub
 	var wg sync.WaitGroup
 	wg.Add(num)
 	for i := 0; i < num; i++ {
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
 			var files []pbm.File
 
 			for f := range fchan {
-				l.Debug("uploading: %s %s", f.Name, fmtSize(f.Size))
+				l.Debug("<%d> uploading: %s %s", idx, f.Name, fmtSize(f.Size))
 				fle, err := writeFile(f.Name, subd+"/"+strings.TrimPrefix(f.Name, dbpath), stg, comp)
 				if err != nil {
 					l.Error("upload %s: %v", f.Name, err)
@@ -459,7 +459,7 @@ func sendFiles(fl []pbm.File, stg storage.Storage, comp pbm.CompressionType, sub
 			lock.Lock()
 			gfiles = append(gfiles, files...)
 			lock.Unlock()
-		}()
+		}(i)
 	}
 
 	for _, f := range fl {
