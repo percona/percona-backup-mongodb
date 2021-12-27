@@ -32,16 +32,21 @@ type Storage interface {
 	Copy(src, dst string) error
 }
 
-func EnsureFile(stg Storage, filename string, rdr io.Reader) error {
-	if _, err := stg.FileStat(filename); err != nil {
-		if errors.Is(err, ErrNotExist) {
-			if err := stg.Save(filename, rdr, 0); err != nil {
-				return errors.WithMessage(err, "init failed")
-			}
-		}
-
-		return errors.WithMessage(err, "check failed")
+// CreateFileIfNotExists creates file with content and returns true if it does
+// not exist. Otherwise do nothing and returns false.
+func CreateFileIfNotExists(stg Storage, filename string, rdr io.Reader) (bool, error) {
+	_, err := stg.FileStat(filename)
+	if err == nil {
+		return false, nil
 	}
 
-	return nil
+	if !errors.Is(err, ErrNotExist) {
+		return false, errors.WithMessage(err, "get file stat")
+	}
+
+	if err := stg.Save(filename, rdr, 0); err != nil {
+		return false, errors.WithMessage(err, "save file")
+	}
+
+	return true, nil
 }

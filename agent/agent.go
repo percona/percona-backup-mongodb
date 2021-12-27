@@ -430,7 +430,7 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.Subs
 		sts.Err = errors.WithMessage(err, "unable to get storage").Error()
 		return sts
 	}
-	if err := pbm.EnsureInitFile(stg); err != nil {
+	if err := pbm.InitStorage(stg); err != nil {
 		sts.Err = err.Error()
 		return sts
 	}

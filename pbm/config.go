@@ -21,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/util/pathset"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -197,13 +198,6 @@ func (p *PBM) SetConfig(cfg Config) error {
 		if err != nil {
 			return errors.Wrap(err, "cast storage")
 		}
-
-		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-		defer cancel()
-
-		if err := p.checkConfig(ctx, p.log.NewEvent("config", "", "", cfg.Epoch), cfg); err != nil {
-			return errors.Wrap(err, "check config")
-		}
 	case StorageFilesystem:
 		err := cfg.Storage.Filesystem.Cast()
 		if err != nil {
@@ -211,13 +205,12 @@ func (p *PBM) SetConfig(cfg Config) error {
 		}
 	}
 
-	log := p.log.NewEvent("config", "", "", cfg.Epoch)
-	store, err := cfg.GetStorage(log)
+	store, err := cfg.GetStorage(nil)
 	if err != nil {
 		return errors.WithMessage(err, "unable to get storage")
 	}
-	if err := EnsureInitFile(store); err != nil {
-		return errors.WithMessage(err, "check config")
+	if err := InitStorage(store); err != nil {
+		return errors.WithMessage(err, "init storage")
 	}
 
 	ct, err := p.ClusterTime()
@@ -295,16 +288,19 @@ func (p *PBM) SetConfigVar(key, val string) error {
 		if v.(string) == "" {
 			return errors.New("storage.filesystem.path can't be empty")
 		}
-	case "storage.s3.bucket":
-		cfg := cfg
-		cfg.Storage.S3.Bucket = v.(string)
+	}
 
-		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-		defer cancel()
-
-		err := p.checkConfig(ctx, p.log.NewEvent("config", "", "", cfg.Epoch), cfg)
+	if strings.HasPrefix(key, "storage.") {
+		err := pathset.SetValue(&cfg.Storage, key[len("storage."):], val)
 		if err != nil {
-			return errors.Wrap(err, "check config")
+			return errors.WithMessage(err, "dry-run change")
+		}
+		store, err := cfg.GetStorage(nil)
+		if err != nil {
+			return errors.WithMessage(err, "unable to get storage")
+		}
+		if err := InitStorage(store); err != nil {
+			return errors.WithMessage(err, "init storage")
 		}
 	}
 
@@ -416,7 +412,8 @@ func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 	return c.GetStorage(l)
 }
 
-func EnsureInitFile(store storage.Storage) error {
+func InitStorage(store storage.Storage) error {
 	rdr := strings.NewReader(version.DefaultInfo.Version)
-	return storage.EnsureFile(store, StorInitFile, rdr)
+	_, err := storage.CreateFileIfNotExists(store, StorInitFile, rdr)
+	return errors.WithMessagef(err, "create %v file", StorInitFile)
 }

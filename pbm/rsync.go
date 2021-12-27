@@ -1,7 +1,6 @@
 package pbm
 
 import (
-	"bytes"
 	"encoding/json"
 
 	"github.com/pkg/errors"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 const StorInitFile = ".pbm.init"
@@ -21,11 +19,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	_, err = stg.FileStat(StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err = stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
-	}
-	if err != nil {
+	if err := InitStorage(stg); err != nil {
 		return errors.Wrap(err, "init storage")
 	}
 
