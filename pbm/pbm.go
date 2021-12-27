@@ -395,7 +395,7 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
 	}
 
-	// create indexs for the pitr cunks
+	// create indexs for the pitr chunks
 	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(
 		p.ctx,
 		[]mongo.IndexModel{

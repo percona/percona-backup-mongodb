@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -309,27 +311,29 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 
 	var files []pbm.File
 	subd := bcp.Name + "/" + rsName
-	for _, bd := range bcur.Data {
-		l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
-		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
-		}
-		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
-		files = append(files, *f)
-	}
-	l.Debug("finished uploading data")
+	// for _, bd := range bcur.Data {
+	// 	l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
+	// 	f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
+	// 	if err != nil {
+	// 		return errors.Wrapf(err, "upload data file `%s`", bd.Name)
+	// 	}
+	// 	f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
+	// 	files = append(files, *f)
+	// }
+	// l.Debug("finished uploading data")
 
-	for _, jf := range jrnls {
-		l.Debug("uploading journal: %s", jf.Name)
-		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
-		}
-		f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
-		files = append(files, *f)
-	}
-	l.Debug("finished uploading journals")
+	// for _, jf := range jrnls {
+	// 	l.Debug("uploading journal: %s", jf.Name)
+	// 	f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
+	// 	if err != nil {
+	// 		return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
+	// 	}
+	// 	f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
+	// 	files = append(files, *f)
+	// }
+	// l.Debug("finished uploading journals")
+
+	files = sendFiles(append(bcur.Data, jrnls...), stg, bcp.Compression, subd, bcur.Meta.DBpath+"/", l)
 
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, files)
 	if err != nil {
@@ -426,6 +430,46 @@ func writeFile(src, dst string, stg storage.Storage, compression pbm.Compression
 		Size:  fstat.Size(),
 		Fmode: fstat.Mode(),
 	}, nil
+}
+
+func sendFiles(fl []pbm.File, stg storage.Storage, comp pbm.CompressionType, subd, dbpath string, l *plog.Event) []pbm.File {
+	fchan := make(chan *pbm.File)
+	var lock sync.Mutex
+	var gfiles []pbm.File
+
+	num := runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
+	wg.Add(num)
+	for i := 0; i < num; i++ {
+		go func() {
+			defer wg.Done()
+			var files []pbm.File
+
+			for f := range fchan {
+				l.Debug("uploading: %s %s", f.Name, fmtSize(f.Size))
+				fle, err := writeFile(f.Name, subd+"/"+strings.TrimPrefix(f.Name, dbpath), stg, comp)
+				if err != nil {
+					l.Error("upload %s: %v", f.Name, err)
+				} else {
+					fle.Name = strings.TrimPrefix(f.Name, dbpath)
+					files = append(files, *fle)
+				}
+			}
+
+			lock.Lock()
+			gfiles = append(gfiles, files...)
+			lock.Unlock()
+		}()
+	}
+
+	for _, f := range fl {
+		fchan <- &f
+	}
+	close(fchan)
+
+	wg.Wait()
+
+	return gfiles
 }
 
 func fmtSize(size int64) string {
