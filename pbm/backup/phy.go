@@ -311,29 +311,29 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 
 	var files []pbm.File
 	subd := bcp.Name + "/" + rsName
-	// for _, bd := range bcur.Data {
-	// 	l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
-	// 	f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
-	// 	if err != nil {
-	// 		return errors.Wrapf(err, "upload data file `%s`", bd.Name)
-	// 	}
-	// 	f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
-	// 	files = append(files, *f)
-	// }
-	// l.Debug("finished uploading data")
+	for _, bd := range bcur.Data {
+		l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
+		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
+		if err != nil {
+			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
+		}
+		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
+		files = append(files, *f)
+	}
+	l.Debug("finished uploading data")
 
-	// for _, jf := range jrnls {
-	// 	l.Debug("uploading journal: %s", jf.Name)
-	// 	f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
-	// 	if err != nil {
-	// 		return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
-	// 	}
-	// 	f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
-	// 	files = append(files, *f)
-	// }
-	// l.Debug("finished uploading journals")
+	for _, jf := range jrnls {
+		l.Debug("uploading journal: %s", jf.Name)
+		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
+		if err != nil {
+			return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
+		}
+		f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
+		files = append(files, *f)
+	}
+	l.Debug("finished uploading journals")
 
-	files = sendFiles(append(bcur.Data, jrnls...), stg, bcp.Compression, subd, bcur.Meta.DBpath+"/", l)
+	// files = sendFiles(append(bcur.Data, jrnls...), stg, bcp.Compression, subd, bcur.Meta.DBpath+"/", l)
 
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, files)
 	if err != nil {
