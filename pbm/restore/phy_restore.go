@@ -102,7 +102,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 
 // Close releases object resources.
 // Should be run to avoid leaks.
-func (r *PhysRestore) Close() {
+func (r *PhysRestore) close() {
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
@@ -268,7 +268,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 			}
 		}
 
-		r.Close()
+		r.close()
 	}()
 
 	err = r.init(cmd.Name, opid, l)
@@ -301,6 +301,11 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "waiting for start")
 	}
 
+	// hot to spam logs with failed hb attempts
+	if r.stopHB != nil {
+		close(r.stopHB)
+	}
+
 	// don't write logs to the mongo anymore
 	r.cn.Logger().PauseMgo()
 
@@ -327,19 +332,19 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "set restore timestamp")
 	}
 
-	l.Info("recover oplog as single-node replicaset")
-	err = r.stage2()
-	if err != nil {
-		return errors.Wrap(err, "recover oplog as rs")
-	}
+	// l.Info("recover oplog as single-node replicaset")
+	// err = r.stage2()
+	// if err != nil {
+	// 	return errors.Wrap(err, "recover oplog as rs")
+	// }
 
-	if r.nodeInfo.IsConfigSrv() {
-		l.Info("recovering oplog as standalone")
-		err = r.recoverStandalone()
-		if err != nil {
-			return errors.Wrap(err, "recover oplog as standalone")
-		}
+	// if r.nodeInfo.IsConfigSrv() {
+	l.Info("recovering oplog as standalone")
+	err = r.recoverStandalone()
+	if err != nil {
+		return errors.Wrap(err, "recover oplog as standalone")
 	}
+	// }
 
 	l.Info("clean-up and reset replicaset config")
 	err = r.stage3()
@@ -508,7 +513,7 @@ func shutdown(c *mongo.Client) error {
 
 func (r *PhysRestore) stage2() error {
 	args := []string{
-		"--dbpath", r.dbpath, "--replSet", r.rsConf.ID, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--dbpath", r.dbpath, "--replSet", r.rsConf.ID, "--port", r.efport, //"--setParameter", "disableLogicalSessionCacheRefresh=true",
 	}
 	if r.nodeInfo.IsConfigSrv() {
 		args = append(args, "--configsvr")
