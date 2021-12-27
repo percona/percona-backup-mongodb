@@ -596,22 +596,22 @@ func (r *PhysRestore) stage3() error {
 		}
 	}
 
-	_, err = c.Database("admin").Collection("system.version").DeleteOne(ctx, bson.D{{"_id", "minOpTimeRecovery"}})
-	if err != nil {
-		return errors.Wrap(err, "delete minOpTimeRecovery from admin.system.version")
-	}
-	err = c.Database("config").Collection("cache.collections").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.collections")
-	}
-	err = c.Database("config").Collection("cache.databases").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.databases")
-	}
-	err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
-	}
+	// _, err = c.Database("admin").Collection("system.version").DeleteOne(ctx, bson.D{{"_id", "minOpTimeRecovery"}})
+	// if err != nil {
+	// 	return errors.Wrap(err, "delete minOpTimeRecovery from admin.system.version")
+	// }
+	// err = c.Database("config").Collection("cache.collections").Drop(ctx)
+	// if err != nil {
+	// 	return errors.Wrap(err, "drop config.cache.collections")
+	// }
+	// err = c.Database("config").Collection("cache.databases").Drop(ctx)
+	// if err != nil {
+	// 	return errors.Wrap(err, "drop config.cache.databases")
+	// }
+	// err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
+	// if err != nil {
+	// 	return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
+	// }
 
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
 	if err != nil {
