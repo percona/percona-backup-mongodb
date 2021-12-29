@@ -421,10 +421,16 @@ func writeFile(src, dst string, stg storage.Storage, compression pbm.Compression
 		return nil, errors.Wrap(err, "upload file")
 	}
 
+	finf, err := stg.FileStat(dst + compression.Suffix())
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage file stat")
+	}
+
 	return &pbm.File{
-		Name:  src,
-		Size:  fstat.Size(),
-		Fmode: fstat.Mode(),
+		Name:    src,
+		Size:    fstat.Size(),
+		Fmode:   fstat.Mode(),
+		StgSize: finf.Size,
 	}, nil
 }
 

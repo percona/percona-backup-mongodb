@@ -514,9 +514,10 @@ type BackupReplset struct {
 }
 
 type File struct {
-	Name  string      `bson:"filename" json:"filename"`
-	Size  int64       `bson:"fileSize" json:"fileSize"`
-	Fmode os.FileMode `bson:"fmode" json:"fmode"`
+	Name    string      `bson:"filename" json:"filename"`
+	Size    int64       `bson:"fileSize" json:"fileSize"`
+	StgSize int64       `bson:"stgSize" json:"stgSize"`
+	Fmode   os.FileMode `bson:"fmode" json:"fmode"`
 }
 
 // Status is a backup current status
