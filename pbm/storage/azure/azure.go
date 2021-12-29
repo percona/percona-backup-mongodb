@@ -68,10 +68,14 @@ func New(opts Conf, l *log.Event) (*Blob, error) {
 func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {
-		ps := sizeb / maxBlocks * 9 / 10 // shed 10% just in case
+		ps := sizeb / maxBlocks * 11 / 10 // add 10% just in case
 		if ps > bufsz {
 			bufsz = ps
 		}
+	}
+
+	if b.log != nil {
+		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
 	}
 
 	_, err := azblob.UploadStreamToBlockBlob(
