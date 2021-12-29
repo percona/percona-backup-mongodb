@@ -104,6 +104,9 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 // Should be run to avoid leaks.
 func (r *PhysRestore) close() {
 	if r.stopHB != nil {
+		if _, ok := <-r.stopHB; !ok {
+			return
+		}
 		close(r.stopHB)
 	}
 }
@@ -301,9 +304,9 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	// hot to spam logs with failed hb attempts
+	// not to spam logs with failed hb attempts
 	if r.stopHB != nil {
-		close(r.stopHB)
+		r.stopHB <- struct{}{}
 	}
 
 	// don't write logs to the mongo anymore
@@ -332,19 +335,11 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "set restore timestamp")
 	}
 
-	// l.Info("recover oplog as single-node replicaset")
-	// err = r.stage2()
-	// if err != nil {
-	// 	return errors.Wrap(err, "recover oplog as rs")
-	// }
-
-	// if r.nodeInfo.IsConfigSrv() {
 	l.Info("recovering oplog as standalone")
 	err = r.recoverStandalone()
 	if err != nil {
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
-	// }
 
 	l.Info("clean-up and reset replicaset config")
 	err = r.stage3()
@@ -506,51 +501,6 @@ func shutdown(c *mongo.Client) error {
 	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
-	}
-
-	return nil
-}
-
-func (r *PhysRestore) stage2() error {
-	args := []string{
-		"--dbpath", r.dbpath, "--replSet", r.rsConf.ID, "--port", r.efport, //"--setParameter", "disableLogicalSessionCacheRefresh=true",
-	}
-	if r.nodeInfo.IsConfigSrv() {
-		args = append(args, "--configsvr")
-	}
-	err := startMongo(args...)
-	if err != nil {
-		return errors.Wrap(err, "start mongo")
-	}
-
-	c, err := conn(r.efport, r.rsConf.ID)
-	if err != nil {
-		return errors.Wrap(err, "connect to mongo")
-	}
-
-	// err = c.Database("admin").RunCommand(context.Background(),
-	// 	bson.D{{"replSetInitiate", pbm.RSConfig{
-	// 		ID:       r.rsConf.ID,
-	// 		CSRS:     r.nodeInfo.IsConfigSrv(),
-	// 		Version:  1,
-	// 		Members:  []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
-	// 		Settings: r.rsConf.Settings,
-	// 	}}}).Err()
-	// if err != nil {
-	// 	return errors.Wrap(err, "replSetInitiate")
-	// }
-
-	rsStatus, rerr := pbm.GetReplsetStatus(context.Background(), c)
-	if rerr == nil {
-		b, _ := json.Marshal(rsStatus)
-		r.log.Debug("RS_STATUS:\n%s", b)
-	} else {
-		r.log.Error("get RS_STATUS: %v", rerr)
-	}
-
-	err = shutdown(c)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
 	}
 
 	return nil
