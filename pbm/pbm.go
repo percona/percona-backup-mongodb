@@ -706,7 +706,10 @@ func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 }
 
 func (p *PBM) getRecentBackup(before *primitive.Timestamp, sort int) (*BackupMeta, error) {
-	q := bson.D{{"status", StatusDone}}
+	q := bson.D{
+		{"status", StatusDone},
+		{"type", bson.M{"$ne": string(PhysicalBackup)}},
+	}
 	if before != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})
 	}

@@ -84,6 +84,38 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 
 // DeleteBackupFiles removes backup's artefacts from storage
 func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+	switch meta.Type {
+	case PhysicalBackup:
+		return p.deletePhysicalBackupFiles(meta, stg)
+	case LogicalBackup:
+		fallthrough
+	default:
+		return p.deleteLogicalBackupFiles(meta, stg)
+	}
+}
+
+// DeleteBackupFiles removes backup's artefacts from storage
+func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+	for _, r := range meta.Replsets {
+		for _, f := range r.Files {
+			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
+			err = stg.Delete(fname)
+			if err != nil && err != storage.ErrNotExist {
+				return errors.Wrapf(err, "delete %s", fname)
+			}
+		}
+	}
+
+	err = stg.Delete(meta.Name + MetadataFileSuffix)
+	if err == storage.ErrNotExist {
+		return nil
+	}
+
+	return errors.Wrap(err, "delete metadata file from storage")
+}
+
+// DeleteBackupFiles removes backup's artefacts from storage
+func (p *PBM) deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
 		if err != nil && err != storage.ErrNotExist {
@@ -91,7 +123,7 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err erro
 		}
 		err = stg.Delete(r.DumpName)
 		if err != nil && err != storage.ErrNotExist {
-			return errors.Wrapf(err, "delete dump %s", r.OplogName)
+			return errors.Wrapf(err, "delete dump %s", r.DumpName)
 		}
 	}
 
