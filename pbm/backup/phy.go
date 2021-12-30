@@ -131,7 +131,8 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.File, error) {
 
 func (bc *BackupCursor) Close() {
 	if bc.close != nil {
-		bc.close <- struct{}{}
+		close(bc.close)
+		bc.close = nil
 	}
 }
 
@@ -163,6 +164,8 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get backup meta")
 	}
 
+	var files []pbm.File
+	var cursor *BackupCursor
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
 	defer func() {
 		if err != nil {
@@ -170,6 +173,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 			if errors.Is(err, ErrCancelled) {
 				status = pbm.StatusCancelled
 
+				rsMeta.Files = files
 				meta := &pbm.BackupMeta{
 					Name:     bcp.Name,
 					Status:   pbm.StatusCancelled,
@@ -188,6 +192,9 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 			}
 		}
 
+		if cursor != nil {
+			cursor.Close()
+		}
 		// Turn the balancer back on if needed
 		//
 		// Every agent will check if the balancer was on before the backup started.
@@ -247,12 +254,11 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	cursor := NewBackupCursor(b.node, l)
+	cursor = NewBackupCursor(b.node, l)
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
 		return errors.Wrap(err, "get backup files")
 	}
-	defer cursor.Close()
 
 	l.Debug("backup cursor id: %s", bcur.Meta.ID)
 
@@ -307,9 +313,14 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get journal files")
 	}
 
-	var files []pbm.File
 	subd := bcp.Name + "/" + rsName
 	for _, bd := range bcur.Data {
+		select {
+		case <-ctx.Done():
+			return ErrCancelled
+		default:
+		}
+
 		l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
 		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
 		if err != nil {
@@ -321,6 +332,12 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	l.Debug("finished uploading data")
 
 	for _, jf := range jrnls {
+		select {
+		case <-ctx.Done():
+			return ErrCancelled
+		default:
+		}
+
 		l.Debug("uploading journal: %s", jf.Name)
 		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
 		if err != nil {
