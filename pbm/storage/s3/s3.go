@@ -126,11 +126,15 @@ func (c *Conf) Cast() error {
 }
 
 // SDKLogLevel returns AWS SDK log level value from comma-separated
-// SDKDebugLogLevel values string.
+// SDKDebugLogLevel values string. If the string is empty, returns aws.LogOff.
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
 func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
+	if levels == "" {
+		return aws.LogOff
+	}
+
 	if out == nil {
 		out = ioutil.Discard
 	}
@@ -589,18 +593,13 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
-	logLevel := SDKLogLevel(s.opts.DebugLogLevels, nil)
-	if logLevel == 0 {
-		logLevel = aws.LogOff
-	}
-
 	return session.NewSession(&aws.Config{
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
 		Credentials:      credentials.NewChainCredentials(providers),
 		S3ForcePathStyle: aws.Bool(true),
 		HTTPClient:       httpClient,
-		LogLevel:         aws.LogLevel(logLevel),
+		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
 		Logger:           awsLogger(s.log),
 	})
 }
