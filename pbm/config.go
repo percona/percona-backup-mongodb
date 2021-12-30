@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -178,6 +179,8 @@ func (p *PBM) SetConfig(cfg Config) error {
 		if err != nil {
 			return errors.Wrap(err, "cast storage")
 		}
+
+		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
 	case StorageFilesystem:
 		err := cfg.Storage.Filesystem.Cast()
 		if err != nil {
@@ -241,6 +244,8 @@ func (p *PBM) SetConfigVar(key, val string) error {
 		if v.(string) == "" {
 			return errors.New("storage.filesystem.path can't be empty")
 		}
+	case "storage.s3.debugLogLevels":
+		s3.SDKLogLevel(v.(string), os.Stderr)
 	}
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(

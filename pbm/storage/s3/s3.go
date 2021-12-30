@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -53,24 +54,18 @@ type Conf struct {
 	// certificate chain and host name
 	InsecureSkipTLSVerify bool `bson:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify" yaml:"insecureSkipTLSVerify"`
 
-	// DebugLog enables debug logs from S3 client
-	DebugLog bool `bson:"debugLog,omitempty" json:"debugLog,omitempty" yaml:"debugLog,omitempty"`
-
-	// DebugLogLevels enables AWS SDK Debug Logging Sub Levels.
-	// Available options are:
-	// - Signing
-	// - HTTPBody
-	// - RequestRetries
-	// - RequestErrors
-	// - EventStreamBody
+	// DebugLogLevels enables AWS SDK debug logging (sub)levels. Available options:
+	// LogDebug, Signing, HTTPBody, RequestRetries, RequestErrors, EventStreamBody
 	//
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.59/aws#LogLevelType
-	DebugLogLevels []SDKDebugLogLevel `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
+	// Any sub levels will enable LogDebug level accordingly to AWS SDK Go module behavior
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
+	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
 }
 
 type SDKDebugLogLevel string
 
 const (
+	LogDebug        SDKDebugLogLevel = "LogDebug"
 	Signing         SDKDebugLogLevel = "Signing"
 	HTTPBody        SDKDebugLogLevel = "HTTPBody"
 	RequestRetries  SDKDebugLogLevel = "RequestRetries"
@@ -78,10 +73,12 @@ const (
 	EventStreamBody SDKDebugLogLevel = "EventStreamBody"
 )
 
-// sdkLogLevel returns the appropriate AWS SDK debug logging level. If the level
+// SDKLogLevel returns the appropriate AWS SDK debug logging level. If the level
 // is not recognized, returns aws.LogLevelType(0)
-func (l SDKDebugLogLevel) sdkLogLevel() aws.LogLevelType {
+func (l SDKDebugLogLevel) SDKLogLevel() aws.LogLevelType {
 	switch l {
+	case LogDebug:
+		return aws.LogDebug
 	case Signing:
 		return aws.LogDebugWithSigning
 	case HTTPBody:
@@ -128,6 +125,38 @@ func (c *Conf) Cast() error {
 	return nil
 }
 
+// SDKLogLevel returns AWS SDK log level value from comma-separated
+// SDKDebugLogLevel values string.
+//
+// If the string is incorrect formatted, prints warnings to the io.Writer.
+// Passing nil as the io.Writer will discard any warnings.
+func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
+	if out == nil {
+		out = ioutil.Discard
+	}
+
+	var logLevel aws.LogLevelType
+	ss := make(map[string]struct{})
+
+	for _, lvl := range strings.Split(levels, ",") {
+		l := SDKDebugLogLevel(lvl).SDKLogLevel()
+		if l == 0 {
+			fmt.Fprintf(out, "WARN: S3 client debug log level: unsupported %q\n", lvl)
+			continue
+		}
+
+		if _, ok := ss[lvl]; ok {
+			fmt.Fprintf(out, "WARN: S3 client debug log level: duplicated %q\n", lvl)
+			continue
+		}
+
+		ss[lvl] = struct{}{}
+		logLevel |= l
+	}
+
+	return logLevel
+}
+
 type Credentials struct {
 	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
 	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
@@ -169,19 +198,6 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	}
 
 	return s, nil
-}
-
-func (s *S3) logLevel() aws.LogLevelType {
-	if !s.opts.DebugLog {
-		return aws.LogOff
-	}
-
-	logLevel := aws.LogDebug
-	for _, lvl := range s.opts.DebugLogLevels {
-		logLevel |= lvl.sdkLogLevel()
-	}
-
-	return logLevel
 }
 
 const defaultPartSize = 10 * 1024 * 1024 // 10Mb
@@ -573,13 +589,18 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
+	logLevel := SDKLogLevel(s.opts.DebugLogLevels, nil)
+	if logLevel == 0 {
+		logLevel = aws.LogOff
+	}
+
 	return session.NewSession(&aws.Config{
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
 		Credentials:      credentials.NewChainCredentials(providers),
 		S3ForcePathStyle: aws.Bool(true),
 		HTTPClient:       httpClient,
-		LogLevel:         aws.LogLevel(s.logLevel()),
+		LogLevel:         aws.LogLevel(logLevel),
 		Logger:           awsLogger(s.log),
 	})
 }
