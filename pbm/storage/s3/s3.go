@@ -55,6 +55,46 @@ type Conf struct {
 
 	// DebugLog enables debug logs from S3 client
 	DebugLog bool `bson:"debugLog,omitempty" json:"debugLog,omitempty" yaml:"debugLog,omitempty"`
+
+	// DebugLogLevels enables AWS SDK Debug Logging Sub Levels.
+	// Available options are:
+	// - Signing
+	// - HTTPBody
+	// - RequestRetries
+	// - RequestErrors
+	// - EventStreamBody
+	//
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.59/aws#LogLevelType
+	DebugLogLevels []SDKDebugLogLevel `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
+}
+
+type SDKDebugLogLevel string
+
+const (
+	Signing         SDKDebugLogLevel = "Signing"
+	HTTPBody        SDKDebugLogLevel = "HTTPBody"
+	RequestRetries  SDKDebugLogLevel = "RequestRetries"
+	RequestErrors   SDKDebugLogLevel = "RequestErrors"
+	EventStreamBody SDKDebugLogLevel = "EventStreamBody"
+)
+
+// sdkLogLevel returns the appropriate AWS SDK debug logging level. If the level
+// is not recognized, returns aws.LogLevelType(0)
+func (l SDKDebugLogLevel) sdkLogLevel() aws.LogLevelType {
+	switch l {
+	case Signing:
+		return aws.LogDebugWithSigning
+	case HTTPBody:
+		return aws.LogDebugWithHTTPBody
+	case RequestRetries:
+		return aws.LogDebugWithRequestRetries
+	case RequestErrors:
+		return aws.LogDebugWithRequestErrors
+	case EventStreamBody:
+		return aws.LogDebugWithEventStreamBody
+	}
+
+	return aws.LogLevelType(0)
 }
 
 type AWSsse struct {
@@ -129,6 +169,19 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	}
 
 	return s, nil
+}
+
+func (s *S3) logLevel() aws.LogLevelType {
+	if !s.opts.DebugLog {
+		return aws.LogOff
+	}
+
+	logLevel := aws.LogDebug
+	for _, lvl := range s.opts.DebugLogLevels {
+		logLevel &= lvl.sdkLogLevel()
+	}
+
+	return logLevel
 }
 
 const defaultPartSize = 10 * 1024 * 1024 // 10Mb
@@ -520,18 +573,13 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
-	logLevel := aws.LogOff
-	if s.opts.DebugLog {
-		logLevel = aws.LogDebug
-	}
-
 	return session.NewSession(&aws.Config{
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
 		Credentials:      credentials.NewChainCredentials(providers),
 		S3ForcePathStyle: aws.Bool(true),
 		HTTPClient:       httpClient,
-		LogLevel:         &logLevel,
+		LogLevel:         aws.LogLevel(s.logLevel()),
 		Logger:           awsLogger(s.log),
 	})
 }
