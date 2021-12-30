@@ -126,36 +126,31 @@ func (c *Conf) Cast() error {
 }
 
 // SDKLogLevel returns AWS SDK log level value from comma-separated
-// SDKDebugLogLevel values string. If the string is empty, returns aws.LogOff.
+// SDKDebugLogLevel values string. If the string does not contain a valid value,
+// returns aws.LogOff.
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
 func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
-	if levels == "" {
-		return aws.LogOff
-	}
-
 	if out == nil {
 		out = ioutil.Discard
 	}
 
 	var logLevel aws.LogLevelType
-	ss := make(map[string]struct{})
 
 	for _, lvl := range strings.Split(levels, ",") {
+		lvl = strings.TrimSpace(lvl)
 		l := SDKDebugLogLevel(lvl).SDKLogLevel()
 		if l == 0 {
-			fmt.Fprintf(out, "WARN: S3 client debug log level: unsupported %q\n", lvl)
+			fmt.Fprintf(out, "Warning: S3 client debug log level: unsupported %q\n", lvl)
 			continue
 		}
 
-		if _, ok := ss[lvl]; ok {
-			fmt.Fprintf(out, "WARN: S3 client debug log level: duplicated %q\n", lvl)
-			continue
-		}
-
-		ss[lvl] = struct{}{}
 		logLevel |= l
+	}
+
+	if logLevel == 0 {
+		logLevel = aws.LogOff
 	}
 
 	return logLevel
