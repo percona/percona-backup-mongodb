@@ -135,7 +135,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	})
 
 	// install a backup lock despite having PITR one
-	got, err := a.aquireLock(lock, l, func() (bool, error) {
+	got, err := a.acquireLock(lock, l, func() (bool, error) {
 		return lock.Rewrite(&pbm.LockHeader{
 			Replset: a.node.RS(),
 			Type:    pbm.CmdPITR,
@@ -270,7 +270,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
