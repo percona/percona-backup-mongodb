@@ -70,13 +70,10 @@ func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.Writ
 			switch *level {
 			case 1:
 				writerOptions = append(writerOptions, s2.WriterUncompressed())
-				break
 			case 3:
 				writerOptions = append(writerOptions, s2.WriterBetterCompression())
-				break
 			case 4:
 				writerOptions = append(writerOptions, s2.WriterBestCompression())
-				break
 			}
 		}
 		return s2.NewWriter(w, writerOptions...), nil
