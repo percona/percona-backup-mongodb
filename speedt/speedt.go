@@ -128,7 +128,7 @@ func genData(b []byte) {
 
 const fileName = "pbmSpeedTest"
 
-func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionType, sizeGb float64, collection string) (*Results, error) {
+func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionType, level *int, sizeGb float64, collection string) (*Results, error) {
 	var src backup.Source
 	var err error
 	if collection != "" {
@@ -142,7 +142,7 @@ func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionT
 
 	r := &Results{}
 	ts := time.Now()
-	size, err := backup.Upload(context.Background(), src, stg, compression, nil, fileName, -1)
+	size, err := backup.Upload(context.Background(), src, stg, compression, level, fileName, -1)
 	r.Size = Byte(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload")
