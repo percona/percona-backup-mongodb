@@ -349,7 +349,7 @@ func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.Compressio
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, fname, -1)
+	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, nil, fname, -1)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
