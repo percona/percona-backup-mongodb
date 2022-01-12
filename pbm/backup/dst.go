@@ -79,7 +79,11 @@ func Compress(w io.Writer, compression pbm.CompressionType, level *int) (io.Writ
 		}
 		return s2.NewWriter(w, writerOptions...), nil
 	case pbm.CompressionTypeZstandard:
-		return zstd.NewWriter(w)
+		encLevel := zstd.SpeedDefault
+		if level != nil {
+			encLevel = zstd.EncoderLevelFromZstd(*level)
+		}
+		return zstd.NewWriter(w, zstd.WithEncoderLevel(encLevel))
 	default:
 		return NopCloser{w}, nil
 	}
