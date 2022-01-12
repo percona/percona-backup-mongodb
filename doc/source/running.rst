@@ -50,7 +50,7 @@ For example, to start a backup with gzip compression, use the following command
 
    $ pbm backup --compression=gzip 
 
-Supported compression types are: ``gzip``, ``snappy``, ``lz4``, ``pgzip``.  The ``none`` value means no compression is done during
+Supported compression types are: ``gzip``, ``snappy``, ``lz4``, ``pgzip``, ``zstd``.  The ``none`` value means no compression is done during
 backup.
 
 .. rubric:: Backup in sharded clusters

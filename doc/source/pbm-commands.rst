@@ -142,7 +142,7 @@ The command accepts the following flags:
      - Description
    * - ``--compression``
      - Create a backup with compression. 
-       Supported compression methods: ``gzip``, ``snappy``, ``lz4``, ``s2``, ``pgzip``. Default: ``s2``
+       Supported compression methods: ``gzip``, ``snappy``, ``lz4``, ``s2``, ``pgzip``, ``zstd``. Default: ``s2``
        The ``none`` value means no compression is done during backup.
    * - ``-o``, ``--out=text``
      - Shows the output format as either plain text or a JSON object. Supported values: text, json

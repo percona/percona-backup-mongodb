@@ -62,7 +62,7 @@ func Main() {
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backup := backupOpts{}
-	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 		Default(string(pbm.CompressionTypeS2)).
 		EnumVar(&backup.compression,
 			string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),

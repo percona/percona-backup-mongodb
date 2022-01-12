@@ -26,7 +26,7 @@ func main() {
 		compressLevelArg []int
 		compressLevel    *int
 
-		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 				Default(string(pbm.CompressionTypeS2)).
 				Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 				string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
