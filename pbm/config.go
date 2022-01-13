@@ -180,6 +180,8 @@ func (p *PBM) SetConfig(cfg Config) error {
 			return errors.Wrap(err, "cast storage")
 		}
 
+		// call the function for notification purpose.
+		// warning about unsupported levels will be printed
 		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
 	case StorageFilesystem:
 		err := cfg.Storage.Filesystem.Cast()
