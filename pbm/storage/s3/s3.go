@@ -140,6 +140,10 @@ func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
 
 	for _, lvl := range strings.Split(levels, ",") {
 		lvl = strings.TrimSpace(lvl)
+		if lvl == "" {
+			continue
+		}
+
 		l := SDKDebugLogLevel(lvl).SDKLogLevel()
 		if l == 0 {
 			fmt.Fprintf(out, "Warning: S3 client debug log level: unsupported %q\n", lvl)
