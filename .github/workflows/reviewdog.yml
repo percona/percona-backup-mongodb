@@ -84,7 +84,7 @@ jobs:
         with:
           go-version: '1.17'
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
-      - run: shfmt -w -s $(find . -not -path "*/vendor/*")
+      - run: shfmt -f . | grep -v 'vendor' | xargs shfmt -w -s
       - name: suggester / shfmt
         uses: reviewdog/action-suggester@v1
         with:
