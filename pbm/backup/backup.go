@@ -273,7 +273,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if err != nil {
 		return errors.Wrap(err, "init mongodump options")
 	}
-	_, err = Upload(ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
+	_, err = Upload(ctx, dump, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -319,7 +319,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
 	oplog.SetTailingSpan(fwTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	_, err = Upload(ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
+	_, err = Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -435,22 +435,25 @@ type Source interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string, sizeb int) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, level *int, fname string, sizeb int) (int64, error) {
 	r, pw := io.Pipe()
 
-	w := Compress(pw, compression)
+	w, err := Compress(pw, compression, level)
+	if err != nil {
+		return 0, err
+	}
 
-	var err rwErr
+	var rwErr rwErr
 	var n int64
 	go func() {
-		n, err.read = src.WriteTo(w)
-		err.compress = w.Close()
+		n, rwErr.read = src.WriteTo(w)
+		rwErr.compress = w.Close()
 		pw.Close()
 	}()
 
 	saveDone := make(chan struct{})
 	go func() {
-		err.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(fname, r, sizeb)
 		saveDone <- struct{}{}
 	}()
 
@@ -466,8 +469,8 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	r.Close()
 
-	if !err.nil() {
-		return 0, err
+	if !rwErr.nil() {
+		return 0, rwErr
 	}
 
 	return n, nil
