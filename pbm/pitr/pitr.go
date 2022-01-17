@@ -128,7 +128,12 @@ func (s *Slicer) Catchup() error {
 			return nil
 		}
 
-		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, chnk.Compression)
+		cfg, err := s.pbm.GetConfig()
+		if err != nil {
+			return errors.Wrap(err, "get config")
+		}
+
+		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if err != nil {
 			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
 			// duplicate key means chunk is already created by probably another routine
@@ -198,7 +203,7 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType) error {
+func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType, level *int) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -320,7 +325,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 			}
 		}
 
-		err = s.upload(s.lastTS, sliceTo, compression)
+		err = s.upload(s.lastTS, sliceTo, compression, level)
 		if err != nil {
 			return err
 		}
@@ -345,11 +350,11 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 	}
 }
 
-func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType) error {
+func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType, level *int) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, nil, fname, -1)
+	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, level, fname, -1)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
