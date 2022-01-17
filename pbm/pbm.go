@@ -206,12 +206,13 @@ func (d DeleteBackupCmd) String() string {
 type CompressionType string
 
 const (
-	CompressionTypeNone   CompressionType = "none"
-	CompressionTypeGZIP   CompressionType = "gzip"
-	CompressionTypePGZIP  CompressionType = "pgzip"
-	CompressionTypeSNAPPY CompressionType = "snappy"
-	CompressionTypeLZ4    CompressionType = "lz4"
-	CompressionTypeS2     CompressionType = "s2"
+	CompressionTypeNone      CompressionType = "none"
+	CompressionTypeGZIP      CompressionType = "gzip"
+	CompressionTypePGZIP     CompressionType = "pgzip"
+	CompressionTypeSNAPPY    CompressionType = "snappy"
+	CompressionTypeLZ4       CompressionType = "lz4"
+	CompressionTypeS2        CompressionType = "s2"
+	CompressionTypeZstandard CompressionType = "zstd"
 )
 
 const (
