@@ -330,7 +330,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	}
 
 	l.Info("setting restore timestamp")
-	err = r.stage1()
+	err = r.prepData()
 	if err != nil {
 		return errors.Wrap(err, "set restore timestamp")
 	}
@@ -342,7 +342,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	}
 
 	l.Info("clean-up and reset replicaset config")
-	err = r.stage3()
+	err = r.resetRS()
 	if err != nil {
 		return errors.Wrap(err, "clean-up, rs_reset")
 	}
@@ -431,7 +431,7 @@ func (r *PhysRestore) copyFiles() error {
 	return nil
 }
 
-func (r *PhysRestore) stage1() error {
+func (r *PhysRestore) prepData() error {
 	err := startMongo("--dbpath", r.dbpath, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
@@ -467,7 +467,6 @@ func (r *PhysRestore) stage1() error {
 			CSRS:    r.nodeInfo.IsConfigSrv(),
 			Version: 1,
 			Members: []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
-			// Settings: r.rsConf.Settings,
 		},
 	)
 
@@ -527,7 +526,7 @@ func (r *PhysRestore) recoverStandalone() error {
 	return nil
 }
 
-func (r *PhysRestore) stage3() error {
+func (r *PhysRestore) resetRS() error {
 	err := startMongo("--dbpath", r.dbpath, "--port", r.efport)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
@@ -551,33 +550,11 @@ func (r *PhysRestore) stage3() error {
 		}
 	}
 
-	// _, err = c.Database("admin").Collection("system.version").DeleteOne(ctx, bson.D{{"_id", "minOpTimeRecovery"}})
-	// if err != nil {
-	// 	return errors.Wrap(err, "delete minOpTimeRecovery from admin.system.version")
-	// }
-	// err = c.Database("config").Collection("cache.collections").Drop(ctx)
-	// if err != nil {
-	// 	return errors.Wrap(err, "drop config.cache.collections")
-	// }
-	// err = c.Database("config").Collection("cache.databases").Drop(ctx)
-	// if err != nil {
-	// 	return errors.Wrap(err, "drop config.cache.databases")
-	// }
-	// err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
-	// if err != nil {
-	// 	return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
-	// }
-
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
-	// if r.nodeInfo.IsPrimary {
-	// _, err = c.Database("local").Collection("system.replset").UpdateOne(ctx,
-	// 	bson.D{{"_id", r.rsConf.ID}},
-	// 	bson.D{{"$set", bson.M{"members": r.rsConf.Members}}},
-	// )
 	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
 		pbm.RSConfig{
 			ID:       r.rsConf.ID,
@@ -590,13 +567,6 @@ func (r *PhysRestore) stage3() error {
 	if err != nil {
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
-	// }
-	// else {
-	// 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "delete from system.replset")
-	// 	}
-	// }
 
 	err = shutdown(c)
 	if err != nil {
