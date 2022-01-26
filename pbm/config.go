@@ -294,6 +294,9 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 		return nil, errors.Wrap(err, "get from db")
 	}
 	v, err := bts.LookupErr(strings.Split(key, ".")...)
+	if err != nil {
+		return nil, errors.Wrap(err, "lookup in document")
+	}
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil
