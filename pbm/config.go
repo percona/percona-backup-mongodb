@@ -269,6 +269,28 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	return errors.Wrap(err, "write to db")
 }
 
+func (p *PBM) DeleteConfigVar(key string) error {
+	if !ValidateConfigKey(key) {
+		return errors.New("invalid config key")
+	}
+
+	_, err := p.GetConfig()
+	if err != nil {
+		if errors.Cause(err) == mongo.ErrNoDocuments {
+			return errors.New("config variable is not set")
+		}
+		return err
+	}
+
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$unset": bson.M{key: 1}},
+	)
+
+	return errors.Wrap(err, "write to db")
+}
+
 func (p *PBM) confSetPITR(k string, v bool) error {
 	ct, err := p.ClusterTime()
 	if err != nil {
