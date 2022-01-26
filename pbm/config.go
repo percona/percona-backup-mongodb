@@ -307,7 +307,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	case bson.TypeDouble:
 		return v.Double(), nil
 	case bson.TypeString:
-		return v.String(), nil
+		return v.StringValue(), nil
 	default:
 		return nil, errors.Errorf("unexpected type %v", v.Type)
 	}
