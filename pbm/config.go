@@ -227,8 +227,8 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	// just check if config was set
 	_, err := p.GetConfig()
 	if err != nil {
-		if errors.Cause(err) == mongo.ErrNoDocuments {
-			return errors.New("config doesn't set")
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.New("config is not set")
 		}
 		return err
 	}
@@ -276,8 +276,8 @@ func (p *PBM) DeleteConfigVar(key string) error {
 
 	_, err := p.GetConfig()
 	if err != nil {
-		if errors.Cause(err) == mongo.ErrNoDocuments {
-			return errors.New("config variable is not set")
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.New("config is not set")
 		}
 		return err
 	}
