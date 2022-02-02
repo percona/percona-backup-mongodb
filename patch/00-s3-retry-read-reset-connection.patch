@@ -1,0 +1,15 @@
+diff --git a/vendor/github.com/aws/aws-sdk-go/aws/request/connection_reset_error.go b/vendor/github.com/aws/aws-sdk-go/aws/request/connection_reset_error.go
+index 2ba3c56..4b527e0 100644
+--- a/vendor/github.com/aws/aws-sdk-go/aws/request/connection_reset_error.go
++++ b/vendor/github.com/aws/aws-sdk-go/aws/request/connection_reset_error.go
+@@ -5,10 +5,6 @@ import (
+ )
+ 
+ func isErrConnectionReset(err error) bool {
+-	if strings.Contains(err.Error(), "read: connection reset") {
+-		return false
+-	}
+-
+ 	if strings.Contains(err.Error(), "use of closed network connection") ||
+ 		strings.Contains(err.Error(), "connection reset") ||
+ 		strings.Contains(err.Error(), "broken pipe") {
