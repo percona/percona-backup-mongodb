@@ -27,69 +27,72 @@ LDFLAGS_TESTS_BUILD=$(LDFLAGS)
 test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
+apply-patch:
+	git apply patch/*
+
 build: build-pbm build-agent build-stest
-build-pbm:
+build-pbm: apply-patch
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
-build-agent:
+build-agent: apply-patch
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
-build-stest:
+build-stest: apply-patch
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
 install: install-pbm install-agent install-stest
-install-pbm:
+install-pbm: apply-patch
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm
-install-agent:
+install-agent: apply-patch
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent
-install-stest:
+install-stest: apply-patch
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
 
 # RACE DETECTOR ON
 build-race: build-pbm-race build-agent-race build-stest-race
-build-pbm-race:
+build-pbm-race: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
-build-agent-race:
+build-agent-race: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
-build-stest-race:
+build-stest-race: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
 install-race: install-pbm-race install-agent-race install-stest-race
-install-pbm-race:
+install-pbm-race: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm
-install-agent-race:
+install-agent-race: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent
-install-stest-race:
+install-stest-race: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
 
 # CI TESTS BUILD: RACE DETECTOR ON & PITR FRAME = 30sec
 build-tests: build-pbm-tests build-agent-tests build-stest-tests
-build-pbm-tests:
+build-pbm-tests: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
-build-agent-tests:
+build-agent-tests: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
-build-stest-tests:
+build-stest-tests: apply-patch
 	$(ENVS) go build -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
 install-tests: install-pbm-tests install-agent-tests install-stest-tests
-install-pbm-tests:
+install-pbm-tests: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) ./cmd/pbm
-install-agent-tests:
+install-agent-tests: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) ./cmd/pbm-agent
-install-stest-tests:
+install-stest-tests: apply-patch
 	$(ENVS) go install -race -ldflags="$(LDFLAGS_TESTS_BUILD)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
 
 # STATIC BUILDS
 build-static: build-pbm-static build-agent-static build-stest-static
-build-pbm-static:
+build-pbm-static: apply-patch
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
-build-agent-static:
+build-agent-static: apply-patch
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
-build-stest-static:
+build-stest-static: apply-patch
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
 install-static: install-pbm-static install-agent-static install-stest-static
-install-pbm-static:
+install-pbm-static: apply-patch
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm
-install-agent-static:
+install-agent-static: apply-patch
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-agent
-install-stest-static:
+install-stest-static: apply-patch
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
