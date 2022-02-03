@@ -28,10 +28,52 @@ type RestoreReplset struct {
 	Name             string              `bson:"name" json:"name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
+	Txn              RestoreTxn          `bson:"txn" json:"txn"`
+	CurrentOp        primitive.Timestamp `bson:"op" json:"op"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+}
+
+type TxnState string
+
+const (
+	TxnNo      TxnState = "no"
+	TxnCommit  TxnState = "commit"
+	TxnPrepare TxnState = "prepare"
+	TxnAbort   TxnState = "abort"
+	TxnUnknown TxnState = ""
+)
+
+type RestoreTxn struct {
+	Ctime primitive.Timestamp `bson:"ts" json:"ts"`
+	TxnID string              `bson:"id" json:"id"`
+	State TxnState            `bson:"state" json:"state"`
+}
+
+func (p *PBM) RestoreRSTxn(name string, rsName string, txn RestoreTxn) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.status": txn}},
+		},
+	)
+
+	return err
+}
+
+func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.op": ts}},
+		},
+	)
+
+	return err
 }
 
 func (p *PBM) SetRestoreMeta(m *RestoreMeta) error {
