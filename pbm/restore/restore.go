@@ -83,7 +83,7 @@ type Restore struct {
 	dumpFile   string
 	oplogFile  string
 	pitrChunks []pbm.PITRChunk
-	pitrLastTS int64
+	pitrLastTS primitive.Timestamp
 	oplog      *Oplog
 	log        *log.Event
 	opid       string
@@ -92,8 +92,9 @@ type Restore struct {
 // New creates a new restore object
 func New(cn *pbm.PBM, node *pbm.Node) *Restore {
 	return &Restore{
-		cn:   cn,
-		node: node,
+		cn:          cn,
+		node:        node,
+		observedTxn: make(map[string]struct{}),
 	}
 }
 
@@ -154,7 +155,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		return err
 	}
 
-	err = r.PreparePITR(cmd.TS, cmd.Bcp)
+	err = r.PreparePITR(cmd.TS, cmd.I, cmd.Bcp)
 	if err != nil {
 		return err
 	}
@@ -252,26 +253,24 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	return nil
 }
 
-func (r *Restore) PreparePITR(ts int64, bcp string) (err error) {
-	r.pitrLastTS = ts
+func (r *Restore) PreparePITR(t, i int64, bcp string) (err error) {
+	r.pitrLastTS = primitive.Timestamp{T: uint32(t), I: uint32(i)}
 
 	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetRestorePITR(r.name, ts)
+		err = r.cn.SetRestorePITR(r.name, t)
 		if err != nil {
 			return errors.Wrap(err, "set PITR timestamp")
 		}
 	}
 
-	pts := primitive.Timestamp{T: uint32(ts), I: 0}
-
-	err = r.setBcp(bcp, pts)
+	err = r.setBcp(bcp, r.pitrLastTS)
 	if err != nil {
 		return errors.Wrap(err, "set snapshot")
 	}
 
 	r.log.Info("snapshot %s", r.bcp.Name)
 
-	err = r.prepareChunks(pts)
+	err = r.prepareChunks(r.pitrLastTS)
 	if err != nil {
 		return errors.Wrap(err, "verify oplog slices chain")
 	}
@@ -371,31 +370,30 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
-	if r.nodeInfo.IsLeader() {
-		s, err := r.cn.ClusterMembers(r.nodeInfo)
-		if err != nil {
-			return errors.Wrap(err, "get cluster members")
+	s, err := r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
+	fl := make(map[string]pbm.Shard, len(s))
+	for _, rs := range s {
+		fl[rs.RS] = rs
+	}
+	r.log.Debug("+fl: %v", fl)
+
+	var nors []string
+	for _, sh := range r.bcp.Replsets {
+		rs, ok := fl[sh.Name]
+		if !ok {
+			nors = append(nors, sh.Name)
+			continue
 		}
 
-		fl := make(map[string]pbm.Shard, len(s))
-		for _, rs := range s {
-			fl[rs.RS] = rs
-		}
+		r.shards = append(r.shards, rs)
+	}
 
-		var nors []string
-		for _, sh := range r.bcp.Replsets {
-			rs, ok := fl[sh.Name]
-			if !ok {
-				nors = append(nors, sh.Name)
-				continue
-			}
-
-			r.shards = append(r.shards, rs)
-		}
-
-		if len(nors) > 0 {
-			return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
-		}
+	if r.nodeInfo.IsLeader() && len(nors) > 0 {
+		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
 	}
 
 	var ok bool
@@ -527,7 +525,7 @@ func (r *Restore) RunSnapshot() (err error) {
 		Compression: r.bcp.Compression,
 		StartTS:     r.bcp.FirstWriteTS,
 		EndTS:       r.bcp.LastWriteTS,
-	}})
+	}}, nil)
 	if err != nil {
 		return errors.Wrap(err, "oplog apply")
 	}
@@ -537,12 +535,13 @@ func (r *Restore) RunSnapshot() (err error) {
 }
 
 func (r *Restore) distTxnChecker(done <-chan struct{}) {
-	r.log.Debug("exit distTxnChecker")
+	defer r.log.Debug("exit distTxnChecker")
 
 	for {
 		select {
 		case txn := <-r.ctxn:
-			err := r.cn.RestoreRSTxn(r.name, r.nodeInfo.SetName, txn)
+			r.log.Debug("found dist txn: %s", txn)
+			err := r.cn.RestoreSetRSTxn(r.name, r.nodeInfo.SetName, txn)
 			if err != nil {
 				r.txnSyncErr <- errors.Wrapf(err, "set transaction %v", txn)
 				return
@@ -554,7 +553,7 @@ func (r *Restore) distTxnChecker(done <-chan struct{}) {
 					r.txnSyncErr <- errors.Wrapf(err, "wait transaction %v", txn)
 					return
 				}
-
+				r.log.Debug("txn converged to [%s] <%s>", txn.State, txn.ID)
 				r.ctxn <- txn
 			}
 		case <-done:
@@ -564,7 +563,7 @@ func (r *Restore) distTxnChecker(done <-chan struct{}) {
 }
 
 func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
-	r.log.Debug("exit waitingTxnChecker")
+	defer r.log.Debug("exit waitingTxnChecker")
 
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
@@ -582,7 +581,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 	}
 }
 
-func (r *Restore) applyOplog(chunks []pbm.PITRChunk) (lts primitive.Timestamp, err error) {
+func (r *Restore) applyOplog(chunks []pbm.PITRChunk, end *primitive.Timestamp) (lts primitive.Timestamp, err error) {
 	var waitTxnErr error
 
 	if r.nodeInfo.IsSharded() {
@@ -593,9 +592,10 @@ func (r *Restore) applyOplog(chunks []pbm.PITRChunk) (lts primitive.Timestamp, e
 		defer close(done)
 	}
 
-	for i, chnk := range r.pitrChunks {
-		if i == len(r.pitrChunks)-1 {
-			r.oplog.SetEdgeUnix(r.pitrLastTS)
+	for i, chnk := range chunks {
+		r.log.Debug("+ applying %v", chnk)
+		if i == len(chunks)-1 && end != nil {
+			r.oplog.SetEdge(*end)
 		}
 
 		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
@@ -617,7 +617,7 @@ func (r *Restore) checkWaitingTxns() error {
 	}
 
 	for _, shard := range rmeta.Replsets {
-		if _, ok := r.observedTxn[shard.Txn.TxnID]; shard.Txn.State == pbm.TxnCommit && !ok {
+		if _, ok := r.observedTxn[shard.Txn.ID]; shard.Txn.State == pbm.TxnCommit && !ok {
 			ts := primitive.Timestamp{r.oplog.LastOpTS(), 0}
 			if primitive.CompareTimestamp(ts, shard.Txn.Ctime) > 0 {
 				err := r.cn.SetCurrentOp(r.name, r.nodeInfo.SetName, ts)
@@ -626,7 +626,7 @@ func (r *Restore) checkWaitingTxns() error {
 				}
 			}
 
-			r.observedTxn[shard.Txn.TxnID] = struct{}{}
+			r.observedTxn[shard.Txn.ID] = struct{}{}
 			return nil
 		}
 	}
@@ -695,7 +695,7 @@ func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 					continue
 				}
 
-				if shard.Txn.TxnID != txn.TxnID {
+				if shard.Txn.ID != txn.ID {
 					if shard.Status == pbm.StatusDone ||
 						primitive.CompareTimestamp(shard.Txn.Ctime, txn.Ctime) == 1 {
 						shardsToFinish--
@@ -713,7 +713,7 @@ func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 					return pbm.TxnUnknown, nil
 				case pbm.TxnAbort:
 					return pbm.TxnAbort, nil
-				case pbm.TxnCommit, pbm.TxnNo:
+				case pbm.TxnCommit:
 					shardsToFinish--
 				}
 			}
@@ -795,12 +795,12 @@ func (r *Restore) snapshot(input io.Reader) (err error) {
 func (r *Restore) RestoreChunks() error {
 	r.log.Info("replay chunks")
 
-	lts, err := r.applyOplog(r.pitrChunks)
+	lts, err := r.applyOplog(r.pitrChunks, &r.pitrLastTS)
 	if err != nil {
 		return err
 	}
 
-	r.log.Info("oplog replay finished on %v <%d>", lts, r.pitrLastTS)
+	r.log.Info("oplog replay finished on %v <%v>", lts, r.pitrLastTS)
 	return nil
 }
 

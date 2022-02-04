@@ -100,7 +100,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 			l.Error("get nodes priority: %v", err)
 			return
 		}
-		shrds, err := a.pbm.ClusterMembers(nodeInfo)
+		shrds, err := a.pbm.ClusterMembers()
 		if err != nil {
 			l.Error("get cluster members: %v", err)
 			return

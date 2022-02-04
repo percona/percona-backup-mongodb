@@ -172,7 +172,7 @@ func (c cluster) String() (s string) {
 }
 
 func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
-	clstr, err := cn.ClusterMembers(nil)
+	clstr, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
@@ -295,7 +295,7 @@ func getPitrErr(cn *pbm.PBM) (string, error) {
 		return "", errors.Wrap(err, "get current epoch")
 	}
 
-	shards, err := cn.ClusterMembers(nil)
+	shards, err := cn.ClusterMembers()
 	if err != nil {
 		log.Fatalf("Error: get cluster members: %v", err)
 	}
@@ -515,7 +515,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 		return s, errors.Wrap(err, "define cluster state")
 	}
 
-	shards, err := cn.ClusterMembers(inf)
+	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return s, errors.Wrap(err, "get cluster members")
 	}
@@ -571,7 +571,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 }
 
 func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
-	shards, err := cn.ClusterMembers(nil)
+	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}

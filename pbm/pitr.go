@@ -223,7 +223,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist 
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
 func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
-	shards, err := p.ClusterMembers(nil)
+	shards, err := p.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}

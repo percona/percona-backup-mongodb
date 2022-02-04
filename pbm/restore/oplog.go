@@ -223,7 +223,7 @@ func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 
 	if o.txn != nil && isPrepareTxn(&op) {
 		o.txn <- pbm.RestoreTxn{
-			TxnID: fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber),
+			ID:    fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber),
 			State: pbm.TxnPrepare,
 		}
 	}
@@ -252,7 +252,7 @@ func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 		}
 		id := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
 		o.txn <- pbm.RestoreTxn{
-			TxnID: id,
+			ID:    id,
 			Ctime: cts,
 			State: pbm.TxnCommit,
 		}

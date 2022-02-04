@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -39,7 +40,6 @@ type RestoreReplset struct {
 type TxnState string
 
 const (
-	TxnNo      TxnState = "no"
 	TxnCommit  TxnState = "commit"
 	TxnPrepare TxnState = "prepare"
 	TxnAbort   TxnState = "abort"
@@ -47,17 +47,21 @@ const (
 )
 
 type RestoreTxn struct {
+	ID    string              `bson:"id" json:"id"`
 	Ctime primitive.Timestamp `bson:"ts" json:"ts"`
-	TxnID string              `bson:"id" json:"id"`
 	State TxnState            `bson:"state" json:"state"`
 }
 
-func (p *PBM) RestoreRSTxn(name string, rsName string, txn RestoreTxn) error {
+func (t RestoreTxn) String() string {
+	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
+}
+
+func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn RestoreTxn) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
 		bson.D{
-			{"$set", bson.M{"replsets.$.status": txn}},
+			{"$set", bson.M{"replsets.$.txn": txn}},
 		},
 	)
 

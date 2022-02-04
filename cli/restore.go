@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -94,10 +96,26 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) error {
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
-	tsto, err := parseDateT(t)
-	if err != nil {
-		return errors.Wrap(err, "parse date")
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
+	var tst int64
+	var tsi int64
+
+	if si := strings.Index(t, ","); si != -1 {
+		tst, err = strconv.ParseInt(t[0:si], 10, 64)
+		if err != nil {
+			return errors.Wrap(err, "parse clusterTime T")
+		}
+		tsi, err = strconv.ParseInt(t[si+1:], 10, 64)
+		if err != nil {
+			return errors.Wrap(err, "parse clusterTime I")
+		}
+
+	} else {
+		tsto, err := parseDateT(t)
+		if err != nil {
+			return errors.Wrap(err, "parse date")
+		}
+		tst = tsto.Unix()
 	}
 
 	err = checkConcurrentOp(cn)
@@ -110,7 +128,8 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
 		Cmd: pbm.CmdPITRestore,
 		PITRestore: pbm.PITRestoreCmd{
 			Name: name,
-			TS:   tsto.Unix(),
+			TS:   tst,
+			I:    tsi,
 			Bcp:  base,
 		},
 	})
