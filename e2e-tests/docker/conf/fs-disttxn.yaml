@@ -1,5 +1,5 @@
 storage:
     type: filesystem
     filesystem:
-      path: /opt/backups/pbm
+      path: /opt/backups/pbm_disttxn
   

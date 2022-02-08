@@ -49,7 +49,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage := "/etc/pbm/fs.yaml"
 
-	t.ApplyConfig("/etc/pbm/fs.yaml")
+	t.ApplyConfig(storage)
 	flush(t)
 
 	t.SetBallastData(1e5)
@@ -131,6 +131,13 @@ func run(t *sharded.Cluster, typ testTyp) {
 			printStart("Distributed Transactions PITR")
 			t.DistributedTrxPITR()
 			printDone("Distributed Transactions PITR")
+
+			t.ApplyConfig("/etc/pbm/fs-disttxn.yaml")
+
+			printStart("Distributed Commit")
+			t.DistributedCommit()
+			printDone("Distributed Commit")
+			t.ApplyConfig(storage)
 		}
 	}
 

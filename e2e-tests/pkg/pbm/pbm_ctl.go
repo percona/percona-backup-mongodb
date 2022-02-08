@@ -255,6 +255,11 @@ func (c *Ctl) PITRestore(t time.Time) error {
 	return err
 }
 
+func (c *Ctl) PITRestoreClusterTime(t, i uint32) error {
+	_, err := c.RunCmd("pbm", "restore", "--time", fmt.Sprintf("%d,%d", t, i))
+	return err
+}
+
 func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 	execConf := types.ExecConfig{
 		Env:          c.env,
