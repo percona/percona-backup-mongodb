@@ -582,6 +582,23 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 	}
 }
 
+// In order to sync distributed transactions (commit ontly when all participated shards are committed),
+// on all participated in the retore agents:
+// distTxnChecker:
+// - Receiving distributed transactions from the oplog applier, will add set it to the shards restore meta.
+// - If txn's state is `commit` it will wait from all of the rest of the shards for:
+// 		- either transaction committed on the shard (have `commitTransaction`);
+//      - or shard didn't participate in the transaction (more on that below);
+//      - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
+//    If any of the shards encounters the latter - the transaction is sent back to the applier as aborted.
+// 	  Otherwise - committed.
+// By looking at just transactions in the oplog we can't tell which shards were participating in it. So given that
+// starting `opTime` of the transaction is the same on all shards, we can assume that if some shard(s) oplog applier
+// observed greater than the txn's `opTime` and hadn't seen such txn - it wasn't part of this transaction at all. To
+// communicate that, each agent runs `checkWaitingTxns` which in turn periodically checks restore metadata and sees
+// any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
+// instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
+// sharded clusters even if there are no dist txns at all.
 func (r *Restore) applyOplog(chunks []pbm.PITRChunk, end *primitive.Timestamp) (lts primitive.Timestamp, err error) {
 	var waitTxnErr error
 
@@ -665,6 +682,8 @@ func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 		return pbm.TxnUnknown, errors.Wrap(err, "read cluster time")
 	}
 
+	// not going directly thru bmeta.Replsets to be sure we've heard back
+	// from all participated in the restore shards.
 	shardsToFinish := len(r.shards)
 	for _, sh := range r.shards {
 		for _, shard := range bmeta.Replsets {

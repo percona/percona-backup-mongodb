@@ -150,11 +150,10 @@ start_cluster() {
         docker-compose -f $COMPOSE_PATH build
     fi
 
-    if [ ! -d "${test_dir}/docker/backups" ]; then 
+    if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
         chmod -R 777 "${test_dir}/docker/backups"
     fi
-    
     export MONGODB_VERSION=${mongo_version:-"4.2"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
@@ -188,7 +187,7 @@ start_replset() {
         docker-compose -f $compose build
     fi
 
-    if [ ! -d "${test_dir}/docker/backups" ]; then 
+    if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
         chmod -R 777 "${test_dir}/docker/backups"
     fi

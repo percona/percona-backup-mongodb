@@ -60,9 +60,7 @@ func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn RestoreTxn) error 
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.txn": txn}},
-		},
+		bson.D{{"$set", bson.M{"replsets.$.txn": txn}}},
 	)
 
 	return err
@@ -72,9 +70,7 @@ func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) e
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.op": ts}},
-		},
+		bson.D{{"$set", bson.M{"replsets.$.op": ts}}},
 	)
 
 	return err
