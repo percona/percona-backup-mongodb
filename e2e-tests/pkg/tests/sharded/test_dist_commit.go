@@ -8,8 +8,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func (c *Cluster) DistributedCommit() {
-	c.PITRestoreCT(primitive.Timestamp{1644243375, 7})
+func (c *Cluster) DistributedCommit(restoreTo primitive.Timestamp) {
+	// c.PITRestoreCT(primitive.Timestamp{1644243375, 7})
+	c.PITRestoreCT(restoreTo)
 
 	exp := map[int]bool{
 		0:   true,

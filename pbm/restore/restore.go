@@ -688,7 +688,7 @@ func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 				}
 
 				if shard.Status == pbm.StatusError {
-					return pbm.TxnUnknown, errors.Errorf("shard %s failed with: %d", shard.Name, shard.Error)
+					return pbm.TxnUnknown, errors.Errorf("shard %s failed with: %v", shard.Name, shard.Error)
 				}
 
 				if primitive.CompareTimestamp(shard.CurrentOp, txn.Ctime) == 1 {
