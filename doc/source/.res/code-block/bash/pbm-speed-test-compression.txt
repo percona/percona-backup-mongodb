@@ -1,6 +1,0 @@
-.. code-block:: bash
-
-   /usr/bin/pbm-speed-test compression --compression=s2 --size-gb 10
-   Test started ....
-   10.00GB sent in 8s.
-   Avg upload rate = 1217.13MB/s.
