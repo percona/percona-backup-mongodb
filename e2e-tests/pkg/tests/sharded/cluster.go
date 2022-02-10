@@ -274,6 +274,8 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 			}
 			switch m.Status {
 			case pbmt.StatusDone:
+				// to be sure the lock is released
+				time.Sleep(time.Second * 3)
 				return nil
 			case pbmt.StatusError:
 				return errors.New(m.Error)

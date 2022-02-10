@@ -132,15 +132,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 			printStart("Distributed Transactions PITR")
 			t.DistributedTrxPITR()
 			printDone("Distributed Transactions PITR")
+		}
 
+		if semver.Compare(cVersion, "v4.4") >= 0 {
 			disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
 			tsTo := primitive.Timestamp{1644410656, 8}
+
 			if semver.Compare(cVersion, "v5.0") >= 0 {
 				disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
 				tsTo = primitive.Timestamp{1644243375, 7}
 			}
 			t.ApplyConfig(disttxnconf)
-
 			printStart("Distributed Commit")
 			t.DistributedCommit(tsTo)
 			printDone("Distributed Commit")

@@ -34,7 +34,7 @@ run() {
         if [ $EXIT_CODE != 0 ]; then
             docker-compose -f $compose logs --no-color --tail=100
             desc 'PBM logs'
-            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D
+            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D -x
             desc 'PBM status'
             docker-compose -f $compose exec -T agent-rs101 pbm status
         fi

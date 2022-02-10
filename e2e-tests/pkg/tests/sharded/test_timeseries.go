@@ -31,7 +31,7 @@ func (c *Cluster) Timeseries() {
 
 	ts2.gen()
 
-	ds := time.Second * 35
+	ds := time.Second * 135
 	log.Printf("Generating data for %v", ds)
 	time.Sleep(ds)
 
@@ -57,7 +57,7 @@ func (c *Cluster) Timeseries() {
 	}
 
 	if len(list.PITR.Ranges) == 0 {
-		log.Fatalf("ERROR: empty pitr list, expected range after the last backup")
+		log.Fatalf("ERROR: empty pitr list, expected a range after the last backup")
 	}
 
 	c.PITRestore(time.Unix(int64(list.PITR.Ranges[len(list.PITR.Ranges)-1].Range.End), 0))
