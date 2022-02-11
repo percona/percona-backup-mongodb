@@ -9,7 +9,7 @@ import (
 )
 
 func TestPITRTimelines(t *testing.T) {
-	chunks := []PITRChunk{
+	chunks := []OplogChunk{
 		{
 			StartTS: primitive.Timestamp{1, 0},
 			EndTS:   primitive.Timestamp{10, 0},

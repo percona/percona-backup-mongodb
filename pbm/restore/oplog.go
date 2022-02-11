@@ -173,7 +173,7 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	// optimization not to parse namespace if it remains the same
+	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
