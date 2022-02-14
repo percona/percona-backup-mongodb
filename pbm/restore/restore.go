@@ -61,6 +61,8 @@ var excludeFromRestore = []string{
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
+	pbm.DB + "." + pbm.TmpUsersCollection,
+	pbm.DB + "." + pbm.TmpRolesCollection,
 }
 
 type Restore struct {
@@ -124,7 +126,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return errors.Wrap(err, "set backup name")
 	}
 
-	bcp, err := r.GetSnapshot(cmd.BackupName)
+	bcp, err := r.SnapshotMeta(cmd.BackupName)
 	if err != nil {
 		return err
 	}
@@ -134,7 +136,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
-	err = r.RunSnapshot2(dump, bcp)
+	err = r.RunSnapshot(dump, bcp)
 	if err != nil {
 		return err
 	}
@@ -180,7 +182,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 			return errors.Wrap(err, "define last backup")
 		}
 	} else {
-		bcp, err = r.GetSnapshot(cmd.Bcp)
+		bcp, err = r.SnapshotMeta(cmd.Bcp)
 		if err != nil {
 			return err
 		}
@@ -204,7 +206,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		return err
 	}
 
-	err = r.RunSnapshot2(dump, bcp)
+	err = r.RunSnapshot(dump, bcp)
 	if err != nil {
 		return err
 	}
@@ -336,7 +338,7 @@ func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error)
 	return chunks, nil
 }
 
-func (r *Restore) GetSnapshot(backupName string) (bcp *pbm.BackupMeta, err error) {
+func (r *Restore) SnapshotMeta(backupName string) (bcp *pbm.BackupMeta, err error) {
 	bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		bcp, err = r.getMetaFromStore(backupName)
@@ -456,7 +458,7 @@ func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	return nil
 }
 
-func (r *Restore) RunSnapshot2(dump string, bcp *pbm.BackupMeta) (err error) {
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 	err = r.checkSnapshot(bcp)
 	if err != nil {
 		return err
