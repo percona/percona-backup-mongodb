@@ -15,9 +15,11 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -60,6 +62,14 @@ type Conf struct {
 	// Any sub levels will enable LogDebug level accordingly to AWS SDK Go module behavior
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
 	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
+
+	*Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
+}
+
+type Retryer struct {
+	NumMaxRetries int           `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
+	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
+	MaxRetryDelay time.Duration `bson:"maxRetryDelay" json:"maxRetryDelay" yaml:"maxRetryDelay"`
 }
 
 type SDKDebugLogLevel string
@@ -263,6 +273,21 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			u.PartSize = int64(partSize) // 10MB part size
 			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
+
+			u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {
+				if s.opts.Retryer != nil {
+					r.Retryer = client.DefaultRetryer{
+						NumMaxRetries: s.opts.Retryer.NumMaxRetries,
+						MinRetryDelay: client.DefaultRetryerMinRetryDelay,
+						MaxRetryDelay: client.DefaultRetryerMaxRetryDelay,
+					}
+				}
+
+				r.Handlers.Retry.PushFront(func(r *request.Request) {
+					s.log.Error(r.Error.Error())
+					s.log.Info("Retry %v (%v)", r.RetryCount+1, r.MaxRetries())
+				})
+			})
 		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
