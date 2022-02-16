@@ -146,6 +146,7 @@ func Main() {
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
+	pbmClient.InitLogger("", "")
 
 	switch cmd {
 	case configCmd.FullCommand():
@@ -434,7 +435,6 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 				Event:    string(op),
 			},
 		}, 1)
-
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}
