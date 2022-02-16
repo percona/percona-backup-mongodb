@@ -41,10 +41,6 @@ jobs:
         uses: reviewdog/action-alex@v1
         with:
           github_token: ${{ secrets.github_token }}
-          exclude: |
-            */.git/*
-            ./.cache/*
-            ./vendor/*
 
   golangci-lint:
     name: runner / golangci-lint
@@ -55,10 +51,6 @@ jobs:
         uses: reviewdog/action-golangci-lint@v2
         with:
           reporter: github-pr-check
-          exclude: |
-            */.git/*
-            ./.cache/*
-            ./vendor/*
 
   gofmt:
     name: runner / gofmt
@@ -69,11 +61,6 @@ jobs:
       - uses: reviewdog/action-suggester@v1
         with:
           tool_name: gofmt
-          reporter: github-pr-review
-          exclude: |
-            */.git/*
-            ./.cache/*
-            ./vendor/*
 
   shfmt:
     name: runner / shfmt
@@ -89,8 +76,3 @@ jobs:
         uses: reviewdog/action-suggester@v1
         with:
           tool_name: shfmt
-          reporter: github-pr-review
-          exclude: |
-            */.git/*
-            ./.cache/*
-            ./vendor/*

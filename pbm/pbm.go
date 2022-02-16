@@ -66,6 +66,7 @@ const (
 	CmdUndefined        Command = ""
 	CmdBackup           Command = "backup"
 	CmdRestore          Command = "restore"
+	CmdReplay           Command = "replay"
 	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
 	CmdPITR             Command = "pitr"
@@ -80,8 +81,10 @@ func (c Command) String() string {
 		return "Snapshot backup"
 	case CmdRestore:
 		return "Snapshot restore"
+	case CmdReplay:
+		return "Oplog replay"
 	case CmdCancelBackup:
-		return "Backup cancelation"
+		return "Backup cancellation"
 	case CmdResyncBackupList:
 		return "Resync storage"
 	case CmdPITR:
@@ -103,6 +106,7 @@ type Cmd struct {
 	Cmd        Command         `bson:"cmd"`
 	Backup     BackupCmd       `bson:"backup,omitempty"`
 	Restore    RestoreCmd      `bson:"restore,omitempty"`
+	Replay     ReplayCmd       `bson:"replay,omitempty"`
 	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
 	DeletePITR DeletePITRCmd   `bson:"deletePitr,omitempty"`
@@ -175,6 +179,16 @@ type RestoreCmd struct {
 
 func (r RestoreCmd) String() string {
 	return fmt.Sprintf("name: %s, backup name: %s", r.Name, r.BackupName)
+}
+
+type ReplayCmd struct {
+	Name  string `bson:"name"`
+	Start int64  `bson:"start,omitempty"`
+	End   int64  `bson:"end,omitempty"`
+}
+
+func (c ReplayCmd) String() string {
+	return fmt.Sprintf("name: %s, time: %d - %d", c.Name, c.Start, c.End)
 }
 
 type PITRestoreCmd struct {

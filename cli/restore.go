@@ -32,6 +32,19 @@ func (r restoreRet) String() string {
 	return ""
 }
 
+type replayOptions struct {
+	start string
+	end   string
+}
+
+type oplogReplayResult struct {
+	Name string `json:"name"`
+}
+
+func (r oplogReplayResult) String() string {
+	return fmt.Sprintf("Oplog replay %q has started", r.Name)
+}
+
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
 	if o.pitr != "" && o.bcp != "" {
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")

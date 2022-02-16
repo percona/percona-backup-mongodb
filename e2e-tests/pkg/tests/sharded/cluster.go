@@ -5,9 +5,10 @@ import (
 	"log"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -130,6 +131,22 @@ func (c *Cluster) PITRestore(t time.Time) {
 	// just wait so the all data gonna be written (aknowleged) before the next steps
 	time.Sleep(time.Second * 1)
 	log.Printf("restore to the point-in-time '%v' finished", t)
+}
+
+func (c *Cluster) ReplayOplog(a, b time.Time) {
+	log.Printf("replay oplog from %v to %v", a, b)
+	if err := c.pbm.ReplayOplog(a, b); err != nil {
+		log.Fatalln("restore:", err)
+	}
+
+	log.Println("waiting for the oplog replay")
+	if err := c.pbm.CheckOplogReplay(a, b, 25*time.Minute); err != nil {
+		log.Fatalln("check restore:", err)
+	}
+
+	// just wait so the all data gonna be written (aknowleged) before the next steps
+	time.Sleep(time.Second)
+	log.Printf("replay oplog from %v to %v finished", a, b)
 }
 
 func (c *Cluster) Backup() string {

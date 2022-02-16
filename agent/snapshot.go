@@ -100,38 +100,38 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 			l.Error("get nodes priority: %v", err)
 			return
 		}
-		shrds, err := a.pbm.ClusterMembers(nodeInfo)
+		shards, err := a.pbm.ClusterMembers(nodeInfo)
 		if err != nil {
 			l.Error("get cluster members: %v", err)
 			return
 		}
-		for _, sh := range shrds {
+		for _, sh := range shards {
 			go func(rs string) {
 				err := a.nominateRS(cmd.Name, rs, nodes.RS(rs), l)
 				if err != nil {
-					l.Error("nodes nominaition for %s: %v", rs, err)
+					l.Error("nodes nomination for %s: %v", rs, err)
 				}
 			}(sh.RS)
 		}
 	}
 
-	gotn, err := a.waitNomination(cmd.Name, nodeInfo.SetName, nodeInfo.Me, l)
+	nominated, err := a.waitNomination(cmd.Name, nodeInfo.SetName, nodeInfo.Me, l)
 	if err != nil {
 		l.Error("wait for nomination: %v", err)
 	}
 
-	if !gotn {
+	if !nominated {
 		l.Debug("skip after nomination, probably started by another node")
 		return
 	}
 
-	epts := ep.TS()
+	epoch := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
 		Type:    pbm.CmdBackup,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   &epts,
+		Epoch:   &epoch,
 	})
 
 	// install a backup lock despite having PITR one
@@ -292,7 +292,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("restore started")
 	err = restore.New(a.pbm, a.node).Snapshot(r, opid, l)
 	if err != nil {
-		if errors.Is(err, restore.ErrNoDatForShard) {
+		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")
 		} else {
 			l.Error("restore: %v", err)

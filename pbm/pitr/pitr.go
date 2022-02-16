@@ -50,12 +50,11 @@ func (s *Slicer) SetSpan(d time.Duration) {
 	atomic.StoreInt64(&s.span, int64(d))
 }
 
-// SetSpan sets span duration. Streaming will recognise the change and adjust on the next iteration.
 func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
-// Catchup seeks for the last saved (backuped) TS - the starting point. It should be run only
+// Catchup seeks for the last saved (backed up) TS - the starting point. It should be run only
 // if the timeline was lost (e.g. on (re)start, restart after backup, node's fail).
 // The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
 // If there is a chunk behind the last backup it will try to fill the gaps from the chunk to the starting point.

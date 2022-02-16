@@ -74,6 +74,8 @@ func (a *Agent) Start() error {
 				a.CancelBackup()
 			case pbm.CmdRestore:
 				a.Restore(cmd.Restore, cmd.OPID, ep)
+			case pbm.CmdReplay:
+				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResyncBackupList:
 				a.ResyncStorage(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
@@ -299,12 +301,12 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquire lockAcquireFn) (
 		return got, nil
 	}
 
-	switch err.(type) {
+	switch err := err.(type) {
 	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
 		lg.Debug("get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
-		lk := err.(pbm.ErrWasStaleLock).Lock
+		lk := err.Lock
 		lg.Debug("stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
@@ -331,7 +333,12 @@ func (a *Agent) HbStatus() {
 		RS:   a.node.RS(),
 		Ver:  version.DefaultInfo.Version,
 	}
-	defer a.pbm.RmAgentStatus(hb)
+	defer func() {
+		if err := a.pbm.RmAgentStatus(hb); err != nil {
+			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
+			logger.Error("remove agent heartbeat: %s", err.Error())
+		}
+	}()
 
 	tk := time.NewTicker(pbm.AgentsStatCheckRange)
 	defer tk.Stop()

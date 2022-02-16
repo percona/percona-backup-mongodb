@@ -93,10 +93,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "get cluster info")
 	}
 
-	rsName := inf.SetName
-
 	rsMeta := pbm.BackupReplset{
-		Name:         rsName,
+		Name:         inf.SetName,
 		OplogName:    getDstName("oplog", bcp, inf.SetName),
 		DumpName:     getDstName("dump", bcp, inf.SetName),
 		StartTS:      time.Now().UTC().Unix(),
@@ -115,7 +113,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "balancer status, get backup meta")
 	}
 
-	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
+	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked appropriately
 	defer func() {
 		if err != nil {
 			status := pbm.StatusError
@@ -150,9 +148,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			return
 		}
 
-		errd := b.cn.SetBalancerStatus(pbm.BalancerModeOn)
-		if errd != nil {
-			l.Error("set balancer ON: %v", errd)
+		if err := b.cn.SetBalancerStatus(pbm.BalancerModeOn); err != nil {
+			l.Error("set balancer ON: %v", err)
 			return
 		}
 		l.Debug("set balancer on")
@@ -263,8 +260,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "mongodump")
 	}
 	// if backup wouldn't be compressed we're assuming
-	// that the dump size could be up to 4x lagrer due to
-	// mongo's wieredtiger compression
+	// that the dump size could be up to 4x larger due to
+	// mongodb wiredtiger compression
 	if bcp.Compression == pbm.CompressionTypeNone {
 		sz *= 4
 	}
@@ -423,6 +420,7 @@ func (rwe rwErr) Error() string {
 
 	return r
 }
+
 func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }

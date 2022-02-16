@@ -55,6 +55,7 @@ type Oplog struct {
 	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
+	startTS           primitive.Timestamp
 	lastTS            primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	m                 *ns.Matcher
@@ -95,9 +96,15 @@ func (o *Oplog) SetEdge(ts primitive.Timestamp) {
 }
 
 // SetEdgeUnix sets the edge time for the replayed operations
-// E.g. all operation that happened afterthe given timestamp going to be discarded
+// E.g. all operation that happened after the given timestamp going to be discarded
 func (o *Oplog) SetEdgeUnix(ts int64) {
 	o.SetEdge(primitive.Timestamp{T: uint32(ts), I: 0})
+}
+
+// SetStartUnix sets the start time for the replayed operations
+// E.g. all operations before the timestamp will be skipped
+func (o *Oplog) SetStartUnix(ts int64) {
+	o.startTS = primitive.Timestamp{T: uint32(ts)}
 }
 
 // Apply applys an oplog from a given source
@@ -119,7 +126,12 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 			return lts, errors.Wrap(err, "reading oplog")
 		}
 
-		// finish if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
+		// skip if operation happened before the desired time frame
+		if primitive.CompareTimestamp(o.startTS, oe.Timestamp) == 1 {
+			continue
+		}
+
+		// finish if operation happened after the desired time frame (oe.Timestamp > to)
 		if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
 			return lts, nil
 		}
