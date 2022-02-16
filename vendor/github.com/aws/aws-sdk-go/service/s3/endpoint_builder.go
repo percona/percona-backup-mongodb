@@ -41,11 +41,23 @@ type accessPointEndpointBuilder arn.AccessPointARN
 func (a accessPointEndpointBuilder) build(req *request.Request) error {
 	resolveService := arn.AccessPointARN(a).Service
 	resolveRegion := arn.AccessPointARN(a).Region
+	cfgRegion := aws.StringValue(req.Config.Region)
 
-	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, "", resolveService)
+	if s3shared.IsFIPS(cfgRegion) {
+		if aws.BoolValue(req.Config.S3UseARNRegion) && s3shared.IsCrossRegion(req, resolveRegion) {
+			// FIPS with cross region is not supported, the SDK must fail
+			// because there is no well defined method for SDK to construct a
+			// correct FIPS endpoint.
+			return s3shared.NewClientConfiguredForCrossRegionFIPSError(arn.AccessPointARN(a),
+				req.ClientInfo.PartitionID, cfgRegion, nil)
+		}
+		resolveRegion = cfgRegion
+	}
+
+	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, resolveService)
 	if err != nil {
 		return s3shared.NewFailedToResolveEndpointError(arn.AccessPointARN(a),
-			req.ClientInfo.PartitionID, resolveRegion, err)
+			req.ClientInfo.PartitionID, cfgRegion, err)
 	}
 
 	endpoint.URL = endpoints.AddScheme(endpoint.URL, aws.BoolValue(req.Config.DisableSSL))
@@ -95,11 +107,23 @@ type s3ObjectLambdaAccessPointEndpointBuilder arn.S3ObjectLambdaAccessPointARN
 //
 func (a s3ObjectLambdaAccessPointEndpointBuilder) build(req *request.Request) error {
 	resolveRegion := arn.S3ObjectLambdaAccessPointARN(a).Region
+	cfgRegion := aws.StringValue(req.Config.Region)
 
-	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, "", EndpointsID)
+	if s3shared.IsFIPS(cfgRegion) {
+		if aws.BoolValue(req.Config.S3UseARNRegion) && s3shared.IsCrossRegion(req, resolveRegion) {
+			// FIPS with cross region is not supported, the SDK must fail
+			// because there is no well defined method for SDK to construct a
+			// correct FIPS endpoint.
+			return s3shared.NewClientConfiguredForCrossRegionFIPSError(arn.S3ObjectLambdaAccessPointARN(a),
+				req.ClientInfo.PartitionID, cfgRegion, nil)
+		}
+		resolveRegion = cfgRegion
+	}
+
+	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, EndpointsID)
 	if err != nil {
 		return s3shared.NewFailedToResolveEndpointError(arn.S3ObjectLambdaAccessPointARN(a),
-			req.ClientInfo.PartitionID, resolveRegion, err)
+			req.ClientInfo.PartitionID, cfgRegion, err)
 	}
 
 	endpoint.URL = endpoints.AddScheme(endpoint.URL, aws.BoolValue(req.Config.DisableSSL))
@@ -157,7 +181,7 @@ func (o outpostAccessPointEndpointBuilder) build(req *request.Request) error {
 		endpointsID = "s3"
 	}
 
-	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, "", endpointsID)
+	endpoint, err := resolveRegionalEndpoint(req, resolveRegion, endpointsID)
 	if err != nil {
 		return s3shared.NewFailedToResolveEndpointError(o,
 			req.ClientInfo.PartitionID, resolveRegion, err)
@@ -196,16 +220,11 @@ func (o outpostAccessPointEndpointBuilder) hostPrefixLabelValues() map[string]st
 	}
 }
 
-func resolveRegionalEndpoint(r *request.Request, region, resolvedRegion, endpointsID string) (endpoints.ResolvedEndpoint, error) {
+func resolveRegionalEndpoint(r *request.Request, region string, endpointsID string) (endpoints.ResolvedEndpoint, error) {
 	return r.Config.EndpointResolver.EndpointFor(endpointsID, region, func(opts *endpoints.Options) {
 		opts.DisableSSL = aws.BoolValue(r.Config.DisableSSL)
 		opts.UseDualStack = aws.BoolValue(r.Config.UseDualStack)
-		opts.UseDualStackEndpoint = r.Config.UseDualStackEndpoint
-		opts.UseFIPSEndpoint = r.Config.UseFIPSEndpoint
 		opts.S3UsEast1RegionalEndpoint = endpoints.RegionalS3UsEast1Endpoint
-		opts.ResolvedRegion = resolvedRegion
-		opts.Logger = r.Config.Logger
-		opts.LogDeprecated = r.Config.LogLevel.Matches(aws.LogDebugWithDeprecated)
 	})
 }
 
