@@ -142,6 +142,15 @@ func (c *Conf) Cast() error {
 		c.StorageClass = s3.StorageClassStandard
 	}
 
+	if c.Retryer != nil {
+		if c.Retryer.MinRetryDelay == 0 {
+			c.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+		}
+		if c.Retryer.MaxRetryDelay == 0 {
+			c.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+		}
+	}
+
 	return nil
 }
 
