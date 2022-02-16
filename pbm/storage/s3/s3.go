@@ -63,12 +63,22 @@ type Conf struct {
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
 	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
 
-	*Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
+	// Retryer is configuration for client.DefaultRetryer
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer
+	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
 type Retryer struct {
-	NumMaxRetries int           `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
+	// Num max Retries is the number of max retries that will be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.NumMaxRetries
+	NumMaxRetries int `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
+
+	// MinRetryDelay is the minimum retry delay after which retry will be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MinRetryDelay
 	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
+
+	// MaxRetryDelay is the maximum retry delay before which retry must be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MaxRetryDelay
 	MaxRetryDelay time.Duration `bson:"maxRetryDelay" json:"maxRetryDelay" yaml:"maxRetryDelay"`
 }
 
@@ -278,15 +288,10 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 				if s.opts.Retryer != nil {
 					r.Retryer = client.DefaultRetryer{
 						NumMaxRetries: s.opts.Retryer.NumMaxRetries,
-						MinRetryDelay: client.DefaultRetryerMinRetryDelay,
-						MaxRetryDelay: client.DefaultRetryerMaxRetryDelay,
+						MinRetryDelay: s.opts.Retryer.MinRetryDelay,
+						MaxRetryDelay: s.opts.Retryer.MaxRetryDelay,
 					}
 				}
-
-				r.Handlers.Retry.PushFront(func(r *request.Request) {
-					s.log.Error(r.Error.Error())
-					s.log.Info("Retry %v (%v)", r.RetryCount+1, r.MaxRetries())
-				})
 			})
 		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")
