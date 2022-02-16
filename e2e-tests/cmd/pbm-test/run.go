@@ -79,17 +79,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.SetBallastData(1e3)
 	flush(t)
 
-	if semver.Compare(cVersion, "v5.0") >= 0 {
-		printStart("Check timeseries")
-		t.Timeseries()
-		printDone("Check timeseries")
-		flush(t)
-	}
-
 	printStart("Check Backups deletion")
 	t.BackupDelete(storage)
 	printDone("Check Backups deletion")
-
 	t.SetBallastData(1e5)
 
 	printStart("Check the Running Backup can't be deleted")
@@ -107,6 +99,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printStart("Backup Data Bounds Check")
 	t.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")
+
+	t.SetBallastData(1e3)
+	flush(t)
+
+	if semver.Compare(cVersion, "v5.0") >= 0 {
+		printStart("Check timeseries")
+		t.Timeseries()
+		printDone("Check timeseries")
+		flush(t)
+		t.SetBallastData(1e5)
+	}
 
 	if typ == testsSharded {
 		t.SetBallastData(1e6)

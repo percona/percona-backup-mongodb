@@ -39,7 +39,7 @@ func (c *Cluster) Timeseries() {
 	ts2.stop()
 	c.pitrOff()
 
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 6)
 
 	err = c.mongos.Drop("ts1")
 	if err != nil {

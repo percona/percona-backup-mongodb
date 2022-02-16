@@ -209,7 +209,7 @@ func (c *Cluster) DataChecker() (check func()) {
 				log.Fatalf("get db hashes %s: %v\n", name, err)
 			}
 			if hashes1[name]["_all_"] != h["_all_"] {
-				log.Fatalf("%s: hashes doesn't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
+				log.Fatalf("%s: hashes don't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
 			}
 		}
 	}
