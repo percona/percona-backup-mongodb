@@ -227,8 +227,8 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	// just check if config was set
 	_, err := p.GetConfig()
 	if err != nil {
-		if errors.Cause(err) == mongo.ErrNoDocuments {
-			return errors.New("config doesn't set")
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.New("config is not set")
 		}
 		return err
 	}
@@ -269,6 +269,28 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	return errors.Wrap(err, "write to db")
 }
 
+func (p *PBM) DeleteConfigVar(key string) error {
+	if !ValidateConfigKey(key) {
+		return errors.New("invalid config key")
+	}
+
+	_, err := p.GetConfig()
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.New("config is not set")
+		}
+		return err
+	}
+
+	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
+		p.ctx,
+		bson.D{},
+		bson.M{"$unset": bson.M{key: 1}},
+	)
+
+	return errors.Wrap(err, "write to db")
+}
+
 func (p *PBM) confSetPITR(k string, v bool) error {
 	ct, err := p.ClusterTime()
 	if err != nil {
@@ -294,6 +316,9 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 		return nil, errors.Wrap(err, "get from db")
 	}
 	v, err := bts.LookupErr(strings.Split(key, ".")...)
+	if err != nil {
+		return nil, errors.Wrap(err, "lookup in document")
+	}
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil
@@ -304,7 +329,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	case bson.TypeDouble:
 		return v.Double(), nil
 	case bson.TypeString:
-		return v.String(), nil
+		return v.StringValue(), nil
 	default:
 		return nil, errors.Errorf("unexpected type %v", v.Type)
 	}
