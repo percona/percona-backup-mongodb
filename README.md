@@ -45,6 +45,7 @@ Find the installation instructions in the [official documentation](https://www.p
 Alternaively, you can [run Percona Backup for MongoDB as a Docker container](https://hub.docker.com/r/percona/percona-backup-mongodb).
 
 ## Submit Bug Report / Feature Request
+
 If you find a bug in Percona Backup for MongoDB, you can submit a report to the project's [JIRA issue tracker](https://jira.percona.com/projects/PBM).
 
 As a general rule of thumb, please try to create bug reports that are:
@@ -53,6 +54,28 @@ As a general rule of thumb, please try to create bug reports that are:
 - Specific. Include as much detail as possible: which version, what environment, etc.
 - Unique. Do not duplicate existing tickets.
 - Scoped to a Single Bug. One bug per report.
+
+When submitting a bug report or a feature, please attach the following information:
+
+- The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/status.htm) command
+- The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/running.html#pbm-logs) command. Use the following filters:
+
+  .. code-block:: bash
+
+     $ pbm logs -x -s D -t 0
+
+  .. note::
+
+     When reporting an issue with a certain event or a node, you can use the following filters to receive a more specific data set:
+
+     .. code-block:: bash
+ 
+        #Logs per node
+        $ pbm logs -x -s D -t 0 -n replset/host:27017
+        #Logs per event
+        $ pbm logs -x -s D -t 0 -e restore/2020-10-06T11:45:14Z
+
+
 
 ## Licensing
 
