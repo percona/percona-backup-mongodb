@@ -37,9 +37,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 			t.PITRbasic()
 			printDone("Basic PITR & Restore " + stg.name)
 
-			printStart("Oplog Replay")
+			printStart("Oplog Replay " + stg.name)
 			t.OplogReplay()
-			printDone("Oplog Replay")
+			printDone("Oplog Replay " + stg.name)
 
 			t.SetBallastData(1e3)
 			flush(t)
@@ -67,9 +67,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.PITRbasic()
 	printDone("Basic PITR & Restore FS")
 
-	printStart("Oplog Replay")
+	printStart("Oplog Replay FS")
 	t.OplogReplay()
-	printDone("Oplog Replay")
+	printDone("Oplog Replay FS")
 
 	storage = "/etc/pbm/minio.yaml"
 
@@ -84,9 +84,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.PITRbasic()
 	printDone("Basic PITR & Restore Minio")
 
-	printStart("Oplog Replay")
+	printStart("Oplog Replay Minio")
 	t.OplogReplay()
-	printDone("Oplog Replay")
+	printDone("Oplog Replay Minio")
 
 	t.SetBallastData(1e3)
 	flush(t)
