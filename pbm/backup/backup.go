@@ -199,8 +199,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	oplog := NewOplog(b.node)
-	oplogTS, err := oplog.LastWrite()
+	oplogTS, err := b.node.OplogStartTime()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
 	}
@@ -284,6 +283,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
+	oplog := NewOplog(b.node)
 	lwts, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "get shard's last write ts")
