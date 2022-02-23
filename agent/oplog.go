@@ -10,7 +10,7 @@ import (
 
 // OplogReplay replays oplog between r.Start and r.End timestamps (wall time in UTC tz)
 func (a *Agent) OplogReplay(r pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdPITRestore),
+	l := a.log.NewEvent(string(pbm.CmdReplay),
 		fmt.Sprintf("%s-%s",
 			time.Unix(r.Start, 0).UTC().Format(time.RFC3339),
 			time.Unix(r.End, 0).UTC().Format(time.RFC3339)),

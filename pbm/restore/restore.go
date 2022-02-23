@@ -152,6 +152,11 @@ func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (e
 		return errors.Errorf("%q is not primary", r.nodeInfo.SetName)
 	}
 
+	r.shards, err = r.cn.ClusterMembers(nil)
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
 	if err := r.cn.SetOplogTimestamps(r.name, cmd.Start, cmd.End); err != nil {
 		return errors.Wrap(err, "set oplog timestamps")
 	}
@@ -172,15 +177,23 @@ func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (e
 		return errors.Wrap(err, "verify oplog slices chain")
 	}
 
-	if err = AddRestoreRSMeta(r.cn, r.name, r.nodeInfo.SetName); err != nil {
+	err = AddRestoreRSMeta(r.cn, r.name, r.nodeInfo.SetName)
+	if err != nil {
 		return err
 	}
 
-	if err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart); err != nil {
-		if errors.Is(err, errConvergeTimeOut) {
-			return errors.Wrap(err, "couldn't get response from all shards")
+	if r.nodeInfo.IsLeader() {
+		if err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart); err != nil {
+			if errors.Is(err, errConvergeTimeOut) {
+				return errors.Wrap(err, "couldn't get response from all shards")
+			}
+			return errors.Wrap(err, "check cluster for restore started")
 		}
-		return errors.Wrap(err, "check cluster for restore started")
+	}
+
+	err = r.waitForStatus(pbm.StatusRunning)
+	if err != nil {
+		return errors.Wrap(err, "waiting for start")
 	}
 
 	if err = r.RestoreChunks(); err != nil {
