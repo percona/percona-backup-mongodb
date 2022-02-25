@@ -5,8 +5,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"golang.org/x/mod/semver"
+
+	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
@@ -36,6 +37,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 			t.PITRbasic()
 			printDone("Basic PITR & Restore " + stg.name)
 
+			printStart("Oplog Replay " + stg.name)
+			t.OplogReplay()
+			printDone("Oplog Replay " + stg.name)
+
 			t.SetBallastData(1e3)
 			flush(t)
 
@@ -49,7 +54,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	storage := "/etc/pbm/fs.yaml"
 
-	t.ApplyConfig("/etc/pbm/fs.yaml")
+	t.ApplyConfig(storage)
 	flush(t)
 
 	t.SetBallastData(1e5)
@@ -61,6 +66,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printStart("Basic PITR & Restore FS")
 	t.PITRbasic()
 	printDone("Basic PITR & Restore FS")
+
+	printStart("Oplog Replay FS")
+	t.OplogReplay()
+	printDone("Oplog Replay FS")
 
 	storage = "/etc/pbm/minio.yaml"
 
@@ -74,6 +83,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printStart("Basic PITR & Restore Minio")
 	t.PITRbasic()
 	printDone("Basic PITR & Restore Minio")
+
+	printStart("Oplog Replay Minio")
+	t.OplogReplay()
+	printDone("Oplog Replay Minio")
 
 	t.SetBallastData(1e3)
 	flush(t)
@@ -144,6 +157,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 func printStart(name string) {
 	log.Printf("[START] ======== %s ========\n", name)
 }
+
 func printDone(name string) {
 	log.Printf("[DONE] ======== %s ========\n", name)
 }

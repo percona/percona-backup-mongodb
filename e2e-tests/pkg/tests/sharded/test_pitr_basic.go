@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -22,18 +23,13 @@ func (c *Cluster) PITRbasic() {
 
 	rand.Seed(time.Now().UnixNano())
 
-	type shrd struct {
-		name   string
-		cnt    *pcounter
-		cancel context.CancelFunc
-	}
-	counters := make(map[string]shrd)
+	counters := make(map[string]shardCounter)
 	for name, cn := range c.shards {
 		c.bcheckClear(name, cn)
 		pcc := newpcounter(name, cn)
 		ctx, cancel := context.WithCancel(context.TODO())
 		go pcc.write(ctx, time.Millisecond*10*time.Duration(rand.Int63n(49)+1))
-		counters[name] = shrd{
+		counters[name] = shardCounter{
 			cnt:    pcc,
 			cancel: cancel,
 		}
@@ -56,14 +52,7 @@ func (c *Cluster) PITRbasic() {
 	c.printBcpList()
 
 	log.Println("Get reference time")
-	var lastt primitive.Timestamp
-	for name, c := range counters {
-		cc := c.cnt.current()
-		log.Printf("\tshard %s: %d [%v] | %v", name, cc.WriteTime.T, time.Unix(int64(cc.WriteTime.T), 0), cc)
-		if cc.WriteTime.T > lastt.T {
-			lastt = cc.WriteTime
-		}
-	}
+	lastt := getLastWriteTime(counters)
 
 	ds = time.Second * 30 * time.Duration(rand.Int63n(5)+2)
 	log.Printf("Generating data for %v", ds)
@@ -93,6 +82,11 @@ func (c *Cluster) PITRbasic() {
 	for name, shard := range c.shards {
 		c.pitrcCheck(name, shard, &counters[name].cnt.data, lastt)
 	}
+}
+
+type shardCounter struct {
+	cnt    *pcounter
+	cancel context.CancelFunc
 }
 
 func (c *Cluster) pitrOn() {
@@ -184,7 +178,8 @@ func (c *Cluster) pitrcCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter,
 		// if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
 		if d.WriteTime.T <= bcpLastWrite.T {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n", name, i, d.Count, len(restored), lastc)
+				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n",
+					name, i, d.Count, len(restored), lastc)
 			}
 			r := restored[i]
 			if d.Count != r.Count {

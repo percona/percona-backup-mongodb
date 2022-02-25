@@ -76,13 +76,14 @@ type Restore struct {
 	// Only the restore leader would have this info.
 	shards []pbm.Shard
 
-	dumpFile   string
-	oplogFile  string
-	pitrChunks []pbm.PITRChunk
-	pitrLastTS int64
-	oplog      *Oplog
-	log        *log.Event
-	opid       string
+	dumpFile    string
+	oplogFile   string
+	pitrChunks  []pbm.PITRChunk
+	pitrStartTS int64
+	pitrLastTS  int64
+	oplog       *Oplog
+	log         *log.Event
+	opid        string
 }
 
 // New creates a new restore object
@@ -104,7 +105,7 @@ func (r *Restore) Close() {
 // Snapshot do the snapshot's (mongo dump) restore
 func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
-		if err != nil && !errors.Is(err, ErrNoDatForShard) {
+		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
 				l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -132,10 +133,80 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 	return r.Done()
 }
 
+func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
+	defer func() {
+		if err != nil {
+			if err2 := r.MarkFailed(err); err2 != nil {
+				l.Error("mark restore as failed `%v`: %v", err, err2)
+			}
+		}
+
+		r.Close()
+	}()
+
+	if err = r.init(cmd.Name, opid, l); err != nil {
+		return errors.Wrap(err, "init")
+	}
+
+	if !r.nodeInfo.IsPrimary {
+		return errors.Errorf("%q is not primary", r.nodeInfo.SetName)
+	}
+
+	r.shards, err = r.cn.ClusterMembers(nil)
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
+	if err := r.cn.SetOplogTimestamps(r.name, cmd.Start, cmd.End); err != nil {
+		return errors.Wrap(err, "set oplog timestamps")
+	}
+
+	startTS := primitive.Timestamp{T: uint32(cmd.Start)}
+	endTS := primitive.Timestamp{T: uint32(cmd.End)}
+
+	chunk, err := r.cn.PITRFindChunk(r.nodeInfo.SetName, startTS)
+	if err != nil {
+		return errors.Wrap(err, "find first chunk")
+	}
+	startTS = chunk.StartTS
+
+	r.pitrStartTS = int64(startTS.T)
+	r.pitrLastTS = int64(endTS.T)
+
+	if err = r.prepareChunks(startTS, endTS); err != nil {
+		return errors.Wrap(err, "verify oplog slices chain")
+	}
+
+	err = AddRestoreRSMeta(r.cn, r.name, r.nodeInfo.SetName)
+	if err != nil {
+		return err
+	}
+
+	if r.nodeInfo.IsLeader() {
+		if err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart); err != nil {
+			if errors.Is(err, errConvergeTimeOut) {
+				return errors.Wrap(err, "couldn't get response from all shards")
+			}
+			return errors.Wrap(err, "check cluster for restore started")
+		}
+	}
+
+	err = r.waitForStatus(pbm.StatusRunning)
+	if err != nil {
+		return errors.Wrap(err, "waiting for start")
+	}
+
+	if err = r.RestoreChunks(); err != nil {
+		return err
+	}
+
+	return r.Done()
+}
+
 // PITR do Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() {
-		if err != nil && !errors.Is(err, ErrNoDatForShard) {
+		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			ferr := r.MarkFailed(err)
 			if ferr != nil {
 				l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -263,7 +334,7 @@ func (r *Restore) PreparePITR(ts int64, bcp string) (err error) {
 
 	r.log.Info("snapshot %s", r.bcp.Name)
 
-	err = r.prepareChunks(pts)
+	err = r.prepareChunks(r.bcp.LastWriteTS, pts)
 	if err != nil {
 		return errors.Wrap(err, "verify oplog slices chain")
 	}
@@ -297,8 +368,8 @@ func (r *Restore) setBcp(bcp string, targetTS primitive.Timestamp) (err error) {
 
 // prepareChunks ensures integrity of oplog slices (timeline is contiguous - there are no gaps)
 // and chunks exists on the storage
-func (r *Restore) prepareChunks(target primitive.Timestamp) error {
-	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, r.bcp.LastWriteTS, target)
+func (r *Restore) prepareChunks(start, end primitive.Timestamp) error {
+	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, start, end)
 	if err != nil {
 		return errors.Wrap(err, "get chunks index")
 	}
@@ -307,11 +378,11 @@ func (r *Restore) prepareChunks(target primitive.Timestamp) error {
 		return errors.New("no chunks found")
 	}
 
-	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, target) == -1 {
+	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, end) == -1 {
 		return errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
 	}
 
-	last := r.bcp.LastWriteTS
+	last := start
 	for _, c := range chunks {
 		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
 			return errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
@@ -343,7 +414,7 @@ func (r *Restore) PrepareBackup(backupName string) (err error) {
 	return errors.Wrap(err, "prepare snapshot")
 }
 
-var ErrNoDatForShard = errors.New("no data for shard")
+var ErrNoDataForShard = errors.New("no data for shard")
 
 func (r *Restore) prepareSnapshot() (err error) {
 	if r.bcp == nil {
@@ -403,7 +474,7 @@ func (r *Restore) prepareSnapshot() (err error) {
 		if r.nodeInfo.IsLeader() {
 			return errors.New("no data for the config server or sole rs in backup")
 		}
-		return ErrNoDatForShard
+		return ErrNoDataForShard
 	}
 
 	_, err = r.stg.FileStat(r.dumpFile)
@@ -415,15 +486,18 @@ func (r *Restore) prepareSnapshot() (err error) {
 		return errors.Errorf("failed to ensure oplog file %s: %v", r.oplogFile, err)
 	}
 
+	return AddRestoreRSMeta(r.cn, r.name, r.nodeInfo.SetName)
+}
+
+func AddRestoreRSMeta(cn *pbm.PBM, name, nodeName string) error {
 	rsMeta := pbm.RestoreReplset{
-		Name:       r.nodeInfo.SetName,
+		Name:       nodeName,
 		StartTS:    time.Now().UTC().Unix(),
 		Status:     pbm.StatusRunning,
 		Conditions: []pbm.Condition{},
 	}
 
-	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)
-	if err != nil {
+	if err := cn.AddRestoreRSMeta(name, rsMeta); err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
@@ -605,13 +679,16 @@ func (r *Restore) RestoreChunks() error {
 
 	var lts primitive.Timestamp
 	var err error
-	for i, chnk := range r.pitrChunks {
+	for i, chunk := range r.pitrChunks {
+		if i == 0 {
+			r.oplog.SetStartUnix(r.pitrStartTS)
+		}
 		if i == len(r.pitrChunks)-1 {
 			r.oplog.SetEdgeUnix(r.pitrLastTS)
 		}
-		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
+		lts, err = r.replyChunk(chunk.FName, chunk.Compression)
 		if err != nil {
-			return errors.Errorf("replay chunk %v.%v: %v", chnk.StartTS.T, chnk.EndTS.T, err)
+			return errors.Errorf("replay chunk %v.%v: %v", chunk.StartTS.T, chunk.EndTS.T, err)
 		}
 	}
 

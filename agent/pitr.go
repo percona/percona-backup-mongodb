@@ -44,7 +44,7 @@ func (a *Agent) getPitr() *currentPitr {
 
 const pitrCheckPeriod = time.Second * 15
 
-// PITR starts PITR prcessing routine
+// PITR starts PITR processing routine
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
@@ -53,7 +53,7 @@ func (a *Agent) PITR() {
 
 		err := a.pitr()
 		if err != nil {
-			// wee need epoch just to log pitr err with an extra context
+			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
 			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
@@ -121,9 +121,9 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	// shoud be after the lock pre-check
+	// should be after the lock pre-check
 	//
-	// if node failing, then some other agent with healthy node will hopefully catchup
+	// if node failing, then some other agent with healthy node will hopefully catch up
 	// so this code won't be reached and will not pollute log with "pitr" errors while
 	// the other node does successfully slice
 	ninf, err := a.node.GetInfo()
@@ -260,7 +260,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 	if !got {
 		l.Debug("skip: lock not acquired")
-		l.Error("unbale to run the restore while another backup or restore process running")
+		l.Error("unable to run the restore while another backup or restore process running")
 		return
 	}
 
@@ -274,7 +274,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("recovery started")
 	err = restore.New(a.pbm, a.node).PITR(r, opid, l)
 	if err != nil {
-		if errors.Is(err, restore.ErrNoDatForShard) {
+		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")
 		} else {
 			l.Error("restore: %v", err)
