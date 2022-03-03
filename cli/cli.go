@@ -62,13 +62,16 @@ func Main() {
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backup := backupOpts{}
-	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 		Default(string(pbm.CompressionTypeS2)).
 		EnumVar(&backup.compression,
 			string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
+			string(pbm.CompressionTypeZstandard),
 		)
+	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
+		IntsVar(&backup.compressionLevel)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 
@@ -78,9 +81,17 @@ func Main() {
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 
+	oplogCmd := pbmCmd.Command("oplog", "Oplog operations")
+	replayCmd := oplogCmd.Command("replay", "Replay oplog")
+	replayOpts := replayOptions{}
+	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
+	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
+	// todo(add oplog cancel)
+
 	listCmd := pbmCmd.Command("list", "Backup list")
 	list := listOpts{}
 	listCmd.Flag("restore", "Show last N restores").Default("false").BoolVar(&list.restore)
+	listCmd.Flag("oplog-replay", "Show last N oplog replays").Default("false").BoolVar(&list.oplogReplay)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
 
@@ -154,6 +165,8 @@ func Main() {
 		out, err = cancelBcp(pbmClient)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(pbmClient, &restore, pbmOutF)
+	case replayCmd.FullCommand():
+		out, err = replayOplog(pbmClient, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(pbmClient, &list)
 	case deleteBcpCmd.FullCommand():
@@ -431,7 +444,6 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 				Event:    string(op),
 			},
 		}, 1)
-
 	if err != nil {
 		return "", errors.Wrap(err, "get log records")
 	}

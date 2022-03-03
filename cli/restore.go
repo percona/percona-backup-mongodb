@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -32,6 +33,19 @@ func (r restoreRet) String() string {
 	}
 
 	return ""
+}
+
+type replayOptions struct {
+	start string
+	end   string
+}
+
+type oplogReplayResult struct {
+	Name string `json:"name"`
+}
+
+func (r oplogReplayResult) String() string {
+	return fmt.Sprintf("Oplog replay %q has started", r.Name)
 }
 
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
@@ -96,26 +110,32 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) error {
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
-	var tst int64
-	var tsi int64
-
+func parseTS(t string) (ts primitive.Timestamp, err error) {
 	if si := strings.Index(t, ","); si != -1 {
-		tst, err = strconv.ParseInt(t[0:si], 10, 64)
+		tt, err := strconv.ParseInt(t[0:si], 10, 64)
 		if err != nil {
-			return errors.Wrap(err, "parse clusterTime T")
+			return ts, errors.Wrap(err, "parse clusterTime T")
 		}
-		tsi, err = strconv.ParseInt(t[si+1:], 10, 64)
+		ti, err := strconv.ParseInt(t[si+1:], 10, 64)
 		if err != nil {
-			return errors.Wrap(err, "parse clusterTime I")
+			return ts, errors.Wrap(err, "parse clusterTime I")
 		}
 
-	} else {
-		tsto, err := parseDateT(t)
-		if err != nil {
-			return errors.Wrap(err, "parse date")
-		}
-		tst = tsto.Unix()
+		return primitive.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
+	}
+
+	tsto, err := parseDateT(t)
+	if err != nil {
+		return ts, errors.Wrap(err, "parse date")
+	}
+
+	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
+}
+
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
+	ts, err := parseTS(t)
+	if err != nil {
+		return err
 	}
 
 	err = checkConcurrentOp(cn)
@@ -128,8 +148,8 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
 		Cmd: pbm.CmdPITRestore,
 		PITRestore: pbm.PITRestoreCmd{
 			Name: name,
-			TS:   tst,
-			I:    tsi,
+			TS:   int64(ts.T),
+			I:    int64(ts.I),
 			Bcp:  base,
 		},
 	})

@@ -44,7 +44,7 @@ func (a *Agent) getPitr() *currentPitr {
 
 const pitrCheckPeriod = time.Second * 15
 
-// PITR starts PITR prcessing routine
+// PITR starts PITR processing routine
 func (a *Agent) PITR() {
 	a.log.Printf("starting PITR routine")
 
@@ -53,7 +53,7 @@ func (a *Agent) PITR() {
 
 		err := a.pitr()
 		if err != nil {
-			// wee need epoch just to log pitr err with an extra context
+			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
 			ep, _ := a.pbm.GetEpoch()
 			a.log.Error(string(pbm.CmdPITR), "", "", ep.TS(), "init: %v", err)
@@ -121,9 +121,9 @@ func (a *Agent) pitr() (err error) {
 		return nil
 	}
 
-	// shoud be after the lock pre-check
+	// should be after the lock pre-check
 	//
-	// if node failing, then some other agent with healthy node will hopefully catchup
+	// if node failing, then some other agent with healthy node will hopefully catch up
 	// so this code won't be reached and will not pollute log with "pitr" errors while
 	// the other node does successfully slice
 	ninf, err := a.node.GetInfo()
@@ -153,7 +153,7 @@ func (a *Agent) pitr() (err error) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -183,7 +183,7 @@ func (a *Agent) pitr() (err error) {
 			w:      w,
 		})
 
-		streamErr := ibcp.Stream(ctx, w, pbm.CompressionTypeS2)
+		streamErr := ibcp.Stream(ctx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if streamErr != nil {
 			switch streamErr.(type) {
 			case pitr.ErrOpMoved:
@@ -226,7 +226,7 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 		return false, errors.Wrap(err, "get lock")
 	}
 
-	// stale lock means we should move on and clean it up during the lock.Aquire
+	// stale lock means we should move on and clean it up during the lock.Acquire
 	return tl.Heartbeat.T+pbm.StaleFrameSec < ts.T, nil
 }
 
@@ -253,14 +253,14 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
 	}
 	if !got {
 		l.Debug("skip: lock not acquired")
-		l.Error("unbale to run the restore while another backup or restore process running")
+		l.Error("unable to run the restore while another backup or restore process running")
 		return
 	}
 
@@ -274,7 +274,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("recovery started")
 	err = restore.New(a.pbm, a.node).PITR(r, opid, l)
 	if err != nil {
-		if errors.Is(err, restore.ErrNoDatForShard) {
+		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")
 		} else {
 			l.Error("restore: %v", err)

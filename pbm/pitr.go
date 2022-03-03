@@ -108,7 +108,11 @@ func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]Opl
 		q = bson.D{{"rs", rs}}
 	}
 	if to.T > 0 {
-		q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
+		// q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
+		q = append(q, bson.D{
+			{"start_ts", bson.M{"$lte": to}},
+			{"end_ts", bson.M{"$gte": from}},
+		}...)
 	}
 
 	return p.pitrGetChunksSlice(rs, q)
@@ -132,7 +136,6 @@ func (p *PBM) pitrGetChunksSlice(rs string, q bson.D) ([]OplogChunk, error) {
 		q,
 		options.Find().SetSort(bson.D{{"start_ts", 1}}),
 	)
-
 	if err != nil {
 		return nil, errors.Wrap(err, "get cursor")
 	}

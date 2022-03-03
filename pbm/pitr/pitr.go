@@ -50,12 +50,11 @@ func (s *Slicer) SetSpan(d time.Duration) {
 	atomic.StoreInt64(&s.span, int64(d))
 }
 
-// SetSpan sets span duration. Streaming will recognise the change and adjust on the next iteration.
 func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
-// Catchup seeks for the last saved (backuped) TS - the starting point. It should be run only
+// Catchup seeks for the last saved (backed up) TS - the starting point. It should be run only
 // if the timeline was lost (e.g. on (re)start, restart after backup, node's fail).
 // The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
 // If there is a chunk behind the last backup it will try to fill the gaps from the chunk to the starting point.
@@ -128,7 +127,12 @@ func (s *Slicer) Catchup() error {
 			return nil
 		}
 
-		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, chnk.Compression)
+		cfg, err := s.pbm.GetConfig()
+		if err != nil {
+			return errors.Wrap(err, "get config")
+		}
+
+		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if err != nil {
 			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
 			// duplicate key means chunk is already created by probably another routine
@@ -198,7 +202,7 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType) error {
+func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType, level *int) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -320,7 +324,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 			}
 		}
 
-		err = s.upload(s.lastTS, sliceTo, compression)
+		err = s.upload(s.lastTS, sliceTo, compression, level)
 		if err != nil {
 			return err
 		}
@@ -345,11 +349,11 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 	}
 }
 
-func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType) error {
+func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType, level *int) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, fname, -1)
+	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, level, fname, -1)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
@@ -451,6 +455,8 @@ func csuffix(c pbm.CompressionType) string {
 		return ".lz4"
 	case pbm.CompressionTypeSNAPPY, pbm.CompressionTypeS2:
 		return ".snappy"
+	case pbm.CompressionTypeZstandard:
+		return ".zst"
 	default:
 		return ""
 	}

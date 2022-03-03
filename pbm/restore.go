@@ -15,6 +15,7 @@ type RestoreMeta struct {
 	OPID             string              `bson:"opid" json:"opid"`
 	Name             string              `bson:"name" json:"name"`
 	Backup           string              `bson:"backup" json:"backup"`
+	StartPITR        int64               `bson:"start_pitr" json:"start_pitr"`
 	PITR             int64               `bson:"pitr" json:"pitr"`
 	Replsets         []RestoreReplset    `bson:"replsets" json:"replsets"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
@@ -197,13 +198,11 @@ func (p *PBM) SetRestoreBackup(name, backupName string) error {
 	return err
 }
 
-func (p *PBM) SetRestorePITR(name string, ts int64) error {
+func (p *PBM) SetOplogTimestamps(name string, start, end int64) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
-		bson.D{{"name", name}},
-		bson.D{
-			{"$set", bson.M{"pitr": ts}},
-		},
+		bson.M{"name": name},
+		bson.M{"$set": bson.M{"start_pitr": start, "pitr": end}},
 	)
 
 	return err

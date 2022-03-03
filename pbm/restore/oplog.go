@@ -57,7 +57,8 @@ type Oplog struct {
 	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
-	lastTS            primitive.Timestamp
+	startTS           primitive.Timestamp
+	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	m                 *ns.Matcher
 
@@ -100,16 +101,13 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool, ctxn chan 
 	}, nil
 }
 
-// SetEdge sets the edge time for the replayed operations
-// E.g. all operation that happened afterthe given timestamp going to be discarded
-func (o *Oplog) SetEdge(ts primitive.Timestamp) {
-	o.lastTS = ts
-}
-
-// SetEdgeUnix sets the edge time for the replayed operations
-// E.g. all operation that happened afterthe given timestamp going to be discarded
-func (o *Oplog) SetEdgeUnix(ts int64) {
-	o.SetEdge(primitive.Timestamp{T: uint32(ts), I: 0})
+// SetTimeframe sets boundaries for the replayed operations. All operations
+// that happened before `start` and after `end` are going to be discarded.
+// Zero `end` (primitive.Timestamp{T:0}) means all chunks will be replayed
+// utill the end (no tail trim).
+func (o *Oplog) SetTimeframe(start, end primitive.Timestamp) {
+	o.startTS = start
+	o.endTS = end
 }
 
 // Apply applys an oplog from a given source
@@ -131,8 +129,13 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 			return lts, errors.Wrap(err, "reading oplog")
 		}
 
-		// finish if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-		if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
+		// skip if operation happened before the desired time frame
+		if primitive.CompareTimestamp(o.startTS, oe.Timestamp) == 1 {
+			continue
+		}
+
+		// finish if operation happened after the desired time frame (oe.Timestamp > to)
+		if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -155,7 +158,7 @@ func (o *Oplog) LastOpTS() uint32 {
 
 func (o *Oplog) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
+	if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
 		return nil
 	}
 

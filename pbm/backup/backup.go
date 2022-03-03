@@ -93,10 +93,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "get cluster info")
 	}
 
-	rsName := inf.SetName
-
 	rsMeta := pbm.BackupReplset{
-		Name:         rsName,
+		Name:         inf.SetName,
 		OplogName:    getDstName("oplog", bcp, inf.SetName),
 		DumpName:     getDstName("dump", bcp, inf.SetName),
 		StartTS:      time.Now().UTC().Unix(),
@@ -115,7 +113,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "balancer status, get backup meta")
 	}
 
-	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
+	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked appropriately
 	defer func() {
 		if err != nil {
 			status := pbm.StatusError
@@ -150,9 +148,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			return
 		}
 
-		errd := b.cn.SetBalancerStatus(pbm.BalancerModeOn)
-		if errd != nil {
-			l.Error("set balancer ON: %v", errd)
+		if err := b.cn.SetBalancerStatus(pbm.BalancerModeOn); err != nil {
+			l.Error("set balancer ON: %v", err)
 			return
 		}
 		l.Debug("set balancer on")
@@ -262,8 +259,8 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "mongodump")
 	}
 	// if backup wouldn't be compressed we're assuming
-	// that the dump size could be up to 4x lagrer due to
-	// mongo's wieredtiger compression
+	// that the dump size could be up to 4x larger due to
+	// mongodb wiredtiger compression
 	if bcp.Compression == pbm.CompressionTypeNone {
 		sz *= 4
 	}
@@ -272,7 +269,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	if err != nil {
 		return errors.Wrap(err, "init mongodump options")
 	}
-	_, err = Upload(ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
+	_, err = Upload(ctx, dump, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -319,7 +316,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
 	oplog.SetTailingSpan(fwTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	_, err = Upload(ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
+	_, err = Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
@@ -423,6 +420,7 @@ func (rwe rwErr) Error() string {
 
 	return r
 }
+
 func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
@@ -435,22 +433,25 @@ type Source interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string, sizeb int) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, level *int, fname string, sizeb int) (int64, error) {
 	r, pw := io.Pipe()
 
-	w := Compress(pw, compression)
+	w, err := Compress(pw, compression, level)
+	if err != nil {
+		return 0, err
+	}
 
-	var err rwErr
+	var rwErr rwErr
 	var n int64
 	go func() {
-		n, err.read = src.WriteTo(w)
-		err.compress = w.Close()
+		n, rwErr.read = src.WriteTo(w)
+		rwErr.compress = w.Close()
 		pw.Close()
 	}()
 
 	saveDone := make(chan struct{})
 	go func() {
-		err.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(fname, r, sizeb)
 		saveDone <- struct{}{}
 	}()
 
@@ -466,8 +467,8 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	r.Close()
 
-	if !err.nil() {
-		return 0, err
+	if !rwErr.nil() {
+		return 0, rwErr
 	}
 
 	return n, nil
@@ -802,6 +803,8 @@ func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
 		name += ".snappy"
 	case pbm.CompressionTypeS2:
 		name += ".s2"
+	case pbm.CompressionTypeZstandard:
+		name += ".zst"
 	}
 
 	return name

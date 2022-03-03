@@ -11,8 +11,9 @@ import (
 
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type Ctl struct {
@@ -209,11 +210,19 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 	}
 }
 
-func (c *Ctl) CheckPITRestore(t time.Time, waitFor time.Duration) error {
-	tstr := t.Format("2006-01-02T15:04:05Z")
+func (c *Ctl) CheckPITRestore(t time.Time, timeout time.Duration) error {
+	rinlist := "PITR: " + t.Format("2006-01-02T15:04:05Z")
+	return c.waitForRestore(rinlist, timeout)
+}
 
-	rinlist := "PITR: " + tstr
+func (c *Ctl) CheckOplogReplay(a, b time.Time, timeout time.Duration) error {
+	rinlist := fmt.Sprintf("Oplog Replay: %v - %v",
+		a.UTC().Format(time.RFC3339),
+		b.UTC().Format(time.RFC3339))
+	return c.waitForRestore(rinlist, timeout)
+}
 
+func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 	tmr := time.NewTimer(waitFor)
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
@@ -247,6 +256,13 @@ func (c *Ctl) CheckPITRestore(t time.Time, waitFor time.Duration) error {
 
 func (c *Ctl) Restore(bcpName string) error {
 	_, err := c.RunCmd("pbm", "restore", bcpName)
+	return err
+}
+
+func (c *Ctl) ReplayOplog(a, b time.Time) error {
+	_, err := c.RunCmd("pbm", "oplog", "replay",
+		"--start", a.Format("2006-01-02T15:04:05"),
+		"--end", b.Format("2006-01-02T15:04:05"))
 	return err
 }
 

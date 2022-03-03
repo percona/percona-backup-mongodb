@@ -102,7 +102,7 @@ func (r *Restore) Close() {
 }
 
 func (r *Restore) exit(err error, l *log.Event) {
-	if err != nil && !errors.Is(err, ErrNoDatForShard) {
+	if err != nil && !errors.Is(err, ErrNoDataForShard) {
 		ferr := r.MarkFailed(err)
 		if ferr != nil {
 			l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -136,7 +136,17 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
 	err = r.RunSnapshot(dump, bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusDumpDone, nil)
 	if err != nil {
 		return err
 	}
@@ -147,7 +157,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, nil)
+	}}, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -166,7 +176,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 
 	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
 	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetRestorePITR(r.name, int64(tsTo.T))
+		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
 		if err != nil {
 			return errors.Wrap(err, "set PITR timestamp")
 		}
@@ -206,7 +216,17 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		return err
 	}
 
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
 	err = r.RunSnapshot(dump, bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusDumpDone, nil)
 	if err != nil {
 		return err
 	}
@@ -219,7 +239,48 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &tsTo)
+	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo)
+	if err != nil {
+		return err
+	}
+
+	return r.Done()
+}
+
+func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
+	defer r.exit(err, l)
+
+	if err = r.init(cmd.Name, opid, l); err != nil {
+		return errors.Wrap(err, "init")
+	}
+
+	if !r.nodeInfo.IsPrimary {
+		return errors.Errorf("%q is not primary", r.nodeInfo.SetName)
+	}
+
+	r.shards, err = r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
+	if r.nodeInfo.IsLeader() {
+		err := r.cn.SetOplogTimestamps(r.name, int64(cmd.Start.T), int64(cmd.End.T))
+		if err != nil {
+			return errors.Wrap(err, "set oplog timestamps")
+		}
+	}
+
+	chunks, err := r.chunks(cmd.Start, cmd.End)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	err = r.applyOplog(chunks, &cmd.Start, &cmd.End)
 	if err != nil {
 		return err
 	}
@@ -382,7 +443,7 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 	return nil
 }
 
-var ErrNoDatForShard = errors.New("no data for shard")
+var ErrNoDataForShard = errors.New("no data for shard")
 
 func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err error) {
 	var ok bool
@@ -398,7 +459,7 @@ func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err 
 		if r.nodeInfo.IsLeader() {
 			return "", "", errors.New("no data for the config server or sole rs in backup")
 		}
-		return "", "", ErrNoDatForShard
+		return "", "", ErrNoDataForShard
 	}
 
 	_, err = r.stg.FileStat(dump)
@@ -469,11 +530,6 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 		return err
 	}
 
-	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
-	if err != nil {
-		return err
-	}
-
 	sr, err := r.stg.SourceReader(dump)
 	if err != nil {
 		return errors.Wrapf(err, "get object %s for the storage", dump)
@@ -490,11 +546,6 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 	err = r.snapshot(dumpReader)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
-	}
-
-	err = r.toState(pbm.StatusDumpDone, nil)
-	if err != nil {
-		return err
 	}
 
 	r.log.Info("restoring users and roles")
@@ -582,7 +633,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 // any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
 // instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
 // sharded clusters even if there are no dist txns at all.
-func (r *Restore) applyOplog(chunks []pbm.OplogChunk, end *primitive.Timestamp) error {
+func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Timestamp) error {
 	r.log.Info("starting oplog replay")
 	var err error
 
@@ -605,6 +656,15 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, end *primitive.Timestamp) 
 		return errors.Wrap(err, "create oplog")
 	}
 
+	var startTS, endTS primitive.Timestamp
+	if start != nil {
+		startTS = *start
+	}
+	if end != nil {
+		endTS = *end
+	}
+	r.oplog.SetTimeframe(startTS, endTS)
+
 	var waitTxnErr error
 	if r.nodeInfo.IsSharded() {
 		r.log.Debug("starting sharded txn sync")
@@ -618,11 +678,8 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, end *primitive.Timestamp) 
 	}
 
 	var lts primitive.Timestamp
-	for i, chnk := range chunks {
+	for _, chnk := range chunks {
 		r.log.Debug("+ applying %v", chnk)
-		if i == len(chunks)-1 && end != nil {
-			r.oplog.SetEdge(*end)
-		}
 
 		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
 		if err != nil {

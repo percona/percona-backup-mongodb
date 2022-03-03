@@ -43,11 +43,11 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
-	//PITRChunksCollection contains index metadata of PITR chunks
+	// PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
-	//PITRChunksOldCollection contains archived index metadata of PITR chunks
+	// PITRChunksOldCollection contains archived index metadata of PITR chunks
 	PITRChunksOldCollection = "pbmPITRChunks.old"
-	// PBMOpLogCollection contains log of aquired locks (hence run ops)
+	// PBMOpLogCollection contains log of acquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
 	// AgentsStatusCollection is an agents registry with its status/health checks
 	AgentsStatusCollection = "pbmAgents"
@@ -66,6 +66,7 @@ const (
 	CmdUndefined        Command = ""
 	CmdBackup           Command = "backup"
 	CmdRestore          Command = "restore"
+	CmdReplay           Command = "replay"
 	CmdCancelBackup     Command = "cancelBackup"
 	CmdResyncBackupList Command = "resyncBcpList"
 	CmdPITR             Command = "pitr"
@@ -80,8 +81,10 @@ func (c Command) String() string {
 		return "Snapshot backup"
 	case CmdRestore:
 		return "Snapshot restore"
+	case CmdReplay:
+		return "Oplog replay"
 	case CmdCancelBackup:
-		return "Backup cancelation"
+		return "Backup cancellation"
 	case CmdResyncBackupList:
 		return "Resync storage"
 	case CmdPITR:
@@ -103,6 +106,7 @@ type Cmd struct {
 	Cmd        Command         `bson:"cmd"`
 	Backup     BackupCmd       `bson:"backup,omitempty"`
 	Restore    RestoreCmd      `bson:"restore,omitempty"`
+	Replay     ReplayCmd       `bson:"replay,omitempty"`
 	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
 	DeletePITR DeletePITRCmd   `bson:"deletePitr,omitempty"`
@@ -153,12 +157,19 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
-	Name        string          `bson:"name"`
-	Compression CompressionType `bson:"compression"`
+	Name             string          `bson:"name"`
+	Compression      CompressionType `bson:"compression"`
+	CompressionLevel *int            `bson:"level,omitempty"`
 }
 
 func (b BackupCmd) String() string {
-	return fmt.Sprintf("name: %s, compression: %s", b.Name, b.Compression)
+	var level string
+	if b.CompressionLevel == nil {
+		level = "default"
+	} else {
+		level = strconv.Itoa(*b.CompressionLevel)
+	}
+	return fmt.Sprintf("name: %s, compression: %s (level: %s)", b.Name, b.Compression, level)
 }
 
 type RestoreCmd struct {
@@ -168,6 +179,16 @@ type RestoreCmd struct {
 
 func (r RestoreCmd) String() string {
 	return fmt.Sprintf("name: %s, backup name: %s", r.Name, r.BackupName)
+}
+
+type ReplayCmd struct {
+	Name  string              `bson:"name"`
+	Start primitive.Timestamp `bson:"start,omitempty"`
+	End   primitive.Timestamp `bson:"end,omitempty"`
+}
+
+func (c ReplayCmd) String() string {
+	return fmt.Sprintf("name: %s, time: %d - %d", c.Name, c.Start, c.End)
 }
 
 type PITRestoreCmd struct {
@@ -200,12 +221,13 @@ func (d DeleteBackupCmd) String() string {
 type CompressionType string
 
 const (
-	CompressionTypeNone   CompressionType = "none"
-	CompressionTypeGZIP   CompressionType = "gzip"
-	CompressionTypePGZIP  CompressionType = "pgzip"
-	CompressionTypeSNAPPY CompressionType = "snappy"
-	CompressionTypeLZ4    CompressionType = "lz4"
-	CompressionTypeS2     CompressionType = "s2"
+	CompressionTypeNone      CompressionType = "none"
+	CompressionTypeGZIP      CompressionType = "gzip"
+	CompressionTypePGZIP     CompressionType = "pgzip"
+	CompressionTypeSNAPPY    CompressionType = "snappy"
+	CompressionTypeLZ4       CompressionType = "lz4"
+	CompressionTypeS2        CompressionType = "s2"
+	CompressionTypeZstandard CompressionType = "zstd"
 )
 
 const (
@@ -526,9 +548,11 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 func (p *PBM) ChangeBackupStateOPID(opid string, s Status, msg string) error {
 	return p.changeBackupState(bson.D{{"opid", opid}}, s, msg)
 }
+
 func (p *PBM) ChangeBackupState(bcpName string, s Status, msg string) error {
 	return p.changeBackupState(bson.D{{"name", bcpName}}, s, msg)
 }
+
 func (p *PBM) changeBackupState(clause bson.D, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(

@@ -1,8 +1,10 @@
 package s3
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -45,6 +47,51 @@ type Conf struct {
 	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+
+	// InsecureSkipTLSVerify disables client verification of the server's
+	// certificate chain and host name
+	InsecureSkipTLSVerify bool `bson:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify" yaml:"insecureSkipTLSVerify"`
+
+	// DebugLogLevels enables AWS SDK debug logging (sub)levels. Available options:
+	// LogDebug, Signing, HTTPBody, RequestRetries, RequestErrors, EventStreamBody
+	//
+	// Any sub levels will enable LogDebug level accordingly to AWS SDK Go module behavior
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
+	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
+}
+
+type SDKDebugLogLevel string
+
+const (
+	LogDebug        SDKDebugLogLevel = "LogDebug"
+	Signing         SDKDebugLogLevel = "Signing"
+	HTTPBody        SDKDebugLogLevel = "HTTPBody"
+	RequestRetries  SDKDebugLogLevel = "RequestRetries"
+	RequestErrors   SDKDebugLogLevel = "RequestErrors"
+	EventStreamBody SDKDebugLogLevel = "EventStreamBody"
+)
+
+// SDKLogLevel returns the appropriate AWS SDK debug logging level. If the level
+// is not recognized, returns aws.LogLevelType(0)
+func (l SDKDebugLogLevel) SDKLogLevel() aws.LogLevelType {
+	switch l {
+	case LogDebug:
+		return aws.LogDebug
+	case Signing:
+		return aws.LogDebugWithSigning
+	case HTTPBody:
+		return aws.LogDebugWithHTTPBody
+	case RequestRetries:
+		return aws.LogDebugWithRequestRetries
+	case RequestErrors:
+		return aws.LogDebugWithRequestErrors
+	case EventStreamBody:
+		return aws.LogDebugWithEventStreamBody
+	}
+
+	return aws.LogLevelType(0)
 }
 
 type AWSsse struct {
@@ -68,8 +115,49 @@ func (c *Conf) Cast() error {
 			}
 		}
 	}
+	if c.MaxUploadParts <= 0 {
+		c.MaxUploadParts = s3manager.MaxUploadParts
+	}
+	if c.StorageClass == "" {
+		c.StorageClass = s3.StorageClassStandard
+	}
 
 	return nil
+}
+
+// SDKLogLevel returns AWS SDK log level value from comma-separated
+// SDKDebugLogLevel values string. If the string does not contain a valid value,
+// returns aws.LogOff.
+//
+// If the string is incorrect formatted, prints warnings to the io.Writer.
+// Passing nil as the io.Writer will discard any warnings.
+func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
+	if out == nil {
+		out = ioutil.Discard
+	}
+
+	var logLevel aws.LogLevelType
+
+	for _, lvl := range strings.Split(levels, ",") {
+		lvl = strings.TrimSpace(lvl)
+		if lvl == "" {
+			continue
+		}
+
+		l := SDKDebugLogLevel(lvl).SDKLogLevel()
+		if l == 0 {
+			fmt.Fprintf(out, "Warning: S3 client debug log level: unsupported %q\n", lvl)
+			continue
+		}
+
+		logLevel |= l
+	}
+
+	if logLevel == 0 {
+		logLevel = aws.LogOff
+	}
+
+	return logLevel
 }
 
 type Credentials struct {
@@ -130,9 +218,10 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		}
 
 		uplInput := &s3manager.UploadInput{
-			Bucket: aws.String(s.opts.Bucket),
-			Key:    aws.String(path.Join(s.opts.Prefix, name)),
-			Body:   data,
+			Bucket:       aws.String(s.opts.Bucket),
+			Key:          aws.String(path.Join(s.opts.Prefix, name)),
+			Body:         data,
+			StorageClass: &s.opts.StorageClass,
 		}
 
 		sse := s.opts.ServerSideEncryption
@@ -158,7 +247,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			partSize = s.opts.UploadPartSize
 		}
 		if sizeb > 0 {
-			ps := sizeb / s3manager.MaxUploadParts * 9 / 10 // shed 10% just in case
+			ps := sizeb / s.opts.MaxUploadParts * 9 / 10 // shed 10% just in case
 			if ps > partSize {
 				partSize = ps
 			}
@@ -166,10 +255,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 
 		if s.log != nil {
 			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
+			s.log.Info("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
 		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-			u.MaxUploadParts = s3manager.MaxUploadParts
+			u.MaxUploadParts = s.opts.MaxUploadParts
 			u.PartSize = int64(partSize) // 10MB part size
 			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
@@ -182,7 +272,9 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{})
+		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{
+			StorageClass: s.opts.StorageClass,
+		})
 		return errors.Wrap(err, "upload to GCS")
 	}
 }
@@ -224,7 +316,6 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 			}
 			return true
 		})
-
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup list")
 	}
@@ -322,7 +413,6 @@ func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
 		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
 	})
-
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
@@ -453,7 +543,6 @@ func (s *S3) Delete(name string) error {
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
-
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -494,10 +583,41 @@ func (s *S3) session() (*session.Session, error) {
 		Client: ec2metadata.New(session.New()),
 	})
 
+	httpClient := http.DefaultClient
+	if s.opts.InsecureSkipTLSVerify {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
+
 	return session.NewSession(&aws.Config{
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
 		Credentials:      credentials.NewChainCredentials(providers),
 		S3ForcePathStyle: aws.Bool(true),
+		HTTPClient:       httpClient,
+		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
+		Logger:           awsLogger(s.log),
+	})
+}
+
+func awsLogger(l *log.Event) aws.Logger {
+	if l == nil {
+		return aws.NewDefaultLogger()
+	}
+
+	return aws.LoggerFunc(func(xs ...interface{}) {
+		if len(xs) == 0 {
+			return
+		}
+
+		msg := "%v"
+		for i := len(xs) - 1; i != 0; i++ {
+			msg += " %v"
+		}
+
+		l.Debug(msg, xs...)
 	})
 }

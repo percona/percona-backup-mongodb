@@ -74,6 +74,8 @@ func (a *Agent) Start() error {
 				a.CancelBackup()
 			case pbm.CmdRestore:
 				a.Restore(cmd.Restore, cmd.OPID, ep)
+			case pbm.CmdReplay:
+				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResyncBackupList:
 				a.ResyncStorage(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
@@ -125,7 +127,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -192,7 +194,7 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -251,7 +253,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -285,26 +287,26 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	l.Debug("epoch set to %v", epch)
 }
 
-type lockAquireFn func() (bool, error)
+type lockAcquireFn func() (bool, error)
 
-// aquireLock tries to aquire the lock. If there is a stale lock
+// acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got bool, err error) {
-	if aquire == nil {
-		aquire = l.Acquire
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquire lockAcquireFn) (got bool, err error) {
+	if acquire == nil {
+		acquire = l.Acquire
 	}
 
-	got, err = aquire()
+	got, err = acquire()
 	if err == nil {
 		return got, nil
 	}
 
-	switch err.(type) {
+	switch err := err.(type) {
 	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
 		lg.Debug("get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
-		lk := err.(pbm.ErrWasStaleLock).Lock
+		lk := err.Lock
 		lg.Debug("stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
@@ -313,13 +315,13 @@ func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got
 		case pbm.CmdRestore, pbm.CmdPITRestore:
 			fn = a.pbm.MarkRestoreStale
 		default:
-			return aquire()
+			return acquire()
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
 			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
-		return aquire()
+		return acquire()
 	default:
 		return false, err
 	}
@@ -331,7 +333,12 @@ func (a *Agent) HbStatus() {
 		RS:   a.node.RS(),
 		Ver:  version.DefaultInfo.Version,
 	}
-	defer a.pbm.RmAgentStatus(hb)
+	defer func() {
+		if err := a.pbm.RmAgentStatus(hb); err != nil {
+			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
+			logger.Error("remove agent heartbeat: %s", err.Error())
+		}
+	}()
 
 	tk := time.NewTicker(pbm.AgentsStatCheckRange)
 	defer tk.Stop()
@@ -413,7 +420,6 @@ func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
 }
 
 func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
-
 	sts.OK = false
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)

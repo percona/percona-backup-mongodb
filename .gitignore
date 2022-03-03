@@ -2,6 +2,7 @@
 *.upx
 .env
 .vscode
+.idea/
 test-out
 /dist
 /bin
