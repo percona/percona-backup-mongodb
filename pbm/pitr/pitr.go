@@ -62,6 +62,15 @@ func (s *Slicer) GetSpan() time.Duration {
 // the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
 	s.l.Debug("start_catchup")
+	cfg, err := s.pbm.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+
+	if cfg.PITR.Unchecked {
+		return s.UncheckedCatchup()
+	}
+
 	baseBcp, err := s.pbm.GetLastBackup(nil)
 	if errors.Is(err, pbm.ErrNotFound) {
 		return errors.New("no backup found, a new backup is required to start PITR")
@@ -127,11 +136,6 @@ func (s *Slicer) Catchup() error {
 			return nil
 		}
 
-		cfg, err := s.pbm.GetConfig()
-		if err != nil {
-			return errors.Wrap(err, "get config")
-		}
-
 		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if err != nil {
 			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
@@ -151,6 +155,36 @@ func (s *Slicer) Catchup() error {
 	} else {
 		s.l.Info("copied chunk %s - %s", formatts(baseBcp.FirstWriteTS), formatts(baseBcp.LastWriteTS))
 	}
+
+	return nil
+}
+
+func (s *Slicer) UncheckedCatchup() (err error) {
+	s.l.Debug("unchecked catchup")
+
+	defer func() {
+		if err == nil {
+			s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
+		}
+	}()
+
+	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
+	if err != nil {
+		return errors.Wrap(err, "get last slice")
+	}
+
+	if chnk != nil {
+		s.lastTS = chnk.EndTS
+
+		return nil
+	}
+
+	ts, err := s.pbm.ClusterTime()
+	if err != nil {
+		return err
+	}
+
+	s.lastTS = ts
 
 	return nil
 }

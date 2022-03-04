@@ -61,6 +61,7 @@ func (c Config) String() string {
 type PITRConf struct {
 	Enabled          bool            `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64         `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Unchecked        bool            `bson:"unchecked" json:"unchecked" yaml:"unchecked"`
 	Compression      CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int            `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
