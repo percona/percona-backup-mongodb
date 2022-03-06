@@ -154,6 +154,7 @@ func Main() {
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
+	pbmClient.InitLogger("", "")
 
 	switch cmd {
 	case configCmd.FullCommand():

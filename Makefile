@@ -1,6 +1,6 @@
 .PHONY: build-pbm build-agent build install install-pbm install-agent test
 
-GOOS?=linux
+GOOS?=$(shell go env GOOS)
 GOMOD?=on
 CGO_ENABLED?=0
 GITCOMMIT?=$(shell git rev-parse HEAD 2>/dev/null)

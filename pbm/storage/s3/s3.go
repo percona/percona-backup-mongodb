@@ -15,9 +15,11 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -60,6 +62,24 @@ type Conf struct {
 	// Any sub levels will enable LogDebug level accordingly to AWS SDK Go module behavior
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
 	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
+
+	// Retryer is configuration for client.DefaultRetryer
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer
+	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
+}
+
+type Retryer struct {
+	// Num max Retries is the number of max retries that will be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.NumMaxRetries
+	NumMaxRetries int `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
+
+	// MinRetryDelay is the minimum retry delay after which retry will be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MinRetryDelay
+	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
+
+	// MaxRetryDelay is the maximum retry delay before which retry must be performed.
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MaxRetryDelay
+	MaxRetryDelay time.Duration `bson:"maxRetryDelay" json:"maxRetryDelay" yaml:"maxRetryDelay"`
 }
 
 type SDKDebugLogLevel string
@@ -120,6 +140,15 @@ func (c *Conf) Cast() error {
 	}
 	if c.StorageClass == "" {
 		c.StorageClass = s3.StorageClassStandard
+	}
+
+	if c.Retryer != nil {
+		if c.Retryer.MinRetryDelay == 0 {
+			c.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+		}
+		if c.Retryer.MaxRetryDelay == 0 {
+			c.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+		}
 	}
 
 	return nil
@@ -263,6 +292,16 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 			u.PartSize = int64(partSize) // 10MB part size
 			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
+
+			u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {
+				if s.opts.Retryer != nil {
+					r.Retryer = client.DefaultRetryer{
+						NumMaxRetries: s.opts.Retryer.NumMaxRetries,
+						MinRetryDelay: s.opts.Retryer.MinRetryDelay,
+						MaxRetryDelay: s.opts.Retryer.MaxRetryDelay,
+					}
+				}
+			})
 		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
