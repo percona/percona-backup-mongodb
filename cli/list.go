@@ -8,7 +8,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/version"
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type listOpts struct {
@@ -266,21 +265,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		sh[s.RS] = struct{}{}
 	}
 
-	var buf []string
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if errors.Is(err, pbm.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
-		}
-		buf = buf[:0]
-		bcpMatchCluster(bcp, sh, inf.SetName, &buf)
-
-		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-			continue
-		}
 		tl.Start++
 		ranges = append(ranges, pitrRange{Range: tl})
 	}
