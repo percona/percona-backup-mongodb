@@ -80,7 +80,8 @@ func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err e
 func status(cn *pbm.PBM, curi string, showSection *[]string, pretty bool) (fmt.Stringer, error) {
 	out := statusOut{
 		data: []*statusSect{
-			{"cluster", "Cluster", nil,
+			{
+				"cluster", "Cluster", nil,
 				func(cn *pbm.PBM) (fmt.Stringer, error) {
 					return clusterStatus(cn, curi)
 				},
@@ -457,7 +458,7 @@ type pitrRanges struct {
 
 func (s storageStat) String() string {
 	ret := fmt.Sprintf("%s %s %s\n", s.Type, s.Region, s.Path)
-	if len(s.Snapshot) == 0 {
+	if len(s.Snapshot) == 0 && len(s.PITR.Ranges) == 0 {
 		return ret + "  (none)"
 	}
 
@@ -636,16 +637,6 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 		rng.Range.Start = tl.Start + 1
 		rng.Range.End = tl.End
 
-		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if err != nil && errors.Is(err, pbm.ErrNotFound) {
-			log.Printf("ERROR: get backup for timeline: %s", tl)
-			continue
-		}
-		if errors.Is(err, pbm.ErrNotFound) {
-			rng.Err = "no backup found"
-		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
-		}
 		pr = append(pr, rng)
 	}
 
