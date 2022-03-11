@@ -55,6 +55,6 @@ func (c *Cluster) LeaderLag() {
 		log.Fatalln("Error: resync backup lists:", err)
 	}
 
-	c.Restore(bcpName)
+	c.LogicalRestore(bcpName)
 	checkData()
 }

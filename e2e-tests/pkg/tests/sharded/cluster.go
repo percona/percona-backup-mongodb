@@ -2,10 +2,13 @@ package sharded
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 
@@ -22,6 +25,8 @@ type Cluster struct {
 	shards   map[string]*pbm.Mongo
 	mongopbm *pbm.MongoPBM
 	confsrv  string
+
+	cfg ClusterConf
 }
 
 type ClusterConf struct {
@@ -40,6 +45,7 @@ func New(cfg ClusterConf) *Cluster {
 		mongopbm: pbmConn(ctx, cfg.Configsrv),
 		shards:   make(map[string]*pbm.Mongo),
 		confsrv:  cfg.ConfigsrvRsName,
+		cfg:      cfg,
 	}
 	for name, uri := range cfg.Shards {
 		c.shards[name] = mgoConn(ctx, uri)
@@ -60,6 +66,16 @@ func New(cfg ClusterConf) *Cluster {
 	log.Println("connected to docker")
 
 	return c
+}
+
+func (c *Cluster) Reconnect() {
+	ctx := context.Background()
+	c.mongos = mgoConn(ctx, c.cfg.Mongos)
+	c.mongopbm = pbmConn(ctx, c.cfg.Configsrv)
+
+	for name, uri := range c.cfg.Shards {
+		c.shards[name] = mgoConn(ctx, uri)
+	}
 }
 
 func (c *Cluster) ApplyConfig(file string) {
@@ -98,9 +114,9 @@ func (c *Cluster) DeleteBallast() {
 	log.Printf("deleted %d documents", deleted)
 }
 
-func (c *Cluster) Restore(bcpName string) {
+func (c *Cluster) LogicalRestore(bcpName string) {
 	log.Println("restoring the backup")
-	err := c.pbm.Restore(bcpName)
+	_, err := c.pbm.Restore(bcpName)
 	if err != nil {
 		log.Fatalln("restoring the backup:", err)
 	}
@@ -113,6 +129,134 @@ func (c *Cluster) Restore(bcpName string) {
 	// just wait so the all data gonna be written (aknowleged) before the next steps
 	time.Sleep(time.Second * 1)
 	log.Printf("restore finished '%s'\n", bcpName)
+}
+
+func (c *Cluster) PhysicalRestore(bcpName string) {
+	log.Println("restoring the backup")
+	name, err := c.pbm.Restore(bcpName)
+	if err != nil {
+		log.Fatalln("restoring the backup:", err)
+	}
+
+	log.Println("waiting for the restore", name)
+	err = c.waitPhyRestore(name, time.Minute*25)
+	if err != nil {
+		log.Fatalln("check backup restore:", err)
+	}
+	// just wait so the all data gonna be written (aknowleged) before the next steps
+	time.Sleep(time.Second * 1)
+
+	log.Println("stopping mongos")
+	err = c.docker.StopContainers([]string{"com.percona.pbm.app=mongos"})
+	if err != nil {
+		log.Fatalln("stop mongos:", err)
+	}
+
+	log.Println("restarting the culster")
+	err = c.docker.StartContainers([]string{"com.percona.pbm.app=mongod"})
+	if err != nil {
+		log.Fatalln("restart mongod:", err)
+	}
+
+	time.Sleep(time.Second * 5)
+
+	log.Println("restarting agents")
+	err = c.docker.StartContainers([]string{"com.percona.pbm.app=agent"})
+	if err != nil {
+		log.Fatalln("restart agents:", err)
+	}
+
+	log.Println("starting mongos")
+	err = c.docker.StartContainers([]string{"com.percona.pbm.app=mongos"})
+	if err != nil {
+		log.Fatalln("start mongos:", err)
+	}
+
+	// Give time for agents to report its avaliability status
+	// after the restart
+	time.Sleep(time.Second * 7)
+
+	log.Println("resync")
+	err = c.pbm.Resync()
+	if err != nil {
+		log.Fatalln("resync:", err)
+	}
+
+	c.Reconnect()
+
+	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
+		Type: pbmt.CmdResync,
+	},
+		time.Minute*5,
+	)
+	if err != nil {
+		log.Fatalf("waiting for resync: %v", err)
+	}
+
+	time.Sleep(time.Second * 7)
+
+	log.Printf("restore finished '%s'\n", bcpName)
+}
+
+func (c *Cluster) waitPhyRestore(name string, waitFor time.Duration) error {
+	stg, err := c.mongopbm.Storage()
+	if err != nil {
+		return errors.Wrap(err, "get storage")
+	}
+
+	fname := fmt.Sprintf("%s/%s.json", pbmt.PhysRestoresDir, name)
+	log.Println("checking", fname)
+
+	tmr := time.NewTimer(waitFor)
+	tkr := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-tmr.C:
+			list, err := c.pbm.RunCmd("pbm", "status")
+			if err != nil {
+				return errors.Wrap(err, "timeout reached. get status")
+			}
+			return errors.Errorf("timeout reached. status:\n%s", list)
+		case <-tkr.C:
+			rmeta, err := getRestoreMetaStg(fname, stg)
+			if errors.Is(err, pbmt.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return errors.Wrap(err, "get restore metadata")
+			}
+
+			switch rmeta.Status {
+			case pbmt.StatusDone:
+				return nil
+			case pbmt.StatusError:
+				return errors.Errorf("restore failed with: %s", rmeta.Error)
+			}
+		}
+	}
+}
+
+func getRestoreMetaStg(name string, stg storage.Storage) (*pbmt.RestoreMeta, error) {
+	_, err := stg.FileStat(name)
+	if err == storage.ErrNotExist {
+		return nil, pbmt.ErrNotFound
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "get stat")
+	}
+
+	src, err := stg.SourceReader(name)
+	if err != nil {
+		return nil, errors.Wrapf(err, "get file %s", name)
+	}
+
+	rmeta := new(pbmt.RestoreMeta)
+	err = json.NewDecoder(src).Decode(rmeta)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode meta %s", name)
+	}
+
+	return rmeta, nil
 }
 
 func (c *Cluster) PITRestore(t time.Time) {
@@ -132,9 +276,18 @@ func (c *Cluster) PITRestore(t time.Time) {
 	log.Printf("restore to the point-in-time '%v' finished", t)
 }
 
-func (c *Cluster) Backup() string {
+func (c *Cluster) LogicalBackup() string {
+	return c.backup(pbmt.LogicalBackup)
+
+}
+
+func (c *Cluster) PhysicalBackup() string {
+	return c.backup(pbmt.PhysicalBackup)
+}
+
+func (c *Cluster) backup(typ pbmt.BackupType) string {
 	log.Println("starting backup")
-	bcpName, err := c.pbm.Backup()
+	bcpName, err := c.pbm.Backup(typ)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
 		log.Fatalf("starting backup: %v\nconatiner logs: %s\n", err, l)

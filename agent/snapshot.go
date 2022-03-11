@@ -397,6 +397,7 @@ func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l
 
 	l.Info("restore started")
 	err = rstr.Snapshot(r, opid, l)
+	l.Info("restore finished %v", err)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDatForShard) {
 			l.Info("no data for the shard in backup, skipping")

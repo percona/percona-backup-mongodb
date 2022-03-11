@@ -306,7 +306,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 
 	// not to spam logs with failed hb attempts
 	if r.stopHB != nil {
-		r.stopHB <- struct{}{}
+		close(r.stopHB)
 	}
 
 	// don't write logs to the mongo anymore
@@ -548,6 +548,21 @@ func (r *PhysRestore) resetRS() error {
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
+	}
+
+	err = c.Database("config").Collection("cache.collections").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.collections")
+	}
+
+	err = c.Database("config").Collection("cache.databases").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.databases")
+	}
+
+	err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})

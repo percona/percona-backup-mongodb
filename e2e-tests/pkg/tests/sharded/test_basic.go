@@ -2,12 +2,21 @@ package sharded
 
 import (
 	"log"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-func (c *Cluster) BackupAndRestore() {
+func (c *Cluster) BackupAndRestore(typ pbm.BackupType) {
+	backup := c.LogicalBackup
+	restore := c.LogicalRestore
+	if typ == pbm.PhysicalBackup {
+		backup = c.PhysicalBackup
+		restore = c.PhysicalRestore
+	}
+
 	checkData := c.DataChecker()
 
-	bcpName := c.Backup()
+	bcpName := backup()
 	c.BackupWaitDone(bcpName)
 	c.DeleteBallast()
 
@@ -19,6 +28,24 @@ func (c *Cluster) BackupAndRestore() {
 		log.Fatalln("Error: resync backup lists:", err)
 	}
 
-	c.Restore(bcpName)
+	restore(bcpName)
 	checkData()
 }
+
+// func (c *Cluster) PhysicalBackupAndRestore() {
+// 	checkData := c.DataChecker()
+
+// 	bcpName := c.PhysicalBackup()
+// 	c.BackupWaitDone(bcpName)
+// 	c.DeleteBallast()
+// 	// to be sure the backup didn't vanish after the resync
+// 	// i.e. resync finished correctly
+// 	log.Println("resync backup list")
+// 	err := c.mongopbm.StoreResync()
+// 	if err != nil {
+// 		log.Fatalln("Error: resync backup lists:", err)
+// 	}
+
+// 	c.PhysicalRestore(bcpName)
+// 	checkData()
+// }

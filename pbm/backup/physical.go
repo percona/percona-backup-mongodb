@@ -132,129 +132,13 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.File, error) {
 func (bc *BackupCursor) Close() {
 	if bc.close != nil {
 		close(bc.close)
-		bc.close = nil
 	}
 }
 
-// run physical backup.
-// TODO: describe flow
-func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
-	inf, err := b.node.GetInfo()
-	if err != nil {
-		return errors.Wrap(err, "get cluster info")
-	}
+func (b *Backup) doPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+	cursor := NewBackupCursor(b.node, l)
+	defer cursor.Close()
 
-	rsName := inf.SetName
-
-	rsMeta := pbm.BackupReplset{
-		Name:         rsName,
-		StartTS:      time.Now().UTC().Unix(),
-		Status:       pbm.StatusRunning,
-		Conditions:   []pbm.Condition{},
-		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
-	}
-
-	stg, err := b.cn.GetStorage(l)
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM storage configuration settings")
-	}
-
-	bcpm, err := b.cn.GetBackupMeta(bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "get backup meta")
-	}
-
-	var files []pbm.File
-	var cursor *BackupCursor
-	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
-	defer func() {
-		if err != nil {
-			status := pbm.StatusError
-			if errors.Is(err, ErrCancelled) {
-				status = pbm.StatusCancelled
-
-				rsMeta.Files = files
-				meta := &pbm.BackupMeta{
-					Name:     bcp.Name,
-					Status:   pbm.StatusCancelled,
-					Replsets: []pbm.BackupReplset{rsMeta},
-				}
-
-				l.Info("delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
-			}
-
-			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
-			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
-
-			if inf.IsLeader() {
-				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
-				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
-			}
-		}
-
-		if cursor != nil {
-			cursor.Close()
-		}
-		// Turn the balancer back on if needed
-		//
-		// Every agent will check if the balancer was on before the backup started.
-		// And will try to turn it on again if so. So if the leader node went down after turning off
-		// the balancer some other node will bring it back.
-		// TODO: what if all agents went down.
-		if bcpm.BalancerStatus != pbm.BalancerModeOn {
-			return
-		}
-
-		errd := b.cn.SetBalancerStatus(pbm.BalancerModeOn)
-		if errd != nil {
-			l.Error("set balancer ON: %v", errd)
-			return
-		}
-		l.Debug("set balancer on")
-	}()
-
-	if inf.IsLeader() {
-		hbstop := make(chan struct{})
-		defer close(hbstop)
-		err := b.cn.BackupHB(bcp.Name)
-		if err != nil {
-			return errors.Wrap(err, "init heartbeat")
-		}
-		go func() {
-			tk := time.NewTicker(time.Second * 5)
-			defer tk.Stop()
-			for {
-				select {
-				case <-tk.C:
-					err := b.cn.BackupHB(bcp.Name)
-					if err != nil {
-						l.Error("send pbm heartbeat: %v", err)
-					}
-				case <-hbstop:
-					return
-				}
-			}
-		}()
-
-		if bcpm.BalancerStatus == pbm.BalancerModeOn {
-			err = b.cn.SetBalancerStatus(pbm.BalancerModeOff)
-			if err != nil {
-				return errors.Wrap(err, "set balancer OFF")
-			}
-			l.Debug("waiting for balancer off")
-			bs := waitForBalancerOff(b.cn, time.Second*30, l)
-			l.Debug("balancer status: %s", bs)
-		}
-	}
-
-	// Waiting for StatusStarting to move further.
-	// In case some preparations has to be done before backup.
-	err = b.waitForStatus(bcp.Name, pbm.StatusStarting, &pbm.WaitBackupStart)
-	if err != nil {
-		return errors.Wrap(err, "waiting for start")
-	}
-
-	cursor = NewBackupCursor(b.node, l)
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
 		return errors.Wrap(err, "get backup files")
@@ -270,7 +154,7 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
-	err = b.cn.AddRSMeta(bcp.Name, rsMeta)
+	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
@@ -313,74 +197,30 @@ func (b *Backup) runPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get journal files")
 	}
 
-	subd := bcp.Name + "/" + rsName
-	for _, bd := range bcur.Data {
+	l.Info("uploading files")
+	subdir := bcp.Name + "/" + rsMeta.Name
+	for _, bd := range append(bcur.Data, jrnls...) {
 		select {
 		case <-ctx.Done():
 			return ErrCancelled
 		default:
 		}
 
-		l.Debug("uploading data: %s %s", bd.Name, fmtSize(bd.Size))
-		f, err := writeFile(bd.Name, subd+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
+		f, err := writeFile(ctx, bd.Name, subdir+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression, l)
 		if err != nil {
-			return errors.Wrapf(err, "upload data file `%s`", bd.Name)
+			return errors.Wrapf(err, "upload file `%s`", bd.Name)
 		}
 		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
-		files = append(files, *f)
+		rsMeta.Files = append(rsMeta.Files, *f)
 	}
-	l.Debug("finished uploading data")
+	l.Info("uploading done")
 
-	for _, jf := range jrnls {
-		select {
-		case <-ctx.Done():
-			return ErrCancelled
-		default:
-		}
-
-		l.Debug("uploading journal: %s", jf.Name)
-		f, err := writeFile(jf.Name, subd+"/"+strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "upload journal file `%s`", jf.Name)
-		}
-		f.Name = strings.TrimPrefix(jf.Name, bcur.Meta.DBpath+"/")
-		files = append(files, *f)
-	}
-	l.Debug("finished uploading journals")
-
-	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, files)
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta.Files)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
 
-	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
-	if err != nil {
-		return errors.Wrap(err, "set shard's StatusDone")
-	}
-
-	if inf.IsLeader() {
-		epch, err := b.cn.ResetEpoch()
-		if err != nil {
-			l.Error("reset epoch")
-		} else {
-			l.Debug("epoch set to %v", epch)
-		}
-
-		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, inf, nil)
-		if err != nil {
-			return errors.Wrap(err, "check cluster for backup done")
-		}
-
-		err = b.dumpClusterMeta(bcp.Name, stg)
-		if err != nil {
-			return errors.Wrap(err, "dump metadata")
-		}
-	}
-
-	l.Debug("waiting status: %s", pbm.StatusDone)
-	// to be sure the locks released only after the "done" status had written
-	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
-	return errors.Wrap(err, "waiting for done")
+	return nil
 }
 
 // UUID represents a UUID as saved in MongoDB
@@ -412,35 +252,24 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(src, dst string, stg storage.Storage, compression pbm.CompressionType) (*pbm.File, error) {
-	f, err := os.Open(src)
-	if err != nil {
-		return nil, errors.Wrap(err, "open file for reading")
-	}
-	defer f.Close()
+func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression pbm.CompressionType, l *plog.Event) (*pbm.File, error) {
 	fstat, err := os.Stat(src)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
 
-	pr, pw := io.Pipe()
+	l.Debug("uploading: %s %s", src, fmtSize(fstat.Size()))
 
-	w := Compress(pw, compression)
+	dst += compression.Suffix()
 
-	go func() {
-		_, err = io.Copy(w, f)
-		w.Close()
-		pw.Close()
-	}()
-
-	err = stg.Save(dst+compression.Suffix(), pr, int(fstat.Size()))
+	_, err = Upload(ctx, &file{src}, stg, compression, dst, int(fstat.Size()))
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
 
-	finf, err := stg.FileStat(dst + compression.Suffix())
+	finf, err := stg.FileStat(dst)
 	if err != nil {
-		return nil, errors.Wrap(err, "get storage file stat")
+		return nil, errors.Wrapf(err, "get storage file stat %s", dst)
 	}
 
 	return &pbm.File{
@@ -449,6 +278,20 @@ func writeFile(src, dst string, stg storage.Storage, compression pbm.Compression
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
 	}, nil
+}
+
+type file struct {
+	path string
+}
+
+func (f *file) WriteTo(w io.Writer) (int64, error) {
+	fd, err := os.Open(f.path)
+	if err != nil {
+		return 0, errors.Wrap(err, "open file for reading")
+	}
+	defer fd.Close()
+
+	return io.Copy(w, fd)
 }
 
 func fmtSize(size int64) string {

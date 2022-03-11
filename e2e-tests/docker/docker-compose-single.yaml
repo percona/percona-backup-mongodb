@@ -22,14 +22,15 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs1
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - SINGLE_NODE=true
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile
-      /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -41,8 +42,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs101:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -75,9 +75,7 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio
-      http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0;
-      "
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
 volumes:
   backups: null
   data-rs101: null

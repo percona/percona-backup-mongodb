@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"time"
 
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
@@ -16,8 +17,15 @@ type scounter struct {
 	cancel context.CancelFunc
 }
 
-func (c *Cluster) BackupBoundsCheck() {
-	bcpName := c.Backup()
+func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType) {
+	backup := c.LogicalBackup
+	restore := c.LogicalRestore
+	if typ == pbmt.PhysicalBackup {
+		backup = c.PhysicalBackup
+		restore = c.PhysicalRestore
+	}
+
+	bcpName := backup()
 
 	rand.Seed(time.Now().UnixNano())
 	counters := make(map[string]scounter)
@@ -48,7 +56,7 @@ func (c *Cluster) BackupBoundsCheck() {
 		c.bcheckClear(name, shard)
 	}
 
-	c.Restore(bcpName)
+	restore(bcpName)
 
 	for name, shard := range c.shards {
 		c.bcheckCheck(name, shard, <-counters[name].data, bcpMeta.LastWriteTS)

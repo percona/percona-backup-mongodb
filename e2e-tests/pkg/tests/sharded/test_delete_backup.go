@@ -30,7 +30,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		ts := time.Now()
 		time.Sleep(1 * time.Second)
 		c.printBcpList()
-		bcpName := c.Backup()
+		bcpName := c.LogicalBackup()
 		backups[i] = backupDelete{
 			name: bcpName,
 			ts:   ts,
@@ -157,7 +157,7 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	log.Println("trying to restore from", backups[3])
 	c.DeleteBallast()
-	c.Restore(backups[3].name)
+	c.LogicalRestore(backups[3].name)
 	checkData()
 }
 
@@ -217,7 +217,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 }
 
 func (c *Cluster) BackupNotDeleteRunning() {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 	c.printBcpList()
 	log.Println("deleting backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)

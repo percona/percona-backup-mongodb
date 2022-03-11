@@ -15,7 +15,7 @@ func (c *Cluster) Timeseries() {
 
 	ts1.gen()
 
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 
 	c.pitrOn()
 	defer c.pitrOff()

@@ -30,18 +30,17 @@ func NewDocker(ctx context.Context, host string) (*Docker, error) {
 	}, nil
 }
 
-// StopAgents stops agent containers of the given replicaset
-func (d *Docker) StopAgents(rsName string) error {
+// StopContainers stops containers with the given labels
+func (d *Docker) StopContainers(labels []string) error {
 	fltr := filters.NewArgs()
-	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	for _, v := range labels {
+		fltr.Add("label", v)
+	}
 	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
-	}
-	if len(containers) == 0 {
-		return errors.Errorf("no containers found for replset %s", rsName)
 	}
 
 	for _, c := range containers {
@@ -53,6 +52,11 @@ func (d *Docker) StopAgents(rsName string) error {
 	}
 
 	return nil
+}
+
+// StopAgents stops agent containers of the given replicaset
+func (d *Docker) StopAgents(rsName string) error {
+	return d.StopContainers([]string{"com.percona.pbm.agent.rs=" + rsName})
 }
 
 // PauseAgents pause agent containers of the given replicaset
@@ -107,8 +111,15 @@ func (d *Docker) UnpauseAgents(rsName string) error {
 
 // StartAgents starts stopped agent containers of the given replicaset
 func (d *Docker) StartAgents(rsName string) error {
+	return d.StartContainers([]string{"com.percona.pbm.agent.rs=" + rsName})
+}
+
+// StartAgents starts stopped agent containers of the given replicaset
+func (d *Docker) StartContainers(labels []string) error {
 	fltr := filters.NewArgs()
-	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	for _, v := range labels {
+		fltr.Add("label", v)
+	}
 	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
 		All:     true,
 		Filters: fltr,
@@ -117,7 +128,7 @@ func (d *Docker) StartAgents(rsName string) error {
 		return errors.Wrap(err, "container list")
 	}
 	if len(containers) == 0 {
-		return errors.Errorf("no containers found for replset %s", rsName)
+		return errors.Errorf("no containers found for lables %v", labels)
 	}
 
 	for _, c := range containers {
@@ -133,8 +144,15 @@ func (d *Docker) StartAgents(rsName string) error {
 
 // RestartAgents restarts agent containers of the given replicaset
 func (d *Docker) RestartAgents(rsName string) error {
+	return d.RestartContainers([]string{"com.percona.pbm.agent.rs=" + rsName})
+}
+
+// RestartAgents restarts agent containers of the given replicaset
+func (d *Docker) RestartContainers(labels []string) error {
 	fltr := filters.NewArgs()
-	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
+	for _, v := range labels {
+		fltr.Add("label", v)
+	}
 	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
 		Filters: fltr,
 	})

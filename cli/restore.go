@@ -20,6 +20,7 @@ type restoreOpts struct {
 }
 
 type restoreRet struct {
+	Name     string `json:"name,omitempty"`
 	Snapshot string `json:"snapshot,omitempty"`
 	PITR     string `json:"point-in-time,omitempty"`
 	Leader   string `json:"leader,omitempty"`
@@ -64,7 +65,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return nil, err
 		}
 		if !o.wait {
-			return restoreRet{Snapshot: o.bcp, Leader: m.Leader}, nil
+			return restoreRet{Name: m.Name, Snapshot: o.bcp, Leader: m.Leader}, nil
 		}
 
 		typ := " logical restore.\nWaiting to finish"
@@ -112,7 +113,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	if m.Type == pbm.PhysicalBackup {
 		fname = fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
-			return getRestoreMetaStg(cn, name, stg)
+			return getRestoreMetaStg(name, stg)
 		}
 	}
 
@@ -137,7 +138,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	return nil
 }
 
-func getRestoreMetaStg(cn *pbm.PBM, name string, stg storage.Storage) (*pbm.RestoreMeta, error) {
+func getRestoreMetaStg(name string, stg storage.Storage) (*pbm.RestoreMeta, error) {
 	_, err := stg.FileStat(name)
 	if err == storage.ErrNotExist {
 		return nil, pbm.ErrNotFound
@@ -198,7 +199,10 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) (*pbm.RestoreMeta, err
 	}
 
 	if outf != outText {
-		return nil, nil
+		return &pbm.RestoreMeta{
+			Name:   name,
+			Backup: bcpName,
+		}, nil
 	}
 
 	fmt.Printf("Starting restore from '%s'", bcpName)

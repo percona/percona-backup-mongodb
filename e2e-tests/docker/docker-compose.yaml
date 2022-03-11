@@ -24,15 +24,15 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg01
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=cfg
       - CONFIGSVR=true
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port
-      27017 --keyFile /opt/keyFile --storageEngine
-      wiredTiger  --wiredTigerCacheSizeGB 1
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
       - data-cfg01:/data/db
@@ -44,9 +44,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg02
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port
-      27017 --keyFile /opt/keyFile --storageEngine wiredTiger
-      --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
       - data-cfg02:/data/db
   cfg03:
@@ -57,9 +57,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg03
-    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port
-      27017 --keyFile /opt/keyFile --storageEngine wiredTiger
-      --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
     volumes:
       - data-cfg03:/data/db
   agent-cfg01:
@@ -69,8 +69,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        cfg01:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg01:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -92,8 +91,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        cfg02:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg02:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -115,8 +113,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        cfg03:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg03:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -140,14 +137,15 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs1
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - CONFIGSVR=false
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -159,8 +157,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs102:/data/db
   rs103:
@@ -171,8 +170,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs103:/data/db
   agent-rs101:
@@ -182,8 +182,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs101:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -206,8 +205,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs102:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -229,8 +227,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs103:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -254,14 +251,15 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs201
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs2
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - CONFIGSVR=false
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs201:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -273,8 +271,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs202
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs202:/data/db
   rs203:
@@ -285,8 +284,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs203
-    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger
-      --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    labels:
+      - "com.percona.pbm.app=mongod"
+    command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs203:/data/db
   agent-rs201:
@@ -296,8 +296,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs201:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs201:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -319,8 +318,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs202:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs202:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -342,8 +340,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@\
-        rs203:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs203:27017"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -367,8 +364,9 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: mongos
-    command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb
-      cfg/cfg01:27017,cfg02:27017,cfg03:27017
+    labels:
+      - "com.percona.pbm.app=mongos"
+    command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017
     ports:
       - "27017:27017"
     volumes:
@@ -400,9 +398,7 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio
-      http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0;
-      "
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
 volumes:
   backups: null
   data-cfg01: null
@@ -413,6 +409,4 @@ volumes:
   data-rs103: null
   data-rs201: null
   data-rs202: null
-  data-rs203:
-
-    null
+  data-rs203: null

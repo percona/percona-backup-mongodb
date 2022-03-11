@@ -16,7 +16,7 @@ import (
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 	ts := time.Now()
 	time.Sleep(1 * time.Second)
 	c.printBcpList()

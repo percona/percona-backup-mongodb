@@ -3,6 +3,8 @@ package sharded
 import (
 	"log"
 
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
@@ -26,12 +28,12 @@ func (c *Cluster) ClockSkew() {
 			log.Fatalf("ERROR: clock skew for %v: %v\n", rs, err)
 		}
 
-		log.Println("[START] Basic Backup & Restore / ClockSkew", rs, shift)
-		c.BackupAndRestore()
-		log.Println("[DONE] Basic Backup & Restore / ClockSkew", rs, shift)
+		log.Println("[START] Logical Backup Data Bounds Check / ClockSkew", rs, shift)
+		c.BackupBoundsCheck(pbmt.LogicalBackup)
+		log.Println("[DONE] Logical Backup Data Bounds Check / ClockSkew", rs, shift)
 
-		log.Println("[START] Backup Data Bounds Check / ClockSkew", rs, shift)
-		c.BackupBoundsCheck()
-		log.Println("[DONE] Backup Data Bounds Check / ClockSkew", rs, shift)
+		log.Println("[START] Physical Backup Data Bounds Check / ClockSkew", rs, shift)
+		c.BackupBoundsCheck(pbmt.PhysicalBackup)
+		log.Println("[DONE] Physical Backup Data Bounds Check / ClockSkew", rs, shift)
 	}
 }
