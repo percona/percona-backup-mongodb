@@ -3,9 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -107,10 +110,32 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) error {
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
+func parseTS(t string) (ts primitive.Timestamp, err error) {
+	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
+		tt, err := strconv.ParseInt(si[0], 10, 64)
+		if err != nil {
+			return ts, errors.Wrap(err, "parse clusterTime T")
+		}
+		ti, err := strconv.ParseInt(si[1], 10, 64)
+		if err != nil {
+			return ts, errors.Wrap(err, "parse clusterTime I")
+		}
+
+		return primitive.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
+	}
+
 	tsto, err := parseDateT(t)
 	if err != nil {
-		return errors.Wrap(err, "parse date")
+		return ts, errors.Wrap(err, "parse date")
+	}
+
+	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
+}
+
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
+	ts, err := parseTS(t)
+	if err != nil {
+		return err
 	}
 
 	err = checkConcurrentOp(cn)
@@ -123,7 +148,8 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
 		Cmd: pbm.CmdPITRestore,
 		PITRestore: pbm.PITRestoreCmd{
 			Name: name,
-			TS:   tsto.Unix(),
+			TS:   int64(ts.T),
+			I:    int64(ts.I),
 			Bcp:  base,
 		},
 	})

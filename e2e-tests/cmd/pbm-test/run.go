@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
@@ -91,17 +92,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.SetBallastData(1e3)
 	flush(t)
 
-	if semver.Compare(cVersion, "v5.0") >= 0 {
-		printStart("Check timeseries")
-		t.Timeseries()
-		printDone("Check timeseries")
-		flush(t)
-	}
-
 	printStart("Check Backups deletion")
 	t.BackupDelete(storage)
 	printDone("Check Backups deletion")
-
 	t.SetBallastData(1e5)
 
 	printStart("Check the Running Backup can't be deleted")
@@ -119,6 +112,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 	printStart("Backup Data Bounds Check")
 	t.BackupBoundsCheck()
 	printDone("Backup Data Bounds Check")
+
+	t.SetBallastData(1e3)
+	flush(t)
+
+	if semver.Compare(cVersion, "v5.0") >= 0 {
+		printStart("Check timeseries")
+		t.Timeseries()
+		printDone("Check timeseries")
+		flush(t)
+		t.SetBallastData(1e5)
+	}
 
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
@@ -144,6 +148,21 @@ func run(t *sharded.Cluster, typ testTyp) {
 			printStart("Distributed Transactions PITR")
 			t.DistributedTrxPITR()
 			printDone("Distributed Transactions PITR")
+		}
+
+		if semver.Compare(cVersion, "v4.4") >= 0 {
+			disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
+			tsTo := primitive.Timestamp{1644410656, 8}
+
+			if semver.Compare(cVersion, "v5.0") >= 0 {
+				disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
+				tsTo = primitive.Timestamp{1644243375, 7}
+			}
+			t.ApplyConfig(disttxnconf)
+			printStart("Distributed Commit")
+			t.DistributedCommit(tsTo)
+			printDone("Distributed Commit")
+			t.ApplyConfig(storage)
 		}
 	}
 

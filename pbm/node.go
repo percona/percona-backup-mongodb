@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
 type Node struct {
@@ -273,6 +274,37 @@ func LastWrite(cn *mongo.Client, majority bool) (primitive.Timestamp, error) {
 		return primitive.Timestamp{}, errors.New("last write timestamp is nil")
 	}
 	return lw, nil
+}
+
+// OplogStartTime returns either the oldest active transaction timestamp or the
+// current oplog time if there are no active transactions.
+// taken from https://github.com/mongodb/mongo-tools/blob/1b496c4a8ff7415abc07b9621166d8e1fac00c91/mongodump/oplog_dump.go#L68
+func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
+	coll := n.cn.Database("config").Collection("transactions", options.Collection().SetReadConcern(readconcern.Local()))
+	filter := bson.D{{"state", bson.D{{"$in", bson.A{"prepared", "inProgress"}}}}}
+	opts := options.FindOne().SetSort(bson.D{{"startOpTime", 1}})
+
+	var result bson.Raw
+	res := coll.FindOne(context.Background(), filter, opts)
+	err := res.Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return LastWrite(n.cn, true)
+		}
+		return primitive.Timestamp{}, fmt.Errorf("config.transactions.findOne error: %v", err)
+	}
+
+	rawTS, err := result.LookupErr("startOpTime", "ts")
+	if err != nil {
+		return primitive.Timestamp{}, fmt.Errorf("config.transactions row had no startOpTime.ts field")
+	}
+
+	t, i, ok := rawTS.TimestampOK()
+	if !ok {
+		return primitive.Timestamp{}, fmt.Errorf("config.transactions startOpTime.ts was not a BSON timestamp")
+	}
+
+	return primitive.Timestamp{T: t, I: i}, nil
 }
 
 func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {

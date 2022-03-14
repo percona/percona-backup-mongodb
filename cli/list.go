@@ -182,14 +182,14 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
 
+	shards, err := cn.ClusterMembers()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster members")
+	}
+
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "define cluster state")
-	}
-
-	shards, err := cn.ClusterMembers(inf)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster members")
 	}
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
@@ -224,7 +224,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		return nil, nil, errors.Wrap(err, "define cluster state")
 	}
 
-	shards, err := cn.ClusterMembers(inf)
+	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster members")
 	}

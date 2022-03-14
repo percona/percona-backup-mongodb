@@ -9,11 +9,13 @@ package restore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
 	"strings"
+	"sync/atomic"
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
@@ -56,16 +58,24 @@ type Oplog struct {
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
 	startTS           primitive.Timestamp
-	lastTS            primitive.Timestamp
+	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	m                 *ns.Matcher
+
+	txn        chan pbm.RestoreTxn
+	txnSyncErr chan error
+	// The `T` part of the last applied op's Timestamp.
+	// Keeping just `T` allows atomic use as we only care
+	// if we've moved further in general. No need in
+	// `I` precision.
+	lastOpT uint32
 
 	preserveUUID bool
 	cnamespase   string
 }
 
 // NewOplog creates an object for an oplog applying
-func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) (*Oplog, error) {
+func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*Oplog, error) {
 	m, err := ns.NewMatcher(append(excludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -86,25 +96,18 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool) (*Oplog, e
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      idx.NewIndexCatalog(),
 		m:                 m,
+		txn:               ctxn,
+		txnSyncErr:        txnErr,
 	}, nil
 }
 
-// SetEdge sets the edge time for the replayed operations
-// E.g. all operation that happened afterthe given timestamp going to be discarded
-func (o *Oplog) SetEdge(ts primitive.Timestamp) {
-	o.lastTS = ts
-}
-
-// SetEdgeUnix sets the edge time for the replayed operations
-// E.g. all operation that happened after the given timestamp going to be discarded
-func (o *Oplog) SetEdgeUnix(ts int64) {
-	o.SetEdge(primitive.Timestamp{T: uint32(ts), I: 0})
-}
-
-// SetStartUnix sets the start time for the replayed operations
-// E.g. all operations before the timestamp will be skipped
-func (o *Oplog) SetStartUnix(ts int64) {
-	o.startTS = primitive.Timestamp{T: uint32(ts)}
+// SetTimeframe sets boundaries for the replayed operations. All operations
+// that happened before `start` and after `end` are going to be discarded.
+// Zero `end` (primitive.Timestamp{T:0}) means all chunks will be replayed
+// utill the end (no tail trim).
+func (o *Oplog) SetTimeframe(start, end primitive.Timestamp) {
+	o.startTS = start
+	o.endTS = end
 }
 
 // Apply applys an oplog from a given source
@@ -132,7 +135,7 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 		}
 
 		// finish if operation happened after the desired time frame (oe.Timestamp > to)
-		if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
+		if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -142,14 +145,20 @@ func (o *Oplog) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 		}
 
 		lts = oe.Timestamp
+		// keeping track of last applied (observed) clusterTime
+		atomic.StoreUint32(&o.lastOpT, oe.Timestamp.T)
 	}
 
 	return lts, bsonSource.Err()
 }
 
+func (o *Oplog) LastOpTS() uint32 {
+	return atomic.LoadUint32(&o.lastOpT)
+}
+
 func (o *Oplog) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.lastTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.lastTS) == 1 {
+	if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
 		return nil
 	}
 
@@ -167,7 +176,7 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	// optimization not to parse namespace if it remains the same
+	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
@@ -200,10 +209,49 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 	return nil
 }
 
+func isPrepareTxn(op *db.Oplog) bool {
+	for _, v := range op.Object {
+		if v.Key == "prepare" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handleTxnOp accumulates transaction's ops in a buffer and then applies
+// it as non-txn ops when observes commit or just purge the buffer if the transaction
+// aborted.
+// Distributed transactions always consist of at least two ops - `prepare`
+// (with txn ops) and `commitTransaction` or abortTransaction.
+// Although commitTimestamp for the same txn on different shards always the same,
+// the op with `commitTransaction` may have different `ts` (op timestamp). Fo example:
+// 	rs1: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
+// 			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
+// 			"ts" : Timestamp(1644410656, 9), ... }
+// 	rs2: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
+// 			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
+// 			"ts" : Timestamp(1644410656, 8), ... }
+//
+// Since we sync backup/restore across shards by `ts` (`opTime`), artifacts of such transaction
+//  would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
+// To avoid that we have to check if a distributed transaction was committed on all
+// participated shards before committing such transaction.
+// - Encountering `prepare` statement `handleTxnOp` would send such txn to the caller.
+// - Bumping into `commitTransaction` it will send txn again with respective state and
+// 	 commit time. And waits for the response from the caller with either "commit" or "abort" state.
+// - On "abort" transactions buffer will be purged, hence all ops are discarded.
 func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	err := o.txnBuffer.AddOp(meta, op)
 	if err != nil {
 		return errors.Wrap(err, "buffering entry")
+	}
+
+	if o.txn != nil && isPrepareTxn(&op) {
+		o.txn <- pbm.RestoreTxn{
+			ID:    fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber),
+			State: pbm.TxnPrepare,
+		}
 	}
 
 	if meta.IsAbort() {
@@ -216,6 +264,37 @@ func (o *Oplog) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 
 	if !meta.IsCommit() {
 		return nil
+	}
+
+	// if the "commit" contains data, it's a non distributed transaction
+	// and we can apply it now. Otherwise we have to confirm it was committed
+	// on all participated shards.
+	if o.txn != nil && !meta.IsData() {
+		var cts primitive.Timestamp
+		for _, v := range op.Object {
+			if v.Key == "commitTimestamp" {
+				cts = v.Value.(primitive.Timestamp)
+			}
+		}
+		id := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
+		o.txn <- pbm.RestoreTxn{
+			ID:    id,
+			Ctime: cts,
+			State: pbm.TxnCommit,
+		}
+
+		select {
+		case txn := <-o.txn:
+			if txn.State == pbm.TxnAbort {
+				err := o.txnBuffer.PurgeTxn(meta)
+				if err != nil {
+					return errors.Wrapf(err, "cleaning up txn [%s] buffer on abort", id)
+				}
+				return nil
+			}
+		case err := <-o.txnSyncErr:
+			return errors.Wrapf(err, "distributed txn [%s] sync failed with", id)
+		}
 	}
 
 	// From here, we're applying transaction entries

@@ -182,9 +182,9 @@ func (r RestoreCmd) String() string {
 }
 
 type ReplayCmd struct {
-	Name  string `bson:"name"`
-	Start int64  `bson:"start,omitempty"`
-	End   int64  `bson:"end,omitempty"`
+	Name  string              `bson:"name"`
+	Start primitive.Timestamp `bson:"start,omitempty"`
+	End   primitive.Timestamp `bson:"end,omitempty"`
 }
 
 func (c ReplayCmd) String() string {
@@ -194,6 +194,7 @@ func (c ReplayCmd) String() string {
 type PITRestoreCmd struct {
 	Name string `bson:"name"`
 	TS   int64  `bson:"ts"`
+	I    int64  `bson:"i"`
 	Bcp  string `bson:"bcp"`
 }
 
@@ -782,15 +783,12 @@ func (p *PBM) BackupsDoneList(after *primitive.Timestamp, limit int64, order int
 
 // ClusterMembers returns list of replicasets current cluster consists of
 // (shards + configserver). The list would consist of on rs if cluster is
-// a non-sharded rs. If `inf` is nil, method would request mongo to define it.
-func (p *PBM) ClusterMembers(inf *NodeInfo) ([]Shard, error) {
-	var err error
-
-	if inf == nil {
-		inf, err = p.GetNodeInfo()
-		if err != nil {
-			return nil, errors.Wrap(err, "define cluster state")
-		}
+// a non-sharded rs.
+func (p *PBM) ClusterMembers() ([]Shard, error) {
+	// it would be a config server in sharded cluster
+	inf, err := p.GetNodeInfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "define cluster state")
 	}
 
 	shards := []Shard{{

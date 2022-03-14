@@ -173,7 +173,7 @@ func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 		return errors.Wrap(err, "storage copy")
 	}
 
-	meta := pbm.PITRChunk{
+	meta := pbm.OplogChunk{
 		RS:          s.rs,
 		FName:       n,
 		Compression: bcp.Compression,
@@ -367,7 +367,7 @@ func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.Compressio
 		return errors.Wrapf(err, "unable to upload chunk %v.%v", from, to)
 	}
 
-	meta := pbm.PITRChunk{
+	meta := pbm.OplogChunk{
 		RS:          s.rs,
 		FName:       fname,
 		Compression: compression,

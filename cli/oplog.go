@@ -10,17 +10,18 @@ import (
 )
 
 func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, error) {
-	if err := checkConcurrentOp(cn); err != nil {
-		return nil, err
-	}
-
-	startTS, err := parseDateT(o.start)
+	startTS, err := parseTS(o.start)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse start time")
 	}
-	endTS, err := parseDateT(o.end)
+	endTS, err := parseTS(o.end)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse end time")
+	}
+
+	err = checkConcurrentOp(cn)
+	if err != nil {
+		return nil, err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -28,8 +29,8 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 		Cmd: pbm.CmdReplay,
 		Replay: pbm.ReplayCmd{
 			Name:  name,
-			Start: startTS.Unix(),
-			End:   endTS.Unix(),
+			Start: startTS,
+			End:   endTS,
 		},
 	}
 	if err := cn.SendCmd(cmd); err != nil {

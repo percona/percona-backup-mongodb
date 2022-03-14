@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,10 +30,51 @@ type RestoreReplset struct {
 	Name             string              `bson:"name" json:"name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
+	Txn              RestoreTxn          `bson:"txn" json:"txn"`
+	CurrentOp        primitive.Timestamp `bson:"op" json:"op"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+}
+
+type TxnState string
+
+const (
+	TxnCommit  TxnState = "commit"
+	TxnPrepare TxnState = "prepare"
+	TxnAbort   TxnState = "abort"
+	TxnUnknown TxnState = ""
+)
+
+type RestoreTxn struct {
+	ID    string              `bson:"id" json:"id"`
+	Ctime primitive.Timestamp `bson:"ts" json:"ts"` // commit timestamp of the transaction
+	State TxnState            `bson:"state" json:"state"`
+}
+
+func (t RestoreTxn) String() string {
+	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
+}
+
+func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn RestoreTxn) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.txn": txn}}},
+	)
+
+	return err
+}
+
+func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.op": ts}}},
+	)
+
+	return err
 }
 
 func (p *PBM) SetRestoreMeta(m *RestoreMeta) error {
@@ -150,18 +192,6 @@ func (p *PBM) SetRestoreBackup(name, backupName string) error {
 		bson.D{{"name", name}},
 		bson.D{
 			{"$set", bson.M{"backup": backupName}},
-		},
-	)
-
-	return err
-}
-
-func (p *PBM) SetRestorePITR(name string, ts int64) error {
-	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", name}},
-		bson.D{
-			{"$set", bson.M{"pitr": ts}},
 		},
 	)
 

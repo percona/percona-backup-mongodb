@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 
@@ -116,6 +117,23 @@ func (c *Cluster) Restore(bcpName string) {
 	log.Printf("restore finished '%s'\n", bcpName)
 }
 
+func (c *Cluster) PITRestoreCT(t primitive.Timestamp) {
+	log.Printf("restoring to the point-in-time %v", t)
+	err := c.pbm.PITRestoreClusterTime(t.T, t.I)
+	if err != nil {
+		log.Fatalln("restore:", err)
+	}
+
+	log.Println("waiting for the restore")
+	err = c.pbm.CheckPITRestore(time.Unix(int64(t.T), 0), time.Minute*25)
+	if err != nil {
+		log.Fatalln("check restore:", err)
+	}
+	// just wait so the all data gonna be written (aknowleged) before the next steps
+	time.Sleep(time.Second * 1)
+	log.Printf("restore to the point-in-time '%v' finished", t)
+}
+
 func (c *Cluster) PITRestore(t time.Time) {
 	log.Printf("restoring to the point-in-time %v", t)
 	err := c.pbm.PITRestore(t)
@@ -208,7 +226,7 @@ func (c *Cluster) DataChecker() (check func()) {
 				log.Fatalf("get db hashes %s: %v\n", name, err)
 			}
 			if hashes1[name]["_all_"] != h["_all_"] {
-				log.Fatalf("%s: hashes doesn't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
+				log.Fatalf("%s: hashes don't match. before %s now %s", name, hashes1[name]["_all_"], h["_all_"])
 			}
 		}
 	}
@@ -273,6 +291,8 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 			}
 			switch m.Status {
 			case pbmt.StatusDone:
+				// to be sure the lock is released
+				time.Sleep(time.Second * 3)
 				return nil
 			case pbmt.StatusError:
 				return errors.New(m.Error)

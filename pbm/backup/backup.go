@@ -196,8 +196,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	oplog := NewOplog(b.node)
-	oplogTS, err := oplog.LastWrite()
+	oplogTS, err := b.node.OplogStartTime()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
 	}
@@ -210,7 +209,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, inf, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -281,6 +280,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
+	oplog := NewOplog(b.node)
 	lwts, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "get shard's last write ts")
@@ -292,7 +292,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, inf, nil)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
@@ -333,7 +333,7 @@ func (b *Backup) run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			l.Debug("epoch set to %v", epch)
 		}
 
-		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, inf, nil)
+		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
@@ -474,8 +474,8 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 	return n, nil
 }
 
-func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
-	shards, err := b.cn.ClusterMembers(ninf)
+func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeout *time.Duration) error {
+	shards, err := b.cn.ClusterMembers()
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
