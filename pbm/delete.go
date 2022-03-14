@@ -219,7 +219,7 @@ func (p *PBM) DeletePITR(until *time.Time, l *log.Event) error {
 }
 
 func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage, l *log.Event) (err error) {
-	var chunks []PITRChunk
+	var chunks []OplogChunk
 
 	if until.T > 0 {
 		chunks, err = p.PITRGetChunksSliceUntil("", until)

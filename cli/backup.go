@@ -13,9 +13,10 @@ import (
 )
 
 type backupOpts struct {
-	name        string
-	compression string
-	typ         string
+	name             string
+	typ              string
+	compression      string
+	compressionLevel []int
 }
 
 type backupOut struct {
@@ -45,12 +46,18 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, errors.Wrap(err, "get remote-store")
 	}
 
+	var level *int
+	if len(b.compressionLevel) > 0 {
+		level = &b.compressionLevel[0]
+	}
+
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdBackup,
 		Backup: pbm.BackupCmd{
-			Type:        pbm.BackupType(b.typ),
-			Name:        b.name,
-			Compression: pbm.CompressionType(b.compression),
+			Type:             pbm.BackupType(b.typ),
+			Name:             b.name,
+			Compression:      pbm.CompressionType(b.compression),
+			CompressionLevel: level,
 		},
 	})
 	if err != nil {

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -51,6 +54,19 @@ func (r restoreRet) String() string {
 	default:
 		return ""
 	}
+}
+
+type replayOptions struct {
+	start string
+	end   string
+}
+
+type oplogReplayResult struct {
+	Name string `json:"name"`
+}
+
+func (r oplogReplayResult) String() string {
+	return fmt.Sprintf("Oplog replay %q has started", r.Name)
 }
 
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
@@ -213,10 +229,32 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) (*pbm.RestoreMeta, err
 	return waitForRestoreStatus(ctx, cn, name)
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
+func parseTS(t string) (ts primitive.Timestamp, err error) {
+	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
+		tt, err := strconv.ParseInt(si[0], 10, 64)
+		if err != nil {
+			return ts, errors.Wrap(err, "parse clusterTime T")
+		}
+		ti, err := strconv.ParseInt(si[1], 10, 64)
+		if err != nil {
+			return ts, errors.Wrap(err, "parse clusterTime I")
+		}
+
+		return primitive.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
+	}
+
 	tsto, err := parseDateT(t)
 	if err != nil {
-		return errors.Wrap(err, "parse date")
+		return ts, errors.Wrap(err, "parse date")
+	}
+
+	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
+}
+
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
+	ts, err := parseTS(t)
+	if err != nil {
+		return err
 	}
 
 	err = checkConcurrentOp(cn)
@@ -229,7 +267,8 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) error {
 		Cmd: pbm.CmdPITRestore,
 		PITRestore: pbm.PITRestoreCmd{
 			Name: name,
-			TS:   tsto.Unix(),
+			TS:   int64(ts.T),
+			I:    int64(ts.I),
 			Bcp:  base,
 		},
 	})

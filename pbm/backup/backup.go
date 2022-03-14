@@ -112,7 +112,7 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 		return errors.Wrap(err, "balancer status, get backup meta")
 	}
 
-	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked aproprietly
+	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked appropriately
 	defer func() {
 		if err != nil {
 			status := pbm.StatusError
@@ -221,7 +221,7 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 			l.Debug("epoch set to %v", epch)
 		}
 
-		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, inf, nil)
+		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
@@ -308,6 +308,7 @@ func (rwe rwErr) Error() string {
 
 	return r
 }
+
 func (rwe rwErr) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
@@ -320,22 +321,25 @@ type Source interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, fname string, sizeb int) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, compressLevel *int, fname string, sizeb int) (int64, error) {
 	r, pw := io.Pipe()
 
-	w := Compress(pw, compression)
+	w, err := Compress(pw, compression, compressLevel)
+	if err != nil {
+		return 0, err
+	}
 
-	var err rwErr
+	var rwErr rwErr
 	var n int64
 	go func() {
-		n, err.read = src.WriteTo(w)
-		err.compress = w.Close()
+		n, rwErr.read = src.WriteTo(w)
+		rwErr.compress = w.Close()
 		pw.Close()
 	}()
 
 	saveDone := make(chan struct{})
 	go func() {
-		err.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(fname, r, sizeb)
 		saveDone <- struct{}{}
 	}()
 
@@ -351,15 +355,15 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	r.Close()
 
-	if !err.nil() {
-		return 0, err
+	if !rwErr.nil() {
+		return 0, rwErr
 	}
 
 	return n, nil
 }
 
-func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, ninf *pbm.NodeInfo, timeout *time.Duration) error {
-	shards, err := b.cn.ClusterMembers(ninf)
+func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeout *time.Duration) error {
+	shards, err := b.cn.ClusterMembers()
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}

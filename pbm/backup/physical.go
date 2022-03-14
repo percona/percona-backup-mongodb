@@ -160,7 +160,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPI
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, inf, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -206,7 +206,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPI
 		default:
 		}
 
-		f, err := writeFile(ctx, bd.Name, subdir+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression, l)
+		f, err := writeFile(ctx, bd.Name, subdir+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression, bcp.CompressionLevel, l)
 		if err != nil {
 			return errors.Wrapf(err, "upload file `%s`", bd.Name)
 		}
@@ -252,7 +252,7 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression pbm.CompressionType, l *plog.Event) (*pbm.File, error) {
+func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression pbm.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
 	fstat, err := os.Stat(src)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
@@ -262,7 +262,7 @@ func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compre
 
 	dst += compression.Suffix()
 
-	_, err = Upload(ctx, &file{src}, stg, compression, dst, int(fstat.Size()))
+	_, err = Upload(ctx, &file{src}, stg, compression, compressLevel, dst, int(fstat.Size()))
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}

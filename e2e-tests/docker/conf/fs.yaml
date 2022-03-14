@@ -1,5 +1,5 @@
 storage:
     type: filesystem
     filesystem:
-      path: /opt/backups
+      path: /opt/backups/pbm
   

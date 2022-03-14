@@ -23,11 +23,15 @@ func main() {
 		sampleColF  = tCmd.Flag("sample-collection", "Set collection as the data source").Short('c').String()
 		sampleSizeF = tCmd.Flag("size-gb", "Set data size in GB. Default 1").Short('s').Float64()
 
-		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>").
+		compressLevelArg []int
+		compressLevel    *int
+
+		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 				Default(string(pbm.CompressionTypeS2)).
 				Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 				string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
 				string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
+				string(pbm.CompressionTypeZstandard),
 			)
 
 		compressionCmd = tCmd.Command("compression", "Run compression test")
@@ -38,6 +42,12 @@ func main() {
 		versionCommit = versionCmd.Flag("commit", "Only git commit info").Default("false").Bool()
 		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
 	)
+
+	tCmd.Flag("compression-level", "Compression level (specific to the compression type)").IntsVar(&compressLevelArg)
+
+	if len(compressLevelArg) > 0 {
+		compressLevel = &compressLevelArg[0]
+	}
 
 	cmd, err := tCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil && cmd != versionCmd.FullCommand() {
@@ -52,10 +62,10 @@ func main() {
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
-		compression(*mURL, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
+		compression(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case storageCmd.FullCommand():
 		fmt.Print("Test started ")
-		storage(*mURL, pbm.CompressionType(*compressType), *sampleSizeF, *sampleColF)
+		storage(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -68,7 +78,7 @@ func main() {
 	}
 }
 
-func compression(mURL string, compression pbm.CompressionType, sizeGb float64, collection string) {
+func compression(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	var cn *mongo.Client
@@ -87,7 +97,7 @@ func compression(mURL string, compression pbm.CompressionType, sizeGb float64, c
 	done := make(chan struct{})
 	go printw(done)
 
-	r, err := speedt.Run(cn, stg, compression, sizeGb, collection)
+	r, err := speedt.Run(cn, stg, compression, level, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}
@@ -97,7 +107,7 @@ func compression(mURL string, compression pbm.CompressionType, sizeGb float64, c
 	fmt.Println(r)
 }
 
-func storage(mURL string, compression pbm.CompressionType, sizeGb float64, collection string) {
+func storage(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	node, err := pbm.NewNode(ctx, mURL, 1)
@@ -118,7 +128,7 @@ func storage(mURL string, compression pbm.CompressionType, sizeGb float64, colle
 	}
 	done := make(chan struct{})
 	go printw(done)
-	r, err := speedt.Run(node.Session(), stg, compression, sizeGb, collection)
+	r, err := speedt.Run(node.Session(), stg, compression, level, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}

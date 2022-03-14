@@ -81,6 +81,8 @@ func (a *Agent) Start() error {
 				a.CancelBackup()
 			case pbm.CmdRestore:
 				a.Restore(cmd.Restore, cmd.OPID, ep)
+			case pbm.CmdReplay:
+				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResync:
 				a.Resync(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
@@ -132,7 +134,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -199,7 +201,7 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -261,7 +263,7 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.aquireLock(lock, l, nil)
+	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -297,9 +299,9 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 
 type lockAquireFn func() (bool, error)
 
-// aquireLock tries to aquire the lock. If there is a stale lock
+// acquireLock tries to aquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) aquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got bool, err error) {
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got bool, err error) {
 	if aquire == nil {
 		aquire = l.Acquire
 	}

@@ -108,7 +108,7 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 			continue
 		}
 
-		n, err := w.Write([]byte(cur.Current))
+		n, err := w.Write(cur.Current)
 		if err != nil {
 			return written, errors.Wrap(err, "write to pipe")
 		}

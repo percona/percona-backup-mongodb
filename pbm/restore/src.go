@@ -6,6 +6,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/klauspost/compress/s2"
+	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4"
 	"github.com/pkg/errors"
@@ -25,6 +26,9 @@ func Decompress(r io.Reader, c pbm.CompressionType) (io.ReadCloser, error) {
 		return ioutil.NopCloser(snappy.NewReader(r)), nil
 	case pbm.CompressionTypeS2:
 		return ioutil.NopCloser(s2.NewReader(r)), nil
+	case pbm.CompressionTypeZstandard:
+		rr, err := zstd.NewReader(r)
+		return ioutil.NopCloser(rr), errors.Wrap(err, "zstandard reader")
 	default:
 		return ioutil.NopCloser(r), nil
 	}

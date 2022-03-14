@@ -33,7 +33,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, inf, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -93,7 +93,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID
 	if err != nil {
 		return errors.Wrap(err, "init mongodump options")
 	}
-	_, err = Upload(ctx, dump, stg, bcp.Compression, rsMeta.DumpName, sz)
+	_, err = Upload(ctx, dump, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.DumpName, sz)
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -115,7 +115,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, inf, nil)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
@@ -139,7 +139,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID
 	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
 	oplog.SetTailingSpan(fwTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	_, err = Upload(ctx, oplog, stg, bcp.Compression, rsMeta.OplogName, -1)
+	_, err = Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}

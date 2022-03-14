@@ -31,7 +31,7 @@ func (c *Cluster) Timeseries() {
 
 	ts2.gen()
 
-	ds := time.Second * 35
+	ds := time.Second * 135
 	log.Printf("Generating data for %v", ds)
 	time.Sleep(ds)
 
@@ -39,7 +39,7 @@ func (c *Cluster) Timeseries() {
 	ts2.stop()
 	c.pitrOff()
 
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 6)
 
 	err = c.mongos.Drop("ts1")
 	if err != nil {
@@ -57,7 +57,7 @@ func (c *Cluster) Timeseries() {
 	}
 
 	if len(list.PITR.Ranges) == 0 {
-		log.Fatalf("ERROR: empty pitr list, expected range after the last backup")
+		log.Fatalf("ERROR: empty pitr list, expected a range after the last backup")
 	}
 
 	c.PITRestore(time.Unix(int64(list.PITR.Ranges[len(list.PITR.Ranges)-1].Range.End), 0))
@@ -78,17 +78,6 @@ func (c *Cluster) Timeseries() {
 
 	if ts2.count() != uint64(ts2c) {
 		log.Fatalf("ERROR: wrong timeseries count, expect %d got %d", ts2.count(), ts2c)
-	}
-
-	// cleanup
-	err = c.mongos.Drop("ts1")
-	if err != nil {
-		log.Fatalf("ERROR: drop ts1: %v", err)
-	}
-
-	err = c.mongos.Drop("ts2")
-	if err != nil {
-		log.Fatalf("ERROR: drop ts2: %v", err)
 	}
 }
 

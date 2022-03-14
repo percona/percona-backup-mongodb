@@ -12,24 +12,27 @@ import (
 )
 
 type listOpts struct {
-	restore bool
-	full    bool
-	size    int
+	restore     bool
+	oplogReplay bool
+	full        bool
+	size        int
 }
 
 type restoreStatus struct {
-	StartTS     int64           `json:"start"`
-	Status      pbm.Status      `json:"status"`
-	Type        restoreListType `json:"type"`
-	Snapshot    string          `json:"snapshot,omitempty"`
-	PointInTime int64           `json:"point-in-time,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	StartTS          int64           `json:"start"`
+	Status           pbm.Status      `json:"status"`
+	Type             restoreListType `json:"type"`
+	Snapshot         string          `json:"snapshot,omitempty"`
+	StartPointInTime int64           `json:"start-point-in-time,omitempty"`
+	PointInTime      int64           `json:"point-in-time,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	Error            string          `json:"error,omitempty"`
 }
 
 type restoreListType string
 
 const (
+	restoreReplay   restoreListType = "replay"
 	restorePITR     restoreListType = "pitr"
 	restoreSnapshot restoreListType = "snapshot"
 )
@@ -46,6 +49,10 @@ func (r restoreListOut) String() string {
 
 		if v.Type == restoreSnapshot {
 			name = v.Snapshot
+		} else if v.Type == restoreReplay {
+			name = fmt.Sprintf("Oplog Replay: %v - %v",
+				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
+				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		} else {
 			name = "PITR: " + time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
 		}
@@ -94,17 +101,22 @@ func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
 		r := rlist[i]
 
 		rs := restoreStatus{
-			StartTS:     r.StartTS,
-			Status:      r.Status,
-			Type:        restoreSnapshot,
-			Snapshot:    r.Backup,
-			PointInTime: r.PITR,
-			Name:        r.Name,
-			Error:       r.Error,
+			StartTS:          r.StartTS,
+			Status:           r.Status,
+			Type:             restoreSnapshot,
+			Snapshot:         r.Backup,
+			StartPointInTime: r.StartPITR,
+			PointInTime:      r.PITR,
+			Name:             r.Name,
+			Error:            r.Error,
 		}
 
 		if r.PITR != 0 {
-			rs.Type = restorePITR
+			if r.Backup == "" {
+				rs.Type = restoreReplay
+			} else {
+				rs.Type = restorePITR
+			}
 		}
 
 		rout.list = append(rout.list, rs)
@@ -170,14 +182,14 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
 
+	shards, err := cn.ClusterMembers()
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster members")
+	}
+
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, errors.Wrap(err, "define cluster state")
-	}
-
-	shards, err := cn.ClusterMembers(inf)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster members")
 	}
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
@@ -213,7 +225,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		return nil, nil, errors.Wrap(err, "define cluster state")
 	}
 
-	shards, err := cn.ClusterMembers(inf)
+	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster members")
 	}

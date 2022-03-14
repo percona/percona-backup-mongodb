@@ -256,7 +256,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 
 	defer func() {
 		if err != nil {
-			if !errors.Is(err, ErrNoDatForShard) {
+			if !errors.Is(err, ErrNoDataForShard) {
 				ferr := r.MarkFailed(err)
 				if ferr != nil {
 					l.Error("mark restore as failed `%v`: %v", err, ferr)
@@ -733,7 +733,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		s, err := r.cn.ClusterMembers(r.nodeInfo)
+		s, err := r.cn.ClusterMembers()
 		if err != nil {
 			return errors.Wrap(err, "get cluster members")
 		}
@@ -771,7 +771,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		if r.nodeInfo.IsLeader() {
 			return errors.New("no data for the config server or sole rs in backup")
 		}
-		return ErrNoDatForShard
+		return ErrNoDataForShard
 	}
 
 	rsMeta := pbm.RestoreReplset{

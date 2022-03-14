@@ -34,7 +34,7 @@ run() {
         if [ $EXIT_CODE != 0 ]; then
             docker-compose -f $compose logs --no-color --tail=100
             desc 'PBM logs'
-            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D
+            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D -x
             desc 'PBM status'
             docker-compose -f $compose exec -T agent-rs101 pbm status
         fi
@@ -150,10 +150,10 @@ start_cluster() {
         docker-compose -f $COMPOSE_PATH build
     fi
 
-    if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
-    mkdir "${test_dir}/docker/backups"
-    chmod -R 777 "${test_dir}/docker/backups"
-    
+    if [ ! -d "${test_dir}/docker/backups" ]; then
+        mkdir "${test_dir}/docker/backups"
+        chmod -R 777 "${test_dir}/docker/backups"
+    fi
     export MONGODB_VERSION=${mongo_version:-"4.2"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d
@@ -187,9 +187,10 @@ start_replset() {
         docker-compose -f $compose build
     fi
 
-    if [ -d "${test_dir}/docker/backups" ]; then rm -Rf "${test_dir}/docker/backups"; fi
-    mkdir "${test_dir}/docker/backups"
-    chmod -R 777 "${test_dir}/docker/backups"
+    if [ ! -d "${test_dir}/docker/backups" ]; then
+        mkdir "${test_dir}/docker/backups"
+        chmod -R 777 "${test_dir}/docker/backups"
+    fi
 
     export MONGODB_VERSION=${mongo_version:-"4.2"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}

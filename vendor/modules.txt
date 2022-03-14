@@ -141,8 +141,6 @@ github.com/minio/minio-go/pkg/set
 # github.com/mitchellh/go-homedir v1.1.0
 ## explicit
 github.com/mitchellh/go-homedir
-# github.com/mmcloughlin/avo v0.0.0-20200303042253-6df701fe672f
-## explicit
 # github.com/mongodb/mongo-tools v0.0.0-20210723181737-9fcadb98cca5
 ## explicit
 github.com/mongodb/mongo-tools/common/archive
@@ -257,8 +255,6 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 # gopkg.in/ini.v1 v1.42.0
-## explicit
-# gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 ## explicit
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit

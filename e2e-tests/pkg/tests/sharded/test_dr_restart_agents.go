@@ -11,7 +11,7 @@ const pbmLostAgentsErr = "some pbm-agents were lost during the backup"
 
 // RestartAgents restarts agents during backup.
 // Currently restarts agents on all shards. Also consider restarting
-//  only one shard and/or configsrv, but see https://jira.percona.com/browse/PBM-406?focusedCommentId=248029&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-248029
+// only one shard and/or configsrv, but see https://jira.percona.com/browse/PBM-406?focusedCommentId=248029&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-248029
 func (c *Cluster) RestartAgents() {
 	if len(c.shards) == 0 {
 		log.Fatalln("no shards in cluster")
@@ -49,6 +49,8 @@ func (c *Cluster) RestartAgents() {
 		log.Println("Agents started", rs)
 	}
 
+	log.Printf("Sleeping for %v for agents to report status", time.Second*7)
+	time.Sleep(time.Second * 7)
 	log.Println("Trying a new backup")
 	c.BackupAndRestore(pbm.LogicalBackup)
 }

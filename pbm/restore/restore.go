@@ -54,12 +54,15 @@ var excludeFromRestore = []string{
 	"config.cache.*",
 	"config.shards",
 	"config.transactions",
+	"config.transaction_coordinators",
 	"admin.system.version",
 	"config.system.indexBuilds",
 }
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
+	pbm.DB + "." + pbm.TmpUsersCollection,
+	pbm.DB + "." + pbm.TmpRolesCollection,
 }
 
 type Restore struct {
@@ -69,20 +72,17 @@ type Restore struct {
 	stopHB   chan struct{}
 	nodeInfo *pbm.NodeInfo
 	stg      storage.Storage
-	bcp      *pbm.BackupMeta
 	// Shards to participate in restore. Num of shards in bcp could
-	// be less than in the cluster and this is ok.
+	// be less than in the cluster and this is ok. Only these shards
+	// would be expected to run restore (distributed transactions sync,
+	//  status checks etc.)
 	//
 	// Only the restore leader would have this info.
 	shards []pbm.Shard
 
-	dumpFile   string
-	oplogFile  string
-	pitrChunks []pbm.PITRChunk
-	pitrLastTS int64
-	oplog      *Oplog
-	log        *log.Event
-	opid       string
+	oplog *Oplog
+	log   *log.Event
+	opid  string
 }
 
 // New creates a new restore object
@@ -101,30 +101,63 @@ func (r *Restore) Close() {
 	}
 }
 
+func (r *Restore) exit(err error, l *log.Event) {
+	if err != nil && !errors.Is(err, ErrNoDataForShard) {
+		ferr := r.MarkFailed(err)
+		if ferr != nil {
+			l.Error("mark restore as failed `%v`: %v", err, ferr)
+		}
+	}
+
+	r.Close()
+}
+
 // Snapshot do the snapshot's (mongo dump) restore
 func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() {
-		if err != nil && !errors.Is(err, ErrNoDatForShard) {
-			ferr := r.MarkFailed(err)
-			if ferr != nil {
-				l.Error("mark restore as failed `%v`: %v", err, ferr)
-			}
-		}
-
-		r.Close()
-	}()
+	defer r.exit(err, l)
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return err
 	}
 
-	err = r.PrepareBackup(cmd.BackupName)
+	err = r.cn.SetRestoreBackup(r.name, cmd.BackupName)
+	if err != nil {
+		return errors.Wrap(err, "set backup name")
+	}
+
+	bcp, err := r.SnapshotMeta(cmd.BackupName)
 	if err != nil {
 		return err
 	}
 
-	err = r.RunSnapshot()
+	dump, oplog, err := r.snapshotObjects(bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	err = r.RunSnapshot(dump, bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusDumpDone, nil)
+	if err != nil {
+		return err
+	}
+
+	err = r.applyOplog([]pbm.OplogChunk{{
+		RS:          r.nodeInfo.SetName,
+		FName:       oplog,
+		Compression: bcp.Compression,
+		StartTS:     bcp.FirstWriteTS,
+		EndTS:       bcp.LastWriteTS,
+	}}, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -132,35 +165,122 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 	return r.Done()
 }
 
-// PITR do Point-in-Time Recovery
+// PITR do the Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() {
-		if err != nil && !errors.Is(err, ErrNoDatForShard) {
-			ferr := r.MarkFailed(err)
-			if ferr != nil {
-				l.Error("mark restore as failed `%v`: %v", err, ferr)
-			}
-		}
-
-		r.Close()
-	}()
+	defer r.exit(err, l)
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return err
 	}
 
-	err = r.PreparePITR(cmd.TS, cmd.Bcp)
+	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
+	if r.nodeInfo.IsLeader() {
+		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
+		if err != nil {
+			return errors.Wrap(err, "set PITR timestamp")
+		}
+	}
+
+	var bcp *pbm.BackupMeta
+	if cmd.Bcp == "" {
+		bcp, err = r.cn.GetLastBackup(&tsTo)
+		if errors.Is(err, pbm.ErrNotFound) {
+			return errors.Errorf("no backup found before ts %v", tsTo)
+		}
+		if err != nil {
+			return errors.Wrap(err, "define last backup")
+		}
+	} else {
+		bcp, err = r.SnapshotMeta(cmd.Bcp)
+		if err != nil {
+			return err
+		}
+		if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
+			return errors.New("snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+		}
+	}
+
+	err = r.cn.SetRestoreBackup(r.name, bcp.Name)
+	if err != nil {
+		return errors.Wrap(err, "set backup name")
+	}
+
+	chunks, err := r.chunks(bcp.LastWriteTS, tsTo)
 	if err != nil {
 		return err
 	}
 
-	err = r.RunSnapshot()
+	dump, oplog, err := r.snapshotObjects(bcp)
 	if err != nil {
 		return err
 	}
 
-	err = r.RestoreChunks()
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	err = r.RunSnapshot(dump, bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusDumpDone, nil)
+	if err != nil {
+		return err
+	}
+
+	snapshotChunk := pbm.OplogChunk{
+		RS:          r.nodeInfo.SetName,
+		FName:       oplog,
+		Compression: bcp.Compression,
+		StartTS:     bcp.FirstWriteTS,
+		EndTS:       bcp.LastWriteTS,
+	}
+
+	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo)
+	if err != nil {
+		return err
+	}
+
+	return r.Done()
+}
+
+func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
+	defer r.exit(err, l)
+
+	if err = r.init(cmd.Name, opid, l); err != nil {
+		return errors.Wrap(err, "init")
+	}
+
+	if !r.nodeInfo.IsPrimary {
+		return errors.Errorf("%q is not primary", r.nodeInfo.SetName)
+	}
+
+	r.shards, err = r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
+	if r.nodeInfo.IsLeader() {
+		err := r.cn.SetOplogTimestamps(r.name, int64(cmd.Start.T), int64(cmd.End.T))
+		if err != nil {
+			return errors.Wrap(err, "set oplog timestamps")
+		}
+	}
+
+	chunks, err := r.chunks(cmd.Start, cmd.End)
+	if err != nil {
+		return err
+	}
+
+	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	err = r.applyOplog(chunks, &cmd.Start, &cmd.End)
 	if err != nil {
 		return err
 	}
@@ -226,205 +346,142 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 		return errors.Wrap(err, "waiting for start")
 	}
 
-	r.stg, err = r.cn.GetStorage(r.log)
-	if err != nil {
-		return errors.Wrap(err, "get backup storage")
-	}
-
-	mgoV, err := r.node.GetMongoVersion()
-	if err != nil || len(mgoV.Version) < 1 {
-		return errors.Wrap(err, "define mongo version")
-	}
-
-	r.oplog, err = NewOplog(r.node, mgoV, preserveUUID)
-	if err != nil {
-		return errors.Wrap(err, "create oplog")
-	}
-
-	return nil
-}
-
-func (r *Restore) PreparePITR(ts int64, bcp string) (err error) {
-	r.pitrLastTS = ts
-
-	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetRestorePITR(r.name, ts)
-		if err != nil {
-			return errors.Wrap(err, "set PITR timestamp")
-		}
-	}
-
-	pts := primitive.Timestamp{T: uint32(ts), I: 0}
-
-	err = r.setBcp(bcp, pts)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot")
-	}
-
-	r.log.Info("snapshot %s", r.bcp.Name)
-
-	err = r.prepareChunks(pts)
-	if err != nil {
-		return errors.Wrap(err, "verify oplog slices chain")
-	}
-
-	return r.prepareSnapshot()
-}
-
-func (r *Restore) setBcp(bcp string, targetTS primitive.Timestamp) (err error) {
-	if bcp != "" {
-		r.bcp, err = r.cn.GetBackupMeta(bcp)
-		if err != nil {
-			return errors.Wrap(err, "get backup")
-		}
-		if primitive.CompareTimestamp(r.bcp.LastWriteTS, targetTS) >= 0 {
-			return errors.Wrap(err, "snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
-		}
-
-		return nil
-	}
-
-	r.bcp, err = r.cn.GetLastBackup(&targetTS)
-	if errors.Is(err, pbm.ErrNotFound) {
-		return errors.Errorf("no backup found before ts %v", targetTS)
-	}
-	if err != nil {
-		return errors.Wrap(err, "define last backup")
-	}
-
-	return nil
-}
-
-// prepareChunks ensures integrity of oplog slices (timeline is contiguous - there are no gaps)
-// and chunks exists on the storage
-func (r *Restore) prepareChunks(target primitive.Timestamp) error {
-	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, r.bcp.LastWriteTS, target)
-	if err != nil {
-		return errors.Wrap(err, "get chunks index")
-	}
-
-	if len(chunks) == 0 {
-		return errors.New("no chunks found")
-	}
-
-	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, target) == -1 {
-		return errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
-	}
-
-	last := r.bcp.LastWriteTS
-	for _, c := range chunks {
-		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
-			return errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
-		}
-		last = c.EndTS
-
-		_, err := r.stg.FileStat(c.FName)
-		if err != nil {
-			return errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
-		}
-	}
-
-	r.pitrChunks = chunks
-
-	return nil
-}
-
-func (r *Restore) PrepareBackup(backupName string) (err error) {
-	r.bcp, err = r.cn.GetBackupMeta(backupName)
-	if errors.Is(err, pbm.ErrNotFound) {
-		r.bcp, err = GetMetaFromStore(r.stg, backupName)
-	}
-
-	if err != nil {
-		return errors.Wrap(err, "get backup metadata")
-	}
-
-	err = r.prepareSnapshot()
-	return errors.Wrap(err, "prepare snapshot")
-}
-
-var ErrNoDatForShard = errors.New("no data for shard")
-
-func (r *Restore) prepareSnapshot() (err error) {
-	if r.bcp == nil {
-		return errors.New("snapshot name doesn't set")
-	}
-
-	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "set backup name")
-	}
-
-	if r.bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error)
-	}
-
-	if !version.Compatible(version.DefaultInfo.Version, r.bcp.PBMVersion) {
-		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
-	}
-
-	if r.nodeInfo.IsLeader() {
-		s, err := r.cn.ClusterMembers(r.nodeInfo)
-		if err != nil {
-			return errors.Wrap(err, "get cluster members")
-		}
-
-		fl := make(map[string]pbm.Shard, len(s))
-		for _, rs := range s {
-			fl[rs.RS] = rs
-		}
-
-		var nors []string
-		for _, sh := range r.bcp.Replsets {
-			rs, ok := fl[sh.Name]
-			if !ok {
-				nors = append(nors, sh.Name)
-				continue
-			}
-
-			r.shards = append(r.shards, rs)
-		}
-
-		if len(nors) > 0 {
-			return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
-		}
-	}
-
-	var ok bool
-	for _, v := range r.bcp.Replsets {
-		if v.Name == r.nodeInfo.SetName {
-			r.dumpFile = v.DumpName
-			r.oplogFile = v.OplogName
-			ok = true
-			break
-		}
-	}
-	if !ok {
-		if r.nodeInfo.IsLeader() {
-			return errors.New("no data for the config server or sole rs in backup")
-		}
-		return ErrNoDatForShard
-	}
-
-	_, err = r.stg.FileStat(r.dumpFile)
-	if err != nil {
-		return errors.Errorf("failed to ensure snapshot file %s: %v", r.dumpFile, err)
-	}
-	_, err = r.stg.FileStat(r.oplogFile)
-	if err != nil {
-		return errors.Errorf("failed to ensure oplog file %s: %v", r.oplogFile, err)
-	}
-
 	rsMeta := pbm.RestoreReplset{
 		Name:       r.nodeInfo.SetName,
 		StartTS:    time.Now().UTC().Unix(),
-		Status:     pbm.StatusRunning,
+		Status:     pbm.StatusStarting,
 		Conditions: []pbm.Condition{},
 	}
 
 	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
+	}
+
+	r.stg, err = r.cn.GetStorage(r.log)
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
+	}
+
+	return nil
+}
+
+// chunks defines chunks of oplog slice in given range, ensures its integrity (timeline
+// is contiguous - there are no gaps), checks for respective files on storage and returns
+// chunks list if all checks passed
+func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error) {
+	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, from, to)
+	if err != nil {
+		return nil, errors.Wrap(err, "get chunks index")
+	}
+
+	if len(chunks) == 0 {
+		return nil, errors.New("no chunks found")
+	}
+
+	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, to) == -1 {
+		return nil, errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
+	}
+
+	last := from
+	for _, c := range chunks {
+		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
+			return nil, errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
+		}
+		last = c.EndTS
+
+		_, err := r.stg.FileStat(c.FName)
+		if err != nil {
+			return nil, errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
+		}
+	}
+
+	return chunks, nil
+}
+
+func (r *Restore) SnapshotMeta(backupName string) (bcp *pbm.BackupMeta, err error) {
+	bcp, err = r.cn.GetBackupMeta(backupName)
+	if errors.Is(err, pbm.ErrNotFound) {
+		bcp, err = GetMetaFromStore(r.stg, backupName)
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup metadata")
+	}
+
+	return bcp, err
+}
+
+// setShards defines and set shards participating in the restore
+// cluster migth have more shards then the backup and it's ok. But all
+// backup's shards must have respective destination on the target cluster.
+func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
+	s, err := r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get cluster members")
+	}
+
+	fl := make(map[string]pbm.Shard, len(s))
+	for _, rs := range s {
+		fl[rs.RS] = rs
+	}
+
+	var nors []string
+	for _, sh := range bcp.Replsets {
+		rs, ok := fl[sh.Name]
+		if !ok {
+			nors = append(nors, sh.Name)
+			continue
+		}
+
+		r.shards = append(r.shards, rs)
+	}
+
+	if r.nodeInfo.IsLeader() && len(nors) > 0 {
+		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
+	}
+
+	return nil
+}
+
+var ErrNoDataForShard = errors.New("no data for shard")
+
+func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err error) {
+	var ok bool
+	for _, v := range bcp.Replsets {
+		if v.Name == r.nodeInfo.SetName {
+			dump = v.DumpName
+			oplog = v.OplogName
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		if r.nodeInfo.IsLeader() {
+			return "", "", errors.New("no data for the config server or sole rs in backup")
+		}
+		return "", "", ErrNoDataForShard
+	}
+
+	_, err = r.stg.FileStat(dump)
+	if err != nil {
+		return "", "", errors.Errorf("failed to ensure snapshot file %s: %v", dump, err)
+	}
+
+	_, err = r.stg.FileStat(oplog)
+	if err != nil {
+		return "", "", errors.Errorf("failed to ensure oplog file %s: %v", oplog, err)
+	}
+
+	return dump, oplog, nil
+}
+
+func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
+	if bcp.Status != pbm.StatusDone {
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error)
+	}
+
+	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
 	return nil
@@ -437,14 +494,15 @@ const (
 	numInsertionWorkersDefault = 10
 )
 
-func (r *Restore) RunSnapshot() (err error) {
-	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusRunning, "")
+func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
+	r.log.Info("moving to state %s", status)
+	err := r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, status, "")
 	if err != nil {
-		return errors.Wrap(err, "set shard's StatusDumpDone")
+		return errors.Wrap(err, "set shard's status")
 	}
 
 	if r.nodeInfo.IsLeader() {
-		err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart)
+		err = r.reconcileStatus(status, wait)
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -453,20 +511,34 @@ func (r *Restore) RunSnapshot() (err error) {
 		}
 	}
 
-	err = r.waitForStatus(pbm.StatusRunning)
+	err = r.waitForStatus(status)
 	if err != nil {
-		return errors.Wrap(err, "waiting for start")
+		return errors.Wrapf(err, "waiting for %s", status)
 	}
 
-	sr, err := r.stg.SourceReader(r.dumpFile)
+	return nil
+}
+
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
+	err = r.checkSnapshot(bcp)
 	if err != nil {
-		return errors.Wrapf(err, "get object %s for the storage", r.dumpFile)
+		return err
+	}
+
+	err = r.setShards(bcp)
+	if err != nil {
+		return err
+	}
+
+	sr, err := r.stg.SourceReader(dump)
+	if err != nil {
+		return errors.Wrapf(err, "get object %s for the storage", dump)
 	}
 	defer sr.Close()
 
-	dumpReader, err := Decompress(sr, r.bcp.Compression)
+	dumpReader, err := Decompress(sr, bcp.Compression)
 	if err != nil {
-		return errors.Wrapf(err, "decompress object %s", r.dumpFile)
+		return errors.Wrapf(err, "decompress object %s", dump)
 	}
 	defer dumpReader.Close()
 
@@ -474,24 +546,6 @@ func (r *Restore) RunSnapshot() (err error) {
 	err = r.snapshot(dumpReader)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
-	}
-
-	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusDumpDone, "")
-	if err != nil {
-		return errors.Wrap(err, "set shard's StatusDumpDone")
-	}
-	r.log.Info("mongorestore finished")
-
-	if r.nodeInfo.IsLeader() {
-		err = r.reconcileStatus(pbm.StatusDumpDone, nil)
-		if err != nil {
-			return errors.Wrap(err, "check cluster for restore dump done")
-		}
-	}
-
-	err = r.waitForStatus(pbm.StatusDumpDone)
-	if err != nil {
-		return errors.Wrap(err, "waiting for start")
 	}
 
 	r.log.Info("restoring users and roles")
@@ -505,34 +559,259 @@ func (r *Restore) RunSnapshot() (err error) {
 		return errors.Wrap(err, "swap users 'n' roles")
 	}
 
-	defer func() {
-		errd := pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
-		if errd != nil {
-			r.log.Warning("drop tmp collections: %v", errd)
+	err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
+	if err != nil {
+		r.log.Warning("drop tmp collections: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Restore) distTxnChecker(done <-chan struct{}, ctxn chan pbm.RestoreTxn, txnSyncErr chan<- error) {
+	defer r.log.Debug("exit distTxnChecker")
+
+	for {
+		select {
+		case txn := <-ctxn:
+			r.log.Debug("found dist txn: %s", txn)
+			err := r.cn.RestoreSetRSTxn(r.name, r.nodeInfo.SetName, txn)
+			if err != nil {
+				txnSyncErr <- errors.Wrapf(err, "set transaction %v", txn)
+				return
+			}
+
+			if txn.State == pbm.TxnCommit {
+				txn.State, err = r.txnWaitForShards(txn)
+				if err != nil {
+					txnSyncErr <- errors.Wrapf(err, "wait transaction %v", txn)
+					return
+				}
+				r.log.Debug("txn converged to [%s] <%s>", txn.State, txn.ID)
+				ctxn <- txn
+			}
+		case <-done:
+			return
 		}
-	}()
+	}
+}
 
+func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
+	defer r.log.Debug("exit waitingTxnChecker")
+
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
+	observedTxn := make(map[string]struct{})
+	for {
+		select {
+		case <-tk.C:
+			err := r.checkWaitingTxns(observedTxn)
+			if err != nil {
+				e = &err
+				return
+			}
+		case <-done:
+			return
+		}
+	}
+}
+
+// In order to sync distributed transactions (commit ontly when all participated shards are committed),
+// on all participated in the retore agents:
+// distTxnChecker:
+// - Receiving distributed transactions from the oplog applier, will add set it to the shards restore meta.
+// - If txn's state is `commit` it will wait from all of the rest of the shards for:
+// 		- either transaction committed on the shard (have `commitTransaction`);
+//      - or shard didn't participate in the transaction (more on that below);
+//      - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
+//    If any of the shards encounters the latter - the transaction is sent back to the applier as aborted.
+// 	  Otherwise - committed.
+// By looking at just transactions in the oplog we can't tell which shards were participating in it. So given that
+// starting `opTime` of the transaction is the same on all shards, we can assume that if some shard(s) oplog applier
+// observed greater than the txn's `opTime` and hadn't seen such txn - it wasn't part of this transaction at all. To
+// communicate that, each agent runs `checkWaitingTxns` which in turn periodically checks restore metadata and sees
+// any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
+// instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
+// sharded clusters even if there are no dist txns at all.
+func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Timestamp) error {
 	r.log.Info("starting oplog replay")
+	var err error
 
-	or, err := r.stg.SourceReader(r.oplogFile)
-	if err != nil {
-		return errors.Wrapf(err, "get object %s for the storage", r.oplogFile)
+	mgoV, err := r.node.GetMongoVersion()
+	if err != nil || len(mgoV.Version) < 1 {
+		return errors.Wrap(err, "define mongo version")
 	}
-	defer or.Close()
 
-	oplogReader, err := Decompress(or, r.bcp.Compression)
-	if err != nil {
-		return errors.Wrapf(err, "decompress object %s", r.oplogFile)
+	var (
+		ctxn       chan pbm.RestoreTxn
+		txnSyncErr chan error
+	)
+	if r.nodeInfo.IsSharded() {
+		ctxn = make(chan pbm.RestoreTxn)
+		txnSyncErr = make(chan error)
 	}
-	defer oplogReader.Close()
 
-	lts, err := r.oplog.Apply(oplogReader)
+	r.oplog, err = NewOplog(r.node, mgoV, preserveUUID, ctxn, txnSyncErr)
 	if err != nil {
-		return errors.Wrap(err, "oplog apply")
+		return errors.Wrap(err, "create oplog")
 	}
+
+	var startTS, endTS primitive.Timestamp
+	if start != nil {
+		startTS = *start
+	}
+	if end != nil {
+		endTS = *end
+	}
+	r.oplog.SetTimeframe(startTS, endTS)
+
+	var waitTxnErr error
+	if r.nodeInfo.IsSharded() {
+		r.log.Debug("starting sharded txn sync")
+		if len(r.shards) == 0 {
+			return errors.New("participating shards undefined")
+		}
+		done := make(chan struct{})
+		go r.distTxnChecker(done, ctxn, txnSyncErr)
+		go r.waitingTxnChecker(&waitTxnErr, done)
+		defer close(done)
+	}
+
+	var lts primitive.Timestamp
+	for _, chnk := range chunks {
+		r.log.Debug("+ applying %v", chnk)
+
+		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
+		if err != nil {
+			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
+		}
+		if waitTxnErr != nil {
+			return errors.Wrap(err, "check waiting transactions")
+		}
+	}
+
 	r.log.Info("oplog replay finished on %v", lts)
 
 	return nil
+}
+
+func (r *Restore) checkWaitingTxns(observedTxn map[string]struct{}) error {
+	rmeta, err := r.cn.GetRestoreMeta(r.name)
+	if err != nil {
+		return errors.Wrap(err, "get restore metadata")
+	}
+
+	for _, shard := range rmeta.Replsets {
+		if _, ok := observedTxn[shard.Txn.ID]; shard.Txn.State == pbm.TxnCommit && !ok {
+			ts := primitive.Timestamp{r.oplog.LastOpTS(), 0}
+			if primitive.CompareTimestamp(ts, shard.Txn.Ctime) > 0 {
+				err := r.cn.SetCurrentOp(r.name, r.nodeInfo.SetName, ts)
+				if err != nil {
+					return errors.Wrap(err, "set current op timestamp")
+				}
+			}
+
+			observedTxn[shard.Txn.ID] = struct{}{}
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (r *Restore) txnWaitForShards(txn pbm.RestoreTxn) (pbm.TxnState, error) {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			s, err := r.checkTxn(txn)
+			if err != nil {
+				return pbm.TxnUnknown, err
+			}
+			if s == pbm.TxnCommit || s == pbm.TxnAbort {
+				return s, nil
+			}
+		case <-r.cn.Context().Done():
+			return pbm.TxnAbort, nil
+		}
+	}
+}
+
+func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
+	bmeta, err := r.cn.GetRestoreMeta(r.name)
+	if err != nil {
+		return pbm.TxnUnknown, errors.Wrap(err, "get restore metadata")
+	}
+
+	clusterTime, err := r.cn.ClusterTime()
+	if err != nil {
+		return pbm.TxnUnknown, errors.Wrap(err, "read cluster time")
+	}
+
+	// not going directly thru bmeta.Replsets to be sure we've heard back
+	// from all participated in the restore shards.
+	shardsToFinish := len(r.shards)
+	for _, sh := range r.shards {
+		for _, shard := range bmeta.Replsets {
+			if shard.Name == sh.RS {
+				// check if node alive
+				lock, err := r.cn.GetLockData(&pbm.LockHeader{
+					Type:    pbm.CmdRestore,
+					OPID:    r.opid,
+					Replset: shard.Name,
+				})
+
+				// nodes are cleaning its locks moving to the done status
+				// so no lock is ok and not need to ckech the heartbeats
+				if err != mongo.ErrNoDocuments {
+					if err != nil {
+						return pbm.TxnUnknown, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+					}
+					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+						return pbm.TxnUnknown, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+					}
+				}
+
+				if shard.Status == pbm.StatusError {
+					return pbm.TxnUnknown, errors.Errorf("shard %s failed with: %v", shard.Name, shard.Error)
+				}
+
+				if primitive.CompareTimestamp(shard.CurrentOp, txn.Ctime) == 1 {
+					shardsToFinish--
+					continue
+				}
+
+				if shard.Txn.ID != txn.ID {
+					if shard.Status == pbm.StatusDone ||
+						primitive.CompareTimestamp(shard.Txn.Ctime, txn.Ctime) == 1 {
+						shardsToFinish--
+						continue
+					}
+					return pbm.TxnUnknown, nil
+				}
+
+				// check status
+				switch shard.Txn.State {
+				case pbm.TxnPrepare:
+					if shard.Status == pbm.StatusDone {
+						return pbm.TxnAbort, nil
+					}
+					return pbm.TxnUnknown, nil
+				case pbm.TxnAbort:
+					return pbm.TxnAbort, nil
+				case pbm.TxnCommit:
+					shardsToFinish--
+				}
+			}
+		}
+	}
+
+	if shardsToFinish == 0 {
+		return pbm.TxnCommit, nil
+	}
+
+	return pbm.TxnUnknown, nil
 }
 
 func (r *Restore) snapshot(input io.Reader) (err error) {
@@ -596,26 +875,6 @@ func (r *Restore) snapshot(input io.Reader) (err error) {
 		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
 	}
 
-	return nil
-}
-
-// RestoreChunks replays PITR oplog chunks
-func (r *Restore) RestoreChunks() error {
-	r.log.Info("replay chunks")
-
-	var lts primitive.Timestamp
-	var err error
-	for i, chnk := range r.pitrChunks {
-		if i == len(r.pitrChunks)-1 {
-			r.oplog.SetEdgeUnix(r.pitrLastTS)
-		}
-		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
-		if err != nil {
-			return errors.Errorf("replay chunk %v.%v: %v", chnk.StartTS.T, chnk.EndTS.T, err)
-		}
-	}
-
-	r.log.Info("oplog replay finished on %v <%d>", lts, r.pitrLastTS)
 	return nil
 }
 
@@ -913,7 +1172,7 @@ func waitForStatusT(cn *pbm.PBM, name string, status pbm.Status, t time.Duration
 func (r *Restore) MarkFailed(e error) error {
 	err := r.cn.ChangeRestoreState(r.name, pbm.StatusError, e.Error())
 	if err != nil {
-		return errors.Wrap(err, "set backup state")
+		return errors.Wrap(err, "set restore state")
 	}
 	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusError, e.Error())
 	return errors.Wrap(err, "set replset state")

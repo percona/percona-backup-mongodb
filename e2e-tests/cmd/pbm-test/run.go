@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
@@ -45,6 +46,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 			runTest("Logical PITR & Restore "+stg.name,
 				t.PITRbasic)
 
+			printStart("Oplog Replay " + stg.name)
+			t.OplogReplay()
+			printDone("Oplog Replay " + stg.name)
+
 			t.SetBallastData(1e3)
 			flush(t)
 
@@ -72,6 +77,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 	runTest("Logical Backup Data Bounds Check",
 		func() { t.BackupBoundsCheck(pbm.LogicalBackup) })
 
+	t.SetBallastData(1e3)
+	flush(t)
+
+	if semver.Compare(cVersion, "v5.0") >= 0 {
+		printStart("Check timeseries")
+		t.Timeseries()
+		printDone("Check timeseries")
+		flush(t)
+		t.SetBallastData(1e5)
+	}
+
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
 
@@ -92,6 +108,22 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 			runTest("Distributed Transactions PITR",
 				t.DistributedTrxPITR)
+		}
+
+		if semver.Compare(cVersion, "v4.4") >= 0 {
+			disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
+			tsTo := primitive.Timestamp{1644410656, 8}
+
+			if semver.Compare(cVersion, "v5.0") >= 0 {
+				disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
+				tsTo = primitive.Timestamp{1644243375, 7}
+			}
+
+			t.ApplyConfig(disttxnconf)
+			runTest("Distributed Transactions PITR",
+				func() { t.DistributedCommit(tsTo) })
+
+			t.ApplyConfig(storage)
 		}
 	}
 
@@ -117,6 +149,7 @@ func runTest(name string, fn func()) {
 func printStart(name string) {
 	log.Printf("[START] ======== %s ========\n", name)
 }
+
 func printDone(name string) {
 	log.Printf("[DONE] ======== %s ========\n", name)
 }
