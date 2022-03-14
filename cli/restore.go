@@ -111,12 +111,12 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) error {
 }
 
 func parseTS(t string) (ts primitive.Timestamp, err error) {
-	if si := strings.Index(t, ","); si != -1 {
-		tt, err := strconv.ParseInt(t[0:si], 10, 64)
+	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
+		tt, err := strconv.ParseInt(si[0], 10, 64)
 		if err != nil {
 			return ts, errors.Wrap(err, "parse clusterTime T")
 		}
-		ti, err := strconv.ParseInt(t[si+1:], 10, 64)
+		ti, err := strconv.ParseInt(si[1], 10, 64)
 		if err != nil {
 			return ts, errors.Wrap(err, "parse clusterTime I")
 		}

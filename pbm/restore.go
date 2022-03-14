@@ -49,7 +49,7 @@ const (
 
 type RestoreTxn struct {
 	ID    string              `bson:"id" json:"id"`
-	Ctime primitive.Timestamp `bson:"ts" json:"ts"`
+	Ctime primitive.Timestamp `bson:"ts" json:"ts"` // commit timestamp of the transaction
 	State TxnState            `bson:"state" json:"state"`
 }
 
