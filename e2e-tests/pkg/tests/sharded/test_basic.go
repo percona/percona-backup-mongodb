@@ -31,21 +31,3 @@ func (c *Cluster) BackupAndRestore(typ pbm.BackupType) {
 	restore(bcpName)
 	checkData()
 }
-
-// func (c *Cluster) PhysicalBackupAndRestore() {
-// 	checkData := c.DataChecker()
-
-// 	bcpName := c.PhysicalBackup()
-// 	c.BackupWaitDone(bcpName)
-// 	c.DeleteBallast()
-// 	// to be sure the backup didn't vanish after the resync
-// 	// i.e. resync finished correctly
-// 	log.Println("resync backup list")
-// 	err := c.mongopbm.StoreResync()
-// 	if err != nil {
-// 		log.Fatalln("Error: resync backup lists:", err)
-// 	}
-
-// 	c.PhysicalRestore(bcpName)
-// 	checkData()
-// }

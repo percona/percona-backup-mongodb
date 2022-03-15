@@ -148,10 +148,13 @@ func (c *Cluster) PhysicalRestore(bcpName string) {
 	// just wait so the all data gonna be written (aknowleged) before the next steps
 	time.Sleep(time.Second * 1)
 
-	log.Println("stopping mongos")
-	err = c.docker.StopContainers([]string{"com.percona.pbm.app=mongos"})
-	if err != nil {
-		log.Fatalln("stop mongos:", err)
+	//sharded cluster, hence have a mongos
+	if c.confsrv == "cfg" {
+		log.Println("stopping mongos")
+		err = c.docker.StopContainers([]string{"com.percona.pbm.app=mongos"})
+		if err != nil {
+			log.Fatalln("stop mongos:", err)
+		}
 	}
 
 	log.Println("restarting the culster")
@@ -168,10 +171,12 @@ func (c *Cluster) PhysicalRestore(bcpName string) {
 		log.Fatalln("restart agents:", err)
 	}
 
-	log.Println("starting mongos")
-	err = c.docker.StartContainers([]string{"com.percona.pbm.app=mongos"})
-	if err != nil {
-		log.Fatalln("start mongos:", err)
+	if c.confsrv == "cfg" {
+		log.Println("starting mongos")
+		err = c.docker.StartContainers([]string{"com.percona.pbm.app=mongos"})
+		if err != nil {
+			log.Fatalln("start mongos:", err)
+		}
 	}
 
 	// Give time for agents to report its avaliability status

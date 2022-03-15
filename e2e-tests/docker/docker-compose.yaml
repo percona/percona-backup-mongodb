@@ -82,8 +82,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - cfg01
+      - data-cfg01:/data/db
   agent-cfg02:
     container_name: "pbmagent_cfg02"
     user: "1001"
@@ -104,8 +103,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - cfg02
+      - data-cfg02:/data/db
   agent-cfg03:
     container_name: "pbmagent_cfg03"
     user: "1001"
@@ -126,8 +124,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - cfg03
+      - data-cfg03:/data/db
 
   rs101:
     build:
@@ -193,8 +190,7 @@ services:
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
-    volumes_from:
-      - rs101
+      - data-rs101:/data/db
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -218,8 +214,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - rs102
+      - data-rs102:/data/db
   agent-rs103:
     container_name: "pbmagent_rs103"
     user: "1001"
@@ -240,8 +235,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - rs103
+      - data-rs103:/data/db
 
   rs201:
     build:
@@ -309,8 +303,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - rs201
+      - data-rs201:/data/db
   agent-rs202:
     container_name: "pbmagent_rs202"
     user: "1001"
@@ -331,8 +324,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - rs202
+      - data-rs202:/data/db
   agent-rs203:
     container_name: "pbmagent_rs203"
     user: "1001"
@@ -353,8 +345,7 @@ services:
       - NET_ADMIN
     volumes:
       - ./backups:/opt/backups
-    volumes_from:
-      - rs203
+      - data-rs203:/data/db
 
   mongos:
     build:
