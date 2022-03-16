@@ -62,15 +62,6 @@ func (s *Slicer) GetSpan() time.Duration {
 // the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup() error {
 	s.l.Debug("start_catchup")
-	cfg, err := s.pbm.GetConfig()
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-
-	if cfg.PITR.Unchecked {
-		return s.UncheckedCatchup()
-	}
-
 	baseBcp, err := s.pbm.GetLastBackup(nil)
 	if errors.Is(err, pbm.ErrNotFound) {
 		return errors.New("no backup found, a new backup is required to start PITR")
@@ -136,6 +127,11 @@ func (s *Slicer) Catchup() error {
 			return nil
 		}
 
+		cfg, err := s.pbm.GetConfig()
+		if err != nil {
+			return errors.Wrap(err, "get config")
+		}
+
 		err = s.upload(chnk.EndTS, baseBcp.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if err != nil {
 			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
@@ -159,8 +155,8 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
-func (s *Slicer) UncheckedCatchup() (err error) {
-	s.l.Debug("unchecked catchup")
+func (s *Slicer) OnlyOploadCatchup() (err error) {
+	s.l.Debug("start_catchup [oplog only]")
 
 	defer func() {
 		if err == nil {
@@ -185,6 +181,16 @@ func (s *Slicer) UncheckedCatchup() (err error) {
 	}
 
 	s.lastTS = ts
+
+	// ok, err := s.oplog.IsSufficient(chnk.EndTS)
+	// if err != nil {
+	// 	s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+	// 	return nil
+	// }
+	// if !ok {
+	// 	s.l.Info("insufficient range since %v", chnk.EndTS)
+	// 	return nil
+	// }
 
 	return nil
 }

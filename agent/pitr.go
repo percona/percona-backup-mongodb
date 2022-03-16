@@ -170,7 +170,11 @@ func (a *Agent) pitr() (err error) {
 	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg, ep)
 	ibcp.SetSpan(spant)
 
-	err = ibcp.Catchup()
+	if cfg.PITR.IsOplogOnly() {
+		err = ibcp.OnlyOploadCatchup()
+	} else {
+		err = ibcp.Catchup()
+	}
 	if err != nil {
 		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
