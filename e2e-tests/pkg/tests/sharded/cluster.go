@@ -165,12 +165,6 @@ func (c *Cluster) PhysicalRestore(bcpName string) {
 
 	time.Sleep(time.Second * 5)
 
-	log.Println("restarting agents")
-	err = c.docker.StartContainers([]string{"com.percona.pbm.app=agent"})
-	if err != nil {
-		log.Fatalln("restart agents:", err)
-	}
-
 	if c.confsrv == "cfg" {
 		log.Println("starting mongos")
 		err = c.docker.StartContainers([]string{"com.percona.pbm.app=mongos"})
@@ -179,7 +173,13 @@ func (c *Cluster) PhysicalRestore(bcpName string) {
 		}
 	}
 
-	// Give time for agents to report its avaliability status
+	log.Println("restarting agents")
+	err = c.docker.StartContainers([]string{"com.percona.pbm.app=agent"})
+	if err != nil {
+		log.Fatalln("restart agents:", err)
+	}
+
+	// Give time for agents to report its availability status
 	// after the restart
 	time.Sleep(time.Second * 7)
 
