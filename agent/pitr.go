@@ -170,8 +170,8 @@ func (a *Agent) pitr() (err error) {
 	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg, ep)
 	ibcp.SetSpan(spant)
 
-	if cfg.PITR.IsOplogOnly() {
-		err = ibcp.OnlyOploadCatchup()
+	if cfg.PITR.OplogOnly {
+		err = ibcp.OplogOnlyCatchup()
 	} else {
 		err = ibcp.Catchup()
 	}

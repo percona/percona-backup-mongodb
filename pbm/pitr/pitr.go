@@ -155,7 +155,7 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
-func (s *Slicer) OnlyOploadCatchup() (err error) {
+func (s *Slicer) OplogOnlyCatchup() (err error) {
 	s.l.Debug("start_catchup [oplog only]")
 
 	defer func() {
@@ -171,26 +171,25 @@ func (s *Slicer) OnlyOploadCatchup() (err error) {
 
 	if chnk != nil {
 		s.lastTS = chnk.EndTS
-
 		return nil
 	}
 
-	ts, err := s.pbm.ClusterTime()
+	ok, err := s.oplog.IsSufficient(chnk.EndTS)
 	if err != nil {
-		return err
+		s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+		return nil
 	}
+	if !ok {
+		s.l.Info("insufficient range since %v", chnk.EndTS)
 
-	s.lastTS = ts
+		ts, err := s.pbm.ClusterTime()
+		if err != nil {
+			return err
+		}
 
-	// ok, err := s.oplog.IsSufficient(chnk.EndTS)
-	// if err != nil {
-	// 	s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
-	// 	return nil
-	// }
-	// if !ok {
-	// 	s.l.Info("insufficient range since %v", chnk.EndTS)
-	// 	return nil
-	// }
+		s.lastTS = ts
+		return nil
+	}
 
 	return nil
 }

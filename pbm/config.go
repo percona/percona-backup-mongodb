@@ -61,7 +61,7 @@ func (c Config) String() string {
 type PITRConf struct {
 	Enabled          bool            `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64         `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	OplogOnly        *bool           `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
+	OplogOnly        bool            `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int            `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
@@ -72,14 +72,6 @@ func (c *PITRConf) Cast() error {
 	}
 
 	return nil
-}
-
-func (c *PITRConf) IsOplogOnly() bool {
-	if c.OplogOnly == nil {
-		return true
-	}
-
-	return *c.OplogOnly
 }
 
 // StorageType represents a type of the destination storage for backups
