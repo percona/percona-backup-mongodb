@@ -15,7 +15,6 @@ type listOpts struct {
 	restore     bool
 	oplogReplay bool
 	full        bool
-	oplogOnly   bool
 	size        int
 }
 
@@ -88,7 +87,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(cn, l.size, l.full, l.oplogOnly)
+	return backupList(cn, l.size, l.full)
 }
 
 func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
@@ -147,7 +146,11 @@ func (bl backupListOut) String() string {
 	}
 
 	for _, r := range bl.PITR.Ranges {
-		s += fmt.Sprintf("  %s - %s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)))
+		f := ""
+		if r.NoBaseSnapshot {
+			f = " (no base snapshot)"
+		}
+		s += fmt.Sprintf("  %s - %s%s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)), f)
 	}
 	if bl.PITR.RsRanges != nil {
 		s += "\n"
@@ -159,12 +162,12 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full, oplogOnly bool) (list backupListOut, err error) {
+func backupList(cn *pbm.PBM, size int, full bool) (list backupListOut, err error) {
 	list.Snapshots, err = getSnapshotList(cn, size)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full, oplogOnly)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
@@ -220,7 +223,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full, oplogOnly bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -267,27 +270,34 @@ func getPitrList(cn *pbm.PBM, size int, full, oplogOnly bool) (ranges []pitrRang
 		sh[s.RS] = struct{}{}
 	}
 
-	var buf []string
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		if !oplogOnly {
-			bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-			if errors.Is(err, pbm.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
-			}
-			buf = buf[:0]
-			bcpMatchCluster(bcp, sh, inf.SetName, &buf)
-
-			if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-				continue
-			}
+		ok, err := hasBaseSnapshot(cn, inf, sh, tl)
+		if err != nil {
+			return nil, nil, err
 		}
-
 		tl.Start++
-		ranges = append(ranges, pitrRange{Range: tl})
+		ranges = append(ranges, pitrRange{Range: tl, NoBaseSnapshot: !ok})
 	}
 
 	return ranges, rsRanges, nil
+}
+
+func hasBaseSnapshot(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, tl pbm.Timeline) (bool, error) {
+	bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+	if err != nil {
+		if !errors.Is(err, pbm.ErrNotFound) {
+			return false, errors.Wrapf(err, "get backup for timeline: %s", tl)
+		}
+
+		return false, nil
+	}
+
+	var buf []string
+	bcpMatchCluster(bcp, sh, inf.SetName, &buf)
+
+	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		return false, nil
+	}
+
+	return true, nil
 }

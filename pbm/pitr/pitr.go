@@ -170,27 +170,26 @@ func (s *Slicer) OplogOnlyCatchup() (err error) {
 	}
 
 	if chnk != nil {
-		s.lastTS = chnk.EndTS
-		return nil
-	}
-
-	ok, err := s.oplog.IsSufficient(chnk.EndTS)
-	if err != nil {
-		s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
-		return nil
-	}
-	if !ok {
-		s.l.Info("insufficient range since %v", chnk.EndTS)
-
-		ts, err := s.pbm.ClusterTime()
+		ok, err := s.oplog.IsSufficient(chnk.EndTS)
 		if err != nil {
-			return err
+			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+			return nil
 		}
 
-		s.lastTS = ts
-		return nil
+		if ok {
+			s.lastTS = chnk.EndTS
+			return nil
+		}
+
+		s.l.Info("insufficient range since %v", chnk.EndTS)
 	}
 
+	ts, err := s.pbm.ClusterTime()
+	if err != nil {
+		return err
+	}
+
+	s.lastTS = ts
 	return nil
 }
 
