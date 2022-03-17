@@ -565,9 +565,9 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
-	_, err = c.Database("config").Collection("system.sessions").DeleteMany(ctx, bson.D{})
+	err = c.Database("config").Collection("system.sessions").Drop(ctx)
 	if err != nil {
-		return errors.Wrap(err, "delete from config.system.sessions")
+		return errors.Wrap(err, "drop from config.system.sessions")
 	}
 
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
