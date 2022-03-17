@@ -79,13 +79,12 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	var bcp *backup.Backup
 
 	switch cmd.Type {
-	case pbm.LogicalBackup:
-		bcp = backup.New(a.pbm, a.node)
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.LogicalBackup:
+		fallthrough
 	default:
-		l.Error("undefined backup type: %v", cmd.Type)
-		return
+		bcp = backup.New(a.pbm, a.node)
 	}
 
 	if nodeInfo.IsClusterLeader() {
