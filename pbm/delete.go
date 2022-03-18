@@ -82,7 +82,7 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	return nil
 }
 
-// DeleteBackupFiles removes backup's artefacts from storage
+// DeleteBackupFiles removes backup's artifacts from storage
 func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	switch meta.Type {
 	case PhysicalBackup:
@@ -94,7 +94,7 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err erro
 	}
 }
 
-// DeleteBackupFiles removes backup's artefacts from storage
+// DeleteBackupFiles removes backup's artifacts from storage
 func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
@@ -114,7 +114,7 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 	return errors.Wrap(err, "delete metadata file from storage")
 }
 
-// DeleteBackupFiles removes backup's artefacts from storage
+// DeleteBackupFiles removes backup's artifacts from storage
 func (p *PBM) deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)

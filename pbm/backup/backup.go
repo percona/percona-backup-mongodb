@@ -125,7 +125,7 @@ func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *p
 					Replsets: []pbm.BackupReplset{rsMeta},
 				}
 
-				l.Info("delete artefacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
+				l.Info("delete artifacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())

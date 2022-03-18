@@ -163,10 +163,10 @@ func (c *Cluster) BackupDelete(storage string) {
 
 const awsurl = "s3.amazonaws.com"
 
-// checkArtefacts checks if all backups artefacts removed
+// checkArtefacts checks if all backups artifacts removed
 // except for the shouldStay
 func checkArtefacts(conf string, shouldStay map[string]struct{}) {
-	log.Println("check all artefacts deleted excepts backup's", shouldStay)
+	log.Println("check all artifacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("ERROR: unable to read config file:", err)
