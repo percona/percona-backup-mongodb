@@ -164,7 +164,7 @@ func (r *PhysRestore) waitMgoShutdown() error {
 	return nil
 }
 
-// toState moves cluter to the given restore state.
+// toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 // - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
 // - Replset leader (primary node) waits for files from all replicaset' nodes. And
