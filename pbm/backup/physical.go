@@ -35,6 +35,7 @@ type BCoplogTS struct {
 	T  int64               `bson:"t"`
 }
 
+// see https://www.percona.com/blog/2021/06/07/experimental-feature-backupcursorextend-in-percona-server-for-mongodb/
 type BackupCursorData struct {
 	Meta *Meta
 	Data []pbm.File

@@ -15,6 +15,10 @@ import (
 func run(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
 
+	storage := "/etc/pbm/fs.yaml"
+	// t.ApplyConfig(storage)
+	// flush(t)
+
 	remoteStg := []struct {
 		name string
 		conf string
@@ -25,8 +29,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"FS", "/etc/pbm/fs.yaml"},
 		{"Minio", "/etc/pbm/minio.yaml"},
 	}
-
-	var storage string
 
 	for _, stg := range remoteStg {
 		if confExt(stg.conf) {

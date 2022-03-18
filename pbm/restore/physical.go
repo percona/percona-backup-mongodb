@@ -41,8 +41,9 @@ type PhysRestore struct {
 	node   *pbm.Node
 	dbpath string
 	port   int
-	efport string
-	rsConf *pbm.RSConfig
+	// an ephemeral port to restart mongod on during the restore
+	tmpPort string
+	rsConf  *pbm.RSConfig // original replset config
 
 	name     string
 	opid     string
@@ -96,7 +97,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		rsConf:   rcf,
 		nodeInfo: inf,
 		port:     opts.Net.Port,
-		efport:   strconv.Itoa(opts.Net.Port + 1111),
+		tmpPort:  strconv.Itoa(opts.Net.Port + 1111),
 	}, nil
 }
 
@@ -163,6 +164,15 @@ func (r *PhysRestore) waitMgoShutdown() error {
 	return nil
 }
 
+// toState moves cluter to the given restore state.
+// All communication happens via files in the restore dir on storage.
+// - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
+// - Replset leader (primary node) waits for files from all replicaset' nodes. And
+//   writes a status file for the relicaset.
+// - Cluster leader (primary node on config server) waits for status files from
+//   all replicasets. And sets status file for the cluster.
+// - Each node in turn waits for the cluster status file and returns (move further)
+//   once it's observed.
 func (r *PhysRestore) toState(status pbm.Status) error {
 	r.log.Info("moving to state %s", status)
 
@@ -247,6 +257,26 @@ func (r *PhysRestore) waitFiles(n ...string) error {
 	return storage.ErrNotExist
 }
 
+// Snapshot restores data from the physical snapshot.
+//
+// Initial sync and coordination between nodes happens via `admin.pbmRestore`
+// metadata as with logical restores. But later, since mongod being shutdown,
+// status sync going via storage (see `PhysRestore.toState`)
+//
+// Unlike in logical restore, _every_ node of the replicaset is taking part in
+// a physical restore. In that way, we avoid logical resync between nodes after
+// the restore. Each node in the cluster does:
+// - Stores current replicset config and mongod port.
+// - Checks backup and stops all routine writes to the db.
+// - Stops mongod and wipes out datadir.
+// - Copies backup data to the datadir.
+// - Starts standalone mongod on ephemeral (tmp) port and reset some internal
+//   data also setting one-node replicaset and sets oplogTruncateAfterPoint
+//   to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
+//   to which journals would be replayed.
+// - Starts standalone mongod to recover oplog from journals.
+// - Cleans up data and resets replicaset config to the working state.
+// - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	meta := &pbm.RestoreMeta{
 		Type: pbm.PhysicalBackup,
@@ -284,27 +314,13 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return err
 	}
 
-	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusRunning, "")
+	meta, err = r.toStateDB(pbm.StatusRunning, &pbm.WaitActionStart)
 	if err != nil {
-		return errors.Wrap(err, "set shard's StatusRunning")
-	}
-
-	if r.nodeInfo.IsLeader() {
-		meta, err = r.reconcileStatus(pbm.StatusRunning, &pbm.WaitActionStart)
-		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
-				return errors.Wrap(err, "couldn't get response from all shards")
-			}
-			return errors.Wrap(err, "check cluster for restore started")
-		}
-	}
-
-	err = r.waitForStatus(pbm.StatusRunning, &pbm.WaitActionStart)
-	if err != nil {
-		return errors.Wrap(err, "waiting for start")
+		return errors.Wrap(err, "move to running state")
 	}
 
 	// not to spam logs with failed hb attempts
+	// TODO: heartbeats via storage
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
@@ -317,7 +333,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
 
-	l.Info("flushing old data")
+	l.Info("stopping mongod and flushing old data")
 	err = r.flush()
 	if err != nil {
 		return err
@@ -329,10 +345,10 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "copy files")
 	}
 
-	l.Info("setting restore timestamp")
-	err = r.prepData()
+	l.Info("preparing data")
+	err = r.prepareData()
 	if err != nil {
-		return errors.Wrap(err, "set restore timestamp")
+		return errors.Wrap(err, "prepare data")
 	}
 
 	l.Info("recovering oplog as standalone")
@@ -431,13 +447,13 @@ func (r *PhysRestore) copyFiles() error {
 	return nil
 }
 
-func (r *PhysRestore) prepData() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.efport, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+func (r *PhysRestore) prepareData() error {
+	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort, "--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport, "")
+	c, err := conn(r.tmpPort, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -461,12 +477,13 @@ func (r *PhysRestore) prepData() error {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
+	// TODO: do we need this?
 	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
 		pbm.RSConfig{
 			ID:      r.rsConf.ID,
 			CSRS:    r.nodeInfo.IsConfigSrv(),
 			Version: 1,
-			Members: []pbm.RSMember{{ID: 0, Host: "localhost:" + r.efport}},
+			Members: []pbm.RSMember{{ID: 0, Host: "localhost:" + r.tmpPort}},
 		},
 	)
 
@@ -481,6 +498,7 @@ func (r *PhysRestore) prepData() error {
 		return errors.Wrap(err, "insert to replset.minvalid")
 	}
 
+	r.log.Debug("oplogTruncateAfterPoint: %v", r.bcp.LastWriteTS)
 	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").InsertOne(ctx,
 		bson.M{"_id": "oplogTruncateAfterPoint", "oplogTruncateAfterPoint": r.bcp.LastWriteTS},
 	)
@@ -506,14 +524,14 @@ func shutdown(c *mongo.Client) error {
 }
 
 func (r *PhysRestore) recoverStandalone() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.efport,
+	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport, "")
+	c, err := conn(r.tmpPort, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -527,12 +545,12 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) resetRS() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.efport)
+	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.efport, "")
+	c, err := conn(r.tmpPort, "")
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -810,6 +828,11 @@ func (r *PhysRestore) waitForStatus(status pbm.Status, tout *time.Duration) erro
 		return waitForStatusT(r.cn, r.name, status, *tout)
 	}
 	return waitForStatus(r.cn, r.name, status)
+}
+
+func (r *PhysRestore) toStateDB(status pbm.Status, wait *time.Duration) (*pbm.RestoreMeta, error) {
+	r.log.Info("moving to state %s", status)
+	return toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
 func (r *PhysRestore) reconcileStatus(status pbm.Status, timeout *time.Duration) (*pbm.RestoreMeta, error) {

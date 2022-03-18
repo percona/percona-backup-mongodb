@@ -25,8 +25,6 @@ func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType) {
 		restore = c.PhysicalRestore
 	}
 
-	bcpName := backup()
-
 	rand.Seed(time.Now().UnixNano())
 	counters := make(map[string]scounter)
 	for name, shard := range c.shards {
@@ -37,6 +35,8 @@ func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType) {
 			cancel: cancel,
 		}
 	}
+
+	bcpName := backup()
 
 	c.BackupWaitDone(bcpName)
 	time.Sleep(time.Second * 1)

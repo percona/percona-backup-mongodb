@@ -301,12 +301,12 @@ type lockAquireFn func() (bool, error)
 
 // acquireLock tries to aquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (got bool, err error) {
-	if aquire == nil {
-		aquire = l.Acquire
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (got bool, err error) {
+	if acquireFn == nil {
+		acquireFn = l.Acquire
 	}
 
-	got, err = aquire()
+	got, err = acquireFn()
 	if err == nil {
 		return got, nil
 	}
@@ -325,13 +325,13 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, aquire lockAquireFn) (go
 		case pbm.CmdRestore, pbm.CmdPITRestore:
 			fn = a.pbm.MarkRestoreStale
 		default:
-			return aquire()
+			return acquireFn()
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
 			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
-		return aquire()
+		return acquireFn()
 	default:
 		return false, err
 	}
