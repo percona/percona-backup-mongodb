@@ -114,13 +114,18 @@ func (r *PhysRestore) close() {
 
 func (r *PhysRestore) flush() error {
 	r.log.Debug("shutdown server")
-
+	rsStat, err := r.node.GetReplsetStatus()
+	if err != nil {
+		return errors.Wrap(err, "get replset status")
+	}
 	for {
 		inf, err := r.node.GetInfo()
 		if err != nil {
 			return errors.Wrap(err, "get node info")
 		}
-		if !inf.IsPrimary {
+		// single-node replica set won't stepdown do secondary
+		// so we have to shut it down despite of role
+		if !inf.IsPrimary || len(rsStat.Members) == 1 {
 			err = r.node.Shutdown()
 			if err != nil {
 				return errors.Wrap(err, "shutdown server")
@@ -131,7 +136,7 @@ func (r *PhysRestore) flush() error {
 		time.Sleep(time.Second * 1)
 	}
 
-	err := r.waitMgoShutdown()
+	err = r.waitMgoShutdown()
 	if err != nil {
 		return errors.Wrap(err, "shutdown")
 	}
