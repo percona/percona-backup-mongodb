@@ -5,8 +5,8 @@ After=time-sync.target network.target
 [Service]
 EnvironmentFile=-/etc/sysconfig/pbm-agent
 Type=simple
-User=pbm
-Group=pbm
+User=mongod
+Group=mongod
 PermissionsStartOnly=true
 ExecStart=/usr/bin/pbm-agent
 
