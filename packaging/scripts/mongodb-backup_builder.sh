@@ -190,9 +190,13 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
       add_percona_yum_repo
+      RHEL=$(rpm --eval %rhel)
+      if [ "x${RHEL}" = "x8" ]; then
+          sudo sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+          sudo sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+      fi
       yum -y install wget
       yum clean all
-      RHEL=$(rpm --eval %rhel)
       if [ "x${RHEL}" = "x8" ]; then
           yum -y install rpm-build make rpmlint rpmdevtools golang git
       else
