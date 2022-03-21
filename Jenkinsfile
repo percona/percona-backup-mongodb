@@ -18,6 +18,7 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION) {
     testsReportMap[mkey] = 'failed'
 
     sh """
+        chmod 777 -R e2e-tests/docker/backups
         export MONGODB_VERSION=${MONGO_VERSION}
         export PBM_TESTS_NO_BUILD=true
         ./e2e-tests/${TEST_SCRIPT}

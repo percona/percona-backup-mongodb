@@ -299,7 +299,7 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 
 type lockAquireFn func() (bool, error)
 
-// acquireLock tries to aquire the lock. If there is a stale lock
+// acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
 func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (got bool, err error) {
 	if acquireFn == nil {
@@ -311,12 +311,12 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) 
 		return got, nil
 	}
 
-	switch err.(type) {
+	switch err := err.(type) {
 	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
 		lg.Debug("get lock: %v", err)
 		return false, nil
 	case pbm.ErrWasStaleLock:
-		lk := err.(pbm.ErrWasStaleLock).Lock
+		lk := err.Lock
 		lg.Debug("stale lock: %v", lk)
 		var fn func(opid string) error
 		switch lk.Type {
@@ -353,7 +353,12 @@ func (a *Agent) HbStatus() {
 		RS:   a.node.RS(),
 		Ver:  version.DefaultInfo.Version,
 	}
-	defer a.pbm.RmAgentStatus(hb)
+	defer func() {
+		if err := a.pbm.RmAgentStatus(hb); err != nil {
+			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
+			logger.Error("remove agent heartbeat: %v", err)
+		}
+	}()
 
 	tk := time.NewTicker(pbm.AgentsStatCheckRange)
 	defer tk.Stop()
