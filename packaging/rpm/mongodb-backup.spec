@@ -120,12 +120,12 @@ case "$1" in
       %else
           /sbin/service pbm-agent condrestart >/dev/null 2>&1 || :
       %endif
-      %if ! /usr/bin/id pbm &>/dev/null; then
+      if [ ! /usr/bin/id pbm &>/dev/null ]; then
           /usr/sbin/userdel pbm
-      %endif
-      %if ! /usr/bin/id -g pbm &>/dev/null; then
+      fi
+      if [ ! /usr/bin/id -g pbm &>/dev/null ]; then
           /usr/sbin/groupdel pbm
-      %endfi
+      fi
    ;;
 esac
 
