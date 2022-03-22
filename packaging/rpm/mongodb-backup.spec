@@ -85,13 +85,13 @@ install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-
 
 
 %pre -n percona-backup-mongodb
-/usr/bin/getent group pbm || /usr/sbin/groupadd -r pbm
-/usr/bin/getent passwd pbm || /usr/sbin/useradd -r -s /sbin/nologin -g pbm pbm
+/usr/bin/getent group mongod || /usr/sbin/groupadd -r mongod
+/usr/bin/getent passwd mongod || /usr/sbin/useradd -M -r -g mongod -d /var/lib/mongo -s /bin/false -c mongod mongod
 if [ ! -d /run/pbm-agent ]; then
-    install -m 0755 -d -opbm -gpbm /run/pbm-agent
+    install -m 0755 -d -omongod -gmongod /run/pbm-agent
 fi
 if [ ! -f /var/log/pbm-agent.log ]; then
-    install -m 0640 -opbm -gpbm /dev/null /var/log/pbm-agent.log
+    install -m 0640 -omongod -gmongod /dev/null /var/log/pbm-agent.log
 fi
 
 
@@ -111,7 +111,6 @@ fi
 %postun -n percona-backup-mongodb
 case "$1" in
    0) # This is a yum remove.
-      /usr/sbin/userdel pbm
       %if 0%{?systemd}
           %systemd_postun_with_restart pbm-agent.service
       %endif
@@ -121,6 +120,12 @@ case "$1" in
       %else
           /sbin/service pbm-agent condrestart >/dev/null 2>&1 || :
       %endif
+      if [ ! /usr/bin/id pbm &>/dev/null ]; then
+          /usr/sbin/userdel pbm
+      fi
+      if [ ! /usr/bin/id -g pbm &>/dev/null ]; then
+          /usr/sbin/groupdel pbm
+      fi
    ;;
 esac
 
@@ -130,7 +135,7 @@ esac
 %{_bindir}/pbm
 %{_bindir}/pbm-speed-test
 %config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
-%config(noreplace) %attr(0640,pbm,pbm) /%{_sysconfdir}/pbm-storage.conf
+%config(noreplace) %attr(0640,mongod,mongod) /%{_sysconfdir}/pbm-storage.conf
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
@@ -139,5 +144,8 @@ esac
 
 
 %changelog
+* Mon Mar 21 2022 Vadim Yalovets <vadim.yalovets@percona.com>
+- PBM-788 Change pbm user in packages
+
 * Sun Dec 09 2018 Evgeniy Patlan <evgeniy.patlan@percona.com>
 - First build

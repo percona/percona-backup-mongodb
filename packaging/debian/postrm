@@ -18,8 +18,9 @@ case "$1" in
 
 esac
 
-if [ "$1" = "purge" ]; then
+if [ "$1" = "upgrade" ]; then
     userdel pbm || true
+    groupdel pbm || true
   fi
 
 #DEBHELPER#
