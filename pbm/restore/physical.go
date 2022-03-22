@@ -127,7 +127,9 @@ func (r *PhysRestore) flush() error {
 		// so we have to shut it down despite of role
 		if !inf.IsPrimary || len(rsStat.Members) == 1 {
 			err = r.node.Shutdown()
-			if err != nil {
+			if err != nil &&
+				strings.Contains(err.Error(), // wait a bit and let the node to stepdown
+					"(ConflictingOperationInProgress) This node is already in the process of stepping down") {
 				return errors.Wrap(err, "shutdown server")
 			}
 			break
