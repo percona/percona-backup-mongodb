@@ -21,6 +21,14 @@ const (
 	dockerSocket = "unix:///var/run/docker.sock"
 )
 
+type bcpTyp string
+
+const (
+	bcpUnknown  bcpTyp = ""
+	bcpLogical  bcpTyp = "logical"
+	bcpPhysical bcpTyp = "physical"
+)
+
 func main() {
 	mUser := os.Getenv("BACKUP_USER")
 	if mUser == "" {
@@ -31,19 +39,23 @@ func main() {
 		mPass = defaultMongoPass
 	}
 
+	bcpT := bcpLogical
+	if bcpTyp(os.Getenv("TESTS_BCP_TYPE")) == bcpPhysical {
+		bcpT = bcpPhysical
+	}
 	typ := testTyp(os.Getenv("TESTS_TYPE"))
 
 	switch typ {
 	case testsUnknown, testsSharded:
-		runSharded(mUser, mPass)
+		runSharded(mUser, mPass, bcpT)
 	case testsRS:
-		runRS(mUser, mPass)
+		runRS(mUser, mPass, bcpT)
 	default:
 		log.Fatalln("UNKNOWN TEST TYPE:", typ)
 	}
 }
 
-func runRS(mUser, mPass string) {
+func runRS(mUser, mPass string, bcpT bcpTyp) {
 	allTheNetworks := "mongodb://" + mUser + ":" + mPass + "@rs101:27017/"
 	tests := sharded.New(sharded.ClusterConf{
 		Mongos:          allTheNetworks,
@@ -55,10 +67,15 @@ func runRS(mUser, mPass string) {
 		DockerSocket: dockerSocket,
 	})
 
-	run(tests, testsRS)
+	switch bcpT {
+	case bcpPhysical:
+		runPhysical(tests, testsRS)
+	default:
+		run(tests, testsRS)
+	}
 }
 
-func runSharded(mUser, mPass string) {
+func runSharded(mUser, mPass string, bcpT bcpTyp) {
 	tests := sharded.New(sharded.ClusterConf{
 		Mongos:          "mongodb://" + mUser + ":" + mPass + "@mongos:27017/",
 		Configsrv:       "mongodb://" + mUser + ":" + mPass + "@cfg01:27017/",
@@ -70,5 +87,10 @@ func runSharded(mUser, mPass string) {
 		DockerSocket: dockerSocket,
 	})
 
-	run(tests, testsSharded)
+	switch bcpT {
+	case bcpPhysical:
+		runPhysical(tests, testsSharded)
+	default:
+		run(tests, testsSharded)
+	}
 }

@@ -100,3 +100,36 @@ func (p *Pitr) Restore() {
 	p.c.pitrOff()
 	p.c.PITRestore(p.pointT)
 }
+
+type Physical struct {
+	bcpName string
+	c       *Cluster
+	started chan struct{}
+	done    chan struct{}
+}
+
+func NewPhysical(c *Cluster) *Physical {
+	return &Physical{
+		c:       c,
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (s *Physical) Backup() {
+	s.bcpName = s.c.PhysicalBackup()
+	s.started <- struct{}{}
+	s.c.BackupWaitDone(s.bcpName)
+	time.Sleep(time.Second * 1)
+	log.Println("==>1")
+	s.done <- struct{}{}
+	log.Println("==>2")
+}
+
+func (s *Physical) WaitSnapshot() {}
+func (s *Physical) WaitDone()     { <-s.done }
+func (s *Physical) WaitStarted()  { <-s.started }
+
+func (s *Physical) Restore() {
+	s.c.PhysicalRestore(s.bcpName)
+}

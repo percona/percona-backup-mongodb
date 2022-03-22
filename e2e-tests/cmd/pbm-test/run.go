@@ -39,9 +39,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 			t.SetBallastData(1e5)
 
-			runTest("Physical Backup & Restore "+stg.name,
-				func() { t.BackupAndRestore(pbm.PhysicalBackup) })
-
 			runTest("Logical Backup & Restore "+stg.name,
 				func() { t.BackupAndRestore(pbm.LogicalBackup) })
 
@@ -72,9 +69,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	runTest("Leader lag during backup start",
 		t.LeaderLag)
-
-	runTest("Physical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.PhysicalBackup) })
 
 	runTest("Logical Backup Data Bounds Check",
 		func() { t.BackupBoundsCheck(pbm.LogicalBackup) })
