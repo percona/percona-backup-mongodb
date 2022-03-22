@@ -15,6 +15,7 @@ jobs:
             */.git/*
             ./.cache/*
             ./vendor/*
+            ./packaging/scripts/*
 
   misspell:
     name: runner / misspell
