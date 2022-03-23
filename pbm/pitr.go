@@ -347,7 +347,7 @@ func MergeTimelines(tlns ...[]Timeline) []Timeline {
 	}
 	sort.Sort(g)
 
-	// if no gaps, just return avaliable range
+	// if no gaps, just return available range
 	if len(g) == 0 {
 		return []Timeline{{Start: start, End: end}}
 	}
@@ -376,7 +376,7 @@ func MergeTimelines(tlns ...[]Timeline) []Timeline {
 		}
 	}
 
-	// split avaliable timeline with gaps
+	// split available timeline with gaps
 	var ret []Timeline
 	for _, g := range g2 {
 		if start < g.s {
