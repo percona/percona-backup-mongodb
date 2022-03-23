@@ -96,8 +96,10 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		dbpath:   p,
 		rsConf:   rcf,
 		nodeInfo: inf,
-		port:     opts.Net.Port,
-		tmpPort:  strconv.Itoa(opts.Net.Port + 1111),
+		// TODO: `port` is unused - get rid
+		port: opts.Net.Port,
+		// TODO: check if `tmpPort` is avaliable
+		tmpPort: strconv.Itoa(opts.Net.Port + 1111),
 	}, nil
 }
 
