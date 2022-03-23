@@ -13,7 +13,7 @@ void makeReport() {
 }
 
 void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION, String BCP_TYPE) {
-    def mkey = "$TEST_NAME mongodb $MONGO_VERSION"
+    def mkey = "$TEST_NAME psmdb $MONGO_VERSION"
 
     if (!testsReportMap.containsKey(mkey)) {
         testsReportMap[mkey]=[:]
@@ -83,7 +83,7 @@ pipeline {
                 }
             }
             parallel {
-                stage('Restore on new cluster 4.2') {
+                stage('New cluster 4.2 logical') {
                     agent {
                         label 'docker'
                     }
@@ -95,221 +95,221 @@ pipeline {
                         }
 
                         prepareCluster('sharded', '42-newc', '4.2')
-                        runTest('Restore on new cluster', 'run-new-cluster', '4.2', 'logical')
+                        runTest('New cluster', 'run-new-cluster', '4.2', 'logical')
                     }
                 }
-                stage('Restore on new cluster 4.4') {
+                stage('New cluster 4.4 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('sharded', '44-newc', '4.4')
-                        runTest('Restore on new cluster', 'run-new-cluster', '4.4', 'logical')
+                        runTest('New cluster', 'run-new-cluster', '4.4', 'logical')
                     }
                 }
-                stage('Restore on new cluster 5.0') {
+                stage('New cluster 5.0 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('sharded', '50-newc', '5.0')
-                        runTest('Restore on new cluster', 'run-new-cluster', '5.0', 'logical')
+                        runTest('New cluster', 'run-new-cluster', '5.0', 'logical')
                     }
                 }
 
-                stage('Sharded cluster 4.2') {
+                stage('Sharded 4.2 logical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '42-shrd', '4.2')
-                        runTest('Sharded cluster', 'run-sharded', '4.2', 'logical')
+                        runTest('Sharded', 'run-sharded', '4.2', 'logical')
                     }
                 }
-                stage('Sharded cluster 4.4') {
+                stage('Sharded 4.4 logical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '44-shrd', '4.4')
-                        runTest('Sharded cluster', 'run-sharded', '4.4', 'logical')
+                        runTest('Sharded', 'run-sharded', '4.4', 'logical')
                     }
                 }
-                stage('Sharded cluster 5.0') {
+                stage('Sharded 5.0 logical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
                         prepareCluster('sharded', '50-shrd', '5.0')
-                        runTest('Sharded cluster', 'run-sharded', '5.0', 'logical')
+                        runTest('Sharded', 'run-sharded', '5.0', 'logical')
                     }
                 }
 
-                stage('Non-sharded replicaset 4.2') {
+                stage('Non-sharded 4.2 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('rs', '42-rs', '4.2')
-                        runTest('Non-sharded replicaset', 'run-rs', '4.2', 'logical')
+                        runTest('Non-sharded', 'run-rs', '4.2', 'logical')
                     }
                 }
-                stage('Non-sharded replicaset 4.4') {
+                stage('Non-sharded 4.4 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('rs', '44-rs', '4.4')
-                        runTest('Non-sharded replicaset', 'run-rs', '4.4', 'logical')
+                        runTest('Non-sharded', 'run-rs', '4.4', 'logical')
                     }
                 }
-                stage('Non-sharded replicaset 5.0') {
+                stage('Non-sharded 5.0 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('rs', '50-rs', '5.0')
-                        runTest('Non-sharded replicaset', 'run-rs', '5.0', 'logical')
+                        runTest('Non-sharded', 'run-rs', '5.0', 'logical')
                     }
                 }
 
-                stage('Single-node replicaset 4.2') {
+                stage('Single-node 4.2 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('single', '42-single', '4.2')
-                        runTest('Single-node replicaset', 'run-single', '4.2', 'logical')
+                        runTest('Single-node', 'run-single', '4.2', 'logical')
                     }
                 }
-                stage('Single-node replicaset 4.4') {
+                stage('Single-node 4.4 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('single', '44-single', '4.4')
-                        runTest('Single-node replicaset', 'run-single', '4.4', 'logical')
+                        runTest('Single-node', 'run-single', '4.4', 'logical')
                     }
                 }
-                stage('Single-node replicaset 5.0') {
+                stage('Single-node 5.0 logical') {
                     agent {
                         label 'docker'
                     }
                     steps {
                         prepareCluster('single', '50-single', '5.0')
-                        runTest('Single-node replicaset', 'run-single', '5.0', 'logical')
+                        runTest('Single-node', 'run-single', '5.0', 'logical')
                     }
                 }
 
-                stage('Restore on new cluster 4.2 physical') {
+                stage('New cluster 4.2 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '42-newc', '4.2')
-                        runTest('Restore on new cluster', 'run-new-cluster', '4.2', 'physical')
+                        prepareCluster('sharded', '42-newc-phys', '4.2')
+                        runTest('New cluster', 'run-new-cluster', '4.2', 'physical')
                     }
                 }
-                stage('Restore on new cluster 4.4 physical') {
+                stage('New cluster 4.4 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '44-newc', '4.4')
-                        runTest('Restore on new cluster', 'run-new-cluster', '4.4', 'physical')
+                        prepareCluster('sharded', '44-newc-phys', '4.4')
+                        runTest('New cluster', 'run-new-cluster', '4.4', 'physical')
                     }
                 }
-                stage('Restore on new cluster 5.0 physical') {
+                stage('New cluster 5.0 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '50-newc', '5.0')
-                        runTest('Restore on new cluster', 'run-new-cluster', '5.0', 'physical')
+                        prepareCluster('sharded', '50-newc-phys', '5.0')
+                        runTest('New cluster', 'run-new-cluster', '5.0', 'physical')
                     }
                 }
 
-                stage('Sharded cluster 4.2 physical') {
+                stage('Sharded 4.2 physical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '42-shrd', '4.2')
-                        runTest('Sharded cluster', 'run-sharded', '4.2', 'physical')
+                        prepareCluster('sharded', '42-shrd-phys', '4.2')
+                        runTest('Sharded', 'run-sharded', '4.2', 'physical')
                     }
                 }
-                stage('Sharded cluster 4.4 physical') {
+                stage('Sharded 4.4 physical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '44-shrd', '4.4')
-                        runTest('Sharded cluster', 'run-sharded', '4.4', 'physical')
+                        prepareCluster('sharded', '44-shrd-phys', '4.4')
+                        runTest('Sharded', 'run-sharded', '4.4', 'physical')
                     }
                 }
-                stage('Sharded cluster 5.0 physical') {
+                stage('Sharded 5.0 physical') {
                     agent {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '50-shrd', '5.0')
-                        runTest('Sharded cluster', 'run-sharded', '5.0', 'physical')
+                        prepareCluster('sharded', '50-shrd-phys', '5.0')
+                        runTest('Sharded', 'run-sharded', '5.0', 'physical')
                     }
                 }
 
-                stage('Non-sharded replicaset 4.2 physical') {
+                stage('Non-sharded 4.2 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '42-rs', '4.2')
-                        runTest('Non-sharded replicaset', 'run-rs', '4.2', 'physical')
+                        prepareCluster('rs', '42-rs-phys', '4.2')
+                        runTest('Non-sharded', 'run-rs', '4.2', 'physical')
                     }
                 }
-                stage('Non-sharded replicaset 4.4 physical') {
+                stage('Non-sharded 4.4 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '44-rs', '4.4')
-                        runTest('Non-sharded replicaset', 'run-rs', '4.4', 'physical')
+                        prepareCluster('rs', '44-rs-phys', '4.4')
+                        runTest('Non-sharded', 'run-rs', '4.4', 'physical')
                     }
                 }
-                stage('Non-sharded replicaset 5.0 physical') {
+                stage('Non-sharded 5.0 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '50-rs', '5.0')
-                        runTest('Non-sharded replicaset', 'run-rs', '5.0', 'physical')
+                        prepareCluster('rs', '50-rs-phys', '5.0')
+                        runTest('Non-sharded', 'run-rs', '5.0', 'physical')
                     }
                 }
 
-                stage('Single-node replicaset 4.2 physical') {
+                stage('Single-node 4.2 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '42-single', '4.2')
-                        runTest('Single-node replicaset', 'run-single', '4.2', 'physical')
+                        prepareCluster('single', '42-single-phys', '4.2')
+                        runTest('Single-node', 'run-single', '4.2', 'physical')
                     }
                 }
-                stage('Single-node replicaset 4.4 physical') {
+                stage('Single-node 4.4 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '44-single', '4.4')
-                        runTest('Single-node replicaset', 'run-single', '4.4', 'physical')
+                        prepareCluster('single', '44-single-phys', '4.4')
+                        runTest('Single-node', 'run-single', '4.4', 'physical')
                     }
                 }
-                stage('Single-node replicaset 5.0 physical') {
+                stage('Single-node 5.0 physical') {
                     agent {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '50-single', '5.0')
-                        runTest('Single-node replicaset', 'run-single', '5.0', 'physical')
+                        prepareCluster('single', '50-single-phys', '5.0')
+                        runTest('Single-node', 'run-single', '5.0', 'physical')
                     }
                 }
             }
