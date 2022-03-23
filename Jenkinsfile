@@ -201,34 +201,6 @@ pipeline {
                     }
                 }
 
-                stage('New cluster 4.2 physical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('sharded', '42-newc-phys', '4.2')
-                        runTest('New cluster', 'run-new-cluster', '4.2', 'physical')
-                    }
-                }
-                stage('New cluster 4.4 physical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('sharded', '44-newc-phys', '4.4')
-                        runTest('New cluster', 'run-new-cluster', '4.4', 'physical')
-                    }
-                }
-                stage('New cluster 5.0 physical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('sharded', '50-newc-phys', '5.0')
-                        runTest('New cluster', 'run-new-cluster', '5.0', 'physical')
-                    }
-                }
-
                 stage('Sharded 4.2 physical') {
                     agent {
                         label 'docker-32gb'
