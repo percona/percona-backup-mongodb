@@ -94,7 +94,7 @@ pipeline {
                             }
                         }
 
-                        prepareCluster('sharded', '42-newc', '4.2')
+                        prepareCluster('sharded', '42-newc-logic', '4.2')
                         runTest('New cluster', 'run-new-cluster', '4.2', 'logical')
                     }
                 }
@@ -103,7 +103,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '44-newc', '4.4')
+                        prepareCluster('sharded', '44-newc-logic', '4.4')
                         runTest('New cluster', 'run-new-cluster', '4.4', 'logical')
                     }
                 }
@@ -112,7 +112,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('sharded', '50-newc', '5.0')
+                        prepareCluster('sharded', '50-newc-logic', '5.0')
                         runTest('New cluster', 'run-new-cluster', '5.0', 'logical')
                     }
                 }
@@ -122,7 +122,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '42-shrd', '4.2')
+                        prepareCluster('sharded', '42-shrd-logic', '4.2')
                         runTest('Sharded', 'run-sharded', '4.2', 'logical')
                     }
                 }
@@ -131,7 +131,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '44-shrd', '4.4')
+                        prepareCluster('sharded', '44-shrd-logic', '4.4')
                         runTest('Sharded', 'run-sharded', '4.4', 'logical')
                     }
                 }
@@ -140,7 +140,7 @@ pipeline {
                         label 'docker-32gb'
                     }
                     steps {
-                        prepareCluster('sharded', '50-shrd', '5.0')
+                        prepareCluster('sharded', '50-shrd-logic', '5.0')
                         runTest('Sharded', 'run-sharded', '5.0', 'logical')
                     }
                 }
@@ -150,7 +150,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '42-rs', '4.2')
+                        prepareCluster('rs', '42-rs-logic', '4.2')
                         runTest('Non-sharded', 'run-rs', '4.2', 'logical')
                     }
                 }
@@ -159,7 +159,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '44-rs', '4.4')
+                        prepareCluster('rs', '44-rs-logic', '4.4')
                         runTest('Non-sharded', 'run-rs', '4.4', 'logical')
                     }
                 }
@@ -168,7 +168,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('rs', '50-rs', '5.0')
+                        prepareCluster('rs', '50-rs-logic', '5.0')
                         runTest('Non-sharded', 'run-rs', '5.0', 'logical')
                     }
                 }
@@ -178,7 +178,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '42-single', '4.2')
+                        prepareCluster('single', '42-single-logic', '4.2')
                         runTest('Single-node', 'run-single', '4.2', 'logical')
                     }
                 }
@@ -187,7 +187,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '44-single', '4.4')
+                        prepareCluster('single', '44-single-logic', '4.4')
                         runTest('Single-node', 'run-single', '4.4', 'logical')
                     }
                 }
@@ -196,7 +196,7 @@ pipeline {
                         label 'docker'
                     }
                     steps {
-                        prepareCluster('single', '50-single', '5.0')
+                        prepareCluster('single', '50-single-logic', '5.0')
                         runTest('Single-node', 'run-single', '5.0', 'logical')
                     }
                 }
