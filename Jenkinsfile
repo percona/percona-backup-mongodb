@@ -201,7 +201,7 @@ pipeline {
                     }
                 }
 
-                stage('Restore on new cluster 4.2') {
+                stage('Restore on new cluster 4.2 physical') {
                     agent {
                         label 'docker'
                     }
@@ -210,7 +210,7 @@ pipeline {
                         runTest('Restore on new cluster', 'run-new-cluster', '4.2', 'physical')
                     }
                 }
-                stage('Restore on new cluster 4.4') {
+                stage('Restore on new cluster 4.4 physical') {
                     agent {
                         label 'docker'
                     }
@@ -219,7 +219,7 @@ pipeline {
                         runTest('Restore on new cluster', 'run-new-cluster', '4.4', 'physical')
                     }
                 }
-                stage('Restore on new cluster 5.0') {
+                stage('Restore on new cluster 5.0 physical') {
                     agent {
                         label 'docker'
                     }
@@ -229,7 +229,7 @@ pipeline {
                     }
                 }
 
-                stage('Sharded cluster 4.2') {
+                stage('Sharded cluster 4.2 physical') {
                     agent {
                         label 'docker-32gb'
                     }
@@ -238,7 +238,7 @@ pipeline {
                         runTest('Sharded cluster', 'run-sharded', '4.2', 'physical')
                     }
                 }
-                stage('Sharded cluster 4.4') {
+                stage('Sharded cluster 4.4 physical') {
                     agent {
                         label 'docker-32gb'
                     }
@@ -247,7 +247,7 @@ pipeline {
                         runTest('Sharded cluster', 'run-sharded', '4.4', 'physical')
                     }
                 }
-                stage('Sharded cluster 5.0') {
+                stage('Sharded cluster 5.0 physical') {
                     agent {
                         label 'docker-32gb'
                     }
@@ -257,7 +257,7 @@ pipeline {
                     }
                 }
 
-                stage('Non-sharded replicaset 4.2') {
+                stage('Non-sharded replicaset 4.2 physical') {
                     agent {
                         label 'docker'
                     }
@@ -266,7 +266,7 @@ pipeline {
                         runTest('Non-sharded replicaset', 'run-rs', '4.2', 'physical')
                     }
                 }
-                stage('Non-sharded replicaset 4.4') {
+                stage('Non-sharded replicaset 4.4 physical') {
                     agent {
                         label 'docker'
                     }
@@ -275,7 +275,7 @@ pipeline {
                         runTest('Non-sharded replicaset', 'run-rs', '4.4', 'physical')
                     }
                 }
-                stage('Non-sharded replicaset 5.0') {
+                stage('Non-sharded replicaset 5.0 physical') {
                     agent {
                         label 'docker'
                     }
@@ -285,7 +285,7 @@ pipeline {
                     }
                 }
 
-                stage('Single-node replicaset 4.2') {
+                stage('Single-node replicaset 4.2 physical') {
                     agent {
                         label 'docker'
                     }
@@ -294,7 +294,7 @@ pipeline {
                         runTest('Single-node replicaset', 'run-single', '4.2', 'physical')
                     }
                 }
-                stage('Single-node replicaset 4.4') {
+                stage('Single-node replicaset 4.4 physical') {
                     agent {
                         label 'docker'
                     }
@@ -303,7 +303,7 @@ pipeline {
                         runTest('Single-node replicaset', 'run-single', '4.4', 'physical')
                     }
                 }
-                stage('Single-node replicaset 5.0') {
+                stage('Single-node replicaset 5.0 physical') {
                     agent {
                         label 'docker'
                     }

@@ -43,8 +43,9 @@ func main() {
 	if bcpTyp(os.Getenv("TESTS_BCP_TYPE")) == bcpPhysical {
 		bcpT = bcpPhysical
 	}
-	typ := testTyp(os.Getenv("TESTS_TYPE"))
+	log.Println("Backup Type:", bcpT)
 
+	typ := testTyp(os.Getenv("TESTS_TYPE"))
 	switch typ {
 	case testsUnknown, testsSharded:
 		runSharded(mUser, mPass, bcpT)

@@ -4,6 +4,8 @@ services:
     build:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
+      args:
+        - TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
     command: pbm-test
     environment:
       - BACKUP_USER=bcp

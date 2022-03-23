@@ -1,5 +1,7 @@
 FROM golang:1.16
 WORKDIR /opt/pbm-test
+ARG TESTS_BCP_TYPE
+ENV TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
 
 COPY . .
 
