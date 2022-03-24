@@ -8,7 +8,7 @@ testsReportMap  = [:]
 
 void makeReport() {
     for ( test in testsReportMap ) {
-        TestsReport = TestsReport + "\\r\\n| ${test.key} | ${test.value.logcal} | ${test.value.physical} |"
+        TestsReport = TestsReport + "\\r\\n| ${test.key} | ${test.value.logical} | ${test.value.physical} |"
     }
 }
 
@@ -17,6 +17,8 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION, String 
 
     if (!testsReportMap.containsKey(mkey)) {
         testsReportMap[mkey]=[:]
+        testsReportMap[mkey]['logical'] = '-'
+        testsReportMap[mkey]['physical'] = '-'
     }
     testsReportMap[mkey][BCP_TYPE] = 'failed'
 
