@@ -39,6 +39,7 @@ docker-compose -f ${test_dir}/docker/docker-compose.yaml rm -fs
 
 desc 'Start a new cluster'
 start_cluster "$MONGO_VERSION"
+pbm_run status
 
 desc 'Create test user and role'
 mongo_run "db.getSiblingDB(\"admin\").createRole({ \"role\": \"testRole2\",\"privileges\": [{ \"resource\": { \"anyResource\": true },\"actions\": [ \"anyAction\" ]}],\"roles\": []});" "rs1"
@@ -46,6 +47,7 @@ mongo_run "db.getSiblingDB(\"admin\").createUser({user: \"testUser2\",pwd: \"tes
 
 desc 'Configure PBM'
 pbm_run config --file=/etc/pbm/minio.yaml
+pbm_run status
 sleep 1
 wait_rsync
 pbm_run list

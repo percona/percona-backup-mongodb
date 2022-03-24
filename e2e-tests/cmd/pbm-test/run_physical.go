@@ -50,5 +50,8 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 		}
 	}
 
+	runTest("Clock Skew Tests",
+		func() { t.ClockSkew(pbm.PhysicalBackup) })
+
 	flushStore(t)
 }

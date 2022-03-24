@@ -8,7 +8,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
-func (c *Cluster) ClockSkew() {
+func (c *Cluster) ClockSkew(typ pbmt.BackupType) {
 	timeShifts := []string{
 		"+90m", "-195m", "+2d", "-7h", "+11m", "+42d", "-13h",
 	}
@@ -28,12 +28,8 @@ func (c *Cluster) ClockSkew() {
 			log.Fatalf("ERROR: clock skew for %v: %v\n", rs, err)
 		}
 
-		log.Println("[START] Logical Backup Data Bounds Check / ClockSkew", rs, shift)
-		c.BackupBoundsCheck(pbmt.LogicalBackup)
-		log.Println("[DONE] Logical Backup Data Bounds Check / ClockSkew", rs, shift)
-
-		log.Println("[START] Physical Backup Data Bounds Check / ClockSkew", rs, shift)
-		c.BackupBoundsCheck(pbmt.PhysicalBackup)
-		log.Println("[DONE] Physical Backup Data Bounds Check / ClockSkew", rs, shift)
+		log.Printf("[START] %s Backup Data Bounds Check / ClockSkew %s %s", typ, rs, shift)
+		c.BackupBoundsCheck(typ)
+		log.Printf("[DONE] %s Backup Data Bounds Check / ClockSkew %s %s", typ, rs, shift)
 	}
 }

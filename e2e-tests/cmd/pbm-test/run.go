@@ -131,7 +131,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	}
 
 	runTest("Clock Skew Tests",
-		t.ClockSkew)
+		func() { t.ClockSkew(pbm.LogicalBackup) })
 
 	flushStore(t)
 }
