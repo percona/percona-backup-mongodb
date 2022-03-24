@@ -15,7 +15,7 @@ void makeReport() {
 void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION, String BCP_TYPE) {
     def mkey = "$TEST_NAME psmdb $MONGO_VERSION"
 
-    if (!testsReportMap.containsKey(mkey)) {
+    if (!testsReportMap[mkey]) {
         testsReportMap[mkey]=[:]
         testsReportMap[mkey]['logical'] = '-'
         testsReportMap[mkey]['physical'] = '-'
