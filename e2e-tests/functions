@@ -29,7 +29,7 @@ run() {
 
     env 
     desc 'Run tests'
-    docker-compose -f $compose up tests
+    TESTS_BCP_TYPE=${TESTS_BCP_TYPE} docker-compose -f $compose up tests
     docker-compose -f $compose logs -f --no-color tests
     EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
