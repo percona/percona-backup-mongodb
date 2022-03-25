@@ -1,9 +1,11 @@
 version: "3.4"
 services:
   tests:
-    build: 
+    build:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
+      args:
+        - TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
     command: pbm-test
     environment:
       - BACKUP_USER=bcp
@@ -22,6 +24,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs1
       - MONGO_USER=dba
@@ -29,6 +33,7 @@ services:
       - MONGO_PASS=test1234
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
+      - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
   rs102:
     build:
@@ -38,7 +43,11 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs102:/data/db
   rs103:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -47,68 +56,75 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs103:/data/db
   agent-rs101:
     container_name: "pbmagent_rs101"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    volumes: 
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+    volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
+      - data-rs101:/data/db
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs101
   agent-rs102:
     container_name: "pbmagent_rs102"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs102
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs102:/data/db
   agent-rs103:
     container_name: "pbmagent_rs103"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs103
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs103:/data/db
 
   minio:
     image: minio/minio:RELEASE.2020-01-16T22-40-29Z
@@ -126,12 +142,9 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c "
-      sleep 5;
-      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
-      /usr/bin/mc mb myminio/bcp;
-      exit 0;
-      "
-volumes: 
-  backups:
-  backupsfs:
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+volumes:
+  backups: null
+  data-rs101: null
+  data-rs102: null
+  data-rs103: null

@@ -73,8 +73,18 @@ func (c *Ctl) ApplyConfig(file string) error {
 	return nil
 }
 
-func (c *Ctl) Backup() (string, error) {
-	out, err := c.RunCmd("pbm", "backup", "--compression", "s2")
+func (c *Ctl) Resync() error {
+	out, err := c.RunCmd("pbm", "config", "--force-resync")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("done", out)
+	return nil
+}
+
+func (c *Ctl) Backup(typ pbm.BackupType) (string, error) {
+	out, err := c.RunCmd("pbm", "backup", "--type", string(typ), "--compression", "s2")
 	if err != nil {
 		return "", err
 	}
@@ -254,9 +264,24 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 	}
 }
 
-func (c *Ctl) Restore(bcpName string) error {
-	_, err := c.RunCmd("pbm", "restore", bcpName)
-	return err
+// Restore starts restore and returns the name of op
+func (c *Ctl) Restore(bcpName string) (string, error) {
+	o, err := c.RunCmd("pbm", "restore", bcpName, "-o", "json")
+	if err != nil {
+		return "", errors.Wrap(err, "run meta")
+	}
+	o = strings.TrimSpace(o)
+	if i := strings.Index(o, "{"); i != -1 {
+		o = o[i:]
+	}
+	m := struct {
+		Name string `json:"name"`
+	}{}
+	err = json.Unmarshal([]byte(o), &m)
+	if err != nil {
+		return "", errors.Wrapf(err, "unmarshal restore meta \n%s\n", o)
+	}
+	return m.Name, nil
 }
 
 func (c *Ctl) ReplayOplog(a, b time.Time) error {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,11 +24,15 @@ type Agent struct {
 	pitrjob *currentPitr
 	mx      sync.Mutex
 	log     *log.Logger
+
+	closeCMD chan struct{}
+	pauseHB  int32
 }
 
 func New(pbm *pbm.PBM) *Agent {
 	return &Agent{
-		pbm: pbm,
+		pbm:      pbm,
+		closeCMD: make(chan struct{}),
 	}
 }
 
@@ -46,16 +51,18 @@ func (a *Agent) Start() error {
 	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
 	a.log.Printf("node: %s", a.node.ID())
 
-	c, cerr, err := a.pbm.ListenCmd()
-	if err != nil {
-		return err
-	}
+	c, cerr := a.pbm.ListenCmd(a.closeCMD)
 
 	a.log.Printf("listening for the commands")
 
 	for {
 		select {
-		case cmd := <-c:
+		case cmd, ok := <-c:
+			if !ok {
+				a.log.Printf("change stream was closed")
+				return nil
+			}
+
 			a.log.Printf("got command %s", cmd)
 
 			ep, err := a.pbm.GetEpoch()
@@ -76,8 +83,8 @@ func (a *Agent) Start() error {
 				a.Restore(cmd.Restore, cmd.OPID, ep)
 			case pbm.CmdReplay:
 				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
-			case pbm.CmdResyncBackupList:
-				a.ResyncStorage(cmd.OPID, ep)
+			case pbm.CmdResync:
+				a.Resync(cmd.OPID, ep)
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
@@ -85,16 +92,16 @@ func (a *Agent) Start() error {
 			case pbm.CmdDeletePITR:
 				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
 			}
-		case err := <-cerr:
+		case err, ok := <-cerr:
+			if !ok {
+				a.log.Printf("change stream was closed")
+				return nil
+			}
+
 			switch err.(type) {
 			case pbm.ErrorCursor:
 				return errors.Wrap(err, "stop listening")
 			default:
-				// channel closed / cursor is empty
-				if err == nil {
-					return errors.New("change stream was closed")
-				}
-
 				ep, _ := a.pbm.GetEpoch()
 
 				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
@@ -229,9 +236,12 @@ func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("done")
 }
 
-// ResyncStorage uploads a backup list from the remote store
-func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", opid.String(), ep.TS())
+// Resync uploads a backup list from the remote store
+func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdResync), "", opid.String(), ep.TS())
+
+	a.HbResume()
+	a.pbm.Logger().ResumeMgo()
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -246,7 +256,7 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 
 	epts := ep.TS()
 	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:    pbm.CmdResyncBackupList,
+		Type:    pbm.CmdResync,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
@@ -287,16 +297,16 @@ func (a *Agent) ResyncStorage(opid pbm.OPID, ep pbm.Epoch) {
 	l.Debug("epoch set to %v", epch)
 }
 
-type lockAcquireFn func() (bool, error)
+type lockAquireFn func() (bool, error)
 
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquire lockAcquireFn) (got bool, err error) {
-	if acquire == nil {
-		acquire = l.Acquire
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (got bool, err error) {
+	if acquireFn == nil {
+		acquireFn = l.Acquire
 	}
 
-	got, err = acquire()
+	got, err = acquireFn()
 	if err == nil {
 		return got, nil
 	}
@@ -315,16 +325,26 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquire lockAcquireFn) (
 		case pbm.CmdRestore, pbm.CmdPITRestore:
 			fn = a.pbm.MarkRestoreStale
 		default:
-			return acquire()
+			return acquireFn()
 		}
 		merr := fn(lk.OPID)
 		if merr != nil {
 			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
 		}
-		return acquire()
+		return acquireFn()
 	default:
 		return false, err
 	}
+}
+
+func (a *Agent) HbPause() {
+	atomic.StoreInt32(&a.pauseHB, 1)
+}
+func (a *Agent) HbResume() {
+	atomic.StoreInt32(&a.pauseHB, 0)
+}
+func (a *Agent) HbIsRun() bool {
+	return atomic.LoadInt32(&a.pauseHB) == 0
 }
 
 func (a *Agent) HbStatus() {
@@ -336,7 +356,7 @@ func (a *Agent) HbStatus() {
 	defer func() {
 		if err := a.pbm.RmAgentStatus(hb); err != nil {
 			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
-			logger.Error("remove agent heartbeat: %s", err.Error())
+			logger.Error("remove agent heartbeat: %v", err)
 		}
 	}()
 
@@ -350,6 +370,11 @@ func (a *Agent) HbStatus() {
 	var cc int
 
 	for range tk.C {
+		// don't check if on pause (e.g. physical restore)
+		if !a.HbIsRun() {
+			continue
+		}
+
 		hb.PBMStatus = a.pbmStatus()
 		logHbStatus("PBM connection", hb.PBMStatus, l)
 
@@ -420,6 +445,7 @@ func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
 }
 
 func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
+
 	sts.OK = false
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)

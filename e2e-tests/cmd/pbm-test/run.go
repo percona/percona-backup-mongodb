@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
@@ -14,6 +15,10 @@ import (
 func run(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
 
+	storage := "/etc/pbm/fs.yaml"
+	// t.ApplyConfig(storage)
+	// flush(t)
+
 	remoteStg := []struct {
 		name string
 		conf string
@@ -21,22 +26,24 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"AWS", "/etc/pbm/aws.yaml"},
 		{"GCS", "/etc/pbm/gcs.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
+		{"FS", "/etc/pbm/fs.yaml"},
+		{"Minio", "/etc/pbm/minio.yaml"},
 	}
 
 	for _, stg := range remoteStg {
 		if confExt(stg.conf) {
-			t.ApplyConfig(stg.conf)
+			storage = stg.conf
+
+			t.ApplyConfig(storage)
 			flush(t)
 
 			t.SetBallastData(1e5)
 
-			printStart("Basic Backup & Restore " + stg.name)
-			t.BackupAndRestore()
-			printDone("Basic Backup & Restore " + stg.name)
+			runTest("Logical Backup & Restore "+stg.name,
+				func() { t.BackupAndRestore(pbm.LogicalBackup) })
 
-			printStart("Basic PITR & Restore " + stg.name)
-			t.PITRbasic()
-			printDone("Basic PITR & Restore " + stg.name)
+			runTest("Logical PITR & Restore "+stg.name,
+				t.PITRbasic)
 
 			printStart("Oplog Replay " + stg.name)
 			t.OplogReplay()
@@ -45,73 +52,26 @@ func run(t *sharded.Cluster, typ testTyp) {
 			t.SetBallastData(1e3)
 			flush(t)
 
-			printStart("Check Backups deletion " + stg.name)
-			t.BackupDelete(stg.conf)
-			printDone("Check Backups deletion " + stg.name)
+			runTest("Check Backups deletion "+stg.name,
+				func() { t.BackupDelete(storage) })
 
 			flushStore(t)
 		}
 	}
 
-	storage := "/etc/pbm/fs.yaml"
-
-	t.ApplyConfig(storage)
-	flush(t)
-
 	t.SetBallastData(1e5)
 
-	printStart("Basic Backup & Restore FS")
-	t.BackupAndRestore()
-	printDone("Basic Backup & Restore FS")
+	runTest("Check the Running Backup can't be deleted",
+		t.BackupNotDeleteRunning)
 
-	printStart("Basic PITR & Restore FS")
-	t.PITRbasic()
-	printDone("Basic PITR & Restore FS")
+	runTest("Check Backup Cancellation",
+		func() { t.BackupCancellation(storage) })
 
-	printStart("Oplog Replay FS")
-	t.OplogReplay()
-	printDone("Oplog Replay FS")
+	runTest("Leader lag during backup start",
+		t.LeaderLag)
 
-	storage = "/etc/pbm/minio.yaml"
-
-	t.ApplyConfig(storage)
-	flush(t)
-
-	printStart("Basic Backup & Restore Minio")
-	t.BackupAndRestore()
-	printDone("Basic Backup & Restore Minio")
-
-	printStart("Basic PITR & Restore Minio")
-	t.PITRbasic()
-	printDone("Basic PITR & Restore Minio")
-
-	printStart("Oplog Replay Minio")
-	t.OplogReplay()
-	printDone("Oplog Replay Minio")
-
-	t.SetBallastData(1e3)
-	flush(t)
-
-	printStart("Check Backups deletion")
-	t.BackupDelete(storage)
-	printDone("Check Backups deletion")
-	t.SetBallastData(1e5)
-
-	printStart("Check the Running Backup can't be deleted")
-	t.BackupNotDeleteRunning()
-	printDone("Check the Running Backup can't be deleted")
-
-	printStart("Check Backup Cancellation")
-	t.BackupCancellation(storage)
-	printDone("Check Backup Cancellation")
-
-	printStart("Leader lag during backup start")
-	t.LeaderLag()
-	printDone("Leader lag during backup start")
-
-	printStart("Backup Data Bounds Check")
-	t.BackupBoundsCheck()
-	printDone("Backup Data Bounds Check")
+	runTest("Logical Backup Data Bounds Check",
+		func() { t.BackupBoundsCheck(pbm.LogicalBackup) })
 
 	t.SetBallastData(1e3)
 	flush(t)
@@ -130,24 +90,20 @@ func run(t *sharded.Cluster, typ testTyp) {
 		// TODO: in the case of non-sharded cluster there is no other agent to observe
 		// TODO: failed state during the backup. For such topology test should check if
 		// TODO: a sequential run (of the backup let's say) handles a situation.
-		printStart("Cut network during the backup")
-		t.NetworkCut()
-		printDone("Cut network during the backup")
+		runTest("Cut network during the backup",
+			t.NetworkCut)
 
 		t.SetBallastData(1e5)
 
-		printStart("Restart agents during the backup")
-		t.RestartAgents()
-		printDone("Restart agents during the backup")
+		runTest("Restart agents during the backup",
+			t.RestartAgents)
 
 		if semver.Compare(cVersion, "v4.2") >= 0 {
-			printStart("Distributed Transactions backup")
-			t.DistributedTrxSnapshot()
-			printDone("Distributed Transactions backup")
+			runTest("Distributed Transactions backup",
+				t.DistributedTrxSnapshot)
 
-			printStart("Distributed Transactions PITR")
-			t.DistributedTrxPITR()
-			printDone("Distributed Transactions PITR")
+			runTest("Distributed Transactions PITR",
+				t.DistributedTrxPITR)
 		}
 
 		if semver.Compare(cVersion, "v4.4") >= 0 {
@@ -158,19 +114,32 @@ func run(t *sharded.Cluster, typ testTyp) {
 				disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
 				tsTo = primitive.Timestamp{1644243375, 7}
 			}
+
 			t.ApplyConfig(disttxnconf)
-			printStart("Distributed Commit")
-			t.DistributedCommit(tsTo)
-			printDone("Distributed Commit")
+			runTest("Distributed Transactions PITR",
+				func() { t.DistributedCommit(tsTo) })
+
 			t.ApplyConfig(storage)
 		}
 	}
 
-	printStart("Clock Skew Tests")
-	t.ClockSkew()
-	printDone("Clock Skew Tests")
+	if semver.Compare(cVersion, "v5.0") >= 0 {
+		runTest("Check timeseries",
+			t.Timeseries)
+
+		flush(t)
+	}
+
+	runTest("Clock Skew Tests",
+		func() { t.ClockSkew(pbm.LogicalBackup) })
 
 	flushStore(t)
+}
+
+func runTest(name string, fn func()) {
+	printStart(name)
+	fn()
+	printDone(name)
 }
 
 func printStart(name string) {
@@ -180,8 +149,6 @@ func printStart(name string) {
 func printDone(name string) {
 	log.Printf("[DONE] ======== %s ========\n", name)
 }
-
-const awsurl = "s3.amazonaws.com"
 
 func flush(t *sharded.Cluster) {
 	flushStore(t)

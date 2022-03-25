@@ -18,7 +18,7 @@ func (c *Cluster) NetworkCut() {
 		log.Fatalln("no shards in cluster")
 	}
 
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 
 	log.Println("Cut network on agents", rs)
 	err := c.docker.RunOnReplSet(rs, time.Second*5,

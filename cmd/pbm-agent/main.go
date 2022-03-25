@@ -56,7 +56,7 @@ func main() {
 
 	hidecreds()
 
-	log.Println(runAgent(url, *dumpConns))
+	log.Println("Exit:", runAgent(url, *dumpConns))
 }
 
 func runAgent(mongoURI string, dumpConns int) error {

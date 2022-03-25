@@ -70,6 +70,12 @@ func Main() {
 			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
 			string(pbm.CompressionTypeZstandard),
 		)
+	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup)).
+		Default(string(pbm.LogicalBackup)).Short('s').
+		EnumVar(&backup.typ,
+			string(pbm.PhysicalBackup),
+			string(pbm.LogicalBackup),
+		)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
 
@@ -80,6 +86,7 @@ func Main() {
 	restoreCmd.Arg("backup_name", "Backup name to restore").StringVar(&restore.bcp)
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
+	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 
 	oplogCmd := pbmCmd.Command("oplog", "Oplog operations")
 	replayCmd := oplogCmd.Command("replay", "Replay oplog")
@@ -216,7 +223,7 @@ func exitErr(e error, f outFormat) {
 		var m interface{}
 		m = e
 		if _, ok := e.(json.Marshaler); !ok {
-			m = map[string]error{"Error": e}
+			m = map[string]string{"Error": e.Error()}
 		}
 		var err error
 		if f == outJSONpretty {
@@ -291,12 +298,13 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 }
 
 type snapshotStat struct {
-	Name       string     `json:"name"`
-	Size       int64      `json:"size,omitempty"`
-	Status     pbm.Status `json:"status"`
-	Err        string     `json:"error,omitempty"`
-	StateTS    int64      `json:"completeTS"`
-	PBMVersion string     `json:"pbmVersion"`
+	Name       string         `json:"name"`
+	Size       int64          `json:"size,omitempty"`
+	Status     pbm.Status     `json:"status"`
+	Err        string         `json:"error,omitempty"`
+	StateTS    int64          `json:"completeTS"`
+	PBMVersion string         `json:"pbmVersion"`
+	Type       pbm.BackupType `json:"type"`
 }
 
 type pitrRange struct {

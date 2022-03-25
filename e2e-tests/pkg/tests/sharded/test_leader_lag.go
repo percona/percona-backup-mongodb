@@ -25,6 +25,7 @@ func (c *Cluster) LeaderLag() {
 	err = c.mongopbm.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdBackup,
 		Backup: pbm.BackupCmd{
+			Type:        pbm.LogicalBackup,
 			Name:        bcpName,
 			Compression: pbm.CompressionTypeS2,
 		},
@@ -55,6 +56,6 @@ func (c *Cluster) LeaderLag() {
 		log.Fatalln("Error: resync backup lists:", err)
 	}
 
-	c.Restore(bcpName)
+	c.LogicalRestore(bcpName)
 	checkData()
 }

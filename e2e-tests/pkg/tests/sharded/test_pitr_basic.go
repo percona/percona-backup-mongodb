@@ -15,7 +15,7 @@ import (
 )
 
 func (c *Cluster) PITRbasic() {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 
 	c.pitrOn()
 	log.Println("turn on PITR")
@@ -42,7 +42,7 @@ func (c *Cluster) PITRbasic() {
 	time.Sleep(time.Second * 30)
 	log.Printf("Sleep for %v", time.Second*30)
 
-	bcp2 := c.Backup()
+	bcp2 := c.LogicalBackup()
 	c.BackupWaitDone(bcp2)
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)

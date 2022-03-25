@@ -12,7 +12,7 @@ import (
 )
 
 func (c *Cluster) OplogReplay() {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 
 	c.pitrOn()
 	log.Println("turn on PITR")
@@ -42,7 +42,7 @@ func (c *Cluster) OplogReplay() {
 	log.Println("Get end reference time")
 	firstt := getLastWriteTime(counters)
 
-	bcp2 := c.Backup()
+	bcp2 := c.LogicalBackup()
 	c.BackupWaitDone(bcp2)
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
@@ -71,7 +71,7 @@ func (c *Cluster) OplogReplay() {
 	c.printBcpList()
 
 	// +1 sec since we are PITR restore done up to < time (not <=)
-	c.Restore(bcp2)
+	c.LogicalRestore(bcp2)
 	c.ReplayOplog(
 		time.Unix(int64(firstt.T), 0),
 		time.Unix(int64(lastt.T), 0).Add(time.Second*1))

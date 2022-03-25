@@ -17,7 +17,7 @@ func (c *Cluster) RestartAgents() {
 		log.Fatalln("no shards in cluster")
 	}
 
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 
 	for rs := range c.shards {
 		log.Println("Stopping agents on the replset", rs)
@@ -52,5 +52,5 @@ func (c *Cluster) RestartAgents() {
 	log.Printf("Sleeping for %v for agents to report status", time.Second*7)
 	time.Sleep(time.Second * 7)
 	log.Println("Trying a new backup")
-	c.BackupAndRestore()
+	c.BackupAndRestore(pbm.LogicalBackup)
 }

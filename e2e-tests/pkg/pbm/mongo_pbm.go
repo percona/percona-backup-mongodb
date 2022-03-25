@@ -52,7 +52,7 @@ func (m *MongoPBM) Storage() (storage.Storage, error) {
 }
 
 func (m *MongoPBM) StoreResync() error {
-	return m.p.ResyncStorage(m.p.Logger().NewEvent(string(pbm.CmdResyncBackupList), "", "", primitive.Timestamp{}))
+	return m.p.ResyncStorage(m.p.Logger().NewEvent(string(pbm.CmdResync), "", "", primitive.Timestamp{}))
 }
 
 func (m *MongoPBM) Conn() *mongo.Client {

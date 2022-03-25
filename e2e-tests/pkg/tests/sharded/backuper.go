@@ -32,7 +32,7 @@ func NewSnapshot(c *Cluster) *Snapshot {
 }
 
 func (s *Snapshot) Backup() {
-	s.bcpName = s.c.Backup()
+	s.bcpName = s.c.LogicalBackup()
 	s.started <- struct{}{}
 	s.c.BackupWaitDone(s.bcpName)
 	time.Sleep(time.Second * 1)
@@ -46,7 +46,7 @@ func (s *Snapshot) WaitDone()     { <-s.done }
 func (s *Snapshot) WaitStarted()  { <-s.started }
 
 func (s *Snapshot) Restore() {
-	s.c.Restore(s.bcpName)
+	s.c.LogicalRestore(s.bcpName)
 }
 
 type Pitr struct {
@@ -69,7 +69,7 @@ func NewPitr(c *Cluster) *Pitr {
 func (p *Pitr) Backup() {
 	rand.Seed(time.Now().UnixNano())
 
-	bcpName := p.c.Backup()
+	bcpName := p.c.LogicalBackup()
 	p.started <- struct{}{}
 	p.c.pitrOn()
 	p.c.BackupWaitDone(bcpName)
@@ -99,4 +99,37 @@ func (p *Pitr) WaitStarted()  { <-p.started }
 func (p *Pitr) Restore() {
 	p.c.pitrOff()
 	p.c.PITRestore(p.pointT)
+}
+
+type Physical struct {
+	bcpName string
+	c       *Cluster
+	started chan struct{}
+	done    chan struct{}
+}
+
+func NewPhysical(c *Cluster) *Physical {
+	return &Physical{
+		c:       c,
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (s *Physical) Backup() {
+	s.bcpName = s.c.PhysicalBackup()
+	s.started <- struct{}{}
+	s.c.BackupWaitDone(s.bcpName)
+	time.Sleep(time.Second * 1)
+	log.Println("==>1")
+	s.done <- struct{}{}
+	log.Println("==>2")
+}
+
+func (s *Physical) WaitSnapshot() {}
+func (s *Physical) WaitDone()     { <-s.done }
+func (s *Physical) WaitStarted()  { <-s.started }
+
+func (s *Physical) Restore() {
+	s.c.PhysicalRestore(s.bcpName)
 }

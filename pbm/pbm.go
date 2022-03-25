@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -63,16 +64,16 @@ var ErrNotFound = errors.New("not found")
 type Command string
 
 const (
-	CmdUndefined        Command = ""
-	CmdBackup           Command = "backup"
-	CmdRestore          Command = "restore"
-	CmdReplay           Command = "replay"
-	CmdCancelBackup     Command = "cancelBackup"
-	CmdResyncBackupList Command = "resyncBcpList"
-	CmdPITR             Command = "pitr"
-	CmdPITRestore       Command = "pitrestore"
-	CmdDeleteBackup     Command = "delete"
-	CmdDeletePITR       Command = "deletePitr"
+	CmdUndefined    Command = ""
+	CmdBackup       Command = "backup"
+	CmdRestore      Command = "restore"
+	CmdReplay       Command = "replay"
+	CmdCancelBackup Command = "cancelBackup"
+	CmdResync       Command = "resync"
+	CmdPITR         Command = "pitr"
+	CmdPITRestore   Command = "pitrestore"
+	CmdDeleteBackup Command = "delete"
+	CmdDeletePITR   Command = "deletePitr"
 )
 
 func (c Command) String() string {
@@ -85,7 +86,7 @@ func (c Command) String() string {
 		return "Oplog replay"
 	case CmdCancelBackup:
 		return "Backup cancellation"
-	case CmdResyncBackupList:
+	case CmdResync:
 		return "Resync storage"
 	case CmdPITR:
 		return "PITR incremental backup"
@@ -157,6 +158,7 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
+	Type             BackupType      `bson:"type"`
 	Name             string          `bson:"name"`
 	Compression      CompressionType `bson:"compression"`
 	CompressionLevel *int            `bson:"level,omitempty"`
@@ -230,6 +232,21 @@ const (
 	CompressionTypeZstandard CompressionType = "zstd"
 )
 
+func (c CompressionType) Suffix() string {
+	switch c {
+	case CompressionTypeGZIP, CompressionTypePGZIP:
+		return ".gz"
+	case CompressionTypeLZ4:
+		return ".lz4"
+	case CompressionTypeSNAPPY:
+		return ".snappy"
+	case CompressionTypeS2:
+		return ".s2"
+	default:
+		return ""
+	}
+}
+
 const (
 	PITRcheckRange       = time.Second * 15
 	AgentsStatCheckRange = time.Second * 5
@@ -274,7 +291,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrap(err, "get topology")
 	}
 
-	if !inf.IsSharded() || inf.ReplsetRole() == ReplRoleConfigSrv {
+	if !inf.IsSharded() || inf.ReplsetRole() == RoleConfigSrv {
 		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
@@ -401,7 +418,7 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
 	}
 
-	// create indexs for the pitr cunks
+	// create indexs for the pitr chunks
 	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(
 		p.ctx,
 		[]mongo.IndexModel{
@@ -462,8 +479,16 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	return client, nil
 }
 
+type BackupType string
+
+const (
+	PhysicalBackup BackupType = "physical"
+	LogicalBackup  BackupType = "logical"
+)
+
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
+	Type             BackupType           `bson:"type" json:"type"`
 	OPID             string               `bson:"opid" json:"opid"`
 	Name             string               `bson:"name" json:"name"`
 	Replsets         []BackupReplset      `bson:"replsets" json:"replsets"`
@@ -499,8 +524,9 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
-	DumpName         string              `bson:"dump_name" json:"backup_name" `
-	OplogName        string              `bson:"oplog_name" json:"oplog_name"`
+	Files            []File              `bson:"files,omitempty" json:"files,omitempty" `
+	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty" `
+	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
@@ -510,10 +536,20 @@ type BackupReplset struct {
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 }
 
+type File struct {
+	Name    string      `bson:"filename" json:"filename"`
+	Size    int64       `bson:"fileSize" json:"fileSize"`
+	StgSize int64       `bson:"stgSize" json:"stgSize"`
+	Fmode   os.FileMode `bson:"fmode" json:"fmode"`
+}
+
 // Status is a backup current status
 type Status string
 
 const (
+	StatusInit  Status = "init"
+	StatusReady Status = "ready"
+
 	StatusStarting  Status = "starting"
 	StatusRunning   Status = "running"
 	StatusDumpDone  Status = "dumpDone"
@@ -641,6 +677,18 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
+func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{
+			{"$set", bson.M{"replsets.$.files": f}},
+		},
+	)
+
+	return err
+}
+
 func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -683,7 +731,10 @@ func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
 }
 
 func (p *PBM) getRecentBackup(before *primitive.Timestamp, sort int) (*BackupMeta, error) {
-	q := bson.D{{"status", StatusDone}}
+	q := bson.D{
+		{"status", StatusDone},
+		{"type", bson.M{"$ne": string(PhysicalBackup)}},
+	}
 	if before != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})
 	}

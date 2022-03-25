@@ -1,9 +1,11 @@
 version: "3.4"
 services:
   tests:
-    build: 
+    build:
       dockerfile: ./e2e-tests/Dockerfile
       context: ../..
+      args:
+        - TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
     command: pbm-test
     environment:
       - BACKUP_USER=bcp
@@ -24,6 +26,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg01
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=cfg
       - CONFIGSVR=true
@@ -33,6 +37,7 @@ services:
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh
+      - data-cfg01:/data/db
   cfg02:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -41,7 +46,11 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg02
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-cfg02:/data/db
   cfg03:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -50,67 +59,74 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: cfg03
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-cfg03:/data/db
   agent-cfg01:
     container_name: "pbmagent_cfg01"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg01:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - cfg01
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-cfg01:/data/db
   agent-cfg02:
     container_name: "pbmagent_cfg02"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg02:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - cfg02
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-cfg02:/data/db
   agent-cfg03:
     container_name: "pbmagent_cfg03"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg03:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - cfg03
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-cfg03:/data/db
 
   rs101:
     build:
@@ -120,6 +136,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs1
       - MONGO_USER=dba
@@ -128,6 +146,7 @@ services:
       - CONFIGSVR=false
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
+      - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
   rs102:
     build:
@@ -137,7 +156,11 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs102:/data/db
   rs103:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -146,69 +169,76 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs103:/data/db
   agent-rs101:
     container_name: "pbmagent_rs101"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
-    volumes: 
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+    volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
+      - data-rs101:/data/db
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs101
   agent-rs102:
     container_name: "pbmagent_rs102"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs102
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs102:/data/db
   agent-rs103:
     container_name: "pbmagent_rs103"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs103
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
-    
+      - data-rs103:/data/db
+
   rs201:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -217,6 +247,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs201
+    labels:
+      - "com.percona.pbm.app=mongod"
     environment:
       - REPLSET_NAME=rs2
       - MONGO_USER=dba
@@ -225,6 +257,7 @@ services:
       - CONFIGSVR=false
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
+      - data-rs201:/data/db
       - ./scripts/start.sh:/opt/start.sh
   rs202:
     build:
@@ -234,7 +267,11 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs202
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs202:/data/db
   rs203:
     build:
       dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
@@ -243,67 +280,74 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs203
+    labels:
+      - "com.percona.pbm.app=mongod"
     command: mongod --replSet rs2 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    volumes:
+      - data-rs203:/data/db
   agent-rs201:
     container_name: "pbmagent_rs201"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs201:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs201
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs201:/data/db
   agent-rs202:
     container_name: "pbmagent_rs202"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs202:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs202
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs202:/data/db
   agent-rs203:
     container_name: "pbmagent_rs203"
-    user: ${USER_ID}
+    user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
-    environment: 
+    environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs203:27017"
-    build: 
+    build:
       labels:
         - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
+      args:
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
-    depends_on:
-      - rs203
-    volumes: 
+    volumes:
       - ./backups:/opt/backups
+      - data-rs203:/data/db
 
   mongos:
     build:
@@ -313,6 +357,8 @@ services:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: mongos
+    labels:
+      - "com.percona.pbm.app=mongos"
     command: mongos --port 27017 --bind_ip_all --keyFile /opt/keyFile --configdb cfg/cfg01:27017,cfg02:27017,cfg03:27017
     ports:
       - "27017:27017"
@@ -345,13 +391,15 @@ services:
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c "
-      sleep 5;
-      /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234;
-      /usr/bin/mc mb myminio/bcp;
-      exit 0;
-      "
-volumes: 
-  backups:
-  backupsfs:
-
+      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+volumes:
+  backups: null
+  data-cfg01: null
+  data-cfg02: null
+  data-cfg03: null
+  data-rs101: null
+  data-rs102: null
+  data-rs103: null
+  data-rs201: null
+  data-rs202: null
+  data-rs203: null

@@ -76,7 +76,17 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		p.w <- &opid
 	}
 
-	bcp := backup.New(a.pbm, a.node)
+	var bcp *backup.Backup
+
+	switch cmd.Type {
+	case pbm.PhysicalBackup:
+		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.LogicalBackup:
+		fallthrough
+	default:
+		bcp = backup.New(a.pbm, a.node)
+	}
+
 	if nodeInfo.IsClusterLeader() {
 		balancer := pbm.BalancerModeOff
 		if nodeInfo.IsSharded() {
@@ -247,18 +257,48 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 	}
 }
 
-// Restore starts the restore
 func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
-	nodeInfo, err := a.node.GetInfo()
+	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
+	if errors.Is(err, pbm.ErrNotFound) {
+		stg, err := a.pbm.GetStorage(l)
+		if err != nil {
+			l.Error("get storage: %v", err)
+			return
+		}
+
+		bcp, err = restore.GetMetaFromStore(stg, r.BackupName)
+	}
 	if err != nil {
-		l.Error("get node info: %v", err)
+		l.Error("get backup metadata: %v", err)
 		return
 	}
-	if !nodeInfo.IsPrimary {
-		l.Info("node is not primary so it unsuitable to do restore")
+	switch bcp.Type {
+	case pbm.PhysicalBackup:
+		a.HbPause()
+		err = a.restorePhysical(r, opid, ep, l)
+	case pbm.LogicalBackup:
+		fallthrough
+	default:
+		err = a.restoreLogical(r, opid, ep, l)
+	}
+
+	if err != nil {
+		l.Error("%v", err)
 		return
+	}
+}
+
+// restoreLogical starts the restore
+func (a *Agent) restoreLogical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		return errors.Wrap(err, "get node info")
+	}
+	if !nodeInfo.IsPrimary {
+		return errors.New("node is not primary so it's unsuitable to do restore")
+
 	}
 
 	epts := ep.TS()
@@ -272,13 +312,11 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
-		l.Error("acquiring lock: %v", err)
-		return
+		return errors.Wrap(err, "acquiring lock")
 	}
 	if !got {
 		l.Debug("skip: lock not acquired")
-		l.Error("unbale to run the restore while another operation running")
-		return
+		return errors.New("unbale to run the restore while another operation running")
 	}
 
 	defer func() {
@@ -294,20 +332,80 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")
-		} else {
-			l.Error("restore: %v", err)
+			return nil
 		}
-		return
+
+		return err
 	}
 	l.Info("restore finished successfully")
 
 	if nodeInfo.IsLeader() {
 		epch, err := a.pbm.ResetEpoch()
 		if err != nil {
-			l.Error("reset epoch")
-			return
+			return errors.Wrap(err, "reset epoch")
 		}
 
 		l.Debug("epoch set to %v", epch)
 	}
+
+	return nil
+}
+
+// restoreLogical starts the restore
+func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		return errors.Wrap(err, "get node info")
+	}
+
+	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo)
+	if err != nil {
+		return errors.Wrap(err, "init physical backup")
+	}
+
+	var lock *pbm.Lock
+	if nodeInfo.IsPrimary {
+		epts := ep.TS()
+		lock = a.pbm.NewLock(pbm.LockHeader{
+			Type:    pbm.CmdRestore,
+			Replset: nodeInfo.SetName,
+			Node:    nodeInfo.Me,
+			OPID:    opid.String(),
+			Epoch:   &epts,
+		})
+
+		got, err := a.acquireLock(lock, l, nil)
+		if err != nil {
+			return errors.Wrap(err, "acquiring lock")
+		}
+		if !got {
+			l.Debug("skip: lock not acquired")
+			return errors.New("unbale to run the restore while another operation running")
+		}
+	}
+
+	// not to logs flood with errors when mongo went down
+	a.closeCMD <- struct{}{}
+	if lock != nil {
+		// Don't care about errors. Anyway, the lock gonna disappear after the
+		// restore. And the commands stream is down as well.
+		// The lock also updates its heartbeats but Restore waits only for one state
+		// with the timeout twice as short pbm.StaleFrameSec.
+		lock.Release()
+	}
+
+	l.Info("restore started")
+	err = rstr.Snapshot(r, opid, l)
+	l.Info("restore finished %v", err)
+	if err != nil {
+		if errors.Is(err, restore.ErrNoDataForShard) {
+			l.Info("no data for the shard in backup, skipping")
+			return nil
+		}
+
+		return err
+	}
+	l.Info("restore finished successfully")
+
+	return nil
 }

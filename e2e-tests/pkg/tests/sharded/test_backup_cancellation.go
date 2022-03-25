@@ -16,7 +16,7 @@ import (
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 	ts := time.Now()
 	time.Sleep(1 * time.Second)
 	c.printBcpList()
@@ -48,7 +48,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 }
 
 func checkNoBackupFiles(backupName, conf string) {
-	log.Println("check no artefacts left for backup", backupName)
+	log.Println("check no artifacts left for backup", backupName)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("Error: unable to read config file:", err)

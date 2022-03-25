@@ -30,7 +30,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		ts := time.Now()
 		time.Sleep(1 * time.Second)
 		c.printBcpList()
-		bcpName := c.Backup()
+		bcpName := c.LogicalBackup()
 		backups[i] = backupDelete{
 			name: bcpName,
 			ts:   ts,
@@ -157,16 +157,16 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	log.Println("trying to restore from", backups[3])
 	c.DeleteBallast()
-	c.Restore(backups[3].name)
+	c.LogicalRestore(backups[3].name)
 	checkData()
 }
 
 const awsurl = "s3.amazonaws.com"
 
-// checkArtefacts checks if all backups artefacts removed
+// checkArtefacts checks if all backups artifacts removed
 // except for the shouldStay
 func checkArtefacts(conf string, shouldStay map[string]struct{}) {
-	log.Println("check all artefacts deleted excepts backup's", shouldStay)
+	log.Println("check all artifacts deleted excepts backup's", shouldStay)
 	buf, err := ioutil.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("ERROR: unable to read config file:", err)
@@ -217,7 +217,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 }
 
 func (c *Cluster) BackupNotDeleteRunning() {
-	bcpName := c.Backup()
+	bcpName := c.LogicalBackup()
 	c.printBcpList()
 	log.Println("deleting backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
