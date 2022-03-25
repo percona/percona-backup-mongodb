@@ -43,7 +43,7 @@ func main() {
 	if bcpTyp(os.Getenv("TESTS_BCP_TYPE")) == bcpPhysical {
 		bcpT = bcpPhysical
 	}
-	log.Println("Backup Type:", bcpT, os.Getenv("TESTS_BCP_TYPE"))
+	log.Println("Backup Type:", bcpT, os.Getenv("TESTS_BCP_TYPE"), os.Environ())
 
 	typ := testTyp(os.Getenv("TESTS_TYPE"))
 	switch typ {
