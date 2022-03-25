@@ -12,6 +12,8 @@ run() {
     local compose=$1
     local mongo_version=$2
 
+    env
+
     desc 'Start cluster'
     case $compose in
         $COMPOSE_PATH)
@@ -25,6 +27,7 @@ run() {
         ;;
     esac
 
+    env 
     desc 'Run tests'
     docker-compose -f $compose up tests
     docker-compose -f $compose logs -f --no-color tests
