@@ -26,7 +26,7 @@ run() {
     esac
 
     desc 'Run tests'
-    TESTS_BCP_TYPE=${TESTS_BCP_TYPE} docker-compose -f $compose up tests
+    docker-compose -f $compose up tests
     EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
     if [ $PBM_TEST_CLEANUP == true ]; then
@@ -173,7 +173,7 @@ start_replset() {
     if [ $compose ==  $COMPOSE_SINGLE_PATH ]; then
         local nodes="rs101 minio createbucket"
         local agents="agent-rs101"
-    fi 
+    fi
 
     genMongoKey
 
