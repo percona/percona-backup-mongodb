@@ -19,7 +19,7 @@ Percona Backup for MongoDB includes the following **features**:
 - Simple, integrated-with-MongoDB authentication
 - No need to install a coordination service on a separate server
 - Use of any S3-compatible storage
-- Supprt of locally-mounted remote filesystem backup servers.
+- Support of locally-mounted remote filesystem backup servers.
 
 ## Architecture
 
