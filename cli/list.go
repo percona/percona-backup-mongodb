@@ -81,7 +81,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	if l.restore {
 		return restoreList(cn, int64(l.size), l.full)
 	}
-	// show message ans skip when resync is running
+	// show message and skip when resync is running
 	lk, err := findLock(cn, cn.GetLocks)
 	if err == nil && lk != nil && lk.Type == pbm.CmdResync {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
@@ -271,33 +271,69 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 	}
 
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		ok, err := hasBaseSnapshot(cn, inf, sh, tl)
+		lastWrite, err := getBaseSnapshotLastWrite(cn, inf, sh, tl)
 		if err != nil {
 			return nil, nil, err
 		}
-		tl.Start++
-		ranges = append(ranges, pitrRange{Range: tl, NoBaseSnapshot: !ok})
+
+		rs := splitByBaseSnapshot(lastWrite, tl)
+		ranges = append(ranges, rs...)
 	}
 
 	return ranges, rsRanges, nil
 }
 
-func hasBaseSnapshot(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, tl pbm.Timeline) (bool, error) {
-	bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
+func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, tl pbm.Timeline) (*primitive.Timestamp, error) {
+	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
-			return false, errors.Wrapf(err, "get backup for timeline: %s", tl)
+			return nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 
-		return false, nil
+		return nil, nil
+	}
+	if bcp == nil {
+		return nil, nil
 	}
 
 	var buf []string
 	bcpMatchCluster(bcp, sh, inf.SetName, &buf)
 
 	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-		return false, nil
+		return nil, nil
 	}
 
-	return true, nil
+	return &bcp.LastWriteTS, nil
+}
+
+func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitrRange {
+	if lastWrite == nil {
+		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
+	}
+
+	if lastWrite.T < tl.Start || lastWrite.T > tl.End {
+		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
+	}
+
+	ranges := make([]pitrRange, 0, 1)
+
+	if lastWrite.T <= tl.End {
+		ranges = append(ranges, pitrRange{
+			NoBaseSnapshot: true,
+			Range: pbm.Timeline{
+				Start: tl.Start,
+				End:   lastWrite.T,
+			},
+		})
+	}
+	if lastWrite.T >= tl.Start {
+		ranges = append(ranges, pitrRange{
+			Range: pbm.Timeline{
+				Start: lastWrite.T,
+				End:   tl.End,
+			},
+		})
+	}
+
+	return ranges
 }

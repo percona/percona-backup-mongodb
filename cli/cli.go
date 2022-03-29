@@ -321,7 +321,7 @@ type pitrRange struct {
 }
 
 func (pr pitrRange) String() string {
-	return ""
+	return fmt.Sprintf("{ %s }", pr.Range)
 }
 
 func fmtTS(ts int64) string {
