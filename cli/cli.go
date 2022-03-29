@@ -93,6 +93,7 @@ func Main() {
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
 	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
+	replayCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&replayOpts.wait)
 	// todo(add oplog cancel)
 
 	listCmd := pbmCmd.Command("list", "Backup list")

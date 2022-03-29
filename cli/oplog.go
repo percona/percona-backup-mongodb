@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,6 +9,28 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
+
+type replayOptions struct {
+	start string
+	end   string
+	wait  bool
+}
+
+type oplogReplayResult struct {
+	Name string `json:"name"`
+	done bool
+	err  string
+}
+
+func (r oplogReplayResult) String() string {
+	if r.done {
+		return "\nOplog replay successfully finished!\n"
+	}
+	if r.err != "" {
+		return "\n Error: " + r.err
+	}
+	return fmt.Sprintf("Oplog replay %q has started", r.Name)
+}
 
 func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, error) {
 	startTS, err := parseTS(o.start)
@@ -38,10 +61,27 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	}
 
 	if outf != outText {
-		return nil, nil
+		return oplogReplayResult{Name: name}, nil
 	}
 
-	// todo(wait for status)
+	fmt.Printf("Starting oplog reply '%s - %s'", o.start, o.end)
 
-	return oplogReplayResult{Name: name}, nil
+	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	defer cancel()
+
+	m, err := waitForRestoreStatus(ctx, cn, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if !o.wait || m == nil {
+		return oplogReplayResult{Name: name}, nil
+	}
+
+	err = waitRestore(cn, m)
+	if err != nil {
+		return oplogReplayResult{err: err.Error()}, nil
+	}
+
+	return oplogReplayResult{Name: name, done: true}, nil
 }

@@ -56,19 +56,6 @@ func (r restoreRet) String() string {
 	}
 }
 
-type replayOptions struct {
-	start string
-	end   string
-}
-
-type oplogReplayResult struct {
-	Name string `json:"name"`
-}
-
-func (r oplogReplayResult) String() string {
-	return fmt.Sprintf("Oplog replay %q has started", r.Name)
-}
-
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
 	if o.pitr != "" && o.bcp != "" {
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
@@ -102,11 +89,22 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		}
 		return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 	case o.pitr != "":
-		err := pitrestore(cn, o.pitr, o.pitrBase, outf)
+		m, err := pitrestore(cn, o.pitr, o.pitrBase, outf)
 		if err != nil {
 			return nil, err
 		}
-		return restoreRet{PITR: o.pitr}, nil
+		if !o.wait || m == nil {
+			return restoreRet{PITR: o.pitr}, nil
+		}
+		fmt.Print("Started.\nWaiting to finish")
+		err = waitRestore(cn, m)
+		if err != nil {
+			return restoreRet{err: err.Error()}, nil
+		}
+		return restoreRet{
+			done: true,
+			PITR: o.pitr,
+		}, nil
 	default:
 		return nil, errors.New("undefined restore state")
 	}
@@ -251,15 +249,15 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
+func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (rmeta *pbm.RestoreMeta, err error) {
 	ts, err := parseTS(t)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = checkConcurrentOp(cn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -273,11 +271,11 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
 		},
 	})
 	if err != nil {
-		return errors.Wrap(err, "send command")
+		return nil, errors.Wrap(err, "send command")
 	}
 
 	if outf != outText {
-		return nil
+		return nil, nil
 	}
 
 	fmt.Printf("Starting restore to the point in time '%s'", t)
@@ -285,8 +283,7 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
-	_, err = waitForRestoreStatus(ctx, cn, name)
-	return err
+	return waitForRestoreStatus(ctx, cn, name)
 }
 
 func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.RestoreMeta, error) {
