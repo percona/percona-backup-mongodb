@@ -66,6 +66,24 @@ func (a *Agent) PITR() {
 	}
 }
 
+func (a *Agent) restartOnOplogOnlyChange(currOO bool) {
+	if a.prevOO == nil {
+		a.prevOO = &currOO
+		return
+	}
+
+	if *a.prevOO == currOO {
+		return
+	}
+
+	a.prevOO = &currOO
+
+	if p := a.getPitr(); p != nil {
+		p.cancel()
+		a.unsetPitr()
+	}
+}
+
 func (a *Agent) pitr() (err error) {
 	// pausing for physical restore
 	if !a.HbIsRun() {
@@ -77,6 +95,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "get conf")
 	}
 
+	a.restartOnOplogOnlyChange(cfg.PITR.OplogOnly)
 	p := a.getPitr()
 
 	if !cfg.PITR.Enabled {
