@@ -328,7 +328,7 @@ func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitr
 		ranges = append(ranges, pitrRange{
 			NoBaseSnapshot: true,
 			Range: pbm.Timeline{
-				Start: tl.Start,
+				Start: tl.Start + 1,
 				End:   lastWrite.T,
 			},
 		})
@@ -336,7 +336,7 @@ func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitr
 	if lastWrite.T >= tl.Start {
 		ranges = append(ranges, pitrRange{
 			Range: pbm.Timeline{
-				Start: lastWrite.T,
+				Start: lastWrite.T + 1,
 				End:   tl.End,
 			},
 		})
