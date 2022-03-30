@@ -796,6 +796,9 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "message decode")
 		}
+		if b.Type == "" {
+			b.Type = LogicalBackup
+		}
 		backups = append(backups, b)
 	}
 
