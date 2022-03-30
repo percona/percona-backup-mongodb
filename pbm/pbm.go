@@ -249,7 +249,7 @@ func (c CompressionType) Suffix() string {
 	}
 }
 
-// FileCompression return compression alg based on given file extention
+// FileCompression return compression alg based on given file extension
 func FileCompression(ext string) CompressionType {
 	switch ext {
 	default:
