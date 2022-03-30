@@ -141,11 +141,21 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 			return errors.Wrap(err, "get restore metadata")
 		}
 
+		if m.Type == pbm.LogicalBackup {
+			clusterTime, err := cn.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+			if rmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("operation staled, last heartbeat: %v", rmeta.Hb.T)
+			}
+		}
+
 		switch rmeta.Status {
 		case pbm.StatusDone:
 			return nil
 		case pbm.StatusError:
-			return errRestoreFailed{fmt.Sprintf("restore failed with: %s", rmeta.Error)}
+			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 	}
 
