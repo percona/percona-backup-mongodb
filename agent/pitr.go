@@ -66,7 +66,7 @@ func (a *Agent) PITR() {
 	}
 }
 
-func (a *Agent) restartOnOplogOnlyChange(currOO bool) {
+func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 	if a.prevOO == nil {
 		a.prevOO = &currOO
 		return
@@ -95,7 +95,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "get conf")
 	}
 
-	a.restartOnOplogOnlyChange(cfg.PITR.OplogOnly)
+	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 	p := a.getPitr()
 
 	if !cfg.PITR.Enabled {
