@@ -14,6 +14,7 @@ import (
 type listOpts struct {
 	restore     bool
 	oplogReplay bool
+	unbacked    bool
 	full        bool
 	size        int
 }
@@ -87,7 +88,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(cn, l.size, l.full)
+	return backupList(cn, l.size, l.full, l.unbacked)
 }
 
 func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
@@ -162,12 +163,12 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full bool) (list backupListOut, err error) {
+func backupList(cn *pbm.PBM, size int, full, unbacked bool) (list backupListOut, err error) {
 	list.Snapshots, err = getSnapshotList(cn, size)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full, unbacked)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
@@ -223,7 +224,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(cn *pbm.PBM, size int, full, unbacked bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -277,7 +278,13 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 		}
 
 		rs := splitByBaseSnapshot(lastWrite, tl)
-		ranges = append(ranges, rs...)
+		for i := range rs {
+			if !unbacked && rs[i].NoBaseSnapshot {
+				continue
+			}
+
+			ranges = append(ranges, rs[i])
+		}
 	}
 
 	return ranges, rsRanges, nil

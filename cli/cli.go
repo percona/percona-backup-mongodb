@@ -102,6 +102,7 @@ func Main() {
 	list := listOpts{}
 	listCmd.Flag("restore", "Show last N restores").Default("false").BoolVar(&list.restore)
 	listCmd.Flag("oplog-replay", "Show last N oplog replays").Default("false").BoolVar(&list.oplogReplay)
+	listCmd.Flag("unbacked", "Show unbacked oplog ranges").Default("false").BoolVar(&list.unbacked)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
 
