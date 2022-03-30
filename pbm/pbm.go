@@ -242,6 +242,8 @@ func (c CompressionType) Suffix() string {
 		return ".snappy"
 	case CompressionTypeS2:
 		return ".s2"
+	case CompressionTypeZstandard:
+		return ".zst"
 	default:
 		return ""
 	}

@@ -442,22 +442,7 @@ func (s *Slicer) chunkPath(first, last primitive.Timestamp, c pbm.CompressionTyp
 	name.WriteString("-")
 	name.WriteString(strconv.Itoa(int(last.I)))
 	name.WriteString(".oplog")
-	name.WriteString(csuffix(c))
+	name.WriteString(c.Suffix())
 
 	return name.String()
-}
-
-func csuffix(c pbm.CompressionType) string {
-	switch c {
-	case pbm.CompressionTypeGZIP, pbm.CompressionTypePGZIP:
-		return ".gz"
-	case pbm.CompressionTypeLZ4:
-		return ".lz4"
-	case pbm.CompressionTypeSNAPPY, pbm.CompressionTypeS2:
-		return ".snappy"
-	case pbm.CompressionTypeZstandard:
-		return ".zst"
-	default:
-		return ""
-	}
 }
