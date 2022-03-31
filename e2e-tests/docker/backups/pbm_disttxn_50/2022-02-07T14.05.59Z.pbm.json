@@ -4,8 +4,8 @@
 	"replsets": [
 		{
 			"name": "rs2",
-			"backup_name": "2022-02-07T14:05:59Z_rs2.dump.s2",
-			"oplog_name": "2022-02-07T14:05:59Z_rs2.oplog.s2",
+			"backup_name": "2022-02-07T14.05.59Z_rs2.dump.s2",
+			"oplog_name": "2022-02-07T14.05.59Z_rs2.oplog.s2",
 			"start_ts": 1644242760,
 			"status": "done",
 			"last_transition_ts": 1644242778,
@@ -34,8 +34,8 @@
 		},
 		{
 			"name": "rs1",
-			"backup_name": "2022-02-07T14:05:59Z_rs1.dump.s2",
-			"oplog_name": "2022-02-07T14:05:59Z_rs1.oplog.s2",
+			"backup_name": "2022-02-07T14.05.59Z_rs1.dump.s2",
+			"oplog_name": "2022-02-07T14.05.59Z_rs1.oplog.s2",
 			"start_ts": 1644242760,
 			"status": "done",
 			"last_transition_ts": 1644242778,
@@ -64,8 +64,8 @@
 		},
 		{
 			"name": "cfg",
-			"backup_name": "2022-02-07T14:05:59Z_cfg.dump.s2",
-			"oplog_name": "2022-02-07T14:05:59Z_cfg.oplog.s2",
+			"backup_name": "2022-02-07T14.05.59Z_cfg.dump.s2",
+			"oplog_name": "2022-02-07T14.05.59Z_cfg.oplog.s2",
 			"start_ts": 1644242760,
 			"status": "done",
 			"last_transition_ts": 1644242768,
