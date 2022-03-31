@@ -242,8 +242,28 @@ func (c CompressionType) Suffix() string {
 		return ".snappy"
 	case CompressionTypeS2:
 		return ".s2"
+	case CompressionTypeZstandard:
+		return ".zst"
 	default:
 		return ""
+	}
+}
+
+// FileCompression return compression alg based on given file extension
+func FileCompression(ext string) CompressionType {
+	switch ext {
+	default:
+		return CompressionTypeNone
+	case "gz":
+		return CompressionTypePGZIP
+	case "lz4":
+		return CompressionTypeLZ4
+	case "snappy":
+		return CompressionTypeSNAPPY
+	case "s2":
+		return CompressionTypeS2
+	case "zst":
+		return CompressionTypeZstandard
 	}
 }
 
@@ -987,20 +1007,6 @@ func (p *PBM) ResetEpoch() (Epoch, error) {
 
 func (e Epoch) TS() primitive.Timestamp {
 	return primitive.Timestamp(e)
-}
-
-// FileCompression return compression alg based on given file extention
-func FileCompression(ext string) CompressionType {
-	switch ext {
-	default:
-		return CompressionTypeNone
-	case "gz":
-		return CompressionTypePGZIP
-	case "lz4":
-		return CompressionTypeLZ4
-	case "snappy":
-		return CompressionTypeS2
-	}
 }
 
 // CopyColl copy documents matching the given filter and return number of copied documents
