@@ -170,7 +170,7 @@ start_replset() {
 
     local nodes="rs101 rs102 rs103 minio createbucket"
     local agents="agent-rs101 agent-rs102 agent-rs103"
-    if [ $compose ==  $COMPOSE_SINGLE_PATH ]; then
+    if [ $compose == $COMPOSE_SINGLE_PATH ]; then
         local nodes="rs101 minio createbucket"
         local agents="agent-rs101"
     fi
