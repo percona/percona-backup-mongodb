@@ -25,7 +25,6 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION, String 
     sh """
         chmod 777 -R e2e-tests/docker/backups
         export MONGODB_VERSION=${MONGO_VERSION}
-        export PBM_TESTS_NO_BUILD=true
         export TESTS_BCP_TYPE=${BCP_TYPE}
         ./e2e-tests/${TEST_SCRIPT}
     """
@@ -65,7 +64,6 @@ void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE, String MONGO_VERSION)
             chmod 664 ./e2e-tests/docker/conf/azure.yaml
 
             openssl rand -base64 756 > ./e2e-tests/docker/keyFile
-            MONGODB_VERSION=${MONGO_VERSION} docker-compose -f ./e2e-tests/docker/${compose} build
         """
     }
 }

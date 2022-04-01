@@ -27,7 +27,6 @@ run() {
 
     desc 'Run tests'
     docker-compose -f $compose up tests
-    docker-compose -f $compose logs -f --no-color tests
     EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
 
     if [ $PBM_TEST_CLEANUP == true ]; then
@@ -140,15 +139,9 @@ start_cluster() {
     local mongo_version=$1
 
     genMongoKey
-    export USER_ID=$(id -u)
 
-    local no_build=${PBM_TESTS_NO_BUILD:-false}
-    if $no_build ; then
-        echo 'Skip builds'
-    else 
-        echo 'Build agents and tests'
-        docker-compose -f $COMPOSE_PATH build
-    fi
+    echo 'Build agents and tests'
+    docker-compose -f $COMPOSE_PATH build
 
     if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
@@ -177,21 +170,15 @@ start_replset() {
 
     local nodes="rs101 rs102 rs103 minio createbucket"
     local agents="agent-rs101 agent-rs102 agent-rs103"
-    if [ $compose ==  $COMPOSE_SINGLE_PATH ]; then
+    if [ $compose == $COMPOSE_SINGLE_PATH ]; then
         local nodes="rs101 minio createbucket"
         local agents="agent-rs101"
-    fi 
+    fi
 
     genMongoKey
-    export USER_ID=$(id -u)    
 
-    local no_build=${PBM_TESTS_NO_BUILD:-false}
-    if $no_build ; then
-        echo 'Skip builds'
-    else 
-        echo 'Build agents and tests'
-        docker-compose -f $compose build
-    fi
+    echo 'Build agents and tests'
+    docker-compose -f $compose build
 
     if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
@@ -222,7 +209,6 @@ genMongoKey() {
 }
 
 destroy_cluster() {
-    export USER_ID=$(id -u)
     local compose=$1
 
     docker-compose -f $compose ps
