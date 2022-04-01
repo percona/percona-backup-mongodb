@@ -615,6 +615,20 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
 
+	// PITR should be turned off after the physical restore. Otherwise, if it was on during
+	// the backup, after the user runs the cluster again the slicing resumes in the state
+	// of the backup's time. Hence the system knows nothing about the recent restore and chunks
+	// made after the backup. So it would successfully start slicing and would overwrite chunks
+	// after the backup.
+	if r.nodeInfo.IsLeader() {
+		_, err = c.Database(pbm.DB).Collection(pbm.ConfigCollection).UpdateOne(ctx, bson.D{},
+			bson.D{{"$set", bson.M{"pitr.enabled": false}}},
+		)
+		if err != nil {
+			return errors.Wrap(err, "turn off pitr")
+		}
+	}
+
 	err = shutdown(c)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
