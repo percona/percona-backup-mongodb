@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/snappy"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
@@ -649,10 +650,24 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Time
 	for _, chnk := range chunks {
 		r.log.Debug("+ applying %v", chnk)
 
+		// If the compression is Snappy and it failed we try S2.
+		// Up until v1.7.0 the compression of pitr chunks was always S2.
+		// But it was a mess in the code which lead to saving pitr chunk files
+		// with the `.snappy`` extension although it was S2 in fact. And during
+		// the restore, decompression treated .snappy as S2 ¯\_(ツ)_/¯ It wasn’t
+		// an issue since there was no choice. Now, Snappy produces `.snappy` files
+		// and S2 - `.s2` which is ok. But this means the old chunks (made by previous
+		// PBM versions) won’t be compatible - during the restore, PBM will treat such
+		// files as Snappy (judging by its suffix) but in fact, they are s2 files
+		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
 		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
+		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
+			lts, err = r.replyChunk(chnk.FName, pbm.CompressionTypeS2)
+		}
 		if err != nil {
 			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
 		}
+
 		if waitTxnErr != nil {
 			return errors.Wrap(err, "check waiting transactions")
 		}
