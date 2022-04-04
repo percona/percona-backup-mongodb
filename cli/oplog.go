@@ -22,6 +22,10 @@ type oplogReplayResult struct {
 	err  string
 }
 
+func (r oplogReplayResult) HasError() bool {
+	return r.err != ""
+}
+
 func (r oplogReplayResult) String() string {
 	if r.done {
 		return "\nOplog replay successfully finished!\n"

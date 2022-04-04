@@ -32,6 +32,10 @@ type restoreRet struct {
 	err      string
 }
 
+func (r restoreRet) HasError() bool {
+	return r.err != ""
+}
+
 func (r restoreRet) String() string {
 	switch {
 	case r.done:
