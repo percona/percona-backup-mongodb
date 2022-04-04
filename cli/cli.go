@@ -40,6 +40,10 @@ type logsOpts struct {
 	extr     bool
 }
 
+type cliResult interface {
+	HasError() bool
+}
+
 func Main() {
 	var (
 		pbmCmd       = kingpin.New("pbm", "Percona Backup for MongoDB")
@@ -193,6 +197,10 @@ func Main() {
 	}
 
 	printo(out, pbmOutF)
+
+	if r, ok := out.(cliResult); ok && r.HasError() {
+		os.Exit(1)
+	}
 }
 
 func printo(out fmt.Stringer, f outFormat) {
