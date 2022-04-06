@@ -129,8 +129,10 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 	}
 }
 
-// bcpMatchCluster checks if given backups match shards in the cluster. Match means that
-// each replset in backup have respective replset on the target cluster. It's ok if cluster
+type MapRSNameFn func(string) string
+
+// bcpsMatchCluster checks if given backups match shards in the cluster. Match means that
+// each replset in a backup have respective replset on the target cluster. It's ok if cluster
 // has more shards than there are currently in backup. But in the case of sharded cluster
 // backup has to have data for the current config server or for the sole RS in case of non-sharded rs.
 //
@@ -138,30 +140,31 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string) {
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapName MapRSNameFn) {
 	sh := make(map[string]struct{}, len(shards))
-	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+	for i := range shards {
+		sh[shards[i].RS] = struct{}{}
 	}
 
 	var buf []string
 	for i := 0; i < len(bcps); i++ {
 		buf = buf[:0]
-		bcpMatchCluster(&bcps[i], sh, confsrv, &buf)
+		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapName)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapName MapRSNameFn) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
 
 	hasconfsrv := false
-	for _, rs := range bcp.Replsets {
-		if _, ok := shards[rs.Name]; !ok {
-			*nomatch = append(*nomatch, rs.Name)
+	for i := range bcp.Replsets {
+		name := mapName(bcp.Replsets[i].Name)
+		if _, ok := shards[name]; !ok {
+			*nomatch = append(*nomatch, name)
 		}
-		if rs.Name == confsrv {
+		if name == confsrv {
 			hasconfsrv = true
 		}
 	}

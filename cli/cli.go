@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ const (
 	datetimeFormat = "2006-01-02T15:04:05"
 	dateFormat     = "2006-01-02"
 )
+
+const RSMappingEnvVar = "PBM_RS_NAMES_MAPPING"
 
 type outFormat string
 
@@ -157,6 +160,11 @@ func Main() {
 		os.Exit(1)
 	}
 
+	rsMapping, err := parseRSMapping(os.Getenv(RSMappingEnvVar))
+	if err != nil {
+		log.Fatalf("failed to parse %q: %s", RSMappingEnvVar, err.Error())
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -164,6 +172,8 @@ func Main() {
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
+
+	pbmClient.RSNameMapping = rsMapping
 	pbmClient.InitLogger("", "")
 
 	switch cmd {
@@ -510,4 +520,23 @@ func checkConcurrentOp(cn *pbm.PBM) error {
 	}
 
 	return nil
+}
+
+func parseRSMapping(s string) (map[string]string, error) {
+	rv := make(map[string]string)
+
+	if s == "" {
+		return rv, nil
+	}
+
+	for _, a := range strings.Split(s, ",") {
+		m := strings.Split(a, "=")
+		if len(m) != 2 {
+			return nil, errors.Errorf("malformatted: %q", a)
+		}
+
+		rv[m[0]] = m[1]
+	}
+
+	return rv, nil
 }

@@ -194,7 +194,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName)
+	bcpsMatchCluster(bcps, shards, inf.SetName, makeSSFunctor(cn.RSNameMapping))
 
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
@@ -262,8 +262,8 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 	}
 
 	sh := make(map[string]struct{}, len(shards))
-	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+	for i := range shards {
+		sh[shards[i].RS] = struct{}{}
 	}
 
 	var buf []string
@@ -276,7 +276,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 		buf = buf[:0]
-		bcpMatchCluster(bcp, sh, inf.SetName, &buf)
+		bcpMatchCluster(bcp, sh, inf.SetName, &buf, makeSSFunctor(cn.RSNameMapping))
 
 		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 			continue

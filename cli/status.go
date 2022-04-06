@@ -80,7 +80,8 @@ func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err e
 func status(cn *pbm.PBM, curi string, showSection *[]string, pretty bool) (fmt.Stringer, error) {
 	out := statusOut{
 		data: []*statusSect{
-			{"cluster", "Cluster", nil,
+			{
+				"cluster", "Cluster", nil,
 				func(cn *pbm.PBM) (fmt.Stringer, error) {
 					return clusterStatus(cn, curi)
 				},
@@ -531,7 +532,7 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName)
+	bcpsMatchCluster(bcps, shards, inf.SetName, makeSSFunctor(cn.RSNameMapping))
 
 	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {

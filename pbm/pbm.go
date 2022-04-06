@@ -302,9 +302,10 @@ type OpLog struct {
 }
 
 type PBM struct {
-	Conn *mongo.Client
-	log  *log.Logger
-	ctx  context.Context
+	Conn          *mongo.Client
+	log           *log.Logger
+	ctx           context.Context
+	RSNameMapping map[string]string
 }
 
 // New creates a new PBM object.
