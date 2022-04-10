@@ -35,16 +35,16 @@ void runTest(String TEST_NAME, String TEST_SCRIPT, String MONGO_VERSION, String 
 void prepareCluster(String CLUSTER_TYPE, String TEST_TYPE, String MONGO_VERSION) {
     def compose = 'docker-compose.yaml'
 
-    switch(CLUSTER_TYPE) {            
-        case 'rs': 
+    switch(CLUSTER_TYPE) {
+        case 'rs':
             compose = 'docker-compose-rs.yaml'
             break
-        case 'single': 
+        case 'single':
             compose = 'docker-compose-single.yaml'
             break
-        default: 
+        default:
             compose = 'docker-compose.yaml'
-            break 
+            break
    }
 
     withCredentials([file(credentialsId: 'PBM-AWS-S3', variable: 'PBM_AWS_S3_YML'), file(credentialsId: 'PBM-GCS-S3', variable: 'PBM_GCS_S3_YML'), file(credentialsId: 'PBM-AZURE', variable: 'PBM_AZURE_YML')]) {
@@ -310,7 +310,11 @@ pipeline {
         }
         failure {
             script {
-                slackSend channel: '#cloud-dev-ci', color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+                try {
+                    slackSend channel: "@${AUTHOR_NAME}", color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+                } catch (exc) {
+                    slackSend channel: '#cloud-dev-ci', color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+                }
             }
         }
     }
