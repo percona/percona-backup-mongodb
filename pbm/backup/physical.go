@@ -54,10 +54,27 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event) *BackupCursor {
 	}
 }
 
+func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Cursor, err error) {
+	for i := 0; i < retry; i++ {
+		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
+			{{"$backupCursor", bson.D{}}},
+		})
+		if err != nil && strings.Contains(err.Error(), "(Location50915)") {
+			bc.l.Debug("a checkpoint took place, retrying")
+			time.Sleep(time.Second * time.Duration(i+1))
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+
+		return cur, nil
+	}
+
+	return cur, err
+}
+
 func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err error) {
-	cur, err := bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
-		{{"$backupCursor", bson.D{}}},
-	})
+	cur, err := bc.create(ctx, 10)
 	if err != nil {
 		return nil, errors.Wrap(err, "create backupCursor")
 	}
