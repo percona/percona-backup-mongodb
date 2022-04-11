@@ -20,6 +20,7 @@ type restoreOpts struct {
 	pitr     string
 	pitrBase string
 	wait     bool
+	rsMap    string
 }
 
 type restoreRet struct {
@@ -61,13 +62,18 @@ func (r restoreRet) String() string {
 }
 
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
+	rsMap, err := pbm.ParseRSNamesMapping(o.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
 	if o.pitr != "" && o.bcp != "" {
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
 	switch {
 	case o.bcp != "":
-		m, err := restore(cn, o.bcp, outf)
+		m, err := restore(cn, o.bcp, rsMap, outf)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +99,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		}
 		return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 	case o.pitr != "":
-		m, err := pitrestore(cn, o.pitr, o.pitrBase, outf)
+		m, err := pitrestore(cn, o.pitr, o.pitrBase, rsMap, outf)
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +203,7 @@ func (e errRestoreFailed) Error() string {
 	return e.string
 }
 
-func restore(cn *pbm.PBM, bcpName string, outf outFormat) (*pbm.RestoreMeta, error) {
+func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
 	bcp, err := cn.GetBackupMeta(bcpName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		return nil, errors.Errorf("backup '%s' not found", bcpName)
@@ -220,6 +226,7 @@ func restore(cn *pbm.PBM, bcpName string, outf outFormat) (*pbm.RestoreMeta, err
 		Restore: pbm.RestoreCmd{
 			Name:       name,
 			BackupName: bcpName,
+			RSMap:      rsMapping,
 		},
 	})
 	if err != nil {
@@ -263,7 +270,7 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (rmeta *pbm.RestoreMeta, err error) {
+func pitrestore(cn *pbm.PBM, t, base string, rsMap map[string]string, outf outFormat) (rmeta *pbm.RestoreMeta, err error) {
 	ts, err := parseTS(t)
 	if err != nil {
 		return nil, err
@@ -278,10 +285,11 @@ func pitrestore(cn *pbm.PBM, t, base string, outf outFormat) (rmeta *pbm.Restore
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdPITRestore,
 		PITRestore: pbm.PITRestoreCmd{
-			Name: name,
-			TS:   int64(ts.T),
-			I:    int64(ts.I),
-			Bcp:  base,
+			Name:  name,
+			TS:    int64(ts.T),
+			I:     int64(ts.I),
+			Bcp:   base,
+			RSMap: rsMap,
 		},
 	})
 	if err != nil {

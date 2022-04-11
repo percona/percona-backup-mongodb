@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -94,12 +93,15 @@ func Main() {
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
+	restoreCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
 	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&replayOpts.wait)
+	replayCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&replayOpts.rsMap)
+	// todo(add oplog cancel)
 
 	listCmd := pbmCmd.Command("list", "Backup list")
 	list := listOpts{}
@@ -107,6 +109,7 @@ func Main() {
 	listCmd.Flag("oplog-replay", "Show last N oplog replays").Default("false").BoolVar(&list.oplogReplay)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
+	listCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&list.rsMap)
 
 	deleteBcpCmd := pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcp := deleteBcpOpts{}
@@ -130,6 +133,8 @@ func Main() {
 	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
+	var statusRSMap string
+	statusCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&statusRSMap)
 	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -160,11 +165,6 @@ func Main() {
 		os.Exit(1)
 	}
 
-	rsMapping, err := parseRSMapping(os.Getenv(RSMappingEnvVar))
-	if err != nil {
-		log.Fatalf("failed to parse %q: %s", RSMappingEnvVar, err.Error())
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -173,7 +173,6 @@ func Main() {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
 
-	pbmClient.RSNameMapping = rsMapping
 	pbmClient.InitLogger("", "")
 
 	switch cmd {
@@ -197,7 +196,7 @@ func Main() {
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(pbmClient, *mURL, statusSection, pbmOutF == outJSONpretty)
+		out, err = status(pbmClient, *mURL, statusSection, statusRSMap, pbmOutF == outJSONpretty)
 	}
 
 	if err != nil {
@@ -520,23 +519,4 @@ func checkConcurrentOp(cn *pbm.PBM) error {
 	}
 
 	return nil
-}
-
-func parseRSMapping(s string) (map[string]string, error) {
-	rv := make(map[string]string)
-
-	if s == "" {
-		return rv, nil
-	}
-
-	for _, a := range strings.Split(s, ",") {
-		m := strings.Split(a, "=")
-		if len(m) != 2 {
-			return nil, errors.Errorf("malformatted: %q", a)
-		}
-
-		rv[m[0]] = m[1]
-	}
-
-	return rv, nil
 }

@@ -129,8 +129,6 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 	}
 }
 
-type MapRSNameFn func(string) string
-
 // bcpsMatchCluster checks if given backups match shards in the cluster. Match means that
 // each replset in a backup have respective replset on the target cluster. It's ok if cluster
 // has more shards than there are currently in backup. But in the case of sharded cluster
@@ -140,7 +138,7 @@ type MapRSNameFn func(string) string
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapName MapRSNameFn) {
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapRS pbm.RSMapFunc) {
 	sh := make(map[string]struct{}, len(shards))
 	for i := range shards {
 		sh[shards[i].RS] = struct{}{}
@@ -149,18 +147,18 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 	var buf []string
 	for i := 0; i < len(bcps); i++ {
 		buf = buf[:0]
-		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapName)
+		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapRS)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapName MapRSNameFn) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
 
 	hasconfsrv := false
 	for i := range bcp.Replsets {
-		name := mapName(bcp.Replsets[i].Name)
+		name := mapRS(bcp.Replsets[i].Name)
 		if _, ok := shards[name]; !ok {
 			*nomatch = append(*nomatch, name)
 		}

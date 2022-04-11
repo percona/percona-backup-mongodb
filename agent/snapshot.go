@@ -298,7 +298,6 @@ func (a *Agent) restoreLogical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l 
 	}
 	if !nodeInfo.IsPrimary {
 		return errors.New("node is not primary so it's unsuitable to do restore")
-
 	}
 
 	epts := ep.TS()
@@ -328,7 +327,7 @@ func (a *Agent) restoreLogical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l 
 	}()
 
 	l.Info("restore started")
-	err = restore.New(a.pbm, a.node).Snapshot(r, opid, l)
+	err = restore.New(a.pbm, a.node, r.RSMap).Snapshot(r, opid, l)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")

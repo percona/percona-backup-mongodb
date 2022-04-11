@@ -14,6 +14,7 @@ type replayOptions struct {
 	start string
 	end   string
 	wait  bool
+	rsMap string
 }
 
 type oplogReplayResult struct {

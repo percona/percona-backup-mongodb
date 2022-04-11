@@ -16,6 +16,7 @@ type listOpts struct {
 	oplogReplay bool
 	full        bool
 	size        int
+	rsMap       string
 }
 
 type restoreStatus struct {
@@ -78,6 +79,11 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 }
 
 func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
+	rsMap, err := pbm.ParseRSNamesMapping(l.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
 	if l.restore {
 		return restoreList(cn, int64(l.size), l.full)
 	}
@@ -87,7 +93,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(cn, l.size, l.full)
+	return backupList(cn, l.size, l.full, rsMap)
 }
 
 func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
@@ -158,12 +164,12 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full bool) (list backupListOut, err error) {
-	list.Snapshots, err = getSnapshotList(cn, size)
+func backupList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (list backupListOut, err error) {
+	list.Snapshots, err = getSnapshotList(cn, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
@@ -176,7 +182,7 @@ func backupList(cn *pbm.PBM, size int, full bool) (list backupListOut, err error
 	return list, nil
 }
 
-func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
+func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []snapshotStat, err error) {
 	bcps, err := cn.BackupsList(int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
@@ -194,7 +200,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, makeSSFunctor(cn.RSNameMapping))
+	bcpsMatchCluster(bcps, shards, inf.SetName, pbm.MakeRSMapFunc(rsMapping))
 
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
@@ -219,7 +225,7 @@ func getSnapshotList(cn *pbm.PBM, size int) (s []snapshotStat, err error) {
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -276,7 +282,7 @@ func getPitrList(cn *pbm.PBM, size int, full bool) (ranges []pitrRange, rsRanges
 			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 		buf = buf[:0]
-		bcpMatchCluster(bcp, sh, inf.SetName, &buf, makeSSFunctor(cn.RSNameMapping))
+		bcpMatchCluster(bcp, sh, inf.SetName, &buf, pbm.MakeRSMapFunc(rsMap))
 
 		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 			continue
