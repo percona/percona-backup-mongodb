@@ -541,7 +541,8 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 // applyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (o *Oplog) applyOps(entries []interface{}) error {
-	singleRes := o.dst.Session().Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
+	singleRes := o.dst.Session().Database("admin").RunCommand(context.TODO(),
+		bson.D{{"applyOps", entries}, {"oplogApplicationMode", "Secondary"}}) // see https://jira.mongodb.org/browse/SERVER-24231
 	if err := singleRes.Err(); err != nil {
 		return errors.Wrap(err, "applyOps")
 	}
