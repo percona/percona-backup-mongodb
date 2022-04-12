@@ -92,13 +92,11 @@ func Main() {
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 
-	oplogCmd := pbmCmd.Command("oplog", "Oplog operations")
-	replayCmd := oplogCmd.Command("replay", "Replay oplog")
+	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
 	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&replayOpts.wait)
-	// todo(add oplog cancel)
 
 	listCmd := pbmCmd.Command("list", "Backup list")
 	list := listOpts{}
