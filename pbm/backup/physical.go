@@ -22,6 +22,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+const cursorCreateRetries = 10
+
 type Meta struct {
 	ID           UUID                `bson:"backupId"`
 	DBpath       string              `bson:"dbpath"`
@@ -74,7 +76,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 }
 
 func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err error) {
-	cur, err := bc.create(ctx, 10)
+	cur, err := bc.create(ctx, cursorCreateRetries)
 	if err != nil {
 		return nil, errors.Wrap(err, "create backupCursor")
 	}
