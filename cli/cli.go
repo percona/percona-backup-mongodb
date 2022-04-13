@@ -23,7 +23,7 @@ const (
 	dateFormat     = "2006-01-02"
 )
 
-const RSMappingEnvVar = "PBM_RS_NAMES_MAPPING"
+const RSMappingEnvVar = "PBM_REPLSET_MAPPING"
 
 type outFormat string
 

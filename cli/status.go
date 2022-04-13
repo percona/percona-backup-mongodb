@@ -589,7 +589,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(cn, stg)
+	s.PITR, err = getPITRranges(cn, stg, rsMap)
 	if err != nil {
 		return s, errors.Wrap(err, "get PITR chunks")
 	}
@@ -597,7 +597,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 	return s, nil
 }
 
-func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
+func getPITRranges(cn *pbm.PBM, stg storage.Storage, rsMap map[string]string) (*pitrRanges, error) {
 	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -618,10 +618,11 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage) (*pitrRanges, error) {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
 
+	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
 	var size int64
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(s.RS, now, flist)
+		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, flist)
 		if err != nil {
 			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.RS, err)
 			continue

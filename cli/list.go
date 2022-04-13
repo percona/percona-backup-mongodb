@@ -241,10 +241,11 @@ func getPitrList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (ran
 		return nil, nil, errors.Wrap(err, "get cluster time")
 	}
 
+	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
 	rsRanges = make(map[string][]pitrRange)
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(s.RS, now, nil)
+		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, nil)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}
