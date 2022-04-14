@@ -102,7 +102,7 @@ func (r *Restore) exit(err error, l *log.Event) {
 
 // Snapshot do the snapshot's (mongo dump) restore
 func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer r.exit(err, l)
+	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
@@ -155,7 +155,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 
 // PITR do the Point-in-Time Recovery
 func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer r.exit(err, l)
+	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
@@ -236,7 +236,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 }
 
 func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer r.exit(err, l)
+	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
 	if err = r.init(cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
