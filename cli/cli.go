@@ -23,7 +23,11 @@ const (
 	dateFormat     = "2006-01-02"
 )
 
-const RSMappingEnvVar = "PBM_REPLSET_MAPPING"
+const (
+	RSMappingEnvVar = "PBM_REPLSET_REMAPPING"
+	RSMappingFlag   = "replset-remapping"
+	RSMappingDoc    = "re-map replset names for backups/oplog (e.g. to_name_1=from_name_1,to_name_2=from_name_2)"
+)
 
 type outFormat string
 
@@ -93,14 +97,14 @@ func Main() {
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
-	restoreCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
+	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
 	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&replayOpts.wait)
-	replayCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&replayOpts.rsMap)
+	replayCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&replayOpts.rsMap)
 	// todo(add oplog cancel)
 
 	listCmd := pbmCmd.Command("list", "Backup list")
@@ -109,7 +113,7 @@ func Main() {
 	listCmd.Flag("oplog-replay", "Show last N oplog replays").Default("false").BoolVar(&list.oplogReplay)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
-	listCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&list.rsMap)
+	listCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&list.rsMap)
 
 	deleteBcpCmd := pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcp := deleteBcpOpts{}
@@ -134,7 +138,7 @@ func Main() {
 
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
 	var statusRSMap string
-	statusCmd.Flag("replset-mapping", "").Envar(RSMappingEnvVar).StringVar(&statusRSMap)
+	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusRSMap)
 	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
