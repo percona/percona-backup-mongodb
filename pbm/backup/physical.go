@@ -121,7 +121,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 			select {
 			case <-bc.close:
 				bc.l.Debug("stop cursor polling: %v, cursor err: %v",
-					cur.Close(ctx), cur.Err())
+					cur.Close(context.Background()), cur.Err()) // `ctx` is already cancelled, so use a background context
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)
