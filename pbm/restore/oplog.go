@@ -72,10 +72,12 @@ type Oplog struct {
 
 	preserveUUID bool
 	cnamespase   string
+
+	unsafe bool
 }
 
 // NewOplog creates an object for an oplog applying
-func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*Oplog, error) {
+func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*Oplog, error) {
 	m, err := ns.NewMatcher(append(excludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -98,6 +100,7 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, preserveUUID bool, ctxn chan 
 		m:                 m,
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
+		unsafe:            unsafe,
 	}, nil
 }
 
@@ -475,6 +478,13 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 
 	err = o.applyOps([]interface{}{op})
 	if err != nil {
+		// https://jira.percona.com/browse/PBM-818
+		if o.unsafe &&
+			strings.Contains(err.Error(), "E11000 duplicate key error") &&
+			op.Namespace == "config.chunks" {
+			return nil
+		}
+
 		opb, errm := json.Marshal(op)
 		return errors.Wrapf(err, "op: %s | merr %v", opb, errm)
 	}

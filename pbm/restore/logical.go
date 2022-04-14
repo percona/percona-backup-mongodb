@@ -145,7 +145,7 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, nil, nil)
+	}}, nil, nil, false)
 	if err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo)
+	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo, false)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (e
 		return err
 	}
 
-	err = r.applyOplog(chunks, &cmd.Start, &cmd.End)
+	err = r.applyOplog(chunks, &cmd.Start, &cmd.End, true)
 	if err != nil {
 		return err
 	}
@@ -602,7 +602,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 // any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
 // instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
 // sharded clusters even if there are no dist txns at all.
-func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Timestamp) error {
+func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Timestamp, unsafe bool) error {
 	r.log.Info("starting oplog replay")
 	var err error
 
@@ -620,7 +620,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Time
 		txnSyncErr = make(chan error)
 	}
 
-	r.oplog, err = NewOplog(r.node, mgoV, preserveUUID, ctxn, txnSyncErr)
+	r.oplog, err = NewOplog(r.node, mgoV, unsafe, preserveUUID, ctxn, txnSyncErr)
 	if err != nil {
 		return errors.Wrap(err, "create oplog")
 	}
