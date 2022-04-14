@@ -480,7 +480,7 @@ func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe &&
-			!strings.Contains(err.Error(), "E11000 duplicate key error") &&
+			strings.Contains(err.Error(), "E11000 duplicate key error") &&
 			op.Namespace == "config.chunks" {
 			return nil
 		}
