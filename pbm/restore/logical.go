@@ -364,7 +364,8 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error) {
-	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, from, to)
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	chunks, err := r.cn.PITRGetChunksSlice(mapRevRS(r.nodeInfo.SetName), from, to)
 	if err != nil {
 		return nil, errors.Wrap(err, "get chunks index")
 	}
