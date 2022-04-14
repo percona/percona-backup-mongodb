@@ -568,6 +568,8 @@ func getStorageStat(cn *pbm.PBM) (fmt.Stringer, error) {
 			}
 		case pbm.StatusError:
 			snpsht.Err = bcp.Error
+		case pbm.StatusCancelled:
+			// leave as it is, not to rewrite status with the `stuck` error
 		default:
 			if bcp.Hb.T+pbm.StaleFrameSec < now.T {
 				snpsht.Err = fmt.Sprintf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
