@@ -127,7 +127,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 		c.trxSet(sc, 199, col)
 		c.trxSet(sc, 2001, col)
 
-		log.Println("Commiting the transaction")
+		log.Println("Committing the transaction")
 		err = sess.CommitTransaction(sc)
 		if err != nil {
 			log.Fatalln("ERROR: commit in transaction:", err)
