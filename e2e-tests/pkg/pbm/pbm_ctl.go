@@ -285,7 +285,7 @@ func (c *Ctl) Restore(bcpName string) (string, error) {
 }
 
 func (c *Ctl) ReplayOplog(a, b time.Time) error {
-	_, err := c.RunCmd("pbm", "oplog", "replay",
+	_, err := c.RunCmd("pbm", "oplog-replay",
 		"--start", a.Format("2006-01-02T15:04:05"),
 		"--end", b.Format("2006-01-02T15:04:05"))
 	return err
