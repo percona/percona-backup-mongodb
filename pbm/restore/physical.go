@@ -592,9 +592,17 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
 	}
 
-	err = c.Database("config").Collection("system.sessions").Drop(ctx)
+	const retry = 5
+	for i := 0; i < retry; i++ {
+		err = c.Database("config").Collection("system.sessions").Drop(ctx)
+		if err == nil || !strings.Contains(err.Error(), "(BackgroundOperationInProgressForNamespace)") {
+			break
+		}
+		r.log.Debug("drop config.system.sessions: BackgroundOperationInProgressForNamespace, retrying")
+		time.Sleep(time.Second * time.Duration(i+1))
+	}
 	if err != nil {
-		return errors.Wrap(err, "drop from config.system.sessions")
+		return errors.Wrap(err, "drop config.system.sessions")
 	}
 
 	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
