@@ -314,11 +314,7 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]stru
 }
 
 func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitrRange {
-	if lastWrite == nil {
-		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
-	}
-
-	if lastWrite.T < tl.Start || lastWrite.T > tl.End {
+	if lastWrite == nil || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
 		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
 	}
 
