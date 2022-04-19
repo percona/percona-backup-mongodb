@@ -150,6 +150,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID
 type mdump struct {
 	opts  *options.ToolOptions
 	conns int
+	stopC chan struct{}
 }
 
 func newDump(curi string, conns int) (*mdump, error) {
@@ -211,9 +212,27 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 	pm.Start()
 	defer pm.Stop()
 
+	d.stopC = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-d.stopC:
+			mdump.HandleInterrupt()
+		}
+
+		d.stopC = nil
+	}()
+
 	err = mdump.Dump()
 
 	return 0, errors.Wrap(err, "make dump")
+}
+
+func (d *mdump) Cancel() {
+	close(d.stopC)
 }
 
 func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
