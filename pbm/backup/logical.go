@@ -232,7 +232,15 @@ func (d *mdump) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (d *mdump) Cancel() {
-	close(d.stopC)
+	if c := d.stopC; c != nil {
+		select {
+		case _, ok := <-c:
+			if ok {
+				close(c)
+			}
+		default:
+		}
+	}
 }
 
 func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {

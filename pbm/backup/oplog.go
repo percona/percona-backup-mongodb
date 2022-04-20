@@ -132,7 +132,15 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (ot *Oplog) Cancel() {
-	close(ot.stopC)
+	if c := ot.stopC; c != nil {
+		select {
+		case _, ok := <-c:
+			if ok {
+				close(c)
+			}
+		default:
+		}
+	}
 }
 
 // IsSufficient check is oplog is sufficient back from the given date
