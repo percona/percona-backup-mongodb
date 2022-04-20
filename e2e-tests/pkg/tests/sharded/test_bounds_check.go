@@ -8,6 +8,7 @@ import (
 
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -17,12 +18,29 @@ type scounter struct {
 	cancel context.CancelFunc
 }
 
-func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType) {
+func lte(t1, t2 primitive.Timestamp) bool {
+	return primitive.CompareTimestamp(t1, t2) <= 0
+}
+
+func lt(t1, t2 primitive.Timestamp) bool {
+	return primitive.CompareTimestamp(t1, t2) < 0
+}
+
+func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType, mongoVersion string) {
+	inRange := lte
 	backup := c.LogicalBackup
 	restore := c.LogicalRestore
 	if typ == pbmt.PhysicalBackup {
 		backup = c.PhysicalBackup
 		restore = c.PhysicalRestore
+
+		// mongo v4.2 may not recover an oplog entry w/ timestamp equal
+		// to the `BackLastWrite` (see https://jira.mongodb.org/browse/SERVER-54005).
+		// Despite in general we expect to be restored all entries with `timestamp <= BackLastWrite`
+		// in v4.2 we should expect only `timestamp < BackLastWrite`
+		if semver.Compare(mongoVersion, "v4.2") == 0 {
+			inRange = lt
+		}
 	}
 
 	rand.Seed(time.Now().UnixNano())
@@ -59,7 +77,7 @@ func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType) {
 	restore(bcpName)
 
 	for name, shard := range c.shards {
-		c.bcheckCheck(name, shard, <-counters[name].data, bcpMeta.LastWriteTS)
+		c.bcheckCheck(name, shard, <-counters[name].data, bcpMeta.LastWriteTS, inRange)
 	}
 }
 
@@ -108,7 +126,7 @@ func (c *Cluster) bcheckWrite(name string, shard *pbm.Mongo, t time.Duration) (<
 	return dt, cancel
 }
 
-func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp) {
+func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp, inRange func(ts, limit primitive.Timestamp) bool) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()
 	if err != nil {
@@ -118,9 +136,9 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 	log.Println(name, "checking restored counters")
 	var lastc pbm.Counter
 	for i, d := range *data {
-		if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
+		if inRange(d.WriteTime, bcpLastWrite) {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n", name, i, d.Count, len(restored), lastc)
+				log.Fatalf("ERROR: %s no record #%d/%d [%v] in restored (%d) | last: %v. Bcp last write: %v\n", name, i, d.Count, d, len(restored), lastc, bcpLastWrite)
 			}
 			r := restored[i]
 			if d.Count != r.Count {

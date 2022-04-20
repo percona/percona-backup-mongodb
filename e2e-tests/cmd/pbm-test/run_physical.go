@@ -41,7 +41,7 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	}
 
 	runTest("Physical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.PhysicalBackup) })
+		func() { t.BackupBoundsCheck(pbm.PhysicalBackup, cVersion) })
 
 	if typ == testsSharded {
 		if semver.Compare(cVersion, "v4.2") >= 0 {
@@ -51,7 +51,7 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	}
 
 	runTest("Clock Skew Tests",
-		func() { t.ClockSkew(pbm.PhysicalBackup) })
+		func() { t.ClockSkew(pbm.PhysicalBackup, cVersion) })
 
 	flushStore(t)
 }
