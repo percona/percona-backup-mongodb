@@ -78,7 +78,7 @@ func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err e
 }
 
 func status(cn *pbm.PBM, curi string, showSection *[]string, rsMapRaw string, pretty bool) (fmt.Stringer, error) {
-	rsMap, err := pbm.ParseRSNamesMapping(rsMapRaw)
+	rsMap, err := parseRSNamesMapping(rsMapRaw)
 	if err != nil {
 		return nil, errors.WithMessage(err, "cannot parse replset mapping")
 	}

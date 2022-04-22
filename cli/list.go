@@ -79,7 +79,7 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 }
 
 func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
-	rsMap, err := pbm.ParseRSNamesMapping(l.rsMap)
+	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.WithMessage(err, "cannot parse replset mapping")
 	}

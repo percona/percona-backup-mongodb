@@ -62,7 +62,7 @@ func (r restoreRet) String() string {
 }
 
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
-	rsMap, err := pbm.ParseRSNamesMapping(o.rsMap)
+	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
 		return nil, errors.WithMessage(err, "cannot parse replset mapping")
 	}
