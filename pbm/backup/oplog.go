@@ -18,6 +18,7 @@ import (
 type Oplog struct {
 	node  *pbm.Node
 	cl    *mongo.Collection
+	stopC chan struct{}
 	start primitive.Timestamp
 	end   primitive.Timestamp
 }
@@ -54,7 +55,19 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 		return 0, errors.Errorf("oplog TailingSpan should be set, have start: %v, end: %v", ot.start, ot.end)
 	}
 
-	ctx := context.Background()
+	ot.stopC = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-ot.stopC:
+			cancel()
+		}
+
+		ot.stopC = nil
+	}()
 
 	cur, err := ot.cl.Find(ctx,
 		bson.M{
@@ -116,6 +129,18 @@ func (ot *Oplog) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	return written, cur.Err()
+}
+
+func (ot *Oplog) Cancel() {
+	if c := ot.stopC; c != nil {
+		select {
+		case _, ok := <-c:
+			if ok {
+				close(c)
+			}
+		default:
+		}
+	}
 }
 
 // IsSufficient check is oplog is sufficient back from the given date
