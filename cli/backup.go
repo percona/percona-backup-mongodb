@@ -130,7 +130,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 }
 
 // bcpsMatchCluster checks if given backups match shards in the cluster. Match means that
-// each replset in a backup have respective replset on the target cluster. It's ok if cluster
+// each replset in backup has a respective replset on the target cluster. It's ok if cluster
 // has more shards than there are currently in backup. But in the case of sharded cluster
 // backup has to have data for the current config server or for the sole RS in case of non-sharded rs.
 //
