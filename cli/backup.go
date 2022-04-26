@@ -140,8 +140,8 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // in given `bcps`.
 func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapRS pbm.RSMapFunc) {
 	sh := make(map[string]struct{}, len(shards))
-	for i := range shards {
-		sh[shards[i].RS] = struct{}{}
+	for _, s := range shards {
+		sh[s.RS] = struct{}{}
 	}
 
 	var buf []string

@@ -269,8 +269,8 @@ func getPitrList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (ran
 	}
 
 	sh := make(map[string]struct{}, len(shards))
-	for i := range shards {
-		sh[shards[i].RS] = struct{}{}
+	for _, s := range shards {
+		sh[s.RS] = struct{}{}
 	}
 
 	var buf []string
