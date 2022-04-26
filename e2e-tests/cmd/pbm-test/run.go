@@ -71,7 +71,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.LeaderLag)
 
 	runTest("Logical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.LogicalBackup) })
+		func() { t.BackupBoundsCheck(pbm.LogicalBackup, cVersion) })
 
 	t.SetBallastData(1e3)
 	flush(t)
@@ -131,7 +131,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	}
 
 	runTest("Clock Skew Tests",
-		func() { t.ClockSkew(pbm.LogicalBackup) })
+		func() { t.ClockSkew(pbm.LogicalBackup, cVersion) })
 
 	flushStore(t)
 }

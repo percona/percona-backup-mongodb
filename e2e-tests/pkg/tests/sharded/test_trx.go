@@ -5,5 +5,5 @@ func (c *Cluster) DistributedTrxSnapshot() {
 }
 
 func (c *Cluster) DistributedTrxPhysical() {
-	c.DistributedTransactions(NewPhysical(c), "test")
+	c.DistributedTransactionsPhys(NewPhysical(c), "test")
 }
