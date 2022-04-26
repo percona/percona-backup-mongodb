@@ -53,7 +53,7 @@ func (a *Agent) OplogReplay(r pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
 	}()
 
 	l.Info("oplog replay started")
-	if err := restore.New(a.pbm, a.node).ReplayOplog(r, opID, l); err != nil {
+	if err := restore.New(a.pbm, a.node, r.RSMap).ReplayOplog(r, opID, l); err != nil {
 		l.Error("oplog replay: %s", err.Error())
 		return
 	}

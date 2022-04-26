@@ -67,6 +67,7 @@ type Restore struct {
 	//
 	// Only the restore leader would have this info.
 	shards []pbm.Shard
+	rsMap  map[string]string
 
 	oplog *Oplog
 	log   *log.Event
@@ -74,10 +75,15 @@ type Restore struct {
 }
 
 // New creates a new restore object
-func New(cn *pbm.PBM, node *pbm.Node) *Restore {
+func New(cn *pbm.PBM, node *pbm.Node, rsMap map[string]string) *Restore {
+	if rsMap == nil {
+		rsMap = make(map[string]string)
+	}
+
 	return &Restore{
-		cn:   cn,
-		node: node,
+		cn:    cn,
+		node:  node,
+		rsMap: rsMap,
 	}
 }
 
@@ -358,7 +364,8 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error) {
-	chunks, err := r.cn.PITRGetChunksSlice(r.nodeInfo.SetName, from, to)
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	chunks, err := r.cn.PITRGetChunksSlice(mapRevRS(r.nodeInfo.SetName), from, to)
 	if err != nil {
 		return nil, errors.Wrap(err, "get chunks index")
 	}
@@ -413,11 +420,14 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 		fl[rs.RS] = rs
 	}
 
+	mapRS := pbm.MakeRSMapFunc(r.rsMap)
+
 	var nors []string
 	for _, sh := range bcp.Replsets {
-		rs, ok := fl[sh.Name]
+		name := mapRS(sh.Name)
+		rs, ok := fl[name]
 		if !ok {
-			nors = append(nors, sh.Name)
+			nors = append(nors, name)
 			continue
 		}
 
@@ -434,9 +444,13 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 var ErrNoDataForShard = errors.New("no data for shard")
 
 func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err error) {
+	mapRS := pbm.MakeRSMapFunc(r.rsMap)
+
 	var ok bool
 	for _, v := range bcp.Replsets {
-		if v.Name == r.nodeInfo.SetName {
+		name := mapRS(v.Name)
+
+		if name == r.nodeInfo.SetName {
 			dump = v.DumpName
 			oplog = v.OplogName
 			ok = true

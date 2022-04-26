@@ -175,8 +175,9 @@ func (b BackupCmd) String() string {
 }
 
 type RestoreCmd struct {
-	Name       string `bson:"name"`
-	BackupName string `bson:"backupName"`
+	Name       string            `bson:"name"`
+	BackupName string            `bson:"backupName"`
+	RSMap      map[string]string `bson:"rsMap,omitempty"`
 }
 
 func (r RestoreCmd) String() string {
@@ -187,6 +188,7 @@ type ReplayCmd struct {
 	Name  string              `bson:"name"`
 	Start primitive.Timestamp `bson:"start,omitempty"`
 	End   primitive.Timestamp `bson:"end,omitempty"`
+	RSMap map[string]string   `bson:"rsMap,omitempty"`
 }
 
 func (c ReplayCmd) String() string {
@@ -194,10 +196,11 @@ func (c ReplayCmd) String() string {
 }
 
 type PITRestoreCmd struct {
-	Name string `bson:"name"`
-	TS   int64  `bson:"ts"`
-	I    int64  `bson:"i"`
-	Bcp  string `bson:"bcp"`
+	Name  string            `bson:"name"`
+	TS    int64             `bson:"ts"`
+	I     int64             `bson:"i"`
+	Bcp   string            `bson:"bcp"`
+	RSMap map[string]string `bson:"rsMap,omitempty"`
 }
 
 func (p PITRestoreCmd) String() string {

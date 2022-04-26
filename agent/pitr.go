@@ -277,7 +277,7 @@ func (a *Agent) PITRestore(r pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}()
 
 	l.Info("recovery started")
-	err = restore.New(a.pbm, a.node).PITR(r, opid, l)
+	err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")
