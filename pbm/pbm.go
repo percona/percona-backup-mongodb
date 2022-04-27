@@ -766,13 +766,20 @@ func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
-	return p.getRecentBackup(before, -1)
+	return p.getRecentBackup(nil, before, -1)
 }
 
-func (p *PBM) getRecentBackup(before *primitive.Timestamp, sort int) (*BackupMeta, error) {
+func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
+	return p.getRecentBackup(after, nil, 1)
+}
+
+func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int) (*BackupMeta, error) {
 	q := bson.D{
 		{"status", StatusDone},
 		{"type", bson.M{"$ne": string(PhysicalBackup)}},
+	}
+	if after != nil {
+		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
 	}
 	if before != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$lte": before}})

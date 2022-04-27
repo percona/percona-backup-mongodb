@@ -66,6 +66,24 @@ func (a *Agent) PITR() {
 	}
 }
 
+func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
+	if a.prevOO == nil {
+		a.prevOO = &currOO
+		return
+	}
+
+	if *a.prevOO == currOO {
+		return
+	}
+
+	a.prevOO = &currOO
+
+	if p := a.getPitr(); p != nil {
+		p.cancel()
+		a.unsetPitr()
+	}
+}
+
 func (a *Agent) pitr() (err error) {
 	// pausing for physical restore
 	if !a.HbIsRun() {
@@ -77,6 +95,7 @@ func (a *Agent) pitr() (err error) {
 		return errors.Wrap(err, "get conf")
 	}
 
+	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 	p := a.getPitr()
 
 	if !cfg.PITR.Enabled {
@@ -170,7 +189,11 @@ func (a *Agent) pitr() (err error) {
 	ibcp := pitr.NewSlicer(a.node.RS(), a.pbm, a.node, stg, ep)
 	ibcp.SetSpan(spant)
 
-	err = ibcp.Catchup()
+	if cfg.PITR.OplogOnly {
+		err = ibcp.OplogOnlyCatchup()
+	} else {
+		err = ibcp.Catchup()
+	}
 	if err != nil {
 		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)

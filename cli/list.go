@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/version"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type listOpts struct {
 	restore     bool
 	oplogReplay bool
+	unbacked    bool
 	full        bool
 	size        int
 	rsMap       string
@@ -87,13 +89,13 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	if l.restore {
 		return restoreList(cn, int64(l.size), l.full)
 	}
-	// show message ans skip when resync is running
+	// show message and skip when resync is running
 	lk, err := findLock(cn, cn.GetLocks)
 	if err == nil && lk != nil && lk.Type == pbm.CmdResync {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(cn, l.size, l.full, rsMap)
+	return backupList(cn, l.size, l.full, l.unbacked, rsMap)
 }
 
 func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
@@ -152,7 +154,11 @@ func (bl backupListOut) String() string {
 	}
 
 	for _, r := range bl.PITR.Ranges {
-		s += fmt.Sprintf("  %s - %s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)))
+		f := ""
+		if r.NoBaseSnapshot {
+			f = " (no base snapshot)"
+		}
+		s += fmt.Sprintf("  %s - %s%s\n", fmtTS(int64(r.Range.Start)), fmtTS(int64(r.Range.End)), f)
 	}
 	if bl.PITR.RsRanges != nil {
 		s += "\n"
@@ -164,12 +170,12 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (list backupListOut, err error) {
+func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (list backupListOut, err error) {
 	list.Snapshots, err = getSnapshotList(cn, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full, rsMap)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(cn, size, full, unbacked, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
@@ -225,7 +231,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []sn
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -273,24 +279,73 @@ func getPitrList(cn *pbm.PBM, size int, full bool, rsMap map[string]string) (ran
 		sh[s.RS] = struct{}{}
 	}
 
-	var buf []string
+	mapRS := pbm.MakeRSMapFunc(rsMap)
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if errors.Is(err, pbm.ErrNotFound) {
-			continue
-		}
+		lastWrite, err := getBaseSnapshotLastWrite(cn, inf, sh, mapRS, tl)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
+			return nil, nil, err
 		}
-		buf = buf[:0]
-		bcpMatchCluster(bcp, sh, inf.SetName, &buf, pbm.MakeRSMapFunc(rsMap))
 
-		if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-			continue
+		rs := splitByBaseSnapshot(lastWrite, tl)
+		for i := range rs {
+			if !unbacked && rs[i].NoBaseSnapshot {
+				continue
+			}
+
+			ranges = append(ranges, rs[i])
 		}
-		tl.Start++
-		ranges = append(ranges, pitrRange{Range: tl})
 	}
 
 	return ranges, rsRanges, nil
+}
+
+func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, mapRS pbm.RSMapFunc, tl pbm.Timeline) (*primitive.Timestamp, error) {
+	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
+	if err != nil {
+		if !errors.Is(err, pbm.ErrNotFound) {
+			return nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
+		}
+
+		return nil, nil
+	}
+	if bcp == nil {
+		return nil, nil
+	}
+
+	var buf []string
+	bcpMatchCluster(bcp, sh, inf.SetName, &buf, mapRS)
+
+	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		return nil, nil
+	}
+
+	return &bcp.LastWriteTS, nil
+}
+
+func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitrRange {
+	if lastWrite == nil || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
+		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
+	}
+
+	ranges := make([]pitrRange, 0, 1)
+
+	if lastWrite.T <= tl.End {
+		ranges = append(ranges, pitrRange{
+			NoBaseSnapshot: true,
+			Range: pbm.Timeline{
+				Start: tl.Start + 1,
+				End:   lastWrite.T,
+			},
+		})
+	}
+	if lastWrite.T >= tl.Start {
+		ranges = append(ranges, pitrRange{
+			Range: pbm.Timeline{
+				Start: lastWrite.T + 1,
+				End:   tl.End,
+			},
+		})
+	}
+
+	return ranges
 }

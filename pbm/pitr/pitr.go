@@ -155,6 +155,44 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
+func (s *Slicer) OplogOnlyCatchup() (err error) {
+	s.l.Debug("start_catchup [oplog only]")
+
+	defer func() {
+		if err == nil {
+			s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
+		}
+	}()
+
+	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
+	if err != nil {
+		return errors.Wrap(err, "get last slice")
+	}
+
+	if chnk != nil {
+		ok, err := s.oplog.IsSufficient(chnk.EndTS)
+		if err != nil {
+			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
+			return nil
+		}
+
+		if ok {
+			s.lastTS = chnk.EndTS
+			return nil
+		}
+
+		s.l.Info("insufficient range since %v", chnk.EndTS)
+	}
+
+	ts, err := s.pbm.ClusterTime()
+	if err != nil {
+		return err
+	}
+
+	s.lastTS = ts
+	return nil
+}
+
 func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 	var oplog string
 	for _, r := range bcp.Replsets {

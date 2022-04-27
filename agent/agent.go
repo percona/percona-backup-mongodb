@@ -27,6 +27,9 @@ type Agent struct {
 
 	closeCMD chan struct{}
 	pauseHB  int32
+
+	// prevOO is previous pitr.oplogOnly value
+	prevOO *bool
 }
 
 func New(pbm *pbm.PBM) *Agent {
@@ -340,9 +343,11 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) 
 func (a *Agent) HbPause() {
 	atomic.StoreInt32(&a.pauseHB, 1)
 }
+
 func (a *Agent) HbResume() {
 	atomic.StoreInt32(&a.pauseHB, 0)
 }
+
 func (a *Agent) HbIsRun() bool {
 	return atomic.LoadInt32(&a.pauseHB) == 0
 }
@@ -445,7 +450,6 @@ func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
 }
 
 func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
-
 	sts.OK = false
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
