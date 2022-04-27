@@ -23,6 +23,12 @@ const (
 	dateFormat     = "2006-01-02"
 )
 
+const (
+	RSMappingEnvVar = "PBM_REPLSET_REMAPPING"
+	RSMappingFlag   = "replset-remapping"
+	RSMappingDoc    = "re-map replset names for backups/oplog (e.g. to_name_1=from_name_1,to_name_2=from_name_2)"
+)
+
 type outFormat string
 
 const (
@@ -91,12 +97,15 @@ func Main() {
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
+	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
 	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").Required().StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&replayOpts.wait)
+	replayCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&replayOpts.rsMap)
+	// todo(add oplog cancel)
 
 	listCmd := pbmCmd.Command("list", "Backup list")
 	list := listOpts{}
@@ -105,6 +114,7 @@ func Main() {
 	listCmd.Flag("unbacked", "Show unbacked oplog ranges").Default("false").BoolVar(&list.unbacked)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
+	listCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&list.rsMap)
 
 	deleteBcpCmd := pbmCmd.Command("delete-backup", "Delete a backup")
 	deleteBcp := deleteBcpOpts{}
@@ -128,6 +138,8 @@ func Main() {
 	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
+	var statusRSMap string
+	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusRSMap)
 	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -165,6 +177,7 @@ func Main() {
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
+
 	pbmClient.InitLogger("", "")
 
 	switch cmd {
@@ -188,7 +201,7 @@ func Main() {
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(pbmClient, *mURL, statusSection, pbmOutF == outJSONpretty)
+		out, err = status(pbmClient, *mURL, statusSection, statusRSMap, pbmOutF == outJSONpretty)
 	}
 
 	if err != nil {

@@ -317,6 +317,10 @@ type Source interface {
 	io.WriterTo
 }
 
+type Canceller interface {
+	Cancel()
+}
+
 // ErrCancelled means backup was canceled
 var ErrCancelled = errors.New("backup canceled")
 
@@ -345,6 +349,10 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression pb
 
 	select {
 	case <-ctx.Done():
+		if c, ok := src.(Canceller); ok {
+			c.Cancel()
+		}
+
 		err := r.Close()
 		if err != nil {
 			return 0, errors.Wrap(err, "cancel backup: close reader")
