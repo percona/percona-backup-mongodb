@@ -61,6 +61,7 @@ override_dh_auto_install:
 	cp -f packaging/conf/pbm-storage.conf  $(TMP)/pbm-storage.conf
 	cp -f packaging/conf/pbm-agent.env  $(TMP)/default/pbm-agent
 	cp -f packaging/conf/pbm-agent.service $(TMP)/pbm-agent.service
+	cp -f packaging/conf/pbm-conf-reference.yml $(TMP)/pbm-conf-reference.yml
 	ls -la $(TMP)
 
 override_dh_systemd_start:

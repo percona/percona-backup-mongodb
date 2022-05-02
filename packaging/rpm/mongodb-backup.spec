@@ -75,6 +75,7 @@ install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.env $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig/pbm-agent
+install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-conf-reference.yml $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-conf-reference.yml
 %if 0%{?systemd}
   install -m 0755 -d $RPM_BUILD_ROOT/%{_unitdir}
   install -m 0644 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.service $RPM_BUILD_ROOT/%{_unitdir}/pbm-agent.service
@@ -136,6 +137,7 @@ esac
 %{_bindir}/pbm-speed-test
 %config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
 %config(noreplace) %attr(0640,mongod,mongod) /%{_sysconfdir}/pbm-storage.conf
+%{_sysconfdir}/pbm-conf-reference.yml
 %if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
 %else
@@ -144,6 +146,9 @@ esac
 
 
 %changelog
+* Fri Apr 29 2022 Vadim Yalovets <vadim.yalovets@percona.com>
+- PBM-828 Add full config reference file to packages
+
 * Mon Mar 21 2022 Vadim Yalovets <vadim.yalovets@percona.com>
 - PBM-788 Change pbm user in packages
 
