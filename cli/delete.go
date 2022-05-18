@@ -2,13 +2,16 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/client"
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type deleteBcpOpts struct {
@@ -32,6 +35,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 	cmd := pbm.Cmd{
 		Cmd: pbm.CmdDeleteBackup,
 	}
+	cmd.Delete = &pbm.DeleteBackupCmd{}
 	if len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
 		if err != nil {
@@ -80,6 +84,62 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 		time.Sleep(time.Second)
 		fmt.Println("[done]")
 	}
+
+	return runList(pbmClient, &listOpts{})
+}
+
+func doDeleteBackup(ctx context.Context, pbmClient *pbm.PBM, c *client.Client, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
+	if !d.force && isTTY() {
+		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		switch strings.TrimSpace(scanner.Text()) {
+		case "yes", "Yes", "YES", "Y", "y":
+		default:
+			return nil, nil
+		}
+	}
+
+	var res client.Result
+
+	if len(d.olderThan) > 0 {
+		t, err := parseDateT(d.olderThan)
+		if err != nil {
+			return nil, errors.Wrap(err, "parse date")
+		}
+		res = c.DeleteManyBackups(ctx, &client.DeleteManyBackupsOptions{OlderThan: t})
+	} else {
+		if d.name == "" {
+			return nil, errors.New("backup name should be specified")
+		}
+		res = c.DeleteBackup(ctx, d.name)
+	}
+
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "schedule delete")
+	}
+
+	if outf != outText {
+		return nil, nil
+	}
+
+	fmt.Print("Waiting for delete to be done ")
+
+	wait60s, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := client.WaitForDeleteBackupFinish(wait60s, c, res.ID()); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			fmt.Println("\nOperation is still in progress, please check status in a while")
+		}
+
+		return nil, err
+	}
+
+	time.Sleep(time.Second)
+	fmt.Print(".")
+	time.Sleep(time.Second)
+	fmt.Println("[done]")
 
 	return runList(pbmClient, &listOpts{})
 }

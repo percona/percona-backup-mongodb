@@ -1,11 +1,14 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type ErrorCursor struct {
@@ -24,7 +27,7 @@ func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
 		defer close(cmd)
 		defer close(errc)
 
-		ts := time.Now().UTC().Unix()
+		ts := time.Now().UTC().Add(0 * time.Hour).Unix()
 		var lastTs int64
 		var lastCmd Command
 		for {
@@ -83,5 +86,18 @@ func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
 func (p *PBM) SendCmd(cmd Cmd) error {
 	cmd.TS = time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(CmdStreamCollection).InsertOne(p.ctx, cmd)
+	return err
+}
+
+func UpdateCmdStatus(ctx context.Context, m *mongo.Client, cmd *Cmd, s Status) error {
+	coll := m.Database(DB).Collection(CmdStreamCollection)
+
+	cond := StatusCondition{
+		Status: s,
+		TS:     time.Now().Unix(),
+	}
+	_, err := coll.UpdateOne(ctx,
+		bson.D{{"_id", primitive.ObjectID(cmd.OPID)}},
+		bson.D{{"$push", bson.D{{"status.conditions", cond}}}})
 	return err
 }

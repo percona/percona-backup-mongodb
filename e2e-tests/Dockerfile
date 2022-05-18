@@ -1,10 +1,10 @@
-FROM golang:1.16
+FROM golang:1.18
 WORKDIR /opt/pbm-test
 ARG TESTS_BCP_TYPE
 ENV TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
 
 COPY . .
 
-RUN go install -mod=vendor ./e2e-tests/cmd/pbm-test
+RUN go install -mod=vendor ./e2e-tests/runner
 
 CMD ["pbm-test"]

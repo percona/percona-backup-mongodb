@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -176,16 +177,7 @@ func keys(t reflect.Type) confMap {
 	return v
 }
 
-func (p *PBM) SetConfigByte(buf []byte) error {
-	var cfg Config
-	err := yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		return errors.Wrap(err, "unmarshal yaml")
-	}
-	return errors.Wrap(p.SetConfig(cfg), "write to db")
-}
-
-func (p *PBM) SetConfig(cfg Config) error {
+func (p *PBM) SetConfig(ctx context.Context, cfg Config) error {
 	switch cfg.Storage.Type {
 	case StorageS3:
 		err := cfg.Storage.S3.Cast()
@@ -219,7 +211,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 	p.GetConfig()
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
-		p.ctx,
+		ctx,
 		bson.D{},
 		bson.M{"$set": cfg},
 		options.Update().SetUpsert(true),

@@ -65,6 +65,7 @@ type Command string
 
 const (
 	CmdUndefined    Command = ""
+	CmdApplyConfig  Command = "applyConfig"
 	CmdBackup       Command = "backup"
 	CmdRestore      Command = "restore"
 	CmdReplay       Command = "replay"
@@ -78,6 +79,8 @@ const (
 
 func (c Command) String() string {
 	switch c {
+	case CmdApplyConfig:
+		return "Apply Config"
 	case CmdBackup:
 		return "Snapshot backup"
 	case CmdRestore:
@@ -104,26 +107,40 @@ func (c Command) String() string {
 type OPID primitive.ObjectID
 
 type Cmd struct {
-	Cmd        Command         `bson:"cmd"`
-	Backup     BackupCmd       `bson:"backup,omitempty"`
-	Restore    RestoreCmd      `bson:"restore,omitempty"`
-	Replay     ReplayCmd       `bson:"replay,omitempty"`
-	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
-	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
-	DeletePITR DeletePITRCmd   `bson:"deletePitr,omitempty"`
-	TS         int64           `bson:"ts"`
-	OPID       OPID            `bson:"-"`
+	Cmd        Command          `bson:"cmd"`
+	Context    *CmdContext      `bson:"ctx,omitempty"`
+	Config     *Config          `bson:"config,omitempty"`
+	Backup     *BackupCmd       `bson:"backup,omitempty"`
+	Restore    *RestoreCmd      `bson:"restore,omitempty"`
+	Replay     *ReplayCmd       `bson:"replay,omitempty"`
+	PITRestore *PITRestoreCmd   `bson:"pitrestore,omitempty"`
+	Delete     *DeleteBackupCmd `bson:"delete,omitempty"`
+	DeletePITR *DeletePITRCmd   `bson:"deletePitr,omitempty"`
+	TS         int64            `bson:"ts"`
+	OPID       OPID             `bson:"-"`
+	Status     CommandStatus    `bson:"status"`
 }
 
-func OPIDfromStr(s string) (OPID, error) {
-	o, err := primitive.ObjectIDFromHex(s)
-	if err != nil {
-		return OPID(primitive.NilObjectID), err
+func (c *Cmd) Deadline(parent context.Context) (context.Context, context.CancelFunc) {
+	if c.Context == nil || c.Context.Deadline.IsZero() {
+		return context.WithCancel(parent)
 	}
-	return OPID(o), nil
+
+	return context.WithDeadline(parent, c.Context.Deadline)
 }
 
-func NilOPID() OPID { return OPID(primitive.NilObjectID) }
+type CmdContext struct {
+	Deadline time.Time `bson:"deadline"`
+}
+
+type CommandStatus struct {
+	Conditions []StatusCondition `bson:"conditions,omitempty"`
+}
+
+type StatusCondition struct {
+	Status Status `bson:"status"`
+	TS     int64  `bson:"ts"`
+}
 
 func (o OPID) String() string {
 	return primitive.ObjectID(o).Hex()
@@ -138,6 +155,10 @@ func (c Cmd) String() string {
 
 	buf.WriteString(string(c.Cmd))
 	switch c.Cmd {
+	case CmdApplyConfig:
+		buf.WriteString(" [")
+		buf.WriteString(c.Config.String())
+		buf.WriteString("]")
 	case CmdBackup:
 		buf.WriteString(" [")
 		buf.WriteString(c.Backup.String())
@@ -385,26 +406,27 @@ const (
 	logsCollectionSizeBytes     = 50 << 20 // 50Mb
 )
 
-// setup a new DB for PBM
 func (p *PBM) setupNewDB() error {
-	err := p.Conn.Database(DB).RunCommand(
-		p.ctx,
+	return setupNewDB(p.ctx, p.Conn)
+}
+
+// setup a new DB for PBM
+func setupNewDB(ctx context.Context, m *mongo.Client) error {
+	err := m.Database(DB).RunCommand(ctx,
 		bson.D{{"create", CmdStreamCollection}, {"capped", true}, {"size", cmdCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure cmd collection")
 	}
 
-	err = p.Conn.Database(DB).RunCommand(
-		p.ctx,
+	err = m.Database(DB).RunCommand(ctx,
 		bson.D{{"create", LogCollection}, {"capped", true}, {"size", logsCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure log collection")
 	}
 
-	err = p.Conn.Database(DB).RunCommand(
-		p.ctx,
+	err = m.Database(DB).RunCommand(ctx,
 		bson.D{{"create", LockCollection}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
@@ -412,8 +434,7 @@ func (p *PBM) setupNewDB() error {
 	}
 
 	// create indexes for the lock collections
-	_, err = p.Conn.Database(DB).Collection(LockCollection).Indexes().CreateOne(
-		p.ctx,
+	_, err = m.Database(DB).Collection(LockCollection).Indexes().CreateOne(ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}},
 			Options: options.Index().
@@ -424,8 +445,7 @@ func (p *PBM) setupNewDB() error {
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrapf(err, "ensure lock index on %s", LockCollection)
 	}
-	_, err = p.Conn.Database(DB).Collection(LockOpCollection).Indexes().CreateOne(
-		p.ctx,
+	_, err = m.Database(DB).Collection(LockOpCollection).Indexes().CreateOne(ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"replset", 1}, {"type", 1}},
 			Options: options.Index().
@@ -437,15 +457,13 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrapf(err, "ensure lock index on %s", LockOpCollection)
 	}
 
-	err = p.Conn.Database(DB).RunCommand(
-		p.ctx,
+	err = m.Database(DB).RunCommand(ctx,
 		bson.D{{"create", PBMOpLogCollection}, {"capped", true}, {"size", pbmOplogCollectionSizeBytes}},
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure log collection")
 	}
-	_, err = p.Conn.Database(DB).Collection(PBMOpLogCollection).Indexes().CreateOne(
-		p.ctx,
+	_, err = m.Database(DB).Collection(PBMOpLogCollection).Indexes().CreateOne(ctx,
 		mongo.IndexModel{
 			Keys: bson.D{{"opid", 1}, {"replset", 1}},
 			Options: options.Index().
@@ -458,8 +476,7 @@ func (p *PBM) setupNewDB() error {
 	}
 
 	// create indexs for the pitr chunks
-	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(
-		p.ctx,
+	_, err = m.Database(DB).Collection(PITRChunksCollection).Indexes().CreateMany(ctx,
 		[]mongo.IndexModel{
 			{
 				Keys: bson.D{{"rs", 1}, {"start_ts", 1}, {"end_ts", 1}},
@@ -476,8 +493,7 @@ func (p *PBM) setupNewDB() error {
 		return errors.Wrap(err, "ensure pitr chunks index")
 	}
 
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).Indexes().CreateMany(
-		p.ctx,
+	_, err = m.Database(DB).Collection(BcpCollection).Indexes().CreateMany(ctx,
 		[]mongo.IndexModel{
 			{
 				Keys: bson.D{{"name", 1}},
@@ -603,16 +619,27 @@ type File struct {
 type Status string
 
 const (
-	StatusInit  Status = "init"
-	StatusReady Status = "ready"
-
 	StatusStarting  Status = "starting"
 	StatusRunning   Status = "running"
 	StatusDumpDone  Status = "dumpDone"
 	StatusDone      Status = "done"
 	StatusCancelled Status = "canceled"
+	StatusTimeout   Status = "timeout"
 	StatusError     Status = "error"
 )
+
+func (s Status) Finished() bool {
+	switch s {
+	case
+		StatusDone,
+		StatusError,
+		StatusTimeout,
+		StatusCancelled:
+		return true
+	}
+
+	return false
+}
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {
 	m.LastTransitionTS = m.StartTS
@@ -717,7 +744,7 @@ func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
 	return err
 }
 
-func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string) error {
+func (p *PBM) ChangeRSState(bcpName, rsName string, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -733,7 +760,7 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
-func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
+func (p *PBM) RSSetPhyFiles(bcpName, rsName string, f []File) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -745,7 +772,7 @@ func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
 	return err
 }
 
-func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
+func (p *PBM) SetRSLastWrite(bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -1031,6 +1058,9 @@ type Epoch primitive.Timestamp
 func (p *PBM) GetEpoch() (Epoch, error) {
 	c, err := p.GetConfig()
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return Epoch{}, nil
+		}
 		return Epoch{}, errors.Wrap(err, "get config")
 	}
 

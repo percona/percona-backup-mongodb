@@ -90,7 +90,7 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 			return nil, errors.Wrap(err, "unable to get current config")
 		}
 
-		err = cn.SetConfigByte(buf)
+		err = cn.SetConfig(cn.Context(), cfg)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to set config")
 		}

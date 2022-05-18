@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/percona/percona-backup-mongodb/speedt"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -62,10 +61,10 @@ func main() {
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
-		compression(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		testCompression(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case storageCmd.FullCommand():
 		fmt.Print("Test started ")
-		storage(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		testStorage(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -78,7 +77,7 @@ func main() {
 	}
 }
 
-func compression(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
+func testCompression(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	var cn *mongo.Client
@@ -97,7 +96,7 @@ func compression(mURL string, compression pbm.CompressionType, level *int, sizeG
 	done := make(chan struct{})
 	go printw(done)
 
-	r, err := speedt.Run(cn, stg, compression, level, sizeGb, collection)
+	r, err := Run(cn, stg, compression, level, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}
@@ -107,7 +106,7 @@ func compression(mURL string, compression pbm.CompressionType, level *int, sizeG
 	fmt.Println(r)
 }
 
-func storage(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
+func testStorage(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	node, err := pbm.NewNode(ctx, mURL, 1)
@@ -128,7 +127,7 @@ func storage(mURL string, compression pbm.CompressionType, level *int, sizeGb fl
 	}
 	done := make(chan struct{})
 	go printw(done)
-	r, err := speedt.Run(node.Session(), stg, compression, level, sizeGb, collection)
+	r, err := Run(node.Session(), stg, compression, level, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}

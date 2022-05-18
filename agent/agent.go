@@ -76,24 +76,24 @@ func (a *Agent) Start() error {
 
 			a.log.Printf("got epoch %v", ep)
 
-			switch cmd.Cmd {
-			case pbm.CmdBackup:
-				// backup runs in the go-routine so it can be canceled
-				go a.Backup(cmd.Backup, cmd.OPID, ep)
-			case pbm.CmdCancelBackup:
-				a.CancelBackup()
-			case pbm.CmdRestore:
-				a.Restore(cmd.Restore, cmd.OPID, ep)
-			case pbm.CmdReplay:
-				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
-			case pbm.CmdResync:
-				a.Resync(cmd.OPID, ep)
-			case pbm.CmdPITRestore:
-				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
-			case pbm.CmdDeleteBackup:
-				a.Delete(cmd.Delete, cmd.OPID, ep)
-			case pbm.CmdDeletePITR:
-				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
+			err = a.handleCommand(a.pbm.Context(), &cmd, ep)
+
+			var cmdStatus pbm.Status
+			switch {
+			case err == nil:
+				cmdStatus = pbm.StatusDone
+			case errors.Is(err, context.Canceled):
+				cmdStatus = pbm.StatusCancelled
+			case errors.Is(err, context.DeadlineExceeded):
+				cmdStatus = pbm.StatusTimeout
+			default:
+				cmdStatus = pbm.StatusError
+			}
+
+			a.log.Printf("status: %s", cmdStatus)
+
+			if err := pbm.UpdateCmdStatus(a.pbm.Context(), a.pbm.Conn, &cmd, cmdStatus); err != nil {
+				a.log.Error("", "", "", ep.TS(), "update command %q status: %s", cmd.OPID, err.Error())
 			}
 		case err, ok := <-cerr:
 			if !ok {
@@ -113,19 +113,59 @@ func (a *Agent) Start() error {
 	}
 }
 
+func (a *Agent) handleCommand(ctx context.Context, cmd *pbm.Cmd, ep pbm.Epoch) error {
+	ctx, cancel := cmd.Deadline(a.pbm.Context())
+	defer cancel()
+
+	err := ctx.Err()
+	if err != nil {
+		a.log.Printf("err: %s", err.Error())
+		return err
+	}
+
+	switch cmd.Cmd {
+	case pbm.CmdApplyConfig:
+		err = a.applyConfig(ctx, cmd.Config)
+	case pbm.CmdBackup:
+		// backup runs in the go-routine so it can be canceled
+		go a.Backup(cmd.Backup, cmd.OPID, ep)
+	case pbm.CmdCancelBackup:
+		a.CancelBackup()
+		err = pbm.UpdateCmdStatus(a.pbm.Context(), a.pbm.Conn, cmd, pbm.StatusDone)
+	case pbm.CmdRestore:
+		a.Restore(cmd.Restore, cmd.OPID, ep)
+	case pbm.CmdReplay:
+		a.OplogReplay(cmd.Replay, cmd.OPID, ep)
+	case pbm.CmdResync:
+		a.Resync(cmd.OPID, ep)
+	case pbm.CmdPITRestore:
+		a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
+	case pbm.CmdDeleteBackup:
+		err = a.Delete(cmd.Delete, cmd.OPID, ep)
+	case pbm.CmdDeletePITR:
+		a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
+	}
+
+	return err
+}
+
+func (a *Agent) applyConfig(ctx context.Context, cfg *pbm.Config) error {
+	return a.pbm.SetConfig(ctx, *cfg)
+}
+
 // Delete deletes backup(s) from the store and cleans up its metadata
-func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) error {
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		l.Error("get node info data: %v", err)
-		return
+		return nil
 	}
 
 	if !nodeInfo.IsLeader() {
 		l.Info("not a member of the leader rs, skipping")
-		return
+		return nil
 	}
 
 	epts := ep.TS()
@@ -140,11 +180,11 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	got, err := a.acquireLock(lock, l, nil)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
-		return
+		return nil
 	}
 	if !got {
 		l.Debug("skip: lock not acquired")
-		return
+		return nil
 	}
 	defer func() {
 		err := lock.Release()
@@ -162,7 +202,7 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		err := a.pbm.DeleteOlderThan(t, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
-			return
+			return err
 		}
 	case d.Backup != "":
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
@@ -170,18 +210,19 @@ func (a *Agent) Delete(d pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		err := a.pbm.DeleteBackup(d.Backup, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
-			return
+			return err
 		}
 	default:
 		l.Error("malformed command received in Delete() of backup: %v", d)
-		return
+		return err
 	}
 
 	l.Info("done")
+	return nil
 }
 
 // DeletePITR deletes PITR chunks from the store and cleans up its metadata
-func (a *Agent) DeletePITR(d pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeletePITR), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()

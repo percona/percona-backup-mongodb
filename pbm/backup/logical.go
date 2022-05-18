@@ -16,7 +16,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (b *Backup) doLogical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
 	oplog := NewOplog(b.node)
 	oplogTS, err := oplog.LastWrite()
 	if err != nil {
@@ -243,7 +243,7 @@ func (d *mdump) Cancel() {
 	}
 }
 
-func getDstName(typ string, bcp pbm.BackupCmd, rsName string) string {
+func getDstName(typ string, bcp *pbm.BackupCmd, rsName string) string {
 	name := bcp.Name
 
 	if rsName != "" {

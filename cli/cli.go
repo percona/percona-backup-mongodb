@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/yaml.v2"
 
+	"github.com/percona/percona-backup-mongodb/client"
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -130,7 +133,7 @@ func Main() {
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
 	logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64Var(&logs.tail)
-	logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').StringVar(&logs.node)
+	logsCmd.Flag("node", "Target node in format replset[/host:port]").Short('n').StringVar(&logs.node)
 	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
 	logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resync, pitr, pitrestore, delete").Short('e').StringVar(&logs.event)
 	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
@@ -173,29 +176,69 @@ func Main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
+	mongoURI := *mURL
+	if !strings.HasPrefix(mongoURI, "mongodb://") {
+		mongoURI = "mongodb://" + mongoURI
+	}
+
+	pbmClient, err := pbm.New(ctx, mongoURI, "pbm-ctl")
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 	}
 
 	pbmClient.InitLogger("", "")
 
+	libClient, err := client.New(ctx, client.Options{URI: mongoURI})
+	if err != nil {
+		log.Fatalf("init client: %s", err.Error())
+	}
+
+	next := os.Getenv("PBM_NEXT") == "1"
+
 	switch cmd {
 	case configCmd.FullCommand():
-		out, err = runConfig(pbmClient, &cfg)
+		if next && cfg.file != "" {
+			out, err = applyConfig(ctx, libClient, cfg.file)
+		} else {
+			out, err = runConfig(pbmClient, &cfg)
+		}
 	case backupCmd.FullCommand():
-		backup.name = time.Now().UTC().Format(time.RFC3339)
-		out, err = runBackup(pbmClient, &backup, pbmOutF)
+		if next {
+			out, err = doBackup(ctx, libClient, &backup)
+		} else {
+			backup.name = time.Now().UTC().Format(time.RFC3339)
+			out, err = runBackup(pbmClient, &backup, pbmOutF)
+		}
 	case cancelBcpCmd.FullCommand():
-		out, err = cancelBcp(pbmClient)
+		if next {
+			out, err = doCancelBackup(ctx, libClient)
+		} else {
+			out, err = cancelBcp(pbmClient)
+		}
 	case restoreCmd.FullCommand():
-		out, err = runRestore(pbmClient, &restore, pbmOutF)
+		if next {
+			if restore.pitr == "" {
+				out, err = doRestore(ctx, libClient, &restore, pbmOutF)
+			} else {
+				out, err = doPITRestore(ctx, libClient, &restore, pbmOutF)
+			}
+		} else {
+			out, err = runRestore(pbmClient, &restore, pbmOutF)
+		}
 	case replayCmd.FullCommand():
-		out, err = replayOplog(pbmClient, replayOpts, pbmOutF)
+		if next {
+			out, err = doReplayOplog(ctx, libClient, &replayOpts)
+		} else {
+			out, err = replayOplog(pbmClient, replayOpts, pbmOutF)
+		}
 	case listCmd.FullCommand():
 		out, err = runList(pbmClient, &list)
 	case deleteBcpCmd.FullCommand():
-		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
+		if next {
+			out, err = doDeleteBackup(ctx, pbmClient, libClient, &deleteBcp, pbmOutF)
+		} else {
+			out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
+		}
 	case deletePitrCmd.FullCommand():
 		out, err = deletePITR(pbmClient, &deletePitr, pbmOutF)
 	case logsCmd.FullCommand():
@@ -213,6 +256,184 @@ func Main() {
 	if r, ok := out.(cliResult); ok && r.HasError() {
 		os.Exit(1)
 	}
+}
+
+func applyConfig(ctx context.Context, c *client.Client, filename string) (fmt.Stringer, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, errors.WithMessage(err, "open file")
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("close %q: %s", filename, err.Error())
+		}
+	}()
+
+	cfg := new(pbm.Config)
+	d := yaml.NewDecoder(file)
+	d.SetStrict(true)
+	if err := d.Decode(cfg); err != nil {
+		return nil, errors.WithMessage(err, "decode")
+	}
+
+	deadline := time.Now().UTC().Add(5 * time.Second)
+	cmdOptions := client.ConfigOptions{Deadline: deadline}
+
+	waitCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	res := c.SetConfig(waitCtx, cfg, &cmdOptions)
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+
+	return res.Config(), nil
+}
+
+func doBackup(ctx context.Context, c *client.Client, b *backupOpts) (*backupOut, error) {
+	opts := client.BackupOptions{
+		Type:        pbm.BackupType(b.typ),
+		Compression: pbm.CompressionType(b.compression),
+	}
+	if len(b.compressionLevel) != 0 {
+		opts.CompressionLevel = &b.compressionLevel[0]
+	}
+
+	cfg, err := c.GetConfig(ctx)
+	if err != nil {
+		return nil, errors.WithMessage(err, "get config")
+	}
+
+	res := c.Backup(ctx, &opts)
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "run backup")
+	}
+
+	if b.wait {
+		if err := waitForBackupFinish(ctx, c, res.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	rv := backupOut{
+		Name:    res.Name,
+		Storage: cfg.Storage.Path(),
+	}
+	return &rv, nil
+}
+
+func waitForBackupFinish(ctx context.Context, c *client.Client, name string) error {
+	fmt.Print("waiting for backup finish")
+
+	statusC, errC := make(chan pbm.Status), make(chan error)
+
+	go func() {
+		backup, err := client.WaitForBackupFinish(ctx, c, name)
+		if err != nil {
+			errC <- err
+		} else {
+			statusC <- backup.Status
+		}
+	}()
+
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			fmt.Print(".")
+		case err := <-errC:
+			return err
+		case status := <-statusC:
+			var s string
+
+			switch status {
+			case pbm.StatusDone:
+				s = "done"
+			case pbm.StatusError:
+				s = "failed"
+			case pbm.StatusCancelled:
+				s = "cancelled"
+			default:
+				s = "finished"
+			}
+
+			_, err := fmt.Println(s)
+			return err
+		}
+	}
+}
+
+func doCancelBackup(ctx context.Context, c *client.Client) (*outMsg, error) {
+	res := c.CancelBackup(ctx)
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+
+	wait10s, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err := client.WaitForCancelBackup(wait10s, c, res.ID()); err != nil {
+		return nil, err
+	}
+
+	return &outMsg{"Backup has been cancelled"}, nil
+}
+
+func doRestore(ctx context.Context, c *client.Client, r *restoreOpts, _ outFormat) (*restoreRet, error) {
+	rsMap, err := parseRSNamesMapping(r.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
+	if r.bcp == "" {
+		return nil, errors.New("no backup")
+	}
+
+	opts := client.RestoreOptions{
+		BackupName: r.bcp,
+		RSMap:      rsMap,
+	}
+
+	res := c.Restore(ctx, &opts)
+	rv := restoreRet{
+		// Name:     res.Backup,
+		// Snapshot: r.bcp,
+		// Leader:   res.Leader,
+		// physical: res.Type == pbm.PhysicalBackup,
+		err: res.Err().Error(),
+	}
+
+	return &rv, nil
+}
+
+func doPITRestore(ctx context.Context, c *client.Client, r *restoreOpts, _ outFormat) (*restoreRet, error) {
+	rsMap, err := parseRSNamesMapping(r.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
+	ts, err := parseTS(r.pitr)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := client.PITRestoreOptions{
+		Backup: r.bcp,
+		Time:   ts,
+		RSMap:  rsMap,
+	}
+	res := c.RestorePIT(ctx, &opts)
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+
+	rv := restoreRet{}
+
+	return &rv, nil
 }
 
 func printo(out fmt.Stringer, f outFormat) {

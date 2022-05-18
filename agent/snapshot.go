@@ -10,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type currentBackup struct {
@@ -46,7 +47,7 @@ func (a *Agent) CancelBackup() {
 }
 
 // Backup starts backup
-func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdBackup), cmd.Name, opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
@@ -167,7 +168,7 @@ func (a *Agent) Backup(cmd pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.setBcp(&currentBackup{
-		header: &cmd,
+		header: cmd,
 		cancel: cancel,
 	})
 	l.Info("backup started")
@@ -257,12 +258,13 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 	}
 }
 
-func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
 	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
 	if errors.Is(err, pbm.ErrNotFound) {
-		stg, err := a.pbm.GetStorage(l)
+		var stg storage.Storage
+		stg, err = a.pbm.GetStorage(l)
 		if err != nil {
 			l.Error("get storage: %v", err)
 			return
@@ -291,7 +293,7 @@ func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 }
 
 // restoreLogical starts the restore
-func (a *Agent) restoreLogical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
+func (a *Agent) restoreLogical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node info")
@@ -351,7 +353,7 @@ func (a *Agent) restoreLogical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l 
 }
 
 // restoreLogical starts the restore
-func (a *Agent) restorePhysical(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
+func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, l *log.Event) error {
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node info")

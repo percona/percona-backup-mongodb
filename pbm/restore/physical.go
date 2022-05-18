@@ -286,7 +286,7 @@ func (r *PhysRestore) waitFiles(n ...string) error {
 // - Starts standalone mongod to recover oplog from journals.
 // - Cleans up data and resets replicaset config to the working state.
 // - Shuts down mongod and agent (the leader also dumps metadata to the storage).
-func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	meta := &pbm.RestoreMeta{
 		Type: pbm.PhysicalBackup,
 		OPID: opid.String(),

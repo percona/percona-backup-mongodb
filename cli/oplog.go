@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/percona/percona-backup-mongodb/client"
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
@@ -60,7 +61,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 	cmd := pbm.Cmd{
 		Cmd: pbm.CmdReplay,
-		Replay: pbm.ReplayCmd{
+		Replay: &pbm.ReplayCmd{
 			Name:  name,
 			Start: startTS,
 			End:   endTS,
@@ -96,4 +97,31 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	}
 
 	return oplogReplayResult{Name: name, done: true}, nil
+}
+
+func doReplayOplog(ctx context.Context, c *client.Client, o *replayOptions) (fmt.Stringer, error) {
+	startTS, err := parseTS(o.start)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse start time")
+	}
+	endTS, err := parseTS(o.end)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse end time")
+	}
+	rsMap, err := parseRSNamesMapping(o.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
+	opts := client.OplogReplayOptions{
+		Start: startTS,
+		End:   endTS,
+		RSMap: rsMap,
+	}
+	res := c.ReplayOplog(ctx, &opts)
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+
+	return oplogReplayResult{Name: res.Name}, nil
 }

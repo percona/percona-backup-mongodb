@@ -30,7 +30,9 @@ const (
 	RoleUnknown   ReplsetRole = "unknown"
 	RoleShard     ReplsetRole = "shard"
 	RoleConfigSrv ReplsetRole = "configsrv"
+)
 
+const (
 	// TmpUsersCollection and TmpRoles are tmp collections used to avoid
 	// user related issues while resoring on new cluster and preserving UUID
 	// See https://jira.percona.com/browse/PBM-425, https://jira.percona.com/browse/PBM-636
