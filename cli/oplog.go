@@ -38,6 +38,11 @@ func (r oplogReplayResult) String() string {
 }
 
 func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, error) {
+	rsMap, err := parseRSNamesMapping(o.rsMap)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot parse replset mapping")
+	}
+
 	startTS, err := parseTS(o.start)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse start time")
@@ -59,6 +64,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 			Name:  name,
 			Start: startTS,
 			End:   endTS,
+			RSMap: rsMap,
 		},
 	}
 	if err := cn.SendCmd(cmd); err != nil {
