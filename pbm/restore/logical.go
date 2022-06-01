@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -156,6 +157,10 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
+	if err = r.updateRouterConfig(r.cn.Context()); err != nil {
+		return errors.WithMessage(err, "update router config")
+	}
+
 	return r.Done()
 }
 
@@ -236,6 +241,10 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo, false)
 	if err != nil {
 		return err
+	}
+
+	if err = r.updateRouterConfig(r.cn.Context()); err != nil {
+		return errors.WithMessage(err, "update router config")
 	}
 
 	return r.Done()
@@ -548,6 +557,130 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 	}
 
 	return nil
+}
+
+func (r *Restore) updateRouterConfig(ctx context.Context) error {
+	r.log.Info("updateRouterConfig()")
+
+	if len(r.rsMap) == 0 || !r.nodeInfo.IsSharded() {
+		return nil
+	}
+
+	if r.nodeInfo.IsConfigSrv() {
+		if err := updateRouterTables(ctx, r.cn.Conn, r.rsMap); err != nil {
+			return err
+		}
+	}
+
+	res := r.cn.Conn.Database(pbm.DB).RunCommand(ctx, primitive.M{"flushRouterConfig": 1})
+	return errors.WithMessage(res.Err(), "flushRouterConfig")
+}
+
+func updateRouterTables(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
+	if err := updateDatabasesRouterTable(ctx, m, rsMap); err != nil {
+		return errors.WithMessage(err, "databases")
+	}
+
+	if err := updateChunksRouterTable(ctx, m, rsMap); err != nil {
+		return errors.WithMessage(err, "chunks")
+	}
+
+	return nil
+}
+
+func updateDatabasesRouterTable(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
+	coll := m.Database("config").Collection("databases")
+
+	oldNames := make(primitive.A, 0, len(rsMap))
+	for k := range rsMap {
+		oldNames = append(oldNames, k)
+	}
+
+	q := primitive.M{"primary": primitive.M{"$in": oldNames}}
+	cur, err := coll.Find(ctx, q)
+	if err != nil {
+		return errors.WithMessage(err, "query")
+	}
+
+	models := make([]mongo.WriteModel, 0)
+	for cur.Next(ctx) {
+		var doc struct {
+			ID      string `bson:"_id"`
+			Primary string `bson:"primary"`
+		}
+		if err := cur.Decode(&doc); err != nil {
+			return errors.WithMessage(err, "decode")
+		}
+
+		m := mongo.NewUpdateOneModel()
+		m.SetFilter(primitive.M{"_id": doc.ID})
+		m.SetUpdate(primitive.M{"$set": primitive.M{"primary": rsMap[doc.Primary]}})
+
+		models = append(models, m)
+	}
+	if err := cur.Err(); err != nil {
+		return errors.WithMessage(err, "cursor")
+	}
+	if len(models) == 0 {
+		return nil
+	}
+
+	_, err = coll.BulkWrite(ctx, models)
+	return errors.WithMessage(err, "bulk write")
+}
+
+func updateChunksRouterTable(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
+	coll := m.Database("config").Collection("chunks")
+
+	oldNames := make(primitive.A, 0, len(rsMap))
+	for k := range rsMap {
+		oldNames = append(oldNames, k)
+	}
+
+	q := primitive.M{"history.shard": primitive.M{"$in": oldNames}}
+	cur, err := coll.Find(ctx, q)
+	if err != nil {
+		return errors.WithMessage(err, "query")
+	}
+
+	models := make([]mongo.WriteModel, 0)
+	for cur.Next(ctx) {
+		var doc struct {
+			ID      primitive.ObjectID `bson:"_id"`
+			Shard   string             `bson:"shard"`
+			History []struct {
+				Shard string `bson:"shard"`
+			} `bson:"history"`
+		}
+		if err := cur.Decode(&doc); err != nil {
+			return errors.WithMessage(err, "decode")
+		}
+
+		updates := primitive.M{}
+		if n, ok := rsMap[doc.Shard]; ok {
+			updates["shard"] = n
+		}
+
+		for i, h := range doc.History {
+			if n, ok := rsMap[h.Shard]; ok {
+				updates[fmt.Sprintf("history.%d.shard", i)] = n
+			}
+		}
+
+		m := mongo.NewUpdateOneModel()
+		m.SetFilter(primitive.M{"_id": doc.ID})
+		m.SetUpdate(primitive.M{"$set": updates})
+		models = append(models, m)
+	}
+	if err := cur.Err(); err != nil {
+		return errors.WithMessage(err, "cursor")
+	}
+	if len(models) == 0 {
+		return nil
+	}
+
+	_, err = coll.BulkWrite(ctx, models)
+	return errors.WithMessage(err, "bulk write")
 }
 
 func (r *Restore) distTxnChecker(done <-chan struct{}, ctxn chan pbm.RestoreTxn, txnSyncErr chan<- error) {
