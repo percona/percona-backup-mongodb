@@ -560,7 +560,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
-	r.log.Info("updateRouterConfig()")
+	r.log.Debug("updating router config")
 
 	if len(r.rsMap) == 0 || !r.nodeInfo.IsSharded() {
 		return nil
