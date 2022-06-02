@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
+
+type statusOptions struct {
+	rsMap    string
+	sections []string
+}
 
 type statusOut struct {
 	data   []*statusSect
@@ -77,8 +83,8 @@ func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err e
 	return nil
 }
 
-func status(cn *pbm.PBM, curi string, showSection *[]string, rsMapRaw string, pretty bool) (fmt.Stringer, error) {
-	rsMap, err := parseRSNamesMapping(rsMapRaw)
+func status(cn *pbm.PBM, curi string, opts statusOptions, pretty bool) (fmt.Stringer, error) {
+	rsMap, err := parseRSNamesMapping(opts.rsMap)
 	if err != nil {
 		return nil, errors.WithMessage(err, "cannot parse replset mapping")
 	}
@@ -103,9 +109,9 @@ func status(cn *pbm.PBM, curi string, showSection *[]string, rsMapRaw string, pr
 	}
 
 	var sfilter map[string]bool
-	if showSection != nil && len(*showSection) > 0 {
+	if opts.sections != nil && len(opts.sections) > 0 {
 		sfilter = make(map[string]bool)
-		for _, s := range *showSection {
+		for _, s := range opts.sections {
 			sfilter[s] = true
 		}
 	}
@@ -472,6 +478,12 @@ func (s storageStat) String() string {
 	}
 
 	ret += fmt.Sprintln("  Snapshots:")
+
+	sort.Slice(s.Snapshot, func(i, j int) bool {
+		a, b := s.Snapshot[i], s.Snapshot[j]
+		return a.StateTS > b.StateTS
+	})
+
 	for _, sn := range s.Snapshot {
 		var status string
 		switch sn.Status {
@@ -497,6 +509,11 @@ func (s storageStat) String() string {
 	}
 
 	ret += fmt.Sprintf("  PITR chunks [%s]:\n", fmtSize(s.PITR.Size))
+
+	sort.Slice(s.PITR.Ranges, func(i, j int) bool {
+		a, b := s.PITR.Ranges[i], s.PITR.Ranges[j]
+		return a.Range.End > b.Range.End
+	})
 
 	for _, sn := range s.PITR.Ranges {
 		var v string
@@ -593,7 +610,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(cn, stg, rsMap)
+	s.PITR, err = getPITRranges(cn, stg, bcps, rsMap)
 	if err != nil {
 		return s, errors.Wrap(err, "get PITR chunks")
 	}
@@ -601,7 +618,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 	return s, nil
 }
 
-func getPITRranges(cn *pbm.PBM, stg storage.Storage, rsMap map[string]string) (*pitrRanges, error) {
+func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMap map[string]string) (*pitrRanges, error) {
 	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -628,8 +645,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, rsMap map[string]string) (*
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, flist)
 		if err != nil {
-			log.Printf("ERROR: get PITR timelines for %s replset: %v", s.RS, err)
-			continue
+			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS)
 		}
 		if tlns == nil {
 			continue
@@ -642,28 +658,28 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, rsMap map[string]string) (*
 		}
 	}
 
-	merged := pbm.MergeTimelines(rstlines...)
+	sort.Slice(bcps, func(i, j int) bool {
+		return primitive.CompareTimestamp(bcps[i].LastWriteTS, bcps[j].LastWriteTS) == -1
+	})
 
 	var pr []pitrRange
-	for i := len(merged) - 1; i >= 0; i-- {
-		tl := merged[i]
-		var rng pitrRange
-		rng.Range.Start = tl.Start + 1
-		rng.Range.End = tl.End
+	for _, tl := range pbm.MergeTimelines(rstlines...) {
+		var bcplastWrite *primitive.Timestamp
 
-		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if err != nil && errors.Is(err, pbm.ErrNotFound) {
-			log.Printf("ERROR: get backup for timeline: %s", tl)
-			rng.NoBaseSnapshot = true
+		for _, bcp := range bcps {
+			if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+				continue
+			}
+
+			if bcp.LastWriteTS.T < tl.Start && bcp.FirstWriteTS.T > tl.End {
+				continue
+			}
+
+			bcplastWrite = &bcp.LastWriteTS
+			break
 		}
-		if errors.Is(err, pbm.ErrNotFound) {
-			rng.Err = "no backup found"
-			rng.NoBaseSnapshot = true
-		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
-			rng.NoBaseSnapshot = true
-		}
-		pr = append(pr, rng)
+
+		pr = append(pr, splitByBaseSnapshot(bcplastWrite, tl)...)
 	}
 
 	return &pitrRanges{Ranges: pr, Size: size}, nil
