@@ -13,12 +13,11 @@ import (
 )
 
 type listOpts struct {
-	restore     bool
-	oplogReplay bool
-	unbacked    bool
-	full        bool
-	size        int
-	rsMap       string
+	restore  bool
+	unbacked bool
+	full     bool
+	size     int
+	rsMap    string
 }
 
 type restoreStatus struct {

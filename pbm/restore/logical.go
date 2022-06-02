@@ -560,13 +560,12 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
-	r.log.Debug("updating router config")
-
 	if len(r.rsMap) == 0 || !r.nodeInfo.IsSharded() {
 		return nil
 	}
 
 	if r.nodeInfo.IsConfigSrv() {
+		r.log.Debug("updating router config")
 		if err := updateRouterTables(ctx, r.cn.Conn, r.rsMap); err != nil {
 			return err
 		}
