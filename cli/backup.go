@@ -50,6 +50,17 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	var level *int
 	if len(b.compressionLevel) > 0 {
 		level = &b.compressionLevel[0]
+	} else if cfg.Backup.CompressionLevel != nil {
+		level = cfg.Backup.CompressionLevel
+	}
+
+	compression := pbm.CompressionType(b.compression)
+	if compression == "" {
+		if cfg.Backup.Compression != "" {
+			compression = cfg.Backup.Compression
+		} else {
+			compression = pbm.CompressionTypeS2
+		}
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
@@ -57,7 +68,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		Backup: pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
-			Compression:      pbm.CompressionType(b.compression),
+			Compression:      compression,
 			CompressionLevel: level,
 		},
 	})
