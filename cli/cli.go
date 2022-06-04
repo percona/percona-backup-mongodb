@@ -88,6 +88,7 @@ func Main() {
 		)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
+	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 

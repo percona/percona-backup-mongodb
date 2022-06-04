@@ -17,6 +17,7 @@ type backupOpts struct {
 	typ              string
 	compression      string
 	compressionLevel []int
+	wait             bool
 }
 
 type backupOut struct {
@@ -76,12 +77,49 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, err
 	}
 
+	if b.wait {
+		return outMsg{}, waitBackup(context.Background(), cn, b.name)
+	}
+
 	fmt.Println()
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
+func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	fmt.Printf("Waiting for '%s' backup...", name)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			bcp, err := cn.GetBackupMeta(name)
+			if err != nil {
+				return err
+			}
+
+			switch bcp.Status {
+			case pbm.StatusDone:
+				fmt.Println(" done")
+				return nil
+			case pbm.StatusCancelled:
+				fmt.Println(" cancelled")
+				return nil
+			case pbm.StatusError:
+				fmt.Println(" failed")
+				return errors.New(bcp.Error)
+			}
+		}
+
+		fmt.Print(".")
+	}
+}
+
 func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
-	tk := time.NewTicker(time.Second * 1)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
 	var bmeta *pbm.BackupMeta
@@ -97,7 +135,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
+			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone, pbm.StatusCancelled:
 				return nil
 			case pbm.StatusError:
 				rs := ""
