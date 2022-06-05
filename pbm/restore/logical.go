@@ -126,6 +126,16 @@ func (r *Restore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
+	err = r.checkSnapshot(bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.setShards(bcp)
+	if err != nil {
+		return err
+	}
+
 	dump, oplog, err := r.snapshotObjects(bcp)
 	if err != nil {
 		return err
@@ -205,6 +215,25 @@ func (r *Restore) PITR(cmd pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err 
 		return errors.Wrap(err, "set backup name")
 	}
 
+	err = r.checkSnapshot(bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.setShards(bcp)
+	if err != nil {
+		return err
+	}
+
+	bcpShards := make([]string, len(bcp.Replsets))
+	for i := range bcp.Replsets {
+		bcpShards[i] = bcp.Replsets[i].Name
+	}
+
+	if !sliceHasString(bcpShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+		return r.Done() // skip. no backup for current rs
+	}
+
 	chunks, err := r.chunks(bcp.LastWriteTS, tsTo)
 	if err != nil {
 		return err
@@ -271,6 +300,20 @@ func (r *Restore) ReplayOplog(cmd pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (e
 		if err != nil {
 			return errors.Wrap(err, "set oplog timestamps")
 		}
+	}
+
+	oplogShards, err := r.cn.AllOplogRSNames(r.cn.Context(), cmd.Start, cmd.End)
+	if err != nil {
+		return err
+	}
+
+	err = r.checkTopologyForOplog(r.cn.Context(), r.shards, oplogShards)
+	if err != nil {
+		return errors.WithMessage(err, "topology")
+	}
+
+	if !sliceHasString(oplogShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+		return r.Done() // skip. no oplog for current rs
 	}
 
 	chunks, err := r.chunks(cmd.Start, cmd.End)
@@ -364,6 +407,31 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	r.stg, err = r.cn.GetStorage(r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
+	}
+
+	return nil
+}
+
+func (r *Restore) checkTopologyForOplog(ctx context.Context, currShards []pbm.Shard, oplogShards []string) error {
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(r.rsMap), pbm.MakeReverseRSMapFunc(r.rsMap)
+
+	shards := make(map[string]struct{}, len(currShards))
+	for i := range r.shards {
+		shards[r.shards[i].RS] = struct{}{}
+	}
+
+	var missed []string
+	for _, rs := range oplogShards {
+		name := mapRS(rs)
+		if _, ok := shards[name]; !ok {
+			missed = append(missed, name)
+		} else if mapRevRS(name) != rs {
+			missed = append(missed, name)
+		}
+	}
+
+	if len(missed) != 0 {
+		return errors.Errorf("missed replset %s", strings.Join(missed, ", "))
 	}
 
 	return nil
@@ -515,16 +583,6 @@ func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 }
 
 func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
-	err = r.checkSnapshot(bcp)
-	if err != nil {
-		return err
-	}
-
-	err = r.setShards(bcp)
-	if err != nil {
-		return err
-	}
-
 	sr, err := r.stg.SourceReader(dump)
 	if err != nil {
 		return errors.Wrapf(err, "get object %s for the storage", dump)
@@ -809,9 +867,9 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Time
 		// PBM versions) won’t be compatible - during the restore, PBM will treat such
 		// files as Snappy (judging by its suffix) but in fact, they are s2 files
 		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
-		lts, err = r.replyChunk(chnk.FName, chnk.Compression)
+		lts, err = r.replayChunk(chnk.FName, chnk.Compression)
 		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = r.replyChunk(chnk.FName, pbm.CompressionTypeS2)
+			lts, err = r.replayChunk(chnk.FName, pbm.CompressionTypeS2)
 		}
 		if err != nil {
 			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -1010,7 +1068,7 @@ func (r *Restore) snapshot(input io.Reader) (err error) {
 	return nil
 }
 
-func (r *Restore) replyChunk(file string, c pbm.CompressionType) (lts primitive.Timestamp, err error) {
+func (r *Restore) replayChunk(file string, c pbm.CompressionType) (lts primitive.Timestamp, err error) {
 	or, err := r.stg.SourceReader(file)
 	if err != nil {
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
