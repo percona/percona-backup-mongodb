@@ -100,7 +100,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
-	fmt.Printf("Waiting for '%s' backup...", name)
+	fmt.Printf("\nWaiting for '%s' backup...", name)
 
 	for {
 		select {
@@ -187,39 +187,45 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapRS pbm.RSMapFunc) {
-	sh := make(map[string]struct{}, len(shards))
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == confsrv
 	}
 
-	var buf []string
 	for i := 0; i < len(bcps); i++ {
-		buf = buf[:0]
-		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapRS)
+		bcpMatchCluster(&bcps[i], sh, rsMap)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapRS pbm.RSMapFunc) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, rsMap map[string]string) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
 
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
+
+	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
-		if _, ok := shards[name]; !ok {
-			*nomatch = append(*nomatch, name)
+
+		isconfsrv, ok := shards[name]
+		if !ok {
+			nomatch = append(nomatch, name)
+		} else if mapRevRS(name) != bcp.Replsets[i].Name {
+			nomatch = append(nomatch, name)
 		}
-		if name == confsrv {
+
+		if isconfsrv {
 			hasconfsrv = true
 		}
 	}
 
-	if len(*nomatch) > 0 {
+	if len(nomatch) > 0 {
 		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
 			"Extra shards in the backup will cause this, for a simple example. " +
-			"The extra/unknown replica set names found in the backup are: " + strings.Join(*nomatch, ", ")
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
 		bcp.Status = pbm.StatusError
 	}
 

@@ -187,7 +187,7 @@ func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]str
 	return list, nil
 }
 
-func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []snapshotStat, err error) {
+func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapshotStat, err error) {
 	bcps, err := cn.BackupsList(int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
@@ -205,7 +205,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []sn
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, pbm.MakeRSMapFunc(rsMapping))
+	bcpsMatchCluster(bcps, shards, inf.SetName, rsMap)
 
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
@@ -273,14 +273,13 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 		rstlines = append(rstlines, tlns)
 	}
 
-	sh := make(map[string]struct{}, len(shards))
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == inf.SetName
 	}
 
-	mapRS := pbm.MakeRSMapFunc(rsMap)
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		lastWrite, err := getBaseSnapshotLastWrite(cn, inf, sh, mapRS, tl)
+		lastWrite, err := getBaseSnapshotLastWrite(cn, sh, rsMap, tl)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -298,7 +297,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, mapRS pbm.RSMapFunc, tl pbm.Timeline) (*primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
@@ -311,8 +310,7 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]stru
 		return nil, nil
 	}
 
-	var buf []string
-	bcpMatchCluster(bcp, sh, inf.SetName, &buf, mapRS)
+	bcpMatchCluster(bcp, sh, rsMap)
 
 	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 		return nil, nil

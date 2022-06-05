@@ -429,7 +429,7 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 		fl[rs.RS] = rs
 	}
 
-	mapRS := pbm.MakeRSMapFunc(r.rsMap)
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(r.rsMap), pbm.MakeReverseRSMapFunc(r.rsMap)
 
 	var nors []string
 	for _, sh := range bcp.Replsets {
@@ -438,13 +438,16 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 		if !ok {
 			nors = append(nors, name)
 			continue
+		} else if mapRevRS(name) != sh.Name {
+			nors = append(nors, name)
+			continue
 		}
 
 		r.shards = append(r.shards, rs)
 	}
 
 	if r.nodeInfo.IsLeader() && len(nors) > 0 {
-		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
+		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ", "))
 	}
 
 	return nil

@@ -6,6 +6,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/pkg/errors"
 )
 
 // OplogReplay replays oplog between r.Start and r.End timestamps (wall time in UTC tz)
@@ -54,7 +55,11 @@ func (a *Agent) OplogReplay(r pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
 
 	l.Info("oplog replay started")
 	if err := restore.New(a.pbm, a.node, r.RSMap).ReplayOplog(r, opID, l); err != nil {
-		l.Error("oplog replay: %s", err.Error())
+		if errors.Is(err, restore.ErrNoDataForShard) {
+			l.Info("no oplog for the shard, skipping")
+		} else {
+			l.Error("oplog replay: %v", err.Error())
+		}
 		return
 	}
 	l.Info("oplog replay successfully finished")
