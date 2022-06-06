@@ -146,7 +146,7 @@ func (bl backupListOut) String() string {
 	s := fmt.Sprintln("Backup snapshots:")
 
 	sort.Slice(bl.Snapshots, func(i, j int) bool {
-		return bl.Snapshots[i].StateTS > bl.Snapshots[j].StateTS
+		return bl.Snapshots[i].StateTS < bl.Snapshots[j].StateTS
 	})
 	for _, b := range bl.Snapshots {
 		s += fmt.Sprintf("  %s <%s> [complete: %s]\n", b.Name, b.Type, fmtTS(int64(b.StateTS)))
@@ -158,7 +158,7 @@ func (bl backupListOut) String() string {
 	}
 
 	sort.Slice(bl.PITR.Ranges, func(i, j int) bool {
-		return bl.PITR.Ranges[i].Range.End > bl.PITR.Ranges[j].Range.End
+		return bl.PITR.Ranges[i].Range.End < bl.PITR.Ranges[j].Range.End
 	})
 	for _, r := range bl.PITR.Ranges {
 		f := ""
