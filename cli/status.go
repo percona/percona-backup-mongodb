@@ -645,7 +645,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, flist)
 		if err != nil {
-			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS)
+			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS, err)
 		}
 		if tlns == nil {
 			continue
