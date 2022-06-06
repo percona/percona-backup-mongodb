@@ -193,12 +193,14 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 		sh[s.RS] = struct{}{}
 	}
 
+	var buf []string
 	for i := 0; i < len(bcps); i++ {
-		bcpMatchCluster(&bcps[i], sh, confsrv, rsMap)
+		buf = buf[:]
+		bcpMatchCluster(&bcps[i], sh, confsrv, buf, rsMap)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, rsMap map[string]string) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch []string, rsMap map[string]string) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
@@ -209,7 +211,6 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 	}
 
 	mapRS := pbm.MakeRSMapFunc(rsMap)
-	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
@@ -222,7 +223,11 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 	}
 
 	if len(nomatch) != 0 || !hasconfsrv {
-		bcp.Error = errMissedReplsets{names: nomatch, hasconfsrv: hasconfsrv}
+		names := make([]string, len(nomatch))
+		for i, rs := range nomatch {
+			names[i] = rs
+		}
+		bcp.Error = errMissedReplsets{names: names, hasconfsrv: hasconfsrv}
 		bcp.Status = pbm.StatusError
 	}
 

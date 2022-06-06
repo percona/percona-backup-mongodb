@@ -310,7 +310,8 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]stru
 		return nil, nil
 	}
 
-	bcpMatchCluster(bcp, sh, inf.SetName, rsMap)
+	var buf []string
+	bcpMatchCluster(bcp, sh, inf.SetName, buf, rsMap)
 
 	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 		return nil, nil
