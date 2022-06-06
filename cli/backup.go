@@ -17,6 +17,7 @@ type backupOpts struct {
 	typ              string
 	compression      string
 	compressionLevel []int
+	wait             bool
 }
 
 type backupOut struct {
@@ -49,6 +50,17 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	var level *int
 	if len(b.compressionLevel) > 0 {
 		level = &b.compressionLevel[0]
+	} else if cfg.Backup.CompressionLevel != nil {
+		level = cfg.Backup.CompressionLevel
+	}
+
+	compression := pbm.CompressionType(b.compression)
+	if compression == "" {
+		if cfg.Backup.Compression != "" {
+			compression = cfg.Backup.Compression
+		} else {
+			compression = pbm.CompressionTypeS2
+		}
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
@@ -56,7 +68,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		Backup: pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
-			Compression:      pbm.CompressionType(b.compression),
+			Compression:      compression,
 			CompressionLevel: level,
 		},
 	})
@@ -76,12 +88,49 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, err
 	}
 
+	if b.wait {
+		return outMsg{}, waitBackup(context.Background(), cn, b.name)
+	}
+
 	fmt.Println()
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
+func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	fmt.Printf("Waiting for '%s' backup...", name)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			bcp, err := cn.GetBackupMeta(name)
+			if err != nil {
+				return err
+			}
+
+			switch bcp.Status {
+			case pbm.StatusDone:
+				fmt.Println(" done")
+				return nil
+			case pbm.StatusCancelled:
+				fmt.Println(" cancelled")
+				return nil
+			case pbm.StatusError:
+				fmt.Println(" failed")
+				return errors.New(bcp.Error)
+			}
+		}
+
+		fmt.Print(".")
+	}
+}
+
 func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
-	tk := time.NewTicker(time.Second * 1)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
 	var bmeta *pbm.BackupMeta
@@ -97,7 +146,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
+			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone, pbm.StatusCancelled:
 				return nil
 			case pbm.StatusError:
 				rs := ""
