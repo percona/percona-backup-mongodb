@@ -225,7 +225,7 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 	if len(nomatch) != 0 || !hasconfsrv {
 		names := make([]string, len(nomatch))
 		copy(names, nomatch)
-		bcp.Error = errMissedReplsets{names: names, hasconfsrv: hasconfsrv}
+		bcp.Error = errMissedReplsets{names: names, configsrv: !hasconfsrv}
 		bcp.Status = pbm.StatusError
 	}
 }
@@ -243,8 +243,8 @@ func (errRSMappingWithPhysBackup) Unwrap() error {
 }
 
 type errMissedReplsets struct {
-	names      []string
-	hasconfsrv bool
+	names     []string
+	configsrv bool
 }
 
 func (e errMissedReplsets) Error() string {
@@ -255,7 +255,7 @@ func (e errMissedReplsets) Error() string {
 			"The extra/unknown replica set names found in the backup are: " + strings.Join(e.names, ", ")
 	}
 
-	if !e.hasconfsrv {
+	if e.configsrv {
 		if errString != "" {
 			errString += ". "
 		}
