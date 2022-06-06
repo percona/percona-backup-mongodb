@@ -148,7 +148,7 @@ func (c *Cluster) PhysicalRestore(bcpName string) {
 	// just wait so the all data gonna be written (aknowleged) before the next steps
 	time.Sleep(time.Second * 1)
 
-	//sharded cluster, hence have a mongos
+	// sharded cluster, hence have a mongos
 	if c.confsrv == "cfg" {
 		log.Println("stopping mongos")
 		err = c.docker.StopContainers([]string{"com.percona.pbm.app=mongos"})
@@ -302,7 +302,6 @@ func (c *Cluster) PITRestore(t time.Time) {
 
 func (c *Cluster) LogicalBackup() string {
 	return c.backup(pbmt.LogicalBackup)
-
 }
 
 func (c *Cluster) PhysicalBackup() string {
@@ -453,7 +452,7 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 				time.Sleep(time.Second * 3)
 				return nil
 			case pbmt.StatusError:
-				return errors.New(m.Error)
+				return m.Error
 			}
 		}
 	}

@@ -37,7 +37,7 @@ func (c *Cluster) NetworkCut() {
 		log.Fatalf("ERROR: get metadata for the backup %s: %v", bcpName, err)
 	}
 
-	if meta.Status != pbm.StatusError && meta.Error != pbmLostAgentsErr {
+	if meta.Status != pbm.StatusError || meta.Error == nil || meta.Error.Error() != pbmLostAgentsErr {
 		log.Fatalf("ERROR: wrong state of the backup %s. Expect: %s/%s. Got: %s/%s", bcpName, pbm.StatusError, pbmLostAgentsErr, meta.Status, meta.Error)
 	}
 	log.Printf("Backup status %s/%s\n", meta.Status, meta.Error)

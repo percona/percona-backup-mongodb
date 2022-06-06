@@ -542,7 +542,7 @@ type BackupMeta struct {
 	Status           Status               `bson:"status" json:"status"`
 	Conditions       []Condition          `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination `bson:"n" json:"n"`
-	Error            string               `bson:"error,omitempty" json:"error,omitempty"`
+	Error            error                `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
 	BalancerStatus   BalancerMode         `bson:"balancer" json:"balancer"`
 }

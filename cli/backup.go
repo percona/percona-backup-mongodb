@@ -121,7 +121,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 				return nil
 			case pbm.StatusError:
 				fmt.Println(" failed")
-				return errors.New(bcp.Error)
+				return bcp.Error
 			}
 		}
 
@@ -156,7 +156,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error + rs)
+				return errors.New(bmeta.Error.Error() + rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
@@ -187,47 +187,83 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapRS pbm.RSMapFunc) {
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
 	sh := make(map[string]struct{}, len(shards))
 	for _, s := range shards {
 		sh[s.RS] = struct{}{}
 	}
 
-	var buf []string
 	for i := 0; i < len(bcps); i++ {
-		buf = buf[:0]
-		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapRS)
+		bcpMatchCluster(&bcps[i], sh, confsrv, rsMap)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapRS pbm.RSMapFunc) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, rsMap map[string]string) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
+	if bcp.Type == pbm.PhysicalBackup && len(rsMap) != 0 {
+		bcp.Error = errRSMappingWithPhysBackup{}
+		bcp.Status = pbm.StatusError
+		return
+	}
 
+	mapRS := pbm.MakeRSMapFunc(rsMap)
+	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
 		if _, ok := shards[name]; !ok {
-			*nomatch = append(*nomatch, name)
+			nomatch = append(nomatch, name)
 		}
 		if name == confsrv {
 			hasconfsrv = true
 		}
 	}
 
-	if len(*nomatch) > 0 {
-		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
-			"Extra shards in the backup will cause this, for a simple example. " +
-			"The extra/unknown replica set names found in the backup are: " + strings.Join(*nomatch, ", ")
+	if len(nomatch) != 0 || !hasconfsrv {
+		bcp.Error = errMissedReplsets{names: nomatch, hasconfsrv: hasconfsrv}
 		bcp.Status = pbm.StatusError
 	}
 
-	if !hasconfsrv {
-		if bcp.Error != "" {
-			bcp.Error += ". "
-		}
-		bcp.Error += "Backup has no data for the config server or sole replicaset"
-		bcp.Status = pbm.StatusError
+	return
+}
+
+var errIncompatible = errors.New("incompatible")
+
+type errRSMappingWithPhysBackup struct{}
+
+func (errRSMappingWithPhysBackup) Error() string {
+	return "unsupported with replset remapping"
+}
+
+func (errRSMappingWithPhysBackup) Unwrap() error {
+	return errIncompatible
+}
+
+type errMissedReplsets struct {
+	names      []string
+	hasconfsrv bool
+}
+
+func (e errMissedReplsets) Error() string {
+	errString := ""
+	if len(e.names) != 0 {
+		errString = "Backup doesn't match current cluster topology - it has different replica set names. " +
+			"Extra shards in the backup will cause this, for a simple example. " +
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(e.names, ", ")
 	}
+
+	if !e.hasconfsrv {
+		if errString != "" {
+			errString += ". "
+		}
+		errString += "Backup has no data for the config server or sole replicaset"
+	}
+
+	return errString
+}
+
+func (errMissedReplsets) Unwrap() error {
+	return errIncompatible
 }
