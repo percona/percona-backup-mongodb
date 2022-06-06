@@ -224,14 +224,10 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 
 	if len(nomatch) != 0 || !hasconfsrv {
 		names := make([]string, len(nomatch))
-		for i, rs := range nomatch {
-			names[i] = rs
-		}
+		copy(names, nomatch)
 		bcp.Error = errMissedReplsets{names: names, hasconfsrv: hasconfsrv}
 		bcp.Status = pbm.StatusError
 	}
-
-	return
 }
 
 var errIncompatible = errors.New("incompatible")
