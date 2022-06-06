@@ -117,7 +117,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 				fmt.Println(" done")
 				return nil
 			case pbm.StatusCancelled:
-				fmt.Println(" cancelled")
+				fmt.Println(" canceled")
 				return nil
 			case pbm.StatusError:
 				fmt.Println(" failed")

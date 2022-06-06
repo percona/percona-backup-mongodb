@@ -478,7 +478,7 @@ func (s storageStat) String() string {
 		case pbm.StatusDone:
 			status = fmt.Sprintf("[complete: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
-			status = fmt.Sprintf("[!cancelled: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[!canceled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
 			if errors.Is(sn.Err, errIncompatible) {
 				status = fmt.Sprintf("[incompatible: %s] [%s]", sn.Err.Error(), fmtTS(sn.StateTS))
