@@ -193,20 +193,18 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 		sh[s.RS] = s.RS == confsrv
 	}
 
-	var buf []string
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
-		buf = buf[:]
-		bcpMatchCluster(&bcps[i], sh, buf, rsMap)
+		bcpMatchCluster(&bcps[i], sh, mapRS, mapRevRS)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, nomatch []string, rsMap map[string]string) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
 
-	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
-
+	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
