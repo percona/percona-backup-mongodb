@@ -100,7 +100,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
-	fmt.Printf("Waiting for '%s' backup...", name)
+	fmt.Printf("\nWaiting for '%s' backup...", name)
 
 	for {
 		select {
@@ -188,36 +188,40 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
 func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
-	sh := make(map[string]struct{}, len(shards))
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == confsrv
 	}
 
-	var buf []string
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
-		buf = buf[:]
-		bcpMatchCluster(&bcps[i], sh, confsrv, buf, rsMap)
+		if bcps[i].Type == pbm.PhysicalBackup && len(rsMap) != 0 {
+			bcps[i].SetRuntimeError(errRSMappingWithPhysBackup{})
+			bcps[i].Status = pbm.StatusError
+			continue
+		}
+		bcpMatchCluster(&bcps[i], sh, mapRS, mapRevRS)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch []string, rsMap map[string]string) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
-	if bcp.Type == pbm.PhysicalBackup && len(rsMap) != 0 {
-		bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
-		bcp.Status = pbm.StatusError
-		return
-	}
 
-	mapRS := pbm.MakeRSMapFunc(rsMap)
+	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
-		if _, ok := shards[name]; !ok {
+
+		isconfsrv, ok := shards[name]
+		if !ok {
+			nomatch = append(nomatch, name)
+		} else if mapRevRS(name) != bcp.Replsets[i].Name {
 			nomatch = append(nomatch, name)
 		}
-		if name == confsrv {
+
+		if isconfsrv {
 			hasconfsrv = true
 		}
 	}

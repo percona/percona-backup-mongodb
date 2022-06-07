@@ -177,18 +177,16 @@ func TestBcpMatchCluster(t *testing.T) {
 }
 
 func TestBcpMatchRemappedCluster(t *testing.T) {
-	var buf []string
-	defaultTopology := map[string]struct{}{
-		"rs0": {},
-		"rs1": {},
+	defaultTopology := map[string]bool{
+		"rs0": true,
+		"rs1": false,
 	}
 
 	cases := []struct {
-		configsrv string
-		topology  map[string]struct{}
-		bcp       pbm.BackupMeta
-		rsMap     map[string]string
-		expected  error
+		topology map[string]bool
+		bcp      pbm.BackupMeta
+		rsMap    map[string]string
+		expected error
 	}{
 		{
 			bcp: pbm.BackupMeta{
@@ -234,30 +232,29 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				names: []string{"rs2"},
 			},
 		},
-		// {
-		// 	bcp: pbm.BackupMeta{
-		// 		Replsets: []pbm.BackupReplset{
-		// 			{Name: "rs0"},
-		// 			{Name: "rs1"},
-		// 		},
-		// 	},
-		// 	rsMap: map[string]string{
-		// 		"rs1": "rs0",
-		// 	},
-		// 	expected: errMissedReplsets{
-		// 		replsets: []string{"rs1"},
-		// 	},
-		// },
 		{
-			configsrv: "cfg",
-			topology: map[string]struct{}{
-				"cfg": {},
-				"rs0": {},
-				"rs1": {},
-				"rs2": {},
-				"rs3": {},
-				"rs4": {},
-				"rs6": {},
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+					{Name: "rs1"},
+				},
+			},
+			rsMap: map[string]string{
+				"rs1": "rs0",
+			},
+			expected: errMissedReplsets{
+				names: []string{"rs0"},
+			},
+		},
+		{
+			topology: map[string]bool{
+				"cfg": true,
+				"rs0": false,
+				"rs1": false,
+				"rs2": false,
+				"rs3": false,
+				"rs4": false,
+				"rs6": false,
 			},
 			bcp: pbm.BackupMeta{
 				Replsets: []pbm.BackupReplset{
@@ -277,16 +274,12 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				"rs4": "rs3",
 			},
 			expected: errMissedReplsets{
-				names: []string{
-					// "rs3",
-					"rs5",
-				},
+				names: []string{"rs3", "rs5"},
 			},
 		},
 		{
-			configsrv: "cfg",
-			bcp:       pbm.BackupMeta{},
-			expected:  errMissedReplsets{configsrv: true},
+			bcp:      pbm.BackupMeta{},
+			expected: errMissedReplsets{configsrv: true},
 		},
 		{
 			bcp: pbm.BackupMeta{
@@ -298,17 +291,20 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		configsrv := "rs0"
-		if c.configsrv != "" {
-			configsrv = c.configsrv
-		}
 		topology := defaultTopology
 		if c.topology != nil {
 			topology = c.topology
 		}
 
 		c.bcp.Status = pbm.StatusDone
-		bcpMatchCluster(&c.bcp, topology, configsrv, buf, c.rsMap)
+		if c.bcp.Type == pbm.PhysicalBackup && len(c.rsMap) != 0 {
+			c.bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
+		} else {
+			bcpMatchCluster(&c.bcp,
+				topology,
+				pbm.MakeRSMapFunc(c.rsMap),
+				pbm.MakeReverseRSMapFunc(c.rsMap))
+		}
 
 		if msg := checkBcpMatchClusterError(c.bcp.Error(), c.expected); msg != "" {
 			t.Errorf("case #%d failed: %s", i, msg)

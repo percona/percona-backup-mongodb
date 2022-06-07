@@ -273,13 +273,13 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 		rstlines = append(rstlines, tlns)
 	}
 
-	sh := make(map[string]struct{}, len(shards))
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == inf.SetName
 	}
 
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		lastWrite, err := getBaseSnapshotLastWrite(cn, inf, sh, rsMap, tl)
+		lastWrite, err := getBaseSnapshotLastWrite(cn, sh, rsMap, tl)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -297,7 +297,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
@@ -310,8 +310,7 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]stru
 		return nil, nil
 	}
 
-	var buf []string
-	bcpMatchCluster(bcp, sh, inf.SetName, buf, rsMap)
+	bcpMatchCluster(bcp, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
 	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
 		return nil, nil

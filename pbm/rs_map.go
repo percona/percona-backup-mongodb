@@ -3,11 +3,13 @@ package pbm
 type RSMapFunc func(string) string
 
 func MakeRSMapFunc(m map[string]string) RSMapFunc {
+	if m == nil {
+		return func(s string) string { return s }
+	}
+
 	return func(s string) string {
-		if m != nil {
-			if a, ok := m[s]; ok {
-				return a
-			}
+		if a, ok := m[s]; ok {
+			return a
 		}
 
 		return s

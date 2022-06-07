@@ -504,8 +504,8 @@ func (s storageStat) String() string {
 
 	for _, sn := range s.PITR.Ranges {
 		var v string
-		if sn.Err != "" {
-			v = fmt.Sprintf(" !!! %s", sn.Err)
+		if sn.Err != nil && !errors.Is(sn.Err, pbm.ErrNotFound) {
+			v = fmt.Sprintf(" !!! %s", sn.Err.Error())
 		}
 		f := ""
 		if sn.NoBaseSnapshot {
@@ -660,15 +660,12 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, rsMap map[string]string) (*
 		rng.Range.End = tl.End
 
 		bcp, err := cn.GetLastBackup(&primitive.Timestamp{T: tl.End, I: 0})
-		if err != nil && errors.Is(err, pbm.ErrNotFound) {
-			log.Printf("ERROR: get backup for timeline: %s", tl)
-			rng.NoBaseSnapshot = true
-		}
-		if errors.Is(err, pbm.ErrNotFound) {
-			rng.Err = "no backup found"
+		if err != nil {
+			rng.Err = err
 			rng.NoBaseSnapshot = true
 		} else if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-			rng.Err = fmt.Sprintf("backup v%s is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+			rng.Err = errors.Errorf("backup v%s is not compatible with PBM v%s",
+				bcp.PBMVersion, version.DefaultInfo.Version)
 			rng.NoBaseSnapshot = true
 		}
 		pr = append(pr, rng)
