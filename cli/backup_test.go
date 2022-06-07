@@ -7,10 +7,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-func identityStr(s string) string {
-	return s
-}
-
 func TestBcpMatchCluster(t *testing.T) {
 	type bcase struct {
 		meta   pbm.BackupMeta
@@ -167,7 +163,7 @@ func TestBcpMatchCluster(t *testing.T) {
 				b.meta.Status = pbm.StatusDone
 				m = append(m, b.meta)
 			}
-			bcpsMatchCluster(m, c.shards, c.confsrv, identityStr)
+			bcpsMatchCluster(m, c.shards, c.confsrv, nil)
 			for i := 0; i < len(c.bcps); i++ {
 				if c.bcps[i].expect != m[i].Status {
 					t.Errorf("wrong status for %s, expect %s, got %s", m[i].Name, c.bcps[i].expect, m[i].Status)
@@ -199,7 +195,7 @@ func BenchmarkBcpMatchCluster3x10(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -225,7 +221,7 @@ func BenchmarkBcpMatchCluster3x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -279,7 +275,7 @@ func BenchmarkBcpMatchCluster17x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -305,7 +301,7 @@ func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -328,7 +324,7 @@ func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -368,7 +364,7 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		})
 	}
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
 
@@ -392,6 +388,6 @@ func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, shards, "config", identityStr)
+		bcpsMatchCluster(bcps, shards, "config", nil)
 	}
 }
