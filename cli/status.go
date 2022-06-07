@@ -517,8 +517,8 @@ func (s storageStat) String() string {
 
 	for _, sn := range s.PITR.Ranges {
 		var v string
-		if sn.Err != "" {
-			v = fmt.Sprintf(" !!! %s", sn.Err)
+		if sn.Err != nil && !errors.Is(sn.Err, pbm.ErrNotFound) {
+			v = fmt.Sprintf(" !!! %s", sn.Err.Error())
 		}
 		f := ""
 		if sn.NoBaseSnapshot {
@@ -562,7 +562,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, pbm.MakeRSMapFunc(rsMap))
+	bcpsMatchCluster(bcps, shards, inf.SetName, rsMap)
 
 	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
@@ -667,8 +667,12 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 		var bcplastWrite *primitive.Timestamp
 
 		for _, bcp := range bcps {
-			if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+			if bcp.Error != "" {
 				continue
+			}
+			if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+				bcp.Error = fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
+					bcp.PBMVersion, version.DefaultInfo.Version)
 			}
 
 			if bcp.LastWriteTS.T < tl.Start && bcp.FirstWriteTS.T > tl.End {

@@ -329,7 +329,7 @@ type snapshotStat struct {
 }
 
 type pitrRange struct {
-	Err            string       `json:"error,omitempty"`
+	Err            error        `json:"error,omitempty"`
 	Range          pbm.Timeline `json:"range"`
 	NoBaseSnapshot bool         `json:"noBaseSnapshot,omitempty"`
 }
