@@ -568,7 +568,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			StateTS:    bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
-			Err:        bcp.Error,
+			Err:        bcp.Error(),
 		}
 
 		switch bcp.Status {

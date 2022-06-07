@@ -310,7 +310,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 		c.bcp.Status = pbm.StatusDone
 		bcpMatchCluster(&c.bcp, topology, configsrv, buf, c.rsMap)
 
-		if msg := checkBcpMatchClusterError(c.bcp.Error, c.expected); msg != "" {
+		if msg := checkBcpMatchClusterError(c.bcp.Error(), c.expected); msg != "" {
 			t.Errorf("case #%d failed: %s", i, msg)
 		} else {
 			t.Logf("case #%d ok", i)

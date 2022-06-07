@@ -418,7 +418,7 @@ func (r *PhysRestore) copyFiles() error {
 				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
 				dst := filepath.Join(r.dbpath, f.Name)
 
-				err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0700)
+				err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
 				if err != nil {
 					return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
 				}
@@ -770,7 +770,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if r.bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error)
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error())
 	}
 
 	mgoV, err := r.node.GetMongoVersion()

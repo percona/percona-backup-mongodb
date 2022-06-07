@@ -452,7 +452,7 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 				time.Sleep(time.Second * 3)
 				return nil
 			case pbmt.StatusError:
-				return m.Error
+				return m.Error()
 			}
 		}
 	}

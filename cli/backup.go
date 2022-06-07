@@ -121,7 +121,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 				return nil
 			case pbm.StatusError:
 				fmt.Println(" failed")
-				return bcp.Error
+				return bcp.Error()
 			}
 		}
 
@@ -156,7 +156,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error.Error() + rs)
+				return errors.New(bmeta.Error().Error() + rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
@@ -205,7 +205,7 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 		return
 	}
 	if bcp.Type == pbm.PhysicalBackup && len(rsMap) != 0 {
-		bcp.Error = errRSMappingWithPhysBackup{}
+		bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
 		bcp.Status = pbm.StatusError
 		return
 	}
@@ -225,7 +225,7 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv st
 	if len(nomatch) != 0 || !hasconfsrv {
 		names := make([]string, len(nomatch))
 		copy(names, nomatch)
-		bcp.Error = errMissedReplsets{names: names, configsrv: !hasconfsrv}
+		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
 		bcp.Status = pbm.StatusError
 	}
 }
