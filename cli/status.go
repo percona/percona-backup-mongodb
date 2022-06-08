@@ -501,11 +501,7 @@ func (s storageStat) String() string {
 			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
 
-		var v string
-		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
-			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
-		}
-		ret += fmt.Sprintf("    %s %s <%s> %s%s\n", sn.Name, fmtSize(sn.Size), sn.Type, status, v)
+		ret += fmt.Sprintf("    %s %s <%s> %s\n", sn.Name, fmtSize(sn.Size), sn.Type, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -675,12 +671,12 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 		var bcplastWrite *primitive.Timestamp
 
 		for _, bcp := range bcps {
-			if bcp.Error != "" {
+			if bcp.Error() != nil {
 				continue
 			}
 			if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-				bcp.Error = fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
-					bcp.PBMVersion, version.DefaultInfo.Version)
+				bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
+				continue
 			}
 
 			if bcp.LastWriteTS.T < tl.Start && bcp.FirstWriteTS.T > tl.End {

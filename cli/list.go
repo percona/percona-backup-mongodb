@@ -10,7 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type listOpts struct {
@@ -221,9 +220,6 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 		if b.Status != pbm.StatusDone {
 			continue
 		}
-		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
-			continue
-		}
 
 		s = append(s, snapshotStat{
 			Name:       b.Name,
@@ -320,7 +316,7 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]
 
 	bcpMatchCluster(bcp, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
-	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if bcp.Status != pbm.StatusDone {
 		return nil, nil
 	}
 

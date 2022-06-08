@@ -561,6 +561,7 @@ func (b *BackupMeta) Error() error {
 
 func (b *BackupMeta) SetRuntimeError(err error) {
 	b.runtimeError = err
+	b.Status = StatusError
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup
