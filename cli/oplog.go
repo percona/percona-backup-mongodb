@@ -75,7 +75,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 		return oplogReplayResult{Name: name}, nil
 	}
 
-	fmt.Printf("Starting oplog reply '%s - %s'", o.start, o.end)
+	fmt.Printf("Starting oplog replay '%s - %s'", o.start, o.end)
 
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()

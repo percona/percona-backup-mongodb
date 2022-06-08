@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type backupOpts struct {
@@ -17,6 +18,7 @@ type backupOpts struct {
 	typ              string
 	compression      string
 	compressionLevel []int
+	wait             bool
 }
 
 type backupOut struct {
@@ -49,6 +51,17 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	var level *int
 	if len(b.compressionLevel) > 0 {
 		level = &b.compressionLevel[0]
+	} else if cfg.Backup.CompressionLevel != nil {
+		level = cfg.Backup.CompressionLevel
+	}
+
+	compression := pbm.CompressionType(b.compression)
+	if compression == "" {
+		if cfg.Backup.Compression != "" {
+			compression = cfg.Backup.Compression
+		} else {
+			compression = pbm.CompressionTypeS2
+		}
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
@@ -56,7 +69,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		Backup: pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
-			Compression:      pbm.CompressionType(b.compression),
+			Compression:      compression,
 			CompressionLevel: level,
 		},
 	})
@@ -76,12 +89,49 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, err
 	}
 
+	if b.wait {
+		return outMsg{}, waitBackup(context.Background(), cn, b.name)
+	}
+
 	fmt.Println()
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
+func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	fmt.Printf("\nWaiting for '%s' backup...", name)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			bcp, err := cn.GetBackupMeta(name)
+			if err != nil {
+				return err
+			}
+
+			switch bcp.Status {
+			case pbm.StatusDone:
+				fmt.Println(" done")
+				return nil
+			case pbm.StatusCancelled:
+				fmt.Println(" canceled")
+				return nil
+			case pbm.StatusError:
+				fmt.Println(" failed")
+				return bcp.Error()
+			}
+		}
+
+		fmt.Print(".")
+	}
+}
+
 func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
-	tk := time.NewTicker(time.Second * 1)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
 	var bmeta *pbm.BackupMeta
@@ -97,7 +147,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone:
+			case pbm.StatusRunning, pbm.StatusDumpDone, pbm.StatusDone, pbm.StatusCancelled:
 				return nil
 			case pbm.StatusError:
 				rs := ""
@@ -107,7 +157,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error + rs)
+				return errors.New(bmeta.Error().Error() + rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
@@ -138,47 +188,105 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, mapRS pbm.RSMapFunc) {
-	sh := make(map[string]struct{}, len(shards))
+func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == confsrv
 	}
 
-	var buf []string
+	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
-		buf = buf[:0]
-		bcpMatchCluster(&bcps[i], sh, confsrv, &buf, mapRS)
+		bcp := &bcps[i]
+		if bcps[i].Type == pbm.PhysicalBackup && len(rsMap) != 0 {
+			bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
+			continue
+		}
+
+		bcpMatchCluster(bcp, sh, mapRS, mapRevRS)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]struct{}, confsrv string, nomatch *[]string, mapRS pbm.RSMapFunc) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
+	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
+		return
+	}
 
+	var nomatch []string
 	hasconfsrv := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
-		if _, ok := shards[name]; !ok {
-			*nomatch = append(*nomatch, name)
+
+		isconfsrv, ok := shards[name]
+		if !ok {
+			nomatch = append(nomatch, name)
+		} else if mapRevRS(name) != bcp.Replsets[i].Name {
+			nomatch = append(nomatch, name)
 		}
-		if name == confsrv {
+
+		if isconfsrv {
 			hasconfsrv = true
 		}
 	}
 
-	if len(*nomatch) > 0 {
-		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
+	if len(nomatch) != 0 || !hasconfsrv {
+		names := make([]string, len(nomatch))
+		copy(names, nomatch)
+		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
+	}
+}
+
+var errIncompatible = errors.New("incompatible")
+
+type errRSMappingWithPhysBackup struct{}
+
+func (errRSMappingWithPhysBackup) Error() string {
+	return "unsupported with replset remapping"
+}
+
+func (errRSMappingWithPhysBackup) Unwrap() error {
+	return errIncompatible
+}
+
+type errMissedReplsets struct {
+	names     []string
+	configsrv bool
+}
+
+func (e errMissedReplsets) Error() string {
+	errString := ""
+	if len(e.names) != 0 {
+		errString = "Backup doesn't match current cluster topology - it has different replica set names. " +
 			"Extra shards in the backup will cause this, for a simple example. " +
-			"The extra/unknown replica set names found in the backup are: " + strings.Join(*nomatch, ", ")
-		bcp.Status = pbm.StatusError
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(e.names, ", ")
 	}
 
-	if !hasconfsrv {
-		if bcp.Error != "" {
-			bcp.Error += ". "
+	if e.configsrv {
+		if errString != "" {
+			errString += ". "
 		}
-		bcp.Error += "Backup has no data for the config server or sole replicaset"
-		bcp.Status = pbm.StatusError
+		errString += "Backup has no data for the config server or sole replicaset"
 	}
+
+	return errString
+}
+
+func (errMissedReplsets) Unwrap() error {
+	return errIncompatible
+}
+
+type errIncompatibleVersion struct {
+	bcpVer string
+}
+
+func (e errIncompatibleVersion) Unwrap() error {
+	return errIncompatible
+}
+
+func (e errIncompatibleVersion) Error() string {
+	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
+		e.bcpVer, version.DefaultInfo.Version)
 }

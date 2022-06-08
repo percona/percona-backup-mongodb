@@ -73,7 +73,6 @@ func Main() {
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backup := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
-		Default(string(pbm.CompressionTypeS2)).
 		EnumVar(&backup.compression,
 			string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
 			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
@@ -88,6 +87,7 @@ func Main() {
 		)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
+	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 
@@ -110,7 +110,6 @@ func Main() {
 	listCmd := pbmCmd.Command("list", "Backup list")
 	list := listOpts{}
 	listCmd.Flag("restore", "Show last N restores").Default("false").BoolVar(&list.restore)
-	listCmd.Flag("oplog-replay", "Show last N oplog replays").Default("false").BoolVar(&list.oplogReplay)
 	listCmd.Flag("unbacked", "Show unbacked oplog ranges").Default("false").BoolVar(&list.unbacked)
 	listCmd.Flag("full", "Show extended restore info").Default("false").Short('f').Hidden().BoolVar(&list.full)
 	listCmd.Flag("size", "Show last N backups").Default("0").IntVar(&list.size)
@@ -137,10 +136,11 @@ func Main() {
 	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
 	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
+	statusOpts := statusOptions{}
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
-	var statusRSMap string
-	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusRSMap)
-	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
+	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusOpts.rsMap)
+	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').
+		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
@@ -201,7 +201,7 @@ func Main() {
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(pbmClient, *mURL, statusSection, statusRSMap, pbmOutF == outJSONpretty)
+		out, err = status(pbmClient, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	}
 
 	if err != nil {
@@ -322,14 +322,14 @@ type snapshotStat struct {
 	Name       string         `json:"name"`
 	Size       int64          `json:"size,omitempty"`
 	Status     pbm.Status     `json:"status"`
-	Err        string         `json:"error,omitempty"`
+	Err        error          `json:"error,omitempty"`
 	StateTS    int64          `json:"completeTS"`
 	PBMVersion string         `json:"pbmVersion"`
 	Type       pbm.BackupType `json:"type"`
 }
 
 type pitrRange struct {
-	Err            string       `json:"error,omitempty"`
+	Err            error        `json:"error,omitempty"`
 	Range          pbm.Timeline `json:"range"`
 	NoBaseSnapshot bool         `json:"noBaseSnapshot,omitempty"`
 }

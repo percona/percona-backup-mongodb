@@ -542,9 +542,26 @@ type BackupMeta struct {
 	Status           Status               `bson:"status" json:"status"`
 	Conditions       []Condition          `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination `bson:"n" json:"n"`
-	Error            string               `bson:"error,omitempty" json:"error,omitempty"`
+	Err              string               `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
 	BalancerStatus   BalancerMode         `bson:"balancer" json:"balancer"`
+	runtimeError     error
+}
+
+func (b *BackupMeta) Error() error {
+	switch {
+	case b.runtimeError != nil:
+		return b.runtimeError
+	case b.Err != "":
+		return errors.New(b.Err)
+	default:
+		return nil
+	}
+}
+
+func (b *BackupMeta) SetRuntimeError(err error) {
+	b.runtimeError = err
+	b.Status = StatusError
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup

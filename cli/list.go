@@ -3,22 +3,21 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type listOpts struct {
-	restore     bool
-	oplogReplay bool
-	unbacked    bool
-	full        bool
-	size        int
-	rsMap       string
+	restore  bool
+	unbacked bool
+	full     bool
+	size     int
+	rsMap    string
 }
 
 type restoreStatus struct {
@@ -144,6 +143,10 @@ type backupListOut struct {
 
 func (bl backupListOut) String() string {
 	s := fmt.Sprintln("Backup snapshots:")
+
+	sort.Slice(bl.Snapshots, func(i, j int) bool {
+		return bl.Snapshots[i].StateTS < bl.Snapshots[j].StateTS
+	})
 	for _, b := range bl.Snapshots {
 		s += fmt.Sprintf("  %s <%s> [complete: %s]\n", b.Name, b.Type, fmtTS(int64(b.StateTS)))
 	}
@@ -153,6 +156,9 @@ func (bl backupListOut) String() string {
 		s += fmt.Sprintln("\nPITR <off>:")
 	}
 
+	sort.Slice(bl.PITR.Ranges, func(i, j int) bool {
+		return bl.PITR.Ranges[i].Range.End < bl.PITR.Ranges[j].Range.End
+	})
 	for _, r := range bl.PITR.Ranges {
 		f := ""
 		if r.NoBaseSnapshot {
@@ -188,7 +194,7 @@ func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]str
 	return list, nil
 }
 
-func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []snapshotStat, err error) {
+func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapshotStat, err error) {
 	bcps, err := cn.BackupsList(int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
@@ -206,15 +212,12 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMapping map[string]string) (s []sn
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, pbm.MakeRSMapFunc(rsMapping))
+	bcpsMatchCluster(bcps, shards, inf.SetName, rsMap)
 
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
 
 		if b.Status != pbm.StatusDone {
-			continue
-		}
-		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
 			continue
 		}
 
@@ -274,14 +277,13 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 		rstlines = append(rstlines, tlns)
 	}
 
-	sh := make(map[string]struct{}, len(shards))
+	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
-		sh[s.RS] = struct{}{}
+		sh[s.RS] = s.RS == inf.SetName
 	}
 
-	mapRS := pbm.MakeRSMapFunc(rsMap)
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		lastWrite, err := getBaseSnapshotLastWrite(cn, inf, sh, mapRS, tl)
+		lastWrite, err := getBaseSnapshotLastWrite(cn, sh, rsMap, tl)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -299,7 +301,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]struct{}, mapRS pbm.RSMapFunc, tl pbm.Timeline) (*primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
@@ -312,10 +314,9 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, inf *pbm.NodeInfo, sh map[string]stru
 		return nil, nil
 	}
 
-	var buf []string
-	bcpMatchCluster(bcp, sh, inf.SetName, &buf, mapRS)
+	bcpMatchCluster(bcp, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
-	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if bcp.Status != pbm.StatusDone {
 		return nil, nil
 	}
 
@@ -333,7 +334,7 @@ func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitr
 		ranges = append(ranges, pitrRange{
 			NoBaseSnapshot: true,
 			Range: pbm.Timeline{
-				Start: tl.Start + 1,
+				Start: tl.Start,
 				End:   lastWrite.T,
 			},
 		})
