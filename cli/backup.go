@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type backupOpts struct {
@@ -195,17 +196,22 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 
 	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
+		bcp := &bcps[i]
 		if bcps[i].Type == pbm.PhysicalBackup && len(rsMap) != 0 {
-			bcps[i].SetRuntimeError(errRSMappingWithPhysBackup{})
-			bcps[i].Status = pbm.StatusError
+			bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
 			continue
 		}
-		bcpMatchCluster(&bcps[i], sh, mapRS, mapRevRS)
+
+		bcpMatchCluster(bcp, sh, mapRS, mapRevRS)
 	}
 }
 
 func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
+		return
+	}
+	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
 		return
 	}
 
@@ -230,7 +236,6 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevR
 		names := make([]string, len(nomatch))
 		copy(names, nomatch)
 		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
-		bcp.Status = pbm.StatusError
 	}
 }
 
@@ -271,4 +276,17 @@ func (e errMissedReplsets) Error() string {
 
 func (errMissedReplsets) Unwrap() error {
 	return errIncompatible
+}
+
+type errIncompatibleVersion struct {
+	bcpVer string
+}
+
+func (e errIncompatibleVersion) Unwrap() error {
+	return errIncompatible
+}
+
+func (e errIncompatibleVersion) Error() string {
+	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
+		e.bcpVer, version.DefaultInfo.Version)
 }

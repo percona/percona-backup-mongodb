@@ -3,13 +3,13 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type listOpts struct {
@@ -143,6 +143,10 @@ type backupListOut struct {
 
 func (bl backupListOut) String() string {
 	s := fmt.Sprintln("Backup snapshots:")
+
+	sort.Slice(bl.Snapshots, func(i, j int) bool {
+		return bl.Snapshots[i].StateTS < bl.Snapshots[j].StateTS
+	})
 	for _, b := range bl.Snapshots {
 		s += fmt.Sprintf("  %s <%s> [complete: %s]\n", b.Name, b.Type, fmtTS(int64(b.StateTS)))
 	}
@@ -152,6 +156,9 @@ func (bl backupListOut) String() string {
 		s += fmt.Sprintln("\nPITR <off>:")
 	}
 
+	sort.Slice(bl.PITR.Ranges, func(i, j int) bool {
+		return bl.PITR.Ranges[i].Range.End < bl.PITR.Ranges[j].Range.End
+	})
 	for _, r := range bl.PITR.Ranges {
 		f := ""
 		if r.NoBaseSnapshot {
@@ -211,9 +218,6 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 		b := bcps[i]
 
 		if b.Status != pbm.StatusDone {
-			continue
-		}
-		if !version.Compatible(version.DefaultInfo.Version, b.PBMVersion) {
 			continue
 		}
 
@@ -312,7 +316,7 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]
 
 	bcpMatchCluster(bcp, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
-	if bcp.Status != pbm.StatusDone || !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if bcp.Status != pbm.StatusDone {
 		return nil, nil
 	}
 
@@ -330,7 +334,7 @@ func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitr
 		ranges = append(ranges, pitrRange{
 			NoBaseSnapshot: true,
 			Range: pbm.Timeline{
-				Start: tl.Start + 1,
+				Start: tl.Start,
 				End:   lastWrite.T,
 			},
 		})

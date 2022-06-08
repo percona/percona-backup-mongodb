@@ -136,10 +136,11 @@ func Main() {
 	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
 	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
+	statusOpts := statusOptions{}
 	statusCmd := pbmCmd.Command("status", "Show PBM status")
-	var statusRSMap string
-	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusRSMap)
-	statusSection := statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').Enums("cluster", "pitr", "running", "backups")
+	statusCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&statusOpts.rsMap)
+	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').
+		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
@@ -200,7 +201,7 @@ func Main() {
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(pbmClient, *mURL, statusSection, statusRSMap, pbmOutF == outJSONpretty)
+		out, err = status(pbmClient, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	}
 
 	if err != nil {
