@@ -96,6 +96,9 @@
 #  compression:
 #  compressionLevel:
 
+# Save oplog slicing without the base backup
+#  oplogOnly: false
+
 #==========================Backup Configuration============================
 
 # Adjust priority of mongod nodes for making backups. The highest priority 
@@ -103,6 +106,10 @@
 # Nodes with the same priority are randomly elected for a backup.
 #backup:
 #  priority:
+
+# Set a compression method and level
+#  compression:
+#  compressionLevel:
 
 #==========================Restore Configuration===========================
 

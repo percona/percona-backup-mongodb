@@ -559,7 +559,7 @@ func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err 
 
 func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error)
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error())
 	}
 
 	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {

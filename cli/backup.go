@@ -117,11 +117,11 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
 				fmt.Println(" done")
 				return nil
 			case pbm.StatusCancelled:
-				fmt.Println(" cancelled")
+				fmt.Println(" canceled")
 				return nil
 			case pbm.StatusError:
 				fmt.Println(" failed")
-				return errors.New(bcp.Error)
+				return bcp.Error()
 			}
 		}
 
@@ -156,7 +156,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error + rs)
+				return errors.New(bmeta.Error().Error() + rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
@@ -195,6 +195,11 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 
 	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
+		if bcps[i].Type == pbm.PhysicalBackup && len(rsMap) != 0 {
+			bcps[i].SetRuntimeError(errRSMappingWithPhysBackup{})
+			bcps[i].Status = pbm.StatusError
+			continue
+		}
 		bcpMatchCluster(&bcps[i], sh, mapRS, mapRevRS)
 	}
 }
@@ -221,18 +226,49 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevR
 		}
 	}
 
-	if len(nomatch) > 0 {
-		bcp.Error = "Backup doesn't match current cluster topology - it has different replica set names. " +
-			"Extra shards in the backup will cause this, for a simple example. " +
-			"The extra/unknown replica set names found in the backup are: " + strings.Join(nomatch, ", ")
+	if len(nomatch) != 0 || !hasconfsrv {
+		names := make([]string, len(nomatch))
+		copy(names, nomatch)
+		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
 		bcp.Status = pbm.StatusError
+	}
+}
+
+var errIncompatible = errors.New("incompatible")
+
+type errRSMappingWithPhysBackup struct{}
+
+func (errRSMappingWithPhysBackup) Error() string {
+	return "unsupported with replset remapping"
+}
+
+func (errRSMappingWithPhysBackup) Unwrap() error {
+	return errIncompatible
+}
+
+type errMissedReplsets struct {
+	names     []string
+	configsrv bool
+}
+
+func (e errMissedReplsets) Error() string {
+	errString := ""
+	if len(e.names) != 0 {
+		errString = "Backup doesn't match current cluster topology - it has different replica set names. " +
+			"Extra shards in the backup will cause this, for a simple example. " +
+			"The extra/unknown replica set names found in the backup are: " + strings.Join(e.names, ", ")
 	}
 
-	if !hasconfsrv {
-		if bcp.Error != "" {
-			bcp.Error += ". "
+	if e.configsrv {
+		if errString != "" {
+			errString += ". "
 		}
-		bcp.Error += "Backup has no data for the config server or sole replicaset"
-		bcp.Status = pbm.StatusError
+		errString += "Backup has no data for the config server or sole replicaset"
 	}
+
+	return errString
+}
+
+func (errMissedReplsets) Unwrap() error {
+	return errIncompatible
 }

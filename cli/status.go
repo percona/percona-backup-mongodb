@@ -488,20 +488,24 @@ func (s storageStat) String() string {
 		var status string
 		switch sn.Status {
 		case pbm.StatusDone:
-			status = fmt.Sprintf(" <%s> [complete: %s]", sn.Type, fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[complete: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusCancelled:
-			status = fmt.Sprintf(" [!cancelled: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[!canceled: %s]", fmtTS(sn.StateTS))
 		case pbm.StatusError:
-			status = fmt.Sprintf(" [ERROR: %s] [%s]", sn.Err, fmtTS(sn.StateTS))
+			if errors.Is(sn.Err, errIncompatible) {
+				status = fmt.Sprintf("[incompatible: %s] [%s]", sn.Err.Error(), fmtTS(sn.StateTS))
+			} else {
+				status = fmt.Sprintf("[ERROR: %s] [%s]", sn.Err.Error(), fmtTS(sn.StateTS))
+			}
 		default:
-			status = fmt.Sprintf(" [running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
 
 		var v string
 		if !version.Compatible(version.DefaultInfo.Version, sn.PBMVersion) {
 			v = fmt.Sprintf(" !!! backup v%s is not compatible with PBM v%s", sn.PBMVersion, version.DefaultInfo.Version)
 		}
-		ret += fmt.Sprintf("    %s %s%s%s\n", sn.Name, fmtSize(sn.Size), status, v)
+		ret += fmt.Sprintf("    %s %s <%s> %s%s\n", sn.Name, fmtSize(sn.Size), sn.Type, status, v)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -581,9 +585,15 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			StateTS:    bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
+			Err:        bcp.Error(),
 		}
 
 		switch bcp.Status {
+		case pbm.StatusError:
+			if !errors.Is(snpsht.Err, errIncompatible) {
+				break
+			}
+			fallthrough
 		case pbm.StatusDone:
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
 			var err error
@@ -594,16 +604,14 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 				snpsht.Size, err = getSnapshotSize(bcp.Replsets, stg)
 			}
 			if err != nil {
-				snpsht.Err = err.Error()
+				snpsht.Err = err
 				snpsht.Status = pbm.StatusError
 			}
-		case pbm.StatusError:
-			snpsht.Err = bcp.Error
 		case pbm.StatusCancelled:
 			// leave as it is, not to rewrite status with the `stuck` error
 		default:
 			if bcp.Hb.T+pbm.StaleFrameSec < now.T {
-				snpsht.Err = fmt.Sprintf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				snpsht.Err = fmt.Errorf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
 				snpsht.Status = pbm.StatusError
 			}
 		}
