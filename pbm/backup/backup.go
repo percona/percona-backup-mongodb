@@ -468,7 +468,7 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 				case pbm.StatusCancelled:
 					return false, ErrCancelled
 				case pbm.StatusError:
-					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error)
+					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error())
 				}
 			}
 		}

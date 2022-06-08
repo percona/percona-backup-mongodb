@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -171,6 +174,189 @@ func TestBcpMatchCluster(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBcpMatchRemappedCluster(t *testing.T) {
+	defaultTopology := map[string]bool{
+		"rs0": true,
+		"rs1": false,
+	}
+
+	cases := []struct {
+		topology map[string]bool
+		bcp      pbm.BackupMeta
+		rsMap    map[string]string
+		expected error
+	}{
+		{
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+					{Name: "rs1"},
+				},
+			},
+			rsMap:    map[string]string{},
+			expected: nil,
+		},
+		{
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+				},
+			},
+			expected: nil,
+		},
+		{
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+					{Name: "rs1"},
+				},
+			},
+			rsMap: map[string]string{
+				"rs0": "rs0",
+				"rs1": "rs1",
+			},
+			expected: nil,
+		},
+		{
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+					{Name: "rs1"},
+					{Name: "rs2"},
+				},
+			},
+			rsMap: map[string]string{},
+			expected: errMissedReplsets{
+				names: []string{"rs2"},
+			},
+		},
+		{
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "rs0"},
+					{Name: "rs1"},
+				},
+			},
+			rsMap: map[string]string{
+				"rs1": "rs0",
+			},
+			expected: errMissedReplsets{
+				names: []string{"rs0"},
+			},
+		},
+		{
+			topology: map[string]bool{
+				"cfg": true,
+				"rs0": false,
+				"rs1": false,
+				"rs2": false,
+				"rs3": false,
+				"rs4": false,
+				"rs6": false,
+			},
+			bcp: pbm.BackupMeta{
+				Replsets: []pbm.BackupReplset{
+					{Name: "cfg"},
+					{Name: "rs0"},
+					{Name: "rs1"},
+					{Name: "rs2"},
+					{Name: "rs3"},
+					{Name: "rs4"},
+					{Name: "rs5"},
+				},
+			},
+			rsMap: map[string]string{
+				"rs0": "rs0",
+				"rs1": "rs2",
+				"rs2": "rs1",
+				"rs4": "rs3",
+			},
+			expected: errMissedReplsets{
+				names: []string{"rs3", "rs5"},
+			},
+		},
+		{
+			bcp:      pbm.BackupMeta{},
+			expected: errMissedReplsets{configsrv: true},
+		},
+		{
+			bcp: pbm.BackupMeta{
+				Type: pbm.PhysicalBackup,
+			},
+			rsMap:    map[string]string{"": ""},
+			expected: errRSMappingWithPhysBackup{},
+		},
+	}
+
+	for i, c := range cases {
+		topology := defaultTopology
+		if c.topology != nil {
+			topology = c.topology
+		}
+
+		c.bcp.Status = pbm.StatusDone
+		if c.bcp.Type == pbm.PhysicalBackup && len(c.rsMap) != 0 {
+			c.bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
+		} else {
+			bcpMatchCluster(&c.bcp,
+				topology,
+				pbm.MakeRSMapFunc(c.rsMap),
+				pbm.MakeReverseRSMapFunc(c.rsMap))
+		}
+
+		if msg := checkBcpMatchClusterError(c.bcp.Error(), c.expected); msg != "" {
+			t.Errorf("case #%d failed: %s", i, msg)
+		} else {
+			t.Logf("case #%d ok", i)
+		}
+	}
+}
+
+func checkBcpMatchClusterError(err error, target error) string {
+	if errors.Is(err, target) {
+		return ""
+	}
+
+	if !errors.Is(err, errIncompatible) {
+		return fmt.Sprintf("unknown error: %T", err)
+	}
+
+	switch err := err.(type) {
+	case errMissedReplsets:
+		target, ok := target.(errMissedReplsets)
+		if !ok {
+			return fmt.Sprintf("expect errMissedReplsets, got %T", err)
+		}
+
+		var msg string
+
+		if err.configsrv != target.configsrv {
+			msg = fmt.Sprintf("expect replsets to be %v, got %v",
+				target.configsrv, err.configsrv)
+		}
+
+		sort.Strings(err.names)
+		sort.Strings(target.names)
+
+		a := strings.Join(err.names, ", ")
+		b := strings.Join(target.names, ", ")
+
+		if a != b {
+			msg = fmt.Sprintf("expect replsets to be %v, got %v", a, b)
+		}
+
+		return msg
+	case errRSMappingWithPhysBackup:
+		if _, ok := target.(errRSMappingWithPhysBackup); !ok {
+			return fmt.Sprintf("expect errRSMappingWithPhysBackup, got %T", err)
+		}
+	default:
+		return fmt.Sprintf("unknown errIncompatible error: %T", err)
+	}
+
+	return ""
 }
 
 func BenchmarkBcpMatchCluster3x10(b *testing.B) {
