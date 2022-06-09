@@ -36,6 +36,9 @@ export GITCOMMIT=$(shell egrep '^GITCOMMIT' VERSION | cut -f 2 -d '=')
 %:
 	dh $@ --with-systemd
 
+override_dh_builddeb:
+	dh_builddeb -- -Zgzip
+
 override_dh_auto_test override_dh_compress override_dh_fixperms override_dh_strip:
 
 override_dh_auto_build:
