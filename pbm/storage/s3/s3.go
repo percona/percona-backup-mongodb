@@ -36,7 +36,7 @@ const (
 
 	defaultS3Region = "us-east-1"
 
-	downloadChuckSize = 100 << 20 // 10Mb
+	downloadChuckSize = 10 << 20 // 10Mb
 	downloadRetries   = 10
 )
 
