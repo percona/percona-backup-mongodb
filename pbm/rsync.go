@@ -36,7 +36,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	rstrs, err := stg.List(PhysRestoresDir, ".json")
 	if err != nil {
-		return errors.Wrap(err, "get a backups list from the storage")
+		return errors.Wrap(err, "get a physical restores list from the storage")
 	}
 	l.Debug("got physical restores list: %v", len(rstrs))
 	for _, rs := range rstrs {
