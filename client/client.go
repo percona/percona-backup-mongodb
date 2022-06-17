@@ -2,11 +2,9 @@ package client
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -17,6 +15,7 @@ type CmdID primitive.ObjectID
 
 type Client struct {
 	client *mongo.Client
+	self   *pbm.NodeInfo
 }
 
 type Options struct {
@@ -29,7 +28,11 @@ type Result interface {
 	Err() error
 }
 
-type Status struct{}
+type Status struct {
+	cluster ClusterStatus
+}
+
+func (s *Status) Cluster() ClusterStatus { return s.cluster }
 
 type StatusOptions struct{}
 
@@ -160,67 +163,47 @@ func (r *DeleteOplogResult) ID() CmdID  { return CmdID(primitive.NilObjectID) }
 func (r *DeleteOplogResult) Err() error { return r.err }
 
 func New(ctx context.Context, opts Options) (*Client, error) {
-	uri, err := lookupLeaderURI(ctx, opts.URI, opts.AppName)
+	ctx = context.WithValue(ctx, AppNameCtxKey, opts.AppName)
+
+	uri, err := lookupLeaderURI(ctx, opts.URI)
 	if err != nil {
 		return nil, errors.WithMessage(err, "lookup leader uri")
 	}
 
-	client, err := connect(ctx, uri, opts.AppName)
+	client, err := connect(ctx, uri)
 	if err != nil {
 		return nil, errors.WithMessage(err, "connect")
 	}
 
-	return &Client{client: client}, nil
-}
-
-type Shard struct {
-	ID   string
-	RS   string
-	Host string
-}
-
-func (c *Client) GetStatus(ctx context.Context, opts *StatusOptions) (*Status, error) {
-	info, err := nodeInfo(ctx, c.client)
+	self, err := hello(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
-	shards := []Shard{{
-		RS:   info.SetName,
-		Host: info.SetName + "/" + strings.Join(info.Hosts, ","),
-	}}
-	if info.IsSharded() {
-		cur, err := c.client.Database("config").Collection("shards").Find(ctx, bson.M{})
-		if err != nil {
-			return nil, errors.Wrap(err, "query")
-		}
-
-		defer cur.Close(context.Background())
-
-		for cur.Next(ctx) {
-			s := Shard{}
-			err := cur.Decode(&s)
-			if err != nil {
-				return nil, errors.Wrap(err, "decode")
-			}
-			s.RS = s.ID
-			// _id may differ from the rs name, so extract rs name from the host (format like "rs2/localhost:27017")
-			// see https://jira.percona.com/browse/PBM-595
-			h := strings.Split(s.Host, "/")
-			if len(h) > 1 {
-				s.RS = h[0]
-			}
-			shards = append(shards, s)
-		}
+	if !self.IsLeader() {
+		client.Disconnect(context.Background())
+		return nil, errors.New("not a leader")
 	}
 
-	return nil, nil
+	return &Client{client: client, self: self}, nil
 }
 
+// Self returns current node info
+func (c *Client) Self() *pbm.NodeInfo {
+	return c.self
+}
+
+func (c *Client) GetStatus(ctx context.Context, opts *StatusOptions) (*Status, error) {
+	cluster, err := clusterStatus(ctx, c.client)
+	return &Status{cluster: cluster}, err
+}
+
+// GetConfig returns current config
 func (c *Client) GetConfig(ctx context.Context) (*pbm.Config, error) {
 	return getConfig(ctx, c.client)
 }
 
+// SetConfig sends commands to apple a config
 func (c *Client) SetConfig(ctx context.Context, config *pbm.Config, opts *ConfigOptions) *SetConfigResult {
 	// todo: validate
 
@@ -240,11 +223,13 @@ func (c *Client) SetConfig(ctx context.Context, config *pbm.Config, opts *Config
 	return &rv
 }
 
+// GetBackup returns backup
 func (c *Client) GetBackup(ctx context.Context, name string) (*Backup, error) {
 	meta, err := getBackupMetadata(ctx, c.client, name)
 	return backupFromMetadata(meta), err
 }
 
+// GetAllBackups returns all avaiable backups
 func (c *Client) GetAllBackups(ctx context.Context) ([]Backup, error) {
 	rs, err := getAllBackupMetadata(ctx, c.client)
 	if err != nil {
@@ -259,6 +244,7 @@ func (c *Client) GetAllBackups(ctx context.Context) ([]Backup, error) {
 	return backups, nil
 }
 
+// Backup schedules backup
 func (c *Client) Backup(ctx context.Context, opts *BackupOptions) *BackupResult {
 	id, name, err := runBackup(ctx, c.client, opts)
 	if err != nil {
@@ -275,16 +261,19 @@ func (c *Client) Backup(ctx context.Context, opts *BackupOptions) *BackupResult 
 	return &rv
 }
 
+// CancelBackup cancel currently running backup
 func (c *Client) CancelBackup(ctx context.Context) *CancelBackupResult {
 	id, err := cancelBackup(ctx, c.client)
 	return &CancelBackupResult{id: CmdID(id), err: err}
 }
 
+// DeleteBackup deletes a backup from storage
 func (c *Client) DeleteBackup(ctx context.Context, name string) *DeleteBackupResult {
 	id, err := deleteBackupByName(ctx, c.client, name)
 	return &DeleteBackupResult{id: CmdID(id), err: err}
 }
 
+// DeleteManyBackups deletes backups accoding to the options
 func (c *Client) DeleteManyBackups(ctx context.Context, opts *DeleteManyBackupsOptions) *DeleteBackupResult {
 	id, err := deletesBackupOlderThan(ctx, c.client, opts)
 	return &DeleteBackupResult{id: CmdID(id), err: err}
@@ -305,7 +294,8 @@ func (c *Client) Restore(ctx context.Context, opts *RestoreOptions) *RestoreResu
 	return &rv
 }
 
-func (c *Client) RestorePIT(ctx context.Context, opts *PITRestoreOptions) *PITRestoreResult {
+// PITRecovery schedules point-in-time recovery
+func (c *Client) PITRecovery(ctx context.Context, opts *PITRestoreOptions) *PITRestoreResult {
 	id, name, err := runPITRestore(ctx, c.client, opts)
 	if err != nil {
 		return &PITRestoreResult{err: errors.WithMessage(err, "run")}
@@ -320,6 +310,7 @@ func (c *Client) RestorePIT(ctx context.Context, opts *PITRestoreOptions) *PITRe
 	return &rv
 }
 
+// ReplayOplog schedules oplog replay
 func (c *Client) ReplayOplog(ctx context.Context, opts *OplogReplayOptions) *OplogReplayResult {
 	id, name, err := runOplogReplay(ctx, c.client, opts)
 	if err != nil {
@@ -335,11 +326,13 @@ func (c *Client) ReplayOplog(ctx context.Context, opts *OplogReplayOptions) *Opl
 	return &rv
 }
 
+// DeleteOplog deletes oplog range
 func (c *Client) DeleteOplog(ctx context.Context, opts *DeleteOplogOptions) *DeleteOplogResult {
 	err := deleteOplog(ctx, c.client, opts)
 	return &DeleteOplogResult{err: err}
 }
 
+// WaitForBackupFinish waits till backup completes for any reason
 func WaitForBackupFinish(ctx context.Context, c *Client, name string) (*Backup, error) {
 	tillFinished := func(meta *pbm.BackupMeta) bool {
 		return meta != nil && meta.Status.Finished()
@@ -348,16 +341,19 @@ func WaitForBackupFinish(ctx context.Context, c *Client, name string) (*Backup, 
 	return backupFromMetadata(meta), err
 }
 
+// WaitForDeleteBackupFinish waits till backup deletion completes for any reason
 func WaitForDeleteBackupFinish(ctx context.Context, c *Client, id CmdID) error {
 	// return waitForOp(ctx, c.client, pbm.CmdDeleteBackup)
 	return waitForCmdStatus(ctx, c.client, primitive.ObjectID(id), pbm.StatusDone, pbm.StatusError)
 }
 
+// WaitForDeleteOplogFinish waits till oplog range deletion completes for any reason
 func WaitForDeleteOplogFinish(ctx context.Context, c *Client, id CmdID) error {
 	// return waitForOp(ctx, c.client, pbm.CmdDeletePITR)
 	return waitForCmdStatus(ctx, c.client, primitive.ObjectID(id), pbm.StatusDone, pbm.StatusError)
 }
 
+// WaitForCancelBackup waits till backup canceled or the cancel command fails
 func WaitForCancelBackup(ctx context.Context, c *Client, id CmdID) error {
 	return waitForCmdStatus(ctx, c.client, primitive.ObjectID(id), pbm.StatusDone, pbm.StatusError)
 }

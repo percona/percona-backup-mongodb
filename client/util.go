@@ -20,29 +20,32 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
+func connect(ctx context.Context, uri string) (*mongo.Client, error) {
 	opts := options.Client().ApplyURI(uri).
-		SetAppName(appName).
 		SetReadPreference(readpref.Primary()).
 		SetReadConcern(readconcern.Majority()).
 		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
 
+	if v := ctx.Value(AppNameCtxKey); v != nil {
+		opts.SetAppName(v.(string))
+	}
+
 	return mongo.Connect(ctx, opts)
 }
 
-func lookupLeaderURI(ctx context.Context, uri, appName string) (string, error) {
+func lookupLeaderURI(ctx context.Context, uri string) (string, error) {
 	parsedURI, err := url.Parse(uri)
 	if err != nil {
 		return "", errors.WithMessage(err, "parse uri")
 	}
 
-	client, err := connect(ctx, uri, appName)
+	client, err := connect(ctx, uri)
 	if err != nil {
 		return "", errors.WithMessage(err, "connect")
 	}
 	defer client.Disconnect(context.Background())
 
-	node, err := nodeInfo(ctx, client)
+	node, err := hello(ctx, client)
 	if err != nil {
 		return "", errors.WithMessage(err, "get node info")
 	}
@@ -60,17 +63,6 @@ func lookupLeaderURI(ctx context.Context, uri, appName string) (string, error) {
 	q.Del("replicaSet")
 	parsedURI.RawQuery = q.Encode()
 	return parsedURI.String(), nil
-}
-
-func nodeInfo(ctx context.Context, m *mongo.Client) (*pbm.NodeInfo, error) {
-	// TODO: "hello" since 5.0 (and 4.4.2, 4.2.10, 4.0.21, and 3.6.21)
-	res := m.Database(pbm.DB).RunCommand(ctx, bson.D{{"isMaster", 1}})
-	if err := res.Err(); err != nil {
-		return nil, errors.WithMessage(err, "query")
-	}
-
-	info := new(pbm.NodeInfo)
-	return info, errors.WithMessage(res.Decode(info), "decode")
 }
 
 func configSrvHost(ctx context.Context, m *mongo.Client) (string, error) {
@@ -208,30 +200,6 @@ func waitForOpLockReleased(ctx context.Context, m *mongo.Client, h *pbm.LockHead
 	}
 }
 
-func clusterTime(ctx context.Context, m *mongo.Client) (primitive.Timestamp, error) {
-	var rv primitive.Timestamp
-
-	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between node info reads,
-	// while in fact time has been moved forward.
-	err := coll(m, pbm.LockCollection).FindOne(ctx, bson.M{}).Err()
-	if err != nil && err != mongo.ErrNoDocuments {
-		return rv, errors.WithMessage(err, "void read")
-	}
-
-	info, err := nodeInfo(ctx, m)
-	if err != nil {
-		return rv, errors.WithMessage(err, "get node info")
-	}
-
-	if info.ClusterTime == nil {
-		return rv, errors.WithMessage(err, "no clusterTime in response")
-	}
-
-	rv = info.ClusterTime.ClusterTime
-	return rv, nil
-}
-
 func getLock(ctx context.Context, m *mongo.Client, h *pbm.LockHeader) (*pbm.LockData, error) {
 	res := coll(m, pbm.LockCollection).FindOne(ctx, h)
 	if err := res.Err(); err != nil {
@@ -257,4 +225,30 @@ func waitForOp(ctx context.Context, m *mongo.Client, cmd pbm.Command) error {
 	}
 
 	return nil
+}
+
+func runMCmd(ctx context.Context, m *mongo.Client, cmd string) *mongo.SingleResult {
+	return m.Database(pbm.DB).RunCommand(ctx, bson.D{{cmd, 1}})
+}
+
+func groupBy[K comparable, V any](xs []V, key func(*V) K) map[K][]V {
+	rv := make(map[K][]V)
+
+	for i := range xs {
+		k := key(&xs[i])
+		rv[k] = append(rv[k], xs[i])
+	}
+
+	return rv
+}
+
+func keyBy[K comparable, V any](xs []V, key func(*V) K) map[K]V {
+	rv := make(map[K]V)
+
+	for i := range xs {
+		k := key(&xs[i])
+		rv[k] = xs[i]
+	}
+
+	return rv
 }

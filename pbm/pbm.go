@@ -44,6 +44,8 @@ const (
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
+	// CmdStatusCollection contains status of a command
+	CmdStatusCollection = "pbmCmdStatus"
 	// PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
 	// PITRChunksOldCollection contains archived index metadata of PITR chunks

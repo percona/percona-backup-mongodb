@@ -426,7 +426,7 @@ func doPITRestore(ctx context.Context, c *client.Client, r *restoreOpts, _ outFo
 		Time:   ts,
 		RSMap:  rsMap,
 	}
-	res := c.RestorePIT(ctx, &opts)
+	res := c.PITRecovery(ctx, &opts)
 	if err := res.Err(); err != nil {
 		return nil, err
 	}

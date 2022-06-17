@@ -90,7 +90,7 @@ func (p *PBM) SendCmd(cmd Cmd) error {
 }
 
 func UpdateCmdStatus(ctx context.Context, m *mongo.Client, cmd *Cmd, s Status) error {
-	coll := m.Database(DB).Collection(CmdStreamCollection)
+	coll := m.Database(DB).Collection(CmdStatusCollection)
 
 	cond := StatusCondition{
 		Status: s,
