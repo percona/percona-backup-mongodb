@@ -11,6 +11,7 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -51,6 +52,15 @@ type Conf struct {
 	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+
+	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
+	// during the download. By default, it's set to GOMAXPROCS. Setting this
+	// option too high may result in performance degradation. As routines
+	// might prefetch too many chunks (HTTPBody). Although we can prefetch
+	// chunks concurrently the data should be written sequentially. And while
+	// chunks will be  waiting to be read and sent to the destination the
+	// `HTTPClient.Timeout` will run out and the chunk should be prefetched again.
+	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -232,11 +242,11 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	return s, nil
 }
 
-const defaultPartSize = 10 * 1024 * 1024 // 10Mb
-
 func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 	switch s.opts.Provider {
 	default:
+		const defaultPartSize = 10 << 20 // 10Mb
+
 		awsSession, err := s.session()
 		if err != nil {
 			return errors.Wrap(err, "create AWS session")
@@ -407,11 +417,13 @@ type partReader struct {
 	fsize   int64
 	written int64
 	buf     []byte
+	pause   int32
 
 	taskq   chan chunkMeta
 	resultq chan chunk
 	errc    chan error
 	close   chan struct{}
+	unpause chan struct{}
 }
 
 func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader {
@@ -426,7 +438,7 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader
 			if err != nil {
 				return nil, err
 			}
-			sess.Client.Config.HTTPClient.Timeout = time.Second * 60
+			sess.Client.Config.HTTPClient.Timeout = time.Second * 120
 			return sess, nil
 		},
 	}
@@ -457,8 +469,6 @@ func (b *chunksBuf) Pop() any {
 	return x
 }
 
-const buffMaxSize = 1000
-
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	fstat, err := s.FileStat(name)
 	if err != nil {
@@ -469,36 +479,44 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 
 	go func() {
 		pr := s.newPartReader(name, fstat.Size, downloadChuckSize)
-		pr.Run(runtime.NumCPU())
 
+		cc := runtime.GOMAXPROCS(0)
+		if s.opts.NumDownloadWorkers > 0 {
+			cc = s.opts.NumDownloadWorkers
+		}
+
+		pr.Run(cc)
+
+		exitErr := io.EOF
 		defer func() {
-			w.Close()
+			w.CloseWithError(exitErr)
 			pr.Reset()
 		}()
 
 		cbuf := &chunksBuf{}
 		heap.Init(cbuf)
 
+		buffThrottle := cc * 20
+
 		for {
 			select {
 			case rs := <-pr.resultq:
-				// Although chunks are requested concurrently they must be written squentially
-				// to the destination as it's not necessary a file (decompress, mongorestore etc.).
-				// So if it's not a turn (previous chunks wasn't written yet) the chunk will be
-				// added to the buffer to wait.
+				// Although chunks are requested concurrently they must be written sequentially
+				// to the destination as it is not necessary a file (decompress, mongorestore etc.).
+				// If it is not its turn (previous chunks weren't written yet) the chunk will be
+				// added to the buffer to wait. If the buffer grows too much the scheduling of new
+				// chunks will be paused for buffer to be handled.
 				if rs.meta.start != pr.written {
-					if len(*cbuf) <= buffMaxSize {
-						heap.Push(cbuf, &rs)
-					} else {
-						s.log.Warning("buffer is full (%d), reschedule part %d-%d", len(*cbuf), rs.meta.start, rs.meta.end)
-						go func() { pr.resultq <- rs }()
+					heap.Push(cbuf, &rs)
+					if len(*cbuf) == buffThrottle && pr.PauseSch() {
+						s.log.Debug("buffer is full (%d), pause the new chunks scheduling until it's handled", len(*cbuf))
 					}
 					continue
 				}
 
 				err := pr.writeChunk(&rs, w, downloadRetries)
 				if err != nil {
-					w.CloseWithError(errors.Wrapf(err, "copy bytes %d-%d from resoponse buffer", rs.meta.start, rs.meta.end))
+					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse", rs.meta.start, rs.meta.end)
 					return
 				}
 
@@ -507,9 +525,13 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					r := heap.Pop(cbuf).(*chunk)
 					err := pr.writeChunk(r, w, downloadRetries)
 					if err != nil {
-						w.CloseWithError(errors.Wrapf(err, "copy bytes %d-%d from resoponse buffer", r.meta.start, r.meta.end))
+						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse buffer", r.meta.start, r.meta.end)
 						return
 					}
+				}
+
+				if len(*cbuf) == 0 && pr.UnpauseSch() {
+					s.log.Debug("scheduling unpaused")
 				}
 
 				// we've read all bytes in the object
@@ -518,7 +540,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 				}
 
 			case err := <-pr.errc:
-				w.CloseWithError(errors.Wrapf(err, "download '%s/%s'", s.opts.Bucket, name))
+				exitErr = errors.Wrapf(err, "SourceReader: download '%s/%s'", s.opts.Bucket, name)
 				return
 			}
 		}
@@ -527,11 +549,24 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	return r, nil
 }
 
+func (pr *partReader) PauseSch() bool {
+	return atomic.CompareAndSwapInt32(&pr.pause, 0, 1)
+}
+
+func (pr *partReader) UnpauseSch() bool {
+	if atomic.CompareAndSwapInt32(&pr.pause, 2, 0) {
+		pr.unpause <- struct{}{}
+		return true
+	}
+	return atomic.CompareAndSwapInt32(&pr.pause, 1, 0)
+}
+
 func (pr *partReader) Run(concurrency int) {
 	pr.taskq = make(chan chunkMeta, concurrency)
 	pr.resultq = make(chan chunk)
 	pr.errc = make(chan error)
 	pr.close = make(chan struct{})
+	pr.unpause = make(chan struct{})
 
 	go func() {
 		for sent := int64(0); sent <= pr.fsize; {
@@ -540,6 +575,14 @@ func (pr *partReader) Run(concurrency int) {
 				return
 			default:
 			}
+			// If pause set (`1`), not to burn cpu cycles we're blocking waiting for
+			// a msg in unpause. But the pause can be set after all chunks are scheduled
+			// and this routine exists. So `2` signals a msg should be sent to `pr.unpause`
+			// during unpause.
+			if atomic.CompareAndSwapInt32(&pr.pause, 1, 2) {
+				<-pr.unpause
+			}
+
 			pr.taskq <- chunkMeta{sent, sent + downloadChuckSize - 1, 0}
 			sent += downloadChuckSize
 		}
@@ -551,6 +594,7 @@ func (pr *partReader) Run(concurrency int) {
 }
 
 func (pr *partReader) Reset() {
+	pr.UnpauseSch()
 	close(pr.close)
 }
 
@@ -567,9 +611,11 @@ func (pr *partReader) writeChunk(r *chunk, to io.Writer, retry int) error {
 	}
 
 	if r.meta.attempt < downloadRetries {
-		r.meta.attempt++
+		if !strings.Contains(err.Error(), "Client.Timeout or context cancellation while reading body") {
+			r.meta.attempt++
+		}
 		r.meta.start = pr.written
-		pr.l.Warning("copy err: %v, try to reconnect in %v", err, time.Second*time.Duration(r.meta.attempt))
+		pr.l.Warning("writeChunk: copy err: %v, redo in %v (%d-%d)", err, time.Second*time.Duration(r.meta.attempt), r.meta.start, r.meta.end)
 		go func() { pr.taskq <- r.meta }()
 		return nil
 	}
@@ -595,6 +641,7 @@ func (pr *partReader) worker() {
 					return
 				}
 			}
+
 			r, err := pr.retryChunk(sess, ch.start, ch.end, downloadRetries)
 			if err != nil {
 				pr.errc <- err

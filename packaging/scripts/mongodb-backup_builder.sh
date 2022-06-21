@@ -168,7 +168,7 @@ get_system(){
 }
 
 install_golang() {
-    wget https://golang.org/dl/go1.18.1.linux-amd64.tar.gz -O /tmp/golang1.18.tar.gz
+    wget https://golang.org/dl/go1.18.3.linux-amd64.tar.gz -O /tmp/golang1.18.tar.gz
     tar --transform=s,go,go1.18, -zxf /tmp/golang1.18.tar.gz
     rm -rf /usr/local/go*
     mv go1.18 /usr/local/
