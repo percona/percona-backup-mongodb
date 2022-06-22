@@ -21,7 +21,6 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
-	"github.com/mongodb/mongo-tools/common/util"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -50,6 +49,13 @@ var knownCommands = map[string]struct{}{
 	"commitIndexBuild": {},
 }
 
+var dontPreserveUUID = []string{
+	"admin.system.users",
+	"admin.system.roles",
+	"admin.system.keys",
+	"*.system.buckets.*", // timeseries
+}
+
 // Oplog is the oplog applyer
 type Oplog struct {
 	dst               *pbm.Node
@@ -60,7 +66,8 @@ type Oplog struct {
 	startTS           primitive.Timestamp
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
-	m                 *ns.Matcher
+	excludeNS         *ns.Matcher
+	noUUIDns          *ns.Matcher
 
 	txn        chan pbm.RestoreTxn
 	txnSyncErr chan error
@@ -82,6 +89,10 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ct
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
 	}
+	noUUID, err := ns.NewMatcher(dontPreserveUUID)
+	if err != nil {
+		return nil, errors.Wrap(err, "create matcher for the collections exclude")
+	}
 
 	v := sv.Version
 	if len(v) < 3 {
@@ -97,7 +108,8 @@ func NewOplog(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ct
 		preserveUUID:      preserveUUID,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      idx.NewIndexCatalog(),
-		m:                 m,
+		excludeNS:         m,
+		noUUIDns:          noUUID,
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
 		unsafe:            unsafe,
@@ -165,7 +177,7 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if o.m.Has(oe.Namespace) {
+	if o.excludeNS.Has(oe.Namespace) {
 		return nil
 	}
 
@@ -183,9 +195,8 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
-		// don't preserve UUID for timeseries
-		_, coll := util.SplitNamespace(oe.Namespace)
-		if strings.HasPrefix(coll, "system.buckets.") {
+		// don't preserve UUID for certain namespaces
+		if o.noUUIDns.Has(oe.Namespace) {
 			o.preserveUUID = false
 		}
 
@@ -333,7 +344,7 @@ Loop:
 func (o *Oplog) handleNonTxnOp(op db.Oplog) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
-	if o.m.Has(op.Namespace) {
+	if o.excludeNS.Has(op.Namespace) {
 		return nil
 	}
 

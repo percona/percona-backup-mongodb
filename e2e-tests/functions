@@ -92,7 +92,7 @@ wait_restore() {
     set -o xtrace
 }
 
-wait_rsync() {
+wait_noop() {
     set +o xtrace
 
     retry=0
