@@ -19,7 +19,6 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type statusOptions struct {
@@ -674,12 +673,8 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 			if bcp.Error() != nil {
 				continue
 			}
-			if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
-				bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
-				continue
-			}
 
-			if bcp.LastWriteTS.T < tl.Start && bcp.FirstWriteTS.T > tl.End {
+			if bcp.LastWriteTS.T < tl.Start || bcp.FirstWriteTS.T > tl.End {
 				continue
 			}
 
