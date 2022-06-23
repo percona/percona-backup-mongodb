@@ -73,17 +73,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 	runTest("Logical Backup Data Bounds Check",
 		func() { t.BackupBoundsCheck(pbm.LogicalBackup, cVersion) })
 
-	t.SetBallastData(1e3)
-	flush(t)
-
-	if semver.Compare(cVersion, "v5.0") >= 0 {
-		printStart("Check timeseries")
-		t.Timeseries()
-		printDone("Check timeseries")
-		flush(t)
-		t.SetBallastData(1e5)
-	}
-
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
 
@@ -124,11 +113,16 @@ func run(t *sharded.Cluster, typ testTyp) {
 	}
 
 	if semver.Compare(cVersion, "v5.0") >= 0 {
+		t.SetBallastData(1e3)
+		flush(t)
+
 		runTest("Check timeseries",
 			t.Timeseries)
 
 		flush(t)
 	}
+
+	t.SetBallastData(1e5)
 
 	runTest("Clock Skew Tests",
 		func() { t.ClockSkew(pbm.LogicalBackup, cVersion) })
