@@ -2,12 +2,16 @@ package sharded
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-const pbmLostAgentsErr = "some pbm-agents were lost during the backup"
+const (
+	pbmLostAgentsErr = "some of pbm-agents were lost during the backup"
+	pbmLostShardErr  = "convergeCluster: lost shard"
+)
 
 // RestartAgents restarts agents during backup.
 // Currently restarts agents on all shards. Also consider restarting
@@ -36,9 +40,12 @@ func (c *Cluster) RestartAgents() {
 		log.Fatalf("ERROR: get metadata for the backup %s: %v", bcpName, err)
 	}
 
-	if meta.Status != pbm.StatusError || meta.Error() == nil || meta.Error().Error() != pbmLostAgentsErr {
-		log.Fatalf("ERROR: wrong state of the backup %s. Expect: %s/%s. Got: %s/%s",
-			bcpName, pbm.StatusError, pbmLostAgentsErr, meta.Status, meta.Error())
+	if meta.Status != pbm.StatusError ||
+		meta.Error() == nil ||
+		meta.Error().Error() != pbmLostAgentsErr &&
+			!strings.Contains(meta.Error().Error(), pbmLostShardErr) {
+		log.Fatalf("ERROR: wrong state of the backup %s. Expect: %s/%s|...%s... Got: %s/%s",
+			bcpName, pbm.StatusError, pbmLostAgentsErr, pbmLostShardErr, meta.Status, meta.Error())
 	}
 
 	for rs := range c.shards {
