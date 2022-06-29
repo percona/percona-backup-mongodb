@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	slog "log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -90,17 +91,34 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		return nil, errors.New("undefined replica set")
 	}
 
+	tmpPort, err := peekTmpPort(opts.Net.Port)
+	if err != nil {
+		return nil, errors.Wrap(err, "peek tmp port")
+	}
+
 	return &PhysRestore{
 		cn:       cn,
 		node:     node,
 		dbpath:   p,
 		rsConf:   rcf,
 		nodeInfo: inf,
-		// TODO: `port` is unused - get rid
-		port: opts.Net.Port,
-		// TODO: check if `tmpPort` is available
-		tmpPort: strconv.Itoa(opts.Net.Port + 1111),
+		tmpPort:  strconv.Itoa(tmpPort),
 	}, nil
+}
+
+func peekTmpPort(ogPort int) (int, error) {
+	const maxPort = 65535
+
+	startFrom := ogPort + 1111
+	for p := startFrom; p <= maxPort; p++ {
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+		if err == nil {
+			ln.Close()
+			return p, nil
+		}
+	}
+
+	return -1, errors.Errorf("can't find unused tmp port in [%d-%d]", startFrom, maxPort)
 }
 
 // Close releases object resources.
@@ -323,10 +341,11 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return err
 	}
 
-	meta, err = r.toStateDB(pbm.StatusRunning, &pbm.WaitActionStart)
+	meta, err = r.toStateDB(pbm.StatusStarting, &pbm.WaitActionStart)
 	if err != nil {
 		return errors.Wrap(err, "move to running state")
 	}
+	l.Debug("%s", pbm.StatusStarting)
 
 	// not to spam logs with failed hb attempts
 	// TODO: heartbeats via storage
@@ -486,20 +505,6 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
-	// TODO: do we need this?
-	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
-		pbm.RSConfig{
-			ID:      r.rsConf.ID,
-			CSRS:    r.nodeInfo.IsConfigSrv(),
-			Version: 1,
-			Members: []pbm.RSMember{{ID: 0, Host: "localhost:" + r.tmpPort}},
-		},
-	)
-
-	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
-	}
-
 	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
 		bson.M{"_id": primitive.NewObjectID(), "t": -1, "ts": primitive.Timestamp{0, 1}},
 	)
@@ -623,11 +628,11 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
 
-	// PITR should be turned off after the physical restore. Otherwise, if it was on during
-	// the backup, after the user runs the cluster again the slicing resumes in the state
-	// of the backup's time. Hence the system knows nothing about the recent restore and chunks
-	// made after the backup. So it would successfully start slicing and would overwrite chunks
-	// after the backup.
+	// PITR should be turned off after the physical restore. Otherwise, slicing resumes
+	// right after the cluster start while the system in the state of the backup's
+	// recovery time. No resync yet. Hence the system knows nothing about the recent
+	// restore and chunks made after the backup. So it would successfully start slicing
+	// and overwrites chunks after the backup.
 	if r.nodeInfo.IsLeader() {
 		_, err = c.Database(pbm.DB).Collection(pbm.ConfigCollection).UpdateOne(ctx, bson.D{},
 			bson.D{{"$set", bson.M{"pitr.enabled": false}}},
@@ -709,7 +714,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 			OPID:     opid.String(),
 			Name:     r.name,
 			StartTS:  time.Now().Unix(),
-			Status:   pbm.StatusStarting,
+			Status:   pbm.StatusInit,
 			Replsets: []pbm.RestoreReplset{},
 			Hb:       ts,
 			Leader:   r.nodeInfo.Me + "/" + r.rsConf.ID,
@@ -737,8 +742,8 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		}()
 	}
 
-	// Waiting for StatusStarting to move further.
-	err = r.waitForStatus(pbm.StatusStarting, &pbm.WaitActionStart)
+	// Waiting for StatusInit to move further.
+	err = r.waitForStatus(pbm.StatusInit, &pbm.WaitActionStart)
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
