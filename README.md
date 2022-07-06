@@ -60,21 +60,18 @@ When submitting a bug report or a feature, please attach the following informati
 - The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/status.htm) command
 - The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/running.html#pbm-logs) command. Use the following filters:
 
-  .. code-block:: bash
+   ```sh
+   $ pbm logs -x -s D -t 0
+   ```
 
-     $ pbm logs -x -s D -t 0
+>**NOTE** : When reporting an issue with a certain event or a node, you can use the following filters to receive a more specific data set:
 
-  .. note::
-
-     When reporting an issue with a certain event or a node, you can use the following filters to receive a more specific data set:
-
-     .. code-block:: bash
- 
-        #Logs per node
-        $ pbm logs -x -s D -t 0 -n replset/host:27017
-        #Logs per event
-        $ pbm logs -x -s D -t 0 -e restore/2020-10-06T11:45:14Z
-
+>```bash
+>#Logs per node
+>$ pbm logs -x -s D -t 0 -n replset/host:27017
+>#Logs per event
+>$ pbm logs -x -s D -t 0 -e restore/2020-10-06T11:45:14Z
+>```
 
 
 ## Licensing
