@@ -404,8 +404,6 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
 
-	// TODO: heartbeats via storage
-
 	l.Info("stopping mongod and flushing old data")
 	err = r.flush()
 	if err != nil {
@@ -789,7 +787,10 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 	r.stopHB = make(chan struct{})
 	go func() {
 		tk := time.NewTicker(time.Second * hbFrameSec)
-		defer tk.Stop()
+		defer func() {
+			tk.Stop()
+			l.Debug("hearbeats stopped")
+		}()
 		for {
 			select {
 			case <-tk.C:
