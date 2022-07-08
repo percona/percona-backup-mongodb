@@ -385,19 +385,12 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 		return errors.Wrap(err, "init")
 	}
 
-	r.stg, err = r.cn.GetStorage(r.log)
-	if err != nil {
-		return errors.Wrap(err, "get backup storage")
-	}
-
-	// TODO: should do only leader. Inside init and them everybody
-	// TODO: wait for Start via storage as toStateDB waits only RS leader, not every node!
 	err = r.prepareBackup(cmd.BackupName)
 	if err != nil {
 		return err
 	}
 
-	err = r.toState(pbm.StatusStarting) //, &pbm.WaitActionStart) // TODO: <-- a wait time should be more than for logical
+	err = r.toState(pbm.StatusStarting)
 	if err != nil {
 		return errors.Wrap(err, "move to running state")
 	}
@@ -406,7 +399,7 @@ func (r *PhysRestore) Snapshot(cmd pbm.RestoreCmd, opid pbm.OPID, l *log.Event) 
 	// don't write logs to the mongo anymore
 	r.cn.Logger().PauseMgo()
 
-	err = r.toState(pbm.StatusRunning) //, &pbm.WaitActionStart) // TODO: <-- a wait time should be more than for logical
+	err = r.toState(pbm.StatusRunning)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
@@ -760,25 +753,26 @@ func startMongo(opts ...string) error {
 	return nil
 }
 
-const hbFrameSec = 60
+const hbFrameSec = 60 * 2
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.RestoreMeta, err error) {
+	r.stg, err = r.cn.GetStorage(r.log)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
 	r.log = l
 
 	r.name = name
 	r.opid = opid.String()
-	ts, err := r.cn.ClusterTime()
-	if err != nil {
-		return meta, errors.Wrap(err, "init restore meta, read cluster time")
-	}
 
-	r.startTS = int64(ts.T)
+	r.startTS = time.Now().Unix()
 
 	meta = &pbm.RestoreMeta{
 		Type:     pbm.PhysicalBackup,
 		OPID:     opid.String(),
 		Name:     r.name,
-		StartTS:  int64(ts.T),
+		StartTS:  r.startTS,
 		Status:   pbm.StatusInit,
 		Replsets: []pbm.RestoreReplset{{Name: r.nodeInfo.Me}},
 	}
@@ -813,21 +807,17 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 }
 
 func (r *PhysRestore) hb() error {
-	// TODO: NO cluster and clustertime in a while)
-	ts, err := r.cn.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
+	ts := time.Now().Unix()
 
-	err = r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.hb", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
-		bytes.NewReader([]byte(strconv.Itoa(int(ts.T)))), -1)
+	err := r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.hb", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+		bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
 	if r.nodeInfo.IsPrimary {
 		err = r.stg.Save(fmt.Sprintf("%s/%s/%s.hb", pbm.PhysRestoresDir, r.name, r.rsConf.ID),
-			bytes.NewReader([]byte(strconv.Itoa(int(ts.T)))), -1)
+			bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 		if err != nil {
 			return errors.Wrap(err, "write rs hb")
 		}
@@ -835,7 +825,7 @@ func (r *PhysRestore) hb() error {
 
 	if r.nodeInfo.IsClusterLeader() {
 		err = r.stg.Save(fmt.Sprintf("%s/%s/cluster.hb", pbm.PhysRestoresDir, r.name),
-			bytes.NewReader([]byte(strconv.Itoa(int(ts.T)))), -1)
+			bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 		if err != nil {
 			return errors.Wrap(err, "write rs hb")
 		}
@@ -845,16 +835,13 @@ func (r *PhysRestore) hb() error {
 }
 
 func (r *PhysRestore) checkHB(file string) error {
-	ts, err := r.cn.ClusterTime()
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
+	ts := time.Now().Unix()
 
-	_, err = r.stg.FileStat(file)
+	_, err := r.stg.FileStat(file)
 	// compare with restore start if heartbeat files are yet to be created.
 	// basically wait another hbFrameSec*2 sec for heartbeat files.
 	if errors.Is(err, storage.ErrNotExist) {
-		if int(r.startTS)+hbFrameSec*2 < int(ts.T) {
+		if r.startTS+hbFrameSec*2 < ts {
 			return errors.Errorf("stuck, last beat ts: %d", r.startTS)
 		}
 		return nil
@@ -873,12 +860,12 @@ func (r *PhysRestore) checkHB(file string) error {
 		return errors.Wrap(err, "read content")
 	}
 
-	t, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	t, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 0)
 	if err != nil {
 		return errors.Wrap(err, "decode")
 	}
 
-	if t+hbFrameSec*2 < int(ts.T) {
+	if t+hbFrameSec*2 < ts {
 		return errors.Errorf("stuck, last beat ts: %d", t)
 	}
 
