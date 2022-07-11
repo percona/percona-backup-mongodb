@@ -104,15 +104,15 @@ func (c Command) String() string {
 type OPID primitive.ObjectID
 
 type Cmd struct {
-	Cmd        Command         `bson:"cmd"`
-	Backup     BackupCmd       `bson:"backup,omitempty"`
-	Restore    RestoreCmd      `bson:"restore,omitempty"`
-	Replay     ReplayCmd       `bson:"replay,omitempty"`
-	PITRestore PITRestoreCmd   `bson:"pitrestore,omitempty"`
-	Delete     DeleteBackupCmd `bson:"delete,omitempty"`
-	DeletePITR DeletePITRCmd   `bson:"deletePitr,omitempty"`
-	TS         int64           `bson:"ts"`
-	OPID       OPID            `bson:"-"`
+	Cmd        Command          `bson:"cmd"`
+	Backup     *BackupCmd       `bson:"backup,omitempty"`
+	Restore    *RestoreCmd      `bson:"restore,omitempty"`
+	Replay     *ReplayCmd       `bson:"replay,omitempty"`
+	PITRestore *PITRestoreCmd   `bson:"pitrestore,omitempty"`
+	Delete     *DeleteBackupCmd `bson:"delete,omitempty"`
+	DeletePITR *DeletePITRCmd   `bson:"deletePitr,omitempty"`
+	TS         int64            `bson:"ts"`
+	OPID       OPID             `bson:"-"`
 }
 
 func OPIDfromStr(s string) (OPID, error) {

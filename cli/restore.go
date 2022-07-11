@@ -223,7 +223,7 @@ func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outF
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdRestore,
-		Restore: pbm.RestoreCmd{
+		Restore: &pbm.RestoreCmd{
 			Name:       name,
 			BackupName: bcpName,
 			RSMap:      rsMapping,
@@ -284,7 +284,7 @@ func pitrestore(cn *pbm.PBM, t, base string, rsMap map[string]string, outf outFo
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdPITRestore,
-		PITRestore: pbm.PITRestoreCmd{
+		PITRestore: &pbm.PITRestoreCmd{
 			Name:  name,
 			TS:    int64(ts.T),
 			I:     int64(ts.I),

@@ -66,7 +66,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 
 	err = cn.SendCmd(pbm.Cmd{
 		Cmd: pbm.CmdBackup,
-		Backup: pbm.BackupCmd{
+		Backup: &pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
 			Compression:      compression,
