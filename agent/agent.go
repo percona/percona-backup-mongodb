@@ -116,6 +116,10 @@ func (a *Agent) Start() error {
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", opid.String(), ep.TS())
+	if d == nil {
+		l.Error("missed command")
+		return
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -183,6 +187,10 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 // DeletePITR deletes PITR chunks from the store and cleans up its metadata
 func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeletePITR), "", opid.String(), ep.TS())
+	if d == nil {
+		l.Error("missed command")
+		return
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {

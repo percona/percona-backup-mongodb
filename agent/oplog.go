@@ -17,6 +17,10 @@ func (a *Agent) OplogReplay(r *pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
 			time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339)),
 		opID.String(),
 		ep.TS())
+	if r == nil {
+		l.Error("missed command")
+		return
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {

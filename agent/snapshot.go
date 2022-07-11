@@ -49,6 +49,10 @@ func (a *Agent) CancelBackup() {
 // Backup starts backup
 func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdBackup), cmd.Name, opid.String(), ep.TS())
+	if cmd == nil {
+		l.Error("missed command")
+		return
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -260,6 +264,10 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 
 func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
+	if r == nil {
+		l.Error("missed command")
+		return
+	}
 
 	var stg storage.Storage
 	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
