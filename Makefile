@@ -24,6 +24,8 @@ LDFLAGS= -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 LDFLAGS_TESTS_BUILD=$(LDFLAGS)
 
+default: install-pbm install-agent
+
 test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
