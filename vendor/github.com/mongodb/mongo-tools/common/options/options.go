@@ -21,6 +21,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/mongodb/mongo-tools/common/failpoint"
 	"github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/password"
 	"github.com/mongodb/mongo-tools/common/util"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -121,9 +122,10 @@ type General struct {
 
 // Struct holding verbosity-related options
 type Verbosity struct {
-	SetVerbosity func(string) `short:"v" long:"verbose" value-name:"<level>" description:"more detailed log output (include multiple times for more verbosity, e.g. -vvvvv, or specify a numeric value, e.g. --verbose=N)" optional:"true" optional-value:""`
-	Quiet        bool         `long:"quiet" description:"hide all log output"`
-	VLevel       int          `no-flag:"true"`
+	SetVerbosity    func(string) `short:"v" long:"verbose" value-name:"<level>" description:"more detailed log output (include multiple times for more verbosity, e.g. -vvvvv, or specify a numeric value, e.g. --verbose=N)" optional:"true" optional-value:""`
+	Quiet           bool         `long:"quiet" description:"hide all log output"`
+	VLevel          int          `no-flag:"true"`
+	VerbosityParsed bool         `no-flag:"true"`
 }
 
 func (v Verbosity) Level() int {
@@ -235,6 +237,12 @@ func New(appName, versionStr, gitCommit, usageStr string, parsePositionalArgsAsU
 
 	// Called when -v or --verbose is parsed
 	opts.SetVerbosity = func(val string) {
+		// Reset verbosity level when we call ParseArgs again and see the verbosity flag
+		if opts.VLevel != 0 && opts.VerbosityParsed {
+			opts.VerbosityParsed = false
+			opts.VLevel = 0
+		}
+
 		if i, err := strconv.Atoi(val); err == nil {
 			opts.VLevel = opts.VLevel + i // -v=N or --verbose=N
 		} else if matched, _ := regexp.MatchString(`^v+$`, val); matched {
@@ -439,6 +447,20 @@ func (opts *ToolOptions) AddToExtraOptionsRegistry(extraOpts ExtraOptions) {
 	opts.URI.extraOptionsRegistry = append(opts.URI.extraOptionsRegistry, extraOpts)
 }
 
+func (opts *ToolOptions) CallArgParser(args []string) ([]string, error) {
+	args, err := opts.parser.ParseArgs(args)
+	if err != nil {
+		return []string{}, err
+	}
+
+	// Set VerbosityParsed flag to make sure we reset verbosity level when we call ParseArgs again
+	if opts.VLevel != 0 && !opts.VerbosityParsed {
+		opts.VerbosityParsed = true
+	}
+
+	return args, nil
+}
+
 // ParseArgs parses a potential config file followed by the command line args, overriding
 // any values in the config file. Returns any extra args not accounted for by parsing,
 // as well as an error if the parsing returns an error.
@@ -449,7 +471,7 @@ func (opts *ToolOptions) ParseArgs(args []string) ([]string, error) {
 		return []string{}, err
 	}
 
-	args, err := opts.parser.ParseArgs(args)
+	args, err := opts.CallArgParser(args)
 	if err != nil {
 		return []string{}, err
 	}
@@ -495,7 +517,7 @@ func LogSensitiveOptionWarnings(args []string) {
 
 	// Create temporary options for parsing command line args.
 	tempOpts := New("", "", "", "", true, EnabledOptions{Auth: true, Connection: true, URI: true})
-	extraArgs, err := tempOpts.parser.ParseArgs(args)
+	extraArgs, err := tempOpts.CallArgParser(args)
 	if err != nil {
 		return
 	}
@@ -532,7 +554,7 @@ func LogSensitiveOptionWarnings(args []string) {
 // This also applies to --destinationPassword for mongomirror only.
 func (opts *ToolOptions) ParseConfigFile(args []string) error {
 	// Get config file path from the arguments, if specified.
-	_, err := opts.parser.ParseArgs(args)
+	_, err := opts.CallArgParser(args)
 	if err != nil {
 		return err
 	}
@@ -633,6 +655,16 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 	if err != nil {
 		return err
 	}
+
+	// finalize auth options, filling in missing passwords
+	if opts.Auth.ShouldAskForPassword() {
+		pass, err := password.Prompt()
+		if err != nil {
+			return fmt.Errorf("error reading password: %v", err)
+		}
+		opts.Auth.Password = pass
+	}
+
 	err = opts.ConnString.Validate()
 	if err != nil {
 		return err
@@ -640,7 +672,10 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 
 	// Connect directly to a host if there's no replica set specified, or
 	// if the connection string already specified a direct connection.
-	opts.Direct = (opts.ReplicaSetName == "") || opts.Direct
+	// Do not connect directly if loadbalanced.
+	if !opts.ConnString.LoadBalanced {
+		opts.Direct = (opts.ReplicaSetName == "") || opts.Direct
+	}
 
 	return nil
 }
@@ -752,6 +787,10 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 			opts.Host = opts.Host[:len(opts.Host)-1]
 		}
 
+		if len(cs.Hosts) > 1 && cs.LoadBalanced {
+			return fmt.Errorf("loadBalanced cannot be set to true if multiple hosts are specified")
+		}
+
 		if opts.Connection.ServerSelectionTimeout != 0 && cs.ServerSelectionTimeoutSet {
 			if (time.Duration(opts.Connection.ServerSelectionTimeout) * time.Millisecond) != cs.ServerSelectionTimeout {
 				return ConflictingArgsErrorFormat("serverSelectionTimeout", strconv.Itoa(int(cs.ServerSelectionTimeout/time.Millisecond)), strconv.Itoa(opts.Connection.ServerSelectionTimeout), "--serverSelectionTimeout")
@@ -804,7 +843,7 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 
 		if opts.Username != "" && cs.Username != "" {
 			if opts.Username != cs.Username {
-				return ConflictingArgsErrorFormat("username", opts.Username, cs.Username, "--username")
+				return ConflictingArgsErrorFormat("username", cs.Username, opts.Username, "--username")
 			}
 		}
 		if opts.Username != "" && cs.Username == "" {
@@ -829,7 +868,7 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 
 		if opts.Source != "" && cs.AuthSourceSet {
 			if opts.Source != cs.AuthSource {
-				return ConflictingArgsErrorFormat("authSource", opts.Source, cs.AuthSource, "--authenticationDatabase")
+				return ConflictingArgsErrorFormat("authSource", cs.AuthSource, opts.Source, "--authenticationDatabase")
 			}
 		}
 		if opts.Source != "" && !cs.AuthSourceSet {
@@ -842,7 +881,7 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 
 		if opts.Mechanism != "" && cs.AuthMechanism != "" {
 			if opts.Mechanism != cs.AuthMechanism {
-				return ConflictingArgsErrorFormat("authMechanism", opts.Mechanism, cs.AuthMechanism, "--authenticationMechanism")
+				return ConflictingArgsErrorFormat("authMechanism", cs.AuthMechanism, opts.Mechanism, "--authenticationMechanism")
 			}
 		}
 		if opts.Mechanism != "" && cs.AuthMechanism == "" {
@@ -874,7 +913,9 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 		if opts.ReplicaSetName != cs.ReplicaSet {
 			return ConflictingArgsErrorFormat("replica set name", cs.ReplicaSet, opts.Host, "--host")
 		}
-
+		if opts.ConnString.LoadBalanced {
+			return fmt.Errorf("loadBalanced cannot be set to true if the replica set name is specified")
+		}
 	}
 	if opts.ReplicaSetName != "" && cs.ReplicaSet == "" {
 		cs.ReplicaSet = opts.ReplicaSetName
@@ -885,6 +926,9 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 
 	// Connect directly to a host if indicated by the connection string.
 	opts.Direct = cs.DirectConnection || (cs.Connect == connstring.SingleConnect)
+	if opts.Direct && opts.ConnString.LoadBalanced {
+		return fmt.Errorf("loadBalanced cannot be set to true if the direct connection option is specified")
+	}
 
 	if (cs.SSL || opts.UseSSL) && !BuiltWithSSL {
 		if strings.HasPrefix(cs.Original, "mongodb+srv") {
@@ -892,6 +936,10 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 				"SSL must be explicitly disabled with ssl=false in the connection string")
 		}
 		return fmt.Errorf("cannot use ssl: tool not built with SSL support")
+	}
+
+	if cs.RetryWritesSet {
+		opts.RetryWrites = &cs.RetryWrites
 	}
 
 	if cs.SSLSet {
@@ -990,6 +1038,9 @@ func (opts *ToolOptions) setOptionsFromURI(cs connstring.ConnString) error {
 			}
 		}
 		if opts.Kerberos.Service != "" && !cs.AuthMechanismPropertiesSet {
+			if cs.AuthMechanismProperties == nil {
+				cs.AuthMechanismProperties = make(map[string]string)
+			}
 			cs.AuthMechanismProperties["SERVICE_NAME"] = opts.Kerberos.Service
 			cs.AuthMechanismPropertiesSet = true
 		}
