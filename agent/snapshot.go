@@ -258,12 +258,13 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 	}
 }
 
-func (a *Agent) Restore(r pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
+	var stg storage.Storage
 	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
 	if errors.Is(err, pbm.ErrNotFound) {
-		stg, err := a.pbm.GetStorage(l)
+		stg, err = a.pbm.GetStorage(l)
 		if err != nil {
 			l.Error("get storage: %v", err)
 			return
