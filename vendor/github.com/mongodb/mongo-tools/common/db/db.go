@@ -23,7 +23,6 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
-	"github.com/mongodb/mongo-tools/common/password"
 	"github.com/youmark/pkcs8"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -119,15 +118,6 @@ func (sp *SessionProvider) DB(name string) *mongo.Database {
 
 // NewSessionProvider constructs a session provider, including a connected client.
 func NewSessionProvider(opts options.ToolOptions) (*SessionProvider, error) {
-	// finalize auth options, filling in missing passwords
-	if opts.Auth.ShouldAskForPassword() {
-		pass, err := password.Prompt()
-		if err != nil {
-			return nil, fmt.Errorf("error reading password: %v", err)
-		}
-		opts.Auth.Password = pass
-	}
-
 	client, err := configureClient(opts)
 	if err != nil {
 		return nil, fmt.Errorf("error configuring the connector: %v", err)
@@ -305,7 +295,9 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 	if opts.Connection.ServerSelectionTimeout > 0 {
 		clientopt.SetServerSelectionTimeout(time.Duration(opts.Connection.ServerSelectionTimeout) * time.Second)
 	}
-	clientopt.SetReplicaSet(opts.ReplicaSetName)
+	if opts.ReplicaSetName != "" {
+		clientopt.SetReplicaSet(opts.ReplicaSetName)
+	}
 
 	clientopt.SetAppName(opts.AppName)
 	if opts.Direct && len(clientopt.Hosts) == 1 {
@@ -353,6 +345,10 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 
 	if cs.MinPoolSizeSet {
 		clientopt.SetMinPoolSize(cs.MinPoolSize)
+	}
+
+	if cs.LoadBalancedSet {
+		clientopt.SetLoadBalanced(cs.LoadBalanced)
 	}
 
 	if cs.ReadConcernLevel != "" {

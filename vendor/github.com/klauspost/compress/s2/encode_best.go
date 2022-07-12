@@ -62,6 +62,7 @@ func encodeBlockBest(dst, src []byte) (d int) {
 	getPrev := func(x uint64) int {
 		return int(x >> 32)
 	}
+	const maxSkip = 64
 
 	for {
 		type match struct {
@@ -74,7 +75,12 @@ func encodeBlockBest(dst, src []byte) (d int) {
 		var best match
 		for {
 			// Next src position to check
-			nextS := s + (s-nextEmit)>>8 + 1
+			nextS := (s-nextEmit)>>8 + 1
+			if nextS > maxSkip {
+				nextS = s + maxSkip
+			} else {
+				nextS += s
+			}
 			if nextS > sLimit {
 				goto emitRemainder
 			}
@@ -329,6 +335,7 @@ func encodeBlockBestSnappy(dst, src []byte) (d int) {
 	getPrev := func(x uint64) int {
 		return int(x >> 32)
 	}
+	const maxSkip = 64
 
 	for {
 		type match struct {
@@ -340,7 +347,12 @@ func encodeBlockBestSnappy(dst, src []byte) (d int) {
 		var best match
 		for {
 			// Next src position to check
-			nextS := s + (s-nextEmit)>>8 + 1
+			nextS := (s-nextEmit)>>8 + 1
+			if nextS > maxSkip {
+				nextS = s + maxSkip
+			} else {
+				nextS += s
+			}
 			if nextS > sLimit {
 				goto emitRemainder
 			}
@@ -358,7 +370,7 @@ func encodeBlockBestSnappy(dst, src []byte) (d int) {
 				}
 				offset := m.s - m.offset
 
-				return score - emitCopySize(offset, m.length)
+				return score - emitCopyNoRepeatSize(offset, m.length)
 			}
 
 			matchAt := func(offset, s int, first uint32) match {
@@ -555,8 +567,34 @@ func emitCopySize(offset, length int) int {
 
 	// Offset no more than 2 bytes.
 	if length > 64 {
+		if offset < 2048 {
+			// Emit 8 bytes, then rest as repeats...
+			return 2 + emitRepeatSize(offset, length-8)
+		}
 		// Emit remaining as repeats, at least 4 bytes remain.
 		return 3 + emitRepeatSize(offset, length-60)
+	}
+	if length >= 12 || offset >= 2048 {
+		return 3
+	}
+	// Emit the remaining copy, encoded as 2 bytes.
+	return 2
+}
+
+// emitCopyNoRepeatSize returns the size to encode the offset+length
+//
+// It assumes that:
+//	1 <= offset && offset <= math.MaxUint32
+//	4 <= length && length <= 1 << 24
+func emitCopyNoRepeatSize(offset, length int) int {
+	if offset >= 65536 {
+		return 5 + 5*(length/64)
+	}
+
+	// Offset no more than 2 bytes.
+	if length > 64 {
+		// Emit remaining as repeats, at least 4 bytes remain.
+		return 3 + 3*(length/60)
 	}
 	if length >= 12 || offset >= 2048 {
 		return 3

@@ -60,7 +60,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 	cmd := pbm.Cmd{
 		Cmd: pbm.CmdReplay,
-		Replay: pbm.ReplayCmd{
+		Replay: &pbm.ReplayCmd{
 			Name:  name,
 			Start: startTS,
 			End:   endTS,

@@ -155,7 +155,7 @@ func (bc *BackupCursor) Close() {
 	}
 }
 
-func (b *Backup) doPhysical(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
 	cursor := NewBackupCursor(b.node, l)
 	defer cursor.Close()
 

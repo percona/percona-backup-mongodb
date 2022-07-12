@@ -10,13 +10,17 @@ import (
 )
 
 // OplogReplay replays oplog between r.Start and r.End timestamps (wall time in UTC tz)
-func (a *Agent) OplogReplay(r pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) OplogReplay(r *pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
 	l := a.log.NewEvent(string(pbm.CmdReplay),
 		fmt.Sprintf("%s-%s",
 			time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
 			time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339)),
 		opID.String(),
 		ep.TS())
+	if r == nil {
+		l.Error("missed command")
+		return
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {

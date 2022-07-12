@@ -48,7 +48,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node) *Backup {
 	}
 }
 
-func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
+func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -88,7 +88,7 @@ func (b *Backup) Init(bcp pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMod
 
 // Run runs backup.
 // TODO: describe flow
-func (b *Backup) Run(ctx context.Context, bcp pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
