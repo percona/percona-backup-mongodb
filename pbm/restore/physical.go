@@ -50,11 +50,18 @@ type PhysRestore struct {
 	nodeInfo *pbm.NodeInfo
 	stg      storage.Storage
 	bcp      *pbm.BackupMeta
+
+	// path to files on a storage the node will sync its
+	// state with the resto of the cluster
+	syncPathNode    string
+	syncPathRS      string
+	syncPathCluster string
+	syncPathPeers   map[string]struct{}
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok.
 	//
 	// Only the restore leader would have this info.
-	shards []pbm.Shard
+	syncPathShards map[string]struct{}
 
 	stopHB chan struct{}
 
@@ -121,9 +128,6 @@ func peekTmpPort() (int, error) {
 // Should be run to avoid leaks.
 func (r *PhysRestore) close() {
 	if r.stopHB != nil {
-		if _, ok := <-r.stopHB; !ok {
-			return
-		}
 		close(r.stopHB)
 	}
 }
@@ -187,6 +191,8 @@ func (r *PhysRestore) waitMgoShutdown() error {
 	return nil
 }
 
+const syncErrSuffix = "err"
+
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 // - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
@@ -199,23 +205,18 @@ func (r *PhysRestore) waitMgoShutdown() error {
 func (r *PhysRestore) toState(status pbm.Status) error {
 	r.log.Info("moving to state %s", status)
 
-	err := r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me, status),
+	err := r.stg.Save(r.syncPathNode+"."+string(status),
 		okStatus(), -1)
 	if err != nil {
 		return errors.Wrap(err, "write node state")
 	}
 
 	if r.nodeInfo.IsPrimary {
-		flwrs := make(map[string]struct{})
-		for _, m := range r.rsConf.Members {
-			flwrs[fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
-		}
-
-		r.log.Info("waiting for `%s` status in rs %v", status, flwrs)
-		err = r.waitFiles(status, flwrs)
+		r.log.Info("waiting for `%s` status in rs %v", status, r.syncPathPeers)
+		err = r.waitFiles(status, r.syncPathPeers)
 		if err != nil {
 			if errors.As(err, &nodeErr{}) {
-				serr := r.stg.Save(fmt.Sprintf("%s/%s/%s.err", pbm.PhysRestoresDir, r.name, r.rsConf.ID),
+				serr := r.stg.Save(r.syncPathRS+"."+syncErrSuffix,
 					errStatus(err), -1)
 				if serr != nil {
 					return errors.Wrapf(serr, "write replset error state `%v`", err)
@@ -224,7 +225,7 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 			return errors.Wrap(err, "wait for nodes in rs")
 		}
 
-		err = r.stg.Save(fmt.Sprintf("%s/%s/%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, status),
+		err = r.stg.Save(r.syncPathRS+"."+string(status),
 			okStatus(), -1)
 		if err != nil {
 			return errors.Wrap(err, "write replset state")
@@ -232,16 +233,11 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		shrds := make(map[string]struct{})
-		for _, s := range r.shards {
-			shrds[fmt.Sprintf("%s/%s/%s", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
-		}
-
-		r.log.Info("waiting for shards %v", shrds)
-		err = r.waitFiles(status, shrds)
+		r.log.Info("waiting for shards %v", r.syncPathShards)
+		err = r.waitFiles(status, r.syncPathShards)
 		if err != nil {
 			if errors.As(err, &nodeErr{}) {
-				serr := r.stg.Save(fmt.Sprintf("%s/%s/cluster.err", pbm.PhysRestoresDir, r.name),
+				serr := r.stg.Save(r.syncPathCluster+"."+syncErrSuffix,
 					errStatus(err), -1)
 				if serr != nil {
 					return errors.Wrapf(serr, "write replset error state `%v`", err)
@@ -250,7 +246,7 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 			return errors.Wrap(err, "wait for shards")
 		}
 
-		err = r.stg.Save(fmt.Sprintf("%s/%s/cluster.%s", pbm.PhysRestoresDir, r.name, status),
+		err = r.stg.Save(r.syncPathCluster+"."+string(status),
 			okStatus(), -1)
 		if err != nil {
 			return errors.Wrap(err, "write replset state")
@@ -259,7 +255,7 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 
 	r.log.Info("waiting for cluster")
 	err = r.waitFiles(status, map[string]struct{}{
-		fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name): {},
+		r.syncPathCluster: {},
 	})
 	if err != nil {
 		return errors.Wrap(err, "wait for shards")
@@ -296,7 +292,7 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 	defer tk.Stop()
 	for range tk.C {
 		for f := range objs {
-			errFile := f + ".err"
+			errFile := f + "." + syncErrSuffix
 			_, err = r.stg.FileStat(errFile)
 			if err != nil && err != storage.ErrNotExist {
 				return errors.Wrapf(err, "get file %s", errFile)
@@ -316,9 +312,9 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 				return nodeErr{filepath.Base(f), string(b)}
 			}
 
-			err := r.checkHB(f + ".hb")
+			err := r.checkHB(f + "." + syncHbSuffix)
 			if err != nil {
-				return errors.Wrapf(err, "check heartbeat in %s.hb", f)
+				return errors.Wrapf(err, "check heartbeat in %s.%s", f, syncHbSuffix)
 			}
 
 			okFile := f + "." + string(state)
@@ -779,6 +775,14 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
 	}
 
+	r.syncPathNode = fmt.Sprintf("%s/%s/node.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
+	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
+	r.syncPathPeers = make(map[string]struct{})
+	for _, m := range r.rsConf.Members {
+		r.syncPathPeers[fmt.Sprintf("%s/%s/node.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+	}
+
 	err = r.hb()
 	if err != nil {
 		l.Error("send init heartbeat: %v", err)
@@ -807,17 +811,19 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 	return meta, nil
 }
 
+const syncHbSuffix = "hb"
+
 func (r *PhysRestore) hb() error {
 	ts := time.Now().Unix()
 
-	err := r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.hb", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+	err := r.stg.Save(r.syncPathNode+"."+syncHbSuffix,
 		bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
 	if r.nodeInfo.IsPrimary {
-		err = r.stg.Save(fmt.Sprintf("%s/%s/%s.hb", pbm.PhysRestoresDir, r.name, r.rsConf.ID),
+		err = r.stg.Save(r.syncPathRS+"."+syncHbSuffix,
 			bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 		if err != nil {
 			return errors.Wrap(err, "write rs hb")
@@ -825,7 +831,7 @@ func (r *PhysRestore) hb() error {
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		err = r.stg.Save(fmt.Sprintf("%s/%s/cluster.hb", pbm.PhysRestoresDir, r.name),
+		err = r.stg.Save(r.syncPathCluster+"."+syncHbSuffix,
 			bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
 		if err != nil {
 			return errors.Wrap(err, "write rs hb")
@@ -919,6 +925,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 			fl[rs.RS] = rs
 		}
 
+		r.syncPathShards = make(map[string]struct{})
 		var nors []string
 		for _, sh := range r.bcp.Replsets {
 			rs, ok := fl[sh.Name]
@@ -927,7 +934,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 				continue
 			}
 
-			r.shards = append(r.shards, rs)
+			r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 		}
 
 		if len(nors) > 0 {
@@ -967,7 +974,7 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error) {
 		meta.Replsets[0].Error = e.Error()
 	}
 
-	err := r.stg.Save(fmt.Sprintf("%s/%s/%s.%s.err", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+	err := r.stg.Save(r.syncPathNode+"."+syncErrSuffix,
 		errStatus(e), -1)
 
 	if err != nil {
