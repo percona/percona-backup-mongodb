@@ -393,7 +393,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		}
 	}
 
-	// not to logs flood with errors when mongo went down
+	// not to flood logs with errors when mongo went down
 	a.closeCMD <- struct{}{}
 	if lock != nil {
 		// Don't care about errors. Anyway, the lock gonna disappear after the
