@@ -220,7 +220,7 @@ func PhysRestoreMeta(stg storage.Storage, name string) (*RestoreMeta, error) {
 			if !ok {
 				rs.Name = rsName
 				rs.Conditions = Conditions{}
-				heap.Init(rs.Conditions)
+				heap.Init(&rs.Conditions)
 			}
 
 			p := strings.Split(f.Name, ".")
