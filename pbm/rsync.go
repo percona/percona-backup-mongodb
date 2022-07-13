@@ -2,8 +2,10 @@ package pbm
 
 import (
 	"bytes"
+	"container/heap"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -36,7 +38,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	rstrs, err := stg.List(PhysRestoresDir, ".json")
 	if err != nil {
-		return errors.Wrap(err, "get a backups list from the storage")
+		return errors.Wrap(err, "get physical restores list from the storage")
 	}
 	l.Debug("got physical restores list: %v", len(rstrs))
 	for _, rs := range rstrs {
@@ -191,4 +193,57 @@ func (p *PBM) moveCollection(coll, as string) error {
 
 	_, err = p.Conn.Database(DB).Collection(coll).DeleteMany(p.ctx, bson.M{})
 	return errors.Wrap(err, "remove current data")
+}
+
+func PhysRestoreMeta(stg storage.Storage, name string) (*RestoreMeta, error) {
+	rfiles, err := stg.List(PhysRestoresDir+"/"+name, "")
+	if err != nil {
+		return nil, errors.Wrap(err, "get files")
+	}
+
+	rss := make(map[string]RestoreReplset)
+
+	for _, f := range rfiles {
+		parts := strings.Split(f.Name, ".")
+		if len(parts) < 2 {
+			continue
+		}
+		switch parts[0] {
+		case "rs":
+			rsparts := strings.Split(f.Name, "/")
+			if len(rsparts) < 2 {
+				continue
+			}
+
+			rsName := rsparts[0]
+			rs, ok := rss[rsName]
+			if !ok {
+				rs.Name = rsName
+				rs.Conditions = Conditions{}
+				heap.Init(rs.Conditions)
+			}
+
+			p := strings.Split(f.Name, ".")
+			if len(p) < 2 {
+				continue
+			}
+			switch p[0] {
+			case "node":
+				// rsName := p[1]
+				// state := p[len(parts)-1]
+				// host := strings.Join(p[2:len(p)-1], ".")
+				// src, err := stg.SourceReader(filepath.Join(PhysRestoresDir+"/"+name, f.Name))
+				// if err != nil {
+				// 	return nil, errors.Wrapf(err, "get file %s", f.Name)
+				// }
+				// rs := rss[rsName]
+			case "rs":
+
+			}
+
+		case "cluster":
+		}
+	}
+
+	return nil, nil
 }

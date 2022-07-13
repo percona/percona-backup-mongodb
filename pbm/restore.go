@@ -38,16 +38,30 @@ type RestoreReplset struct {
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Nodes            []RestoreNode       `bson:"nodes,omitempty" json:"nodes,omitempty"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 }
 
+type Conditions []*Condition
+
+func (b Conditions) Len() int           { return len(b) }
+func (b Conditions) Less(i, j int) bool { return b[i].Timestamp < b[j].Timestamp }
+func (b Conditions) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+func (b *Conditions) Push(x any)        { *b = append(*b, x.(*Condition)) }
+func (b *Conditions) Pop() any {
+	old := *b
+	n := len(old)
+	x := old[n-1]
+	*b = old[0 : n-1]
+	return x
+}
+
 type RestoreNode struct {
-	Name             string      `bson:"name" json:"name"`
-	Status           Status      `bson:"status" json:"status"`
-	LastTransitionTS int64       `bson:"last_transition_ts" json:"last_transition_ts"`
-	Error            string      `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition `bson:"conditions" json:"conditions"`
+	Name             string     `bson:"name" json:"name"`
+	Status           Status     `bson:"status" json:"status"`
+	LastTransitionTS int64      `bson:"last_transition_ts" json:"last_transition_ts"`
+	Error            string     `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       Conditions `bson:"conditions" json:"conditions"`
 }
 
 type TxnState string
@@ -144,7 +158,7 @@ func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
 
 func (p *PBM) AddRestoreRSMeta(name string, rs RestoreReplset) error {
 	rs.LastTransitionTS = rs.StartTS
-	rs.Conditions = append(rs.Conditions, Condition{
+	rs.Conditions = append(rs.Conditions, &Condition{
 		Timestamp: rs.StartTS,
 		Status:    rs.Status,
 	})

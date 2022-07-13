@@ -775,12 +775,12 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
 	}
 
-	r.syncPathNode = fmt.Sprintf("%s/%s/node.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
-	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
+	r.syncPathNode = fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
 	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
 	r.syncPathPeers = make(map[string]struct{})
 	for _, m := range r.rsConf.Members {
-		r.syncPathPeers[fmt.Sprintf("%s/%s/node.%s.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+		r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
 	}
 
 	err = r.hb()
@@ -934,7 +934,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 				continue
 			}
 
-			r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
+			r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 		}
 
 		if len(nors) > 0 {
