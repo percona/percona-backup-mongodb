@@ -268,13 +268,13 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 
 func errStatus(err error) io.Reader {
 	return bytes.NewReader([]byte(
-		fmt.Sprintf("%d: %v", time.Now().Unix(), err),
+		fmt.Sprintf("%d:%v", time.Now().Unix(), err),
 	))
 }
 
 func okStatus() io.Reader {
 	return bytes.NewReader([]byte(
-		fmt.Sprintf("%d: OK", time.Now().Unix()),
+		fmt.Sprintf("%d", time.Now().Unix()),
 	))
 }
 
@@ -363,6 +363,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 		Type:     pbm.PhysicalBackup,
 		OPID:     opid.String(),
 		Name:     r.name,
+		Backup:   cmd.BackupName,
 		Replsets: []pbm.RestoreReplset{{Name: r.nodeInfo.Me}},
 	}
 
@@ -460,7 +461,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	ts := time.Now().Unix()
 
 	meta.Status = s
-	meta.Conditions = append(meta.Conditions, pbm.Condition{Timestamp: ts, Status: s})
+	meta.Conditions = append(meta.Conditions, &pbm.Condition{Timestamp: ts, Status: s})
 	meta.LastTransitionTS = ts
 	meta.Error = msg
 

@@ -2,9 +2,10 @@ package pbm
 
 import (
 	"bytes"
-	"container/heap"
 	"encoding/json"
+	"io/ioutil"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -51,6 +52,18 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		err = json.NewDecoder(src).Decode(&rmeta)
 		if err != nil {
 			return errors.Wrapf(err, "decode meta %s", rs.Name)
+		}
+
+		condsm, err := GetPhysRestoreMeta(stg, strings.TrimSuffix(rs.Name, ".json"))
+		if err == nil {
+			rmeta.Replsets = condsm.Replsets
+			rmeta.Status = condsm.Status
+			rmeta.LastTransitionTS = condsm.LastTransitionTS
+			rmeta.Error = condsm.Error
+			rmeta.Hb = condsm.Hb
+			rmeta.Conditions = condsm.Conditions
+		} else {
+			l.Error("parse physical restore status %s: %v", rs.Name, err)
 		}
 
 		_, err = p.Conn.Database(DB).Collection(RestoresCollection).ReplaceOne(
@@ -195,55 +208,144 @@ func (p *PBM) moveCollection(coll, as string) error {
 	return errors.Wrap(err, "remove current data")
 }
 
-func PhysRestoreMeta(stg storage.Storage, name string) (*RestoreMeta, error) {
-	rfiles, err := stg.List(PhysRestoresDir+"/"+name, "")
+func GetPhysRestoreMeta(stg storage.Storage, restore string) (*RestoreMeta, error) {
+	rfiles, err := stg.List(PhysRestoresDir+"/"+restore, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "get files")
 	}
 
-	rss := make(map[string]RestoreReplset)
+	meta := RestoreMeta{Name: restore}
+
+	rss := make(map[string]struct {
+		rs    RestoreReplset
+		nodes map[string]RestoreNode
+	})
 
 	for _, f := range rfiles {
-		parts := strings.Split(f.Name, ".")
-		if len(parts) < 2 {
+		parts := strings.SplitN(f.Name, ".", 2)
+		if len(parts) != 2 {
 			continue
 		}
 		switch parts[0] {
 		case "rs":
-			rsparts := strings.Split(f.Name, "/")
+			rsparts := strings.Split(parts[1], "/")
+
 			if len(rsparts) < 2 {
 				continue
 			}
 
-			rsName := rsparts[0]
+			rsName := strings.TrimPrefix(rsparts[0], "rs.")
 			rs, ok := rss[rsName]
 			if !ok {
-				rs.Name = rsName
-				rs.Conditions = Conditions{}
-				heap.Init(&rs.Conditions)
+				rs.rs.Name = rsName
+				rs.nodes = make(map[string]RestoreNode)
 			}
 
-			p := strings.Split(f.Name, ".")
+			p := strings.Split(rsparts[1], ".")
+
 			if len(p) < 2 {
 				continue
 			}
 			switch p[0] {
 			case "node":
-				// rsName := p[1]
-				// state := p[len(parts)-1]
-				// host := strings.Join(p[2:len(p)-1], ".")
-				// src, err := stg.SourceReader(filepath.Join(PhysRestoresDir+"/"+name, f.Name))
-				// if err != nil {
-				// 	return nil, errors.Wrapf(err, "get file %s", f.Name)
-				// }
-				// rs := rss[rsName]
-			case "rs":
+				if len(p) < 3 {
+					continue
+				}
+				nName := strings.Join(p[1:len(p)-1], ".")
+				node, ok := rs.nodes[nName]
+				if !ok {
+					node.Name = nName
+				}
+				cond, err := parsePhysRestoreCond(stg, f.Name, restore)
+				if err != nil {
+					return nil, err
+				}
+				if cond.Status == "hb" {
+					node.Hb.T = uint32(cond.Timestamp)
+				} else {
+					node.Conditions.Insert(cond)
+					l := node.Conditions[len(node.Conditions)-1]
+					node.Status = l.Status
+					node.LastTransitionTS = l.Timestamp
+					node.Error = l.Error
+				}
 
+				rs.nodes[nName] = node
+			case "rs":
+				cond, err := parsePhysRestoreCond(stg, f.Name, restore)
+				if err != nil {
+					return nil, err
+				}
+				if cond.Status == "hb" {
+					rs.rs.Hb.T = uint32(cond.Timestamp)
+				} else {
+					rs.rs.Conditions.Insert(cond)
+					l := rs.rs.Conditions[len(rs.rs.Conditions)-1]
+					rs.rs.Status = l.Status
+					rs.rs.LastTransitionTS = l.Timestamp
+					rs.rs.Error = l.Error
+				}
 			}
+			rss[rsName] = rs
 
 		case "cluster":
+			cond, err := parsePhysRestoreCond(stg, f.Name, restore)
+			if err != nil {
+				return nil, err
+			}
+
+			if cond.Status == "hb" {
+				meta.Hb.T = uint32(cond.Timestamp)
+			} else {
+				meta.Conditions.Insert(cond)
+				lstat := meta.Conditions[len(meta.Conditions)-1]
+				meta.Status = lstat.Status
+				meta.LastTransitionTS = lstat.Timestamp
+				meta.Error = lstat.Error
+			}
 		}
 	}
 
-	return nil, nil
+	for _, rs := range rss {
+		for _, node := range rs.nodes {
+			rs.rs.Nodes = append(rs.rs.Nodes, node)
+		}
+		meta.Replsets = append(meta.Replsets, rs.rs)
+	}
+
+	return &meta, nil
+}
+
+func parsePhysRestoreCond(stg storage.Storage, fname, restore string) (*Condition, error) {
+	s := strings.Split(fname, ".")
+	cond := Condition{Status: Status(s[len(s)-1])}
+
+	src, err := stg.SourceReader(filepath.Join(PhysRestoresDir, restore, fname))
+	if err != nil {
+		return nil, errors.Wrapf(err, "get file %s", fname)
+	}
+	b, err := ioutil.ReadAll(src)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read file %s", fname)
+	}
+
+	if cond.Status == StatusError {
+		estr := strings.SplitN(string(b), ":", 1)
+		if len(estr) != 2 {
+			return nil, errors.Wrapf(err, "malformatted data in %s", fname)
+		}
+		cond.Timestamp, err = strconv.ParseInt(estr[0], 10, 0)
+		if err != nil {
+			return nil, errors.Wrapf(err, "read ts from %s", fname)
+		}
+		cond.Error = estr[1]
+		return &cond, nil
+	}
+
+	cond.Timestamp, err = strconv.ParseInt(string(b), 10, 0)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read ts from %s", fname)
+	}
+
+	return &cond, nil
 }

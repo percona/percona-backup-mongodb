@@ -2,6 +2,7 @@ package pbm
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,7 +24,7 @@ type RestoreMeta struct {
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
-	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	Type             BackupType          `bson:"type" json:"type"`
 	Leader           string              `bson:"l,omitempty" json:"l,omitempty"`
 }
@@ -47,21 +48,22 @@ type Conditions []*Condition
 func (b Conditions) Len() int           { return len(b) }
 func (b Conditions) Less(i, j int) bool { return b[i].Timestamp < b[j].Timestamp }
 func (b Conditions) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b *Conditions) Push(x any)        { *b = append(*b, x.(*Condition)) }
-func (b *Conditions) Pop() any {
-	old := *b
-	n := len(old)
-	x := old[n-1]
-	*b = old[0 : n-1]
-	return x
+
+// Insert keeps conditions asc sorted by Timestamp
+func (b *Conditions) Insert(c *Condition) {
+	i := sort.Search(len(*b), func(i int) bool { return []*Condition(*b)[i].Timestamp >= c.Timestamp })
+	*b = append(*b, &Condition{})
+	copy([]*Condition(*b)[i+1:], []*Condition(*b)[i:])
+	[]*Condition(*b)[i] = c
 }
 
 type RestoreNode struct {
-	Name             string     `bson:"name" json:"name"`
-	Status           Status     `bson:"status" json:"status"`
-	LastTransitionTS int64      `bson:"last_transition_ts" json:"last_transition_ts"`
-	Error            string     `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       Conditions `bson:"conditions" json:"conditions"`
+	Name             string              `bson:"name" json:"name"`
+	Status           Status              `bson:"status" json:"status"`
+	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
+	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       Conditions          `bson:"conditions" json:"conditions"`
+	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
 }
 
 type TxnState string
@@ -105,7 +107,7 @@ func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) e
 
 func (p *PBM) SetRestoreMeta(m *RestoreMeta) error {
 	m.LastTransitionTS = m.StartTS
-	m.Conditions = append(m.Conditions, Condition{
+	m.Conditions = append(m.Conditions, &Condition{
 		Timestamp: m.StartTS,
 		Status:    m.Status,
 	})
