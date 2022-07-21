@@ -191,8 +191,6 @@ func (r *PhysRestore) waitMgoShutdown() error {
 	return nil
 }
 
-const syncErrSuffix = "err"
-
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 // - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
@@ -202,10 +200,29 @@ const syncErrSuffix = "err"
 //   all replicasets. And sets status file for the cluster.
 // - Each node in turn waits for the cluster status file and returns (move further)
 //   once it's observed.
-func (r *PhysRestore) toState(status pbm.Status) error {
+func (r *PhysRestore) toState(status pbm.Status) (err error) {
+	defer func() {
+		if err != nil {
+			if r.nodeInfo.IsPrimary {
+				serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
+					errStatus(err), -1)
+				if serr != nil {
+					r.log.Error("write replset error state `%v`: %v", err, serr)
+				}
+			}
+			if r.nodeInfo.IsClusterLeader() {
+				serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
+					errStatus(err), -1)
+				if serr != nil {
+					r.log.Error("write cluster error state `%v`: %v", err, serr)
+				}
+			}
+		}
+	}()
+
 	r.log.Info("moving to state %s", status)
 
-	err := r.stg.Save(r.syncPathNode+"."+string(status),
+	err = r.stg.Save(r.syncPathNode+"."+string(status),
 		okStatus(), -1)
 	if err != nil {
 		return errors.Wrap(err, "write node state")
@@ -213,15 +230,8 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 
 	if r.nodeInfo.IsPrimary {
 		r.log.Info("waiting for `%s` status in rs %v", status, r.syncPathPeers)
-		err = r.waitFiles(status, r.syncPathPeers)
+		err = r.waitFiles(status, copyMap(r.syncPathPeers))
 		if err != nil {
-			if errors.As(err, &nodeErr{}) {
-				serr := r.stg.Save(r.syncPathRS+"."+syncErrSuffix,
-					errStatus(err), -1)
-				if serr != nil {
-					return errors.Wrapf(serr, "write replset error state `%v`", err)
-				}
-			}
 			return errors.Wrap(err, "wait for nodes in rs")
 		}
 
@@ -234,15 +244,8 @@ func (r *PhysRestore) toState(status pbm.Status) error {
 
 	if r.nodeInfo.IsClusterLeader() {
 		r.log.Info("waiting for shards %v", r.syncPathShards)
-		err = r.waitFiles(status, r.syncPathShards)
+		err = r.waitFiles(status, copyMap(r.syncPathShards))
 		if err != nil {
-			if errors.As(err, &nodeErr{}) {
-				serr := r.stg.Save(r.syncPathCluster+"."+syncErrSuffix,
-					errStatus(err), -1)
-				if serr != nil {
-					return errors.Wrapf(serr, "write replset error state `%v`", err)
-				}
-			}
 			return errors.Wrap(err, "wait for shards")
 		}
 
@@ -287,16 +290,28 @@ func (n nodeErr) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
 }
 
+func copyMap[K comparable, V any](m map[K]V) map[K]V {
+	cp := make(map[K]V)
+	for k, v := range m {
+		cp[k] = v
+	}
+
+	return cp
+}
+
 func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err error) {
 	tk := time.NewTicker(time.Second * 5)
 	defer tk.Stop()
 	for range tk.C {
 		for f := range objs {
-			errFile := f + "." + syncErrSuffix
+			errFile := f + "." + string(pbm.StatusError)
+			r.log.Debug("ERR file: %s", errFile)
 			_, err = r.stg.FileStat(errFile)
 			if err != nil && err != storage.ErrNotExist {
 				return errors.Wrapf(err, "get file %s", errFile)
 			}
+
+			r.log.Debug("ERR file: %s: %v", errFile, err)
 
 			if err == nil {
 				r, err := r.stg.SourceReader(errFile)
@@ -362,9 +377,14 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 	meta := &pbm.RestoreMeta{
 		Type:     pbm.PhysicalBackup,
 		OPID:     opid.String(),
-		Name:     r.name,
+		Name:     cmd.Name,
 		Backup:   cmd.BackupName,
+		StartTS:  time.Now().Unix(),
+		Status:   pbm.StatusInit,
 		Replsets: []pbm.RestoreReplset{{Name: r.nodeInfo.Me}},
+	}
+	if r.nodeInfo.IsClusterLeader() {
+		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
 	}
 
 	defer func() {
@@ -377,7 +397,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 		r.close()
 	}()
 
-	meta, err = r.init(cmd.Name, opid, l)
+	err = r.init(cmd.Name, opid, l)
 	if err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -396,6 +416,9 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 	// don't write logs to the mongo anymore
 	r.cn.Logger().PauseMgo()
 
+	// if r.nodeInfo.Me == "rs101:27017" {
+	// 	return errors.New("BOOM!")
+	// }
 	err = r.toState(pbm.StatusRunning)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
@@ -458,12 +481,22 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 
-	ts := time.Now().Unix()
-
-	meta.Status = s
-	meta.Conditions = append(meta.Conditions, &pbm.Condition{Timestamp: ts, Status: s})
-	meta.LastTransitionTS = ts
-	meta.Error = msg
+	condsm, err := pbm.GetPhysRestoreMeta(r.stg, meta.Name)
+	if err == nil {
+		meta.Replsets = condsm.Replsets
+		meta.Status = condsm.Status
+		meta.LastTransitionTS = condsm.LastTransitionTS
+		meta.Error = condsm.Error
+		meta.Hb = condsm.Hb
+		meta.Conditions = condsm.Conditions
+	}
+	if err != nil || s == pbm.StatusError {
+		ts := time.Now().Unix()
+		meta.Status = s
+		meta.Conditions = append(meta.Conditions, &pbm.Condition{Timestamp: ts, Status: s})
+		meta.LastTransitionTS = ts
+		meta.Error = fmt.Sprintf("%s/%s: %s", r.nodeInfo.SetName, r.nodeInfo.Me, msg)
+	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -750,10 +783,10 @@ func startMongo(opts ...string) error {
 
 const hbFrameSec = 60 * 2
 
-func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.RestoreMeta, err error) {
+func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	r.stg, err = r.cn.GetStorage(r.log)
 	if err != nil {
-		return nil, errors.Wrap(err, "get storage")
+		return errors.Wrap(err, "get storage")
 	}
 
 	r.log = l
@@ -762,19 +795,6 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 	r.opid = opid.String()
 
 	r.startTS = time.Now().Unix()
-
-	meta = &pbm.RestoreMeta{
-		Type:     pbm.PhysicalBackup,
-		OPID:     opid.String(),
-		Name:     r.name,
-		StartTS:  r.startTS,
-		Status:   pbm.StatusInit,
-		Replsets: []pbm.RestoreReplset{{Name: r.nodeInfo.Me}},
-	}
-
-	if r.nodeInfo.IsClusterLeader() {
-		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
-	}
 
 	r.syncPathNode = fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
 	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
@@ -809,7 +829,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (meta *pbm.
 		}
 	}()
 
-	return meta, nil
+	return nil
 }
 
 const syncHbSuffix = "hb"
@@ -975,7 +995,7 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error) {
 		meta.Replsets[0].Error = e.Error()
 	}
 
-	err := r.stg.Save(r.syncPathNode+"."+syncErrSuffix,
+	err := r.stg.Save(r.syncPathNode+"."+string(pbm.StatusError),
 		errStatus(e), -1)
 
 	if err != nil {

@@ -330,9 +330,9 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restore string) (*Conditio
 	}
 
 	if cond.Status == StatusError {
-		estr := strings.SplitN(string(b), ":", 1)
+		estr := strings.SplitN(string(b), ":", 2)
 		if len(estr) != 2 {
-			return nil, errors.Wrapf(err, "malformatted data in %s", fname)
+			return nil, errors.Errorf("malformatted data in %s: %s", fname, b)
 		}
 		cond.Timestamp, err = strconv.ParseInt(estr[0], 10, 0)
 		if err != nil {
