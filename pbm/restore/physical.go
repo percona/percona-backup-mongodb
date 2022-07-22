@@ -305,13 +305,10 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 	for range tk.C {
 		for f := range objs {
 			errFile := f + "." + string(pbm.StatusError)
-			r.log.Debug("ERR file: %s", errFile)
 			_, err = r.stg.FileStat(errFile)
 			if err != nil && err != storage.ErrNotExist {
 				return errors.Wrapf(err, "get file %s", errFile)
 			}
-
-			r.log.Debug("ERR file: %s: %v", errFile, err)
 
 			if err == nil {
 				r, err := r.stg.SourceReader(errFile)
@@ -416,9 +413,6 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 	// don't write logs to the mongo anymore
 	r.cn.Logger().PauseMgo()
 
-	// if r.nodeInfo.Me == "rs101:27017" {
-	// 	return errors.New("BOOM!")
-	// }
 	err = r.toState(pbm.StatusRunning)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
@@ -481,6 +475,11 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 
+	// We'll try to build as accurate meta as possible but it won't
+	// be 100% accurate as not all agents have reported its final state yet
+	// The meta generated here is more for debugging porpuses (just in case).
+	// `pbm status` and `resync` will always rebuild it from agents' reports
+	// not relying solely on this file.
 	condsm, err := pbm.GetPhysRestoreMeta(r.stg, meta.Name)
 	if err == nil {
 		meta.Replsets = condsm.Replsets
