@@ -19,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
@@ -158,10 +159,11 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
-	Type             BackupType      `bson:"type"`
-	Name             string          `bson:"name"`
-	Compression      CompressionType `bson:"compression"`
-	CompressionLevel *int            `bson:"level,omitempty"`
+	Type             BackupType              `bson:"type"`
+	Name             string                  `bson:"name"`
+	Namespaces       []string                `bson:"nss,omitempty"`
+	Compression      archive.CompressionType `bson:"compression"`
+	CompressionLevel *int                    `bson:"level,omitempty"`
 }
 
 func (b BackupCmd) String() string {
@@ -177,6 +179,7 @@ func (b BackupCmd) String() string {
 type RestoreCmd struct {
 	Name       string            `bson:"name"`
 	BackupName string            `bson:"backupName"`
+	Namespaces []string          `bson:"nss,omitempty"`
 	RSMap      map[string]string `bson:"rsMap,omitempty"`
 }
 
@@ -196,11 +199,12 @@ func (c ReplayCmd) String() string {
 }
 
 type PITRestoreCmd struct {
-	Name  string            `bson:"name"`
-	TS    int64             `bson:"ts"`
-	I     int64             `bson:"i"`
-	Bcp   string            `bson:"bcp"`
-	RSMap map[string]string `bson:"rsMap,omitempty"`
+	Name       string            `bson:"name"`
+	TS         int64             `bson:"ts"`
+	I          int64             `bson:"i"`
+	Bcp        string            `bson:"bcp"`
+	Namespaces []string          `bson:"nss,omitempty"`
+	RSMap      map[string]string `bson:"rsMap,omitempty"`
 }
 
 func (p PITRestoreCmd) String() string {
@@ -221,69 +225,6 @@ type DeletePITRCmd struct {
 
 func (d DeleteBackupCmd) String() string {
 	return fmt.Sprintf("backup: %s, older than: %d", d.Backup, d.OlderThan)
-}
-
-type CompressionType string
-
-const (
-	CompressionTypeNone      CompressionType = "none"
-	CompressionTypeGZIP      CompressionType = "gzip"
-	CompressionTypePGZIP     CompressionType = "pgzip"
-	CompressionTypeSNAPPY    CompressionType = "snappy"
-	CompressionTypeLZ4       CompressionType = "lz4"
-	CompressionTypeS2        CompressionType = "s2"
-	CompressionTypeZstandard CompressionType = "zstd"
-)
-
-func isValidCompressionType(s string) bool {
-	switch CompressionType(s) {
-	case
-		CompressionTypeNone,
-		CompressionTypeGZIP,
-		CompressionTypePGZIP,
-		CompressionTypeSNAPPY,
-		CompressionTypeLZ4,
-		CompressionTypeS2,
-		CompressionTypeZstandard:
-		return true
-	}
-
-	return false
-}
-
-func (c CompressionType) Suffix() string {
-	switch c {
-	case CompressionTypeGZIP, CompressionTypePGZIP:
-		return ".gz"
-	case CompressionTypeLZ4:
-		return ".lz4"
-	case CompressionTypeSNAPPY:
-		return ".snappy"
-	case CompressionTypeS2:
-		return ".s2"
-	case CompressionTypeZstandard:
-		return ".zst"
-	default:
-		return ""
-	}
-}
-
-// FileCompression return compression alg based on given file extension
-func FileCompression(ext string) CompressionType {
-	switch ext {
-	default:
-		return CompressionTypeNone
-	case "gz":
-		return CompressionTypePGZIP
-	case "lz4":
-		return CompressionTypeLZ4
-	case "snappy":
-		return CompressionTypeSNAPPY
-	case "s2":
-		return CompressionTypeS2
-	case "zst":
-		return CompressionTypeZstandard
-	}
 }
 
 const (
@@ -527,24 +468,26 @@ const (
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
-	Type             BackupType           `bson:"type" json:"type"`
-	OPID             string               `bson:"opid" json:"opid"`
-	Name             string               `bson:"name" json:"name"`
-	Replsets         []BackupReplset      `bson:"replsets" json:"replsets"`
-	Compression      CompressionType      `bson:"compression" json:"compression"`
-	Store            StorageConf          `bson:"store" json:"store"`
-	MongoVersion     string               `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS          int64                `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64                `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp  `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp  `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               primitive.Timestamp  `bson:"hb" json:"hb"`
-	Status           Status               `bson:"status" json:"status"`
-	Conditions       []Condition          `bson:"conditions" json:"conditions"`
-	Nomination       []BackupRsNomination `bson:"n" json:"n"`
-	Err              string               `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
-	BalancerStatus   BalancerMode         `bson:"balancer" json:"balancer"`
+	Type             BackupType              `bson:"type" json:"type"`
+	OPID             string                  `bson:"opid" json:"opid"`
+	Name             string                  `bson:"name" json:"name"`
+	Namespaces       []string                `bson:"nss,omitempty" json:"nss,omitempty"`
+	Replsets         []BackupReplset         `bson:"replsets" json:"replsets"`
+	Compression      archive.CompressionType `bson:"compression" json:"compression"`
+	Store            StorageConf             `bson:"store" json:"store"`
+	Size             int64                   `bson:"size" json:"size"`
+	MongoVersion     string                  `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64                   `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64                   `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     primitive.Timestamp     `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      primitive.Timestamp     `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp     `bson:"hb" json:"hb"`
+	Status           Status                  `bson:"status" json:"status"`
+	Conditions       []Condition             `bson:"conditions" json:"conditions"`
+	Nomination       []BackupRsNomination    `bson:"n" json:"n"`
+	Err              string                  `bson:"error,omitempty" json:"error,omitempty"`
+	PBMVersion       string                  `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	BalancerStatus   BalancerMode            `bson:"balancer" json:"balancer"`
 	runtimeError     error
 }
 
@@ -585,6 +528,7 @@ type BackupReplset struct {
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
+	IsConfigSvr      *bool               `bson:"iscs" json:"iscs,omitempty"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
@@ -733,6 +677,14 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
+func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, rsName string, size int64) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{{"$inc", bson.M{"size": size}}})
+
+	return err
+}
+
 func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -792,6 +744,7 @@ func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
 
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int) (*BackupMeta, error) {
 	q := bson.D{
+		{"ns", nil},
 		{"status", StatusDone},
 		{"type", bson.M{"$ne": string(PhysicalBackup)}},
 	}
@@ -1072,4 +1025,15 @@ func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{
 	}
 
 	return n, nil
+}
+
+func Ref[T any](v T) *T {
+	return &v
+}
+
+func Deref[T any](v *T) (rv T) {
+	if v != nil {
+		rv = *v
+	}
+	return
 }

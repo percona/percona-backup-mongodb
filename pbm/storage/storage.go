@@ -3,6 +3,8 @@ package storage
 import (
 	"errors"
 	"io"
+
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 )
 
 var (
@@ -17,7 +19,7 @@ type FileInfo struct {
 }
 
 type Storage interface {
-	Save(name string, data io.Reader, size int) error
+	Save(name string, data io.Reader, size int64) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)
@@ -29,4 +31,10 @@ type Storage interface {
 	Delete(name string) error
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
+}
+
+func Uploader(s Storage) archive.UploadFunc {
+	return func(filename string, r io.Reader) error {
+		return s.Save(filename, r, 0)
+	}
 }

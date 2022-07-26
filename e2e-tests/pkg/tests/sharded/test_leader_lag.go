@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 )
 
 // LeaderLag checks if cluster deals with leader lag during backup start
@@ -27,7 +28,7 @@ func (c *Cluster) LeaderLag() {
 		Backup: &pbm.BackupCmd{
 			Type:        pbm.LogicalBackup,
 			Name:        bcpName,
-			Compression: pbm.CompressionTypeS2,
+			Compression: archive.CompressionTypeS2,
 		},
 	})
 	if err != nil {

@@ -5,18 +5,26 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
+	"github.com/minio/minio-go/pkg/set"
 	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
+
+var ErrShardedCollection = errors.New("selective backup: sharded collections")
 
 func init() {
 	// set date format for mongo tools (mongodump/mongorestore) logger
@@ -58,6 +66,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 		Type:           b.typ,
 		OPID:           opid.String(),
 		Name:           bcp.Name,
+		Namespaces:     bcp.Namespaces,
 		Compression:    bcp.Compression,
 		StartTS:        time.Now().Unix(),
 		Status:         pbm.StatusStarting,
@@ -101,6 +110,9 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 		Conditions:   []pbm.Condition{},
 		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
+	if v := inf.IsConfigSrv(); v {
+		rsMeta.IsConfigSvr = &v
+	}
 
 	stg, err := b.cn.GetStorage(l)
 	if err != nil {
@@ -125,7 +137,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 					Replsets: []pbm.BackupReplset{rsMeta},
 				}
 
-				l.Info("delete artifacts from storage: %v", b.cn.DeleteBackupFiles(meta, stg))
+				l.Info("delete artifacts from storage: %v", b.cn.DeleteBackupFiles(l, meta, stg))
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
@@ -187,6 +199,13 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			bs := waitForBalancerOff(b.cn, time.Second*30, l)
 			l.Debug("balancer status: %s", bs)
 		}
+
+		if inf.IsConfigSrv() {
+			err := checkNamespacesForBackup(ctx, b.cn.Conn, bcp.Namespaces)
+			if err != nil {
+				return errors.WithMessage(err, "namespace check")
+			}
+		}
 	}
 
 	// Waiting for StatusStarting to move further.
@@ -235,6 +254,107 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	// to be sure the locks released only after the "done" status had written
 	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
+}
+
+func checkNamespacesForBackup(ctx context.Context, m *mongo.Client, nss []string) error {
+	if len(nss) == 0 {
+		return nil
+	}
+
+	dbs := make(map[string][]string)
+	for _, ns := range nss {
+		db, coll := archive.ParseNS(ns)
+
+		colls := dbs[db]
+		if coll != "" {
+			colls = append(colls, coll)
+		}
+
+		dbs[db] = colls
+	}
+
+	eg, ctx := errgroup.WithContext(ctx)
+
+	for db, colls := range dbs {
+		db, colls := db, colls
+
+		eg.Go(func() error {
+			colls, err := fullCollectionNames(ctx, m, db, colls)
+			if err != nil {
+				return errors.WithMessage(err, "full collection names")
+			}
+
+			res, err := getShardedNamespaces(ctx, m, db, colls)
+			if err != nil {
+				return errors.WithMessage(err, "get sharded namespaces")
+			}
+			if len(res) != 0 {
+				return errors.WithMessagef(err,
+					"cannot selectively backup sharded collections: %s",
+					strings.Join(res, ", "))
+			}
+
+			return nil
+		})
+	}
+
+	return eg.Wait()
+}
+
+func fullCollectionNames(ctx context.Context, m *mongo.Client, db string, colls []string) ([]string, error) {
+	specs, err := m.Database(db).ListCollectionSpecifications(ctx, bson.D{})
+	if err != nil {
+		return nil, errors.WithMessage(err, "listCollections: query")
+	}
+
+	var match func(string) bool
+	if len(colls) == 0 {
+		match = func(string) bool { return true }
+	} else {
+		match = set.CreateStringSet(colls...).Contains
+	}
+
+	rv := make([]string, 0, len(colls))
+	for _, info := range specs {
+		if !match(info.Name) {
+			continue
+		}
+
+		name := info.Name
+		if info.Type == "timeseries" {
+			name = "system.buckets." + name
+		}
+
+		rv = append(rv, name)
+	}
+
+	return rv, nil
+}
+
+func getShardedNamespaces(ctx context.Context, m *mongo.Client, db string, colls []string) ([]string, error) {
+	cur, err := m.Database("config").Collection("collections").
+		Find(ctx,
+			bson.D{{"_id", bson.M{"$in": colls}}},
+			options.Find().SetProjection(bson.D{{"_id", 1}}))
+	if err != nil {
+		return nil, errors.WithMessage(err, "query")
+	}
+
+	type document struct {
+		ID string `bson:"_id"`
+	}
+
+	rv := make([]string, 0, len(colls))
+	for cur.Next(ctx) {
+		var doc document
+		if err := cur.Decode(&doc); err != nil {
+			return nil, errors.WithMessage(err, "decode")
+		}
+
+		rv = append(rv, strings.TrimPrefix(doc.ID, "system.buckets."))
+	}
+
+	return rv, nil
 }
 
 func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
@@ -325,10 +445,10 @@ type Canceller interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression pbm.CompressionType, compressLevel *int, fname string, sizeb int) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression archive.CompressionType, compressLevel *int, fname string, sizeb int64) (int64, error) {
 	r, pw := io.Pipe()
 
-	w, err := Compress(pw, compression, compressLevel)
+	w, err := archive.Compress(pw, compression, compressLevel)
 	if err != nil {
 		return 0, err
 	}

@@ -19,6 +19,7 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type statusOptions struct {
@@ -500,7 +501,13 @@ func (s storageStat) String() string {
 			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
 		}
 
-		ret += fmt.Sprintf("    %s %s <%s> %s\n", sn.Name, fmtSize(sn.Size), sn.Type, status)
+		kind := string(sn.Type)
+		if len(sn.Namespaces) != 0 {
+			kind += "*"
+		}
+
+		ret += fmt.Sprintf("    %s %s <%s> %s\n",
+			sn.Name, fmtSize(sn.Size), kind, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -576,6 +583,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 	for _, bcp := range bcps {
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
+			Namespaces: bcp.Namespaces,
 			Status:     bcp.Status,
 			StateTS:    bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
@@ -596,7 +604,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			case pbm.PhysicalBackup:
 				snpsht.Size, err = getPhysSnapshotSize(&bcp, stg)
 			default:
-				snpsht.Size, err = getSnapshotSize(bcp.Replsets, stg)
+				snpsht.Size, err = getBackupSize(&bcp, stg)
 			}
 			if err != nil {
 				snpsht.Err = err
@@ -688,7 +696,15 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 	return &pitrRanges{Ranges: pr, Size: size}, nil
 }
 
-func getSnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
+func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+		return getLegacySnapshotSize(bcp.Replsets, stg)
+	}
+
+	return bcp.Size, nil
+}
+
+func getLegacySnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
 	for _, rs := range rsets {
 		ds, err := stg.FileStat(rs.DumpName)
 		if err != nil {

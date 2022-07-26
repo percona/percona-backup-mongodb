@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/yaml.v2"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
@@ -59,16 +60,16 @@ func (c Config) String() string {
 
 // PITRConf is a Point-In-Time Recovery options
 type PITRConf struct {
-	Enabled          bool            `bson:"enabled" json:"enabled" yaml:"enabled"`
-	OplogSpanMin     float64         `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	OplogOnly        bool            `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
-	Compression      CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
-	CompressionLevel *int            `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	Enabled          bool                    `bson:"enabled" json:"enabled" yaml:"enabled"`
+	OplogSpanMin     float64                 `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	OplogOnly        bool                    `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
+	Compression      archive.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel *int                    `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
 func (c *PITRConf) Cast() error {
 	if c.Compression == "" {
-		c.Compression = CompressionTypeS2
+		c.Compression = archive.CompressionTypeS2
 	}
 
 	return nil
@@ -141,9 +142,9 @@ type RestoreConf struct {
 }
 
 type BackupConf struct {
-	Priority         map[string]float64 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
-	Compression      CompressionType    `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
-	CompressionLevel *int               `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	Priority         map[string]float64      `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Compression      archive.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel *int                    `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
 type confMap map[string]reflect.Kind
@@ -203,7 +204,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 		}
 	}
 
-	if c := string(cfg.PITR.Compression); c != "" && !isValidCompressionType(c) {
+	if c := string(cfg.PITR.Compression); c != "" && !archive.IsValidCompressionType(c) {
 		return errors.Errorf("unsupported compression type: %q", c)
 	}
 
@@ -261,7 +262,7 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	case "pitr.enabled":
 		return errors.Wrap(p.confSetPITR(key, v.(bool)), "write to db")
 	case "pitr.compression":
-		if c := v.(string); c != "" && !isValidCompressionType(c) {
+		if c := v.(string); c != "" && !archive.IsValidCompressionType(c) {
 			return errors.Errorf("unsupported compression type: %q", c)
 		}
 	case "storage.filesystem.path":

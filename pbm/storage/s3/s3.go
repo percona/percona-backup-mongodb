@@ -232,9 +232,9 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	return s, nil
 }
 
-const defaultPartSize = 10 * 1024 * 1024 // 10Mb
+const defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 
-func (s *S3) Save(name string, data io.Reader, sizeb int) error {
+func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	switch s.opts.Provider {
 	default:
 		awsSession, err := s.session()
@@ -273,7 +273,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 				s.opts.UploadPartSize = int(s3manager.MinUploadPartSize)
 			}
 
-			partSize = s.opts.UploadPartSize
+			partSize = int64(s.opts.UploadPartSize)
 		}
 		if sizeb > 0 {
 			ps := sizeb / s3manager.MaxUploadParts * 11 / 10 // add 10% just in case
@@ -283,14 +283,14 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		}
 
 		if s.log != nil {
-			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
-			s.log.Info("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
+			s.log.Debug("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
+			s.log.Debug("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
 		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 			u.MaxUploadParts = s.opts.MaxUploadParts
-			u.PartSize = int64(partSize) // 10MB part size
-			u.LeavePartsOnError = true   // Don't delete the parts if the upload fails.
+			u.PartSize = partSize      // 10MB part size
+			u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
 			u.Concurrency = cc
 
 			u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {

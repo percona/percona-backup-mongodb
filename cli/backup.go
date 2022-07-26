@@ -3,13 +3,17 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -18,6 +22,7 @@ type backupOpts struct {
 	typ              string
 	compression      string
 	compressionLevel []int
+	ns               string
 	wait             bool
 }
 
@@ -30,9 +35,20 @@ func (b backupOut) String() string {
 	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
 }
 
+type descBcp struct {
+	name string
+}
+
 func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
-	err := checkConcurrentOp(cn)
+	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
+		return nil, errors.WithMessage(err, "parse --ns option")
+	}
+	if len(nss) > 1 {
+		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
+	}
+
+	if err := checkConcurrentOp(cn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
 		op, ok := err.(concurentOpErr)
 		if !ok || op.op.Type != pbm.CmdPITR {
@@ -55,12 +71,12 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		level = cfg.Backup.CompressionLevel
 	}
 
-	compression := pbm.CompressionType(b.compression)
+	compression := archive.CompressionType(b.compression)
 	if compression == "" {
 		if cfg.Backup.Compression != "" {
 			compression = cfg.Backup.Compression
 		} else {
-			compression = pbm.CompressionTypeS2
+			compression = archive.CompressionTypeS2
 		}
 	}
 
@@ -69,6 +85,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		Backup: &pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
+			Namespaces:       nss,
 			Compression:      compression,
 			CompressionLevel: level,
 		},
@@ -177,6 +194,68 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
 		}
 	}
+}
+
+type bcpDesc struct {
+	Name         string              `json:"name" yaml:"name"`
+	Type         pbm.BackupType      `json:"type" yaml:"type"`
+	LastWriteTS  primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
+	Namespaces   []string            `json:"namespaces" yaml:"namespaces"`
+	MongoVersion string              `json:"mongodb_version" yaml:"mongodb_version"`
+	PBMVersion   string              `json:"pbm_version" yaml:"pbm_version"`
+	Status       pbm.Status          `json:"status" yaml:"status"`
+	Size         int64               `json:"size" yaml:"size"`
+	Err          string              `json:"error" yaml:"error"`
+	Replsets     []bcpReplDesc       `json:"replsets" yaml:"replsets"`
+}
+
+type bcpReplDesc struct {
+	Name        string              `json:"name" yaml:"name"`
+	Status      pbm.Status          `json:"status" yaml:"status"`
+	IsConfigSvr bool                `json:"iscs" yaml:"iscs"`
+	LastWriteTS primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
+	Error       string              `json:"error" yaml:"error"`
+}
+
+func (b *bcpDesc) String() string {
+	data, err := yaml.Marshal(b)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return string(data)
+}
+
+func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
+	bcp, err := cn.GetBackupMeta(b.name)
+	if err != nil {
+		return nil, err
+	}
+
+	rv := &bcpDesc{
+		Name:         bcp.Name,
+		Type:         bcp.Type,
+		Namespaces:   bcp.Namespaces,
+		MongoVersion: bcp.MongoVersion,
+		PBMVersion:   bcp.PBMVersion,
+		LastWriteTS:  bcp.LastWriteTS,
+		Status:       bcp.Status,
+		Size:         bcp.Size,
+		Err:          bcp.Err,
+	}
+
+	rv.Replsets = make([]bcpReplDesc, len(bcp.Replsets))
+	for i, r := range bcp.Replsets {
+		rv.Replsets[i] = bcpReplDesc{
+			Name:        r.Name,
+			IsConfigSvr: pbm.Deref(r.IsConfigSvr),
+			Status:      r.Status,
+			Error:       r.Error,
+			LastWriteTS: r.LastWriteTS,
+		}
+	}
+
+	return rv, err
 }
 
 // bcpsMatchCluster checks if given backups match shards in the cluster. Match means that

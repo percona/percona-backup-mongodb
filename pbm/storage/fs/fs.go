@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/pkg/errors"
 )
 
 type Conf struct {
@@ -34,10 +33,10 @@ func New(opts Conf) *FS {
 	}
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int) error {
+func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 	filepath := path.Join(fs.opts.Path, name)
 
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0700)
+	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o700)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -47,7 +46,7 @@ func (fs *FS) Save(name string, data io.Reader, _ int) error {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
 	defer fw.Close()
-	err = os.Chmod(filepath, 0600)
+	err = os.Chmod(filepath, 0o600)
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}

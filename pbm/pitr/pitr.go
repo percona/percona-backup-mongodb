@@ -13,8 +13,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -26,7 +28,7 @@ type Slicer struct {
 	span    int64
 	lastTS  primitive.Timestamp
 	storage storage.Storage
-	oplog   *backup.Oplog
+	oplog   *oplog.OplogBackup
 	l       *log.Event
 	ep      pbm.Epoch
 }
@@ -39,7 +41,7 @@ func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage, ep pb
 		rs:      rs,
 		span:    int64(pbm.PITRdefaultSpan),
 		storage: to,
-		oplog:   backup.NewOplog(node),
+		oplog:   oplog.NewOplogBackup(node),
 		l:       cn.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS()),
 		ep:      ep,
 	}
@@ -240,7 +242,7 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression pbm.CompressionType, level *int) error {
+func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression archive.CompressionType, level *int) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -387,7 +389,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 	}
 }
 
-func (s *Slicer) upload(from, to primitive.Timestamp, compression pbm.CompressionType, level *int) error {
+func (s *Slicer) upload(from, to primitive.Timestamp, compression archive.CompressionType, level *int) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
@@ -459,7 +461,7 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 }
 
 // !!! should be agreed with pbm.PITRmetaFromFName()
-func (s *Slicer) chunkPath(first, last primitive.Timestamp, c pbm.CompressionType) string {
+func (s *Slicer) chunkPath(first, last primitive.Timestamp, c archive.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 

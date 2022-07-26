@@ -23,6 +23,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -403,7 +404,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	if err != nil {
 		return errors.Wrap(err, "encode restore meta")
 	}
-	err = r.stg.Save(fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, meta.Name), &buf, buf.Len())
+	err = r.stg.Save(fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, meta.Name), &buf, int64(buf.Len()))
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}
@@ -430,7 +431,7 @@ func (r *PhysRestore) copyFiles() error {
 				}
 				defer sr.Close()
 
-				data, err := Decompress(sr, r.bcp.Compression)
+				data, err := archive.Decompress(sr, r.bcp.Compression)
 				if err != nil {
 					return errors.Wrapf(err, "decompress object %s", src)
 				}

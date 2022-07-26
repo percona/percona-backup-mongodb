@@ -1,6 +1,6 @@
 package restore
 
-func sliceHasString(ss []string, s string) bool {
+func Contains[T comparable](ss []T, s T) bool {
 	for _, e := range ss {
 		if e == s {
 			return true

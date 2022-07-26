@@ -117,16 +117,20 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	return i, nil
 }
 
-// SizeDBs returns the total size in bytes of all databases' files on disk on replicaset
-func (n *Node) SizeDBs() (int, error) {
-	i := &struct {
-		TotalSize int `bson:"totalSize"`
-	}{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"listDatabases", 1}}).Decode(i)
+// DBSize returns the total size in bytes of a specific db files on disk on replicaset.
+// If db is empty string, returns total size for all databases.
+func (n *Node) DBSize(ctx context.Context, db string) (int64, error) {
+	q := bson.D{}
+	if db != "" {
+		q = append(q, bson.E{"name", db})
+	}
+
+	res, err := n.cn.ListDatabases(ctx, q)
 	if err != nil {
 		return 0, errors.Wrap(err, "run mongo command listDatabases")
 	}
-	return i.TotalSize, nil
+
+	return res.TotalSize, nil
 }
 
 // IsSharded return true if node is part of the sharded cluster (in shard or configsrv replset).
@@ -318,7 +322,6 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
-
 	}
 
 	_, err = CopyColl(n.ctx,

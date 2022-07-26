@@ -13,7 +13,7 @@ func New() *Blackhole {
 	return &Blackhole{}
 }
 
-func (*Blackhole) Save(_ string, data io.Reader, _ int) error {
+func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {
 	_, err := io.Copy(ioutil.Discard, data)
 	return err
 }

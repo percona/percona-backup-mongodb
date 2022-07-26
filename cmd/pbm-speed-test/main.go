@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/percona/percona-backup-mongodb/speedt"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/speedt"
+
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -27,11 +29,11 @@ func main() {
 		compressLevel    *int
 
 		compressType = tCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
-				Default(string(pbm.CompressionTypeS2)).
-				Enum(string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
-				string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
-				string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
-				string(pbm.CompressionTypeZstandard),
+				Default(string(archive.CompressionTypeS2)).
+				Enum(string(archive.CompressionTypeNone), string(archive.CompressionTypeGZIP),
+				string(archive.CompressionTypeSNAPPY), string(archive.CompressionTypeLZ4),
+				string(archive.CompressionTypeS2), string(archive.CompressionTypePGZIP),
+				string(archive.CompressionTypeZstandard),
 			)
 
 		compressionCmd = tCmd.Command("compression", "Run compression test")
@@ -62,10 +64,10 @@ func main() {
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
-		compression(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		compression(*mURL, archive.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case storageCmd.FullCommand():
 		fmt.Print("Test started ")
-		storage(*mURL, pbm.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		storage(*mURL, archive.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -78,7 +80,7 @@ func main() {
 	}
 }
 
-func compression(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
+func compression(mURL string, compression archive.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	var cn *mongo.Client
@@ -107,7 +109,7 @@ func compression(mURL string, compression pbm.CompressionType, level *int, sizeG
 	fmt.Println(r)
 }
 
-func storage(mURL string, compression pbm.CompressionType, level *int, sizeGb float64, collection string) {
+func storage(mURL string, compression archive.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	node, err := pbm.NewNode(ctx, mURL, 1)
