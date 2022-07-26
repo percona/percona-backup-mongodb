@@ -54,7 +54,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 			return errors.Wrapf(err, "decode meta %s", rs.Name)
 		}
 
-		condsm, err := GetPhysRestoreMeta(stg, strings.TrimSuffix(rs.Name, ".json"))
+		condsm, err := GetPhysRestoreMeta(strings.TrimSuffix(rs.Name, ".json"), stg)
 		if err == nil {
 			rmeta.Replsets = condsm.Replsets
 			rmeta.Status = condsm.Status
@@ -208,7 +208,7 @@ func (p *PBM) moveCollection(coll, as string) error {
 	return errors.Wrap(err, "remove current data")
 }
 
-func GetPhysRestoreMeta(stg storage.Storage, restore string) (*RestoreMeta, error) {
+func GetPhysRestoreMeta(restore string, stg storage.Storage) (*RestoreMeta, error) {
 	rfiles, err := stg.List(PhysRestoresDir+"/"+restore, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "get files")

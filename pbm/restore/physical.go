@@ -480,7 +480,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	// The meta generated here is more for debugging porpuses (just in case).
 	// `pbm status` and `resync` will always rebuild it from agents' reports
 	// not relying solely on this file.
-	condsm, err := pbm.GetPhysRestoreMeta(r.stg, meta.Name)
+	condsm, err := pbm.GetPhysRestoreMeta(meta.Name, r.stg)
 	if err == nil {
 		meta.Replsets = condsm.Replsets
 		meta.Status = condsm.Status

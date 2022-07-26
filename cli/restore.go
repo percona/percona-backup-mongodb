@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type restoreOpts struct {
@@ -137,7 +135,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	if m.Type == pbm.PhysicalBackup {
 		fname = fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
-			return getRestoreMetaStg(name, stg)
+			return pbm.GetPhysRestoreMeta(name, stg)
 		}
 	}
 
@@ -170,29 +168,6 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	}
 
 	return nil
-}
-
-func getRestoreMetaStg(name string, stg storage.Storage) (*pbm.RestoreMeta, error) {
-	_, err := stg.FileStat(name)
-	if err == storage.ErrNotExist {
-		return nil, pbm.ErrNotFound
-	}
-	if err != nil {
-		return nil, errors.Wrap(err, "get stat")
-	}
-
-	src, err := stg.SourceReader(name)
-	if err != nil {
-		return nil, errors.Wrapf(err, "get file %s", name)
-	}
-
-	rmeta := new(pbm.RestoreMeta)
-	err = json.NewDecoder(src).Decode(rmeta)
-	if err != nil {
-		return nil, errors.Wrapf(err, "decode meta %s", name)
-	}
-
-	return rmeta, nil
 }
 
 type errRestoreFailed struct {
@@ -242,10 +217,32 @@ func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outF
 
 	fmt.Printf("Starting restore from '%s'", bcpName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	var (
+		fn     getRestoreMetaFn
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
+	// physical restore may take more time to start
+	const waitPhysRestoreStart = time.Second * 120
+	if bcp.Type == pbm.PhysicalBackup {
+		ep, _ := cn.GetEpoch()
+		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
+		if err != nil {
+			return nil, errors.Wrap(err, "get storage")
+		}
+
+		fn = func(name string) (*pbm.RestoreMeta, error) {
+			return pbm.GetPhysRestoreMeta(name, stg)
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), waitPhysRestoreStart)
+	} else {
+		fn = cn.GetRestoreMeta
+		ctx, cancel = context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name)
+	return waitForRestoreStatus(ctx, cn, name, fn)
 }
 
 func parseTS(t string) (ts primitive.Timestamp, err error) {
@@ -305,10 +302,12 @@ func pitrestore(cn *pbm.PBM, t, base string, rsMap map[string]string, outf outFo
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name)
+	return waitForRestoreStatus(ctx, cn, name, cn.GetRestoreMeta)
 }
 
-func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.RestoreMeta, error) {
+type getRestoreMetaFn func(name string) (*pbm.RestoreMeta, error)
+
+func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	var err error
@@ -317,7 +316,7 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.R
 		select {
 		case <-tk.C:
 			fmt.Print(".")
-			meta, err = cn.GetRestoreMeta(name)
+			meta, err = getfn(name)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue
 			}
