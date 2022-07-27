@@ -217,7 +217,7 @@ func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outF
 		}, nil
 	}
 
-	fmt.Printf("Starting restore from '%s'", bcpName)
+	fmt.Printf("Starting restore %s from '%s'", name, bcpName)
 
 	var (
 		fn     getRestoreMetaFn
@@ -366,30 +366,34 @@ type descrRestoreOpts struct {
 }
 
 type describeRestoreResult struct {
-	Name             string           `yaml:"name" json:"name"`
-	Backup           string           `yaml:"backup" json:"backup"`
-	Type             pbm.BackupType   `yaml:"type" json:"type"`
-	Status           pbm.Status       `yaml:"status" json:"status"`
-	Error            *string          `yaml:"error,omitempty" json:"error,omitempty"`
-	Replsets         []RestoreReplset `yaml:"replsets" json:"replsets"`
-	OPID             string           `yaml:"opid" json:"opid"`
-	StartTS          int64            `yaml:"start_ts" json:"start_ts"`
-	LastTransitionTS int64            `yaml:"last_transition_ts" json:"last_transition_ts"`
+	Name               string           `yaml:"name" json:"name"`
+	Backup             string           `yaml:"backup" json:"backup"`
+	Type               pbm.BackupType   `yaml:"type" json:"type"`
+	Status             pbm.Status       `yaml:"status" json:"status"`
+	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
+	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
+	OPID               string           `yaml:"opid" json:"opid"`
+	StartTS            int64            `yaml:"-" json:"start_ts"`
+	StartTime          string           `yaml:"start" json:"-"`
+	LastTransitionTS   int64            `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string           `yaml:"last_transition_time" json:"-"`
 }
 
 type RestoreReplset struct {
-	Name             string        `yaml:"name" json:"name"`
-	Status           pbm.Status    `yaml:"status" json:"status"`
-	Error            *string       `yaml:"error,omitempty" json:"error,omitempty"`
-	LastTransitionTS int64         `yaml:"last_transition_ts" json:"last_transition_ts"`
-	Nodes            []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+	Name               string        `yaml:"name" json:"name"`
+	Status             pbm.Status    `yaml:"status" json:"status"`
+	Error              *string       `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS   int64         `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string        `yaml:"last_transition_time" json:"-"`
+	Nodes              []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
 }
 
 type RestoreNode struct {
-	Name             string     `yaml:"name" json:"name"`
-	Status           pbm.Status `yaml:"status" json:"status"`
-	Error            *string    `yaml:"error,omitempty" json:"error,omitempty"`
-	LastTransitionTS int64      `yaml:"last_transition_ts" json:"last_transition_ts"`
+	Name               string     `yaml:"name" json:"name"`
+	Status             pbm.Status `yaml:"status" json:"status"`
+	Error              *string    `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS   int64      `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string     `yaml:"last_transition_time" json:"-"`
 }
 
 func (r describeRestoreResult) String() string {
@@ -443,25 +447,29 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 	res.Status = meta.Status
 	res.OPID = meta.OPID
 	res.StartTS = meta.StartTS
+	res.StartTime = time.Unix(res.StartTS, 0).Format(time.RFC3339)
 	res.LastTransitionTS = meta.LastTransitionTS
+	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).Format(time.RFC3339)
 	if meta.Status == pbm.StatusError {
 		res.Error = &meta.Error
 	}
 
 	for _, rs := range meta.Replsets {
 		mrs := RestoreReplset{
-			Name:             rs.Name,
-			Status:           rs.Status,
-			LastTransitionTS: rs.LastTransitionTS,
+			Name:               rs.Name,
+			Status:             rs.Status,
+			LastTransitionTS:   rs.LastTransitionTS,
+			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).Format(time.RFC3339),
 		}
 		if rs.Status == pbm.StatusError {
 			mrs.Error = &rs.Error
 		}
 		for _, node := range rs.Nodes {
 			mnode := RestoreNode{
-				Name:             node.Name,
-				Status:           node.Status,
-				LastTransitionTS: node.LastTransitionTS,
+				Name:               node.Name,
+				Status:             node.Status,
+				LastTransitionTS:   node.LastTransitionTS,
+				LastTransitionTime: time.Unix(node.LastTransitionTS, 0).Format(time.RFC3339),
 			}
 			if node.Status == pbm.StatusError {
 				mnode.Error = &node.Error

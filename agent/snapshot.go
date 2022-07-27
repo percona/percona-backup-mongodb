@@ -263,7 +263,7 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 }
 
 func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
 	if r == nil {
 		l.Error("missed command")
 		return
