@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 type restoreOpts struct {
@@ -420,7 +421,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 			return nil, errors.Wrap(err, "unable to  unmarshal config file")
 		}
 
-		stg, err := pbm.Storage(cfg, cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+		stg, err := pbm.Storage(cfg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}

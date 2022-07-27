@@ -178,12 +178,15 @@ func Main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
-	if err != nil {
-		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
+	var pbmClient *pbm.PBM
+	// we don't need pbm connection if it is `pbm describe-restore -c ...`
+	if describeRestoreOpts.cfg == "" {
+		pbmClient, err = pbm.New(ctx, *mURL, "pbm-ctl")
+		if err != nil {
+			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
+		}
+		pbmClient.InitLogger("", "")
 	}
-
-	pbmClient.InitLogger("", "")
 
 	switch cmd {
 	case configCmd.FullCommand():
