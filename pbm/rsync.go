@@ -43,27 +43,13 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	}
 	l.Debug("got physical restores list: %v", len(rstrs))
 	for _, rs := range rstrs {
-		src, err := stg.SourceReader(filepath.Join(PhysRestoresDir, rs.Name))
+		rname := strings.TrimSuffix(rs.Name, ".json")
+		rmeta, err := GetPhysRestoreMeta(rname, stg)
 		if err != nil {
-			return errors.Wrapf(err, "get file %s", rs.Name)
-		}
-
-		rmeta := RestoreMeta{}
-		err = json.NewDecoder(src).Decode(&rmeta)
-		if err != nil {
-			return errors.Wrapf(err, "decode meta %s", rs.Name)
-		}
-
-		condsm, err := GetPhysRestoreMeta(strings.TrimSuffix(rs.Name, ".json"), stg)
-		if err == nil {
-			rmeta.Replsets = condsm.Replsets
-			rmeta.Status = condsm.Status
-			rmeta.LastTransitionTS = condsm.LastTransitionTS
-			rmeta.Error = condsm.Error
-			rmeta.Hb = condsm.Hb
-			rmeta.Conditions = condsm.Conditions
-		} else {
-			l.Error("parse physical restore status %s: %v", rs.Name, err)
+			l.Error("get meta for restore %s: %v", rs.Name, err)
+			if rmeta == nil {
+				continue
+			}
 		}
 
 		_, err = p.Conn.Database(DB).Collection(RestoresCollection).ReplaceOne(
@@ -208,7 +194,45 @@ func (p *PBM) moveCollection(coll, as string) error {
 	return errors.Wrap(err, "remove current data")
 }
 
-func GetPhysRestoreMeta(restore string, stg storage.Storage) (*RestoreMeta, error) {
+func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta, err error) {
+	mjson := filepath.Join(PhysRestoresDir, restore) + ".json"
+	_, err = stg.FileStat(mjson)
+	if err != nil && err != storage.ErrNotExist {
+		return nil, errors.Wrapf(err, "get file %s", mjson)
+	}
+	if err == nil {
+		src, err := stg.SourceReader(mjson)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get file %s", mjson)
+		}
+
+		rmeta = new(RestoreMeta)
+		err = json.NewDecoder(src).Decode(rmeta)
+		if err != nil {
+			return nil, errors.Wrapf(err, "decode meta %s", mjson)
+		}
+	}
+
+	condsm, err := ParsePhysRestoreStatus(restore, stg)
+	if err != nil {
+		return rmeta, errors.Wrap(err, "parse physical restore status")
+	}
+
+	if rmeta == nil {
+		return condsm, err
+	}
+
+	rmeta.Replsets = condsm.Replsets
+	rmeta.Status = condsm.Status
+	rmeta.LastTransitionTS = condsm.LastTransitionTS
+	rmeta.Error = condsm.Error
+	rmeta.Hb = condsm.Hb
+	rmeta.Conditions = condsm.Conditions
+
+	return rmeta, err
+}
+
+func ParsePhysRestoreStatus(restore string, stg storage.Storage) (*RestoreMeta, error) {
 	rfiles, err := stg.List(PhysRestoresDir+"/"+restore, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "get files")

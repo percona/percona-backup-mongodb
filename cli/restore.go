@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -356,4 +358,119 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string, getfn g
 			return nil, errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
 		}
 	}
+}
+
+type descrRestoreOpts struct {
+	restore string
+	cfg     string
+}
+
+type describeRestoreResult struct {
+	Name             string           `yaml:"name" json:"name"`
+	Backup           string           `yaml:"backup" json:"backup"`
+	Type             pbm.BackupType   `yaml:"type" json:"type"`
+	Status           pbm.Status       `yaml:"status" json:"status"`
+	Error            *string          `yaml:"error,omitempty" json:"error,omitempty"`
+	Replsets         []RestoreReplset `yaml:"replsets" json:"replsets"`
+	OPID             string           `yaml:"opid" json:"opid"`
+	StartTS          int64            `yaml:"start_ts" json:"start_ts"`
+	LastTransitionTS int64            `yaml:"last_transition_ts" json:"last_transition_ts"`
+}
+
+type RestoreReplset struct {
+	Name             string        `yaml:"name" json:"name"`
+	Status           pbm.Status    `yaml:"status" json:"status"`
+	Error            *string       `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS int64         `yaml:"last_transition_ts" json:"last_transition_ts"`
+	Nodes            []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+}
+
+type RestoreNode struct {
+	Name             string     `yaml:"name" json:"name"`
+	Status           pbm.Status `yaml:"status" json:"status"`
+	Error            *string    `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS int64      `yaml:"last_transition_ts" json:"last_transition_ts"`
+}
+
+func (r describeRestoreResult) String() string {
+	b, err := yaml.Marshal(r)
+	if err != nil {
+		return fmt.Sprintln("error:", err)
+	}
+
+	return string(b)
+}
+
+func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
+	var res describeRestoreResult
+	var meta *pbm.RestoreMeta
+	if o.cfg != "" {
+		buf, err := ioutil.ReadFile(o.cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to read config file")
+		}
+
+		var cfg pbm.Config
+		err = yaml.UnmarshalStrict(buf, &cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+		}
+
+		stg, err := pbm.Storage(cfg, cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+		if err != nil {
+			return nil, errors.Wrap(err, "get storage")
+		}
+
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg)
+		if err != nil && meta == nil {
+			return nil, errors.Wrap(err, "get restore meta")
+		}
+	} else {
+		var err error
+		meta, err = cn.GetRestoreMeta(o.restore)
+		if err != nil {
+			return nil, errors.Wrap(err, "get restore meta")
+		}
+	}
+
+	if meta == nil {
+		return nil, errors.New("undefined restore meta")
+	}
+
+	res.Name = meta.Name
+	res.Backup = meta.Backup
+	res.Type = meta.Type
+	res.Status = meta.Status
+	res.OPID = meta.OPID
+	res.StartTS = meta.StartTS
+	res.LastTransitionTS = meta.LastTransitionTS
+	if meta.Status == pbm.StatusError {
+		res.Error = &meta.Error
+	}
+
+	for _, rs := range meta.Replsets {
+		mrs := RestoreReplset{
+			Name:             rs.Name,
+			Status:           rs.Status,
+			LastTransitionTS: rs.LastTransitionTS,
+		}
+		if rs.Status == pbm.StatusError {
+			mrs.Error = &rs.Error
+		}
+		for _, node := range rs.Nodes {
+			mnode := RestoreNode{
+				Name:             node.Name,
+				Status:           node.Status,
+				LastTransitionTS: node.LastTransitionTS,
+			}
+			if node.Status == pbm.StatusError {
+				mnode.Error = &node.Error
+			}
+
+			mrs.Nodes = append(mrs.Nodes, mnode)
+		}
+		res.Replsets = append(res.Replsets, mrs)
+	}
+
+	return res, nil
 }
