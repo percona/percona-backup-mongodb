@@ -23,6 +23,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/mod/semver"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -42,6 +43,7 @@ type PhysRestore struct {
 	dbpath string
 	// an ephemeral port to restart mongod on during the restore
 	tmpPort string
+	tmpConf *os.File
 	rsConf  *pbm.RSConfig // original replset config
 	startTS int64
 
@@ -69,7 +71,7 @@ type PhysRestore struct {
 }
 
 func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, error) {
-	opts, err := node.GetOpts()
+	opts, err := node.GetOpts(nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo options")
 	}
@@ -127,6 +129,12 @@ func peekTmpPort() (int, error) {
 // Close releases object resources.
 // Should be run to avoid leaks.
 func (r *PhysRestore) close() {
+	if r.tmpConf != nil {
+		err := os.Remove(r.tmpConf.Name())
+		if err != nil {
+			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+		}
+	}
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
@@ -403,6 +411,10 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 	if err != nil {
 		return err
 	}
+	err = r.setTmpConf()
+	if err != nil {
+		return errors.Wrap(err, "set tmp config")
+	}
 
 	err = r.toState(pbm.StatusStarting)
 	if err != nil {
@@ -558,7 +570,7 @@ func (r *PhysRestore) copyFiles() error {
 }
 
 func (r *PhysRestore) prepareData() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort, "--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -620,7 +632,7 @@ func shutdown(c *mongo.Client) error {
 }
 
 func (r *PhysRestore) recoverStandalone() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort,
+	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
 	if err != nil {
@@ -641,7 +653,7 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) resetRS() error {
-	err := startMongo("--dbpath", r.dbpath, "--port", r.tmpPort)
+	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -763,7 +775,11 @@ func conn(port string, rs string) (*mongo.Client, error) {
 	return conn, nil
 }
 
-func startMongo(opts ...string) error {
+func (r *PhysRestore) startMongo(opts ...string) error {
+	if r.tmpConf != nil {
+		r.log.Debug("mongod start w conf %s", r.tmpConf.Name())
+		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
+	}
 	cmd := exec.Command("mongod", opts...)
 	err := cmd.Start()
 	if err != nil {
@@ -897,6 +913,35 @@ func (r *PhysRestore) checkHB(file string) error {
 	}
 
 	return nil
+}
+
+func (r *PhysRestore) setTmpConf() (err error) {
+	opts := new(pbm.MongodOpts)
+	for _, v := range r.bcp.Replsets {
+		if v.Name == r.nodeInfo.SetName {
+			if v.MongodOpts == nil {
+				return nil
+			}
+
+			opts.Storage = v.MongodOpts.Storage
+			break
+		}
+	}
+
+	opts.Storage.DBpath = r.dbpath
+
+	r.tmpConf, err = os.CreateTemp("", "pbmMongdTmpConf")
+	if err != nil {
+		return errors.Wrap(err, "create tmp config")
+	}
+
+	enc := yaml.NewEncoder(r.tmpConf)
+	err = enc.Encode(opts)
+	if err != nil {
+		return errors.Wrap(err, "encode options")
+	}
+
+	return enc.Close()
 }
 
 func (r *PhysRestore) prepareBackup(backupName string) (err error) {
