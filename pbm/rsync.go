@@ -223,9 +223,13 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 	}
 
 	rmeta.Replsets = condsm.Replsets
-	rmeta.Status = condsm.Status
+	if condsm.Status != "" {
+		rmeta.Status = condsm.Status
+	}
 	rmeta.LastTransitionTS = condsm.LastTransitionTS
-	rmeta.Error = condsm.Error
+	if condsm.Error != "" {
+		rmeta.Error = condsm.Error
+	}
 	rmeta.Hb = condsm.Hb
 	rmeta.Conditions = condsm.Conditions
 

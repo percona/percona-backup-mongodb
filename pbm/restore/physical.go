@@ -42,7 +42,7 @@ type PhysRestore struct {
 	node   *pbm.Node
 	dbpath string
 	// an ephemeral port to restart mongod on during the restore
-	tmpPort string
+	tmpPort int
 	tmpConf *os.File
 	rsConf  *pbm.RSConfig // original replset config
 	startTS int64
@@ -105,7 +105,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		dbpath:   p,
 		rsConf:   rcf,
 		nodeInfo: inf,
-		tmpPort:  strconv.Itoa(tmpPort),
+		tmpPort:  tmpPort,
 	}, nil
 }
 
@@ -130,10 +130,10 @@ func peekTmpPort() (int, error) {
 // Should be run to avoid leaks.
 func (r *PhysRestore) close() {
 	if r.tmpConf != nil {
-		err := os.Remove(r.tmpConf.Name())
-		if err != nil {
-			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
-		}
+		// err := os.Remove(r.tmpConf.Name())
+		// if err != nil {
+		// 	r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+		// }
 	}
 	if r.stopHB != nil {
 		close(r.stopHB)
@@ -215,14 +215,14 @@ func (r *PhysRestore) toState(status pbm.Status) (err error) {
 				serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
 					errStatus(err), -1)
 				if serr != nil {
-					r.log.Error("write replset error state `%v`: %v", err, serr)
+					r.log.Error("toState: write replset error state `%v`: %v", err, serr)
 				}
 			}
 			if r.nodeInfo.IsClusterLeader() {
 				serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
 					errStatus(err), -1)
 				if serr != nil {
-					r.log.Error("write cluster error state `%v`: %v", err, serr)
+					r.log.Error("toState: write cluster error state `%v`: %v", err, serr)
 				}
 			}
 		}
@@ -570,7 +570,7 @@ func (r *PhysRestore) copyFiles() error {
 }
 
 func (r *PhysRestore) prepareData() error {
-	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	err := r.startMongo("--dbpath", r.dbpath, "--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -632,7 +632,7 @@ func shutdown(c *mongo.Client) error {
 }
 
 func (r *PhysRestore) recoverStandalone() error {
-	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort,
+	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
 	if err != nil {
@@ -653,7 +653,7 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) resetRS() error {
-	err := r.startMongo("--dbpath", r.dbpath, "--port", r.tmpPort)
+	err := r.startMongo("--dbpath", r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -744,11 +744,11 @@ func (r *PhysRestore) resetRS() error {
 	return nil
 }
 
-func conn(port string, rs string) (*mongo.Client, error) {
+func conn(port int, rs string) (*mongo.Client, error) {
 	ctx := context.Background()
 
 	opts := options.Client().
-		SetHosts([]string{"localhost:" + port}).
+		SetHosts([]string{"localhost:" + strconv.Itoa(port)}).
 		SetAppName("pbm-physical-restore").
 		SetDirect(true).
 		SetConnectTimeout(time.Second * 60)
@@ -777,10 +777,15 @@ func conn(port string, rs string) (*mongo.Client, error) {
 
 func (r *PhysRestore) startMongo(opts ...string) error {
 	if r.tmpConf != nil {
-		r.log.Debug("mongod start w conf %s", r.tmpConf.Name())
-		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
+		b, _ := io.ReadAll(r.tmpConf)
+		r.log.Debug("mongod start w conf %s: %s", r.tmpConf.Name(), b)
+		opts = append(opts, []string{"-f", r.tmpConf.Name(), "--logpath", path.Join(r.dbpath, "pbm.restore.log")}...)
 	}
+
+	errBuf := new(bytes.Buffer)
 	cmd := exec.Command("mongod", opts...)
+
+	cmd.Stderr = errBuf
 	err := cmd.Start()
 	if err != nil {
 		return err
@@ -790,7 +795,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	go func() {
 		err := cmd.Wait()
 		if err != nil {
-			slog.Println("wait/release mongod process:", err)
+			slog.Printf("mongod process: %v, %s", err, errBuf)
 		}
 	}()
 	return nil
@@ -928,20 +933,31 @@ func (r *PhysRestore) setTmpConf() (err error) {
 		}
 	}
 
+	opts.Net.BindIp = "localhost"
+	opts.Net.Port = r.tmpPort
 	opts.Storage.DBpath = r.dbpath
 
 	r.tmpConf, err = os.CreateTemp("", "pbmMongdTmpConf")
 	if err != nil {
 		return errors.Wrap(err, "create tmp config")
 	}
+	defer r.tmpConf.Close()
 
 	enc := yaml.NewEncoder(r.tmpConf)
 	err = enc.Encode(opts)
 	if err != nil {
 		return errors.Wrap(err, "encode options")
 	}
+	err = enc.Close()
+	if err != nil {
+		return errors.Wrap(err, "close encoder")
+	}
+	err = r.tmpConf.Sync()
+	if err != nil {
+		return errors.Wrap(err, "fsync")
+	}
 
-	return enc.Close()
+	return nil
 }
 
 func (r *PhysRestore) prepareBackup(backupName string) (err error) {
@@ -1041,6 +1057,21 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error) {
 
 	err := r.stg.Save(r.syncPathNode+"."+string(pbm.StatusError),
 		errStatus(e), -1)
+
+	if r.nodeInfo.IsPrimary {
+		serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
+			errStatus(err), -1)
+		if serr != nil {
+			r.log.Error("MarkFailed: write replset error state `%v`: %v", err, serr)
+		}
+	}
+	if r.nodeInfo.IsClusterLeader() {
+		serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
+			errStatus(err), -1)
+		if serr != nil {
+			r.log.Error("MarkFailed: write cluster error state `%v`: %v", err, serr)
+		}
+	}
 
 	if err != nil {
 		r.log.Error("write error state `%v` to storage: %v", e, err)

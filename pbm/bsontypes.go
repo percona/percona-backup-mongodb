@@ -237,7 +237,7 @@ type MongodOpts struct {
 }
 
 type MongodOptsStorage struct {
-	DirectoryPerDB bool   `bson:"directoryPerDB" json:"dbPadirectoryPerDBth" yaml:"dbPadirectoryPerDBth"`
+	DirectoryPerDB bool   `bson:"directoryPerDB" json:"directoryPerDB" yaml:"directoryPerDB"`
 	DBpath         string `bson:"dbPath" json:"dbPath" yaml:"dbPath"`
 	WiredTiger     struct {
 		EngineConfig struct {
