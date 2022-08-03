@@ -112,7 +112,14 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	i := &NodeInfo{}
 	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(i)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command")
+		return nil, errors.Wrap(err, "get NodeInfo")
+	}
+	opts, err := n.GetOpts()
+	if err != nil {
+		return nil, errors.Wrap(err, "get mongod options")
+	}
+	if opts != nil {
+		i.opts = *opts
 	}
 	return i, nil
 }
