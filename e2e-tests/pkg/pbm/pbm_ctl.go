@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -212,9 +213,18 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 			if err != nil {
 				return err
 			}
+
+			// trim rubbish from the output
+			i := strings.Index(out, "[")
+			if i == -1 || len(out) <= i {
+				continue
+			}
+			out = out[i:]
+
 			var list []rlist
 			err = json.Unmarshal([]byte(out), &list)
 			if err != nil {
+				log.Printf("\n\n%s\n\n", strings.TrimSpace(out))
 				return errors.Wrap(err, "unmarshal list")
 			}
 			for _, r := range list {
