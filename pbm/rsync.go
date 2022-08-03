@@ -236,6 +236,9 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 	return rmeta, err
 }
 
+// ParsePhysRestoreStatus parses phys restore's sync files and creates RestoreMeta.
+//
+// On files format, see comments for *PhysRestore.toState() in pbm/restore/physical.go
 func ParsePhysRestoreStatus(restore string, stg storage.Storage) (*RestoreMeta, error) {
 	rfiles, err := stg.List(PhysRestoresDir+"/"+restore, "")
 	if err != nil {

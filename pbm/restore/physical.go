@@ -208,13 +208,49 @@ func (r *PhysRestore) waitMgoShutdown() error {
 
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
-// - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
+// - Each node writes file with the given state.
 // - Replset leader (primary node) waits for files from all replicaset' nodes. And
 //   writes a status file for the relicaset.
 // - Cluster leader (primary node on config server) waits for status files from
 //   all replicasets. And sets status file for the cluster.
 // - Each node in turn waits for the cluster status file and returns (move further)
 //   once it's observed.
+//
+// State structure on storage:
+//
+//	.pbm.restore/<restore-name>
+// 		rs.<rs-name>/
+// 			node.<node-name>.hb			// hearbeats. last beat ts inside.
+// 			node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+// 			rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//		cluster.hb						// hearbeats. last beat ts inside.
+// 		cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//
+//  For example:
+//
+//      2022-08-02T18:50:35.1889332Z
+//      ├── cluster.done
+//      ├── cluster.hb
+//      ├── cluster.running
+//      ├── cluster.starting
+//      ├── rs.rs1
+//      │   ├── node.rs101:27017.done
+//      │   ├── node.rs101:27017.hb
+//      │   ├── node.rs101:27017.running
+//      │   ├── node.rs101:27017.starting
+//      │   ├── node.rs102:27017.done
+//      │   ├── node.rs102:27017.hb
+//      │   ├── node.rs102:27017.running
+//      │   ├── node.rs102:27017.starting
+//      │   ├── node.rs103:27017.done
+//      │   ├── node.rs103:27017.hb
+//      │   ├── node.rs103:27017.running
+//      │   ├── node.rs103:27017.starting
+//      │   ├── rs.done
+//      │   ├── rs.hb
+//      │   ├── rs.running
+//      │   └── rs.starting
+//
 func (r *PhysRestore) toState(status pbm.Status) (err error) {
 	defer func() {
 		if err != nil {
