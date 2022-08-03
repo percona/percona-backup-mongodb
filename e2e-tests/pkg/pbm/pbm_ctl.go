@@ -189,6 +189,14 @@ func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
 }
 
 func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
+	type rlist struct {
+		Start    int
+		Status   pbm.Status
+		Type     string
+		Name     string
+		Snapshot string
+		Error    string
+	}
 	tmr := time.NewTimer(waitFor)
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
@@ -196,24 +204,29 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 		case <-tmr.C:
 			list, err := c.RunCmd("pbm", "list", "--restore")
 			if err != nil {
-				return errors.Wrap(err, "timeout reached. get backups list")
+				return errors.Wrap(err, "timeout reached. get restores list")
 			}
-			return errors.Errorf("timeout reached. backups list:\n%s", list)
+			return errors.Errorf("timeout reached. restores list:\n%s", list)
 		case <-tkr.C:
-			out, err := c.RunCmd("pbm", "list", "--restore")
+			out, err := c.RunCmd("pbm", "list", "--restore", "-o", "json")
 			if err != nil {
 				return err
 			}
-			for _, s := range strings.Split(out, "\n") {
-				s := strings.TrimSpace(s)
-				if s == bcpName {
-					return nil
+			var list []rlist
+			err = json.Unmarshal([]byte(out), &list)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal list")
+			}
+			for _, r := range list {
+				if r.Snapshot != bcpName {
+					continue
 				}
-				if strings.HasPrefix(s, bcpName) {
-					status := strings.TrimSpace(strings.Split(s, bcpName)[1])
-					if strings.Contains(status, "Failed with") {
-						return errors.New(status)
-					}
+
+				switch r.Status {
+				case pbm.StatusDone:
+					return nil
+				case pbm.StatusError:
+					errors.Errorf("failed with %s", r.Error)
 				}
 			}
 		}
