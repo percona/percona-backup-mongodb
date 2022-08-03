@@ -128,12 +128,19 @@ func peekTmpPort() (int, error) {
 
 // Close releases object resources.
 // Should be run to avoid leaks.
-func (r *PhysRestore) close() {
+func (r *PhysRestore) close(noerr bool) {
 	if r.tmpConf != nil {
-		// err := os.Remove(r.tmpConf.Name())
-		// if err != nil {
-		// 	r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
-		// }
+		err := os.Remove(r.tmpConf.Name())
+		if err != nil {
+			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+		}
+	}
+	// clean-up internal mongod log only if there is no error
+	if noerr {
+		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
+		if err != nil {
+			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+		}
 	}
 	if r.stopHB != nil {
 		close(r.stopHB)
@@ -399,7 +406,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 			}
 		}
 
-		r.close()
+		r.close(err == nil)
 	}()
 
 	err = r.init(cmd.Name, opid, l)
@@ -775,12 +782,16 @@ func conn(port int, rs string) (*mongo.Client, error) {
 	return conn, nil
 }
 
+const internalMongodLog = "pbm.restore.log"
+
 func (r *PhysRestore) startMongo(opts ...string) error {
 	if r.tmpConf != nil {
 		b, _ := io.ReadAll(r.tmpConf)
 		r.log.Debug("mongod start w conf %s: %s", r.tmpConf.Name(), b)
-		opts = append(opts, []string{"-f", r.tmpConf.Name(), "--logpath", path.Join(r.dbpath, "pbm.restore.log")}...)
+		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
 	}
+
+	opts = append(opts, []string{"--logpath", path.Join(r.dbpath, internalMongodLog)}...)
 
 	errBuf := new(bytes.Buffer)
 	cmd := exec.Command("mongod", opts...)
