@@ -278,6 +278,9 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 				}
 				if strings.HasPrefix(s, rinlist) {
 					status := strings.TrimSpace(strings.Split(s, rinlist)[1])
+					if status == "done" {
+						return nil
+					}
 					if strings.Contains(status, "Failed with") {
 						return errors.New(status)
 					}
