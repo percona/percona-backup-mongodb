@@ -232,6 +232,7 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 	}
 	rmeta.Hb = condsm.Hb
 	rmeta.Conditions = condsm.Conditions
+	rmeta.Type = PhysicalBackup
 
 	return rmeta, err
 }
@@ -245,7 +246,7 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage) (*RestoreMeta, 
 		return nil, errors.Wrap(err, "get files")
 	}
 
-	meta := RestoreMeta{Name: restore}
+	meta := RestoreMeta{Name: restore, Type: PhysicalBackup}
 
 	rss := make(map[string]struct {
 		rs    RestoreReplset

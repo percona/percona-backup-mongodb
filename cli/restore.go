@@ -28,7 +28,6 @@ type restoreRet struct {
 	Name     string `json:"name,omitempty"`
 	Snapshot string `json:"snapshot,omitempty"`
 	PITR     string `json:"point-in-time,omitempty"`
-	Leader   string `json:"leader,omitempty"`
 	done     bool
 	physical bool
 	err      string
@@ -49,11 +48,7 @@ func (r restoreRet) String() string {
 	case r.err != "":
 		return "\n Error: " + r.err
 	case r.Snapshot != "":
-		var l string
-		if r.Leader != "" {
-			l = ". Leader: " + r.Leader + "\n"
-		}
-		return fmt.Sprintf("Restore of the snapshot from '%s' has started%s", r.Snapshot, l)
+		return fmt.Sprintf("Restore of the snapshot from '%s' has started", r.Snapshot)
 	case r.PITR != "":
 		return fmt.Sprintf("Restore to the point in time '%s' has started", r.PITR)
 
@@ -79,12 +74,12 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return nil, err
 		}
 		if !o.wait {
-			return restoreRet{Name: m.Name, Snapshot: o.bcp, Leader: m.Leader}, nil
+			return restoreRet{Name: m.Name, Snapshot: o.bcp}, nil
 		}
 
 		typ := " logical restore.\nWaiting to finish"
 		if m.Type == pbm.PhysicalBackup {
-			typ = fmt.Sprintf(" physical restore. Leader: %s\nWaiting to finish", m.Leader)
+			typ = " physical restore.\nWaiting to finish"
 		}
 		fmt.Printf("Started%s", typ)
 		err = waitRestore(cn, m)
@@ -131,12 +126,10 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	fname := m.Name
 	var rmeta *pbm.RestoreMeta
 
 	getMeta := cn.GetRestoreMeta
 	if m.Type == pbm.PhysicalBackup {
-		fname = fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
 			return pbm.GetPhysRestoreMeta(name, stg)
 		}
@@ -144,7 +137,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 
 	for range tk.C {
 		fmt.Print(".")
-		rmeta, err = getMeta(fname)
+		rmeta, err = getMeta(m.Name)
 		if errors.Is(err, pbm.ErrNotFound) {
 			continue
 		}
@@ -215,6 +208,7 @@ func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outF
 		return &pbm.RestoreMeta{
 			Name:   name,
 			Backup: bcpName,
+			Type:   bcp.Type,
 		}, nil
 	}
 
