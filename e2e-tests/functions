@@ -203,7 +203,7 @@ genMongoKey() {
     key_file="${test_dir}/docker/keyFile"
 
     if [ ! -f $key_file ]; then
-        openssl rand -base64 756 > $key_file
+        openssl rand -base64 756 >$key_file
         chmod 400 $key_file
     fi
 }
