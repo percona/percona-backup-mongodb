@@ -26,7 +26,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 		log.Fatalf("Error: cancel backup '%s'.\nOutput: %s\nStderr:%v", bcpName, o, err)
 	}
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	checkNoBackupFiles(bcpName, storage)
 

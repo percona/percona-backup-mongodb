@@ -32,8 +32,6 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - SINGLE_NODE=true
-    ports:
-      - 27017:27017
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
