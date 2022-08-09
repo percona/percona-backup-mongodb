@@ -373,7 +373,10 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString("{")
 	b.WriteString(fmt.Sprintf("\"%s\":", c.k))
-	json.NewEncoder(&b).Encode(c.v)
+	err := json.NewEncoder(&b).Encode(c.v)
+	if err != nil {
+		return nil, err
+	}
 	b.WriteString("}")
 	return b.Bytes(), nil
 }

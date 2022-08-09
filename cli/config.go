@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 
@@ -58,7 +58,7 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 			}
 		}
 		if rsnc {
-			rsync(cn)
+			_ = rsync(cn)
 		}
 		return o, nil
 	case len(c.key) > 0:
@@ -74,7 +74,7 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 		}
 		return outMsg{"Storage resync started"}, nil
 	case len(c.file) > 0:
-		buf, err := ioutil.ReadFile(c.file)
+		buf, err := os.ReadFile(c.file)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to read config file")
 		}

@@ -2,7 +2,6 @@ package sharded
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
@@ -10,8 +9,9 @@ import (
 	"time"
 
 	"github.com/minio/minio-go"
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"gopkg.in/yaml.v2"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type backupDelete struct {
@@ -167,7 +167,7 @@ const awsurl = "s3.amazonaws.com"
 // except for the shouldStay
 func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artifacts deleted excepts backup's", shouldStay)
-	buf, err := ioutil.ReadFile(conf)
+	buf, err := os.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("ERROR: unable to read config file:", err)
 	}

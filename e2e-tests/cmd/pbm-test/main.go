@@ -13,7 +13,6 @@ const (
 	testsUnknown testTyp = ""
 	testsSharded testTyp = "sharded"
 	testsRS      testTyp = "rs"
-	tests1NodeRS testTyp = "node"
 
 	defaultMongoUser = "bcp"
 	defaultMongoPass = "test1234"
@@ -24,7 +23,6 @@ const (
 type bcpTyp string
 
 const (
-	bcpUnknown  bcpTyp = ""
 	bcpLogical  bcpTyp = "logical"
 	bcpPhysical bcpTyp = "physical"
 )

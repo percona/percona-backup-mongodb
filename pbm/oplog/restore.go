@@ -139,7 +139,7 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	defer bsonSource.Close()
 
 	o.txnBuffer = txn.NewBuffer()
-	defer o.txnBuffer.Stop() // it basically never returns an error
+	defer func() { _ = o.txnBuffer.Stop() }() // it basically never returns an error
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -266,21 +266,24 @@ func isPrepareTxn(op *db.Oplog) bool {
 // (with txn ops) and `commitTransaction` or abortTransaction.
 // Although commitTimestamp for the same txn on different shards always the same,
 // the op with `commitTransaction` may have different `ts` (op timestamp). Fo example:
-// 	rs1: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
-// 			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
-// 			"ts" : Timestamp(1644410656, 9), ... }
-// 	rs2: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
-// 			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
-// 			"ts" : Timestamp(1644410656, 8), ... }
+//
+//	rs1: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
+//			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
+//			"ts" : Timestamp(1644410656, 9), ... }
+//	rs2: { "lsid" : { "id" : UUID("f7ad867d-f9a4-444c-bf5f-7185e7038d6e"), ... },
+//			"o" : { "commitTransaction" : 1, "commitTimestamp" : Timestamp(1644410656, 6) },
+//			"ts" : Timestamp(1644410656, 8), ... }
 //
 // Since we sync backup/restore across shards by `ts` (`opTime`), artifacts of such transaction
-//  would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
+//
+//	would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
+//
 // To avoid that we have to check if a distributed transaction was committed on all
 // participated shards before committing such transaction.
-// - Encountering `prepare` statement `handleTxnOp` would send such txn to the caller.
-// - Bumping into `commitTransaction` it will send txn again with respective state and
-// 	 commit time. And waits for the response from the caller with either "commit" or "abort" state.
-// - On "abort" transactions buffer will be purged, hence all ops are discarded.
+//   - Encountering `prepare` statement `handleTxnOp` would send such txn to the caller.
+//   - Bumping into `commitTransaction` it will send txn again with respective state and
+//     commit time. And waits for the response from the caller with either "commit" or "abort" state.
+//   - On "abort" transactions buffer will be purged, hence all ops are discarded.
 func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	err := o.txnBuffer.AddOp(meta, op)
 	if err != nil {
@@ -473,7 +476,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
+			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {

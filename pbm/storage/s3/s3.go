@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -162,7 +161,7 @@ func (c *Conf) Cast() error {
 // Passing nil as the io.Writer will discard any warnings.
 func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
 	if out == nil {
-		out = ioutil.Discard
+		out = io.Discard
 	}
 
 	var logLevel aws.LogLevelType
@@ -611,10 +610,15 @@ func (s *S3) session() (*session.Session, error) {
 		}})
 	}
 
+	ec2Session, err := session.NewSession()
+	if err != nil {
+		return nil, errors.WithMessage(err, "new session")
+	}
+
 	// allow fetching credentials from env variables and ec2 metadata endpoint
 	providers = append(providers, &credentials.EnvProvider{})
 	providers = append(providers, &ec2rolecreds.EC2RoleProvider{
-		Client: ec2metadata.New(session.New()),
+		Client: ec2metadata.New(ec2Session),
 	})
 
 	httpClient := http.DefaultClient

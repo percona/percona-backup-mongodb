@@ -89,7 +89,7 @@ func compression(mURL string, compression compress.CompressionType, level *int, 
 		if err != nil {
 			log.Fatalln("Error: connect to mongodb-node:", err)
 		}
-		defer node.Session().Disconnect(ctx)
+		defer func() { _ = node.Session().Disconnect(ctx) }()
 
 		cn = node.Session()
 	}
@@ -115,13 +115,13 @@ func storage(mURL string, compression compress.CompressionType, level *int, size
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-node:", err)
 	}
-	defer node.Session().Disconnect(ctx)
+	defer func() { _ = node.Session().Disconnect(ctx) }()
 
 	pbmClient, err := pbm.New(ctx, mURL, "pbm-speed-test")
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-pbm:", err)
 	}
-	defer pbmClient.Conn.Disconnect(ctx)
+	defer func() { _ = pbmClient.Conn.Disconnect(ctx) }()
 
 	stg, err := pbmClient.GetStorage(nil)
 	if err != nil {

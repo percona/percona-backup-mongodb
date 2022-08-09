@@ -788,7 +788,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 		case <-tk.C:
 			err := r.checkWaitingTxns(observedTxn)
 			if err != nil {
-				e = &err
+				*e = err
 				return
 			}
 		case <-done:
@@ -853,7 +853,10 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		endTS = *options.end
 	}
 	r.oplog.SetTimeframe(startTS, endTS)
-	r.oplog.SetIncludeNSS(options.nss)
+	err = r.oplog.SetIncludeNSS(options.nss)
+	if err != nil {
+		return errors.WithMessage(err, "set include nss")
+	}
 
 	var waitTxnErr error
 	if r.nodeInfo.IsSharded() {

@@ -130,8 +130,8 @@ func New(cn *mongo.Collection, rs, node string) *Logger {
 
 func (l *Logger) PauseMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 1)
-
 }
+
 func (l *Logger) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
@@ -277,9 +277,9 @@ func (e Entries) String() (s string) {
 }
 
 func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (*Entries, error) {
-	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
+	filter := bson.D{{"s", bson.M{"$lte": r.Severity}}}
 	if exactSeverity {
-		filter = bson.D{bson.E{"s", r.Severity}}
+		filter = bson.D{{"s", r.Severity}}
 	}
 
 	if r.RS != "" {

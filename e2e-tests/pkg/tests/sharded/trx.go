@@ -16,16 +16,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
-type shard struct {
-	name string
-	cn   *pbm.Mongo
-}
-
-type trxData struct {
-	Country string
-	UID     int
-}
-
 const trxdb = "trx"
 
 func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {

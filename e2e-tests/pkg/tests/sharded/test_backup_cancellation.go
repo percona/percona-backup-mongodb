@@ -2,9 +2,9 @@ package sharded
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -49,7 +49,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 func checkNoBackupFiles(backupName, conf string) {
 	log.Println("check no artifacts left for backup", backupName)
-	buf, err := ioutil.ReadFile(conf)
+	buf, err := os.ReadFile(conf)
 	if err != nil {
 		log.Fatalln("Error: unable to read config file:", err)
 	}

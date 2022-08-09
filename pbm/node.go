@@ -224,7 +224,7 @@ func (n *Node) DropTMPcoll() error {
 	if err != nil {
 		return errors.Wrap(err, "connect to primary")
 	}
-	defer cn.Disconnect(n.ctx)
+	defer func() { _ = cn.Disconnect(n.ctx) }()
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
@@ -317,7 +317,7 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
-	defer cn.Disconnect(n.ctx)
+	defer func() { _ = cn.Disconnect(n.ctx) }()
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {

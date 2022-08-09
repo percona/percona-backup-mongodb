@@ -3,8 +3,6 @@ package storage
 import (
 	"errors"
 	"io"
-
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 )
 
 var (
@@ -31,10 +29,4 @@ type Storage interface {
 	Delete(name string) error
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
-}
-
-func Uploader(s Storage) archive.UploadFunc {
-	return func(filename string, r io.Reader) error {
-		return s.Save(filename, r, 0)
-	}
 }

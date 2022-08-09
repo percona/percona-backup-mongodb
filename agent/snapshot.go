@@ -263,11 +263,11 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 }
 
 func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 	if r == nil {
-		l.Error("missed command")
 		return
 	}
+
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
 
 	var stg storage.Storage
 	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
@@ -400,7 +400,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		// restore. And the commands stream is down as well.
 		// The lock also updates its heartbeats but Restore waits only for one state
 		// with the timeout twice as short pbm.StaleFrameSec.
-		lock.Release()
+		_ = lock.Release()
 	}
 
 	l.Info("restore started")

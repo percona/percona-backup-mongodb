@@ -1,15 +1,16 @@
 package main
 
 import (
+	"golang.org/x/mod/semver"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"golang.org/x/mod/semver"
 )
 
 func runPhysical(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
 
-	storage := "/etc/pbm/fs.yaml"
+	storage := ""
 	// t.ApplyConfig(storage)
 	// flush(t)
 

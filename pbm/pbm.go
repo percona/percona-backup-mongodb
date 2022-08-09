@@ -432,7 +432,7 @@ func (p *PBM) setupNewDB() error {
 		},
 	)
 
-	return nil
+	return err
 }
 
 func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
