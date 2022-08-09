@@ -3,8 +3,13 @@ package backup
 import (
 	"context"
 	"io"
+	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
@@ -15,6 +20,16 @@ import (
 )
 
 func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+	var db, coll string
+	if len(bcp.Namespaces) != 0 {
+		db, coll = archive.ParseNS(bcp.Namespaces[0])
+	}
+
+	nssSize, err := getNamespacesSize(ctx, b.cn.Conn, db, coll)
+	if err != nil {
+		return err
+	}
+
 	oplog := oplog.NewOplogBackup(b.node)
 	oplogTS, err := oplog.LastWrite()
 	if err != nil {
@@ -76,15 +91,15 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "wait for tmp users and roles replication")
 	}
 
-	dump, err := snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), bcp.Namespaces)
+	dump, err := snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
 	if err != nil {
 		return errors.Wrap(err, "init mongodump options")
 	}
 
 	snapshotSize, err := archive.UploadDump(dump,
-		func(filename string, r io.Reader) error {
-			filepath := archive.FormatFilepath(bcp.Name, rsMeta.Name, filename)
-			return stg.Save(filepath, r, 0)
+		func(ns, ext string, r io.Reader) error {
+			filepath := archive.FormatFilepath(bcp.Name, rsMeta.Name, ns+ext)
+			return stg.Save(filepath, r, nssSize[ns])
 		},
 		archive.UploadDumpOptions{
 			Compression:      bcp.Compression,
@@ -146,4 +161,78 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	}
 
 	return nil
+}
+
+func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
+	q := bson.D{}
+	if db != "" {
+		q = append(q, bson.E{"name", db})
+	}
+	res, err := m.ListDatabases(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Databases) == 0 {
+		return nil, errors.New("no database")
+	}
+
+	rv := make(map[string]int64)
+	mu := sync.Mutex{}
+	eg, ctx := errgroup.WithContext(ctx)
+
+	for i := range res.Databases {
+		db := &res.Databases[i]
+
+		eg.Go(func() error {
+			q := bson.D{}
+			if coll != "" {
+				q = append(q, bson.E{"name", coll})
+			}
+			// todo(query only name and type)
+			res, err := m.Database(db.Name).ListCollectionSpecifications(ctx, q)
+			if err != nil {
+				return err
+			}
+			if len(res) == 0 {
+				return errors.Errorf("collection does not exist: %q", db.Name)
+			}
+
+			eg, ctx := errgroup.WithContext(ctx)
+
+			for _, coll := range res {
+				coll := coll
+
+				if coll.Type == "view" || strings.HasPrefix(coll.Name, "system.buckets.") {
+					continue
+				}
+
+				eg.Go(func() error {
+					res := m.Database(db.Name).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
+					if err := res.Err(); err != nil {
+						return err
+					}
+
+					var doc struct {
+						StorageSize int64 `bson:"storageSize"`
+					}
+
+					ns := archive.FormatNS(db.Name, coll.Name)
+					if err := res.Decode(&doc); err != nil {
+						return errors.WithMessagef(err, "decode %q", ns)
+					}
+
+					mu.Lock()
+					defer mu.Unlock()
+
+					rv[ns] = doc.StorageSize
+					return nil
+				})
+			}
+
+			return eg.Wait()
+		})
+	}
+
+	err = eg.Wait()
+	return rv, err
 }

@@ -14,7 +14,7 @@ type UploadDumpOptions struct {
 	CompressionLevel *int
 }
 
-type UploadFunc func(filename string, r io.Reader) error
+type UploadFunc func(ns, ext string, r io.Reader) error
 
 func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
 	pr, pw := io.Pipe()
@@ -29,13 +29,13 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 		pr, pw := io.Pipe()
 
 		go func() {
-			ns := ns
+			ext := ""
 			if ns != MetaFile {
-				ns += opts.Compression.Suffix()
+				ext += opts.Compression.Suffix()
 			}
 
 			rc := &readCounter{r: pr}
-			err := upload(ns, rc)
+			err := upload(ns, ext, rc)
 			atomic.AddInt64(&size, rc.n)
 			if err != nil {
 				pr.CloseWithError(errors.WithMessagef(err, "upload: %q", ns))

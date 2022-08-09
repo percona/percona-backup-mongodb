@@ -23,7 +23,7 @@ type backuper struct {
 	stopC chan struct{}
 }
 
-func NewBackup(curi string, conns int, nss []string) (io.WriterTo, error) {
+func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 	if conns <= 0 {
 		conns = 1
 	}
@@ -43,11 +43,9 @@ func NewBackup(curi string, conns int, nss []string) (io.WriterTo, error) {
 	}
 
 	opts.Direct = true
+	opts.Namespace = &options.Namespace{DB: d, Collection: c}
 
 	backup := &backuper{}
-	if len(nss) != 0 {
-		backup.nss = nss[0]
-	}
 
 	backup.pm = progress.NewBarWriter(&progressWriter{}, time.Second*60, 24, false)
 	backup.d = &mongodump.MongoDump{
