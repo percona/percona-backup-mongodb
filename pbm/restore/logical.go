@@ -16,6 +16,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
@@ -589,7 +590,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		}
 		defer sr.Close()
 
-		rdr, err = archive.Decompress(sr, bcp.Compression)
+		rdr, err = compress.Decompress(sr, bcp.Compression)
 		if err != nil {
 			return errors.Wrapf(err, "decompress object %s", dump)
 		}
@@ -882,7 +883,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
 		lts, err = r.replayChunk(chnk.FName, chnk.Compression)
 		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = r.replayChunk(chnk.FName, archive.CompressionTypeS2)
+			lts, err = r.replayChunk(chnk.FName, compress.CompressionTypeS2)
 		}
 		if err != nil {
 			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -1032,14 +1033,14 @@ func (r *Restore) snapshot(input io.Reader) (err error) {
 	return err
 }
 
-func (r *Restore) replayChunk(file string, c archive.CompressionType) (lts primitive.Timestamp, err error) {
+func (r *Restore) replayChunk(file string, c compress.CompressionType) (lts primitive.Timestamp, err error) {
 	or, err := r.stg.SourceReader(file)
 	if err != nil {
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
-	oplogReader, err := archive.Decompress(or, c)
+	oplogReader, err := compress.Decompress(or, c)
 	if err != nil {
 		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}

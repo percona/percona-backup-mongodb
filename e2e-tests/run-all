@@ -17,7 +17,7 @@ $dir/run-sharded || fail "sharded-cluster"
 $dir/run-rs || fail "replica-set-cluster"
 $dir/run-single || fail "single-node-replica-set"
 
-export TESTS_BCP_TYPE=physical
-$dir/run-sharded || fail "sharded-cluster"
-$dir/run-rs || fail "replica-set-cluster"
-$dir/run-single || fail "single-node-replica-set"
+# export TESTS_BCP_TYPE=physical
+# $dir/run-sharded || fail "sharded-cluster"
+# $dir/run-rs || fail "replica-set-cluster"
+# $dir/run-single || fail "single-node-replica-set"

@@ -5,10 +5,12 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 )
 
 type UploadDumpOptions struct {
-	Compression      CompressionType
+	Compression      compress.CompressionType
 	CompressionLevel *int
 }
 
@@ -44,7 +46,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 			return pw, nil
 		}
 
-		w, err := Compress(pw, opts.Compression, opts.CompressionLevel)
+		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
 		dwc := &delegatedWriteCloser{w, pw}
 		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
 	}
@@ -55,7 +57,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
 
-func DownloadDump(download DownloadFunc, compression CompressionType, match MatchFunc) (io.ReadCloser, error) {
+func DownloadDump(download DownloadFunc, compression compress.CompressionType, match MatchFunc) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 
 	go func() {
@@ -73,7 +75,7 @@ func DownloadDump(download DownloadFunc, compression CompressionType, match Matc
 				return r, nil
 			}
 
-			r, err = Decompress(r, compression)
+			r, err = compress.Decompress(r, compression)
 			return r, errors.WithMessagef(err, "create decompressor: %q", ns)
 		}
 

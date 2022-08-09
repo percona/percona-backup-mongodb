@@ -5,11 +5,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
@@ -23,9 +23,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 		name string
 		conf string
 	}{
-		{"AWS", "/etc/pbm/aws.yaml"},
-		{"GCS", "/etc/pbm/gcs.yaml"},
-		{"Azure", "/etc/pbm/azure.yaml"},
+		// {"AWS", "/etc/pbm/aws.yaml"},
+		// {"GCS", "/etc/pbm/gcs.yaml"},
+		// {"Azure", "/etc/pbm/azure.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 		{"Minio", "/etc/pbm/minio.yaml"},
 	}

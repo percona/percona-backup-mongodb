@@ -51,6 +51,13 @@ func makeStrSet() func(string) bool {
 	}
 }
 
+var (
+	ErrInvalidNamespace    = errors.New("invalid namespace")
+	ErrForbiddenDatabase   = errors.New(`"admin", "config", "local" databases are not allowed`)
+	ErrForbiddenCollection = errors.New(`"system.*" collections are not allowed`)
+	ErrAmbiguousNamespace  = errors.New("ambiguous namespace")
+)
+
 func parseCLINSOption(s string) ([]string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "*.*" {
@@ -61,16 +68,16 @@ func parseCLINSOption(s string) ([]string, error) {
 	for _, ns := range strings.Split(s, ",") {
 		db, coll, ok := strings.Cut(strings.TrimSpace(ns), ".")
 		if !ok {
-			return nil, errors.Errorf("invalid namespace: %q", ns)
+			return nil, errors.WithMessage(ErrInvalidNamespace, ns)
 		}
 		if db == "" || coll == "" || (db == "*" && coll != "*") {
-			return nil, errors.Errorf("invalid namespace: %q", ns)
+			return nil, errors.WithMessage(ErrInvalidNamespace, ns)
 		}
 		if db == "admin" || db == "config" || db == "local" {
-			return nil, errors.New(`"admin", "config", "local" databases are not allowed`)
+			return nil, ErrForbiddenDatabase
 		}
 		if strings.HasPrefix(coll, "system.") {
-			return nil, errors.New(`"system.*" collections are not allowed`)
+			return nil, ErrForbiddenCollection
 		}
 
 		if _, ok := m[db]; !ok {
@@ -80,13 +87,15 @@ func parseCLINSOption(s string) ([]string, error) {
 	}
 
 	if _, ok := m["*"]; ok && len(m) != 1 {
-		return nil, errors.New("cannot use * with other databases")
+		return nil, errors.WithMessage(ErrAmbiguousNamespace,
+			"cannot use * with other databases")
 	}
 
 	rv := []string{}
 	for db, colls := range m {
 		if _, ok := colls["*"]; ok && len(colls) != 1 {
-			return nil, errors.Errorf("cannot use * with other collections in %q database", db)
+			return nil, errors.WithMessagef(ErrAmbiguousNamespace,
+				"cannot use * with other collections in %q database", db)
 		}
 
 		for coll := range colls {

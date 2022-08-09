@@ -14,7 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -75,10 +75,10 @@ func Main() {
 	backup := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 		EnumVar(&backup.compression,
-			string(archive.CompressionTypeNone), string(archive.CompressionTypeGZIP),
-			string(archive.CompressionTypeSNAPPY), string(archive.CompressionTypeLZ4),
-			string(archive.CompressionTypeS2), string(archive.CompressionTypePGZIP),
-			string(archive.CompressionTypeZstandard),
+			string(compress.CompressionTypeNone), string(compress.CompressionTypeGZIP),
+			string(compress.CompressionTypeSNAPPY), string(compress.CompressionTypeLZ4),
+			string(compress.CompressionTypeS2), string(compress.CompressionTypePGZIP),
+			string(compress.CompressionTypeZstandard),
 		)
 	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup)).
 		Default(string(pbm.LogicalBackup)).Short('t').

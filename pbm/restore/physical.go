@@ -23,7 +23,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -176,13 +176,13 @@ func (r *PhysRestore) waitMgoShutdown() error {
 
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
-// - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
-// - Replset leader (primary node) waits for files from all replicaset' nodes. And
-//   writes a status file for the relicaset.
-// - Cluster leader (primary node on config server) waits for status files from
-//   all replicasets. And sets status file for the cluster.
-// - Each node in turn waits for the cluster status file and returns (move further)
-//   once it's observed.
+//   - Each node writes file with the given state (`<restoreDir>/rsID.nodeID.status`).
+//   - Replset leader (primary node) waits for files from all replicaset' nodes. And
+//     writes a status file for the relicaset.
+//   - Cluster leader (primary node on config server) waits for status files from
+//     all replicasets. And sets status file for the cluster.
+//   - Each node in turn waits for the cluster status file and returns (move further)
+//     once it's observed.
 func (r *PhysRestore) toState(status pbm.Status) error {
 	r.log.Info("moving to state %s", status)
 
@@ -276,17 +276,17 @@ func (r *PhysRestore) waitFiles(n ...string) error {
 // Unlike in logical restore, _every_ node of the replicaset is taking part in
 // a physical restore. In that way, we avoid logical resync between nodes after
 // the restore. Each node in the cluster does:
-// - Stores current replicset config and mongod port.
-// - Checks backup and stops all routine writes to the db.
-// - Stops mongod and wipes out datadir.
-// - Copies backup data to the datadir.
-// - Starts standalone mongod on ephemeral (tmp) port and reset some internal
-//   data also setting one-node replicaset and sets oplogTruncateAfterPoint
-//   to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
-//   to which journals would be replayed.
-// - Starts standalone mongod to recover oplog from journals.
-// - Cleans up data and resets replicaset config to the working state.
-// - Shuts down mongod and agent (the leader also dumps metadata to the storage).
+//   - Stores current replicset config and mongod port.
+//   - Checks backup and stops all routine writes to the db.
+//   - Stops mongod and wipes out datadir.
+//   - Copies backup data to the datadir.
+//   - Starts standalone mongod on ephemeral (tmp) port and reset some internal
+//     data also setting one-node replicaset and sets oplogTruncateAfterPoint
+//     to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
+//     to which journals would be replayed.
+//   - Starts standalone mongod to recover oplog from journals.
+//   - Cleans up data and resets replicaset config to the working state.
+//   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	meta := &pbm.RestoreMeta{
 		Type: pbm.PhysicalBackup,
@@ -431,7 +431,7 @@ func (r *PhysRestore) copyFiles() error {
 				}
 				defer sr.Close()
 
-				data, err := archive.Decompress(sr, r.bcp.Compression)
+				data, err := compress.Decompress(sr, r.bcp.Compression)
 				if err != nil {
 					return errors.Wrapf(err, "decompress object %s", src)
 				}

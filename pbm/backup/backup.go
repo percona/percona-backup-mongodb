@@ -19,6 +19,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -445,10 +446,10 @@ type Canceller interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression archive.CompressionType, compressLevel *int, fname string, sizeb int64) (int64, error) {
+func Upload(ctx context.Context, src Source, dst storage.Storage, compression compress.CompressionType, compressLevel *int, fname string, sizeb int64) (int64, error) {
 	r, pw := io.Pipe()
 
-	w, err := archive.Compress(pw, compression, compressLevel)
+	w, err := compress.Compress(pw, compression, compressLevel)
 	if err != nil {
 		return 0, err
 	}

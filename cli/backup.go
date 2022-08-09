@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -71,12 +71,12 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		level = cfg.Backup.CompressionLevel
 	}
 
-	compression := archive.CompressionType(b.compression)
+	compression := compress.CompressionType(b.compression)
 	if compression == "" {
 		if cfg.Backup.Compression != "" {
 			compression = cfg.Backup.Compression
 		} else {
-			compression = archive.CompressionTypeS2
+			compression = compress.CompressionTypeS2
 		}
 	}
 

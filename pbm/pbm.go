@@ -19,7 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
@@ -159,11 +159,11 @@ func (c Cmd) String() string {
 }
 
 type BackupCmd struct {
-	Type             BackupType              `bson:"type"`
-	Name             string                  `bson:"name"`
-	Namespaces       []string                `bson:"nss,omitempty"`
-	Compression      archive.CompressionType `bson:"compression"`
-	CompressionLevel *int                    `bson:"level,omitempty"`
+	Type             BackupType               `bson:"type"`
+	Name             string                   `bson:"name"`
+	Namespaces       []string                 `bson:"nss,omitempty"`
+	Compression      compress.CompressionType `bson:"compression"`
+	CompressionLevel *int                     `bson:"level,omitempty"`
 }
 
 func (b BackupCmd) String() string {
@@ -468,26 +468,26 @@ const (
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
-	Type             BackupType              `bson:"type" json:"type"`
-	OPID             string                  `bson:"opid" json:"opid"`
-	Name             string                  `bson:"name" json:"name"`
-	Namespaces       []string                `bson:"nss,omitempty" json:"nss,omitempty"`
-	Replsets         []BackupReplset         `bson:"replsets" json:"replsets"`
-	Compression      archive.CompressionType `bson:"compression" json:"compression"`
-	Store            StorageConf             `bson:"store" json:"store"`
-	Size             int64                   `bson:"size" json:"size"`
-	MongoVersion     string                  `bson:"mongodb_version" json:"mongodb_version,omitempty"`
-	StartTS          int64                   `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64                   `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp     `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp     `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               primitive.Timestamp     `bson:"hb" json:"hb"`
-	Status           Status                  `bson:"status" json:"status"`
-	Conditions       []Condition             `bson:"conditions" json:"conditions"`
-	Nomination       []BackupRsNomination    `bson:"n" json:"n"`
-	Err              string                  `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string                  `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
-	BalancerStatus   BalancerMode            `bson:"balancer" json:"balancer"`
+	Type             BackupType               `bson:"type" json:"type"`
+	OPID             string                   `bson:"opid" json:"opid"`
+	Name             string                   `bson:"name" json:"name"`
+	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
+	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
+	Compression      compress.CompressionType `bson:"compression" json:"compression"`
+	Store            StorageConf              `bson:"store" json:"store"`
+	Size             int64                    `bson:"size" json:"size"`
+	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     primitive.Timestamp      `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      primitive.Timestamp      `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               primitive.Timestamp      `bson:"hb" json:"hb"`
+	Status           Status                   `bson:"status" json:"status"`
+	Conditions       []Condition              `bson:"conditions" json:"conditions"`
+	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
+	Err              string                   `bson:"error,omitempty" json:"error,omitempty"`
+	PBMVersion       string                   `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	BalancerStatus   BalancerMode             `bson:"balancer" json:"balancer"`
 	runtimeError     error
 }
 
