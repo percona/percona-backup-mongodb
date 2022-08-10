@@ -188,7 +188,6 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 			if coll != "" {
 				q = append(q, bson.E{"name", coll})
 			}
-			// todo(query only name and type)
 			res, err := m.Database(db.Name).ListCollectionSpecifications(ctx, q)
 			if err != nil {
 				return err

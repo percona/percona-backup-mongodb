@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 func TestBcpMatchCluster(t *testing.T) {
@@ -163,6 +164,7 @@ func TestBcpMatchCluster(t *testing.T) {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			m := []pbm.BackupMeta{}
 			for _, b := range c.bcps {
+				b.meta.PBMVersion = string(version.DefaultInfo.Version)
 				b.meta.Status = pbm.StatusDone
 				m = append(m, b.meta)
 			}
@@ -291,6 +293,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	}
 
 	for i, c := range cases {
+		c.bcp.PBMVersion = string(version.DefaultInfo.Version)
 		topology := defaultTopology
 		if c.topology != nil {
 			topology = c.topology
