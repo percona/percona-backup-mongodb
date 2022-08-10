@@ -1,8 +1,6 @@
 package pbm
 
 import (
-	"context"
-	"io"
 	"time"
 
 	"github.com/pkg/errors"
@@ -10,7 +8,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -39,7 +36,7 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = p.DeleteBackupFiles(l, meta, stg)
+	err = p.DeleteBackupFiles(stg, meta)
 	if err != nil {
 		return errors.Wrap(err, "delete files from storage")
 	}
@@ -88,17 +85,17 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) DeleteBackupFiles(l *log.Event, meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) DeleteBackupFiles(stg storage.Storage, meta *BackupMeta) (err error) {
 	switch meta.Type {
 	case PhysicalBackup:
-		return p.deletePhysicalBackupFiles(meta, stg)
+		return p.deletePhysicalBackupFiles(stg, meta)
 	case LogicalBackup:
 		fallthrough
 	default:
 		if version.Compatible(version.DefaultInfo.Version, meta.PBMVersion) {
-			err = p.deleteLogicalBackupFiles(context.TODO(), l, meta, stg)
+			err = p.deleteLogicalBackupFiles(stg, meta)
 		} else {
-			err = p.deleteLegacyLogicalBackupFiles(meta, stg)
+			err = p.deleteLegacyLogicalBackupFiles(stg, meta)
 		}
 
 		return err
@@ -106,7 +103,7 @@ func (p *PBM) DeleteBackupFiles(l *log.Event, meta *BackupMeta, stg storage.Stor
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) deletePhysicalBackupFiles(stg storage.Storage, meta *BackupMeta) (err error) {
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
 			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
@@ -126,76 +123,44 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 }
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
-func (p *PBM) deleteLogicalBackupFiles(ctx context.Context, l *log.Event, meta *BackupMeta, stg storage.Storage) error {
-	eg, ctx := errgroup.WithContext(ctx)
-
-	for _, r := range meta.Replsets {
-		r := r
-
-		eg.Go(func() error {
-			m, err := archive.ReadMetadata(func(name string) (io.ReadCloser, error) {
-				return stg.SourceReader(archive.FormatFilepath(meta.Name, r.Name, name))
-			})
-			if err != nil {
-				return err
-			}
-
-			eg, _ := errgroup.WithContext(ctx)
-			for _, ns := range m.Namespaces {
-				n := archive.NSify(ns.Database, ns.Collection)
-
-				eg.Go(func() error {
-					filepath := archive.FormatFilepath(meta.Name, r.Name, n+meta.Compression.Suffix())
-					if err := stg.Delete(filepath); err != nil {
-						if errors.Is(err, storage.ErrNotExist) {
-							return nil
-						}
-						return err
-					}
-
-					return nil
-				})
-			}
-
-			if err := eg.Wait(); err != nil {
-				return err
-			}
-
-			if err := stg.Delete(r.OplogName); err != nil {
-				if errors.Is(err, storage.ErrNotExist) {
-					return nil
-				}
-				return err
-			}
-
-			if err := stg.Delete(r.DumpName); err != nil {
-				if errors.Is(err, storage.ErrNotExist) {
-					return nil
-				}
-				return err
-			}
-
-			return nil
-		})
+func (p *PBM) deleteLogicalBackupFiles(stg storage.Storage, meta *BackupMeta) error {
+	if meta.Store.Type == storage.Filesystem {
+		return p.deleteLogicalBackupFilesFromFS(stg, meta.Name)
 	}
 
+	prefix := meta.Name + "/"
+	files, err := stg.List(prefix, "")
+	if err != nil {
+		return errors.WithMessagef(err, "get file list: %q", prefix)
+	}
+
+	eg := errgroup.Group{}
+	for _, f := range files {
+		ns := prefix + f.Name
+		eg.Go(func() error {
+			return errors.WithMessagef(stg.Delete(ns), "delete %q", ns)
+		})
+	}
 	if err := eg.Wait(); err != nil {
 		return err
 	}
 
-	err := stg.Delete(meta.Name + MetadataFileSuffix)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotExist) {
-			return nil
-		}
-		return err
+	bcpMF := meta.Name + MetadataFileSuffix
+	return errors.WithMessagef(stg.Delete(bcpMF), "delete %q", bcpMF)
+}
+
+// deleteLogicalBackupFiles removes backup's artifacts from storage
+func (p *PBM) deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string) error {
+	if err := stg.Delete(bcpName); err != nil {
+		return errors.WithMessagef(err, "delete %q", bcpName)
 	}
 
-	return nil
+	bcpMetafile := bcpName + MetadataFileSuffix
+	return errors.WithMessagef(stg.Delete(bcpMetafile), "delete %q", bcpMetafile)
 }
 
 // deleteLegacyLogicalBackupFiles removes backup's artifacts from storage
-func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) deleteLegacyLogicalBackupFiles(stg storage.Storage, meta *BackupMeta) (err error) {
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
 		if err != nil && err != storage.ErrNotExist {
@@ -250,7 +215,7 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 			continue
 		}
 
-		err = p.DeleteBackupFiles(l, m, stg)
+		err = p.DeleteBackupFiles(stg, m)
 		if err != nil {
 			return errors.Wrap(err, "delete backup files from storage")
 		}

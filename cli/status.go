@@ -546,7 +546,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 
 	s.Type = cfg.Storage.Typ()
 
-	if cfg.Storage.Type == pbm.StorageS3 {
+	if cfg.Storage.Type == storage.S3 {
 		s.Region = cfg.Storage.S3.Region
 	}
 	s.Path = cfg.Storage.Path()

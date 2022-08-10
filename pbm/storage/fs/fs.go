@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type Conf struct {
@@ -132,7 +133,7 @@ func (fs *FS) Copy(src, dst string) error {
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
 func (fs *FS) Delete(name string) error {
-	err := os.Remove(path.Join(fs.opts.Path, name))
+	err := os.RemoveAll(path.Join(fs.opts.Path, name))
 	if os.IsNotExist(err) {
 		return storage.ErrNotExist
 	}

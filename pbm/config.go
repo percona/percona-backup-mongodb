@@ -75,34 +75,23 @@ func (c *PITRConf) Cast() error {
 	return nil
 }
 
-// StorageType represents a type of the destination storage for backups
-type StorageType string
-
-const (
-	StorageUndef      StorageType = ""
-	StorageS3         StorageType = "s3"
-	StorageAzure      StorageType = "azure"
-	StorageFilesystem StorageType = "filesystem"
-	StorageBlackHole  StorageType = "blackhole"
-)
-
 // StorageConf is a configuration of the backup storage
 type StorageConf struct {
-	Type       StorageType `bson:"type" json:"type" yaml:"type"`
-	S3         s3.Conf     `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
-	Azure      azure.Conf  `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
-	Filesystem fs.Conf     `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+	Type       storage.Type `bson:"type" json:"type" yaml:"type"`
+	S3         s3.Conf      `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Azure      azure.Conf   `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
+	Filesystem fs.Conf      `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
 func (s *StorageConf) Typ() string {
 	switch s.Type {
-	case StorageS3:
+	case storage.S3:
 		return "S3"
-	case StorageAzure:
+	case storage.Azure:
 		return "Azure"
-	case StorageFilesystem:
+	case storage.Filesystem:
 		return "FS"
-	case StorageBlackHole:
+	case storage.BlackHole:
 		return "BlackHole"
 	default:
 		return "Unknown"
@@ -112,7 +101,7 @@ func (s *StorageConf) Typ() string {
 func (s *StorageConf) Path() string {
 	path := ""
 	switch s.Type {
-	case StorageS3:
+	case storage.S3:
 		path = "s3://"
 		if s.S3.EndpointURL != "" {
 			path += s.S3.EndpointURL + "/"
@@ -121,14 +110,14 @@ func (s *StorageConf) Path() string {
 		if s.S3.Prefix != "" {
 			path += "/" + s.S3.Prefix
 		}
-	case StorageAzure:
+	case storage.Azure:
 		path = fmt.Sprintf(azure.BlobURL, s.Azure.Account, s.Azure.Container)
 		if s.Azure.Prefix != "" {
 			path += "/" + s.Azure.Prefix
 		}
-	case StorageFilesystem:
+	case storage.Filesystem:
 		path = s.Filesystem.Path
-	case StorageBlackHole:
+	case storage.BlackHole:
 		path = "BlackHole"
 	}
 
@@ -188,7 +177,7 @@ func (p *PBM) SetConfigByte(buf []byte) error {
 
 func (p *PBM) SetConfig(cfg Config) error {
 	switch cfg.Storage.Type {
-	case StorageS3:
+	case storage.S3:
 		err := cfg.Storage.S3.Cast()
 		if err != nil {
 			return errors.Wrap(err, "cast storage")
@@ -197,7 +186,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 		// call the function for notification purpose.
 		// warning about unsupported levels will be printed
 		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
-	case StorageFilesystem:
+	case storage.Filesystem:
 		err := cfg.Storage.Filesystem.Cast()
 		if err != nil {
 			return errors.Wrap(err, "check config")
@@ -411,15 +400,15 @@ func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 	}
 
 	switch c.Storage.Type {
-	case StorageS3:
+	case storage.S3:
 		return s3.New(c.Storage.S3, l)
-	case StorageAzure:
+	case storage.Azure:
 		return azure.New(c.Storage.Azure, l)
-	case StorageFilesystem:
+	case storage.Filesystem:
 		return fs.New(c.Storage.Filesystem), nil
-	case StorageBlackHole:
+	case storage.BlackHole:
 		return blackhole.New(), nil
-	case StorageUndef:
+	case storage.Undef:
 		return nil, ErrStorageUndefined
 	default:
 		return nil, errors.Errorf("unknown storage type %s", c.Storage.Type)
