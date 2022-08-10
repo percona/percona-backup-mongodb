@@ -131,14 +131,6 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			status := pbm.StatusError
 			if errors.Is(err, ErrCancelled) {
 				status = pbm.StatusCancelled
-
-				meta := &pbm.BackupMeta{
-					Name:     bcp.Name,
-					Status:   pbm.StatusCancelled,
-					Replsets: []pbm.BackupReplset{rsMeta},
-				}
-
-				l.Info("delete artifacts from storage: %v", b.cn.DeleteBackupFiles(stg, meta))
 			}
 
 			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
@@ -215,6 +207,16 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
+
+	defer func() {
+		if !errors.Is(err, ErrCancelled) || !inf.IsLeader() {
+			return
+		}
+
+		if err := b.cn.DeleteBackupFiles(stg, bcpm); err != nil {
+			l.Error("Failed to delete leftover files for canceled backup %q", bcpm.Name)
+		}
+	}()
 
 	switch b.typ {
 	case pbm.LogicalBackup:
