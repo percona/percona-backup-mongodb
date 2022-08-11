@@ -584,6 +584,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
 			Namespaces: bcp.Namespaces,
+			Size:       bcp.Size,
 			Status:     bcp.Status,
 			StateTS:    bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
@@ -600,12 +601,13 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		case pbm.StatusDone:
 			snpsht.StateTS = int64(bcp.LastWriteTS.T)
 			var err error
-			switch bcp.Type {
-			case pbm.PhysicalBackup:
+
+			if bcp.Type == pbm.PhysicalBackup {
 				snpsht.Size, err = getPhysSnapshotSize(&bcp, stg)
-			default:
-				snpsht.Size, err = getBackupSize(&bcp, stg)
+			} else if version.IsLegacyArchive(bcp.PBMVersion) {
+				snpsht.Size, err = getLegacySnapshotSize(bcp.Replsets, stg)
 			}
+
 			if err != nil {
 				snpsht.Err = err
 				snpsht.Status = pbm.StatusError

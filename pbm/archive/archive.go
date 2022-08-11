@@ -58,7 +58,7 @@ func Decompose(r io.Reader, newWriter NewWriter) error {
 type MatchFunc func(ns string) bool
 
 func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
-	meta, err := ReadMetadata(newReader)
+	meta, err := readMetadata(newReader)
 	if err != nil {
 		return errors.WithMessage(err, "metadata")
 	}
@@ -273,13 +273,17 @@ func writeMetadata(meta *archiveMeta, newWriter NewWriter) error {
 	return secureWrite(w, data)
 }
 
-func ReadMetadata(newReader NewReader) (*archiveMeta, error) {
+func readMetadata(newReader NewReader) (*archiveMeta, error) {
 	r, err := newReader(MetaFile)
 	if err != nil {
-		return nil, errors.WithMessage(err, "new reader")
+		return nil, errors.WithMessage(err, "new metafile reader")
 	}
 	defer r.Close()
 
+	return ReadMetadata(r)
+}
+
+func ReadMetadata(r io.Reader) (*archiveMeta, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, errors.WithMessage(err, "read")

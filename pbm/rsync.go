@@ -2,13 +2,17 @@ package pbm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/sync/errgroup"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -96,10 +100,11 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal backup meta [%s]", b.Name)
 		}
-		err = checkBackupFiles(&v, stg)
+		err = checkBackupFiles(p.ctx, &v, stg)
 		if err != nil {
 			l.Warning("skip snapshot %s: %v", v.Name, err)
-			continue
+			v.Status = StatusError
+			v.Err = err.Error()
 		}
 		ins = append(ins, v)
 	}
@@ -141,28 +146,67 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	return nil
 }
 
-func checkBackupFiles(bcp *BackupMeta, stg storage.Storage) error {
+func checkBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage) error {
 	// !!! TODO: Check physical files ?
 	if bcp.Type == PhysicalBackup {
 		return nil
 	}
 
+	legacy := version.IsLegacyArchive(bcp.PBMVersion)
+	eg, _ := errgroup.WithContext(ctx)
 	for _, rs := range bcp.Replsets {
-		f, err := stg.FileStat(rs.DumpName)
-		if err != nil {
-			return errors.Wrapf(err, "file %s", rs.DumpName)
-		}
-		if f.Size == 0 {
-			return errors.Errorf("%s is empty", rs.DumpName)
+		rs := rs
+
+		eg.Go(func() error { return checkFile(stg, rs.DumpName) })
+		eg.Go(func() error { return checkFile(stg, rs.OplogName) })
+
+		if legacy {
+			continue
 		}
 
-		f, err = stg.FileStat(rs.OplogName)
+		metafile := path.Join(bcp.Name, rs.Name, archive.MetaFile)
+		nss, err := readArchiveNamespaces(stg, metafile)
 		if err != nil {
-			return errors.Wrapf(err, "file %s", rs.OplogName)
+			return errors.WithMessagef(err, "parse metafile %q", metafile)
 		}
-		if f.Size == 0 {
-			return errors.Errorf("%s is empty", rs.OplogName)
+
+		for _, ns := range nss {
+			if ns.Size == 0 {
+				continue
+			}
+
+			ns := archive.NSify(ns.Database, ns.Collection)
+			f := path.Join(bcp.Name, rs.Name, ns+bcp.Compression.Suffix())
+
+			eg.Go(func() error { return checkFile(stg, f) })
 		}
+	}
+
+	return eg.Wait()
+}
+
+func readArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
+	r, err := stg.SourceReader(metafile)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "open %q", metafile)
+	}
+	defer r.Close()
+
+	meta, err := archive.ReadMetadata(r)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "parse metafile %q", metafile)
+	}
+
+	return meta.Namespaces, nil
+}
+
+func checkFile(stg storage.Storage, filename string) error {
+	f, err := stg.FileStat(filename)
+	if err != nil {
+		return errors.WithMessagef(err, "file %q", filename)
+	}
+	if f.Size == 0 {
+		return errors.Errorf("%q is empty", filename)
 	}
 
 	return nil
