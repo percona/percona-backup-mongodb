@@ -376,7 +376,7 @@ services:
       - rs203
 
   minio:
-    image: minio/minio:RELEASE.2020-01-16T22-40-29Z
+    image: minio/minio:RELEASE.2022-08-08T18-34-09Z
     hostname: minio
     # ports:
     #   - "9000:9000"
