@@ -209,6 +209,9 @@ func writeChunk(w io.Writer, ns *Namespace, data []byte) error {
 		Database:   ns.Database,
 		Collection: ns.Collection,
 	}
+	if ns.Type == "timeseries" {
+		nsHeader.Collection = "system.buckets." + nsHeader.Collection
+	}
 
 	header, err := bson.Marshal(nsHeader)
 	if err != nil {
@@ -233,6 +236,9 @@ func closeChunk(w io.Writer, ns *Namespace) error {
 		Collection: ns.Collection,
 		EOF:        true,
 		CRC:        ns.CRC,
+	}
+	if ns.Type == "timeseries" {
+		nsHeader.Collection = "system.buckets." + nsHeader.Collection
 	}
 
 	header, err := bson.Marshal(nsHeader)
