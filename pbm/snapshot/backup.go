@@ -55,9 +55,10 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 			Archive:                "-",
 			NumParallelCollections: conns,
 		},
-		InputOptions:    &mongodump.InputOptions{},
-		SessionProvider: &db.SessionProvider{},
-		ProgressManager: backup.pm,
+		InputOptions:      &mongodump.InputOptions{},
+		SessionProvider:   &db.SessionProvider{},
+		ProgressManager:   backup.pm,
+		SkipUsersAndRoles: d != "",
 	}
 	return backup, nil
 }
