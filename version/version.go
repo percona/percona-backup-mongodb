@@ -14,7 +14,6 @@ const version = "2.0.0-dev"
 // !!! should be sorted in the ascending order
 var breakingChangesV = []string{
 	"1.5.0",
-	"2.0.0",
 }
 
 var (
@@ -141,4 +140,8 @@ func majmin(v string) string {
 	}
 
 	return semver.MajorMinor(v)
+}
+
+func IsLegacyArchive(ver string) bool {
+	return semver.Compare(majmin(ver), "v2.0") == -1
 }

@@ -553,7 +553,18 @@ func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
 	var rdr io.ReadCloser
 
-	if version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if version.IsLegacyArchive(bcp.PBMVersion) {
+		sr, err := r.stg.SourceReader(dump)
+		if err != nil {
+			return errors.Wrapf(err, "get object %s for the storage", dump)
+		}
+		defer sr.Close()
+
+		rdr, err = compress.Decompress(sr, bcp.Compression)
+		if err != nil {
+			return errors.Wrapf(err, "decompress object %s", dump)
+		}
+	} else {
 		if len(nss) == 0 {
 			nss = []string{"*.*"}
 		}
@@ -570,17 +581,6 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			},
 			bcp.Compression,
 			m.Has)
-	} else {
-		sr, err := r.stg.SourceReader(dump)
-		if err != nil {
-			return errors.Wrapf(err, "get object %s for the storage", dump)
-		}
-		defer sr.Close()
-
-		rdr, err = compress.Decompress(sr, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "decompress object %s", dump)
-		}
 	}
 	if err != nil {
 		return err

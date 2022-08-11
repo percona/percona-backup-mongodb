@@ -92,10 +92,10 @@ func (p *PBM) DeleteBackupFiles(stg storage.Storage, meta *BackupMeta) (err erro
 	case LogicalBackup:
 		fallthrough
 	default:
-		if version.Compatible(version.DefaultInfo.Version, meta.PBMVersion) {
-			err = p.deleteLogicalBackupFiles(stg, meta)
-		} else {
+		if version.IsLegacyArchive(meta.PBMVersion) {
 			err = p.deleteLegacyLogicalBackupFiles(stg, meta)
+		} else {
+			err = p.deleteLogicalBackupFiles(stg, meta)
 		}
 
 		return err

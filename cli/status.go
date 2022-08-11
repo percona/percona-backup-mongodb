@@ -697,7 +697,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 }
 
 func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
-	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if version.IsLegacyArchive(bcp.PBMVersion) {
 		return getLegacySnapshotSize(bcp.Replsets, stg)
 	}
 

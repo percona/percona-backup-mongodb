@@ -8,7 +8,6 @@ func TestCompatibility(t *testing.T) {
 	breaking := []string{
 		"1.5.0",
 		"1.9.0",
-		"2.0.0",
 	}
 	cases := []struct {
 		v1         string
@@ -83,11 +82,6 @@ func TestCompatibility(t *testing.T) {
 		{
 			"1.9.0",
 			"2.0.0",
-			false,
-		},
-		{
-			"2.0.0",
-			"2.1.0",
 			true,
 		},
 		{
