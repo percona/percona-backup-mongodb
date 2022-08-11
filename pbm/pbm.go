@@ -744,7 +744,7 @@ func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
 
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int) (*BackupMeta, error) {
 	q := bson.D{
-		{"ns", nil},
+		{"nss", nil},
 		{"status", StatusDone},
 		{"type", bson.M{"$ne": string(PhysicalBackup)}},
 	}
