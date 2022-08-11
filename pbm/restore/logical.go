@@ -111,12 +111,6 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
-	// nss, err := getDumpNamespaces(r.stg, dump)
-	// if err != nil {
-	// 	return errors.WithMessage(err, "get dump namespaces")
-	// }
-	// _ = nss
-
 	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
 	if err != nil {
 		return err
@@ -219,12 +213,6 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 	if err != nil {
 		return err
 	}
-
-	nss, err := getDumpNamespaces(r.stg, dump)
-	if err != nil {
-		return errors.WithMessage(err, "get dump namespaces")
-	}
-	_ = nss
 
 	err = r.toState(pbm.StatusRunning, &pbm.WaitActionStart)
 	if err != nil {
@@ -1155,20 +1143,4 @@ func (r *Restore) MarkFailed(e error) error {
 	}
 	err = r.cn.ChangeRestoreRSState(r.name, r.nodeInfo.SetName, pbm.StatusError, e.Error())
 	return errors.Wrap(err, "set replset state")
-}
-
-func getDumpNamespaces(s storage.Storage, name string) ([]string, error) {
-	meta, err := archive.ReadMetadata(func(string) (io.ReadCloser, error) {
-		return s.SourceReader(name)
-	})
-	if err != nil {
-		return nil, errors.WithMessage(err, "get predule")
-	}
-
-	nss := make([]string, len(meta.Namespaces))
-	for i, r := range meta.Namespaces {
-		nss[i] = archive.NSify(r.Database, r.Collection)
-	}
-
-	return nss, nil
 }
