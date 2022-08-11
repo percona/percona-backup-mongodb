@@ -69,6 +69,10 @@ func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
 			nss = append(nss, ns)
 		}
 	}
+	if len(nss) == 0 {
+		return errors.New("no collection to restore")
+	}
+
 	meta.Namespaces = nss
 
 	if err := writePrelude(w, meta); err != nil {

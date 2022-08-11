@@ -29,6 +29,9 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	if err != nil {
 		return errors.WithMessage(err, "get namespaces size")
 	}
+	if len(nssSize) == 0 {
+		return errors.New("no collection to backup")
+	}
 
 	oplog := oplog.NewOplogBackup(b.node)
 	oplogTS, err := oplog.LastWrite()
@@ -172,9 +175,6 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 	if err != nil {
 		return nil, err
 	}
-	if len(res.Databases) == 0 {
-		return nil, errors.New("no database")
-	}
 
 	rv := make(map[string]int64)
 	mu := sync.Mutex{}
@@ -191,9 +191,6 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 			res, err := m.Database(db.Name).ListCollectionSpecifications(ctx, q)
 			if err != nil {
 				return err
-			}
-			if len(res) == 0 {
-				return errors.Errorf("collection does not exist: %q", db.Name)
 			}
 
 			eg, ctx := errgroup.WithContext(ctx)
