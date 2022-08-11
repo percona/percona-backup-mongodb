@@ -150,7 +150,7 @@ func (bl backupListOut) String() string {
 	for _, b := range bl.Snapshots {
 		kind := string(b.Type)
 		if len(b.Namespaces) != 0 {
-			kind += "*"
+			kind += ", selective"
 		}
 
 		s += fmt.Sprintf("  %s <%s> [complete: %s]\n", b.Name, kind, fmtTS(int64(b.StateTS)))

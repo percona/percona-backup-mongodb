@@ -503,7 +503,7 @@ func (s storageStat) String() string {
 
 		kind := string(sn.Type)
 		if len(sn.Namespaces) != 0 {
-			kind += "*"
+			kind += ", selective"
 		}
 
 		ret += fmt.Sprintf("    %s %s <%s> %s\n",
