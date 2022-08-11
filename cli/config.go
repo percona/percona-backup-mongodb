@@ -58,7 +58,9 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 			}
 		}
 		if rsnc {
-			_ = rsync(cn)
+			if err := rsync(cn); err != nil {
+				return nil, errors.WithMessage(err, "resync")
+			}
 		}
 		return o, nil
 	case len(c.key) > 0:
@@ -68,9 +70,8 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-		err := rsync(cn)
-		if err != nil {
-			return nil, err
+		if err := rsync(cn); err != nil {
+			return nil, errors.WithMessage(err, "resync")
 		}
 		return outMsg{"Storage resync started"}, nil
 	case len(c.file) > 0:
@@ -99,9 +100,8 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 		cCfg.Storage.S3.Provider = cfg.Storage.S3.Provider
 		// resync storage only if Storage options have changed
 		if !reflect.DeepEqual(cfg.Storage, cCfg.Storage) {
-			err := rsync(cn)
-			if err != nil {
-				return nil, err
+			if err := rsync(cn); err != nil {
+				return nil, errors.WithMessage(err, "resync")
 			}
 		}
 
