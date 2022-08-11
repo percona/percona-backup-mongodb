@@ -15,7 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -565,9 +564,9 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return err
 		}
 
-		rdr, err = archive.DownloadDump(
+		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				return r.stg.SourceReader(archive.FormatFilepath(bcp.Name, r.node.RS(), ns))
+				return r.stg.SourceReader(snapshot.FormatFilepath(bcp.Name, r.node.RS(), ns))
 			},
 			bcp.Compression,
 			m.Has)

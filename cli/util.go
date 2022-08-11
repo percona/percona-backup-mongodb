@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 )
 
 func parseRSNamesMapping(s string) (map[string]string, error) {
@@ -99,7 +97,7 @@ func parseCLINSOption(s string) ([]string, error) {
 		}
 
 		for coll := range colls {
-			rv = append(rv, archive.FormatNS(db, coll))
+			rv = append(rv, db+"."+coll)
 		}
 	}
 

@@ -8,17 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/pkg/set"
 	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -193,8 +190,8 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			l.Debug("balancer status: %s", bs)
 		}
 
-		if inf.IsConfigSrv() {
-			err := checkNamespacesForBackup(ctx, b.cn.Conn, bcp.Namespaces)
+		if inf.IsConfigSrv() && len(bcp.Namespaces) != 0 {
+			err := checkNamespaceForBackup(ctx, b.cn.Conn, bcp.Namespaces[0])
 			if err != nil {
 				return errors.WithMessage(err, "namespace check")
 			}
@@ -259,67 +256,40 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	return errors.Wrap(err, "waiting for done")
 }
 
-func checkNamespacesForBackup(ctx context.Context, m *mongo.Client, nss []string) error {
-	if len(nss) == 0 {
-		return nil
+func checkNamespaceForBackup(ctx context.Context, m *mongo.Client, ns string) error {
+	db, coll := parseNS(ns)
+
+	colls, err := fullCollectionNames(ctx, m, db, coll)
+	if err != nil {
+		return errors.WithMessage(err, "full collection names")
 	}
 
-	dbs := make(map[string][]string)
-	for _, ns := range nss {
-		db, coll := archive.ParseNS(ns)
-
-		colls := dbs[db]
-		if coll != "" {
-			colls = append(colls, coll)
-		}
-
-		dbs[db] = colls
+	res, err := getShardedNamespaces(ctx, m, db, colls)
+	if err != nil {
+		return errors.WithMessage(err, "get sharded namespaces")
+	}
+	if len(res) != 0 {
+		return errors.WithMessagef(err,
+			"cannot selectively backup sharded collections: %s",
+			strings.Join(res, ", "))
 	}
 
-	eg, ctx := errgroup.WithContext(ctx)
-
-	for db, colls := range dbs {
-		db, colls := db, colls
-
-		eg.Go(func() error {
-			colls, err := fullCollectionNames(ctx, m, db, colls)
-			if err != nil {
-				return errors.WithMessage(err, "full collection names")
-			}
-
-			res, err := getShardedNamespaces(ctx, m, db, colls)
-			if err != nil {
-				return errors.WithMessage(err, "get sharded namespaces")
-			}
-			if len(res) != 0 {
-				return errors.WithMessagef(err,
-					"cannot selectively backup sharded collections: %s",
-					strings.Join(res, ", "))
-			}
-
-			return nil
-		})
-	}
-
-	return eg.Wait()
+	return nil
 }
 
-func fullCollectionNames(ctx context.Context, m *mongo.Client, db string, colls []string) ([]string, error) {
-	specs, err := m.Database(db).ListCollectionSpecifications(ctx, bson.D{})
+func fullCollectionNames(ctx context.Context, m *mongo.Client, db, coll string) ([]string, error) {
+	q := bson.D{}
+	if coll != "" {
+		q = append(q, bson.E{"name", coll})
+	}
+	specs, err := m.Database(db).ListCollectionSpecifications(ctx, q)
 	if err != nil {
 		return nil, errors.WithMessage(err, "listCollections: query")
 	}
 
-	var match func(string) bool
-	if len(colls) == 0 {
-		match = func(string) bool { return true }
-	} else {
-		match = set.CreateStringSet(colls...).Contains
-	}
-
-	rv := make([]string, 0, len(colls))
+	rv := make([]string, 0, len(specs))
 	for _, info := range specs {
-		if !match(info.Name) {
+		if coll != "" && coll != info.Name {
 			continue
 		}
 

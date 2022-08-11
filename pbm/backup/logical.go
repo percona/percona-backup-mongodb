@@ -22,12 +22,12 @@ import (
 func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
 	var db, coll string
 	if len(bcp.Namespaces) != 0 {
-		db, coll = archive.ParseNS(bcp.Namespaces[0])
+		db, coll = parseNS(bcp.Namespaces[0])
 	}
 
 	nssSize, err := getNamespacesSize(ctx, b.cn.Conn, db, coll)
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "get namespaces size")
 	}
 
 	oplog := oplog.NewOplogBackup(b.node)
@@ -38,8 +38,8 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = oplogTS
-	rsMeta.DumpName = archive.FormatFilepath(bcp.Name, rsMeta.Name, archive.MetaFile)
-	rsMeta.OplogName = archive.FormatFilepath(bcp.Name, rsMeta.Name, "oplog.bson") + bcp.Compression.Suffix()
+	rsMeta.DumpName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, archive.MetaFile)
+	rsMeta.OplogName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, "oplog.bson") + bcp.Compression.Suffix()
 	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
@@ -96,12 +96,12 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "init mongodump options")
 	}
 
-	snapshotSize, err := archive.UploadDump(dump,
+	snapshotSize, err := snapshot.UploadDump(dump,
 		func(ns, ext string, r io.Reader) error {
-			filepath := archive.FormatFilepath(bcp.Name, rsMeta.Name, ns+ext)
+			filepath := snapshot.FormatFilepath(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},
-		archive.UploadDumpOptions{
+		snapshot.UploadDumpOptions{
 			Compression:      bcp.Compression,
 			CompressionLevel: bcp.CompressionLevel,
 		})
@@ -215,7 +215,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 						StorageSize int64 `bson:"storageSize"`
 					}
 
-					ns := archive.FormatNS(db.Name, coll.Name)
+					ns := db.Name + "." + coll.Name
 					if err := res.Decode(&doc); err != nil {
 						return errors.WithMessagef(err, "decode %q", ns)
 					}
@@ -234,4 +234,26 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
+}
+
+func parseNS(ns string) (string, string) {
+	var db, coll string
+
+	switch s := strings.SplitN(ns, ".", 2); len(s) {
+	case 0:
+		return "", ""
+	case 1:
+		db = s[0]
+	case 2:
+		db, coll = s[0], s[1]
+	}
+
+	if db == "*" {
+		db = ""
+	}
+	if coll == "*" {
+		coll = ""
+	}
+
+	return db, coll
 }

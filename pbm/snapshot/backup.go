@@ -12,14 +12,12 @@ import (
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type backuper struct {
 	d     *mongodump.MongoDump
 	pm    *progress.BarWriter
-	nss   string
 	stopC chan struct{}
 }
 
@@ -79,9 +77,6 @@ func (d *backuper) WriteTo(to io.Writer) (int64, error) {
 	if err != nil {
 		return 0, errors.Wrap(err, "init")
 	}
-
-	db, coll := archive.ParseNS(d.nss)
-	d.d.ToolOptions.Namespace = &options.Namespace{DB: db, Collection: coll}
 
 	d.pm.Start()
 	defer d.pm.Stop()

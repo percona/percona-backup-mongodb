@@ -2,6 +2,7 @@ package archive
 
 import (
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/mongodb/mongo-tools/common/archive"
@@ -360,4 +361,8 @@ func secureWrite(w io.Writer, data []byte) error {
 	}
 
 	return nil
+}
+
+func NSify(db, coll string) string {
+	return db + "." + strings.TrimPrefix(coll, "system.buckets.")
 }

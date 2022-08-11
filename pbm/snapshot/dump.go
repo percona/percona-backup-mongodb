@@ -1,4 +1,4 @@
-package archive
+package snapshot
 
 import (
 	"io"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 )
 
@@ -30,7 +31,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 		go func() {
 			ext := ""
-			if ns != MetaFile {
+			if ns != archive.MetaFile {
 				ext += opts.Compression.Suffix()
 			}
 
@@ -42,7 +43,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 			}
 		}()
 
-		if ns == MetaFile {
+		if ns == archive.MetaFile {
 			return pw, nil
 		}
 
@@ -51,18 +52,18 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
 	}
 
-	err := Decompose(pr, newWriter)
+	err := archive.Decompose(pr, newWriter)
 	return atomic.LoadInt64(&size), errors.WithMessage(err, "decompose")
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
 
-func DownloadDump(download DownloadFunc, compression compress.CompressionType, match MatchFunc) (io.ReadCloser, error) {
+func DownloadDump(download DownloadFunc, compression compress.CompressionType, match archive.MatchFunc) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 
 	go func() {
 		newReader := func(ns string) (io.ReadCloser, error) {
-			if ns != MetaFile {
+			if ns != archive.MetaFile {
 				ns += compression.Suffix()
 			}
 
@@ -71,7 +72,7 @@ func DownloadDump(download DownloadFunc, compression compress.CompressionType, m
 				return nil, errors.WithMessagef(err, "download: %q", ns)
 			}
 
-			if ns == MetaFile {
+			if ns == archive.MetaFile {
 				return r, nil
 			}
 
@@ -79,7 +80,7 @@ func DownloadDump(download DownloadFunc, compression compress.CompressionType, m
 			return r, errors.WithMessagef(err, "create decompressor: %q", ns)
 		}
 
-		err := Compose(pw, match, newReader)
+		err := archive.Compose(pw, match, newReader)
 		pw.CloseWithError(errors.WithMessage(err, "compose"))
 	}()
 
@@ -120,4 +121,8 @@ func (d *delegatedWriteCloser) Close() error {
 	}
 
 	return nil
+}
+
+func FormatFilepath(bcp, rs, filename string) string {
+	return bcp + "/" + rs + "/" + filename
 }
