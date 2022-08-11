@@ -593,6 +593,10 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		return errors.Wrap(err, "mongorestore")
 	}
 
+	if isSelective(bcp.Namespaces) || isSelective(nss) {
+		return nil
+	}
+
 	r.log.Info("restoring users and roles")
 	cusr, err := r.node.CurrentUser()
 	if err != nil {
@@ -610,6 +614,16 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 	}
 
 	return nil
+}
+
+func isSelective(nss []string) bool {
+	for _, ns := range nss {
+		if ns != "" && ns != "*.*" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
