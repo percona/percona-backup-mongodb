@@ -1,7 +1,9 @@
 package s3
 
 import (
+	"crypto/md5"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -115,8 +117,15 @@ func (l SDKDebugLogLevel) SDKLogLevel() aws.LogLevelType {
 }
 
 type AWSsse struct {
+	// Used to specify the SSE algorithm used when keys are managed by the server
 	SseAlgorithm string `bson:"sseAlgorithm" json:"sseAlgorithm" yaml:"sseAlgorithm"`
 	KmsKeyID     string `bson:"kmsKeyID" json:"kmsKeyID" yaml:"kmsKeyID"`
+	// Used to specify SSE-C style encryption. For Amazon S3 SseCustomerAlgorithm must be 'AES256'
+	// see https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerSideEncryptionCustomerKeys.html
+	SseCustomerAlgorithm string `bson:"sseCustomerAlgorithm" json:"sseCustomerAlgorithm" yaml:"sseCustomerAlgorithm"`
+	// If SseCustomerAlgorithm is set, this must be a base64 encoded key compatible with the algorithm
+	// specified in the SseCustomerAlgorithm field.
+	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
 func (c *Conf) Cast() error {
@@ -254,10 +263,19 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		}
 
 		sse := s.opts.ServerSideEncryption
-		if sse != nil && sse.SseAlgorithm != "" {
-			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse != nil {
 			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+				uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+			} else if sse.SseCustomerAlgorithm != "" {
+				uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+				uplInput.SSECustomerKey = aws.String(sse.SseCustomerKey)
+				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+				if err != nil {
+					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+				}
+				keyMD5 := md5.Sum(decodedKey[:])
+				uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 			}
 		}
 
@@ -466,12 +484,19 @@ func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 		pr.setSize(s3obj)
 	}
 
-	if pr.opts.ServerSideEncryption != nil {
-		sse := pr.opts.ServerSideEncryption
-
-		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+	sse := pr.opts.ServerSideEncryption
+	if sse != nil {
 		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		} else if sse.SseCustomerAlgorithm != "" {
+			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			// We don't pass in the key in this case, just the MD5 hash of the key
+			// for verification
+			// s3obj.SSECustomerKey = aws.String(sse.SseCustomerKey)
+			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			keyMD5 := md5.Sum(decodedKey[:])
+			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}
 
