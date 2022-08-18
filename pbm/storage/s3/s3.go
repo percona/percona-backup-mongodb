@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/minio/minio-go"
+	"github.com/minio/minio-go/pkg/encrypt"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -329,9 +330,34 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{
+		putOpts := minio.PutObjectOptions{
 			StorageClass: s.opts.StorageClass,
-		})
+		}
+
+		// Enable server-side encryption if configured
+		sse := s.opts.ServerSideEncryption
+		if sse != nil {
+			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+				sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
+				if err != nil {
+					return errors.Wrap(err, "Could not create SSE KMS")
+				}
+				putOpts.ServerSideEncryption = sseKms
+			} else if sse.SseCustomerAlgorithm != "" {
+				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+				if err != nil {
+					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+				}
+
+				sseCus, err := encrypt.NewSSEC(decodedKey)
+				if err != nil {
+					return errors.Wrap(err, "Could not create SSE-C SSE key")
+				}
+				putOpts.ServerSideEncryption = sseCus
+			}
+		}
+
+		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
 		return errors.Wrap(err, "upload to GCS")
 	}
 }
