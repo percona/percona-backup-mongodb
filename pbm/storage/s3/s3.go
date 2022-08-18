@@ -269,8 +269,8 @@ func (s *S3) Save(name string, data io.Reader, sizeb int) error {
 				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 			} else if sse.SseCustomerAlgorithm != "" {
 				uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-				uplInput.SSECustomerKey = aws.String(sse.SseCustomerKey)
 				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+				uplInput.SSECustomerKey = aws.String(string(decodedKey[:]))
 				if err != nil {
 					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 				}
@@ -491,10 +491,10 @@ func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
 			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
 			// We don't pass in the key in this case, just the MD5 hash of the key
 			// for verification
-			// s3obj.SSECustomerKey = aws.String(sse.SseCustomerKey)
-			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
 			keyMD5 := md5.Sum(decodedKey[:])
 			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
