@@ -44,11 +44,12 @@ type NodeInfo struct {
 	ClusterTime                  *ClusterTime         `bson:"$clusterTime,omitempty"`
 	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
 	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
+	opts                         MongodOpts
 }
 
 // IsSharded returns true is replset is part sharded cluster
 func (i *NodeInfo) IsSharded() bool {
-	return i.SetName != "" && (i.ConfigServerState != nil || i.ConfigSvr == 2)
+	return i.SetName != "" && (i.ConfigServerState != nil || i.opts.Sharding.ClusterRole != "" || i.ConfigSvr == 2)
 }
 
 // IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
@@ -233,6 +234,9 @@ type MongodOpts struct {
 		BindIp string `bson:"bindIp" json:"bindIp"`
 		Port   int    `bson:"port" json:"port"`
 	} `bson:"net" json:"net"`
+	Sharding struct {
+		ClusterRole string `bson:"clusterRole" json:"clusterRole"`
+	} `bson:"sharding" json:"sharding"`
 	Storage struct {
 		DBpath string `bson:"dbPath" json:"dbPath"`
 	} `bson:"storage" json:"storage"`
