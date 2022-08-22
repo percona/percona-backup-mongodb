@@ -270,9 +270,7 @@ func checkNamespaceForBackup(ctx context.Context, m *mongo.Client, ns string) er
 
 func getShardedNamespaces(ctx context.Context, m *mongo.Client, db, coll string) ([]string, error) {
 	cur, err := m.Database("config").Collection("collections").
-		Find(ctx,
-			bson.D{{"_id", bson.M{"$regex": db + ".(system.buckets.)?" + coll}}},
-			options.Find().SetProjection(bson.D{{"_id", 1}}))
+		Find(ctx, bson.D{}, options.Find().SetProjection(bson.D{{"_id", 1}}))
 	if err != nil {
 		return nil, errors.WithMessage(err, "query")
 	}
@@ -289,8 +287,17 @@ func getShardedNamespaces(ctx context.Context, m *mongo.Client, db, coll string)
 			return nil, errors.WithMessage(err, "decode")
 		}
 
-		db, coll, _ := strings.Cut(doc.ID, ".")
-		rv = append(rv, db+"."+strings.TrimPrefix(coll, "system.buckets."))
+		d, c, _ := strings.Cut(doc.ID, ".")
+		if db != "" && db != d {
+			continue
+		}
+
+		c = strings.TrimPrefix(c, "system.buckets.")
+		if coll != "" && coll != c {
+			continue
+		}
+
+		rv = append(rv, d+"."+c)
 	}
 
 	return rv, nil
