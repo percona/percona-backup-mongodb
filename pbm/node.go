@@ -114,7 +114,7 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
-	opts, err := n.GetOpts()
+	opts, err := n.GetOpts(nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongod options")
 	}
