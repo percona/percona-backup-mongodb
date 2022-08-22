@@ -44,11 +44,12 @@ type NodeInfo struct {
 	ClusterTime                  *ClusterTime         `bson:"$clusterTime,omitempty"`
 	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
 	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
+	opts                         MongodOpts
 }
 
 // IsSharded returns true is replset is part sharded cluster
 func (i *NodeInfo) IsSharded() bool {
-	return i.SetName != "" && (i.ConfigServerState != nil || i.ConfigSvr == 2)
+	return i.SetName != "" && (i.ConfigServerState != nil || i.opts.Sharding.ClusterRole != "" || i.ConfigSvr == 2)
 }
 
 // IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
@@ -233,11 +234,14 @@ type MongodOpts struct {
 		BindIp string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
 		Port   int    `bson:"port" json:"port" yaml:"port"`
 	} `bson:"net" json:"net"`
+	Sharding struct {
+		ClusterRole string `bson:"clusterRole" json:"clusterRole"  yaml:"clusterRole"`
+	} `bson:"sharding" json:"sharding" yaml:"sharding"`
 	Storage MongodOptsStorage `bson:"storage" json:"storage" yaml:"storage"`
 }
 
 type MongodOptsStorage struct {
-	DirectoryPerDB bool   `bson:"directoryPerDB" json:"directoryPerDB" yaml:"directoryPerDB"`
+	DirectoryPerDB bool   `bson:"directoryPerDB" json:"dbPadirectoryPerDBth" yaml:"dbPadirectoryPerDBth"`
 	DBpath         string `bson:"dbPath" json:"dbPath" yaml:"dbPath"`
 	WiredTiger     struct {
 		EngineConfig struct {

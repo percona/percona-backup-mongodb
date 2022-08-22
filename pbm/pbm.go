@@ -963,8 +963,18 @@ func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
 	inf := &NodeInfo{}
 	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(inf)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command")
+		return nil, errors.Wrap(err, "get NodeInfo")
 	}
+
+	opts := struct {
+		Parsed MongodOpts `bson:"parsed" json:"parsed"`
+	}{}
+	err = p.Conn.Database("admin").RunCommand(p.ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(&opts)
+	if err != nil {
+		return nil, errors.Wrap(err, "get mongod options")
+	}
+	inf.opts = opts.Parsed
+
 	return inf, nil
 }
 
