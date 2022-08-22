@@ -25,12 +25,9 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		db, coll = parseNS(bcp.Namespaces[0])
 	}
 
-	nssSize, err := getNamespacesSize(ctx, b.cn.Conn, db, coll)
+	nssSize, err := getNamespacesSize(ctx, b.node.Session(), db, coll)
 	if err != nil {
 		return errors.WithMessage(err, "get namespaces size")
-	}
-	if len(nssSize) == 0 {
-		return errors.New("no collection to backup")
 	}
 
 	oplog := oplog.NewOplogBackup(b.node)
@@ -69,34 +66,41 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	// Save users and roles to the tmp collections so the restore would copy that data
-	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
-	// see: https://jira.percona.com/browse/PBM-636 and comments
-	lw, err := b.node.CopyUsersNRolles()
-	if err != nil {
-		return errors.Wrap(err, "copy users and roles for the restore")
-	}
-
-	defer func() {
-		l.Info("dropping tmp collections")
-		err := b.node.DropTMPcoll()
+	if len(bcp.Namespaces) == 0 {
+		// Save users and roles to the tmp collections so the restore would copy that data
+		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
+		// see: https://jira.percona.com/browse/PBM-636 and comments
+		lw, err := b.node.CopyUsersNRolles()
 		if err != nil {
-			l.Warning("drop tmp users and roles: %v", err)
+			return errors.Wrap(err, "copy users and roles for the restore")
 		}
-	}()
 
-	// before proceeding any further we have to be sure that tmp users and roles
-	// have replicated to the node we're about to take a backup from
-	// *copying made on a primary but backup does a secondary node
-	l.Debug("wait for tmp users %v", lw)
-	err = b.node.WaitForWrite(lw)
-	if err != nil {
-		return errors.Wrap(err, "wait for tmp users and roles replication")
+		defer func() {
+			l.Info("dropping tmp collections")
+			err := b.node.DropTMPcoll()
+			if err != nil {
+				l.Warning("drop tmp users and roles: %v", err)
+			}
+		}()
+
+		// before proceeding any further we have to be sure that tmp users and roles
+		// have replicated to the node we're about to take a backup from
+		// *copying made on a primary but backup does a secondary node
+		l.Debug("wait for tmp users %v", lw)
+		err = b.node.WaitForWrite(lw)
+		if err != nil {
+			return errors.Wrap(err, "wait for tmp users and roles replication")
+		}
 	}
 
-	dump, err := snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
-	if err != nil {
-		return errors.Wrap(err, "init mongodump options")
+	var dump io.WriterTo
+	if len(nssSize) == 0 {
+		dump = snapshot.DummyBackup{}
+	} else {
+		dump, err = snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
+		if err != nil {
+			return errors.Wrap(err, "init mongodump options")
+		}
 	}
 
 	snapshotSize, err := snapshot.UploadDump(dump,
@@ -167,30 +171,37 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 }
 
 func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
+	rv := make(map[string]int64)
+
 	q := bson.D{}
 	if db != "" {
 		q = append(q, bson.E{"name", db})
 	}
-	res, err := m.ListDatabases(ctx, q)
+	dbs, err := m.ListDatabaseNames(ctx, q)
 	if err != nil {
 		return nil, err
 	}
+	if len(dbs) == 0 {
+		return rv, nil
+	}
 
-	rv := make(map[string]int64)
 	mu := sync.Mutex{}
 	eg, ctx := errgroup.WithContext(ctx)
 
-	for i := range res.Databases {
-		db := &res.Databases[i]
+	for _, db := range dbs {
+		db := db
 
 		eg.Go(func() error {
 			q := bson.D{}
 			if coll != "" {
 				q = append(q, bson.E{"name", coll})
 			}
-			res, err := m.Database(db.Name).ListCollectionSpecifications(ctx, q)
+			res, err := m.Database(db).ListCollectionSpecifications(ctx, q)
 			if err != nil {
 				return err
+			}
+			if len(res) == 0 {
+				return nil
 			}
 
 			eg, ctx := errgroup.WithContext(ctx)
@@ -203,7 +214,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 				}
 
 				eg.Go(func() error {
-					res := m.Database(db.Name).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
+					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
 					if err := res.Err(); err != nil {
 						return err
 					}
@@ -212,7 +223,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 						StorageSize int64 `bson:"storageSize"`
 					}
 
-					ns := db.Name + "." + coll.Name
+					ns := db + "." + coll.Name
 					if err := res.Decode(&doc); err != nil {
 						return errors.WithMessagef(err, "decode %q", ns)
 					}

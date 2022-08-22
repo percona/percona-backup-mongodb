@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/archive"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/progress"
@@ -112,4 +113,15 @@ func (d *backuper) Cancel() {
 		default:
 		}
 	}
+}
+
+type DummyBackup struct{}
+
+func (DummyBackup) WriteTo(w io.Writer) (int64, error) {
+	p := archive.Prelude{
+		Header: &archive.Header{
+			ToolVersion: version.Current().Version,
+		},
+	}
+	return 0, p.Write(w)
 }

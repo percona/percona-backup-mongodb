@@ -200,21 +200,21 @@ type bcpDesc struct {
 	Name         string              `json:"name" yaml:"name"`
 	Type         pbm.BackupType      `json:"type" yaml:"type"`
 	LastWriteTS  primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
-	Namespaces   []string            `json:"namespaces" yaml:"namespaces"`
+	Namespaces   []string            `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	MongoVersion string              `json:"mongodb_version" yaml:"mongodb_version"`
 	PBMVersion   string              `json:"pbm_version" yaml:"pbm_version"`
 	Status       pbm.Status          `json:"status" yaml:"status"`
 	Size         int64               `json:"size" yaml:"size"`
-	Err          string              `json:"error" yaml:"error"`
+	Err          *string             `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets     []bcpReplDesc       `json:"replsets" yaml:"replsets"`
 }
 
 type bcpReplDesc struct {
 	Name        string              `json:"name" yaml:"name"`
 	Status      pbm.Status          `json:"status" yaml:"status"`
-	IsConfigSvr bool                `json:"iscs" yaml:"iscs"`
 	LastWriteTS primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
-	Error       string              `json:"error" yaml:"error"`
+	IsConfigSvr *bool               `json:"iscs,omitempty" yaml:"iscs,omitempty"`
+	Error       *string             `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 func (b *bcpDesc) String() string {
@@ -241,17 +241,21 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		LastWriteTS:  bcp.LastWriteTS,
 		Status:       bcp.Status,
 		Size:         bcp.Size,
-		Err:          bcp.Err,
+	}
+	if bcp.Err != "" {
+		rv.Err = &bcp.Err
 	}
 
 	rv.Replsets = make([]bcpReplDesc, len(bcp.Replsets))
 	for i, r := range bcp.Replsets {
 		rv.Replsets[i] = bcpReplDesc{
 			Name:        r.Name,
-			IsConfigSvr: pbm.Deref(r.IsConfigSvr),
+			IsConfigSvr: r.IsConfigSvr,
 			Status:      r.Status,
-			Error:       r.Error,
 			LastWriteTS: r.LastWriteTS,
+		}
+		if r.Error != "" {
+			rv.Replsets[i].Error = &r.Error
 		}
 	}
 

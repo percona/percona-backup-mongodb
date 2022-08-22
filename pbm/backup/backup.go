@@ -22,8 +22,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
-var ErrShardedCollection = errors.New("selective backup: sharded collections")
-
 func init() {
 	// set date format for mongo tools (mongodump/mongorestore) logger
 	//
@@ -259,72 +257,40 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 func checkNamespaceForBackup(ctx context.Context, m *mongo.Client, ns string) error {
 	db, coll := parseNS(ns)
 
-	colls, err := fullCollectionNames(ctx, m, db, coll)
-	if err != nil {
-		return errors.WithMessage(err, "full collection names")
-	}
-
-	res, err := getShardedNamespaces(ctx, m, db, colls)
+	res, err := getShardedNamespaces(ctx, m, db, coll)
 	if err != nil {
 		return errors.WithMessage(err, "get sharded namespaces")
 	}
 	if len(res) != 0 {
-		return errors.WithMessagef(err,
-			"cannot selectively backup sharded collections: %s",
-			strings.Join(res, ", "))
+		return errors.Errorf("selective backup: sharded collections: %s", strings.Join(res, ", "))
 	}
 
 	return nil
 }
 
-func fullCollectionNames(ctx context.Context, m *mongo.Client, db, coll string) ([]string, error) {
-	q := bson.D{}
-	if coll != "" {
-		q = append(q, bson.E{"name", coll})
-	}
-	specs, err := m.Database(db).ListCollectionSpecifications(ctx, q)
-	if err != nil {
-		return nil, errors.WithMessage(err, "listCollections: query")
-	}
-
-	rv := make([]string, 0, len(specs))
-	for _, info := range specs {
-		if coll != "" && coll != info.Name {
-			continue
-		}
-
-		name := info.Name
-		if info.Type == "timeseries" {
-			name = "system.buckets." + name
-		}
-
-		rv = append(rv, name)
-	}
-
-	return rv, nil
-}
-
-func getShardedNamespaces(ctx context.Context, m *mongo.Client, db string, colls []string) ([]string, error) {
+func getShardedNamespaces(ctx context.Context, m *mongo.Client, db, coll string) ([]string, error) {
 	cur, err := m.Database("config").Collection("collections").
 		Find(ctx,
-			bson.D{{"_id", bson.M{"$in": colls}}},
+			bson.D{{"_id", bson.M{"$regex": db + ".(system.buckets.)?" + coll}}},
 			options.Find().SetProjection(bson.D{{"_id", 1}}))
 	if err != nil {
 		return nil, errors.WithMessage(err, "query")
 	}
+	defer cur.Close(context.Background())
 
 	type document struct {
 		ID string `bson:"_id"`
 	}
 
-	rv := make([]string, 0, len(colls))
+	rv := []string{}
 	for cur.Next(ctx) {
 		var doc document
 		if err := cur.Decode(&doc); err != nil {
 			return nil, errors.WithMessage(err, "decode")
 		}
 
-		rv = append(rv, strings.TrimPrefix(doc.ID, "system.buckets."))
+		db, coll, _ := strings.Cut(doc.ID, ".")
+		rv = append(rv, db+"."+strings.TrimPrefix(coll, "system.buckets."))
 	}
 
 	return rv, nil

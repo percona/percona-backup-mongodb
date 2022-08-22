@@ -528,7 +528,7 @@ type BackupReplset struct {
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
-	IsConfigSvr      *bool               `bson:"iscs" json:"iscs,omitempty"`
+	IsConfigSvr      *bool               `bson:"iscs,omitempty" json:"iscs,omitempty"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
@@ -1035,15 +1035,4 @@ func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{
 	}
 
 	return n, nil
-}
-
-func Ref[T any](v T) *T {
-	return &v
-}
-
-func Deref[T any](v *T) (rv T) {
-	if v != nil {
-		rv = *v
-	}
-	return
 }
