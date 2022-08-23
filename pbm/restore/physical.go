@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	slog "log"
+	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -35,6 +36,8 @@ const (
 	defaultCSRSdbpath = "/data/configdb"
 
 	mongofslock = "mongod.lock"
+
+	defaultPort = 27017
 )
 
 type PhysRestore struct {
@@ -85,6 +88,10 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		}
 	}
 
+	if opts.Net.Port == 0 {
+		opts.Net.Port = defaultPort
+	}
+
 	rcf, err := node.GetRSconf()
 	if err != nil {
 		return nil, errors.Wrap(err, "get replset config")
@@ -94,7 +101,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		return nil, errors.New("undefined replica set")
 	}
 
-	tmpPort, err := peekTmpPort()
+	tmpPort, err := peekTmpPort(opts.Net.Port)
 	if err != nil {
 		return nil, errors.Wrap(err, "peek tmp port")
 	}
@@ -109,13 +116,17 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 	}, nil
 }
 
-func peekTmpPort() (int, error) {
+// peeks a random free port in a range [minPort, maxPort]
+func peekTmpPort(current int) (int, error) {
 	const (
-		maxPort   = 65535
-		startFrom = 28128
+		rng = 1111
+		try = 150
 	)
 
-	for p := startFrom; p <= maxPort; p++ {
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < try; i++ {
+		p := current + rand.Intn(rng) + 1
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
 		if err == nil {
 			ln.Close()
@@ -123,7 +134,7 @@ func peekTmpPort() (int, error) {
 		}
 	}
 
-	return -1, errors.Errorf("can't find unused port in range [%d-%d]", startFrom, maxPort)
+	return -1, errors.Errorf("can't find unused port in range [%d, %d]", current, current+rng)
 }
 
 // Close releases object resources.
@@ -422,6 +433,8 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 // - Cleans up data and resets replicaset config to the working state.
 // - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+	l.Debug("port: %d", r.tmpPort)
+
 	meta := &pbm.RestoreMeta{
 		Type:     pbm.PhysicalBackup,
 		OPID:     opid.String(),

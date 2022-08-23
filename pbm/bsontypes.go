@@ -235,8 +235,8 @@ type MongodOpts struct {
 		Port   int    `bson:"port" json:"port" yaml:"port"`
 	} `bson:"net" json:"net"`
 	Sharding struct {
-		ClusterRole string `bson:"clusterRole" json:"clusterRole"  yaml:"clusterRole"`
-	} `bson:"sharding" json:"sharding" yaml:"sharding"`
+		ClusterRole string `bson:"clusterRole" json:"clusterRole" yaml:"-"`
+	} `bson:"sharding" json:"sharding" yaml:"-"`
 	Storage MongodOptsStorage `bson:"storage" json:"storage" yaml:"storage"`
 }
 

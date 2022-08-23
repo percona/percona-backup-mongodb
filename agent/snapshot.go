@@ -372,6 +372,9 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		return errors.Wrap(err, "init physical backup")
 	}
 
+	// physical restore runs on all nodes in the replset
+	// so we try lock only on primary only to be sure there
+	// is no concurrent operation running.
 	var lock *pbm.Lock
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
