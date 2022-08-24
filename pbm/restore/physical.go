@@ -633,7 +633,8 @@ func (r *PhysRestore) copyFiles() error {
 }
 
 func (r *PhysRestore) prepareData() error {
-	err := r.startMongo("--dbpath", r.dbpath, "--setParameter", "disableLogicalSessionCacheRefresh=true")
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -716,7 +717,9 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) resetRS() error {
-	err := r.startMongo("--dbpath", r.dbpath)
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--setParameter", "skipShardingConfigurationChecks=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}

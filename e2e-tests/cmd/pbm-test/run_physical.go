@@ -19,7 +19,7 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	}{
 		{"AWS", "/etc/pbm/aws.yaml"},
 		{"GCS", "/etc/pbm/gcs.yaml"},
-		{"Azure", "/etc/pbm/azure.yaml"},
+		// {"Azure", "/etc/pbm/azure.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 		{"Minio", "/etc/pbm/minio.yaml"},
 	}
