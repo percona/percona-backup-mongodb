@@ -432,7 +432,7 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 // - Starts standalone mongod to recover oplog from journals.
 // - Cleans up data and resets replicaset config to the working state.
 // - Shuts down mongod and agent (the leader also dumps metadata to the storage).
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -484,6 +484,13 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event)
 	err = r.toState(pbm.StatusRunning)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
+	}
+
+	// On this stage, the agent has to be closed on any outcome as mongod
+	// is gonna be turned off. Besides, the agent won't be able to listen to
+	// the cmd stream anymore and will flood logs with errors on that.
+	if stopAgentC != nil {
+		stopAgentC <- struct{}{}
 	}
 
 	l.Info("stopping mongod and flushing old data")
@@ -1048,7 +1055,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if semver.Compare(majmin(r.bcp.MongoVersion), majmin(mgoV.VersionString)) != 0 {
-		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.PBMVersion, mgoV.VersionString)
+		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
 	}
 
 	if !r.nodeInfo.IsPrimary {
