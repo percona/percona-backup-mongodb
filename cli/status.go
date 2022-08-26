@@ -480,24 +480,24 @@ func (s storageStat) String() string {
 
 	sort.Slice(s.Snapshot, func(i, j int) bool {
 		a, b := s.Snapshot[i], s.Snapshot[j]
-		return a.StateTS > b.StateTS
+		return a.RestoreTS > b.RestoreTS
 	})
 
 	for _, sn := range s.Snapshot {
 		var status string
 		switch sn.Status {
 		case pbm.StatusDone:
-			status = fmt.Sprintf("[complete: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[restore_to_time: %s]", fmtTS(sn.RestoreTS))
 		case pbm.StatusCancelled:
-			status = fmt.Sprintf("[!canceled: %s]", fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[!canceled: %s]", fmtTS(sn.RestoreTS))
 		case pbm.StatusError:
 			if errors.Is(sn.Err, errIncompatible) {
-				status = fmt.Sprintf("[incompatible: %s] [%s]", sn.Err.Error(), fmtTS(sn.StateTS))
+				status = fmt.Sprintf("[incompatible: %s] [%s]", sn.Err.Error(), fmtTS(sn.RestoreTS))
 			} else {
-				status = fmt.Sprintf("[ERROR: %s] [%s]", sn.Err.Error(), fmtTS(sn.StateTS))
+				status = fmt.Sprintf("[ERROR: %s] [%s]", sn.Err.Error(), fmtTS(sn.RestoreTS))
 			}
 		default:
-			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.StateTS))
+			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.RestoreTS))
 		}
 
 		ret += fmt.Sprintf("    %s %s <%s> %s\n", sn.Name, fmtSize(sn.Size), sn.Type, status)
@@ -577,7 +577,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
 			Status:     bcp.Status,
-			StateTS:    bcp.LastTransitionTS,
+			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
 			Err:        bcp.Error(),
@@ -590,7 +590,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			}
 			fallthrough
 		case pbm.StatusDone:
-			snpsht.StateTS = int64(bcp.LastWriteTS.T)
+			snpsht.RestoreTS = int64(bcp.LastWriteTS.T)
 		case pbm.StatusCancelled:
 			// leave as it is, not to rewrite status with the `stuck` error
 		default:

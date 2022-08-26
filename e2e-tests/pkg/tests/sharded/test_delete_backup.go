@@ -102,7 +102,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		os.Exit(1)
 	}
 
-	tsp := time.Unix(list.Snapshots[len(list.Snapshots)-1].StateTS, 0).Add(time.Second * 10)
+	tsp := time.Unix(list.Snapshots[len(list.Snapshots)-1].RestoreTS, 0).Add(time.Second * 10)
 
 	log.Printf("delete pitr older than %s \n", tsp.Format("2006-01-02T15:04:05"))
 	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--older-than", tsp.Format("2006-01-02T15:04:05"))
@@ -127,8 +127,8 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: empty spanpshots list")
 	}
 
-	if list.PITR.Ranges[0].Range.Start-1 != uint32(list.Snapshots[len(list.Snapshots)-1].StateTS) {
-		log.Printf("ERROR: expected range starts the next second after the backup complete time, %v | %v", list.PITR.Ranges[0].Range.Start+1, uint32(list.Snapshots[len(list.Snapshots)-1].StateTS))
+	if list.PITR.Ranges[0].Range.Start-1 != uint32(list.Snapshots[len(list.Snapshots)-1].RestoreTS) {
+		log.Printf("ERROR: expected range starts the next second after the backup complete time, %v | %v", list.PITR.Ranges[0].Range.Start+1, uint32(list.Snapshots[len(list.Snapshots)-1].RestoreTS))
 		c.printBcpList()
 		os.Exit(1)
 	}
