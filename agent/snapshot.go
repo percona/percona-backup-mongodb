@@ -263,7 +263,7 @@ func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, er
 }
 
 func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
 	if r == nil {
 		l.Error("missed command")
 		return
@@ -372,6 +372,9 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		return errors.Wrap(err, "init physical backup")
 	}
 
+	// physical restore runs on all nodes in the replset
+	// so we try lock only on primary only to be sure there
+	// is no concurrent operation running.
 	var lock *pbm.Lock
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
@@ -393,8 +396,6 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		}
 	}
 
-	// not to logs flood with errors when mongo went down
-	a.closeCMD <- struct{}{}
 	if lock != nil {
 		// Don't care about errors. Anyway, the lock gonna disappear after the
 		// restore. And the commands stream is down as well.
@@ -404,7 +405,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 	}
 
 	l.Info("restore started")
-	err = rstr.Snapshot(r, opid, l)
+	err = rstr.Snapshot(r, opid, l, a.closeCMD)
 	l.Info("restore finished %v", err)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {

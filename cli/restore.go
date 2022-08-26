@@ -2,17 +2,18 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 type restoreOpts struct {
@@ -27,7 +28,6 @@ type restoreRet struct {
 	Name     string `json:"name,omitempty"`
 	Snapshot string `json:"snapshot,omitempty"`
 	PITR     string `json:"point-in-time,omitempty"`
-	Leader   string `json:"leader,omitempty"`
 	done     bool
 	physical bool
 	err      string
@@ -48,11 +48,7 @@ func (r restoreRet) String() string {
 	case r.err != "":
 		return "\n Error: " + r.err
 	case r.Snapshot != "":
-		var l string
-		if r.Leader != "" {
-			l = ". Leader: " + r.Leader + "\n"
-		}
-		return fmt.Sprintf("Restore of the snapshot from '%s' has started%s", r.Snapshot, l)
+		return fmt.Sprintf("Restore of the snapshot from '%s' has started", r.Snapshot)
 	case r.PITR != "":
 		return fmt.Sprintf("Restore to the point in time '%s' has started", r.PITR)
 
@@ -78,12 +74,12 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return nil, err
 		}
 		if !o.wait {
-			return restoreRet{Name: m.Name, Snapshot: o.bcp, Leader: m.Leader}, nil
+			return restoreRet{Name: m.Name, Snapshot: o.bcp}, nil
 		}
 
 		typ := " logical restore.\nWaiting to finish"
 		if m.Type == pbm.PhysicalBackup {
-			typ = fmt.Sprintf(" physical restore. Leader: %s\nWaiting to finish", m.Leader)
+			typ = " physical restore.\nWaiting to finish"
 		}
 		fmt.Printf("Started%s", typ)
 		err = waitRestore(cn, m)
@@ -130,20 +126,18 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	fname := m.Name
 	var rmeta *pbm.RestoreMeta
 
 	getMeta := cn.GetRestoreMeta
 	if m.Type == pbm.PhysicalBackup {
-		fname = fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, m.Name)
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
-			return getRestoreMetaStg(name, stg)
+			return pbm.GetPhysRestoreMeta(name, stg)
 		}
 	}
 
 	for range tk.C {
 		fmt.Print(".")
-		rmeta, err = getMeta(fname)
+		rmeta, err = getMeta(m.Name)
 		if errors.Is(err, pbm.ErrNotFound) {
 			continue
 		}
@@ -170,29 +164,6 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	}
 
 	return nil
-}
-
-func getRestoreMetaStg(name string, stg storage.Storage) (*pbm.RestoreMeta, error) {
-	_, err := stg.FileStat(name)
-	if err == storage.ErrNotExist {
-		return nil, pbm.ErrNotFound
-	}
-	if err != nil {
-		return nil, errors.Wrap(err, "get stat")
-	}
-
-	src, err := stg.SourceReader(name)
-	if err != nil {
-		return nil, errors.Wrapf(err, "get file %s", name)
-	}
-
-	rmeta := new(pbm.RestoreMeta)
-	err = json.NewDecoder(src).Decode(rmeta)
-	if err != nil {
-		return nil, errors.Wrapf(err, "decode meta %s", name)
-	}
-
-	return rmeta, nil
 }
 
 type errRestoreFailed struct {
@@ -237,15 +208,38 @@ func restore(cn *pbm.PBM, bcpName string, rsMapping map[string]string, outf outF
 		return &pbm.RestoreMeta{
 			Name:   name,
 			Backup: bcpName,
+			Type:   bcp.Type,
 		}, nil
 	}
 
-	fmt.Printf("Starting restore from '%s'", bcpName)
+	fmt.Printf("Starting restore %s from '%s'", name, bcpName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	var (
+		fn     getRestoreMetaFn
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
+	// physical restore may take more time to start
+	const waitPhysRestoreStart = time.Second * 120
+	if bcp.Type == pbm.PhysicalBackup {
+		ep, _ := cn.GetEpoch()
+		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
+		if err != nil {
+			return nil, errors.Wrap(err, "get storage")
+		}
+
+		fn = func(name string) (*pbm.RestoreMeta, error) {
+			return pbm.GetPhysRestoreMeta(name, stg)
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), waitPhysRestoreStart)
+	} else {
+		fn = cn.GetRestoreMeta
+		ctx, cancel = context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name)
+	return waitForRestoreStatus(ctx, cn, name, fn)
 }
 
 func parseTS(t string) (ts primitive.Timestamp, err error) {
@@ -305,10 +299,12 @@ func pitrestore(cn *pbm.PBM, t, base string, rsMap map[string]string, outf outFo
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name)
+	return waitForRestoreStatus(ctx, cn, name, cn.GetRestoreMeta)
 }
 
-func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.RestoreMeta, error) {
+type getRestoreMetaFn func(name string) (*pbm.RestoreMeta, error)
+
+func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	var err error
@@ -317,7 +313,7 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.R
 		select {
 		case <-tk.C:
 			fmt.Print(".")
-			meta, err = cn.GetRestoreMeta(name)
+			meta, err = getfn(name)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue
 			}
@@ -357,4 +353,127 @@ func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string) (*pbm.R
 			return nil, errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
 		}
 	}
+}
+
+type descrRestoreOpts struct {
+	restore string
+	cfg     string
+}
+
+type describeRestoreResult struct {
+	Name               string           `yaml:"name" json:"name"`
+	Backup             string           `yaml:"backup" json:"backup"`
+	Type               pbm.BackupType   `yaml:"type" json:"type"`
+	Status             pbm.Status       `yaml:"status" json:"status"`
+	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
+	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
+	OPID               string           `yaml:"opid" json:"opid"`
+	StartTS            int64            `yaml:"-" json:"start_ts"`
+	StartTime          string           `yaml:"start" json:"-"`
+	LastTransitionTS   int64            `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string           `yaml:"last_transition_time" json:"-"`
+}
+
+type RestoreReplset struct {
+	Name               string        `yaml:"name" json:"name"`
+	Status             pbm.Status    `yaml:"status" json:"status"`
+	Error              *string       `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS   int64         `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string        `yaml:"last_transition_time" json:"-"`
+	Nodes              []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+}
+
+type RestoreNode struct {
+	Name               string     `yaml:"name" json:"name"`
+	Status             pbm.Status `yaml:"status" json:"status"`
+	Error              *string    `yaml:"error,omitempty" json:"error,omitempty"`
+	LastTransitionTS   int64      `yaml:"-" json:"last_transition_ts"`
+	LastTransitionTime string     `yaml:"last_transition_time" json:"-"`
+}
+
+func (r describeRestoreResult) String() string {
+	b, err := yaml.Marshal(r)
+	if err != nil {
+		return fmt.Sprintln("error:", err)
+	}
+
+	return string(b)
+}
+
+func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
+	var res describeRestoreResult
+	var meta *pbm.RestoreMeta
+	if o.cfg != "" {
+		buf, err := ioutil.ReadFile(o.cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to read config file")
+		}
+
+		var cfg pbm.Config
+		err = yaml.UnmarshalStrict(buf, &cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+		}
+
+		stg, err := pbm.Storage(cfg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
+		if err != nil {
+			return nil, errors.Wrap(err, "get storage")
+		}
+
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg)
+		if err != nil && meta == nil {
+			return nil, errors.Wrap(err, "get restore meta")
+		}
+	} else {
+		var err error
+		meta, err = cn.GetRestoreMeta(o.restore)
+		if err != nil {
+			return nil, errors.Wrap(err, "get restore meta")
+		}
+	}
+
+	if meta == nil {
+		return nil, errors.New("undefined restore meta")
+	}
+
+	res.Name = meta.Name
+	res.Backup = meta.Backup
+	res.Type = meta.Type
+	res.Status = meta.Status
+	res.OPID = meta.OPID
+	res.StartTS = meta.StartTS
+	res.StartTime = time.Unix(res.StartTS, 0).Format(time.RFC3339)
+	res.LastTransitionTS = meta.LastTransitionTS
+	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).Format(time.RFC3339)
+	if meta.Status == pbm.StatusError {
+		res.Error = &meta.Error
+	}
+
+	for _, rs := range meta.Replsets {
+		mrs := RestoreReplset{
+			Name:               rs.Name,
+			Status:             rs.Status,
+			LastTransitionTS:   rs.LastTransitionTS,
+			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).Format(time.RFC3339),
+		}
+		if rs.Status == pbm.StatusError {
+			mrs.Error = &rs.Error
+		}
+		for _, node := range rs.Nodes {
+			mnode := RestoreNode{
+				Name:               node.Name,
+				Status:             node.Status,
+				LastTransitionTS:   node.LastTransitionTS,
+				LastTransitionTime: time.Unix(node.LastTransitionTS, 0).Format(time.RFC3339),
+			}
+			if node.Status == pbm.StatusError {
+				mnode.Error = &node.Error
+			}
+
+			mrs.Nodes = append(mrs.Nodes, mnode)
+		}
+		res.Replsets = append(res.Replsets, mrs)
+	}
+
+	return res, nil
 }

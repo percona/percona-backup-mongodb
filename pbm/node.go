@@ -114,7 +114,7 @@ func (n *Node) GetInfo() (*NodeInfo, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
-	opts, err := n.GetOpts()
+	opts, err := n.GetOpts(nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongod options")
 	}
@@ -348,10 +348,13 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	return LastWrite(cn, false)
 }
 
-func (n *Node) GetOpts() (*MongodOpts, error) {
+func (n *Node) GetOpts(defaults *MongodOpts) (*MongodOpts, error) {
 	opts := struct {
 		Parsed MongodOpts `bson:"parsed" json:"parsed"`
 	}{}
+	if defaults != nil {
+		opts.Parsed = *defaults
+	}
 	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(&opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")

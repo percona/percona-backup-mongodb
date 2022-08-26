@@ -36,9 +36,7 @@ func (s *Snapshot) Backup() {
 	s.started <- struct{}{}
 	s.c.BackupWaitDone(s.bcpName)
 	time.Sleep(time.Second * 1)
-	log.Println("==>1")
 	s.done <- struct{}{}
-	log.Println("==>2")
 }
 
 func (s *Snapshot) WaitSnapshot() {}
@@ -121,9 +119,7 @@ func (s *Physical) Backup() {
 	s.started <- struct{}{}
 	s.c.BackupWaitDone(s.bcpName)
 	time.Sleep(time.Second * 1)
-	log.Println("==>1")
 	s.done <- struct{}{}
-	log.Println("==>2")
 }
 
 func (s *Physical) WaitSnapshot() {}

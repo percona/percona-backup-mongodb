@@ -50,7 +50,7 @@ func toState(cn *pbm.PBM, status pbm.Status, bcp string, inf *pbm.NodeInfo, reco
 			if errors.Cause(err) == errConvergeTimeOut {
 				return nil, errors.Wrap(err, "couldn't get response from all shards")
 			}
-			return nil, errors.Wrap(err, "check cluster for restore started")
+			return nil, errors.Wrapf(err, "check cluster for restore `%s`", status)
 		}
 	}
 

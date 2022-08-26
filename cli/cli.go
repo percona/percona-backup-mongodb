@@ -142,6 +142,11 @@ func Main() {
 	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").Short('s').
 		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
 
+	describeRestoreCmd := pbmCmd.Command("describe-restore", "Describe restore")
+	describeRestoreOpts := descrRestoreOpts{}
+	describeRestoreCmd.Arg("name", "Restore name").StringVar(&describeRestoreOpts.restore)
+	describeRestoreCmd.Flag("config", "Path to PBM config").Short('c').StringVar(&describeRestoreOpts.cfg)
+
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: parse command line parameters:", err)
@@ -173,12 +178,15 @@ func Main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, *mURL, "pbm-ctl")
-	if err != nil {
-		exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
+	var pbmClient *pbm.PBM
+	// we don't need pbm connection if it is `pbm describe-restore -c ...`
+	if describeRestoreOpts.cfg == "" {
+		pbmClient, err = pbm.New(ctx, *mURL, "pbm-ctl")
+		if err != nil {
+			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
+		}
+		pbmClient.InitLogger("", "")
 	}
-
-	pbmClient.InitLogger("", "")
 
 	switch cmd {
 	case configCmd.FullCommand():
@@ -202,6 +210,8 @@ func Main() {
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
 		out, err = status(pbmClient, *mURL, statusOpts, pbmOutF == outJSONpretty)
+	case describeRestoreCmd.FullCommand():
+		out, err = describeRestore(pbmClient, describeRestoreOpts)
 	}
 
 	if err != nil {
