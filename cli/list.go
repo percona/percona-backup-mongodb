@@ -41,7 +41,6 @@ const (
 
 type restoreListOut struct {
 	list []restoreStatus
-	full bool
 }
 
 func (r restoreListOut) String() string {
@@ -50,7 +49,7 @@ func (r restoreListOut) String() string {
 		var rprint, name string
 
 		if v.Type == restoreSnapshot {
-			name = v.Snapshot
+			name = fmt.Sprintf("%s [backup: %s]", v.Name, v.Snapshot)
 		} else if v.Type == restoreReplay {
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
@@ -58,13 +57,10 @@ func (r restoreListOut) String() string {
 		} else {
 			name = "PITR: " + time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
 		}
-		if r.full {
-			name += fmt.Sprintf(" [%s]", v.Name)
-		}
 
 		switch v.Status {
 		case pbm.StatusDone:
-			rprint = name
+			rprint = name + "\tdone"
 		case pbm.StatusError:
 			rprint = fmt.Sprintf("%s\tFailed with \"%s\"", name, v.Error)
 		default:
@@ -86,7 +82,7 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	}
 
 	if l.restore {
-		return restoreList(cn, int64(l.size), l.full)
+		return restoreList(cn, int64(l.size))
 	}
 	// show message and skip when resync is running
 	lk, err := findLock(cn, cn.GetLocks)
@@ -97,13 +93,13 @@ func runList(cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
 	return backupList(cn, l.size, l.full, l.unbacked, rsMap)
 }
 
-func restoreList(cn *pbm.PBM, size int64, full bool) (*restoreListOut, error) {
+func restoreList(cn *pbm.PBM, size int64) (*restoreListOut, error) {
 	rlist, err := cn.RestoresList(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get restore list")
 	}
 
-	rout := &restoreListOut{full: full}
+	rout := &restoreListOut{}
 	for i := len(rlist) - 1; i >= 0; i-- {
 		r := rlist[i]
 

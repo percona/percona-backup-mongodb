@@ -409,6 +409,11 @@ func (p *PBM) GetStorage(l *log.Event) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "get config")
 	}
 
+	return Storage(c, l)
+}
+
+// Storage creates and returns a storage object based on a given config
+func Storage(c Config, l *log.Event) (storage.Storage, error) {
 	switch c.Storage.Type {
 	case StorageS3:
 		return s3.New(c.Storage.S3, l)
