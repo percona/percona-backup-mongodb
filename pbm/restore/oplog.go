@@ -195,6 +195,16 @@ func (o *Oplog) handleOp(oe db.Oplog) error {
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
+		// if this is a create operation, the namesape would be
+		// inside the object to create
+		if oe.Operation == "c" {
+			if len(oe.Object) == 0 {
+				return errors.Errorf("empty object value for op: %v", oe)
+			}
+			if oe.Object[0].Key == "create" && o.noUUIDns.Has(oe.Namespace+"."+oe.Object[0].Value.(string)) {
+				o.preserveUUID = false
+			}
+		}
 		// don't preserve UUID for certain namespaces
 		if o.noUUIDns.Has(oe.Namespace) {
 			o.preserveUUID = false
