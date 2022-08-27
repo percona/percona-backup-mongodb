@@ -172,6 +172,17 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get shard's last write ts")
 	}
 
+	defOpts := new(pbm.MongodOpts)
+	defOpts.Storage.WiredTiger.EngineConfig.JournalCompressor = "snappy"
+	defOpts.Storage.WiredTiger.CollectionConfig.BlockCompressor = "snappy"
+	defOpts.Storage.WiredTiger.IndexConfig.PrefixCompression = true
+
+	mopts, err := b.node.GetOpts(defOpts)
+	if err != nil {
+		return errors.Wrap(err, "get mongod options")
+	}
+
+	rsMeta.MongodOpts = mopts
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts

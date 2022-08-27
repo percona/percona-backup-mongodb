@@ -371,7 +371,7 @@ func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (
 		Name:       r.nodeInfo.SetName,
 		StartTS:    time.Now().UTC().Unix(),
 		Status:     pbm.StatusStarting,
-		Conditions: []pbm.Condition{},
+		Conditions: pbm.Conditions{},
 	}
 
 	err = r.cn.AddRestoreRSMeta(r.name, rsMeta)

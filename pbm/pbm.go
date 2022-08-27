@@ -534,6 +534,7 @@ type BackupReplset struct {
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	MongodOpts       *MongodOpts         `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
 }
 
 type File struct {

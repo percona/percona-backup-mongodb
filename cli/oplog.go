@@ -80,7 +80,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
-	m, err := waitForRestoreStatus(ctx, cn, name)
+	m, err := waitForRestoreStatus(ctx, cn, name, cn.GetRestoreMeta)
 	if err != nil {
 		return nil, err
 	}

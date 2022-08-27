@@ -231,15 +231,30 @@ func (b *BalancerStatus) IsOn() bool {
 
 type MongodOpts struct {
 	Net struct {
-		BindIp string `bson:"bindIp" json:"bindIp"`
-		Port   int    `bson:"port" json:"port"`
+		BindIp string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
+		Port   int    `bson:"port" json:"port" yaml:"port"`
 	} `bson:"net" json:"net"`
 	Sharding struct {
-		ClusterRole string `bson:"clusterRole" json:"clusterRole"`
-	} `bson:"sharding" json:"sharding"`
-	Storage struct {
-		DBpath string `bson:"dbPath" json:"dbPath"`
-	} `bson:"storage" json:"storage"`
+		ClusterRole string `bson:"clusterRole" json:"clusterRole" yaml:"-"`
+	} `bson:"sharding" json:"sharding" yaml:"-"`
+	Storage MongodOptsStorage `bson:"storage" json:"storage" yaml:"storage"`
+}
+
+type MongodOptsStorage struct {
+	DirectoryPerDB bool   `bson:"directoryPerDB" json:"directoryPerDB" yaml:"directoryPerDB"`
+	DBpath         string `bson:"dbPath" json:"dbPath" yaml:"dbPath"`
+	WiredTiger     struct {
+		EngineConfig struct {
+			JournalCompressor   string `bson:"journalCompressor" json:"journalCompressor" yaml:"journalCompressor"`
+			DirectoryForIndexes bool   `bson:"directoryForIndexes" json:"directoryForIndexes" yaml:"directoryForIndexes"`
+		} `bson:"engineConfig" json:"engineConfig" yaml:"engineConfig"`
+		CollectionConfig struct {
+			BlockCompressor string `bson:"blockCompressor" json:"blockCompressor" yaml:"blockCompressor"`
+		} `bson:"collectionConfig" json:"collectionConfig" yaml:"collectionConfig"`
+		IndexConfig struct {
+			PrefixCompression bool `bson:"prefixCompression" json:"prefixCompression" yaml:"prefixCompression"`
+		} `bson:"indexConfig" json:"indexConfig" yaml:"indexConfig"`
+	} `bson:"wiredTiger" json:"wiredTiger" yaml:"wiredTiger"`
 }
 
 type RSConfig struct {
