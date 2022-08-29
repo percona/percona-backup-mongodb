@@ -131,7 +131,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, &applyOplogOption{nss: bcp.Namespaces})
+	}}, &applyOplogOption{nss: cmd.Namespaces})
 	if err != nil {
 		return err
 	}
@@ -236,7 +236,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	oplogOption := applyOplogOption{end: &tsTo, nss: bcp.Namespaces}
+	oplogOption := applyOplogOption{end: &tsTo, nss: cmd.Namespaces}
 	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
 	if err != nil {
 		return err
