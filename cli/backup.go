@@ -47,6 +47,9 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	if len(nss) > 1 {
 		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
 	}
+	if len(nss) != 0 && b.typ == string(pbm.PhysicalBackup) {
+		return nil, errors.New("--ns flag is not allowed for physical backup")
+	}
 
 	if err := checkConcurrentOp(cn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
