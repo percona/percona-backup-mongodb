@@ -6,6 +6,16 @@ import (
 )
 
 func TestParseCLINSOption(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		nss, err := parseCLINSOption("a.b")
+		if err != nil {
+			t.Errorf("expected no error, got: %s", err.Error())
+		}
+		if len(nss) != 1 || nss[0] != "a.b" {
+			t.Errorf(`expected [a.b] result, got: %v`, nss)
+		}
+	})
+
 	t.Run("wildcard (all namespaces)", func(t *testing.T) {
 		cases := []string{
 			"",
@@ -73,14 +83,9 @@ func TestParseCLINSOption(t *testing.T) {
 	})
 
 	t.Run("system collections", func(t *testing.T) {
-		cases := []string{
-			"ANY.system.ANY",
-		}
-		for _, ns := range cases {
-			_, err := parseCLINSOption(ns)
-			if !errors.Is(err, ErrForbiddenCollection) {
-				t.Errorf("%q expected to be forbidden", ns)
-			}
+		_, err := parseCLINSOption("ANY.system.ANY")
+		if !errors.Is(err, ErrForbiddenCollection) {
+			t.Error(`"ANY.system.ANY" expected to be forbidden`)
 		}
 	})
 }
