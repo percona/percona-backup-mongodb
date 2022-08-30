@@ -39,7 +39,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = oplogTS
 	rsMeta.DumpName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, archive.MetaFile)
-	rsMeta.OplogName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, "oplog.bson") + bcp.Compression.Suffix()
+	rsMeta.OplogName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
 	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
