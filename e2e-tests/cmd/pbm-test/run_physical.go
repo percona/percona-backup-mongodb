@@ -10,7 +10,7 @@ import (
 func runPhysical(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
 
-	storage := ""
+	storage := "/etc/pbm/fs.yaml"
 	// t.ApplyConfig(storage)
 	// flush(t)
 
