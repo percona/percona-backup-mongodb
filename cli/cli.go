@@ -88,7 +88,7 @@ func Main() {
 		)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
-	backupCmd.Flag("ns", "Namespace filter to backup").StringVar(&backup.ns)
+	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).StringVar(&backup.ns)
 	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
@@ -102,7 +102,7 @@ func Main() {
 	restoreCmd.Arg("backup_name", "Backup name to restore").StringVar(&restore.bcp)
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
-	restoreCmd.Flag("ns", "Comma separated list of namespaces to restore").StringVar(&restore.ns)
+	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).StringVar(&restore.ns)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
