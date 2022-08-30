@@ -182,6 +182,13 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			}
 		}()
 
+		if inf.IsConfigSrv() && len(bcp.Namespaces) != 0 {
+			err := checkNamespaceForBackup(ctx, b.cn.Conn, inf.SetName, bcp.Namespaces[0])
+			if err != nil {
+				return errors.WithMessage(err, "namespace check")
+			}
+		}
+
 		if bcpm.BalancerStatus == pbm.BalancerModeOn {
 			err = b.cn.SetBalancerStatus(pbm.BalancerModeOff)
 			if err != nil {
@@ -190,13 +197,6 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			l.Debug("waiting for balancer off")
 			bs := waitForBalancerOff(b.cn, time.Second*30, l)
 			l.Debug("balancer status: %s", bs)
-		}
-
-		if inf.IsConfigSrv() && len(bcp.Namespaces) != 0 {
-			err := checkNamespaceForBackup(ctx, b.cn.Conn, bcp.Namespaces[0])
-			if err != nil {
-				return errors.WithMessage(err, "namespace check")
-			}
 		}
 	}
 
