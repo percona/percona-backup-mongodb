@@ -150,6 +150,6 @@ func Run(nodeCN *mongo.Client, stg storage.Storage, compression compress.Compres
 // without allocations
 func StringToBytes(s string) []byte {
 	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh := &reflect.SliceHeader{sh.Data, sh.Len, sh.Len}
-	return *(*[]byte)(unsafe.Pointer(bh))
+	bh := reflect.SliceHeader{sh.Data, sh.Len, sh.Len}
+	return *(*[]byte)(unsafe.Pointer(&bh))
 }
