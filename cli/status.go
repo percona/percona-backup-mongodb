@@ -609,13 +609,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			}
 		}
 
-		var err error
-		if bcp.Type == pbm.PhysicalBackup {
-			snpsht.Size, err = getPhysSnapshotSize(&bcp, stg)
-		} else if version.IsLegacyArchive(bcp.PBMVersion) {
-			snpsht.Size, err = getLegacySnapshotSize(bcp.Replsets, stg)
-		}
-
+		snpsht.Size, err = getBackupSize(&bcp, stg)
 		if err != nil {
 			snpsht.Err = err
 			snpsht.Status = pbm.StatusError
@@ -719,16 +713,6 @@ func getLegacySnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s in
 		}
 
 		s += ds.Size + op.Size
-	}
-
-	return s, nil
-}
-
-func getPhysSnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
-	for _, rs := range bcp.Replsets {
-		for _, f := range rs.Files {
-			s += f.StgSize
-		}
 	}
 
 	return s, nil

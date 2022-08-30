@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	mlog "github.com/mongodb/mongo-tools/common/log"
@@ -14,8 +16,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -243,7 +247,29 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			return errors.Wrap(err, "check cluster for backup done")
 		}
 
-		err = b.dumpClusterMeta(bcp.Name, stg)
+		bcpm, err = b.cn.GetBackupMeta(bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "get backup metadata")
+		}
+
+		var backupSize int64
+		switch b.typ {
+		case pbm.LogicalBackup:
+			backupSize, err = countLogicalBackupSize(ctx, bcpm, stg)
+		case pbm.PhysicalBackup:
+			backupSize, err = countPhysicalBackupSize(ctx, bcpm, stg)
+		}
+		if err != nil {
+			return errors.Wrap(err, "count backup size")
+		}
+
+		err = b.cn.SetBackupSize(ctx, bcp.Name, backupSize)
+		if err != nil {
+			return errors.Wrap(err, "set backup size")
+		}
+		bcpm.Size = backupSize
+
+		err = writeMeta(stg, bcpm)
 		if err != nil {
 			return errors.Wrap(err, "dump metadata")
 		}
@@ -252,6 +278,97 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	// to be sure the locks released only after the "done" status had written
 	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
+}
+
+func countPhysicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
+	totalSize := int64(0)
+
+	eg, _ := errgroup.WithContext(ctx)
+	for _, rs := range bcp.Replsets {
+		rs := &rs
+
+		eg.Go(func() error {
+			f, err := stg.FileStat(rs.DumpName)
+			if err != nil {
+				return errors.WithMessagef(err, "file %q", f)
+			}
+			atomic.AddInt64(&totalSize, f.Size)
+			return nil
+		})
+
+		eg.Go(func() error {
+			f, err := stg.FileStat(rs.OplogName)
+			if err != nil {
+				return errors.WithMessagef(err, "file %q", f)
+			}
+			atomic.AddInt64(&totalSize, f.Size)
+			return nil
+		})
+
+		rest := int64(0)
+		for _, f := range rs.Files {
+			rest += f.StgSize
+		}
+
+		atomic.AddInt64(&totalSize, rest)
+	}
+
+	err := eg.Wait()
+	return atomic.LoadInt64(&totalSize), err
+}
+
+func countLogicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
+	totalSize := int64(0)
+
+	eg, _ := errgroup.WithContext(ctx)
+	for _, rs := range bcp.Replsets {
+		rs := &rs
+
+		eg.Go(func() error {
+			f, err := stg.FileStat(rs.DumpName)
+			if err != nil {
+				return errors.WithMessagef(err, "file %q", f)
+			}
+			atomic.AddInt64(&totalSize, f.Size)
+			return nil
+		})
+
+		eg.Go(func() error {
+			f, err := stg.FileStat(rs.OplogName)
+			if err != nil {
+				return errors.WithMessagef(err, "file %q", f)
+			}
+			atomic.AddInt64(&totalSize, f.Size)
+			return nil
+		})
+
+		metafile := path.Join(bcp.Name, rs.Name, archive.MetaFile)
+		nss, err := pbm.ReadArchiveNamespaces(stg, metafile)
+		if err != nil {
+			return 0, errors.WithMessage(err, "read archive namespaces")
+		}
+
+		for _, ns := range nss {
+			if ns.Size == 0 {
+				continue
+			}
+
+			ns := archive.NSify(ns.Database, ns.Collection)
+			filename := path.Join(bcp.Name, rs.Name, ns+bcp.Compression.Suffix())
+
+			eg.Go(func() error {
+				f, err := stg.FileStat(filename)
+				if err != nil {
+					return errors.WithMessagef(err, "file %q", f)
+				}
+				atomic.AddInt64(&totalSize, f.Size)
+				return nil
+			})
+		}
+	}
+
+	err := eg.Wait()
+	return atomic.LoadInt64(&totalSize), err
 }
 
 func checkNamespaceForBackup(ctx context.Context, m *mongo.Client, ns string) error {
@@ -623,15 +740,6 @@ func (b *Backup) waitForFirstLastWrite(bcpName string) (first, last primitive.Ti
 			return first, last, nil
 		}
 	}
-}
-
-func (b *Backup) dumpClusterMeta(bcpName string, stg storage.Storage) error {
-	meta, err := b.cn.GetBackupMeta(bcpName)
-	if err != nil {
-		return errors.Wrap(err, "get backup metadata")
-	}
-
-	return writeMeta(stg, meta)
 }
 
 func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {

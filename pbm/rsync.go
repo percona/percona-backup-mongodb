@@ -166,7 +166,7 @@ func checkBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 		}
 
 		metafile := path.Join(bcp.Name, rs.Name, archive.MetaFile)
-		nss, err := readArchiveNamespaces(stg, metafile)
+		nss, err := ReadArchiveNamespaces(stg, metafile)
 		if err != nil {
 			return errors.WithMessagef(err, "parse metafile %q", metafile)
 		}
@@ -186,7 +186,7 @@ func checkBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 	return eg.Wait()
 }
 
-func readArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
+func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
 	r, err := stg.SourceReader(metafile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "open %q", metafile)

@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"io"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 
@@ -17,9 +16,8 @@ type UploadDumpOptions struct {
 
 type UploadFunc func(ns, ext string, r io.Reader) error
 
-func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
+func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) error {
 	pr, pw := io.Pipe()
-	size := int64(0)
 
 	go func() {
 		_, err := wt.WriteTo(pw)
@@ -35,9 +33,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 				ext += opts.Compression.Suffix()
 			}
 
-			rc := &readCounter{r: pr}
-			err := upload(ns, ext, rc)
-			atomic.AddInt64(&size, rc.n)
+			err := upload(ns, ext, pr)
 			if err != nil {
 				pr.CloseWithError(errors.WithMessagef(err, "upload: %q", ns))
 			}
@@ -53,7 +49,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 	}
 
 	err := archive.Decompose(pr, newWriter)
-	return atomic.LoadInt64(&size), errors.WithMessage(err, "decompose")
+	return errors.WithMessage(err, "decompose")
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
@@ -85,17 +81,6 @@ func DownloadDump(download DownloadFunc, compression compress.CompressionType, m
 	}()
 
 	return pr, nil
-}
-
-type readCounter struct {
-	r io.Reader
-	n int64
-}
-
-func (rc *readCounter) Read(b []byte) (int, error) {
-	n, err := rc.r.Read(b)
-	rc.n += int64(n)
-	return n, err
 }
 
 type delegatedWriteCloser struct {

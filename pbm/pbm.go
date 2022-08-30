@@ -678,10 +678,10 @@ func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string)
 	return err
 }
 
-func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, rsName string, size int64) error {
+func (p *PBM) SetBackupSize(ctx context.Context, bcpName string, size int64) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(ctx,
 		bson.D{{"name", bcpName}},
-		bson.D{{"$inc", bson.M{"size": size}}})
+		bson.D{{"$set", bson.M{"size": size}}})
 
 	return err
 }
