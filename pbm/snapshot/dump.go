@@ -107,7 +107,3 @@ func (d *delegatedWriteCloser) Close() error {
 
 	return nil
 }
-
-func FormatFilepath(bcp, rs, filename string) string {
-	return bcp + "/" + rs + "/" + filename
-}

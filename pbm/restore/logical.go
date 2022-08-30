@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 	"time"
 
@@ -577,7 +578,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				return r.stg.SourceReader(snapshot.FormatFilepath(bcp.Name, r.node.RS(), ns))
+				return r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
 			},
 			bcp.Compression,
 			m.Has)

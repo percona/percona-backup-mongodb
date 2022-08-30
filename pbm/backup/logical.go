@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"io"
+	"path"
 	"strings"
 	"sync"
 
@@ -38,8 +39,8 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = oplogTS
-	rsMeta.DumpName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, archive.MetaFile)
-	rsMeta.OplogName = snapshot.FormatFilepath(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
+	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
+	rsMeta.DumpName = path.Join(bcp.Name, rsMeta.Name, archive.MetaFile)
 	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
@@ -105,7 +106,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 
 	err = snapshot.UploadDump(dump,
 		func(ns, ext string, r io.Reader) error {
-			filepath := snapshot.FormatFilepath(bcp.Name, rsMeta.Name, ns+ext)
+			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},
 		snapshot.UploadDumpOptions{
