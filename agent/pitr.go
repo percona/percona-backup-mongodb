@@ -261,6 +261,8 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 // PITRestore starts the point-in-time recovery
 func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if r == nil {
+		l := a.log.NewEvent(string(pbm.CmdPITRestore), "", opid.String(), ep.TS())
+		l.Error("missed command")
 		return
 	}
 
