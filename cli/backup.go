@@ -216,7 +216,7 @@ type bcpReplDesc struct {
 	Name        string              `json:"name" yaml:"name"`
 	Status      pbm.Status          `json:"status" yaml:"status"`
 	LastWriteTS primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
-	IsConfigSvr *bool               `json:"iscs,omitempty" yaml:"iscs,omitempty"`
+	IsConfigSvr *bool               `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
 	Error       *string             `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
