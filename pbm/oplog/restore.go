@@ -139,7 +139,7 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	defer bsonSource.Close()
 
 	o.txnBuffer = txn.NewBuffer()
-	defer func() { _ = o.txnBuffer.Stop() }() // it basically never returns an error
+	defer func() { o.txnBuffer.Stop() }() // it basically never returns an error
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -490,8 +490,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
-				_, _ = bsonutil.RemoveKey("noPadding", &op.Object)
-				_, _ = bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
+				bsonutil.RemoveKey("noPadding", &op.Object)
+				bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
 			}
 
 			indexModValue, found := bsonutil.RemoveKey("index", &op.Object)

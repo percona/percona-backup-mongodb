@@ -206,7 +206,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 
 	// TODO: if store or pitr changed - need to bump epoch
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
-	_, _ = p.GetConfig()
+	p.GetConfig()
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,

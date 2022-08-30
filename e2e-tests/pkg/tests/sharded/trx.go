@@ -106,7 +106,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 	// distributed transaction that commits before the backup ends
 	// should be visible after restore
 	log.Println("Run trx1")
-	_, _ = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		c.trxSet(sc, 30, col)
 		c.trxSet(sc, 530, col)
 

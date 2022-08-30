@@ -7,12 +7,12 @@ import (
 
 func BenchmarkWriterBytes(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = io.Discard.Write([]byte(dataset[i%len(dataset)]))
+		io.Discard.Write([]byte(dataset[i%len(dataset)]))
 	}
 }
 
 func BenchmarkWriterUnsafe(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = io.Discard.Write(StringToBytes(dataset[i%len(dataset)]))
+		io.Discard.Write(StringToBytes(dataset[i%len(dataset)]))
 	}
 }
