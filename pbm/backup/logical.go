@@ -14,6 +14,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
@@ -29,6 +30,11 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	nssSize, err := getNamespacesSize(ctx, b.node.Session(), db, coll)
 	if err != nil {
 		return errors.WithMessage(err, "get namespaces size")
+	}
+	if bcp.Compression == compress.CompressionTypeNone {
+		for n := range nssSize {
+			nssSize[n] *= 4
+		}
 	}
 
 	oplog := oplog.NewOplogBackup(b.node)
