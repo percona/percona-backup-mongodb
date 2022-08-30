@@ -405,7 +405,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		// restore. And the commands stream is down as well.
 		// The lock also updates its heartbeats but Restore waits only for one state
 		// with the timeout twice as short pbm.StaleFrameSec.
-		_ = lock.Release()
+		lock.Release()
 	}
 
 	l.Info("restore started")

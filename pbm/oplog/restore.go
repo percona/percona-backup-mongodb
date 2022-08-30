@@ -486,7 +486,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
+			o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
