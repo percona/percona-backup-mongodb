@@ -256,11 +256,11 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 		switch b.typ {
 		case pbm.LogicalBackup:
 			backupSize, err = countLogicalBackupSize(ctx, bcpm, stg)
+			if err != nil {
+				return errors.Wrap(err, "count backup size")
+			}
 		case pbm.PhysicalBackup:
-			backupSize, err = countPhysicalBackupSize(ctx, bcpm, stg)
-		}
-		if err != nil {
-			return errors.Wrap(err, "count backup size")
+			backupSize = countPhysicalBackupSize(ctx, bcpm, stg)
 		}
 
 		err = b.cn.SetBackupSize(ctx, bcp.Name, backupSize)
@@ -280,41 +280,16 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	return errors.Wrap(err, "waiting for done")
 }
 
-func countPhysicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
+func countPhysicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storage.Storage) int64 {
 	totalSize := int64(0)
 
-	eg, _ := errgroup.WithContext(ctx)
 	for _, rs := range bcp.Replsets {
-		rs := &rs
-
-		eg.Go(func() error {
-			f, err := stg.FileStat(rs.DumpName)
-			if err != nil {
-				return errors.WithMessagef(err, "file %q", f)
-			}
-			atomic.AddInt64(&totalSize, f.Size)
-			return nil
-		})
-
-		eg.Go(func() error {
-			f, err := stg.FileStat(rs.OplogName)
-			if err != nil {
-				return errors.WithMessagef(err, "file %q", f)
-			}
-			atomic.AddInt64(&totalSize, f.Size)
-			return nil
-		})
-
-		rest := int64(0)
 		for _, f := range rs.Files {
-			rest += f.StgSize
+			totalSize += f.StgSize
 		}
-
-		atomic.AddInt64(&totalSize, rest)
 	}
 
-	err := eg.Wait()
-	return atomic.LoadInt64(&totalSize), err
+	return totalSize
 }
 
 func countLogicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
