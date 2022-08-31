@@ -58,16 +58,16 @@ func tsUTC(ts int64) string {
 }
 
 func (e *Entry) String() (s string) {
-	return e.string(tsLocal, false, false)
+	return e.Stringify(tsLocal, false, false)
 }
 
 func (e *Entry) StringNode() (s string) {
-	return e.string(tsLocal, true, false)
+	return e.Stringify(tsLocal, true, false)
 }
 
 type tsformatf func(ts int64) string
 
-func (e *Entry) string(f tsformatf, showNode, extr bool) (s string) {
+func (e *Entry) Stringify(f tsformatf, showNode, extr bool) (s string) {
 	node := ""
 	if showNode {
 		node = " [" + e.RS + "/" + e.Node + "]"
@@ -270,7 +270,7 @@ func (e Entries) MarshalJSON() ([]byte, error) {
 
 func (e Entries) String() (s string) {
 	for _, entry := range e.Data {
-		s += entry.string(tsUTC, e.ShowNode, e.Extr) + "\n"
+		s += entry.Stringify(tsUTC, e.ShowNode, e.Extr) + "\n"
 	}
 
 	return s
@@ -331,4 +331,65 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	}
 
 	return e, nil
+}
+
+func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
+	if exactSeverity {
+		filter = bson.D{bson.E{"s", r.Severity}}
+	}
+
+	if r.RS != "" {
+		filter = append(filter, bson.E{"rs", r.RS})
+	}
+	if r.Node != "" {
+		filter = append(filter, bson.E{"node", r.Node})
+	}
+	if r.Event != "" {
+		filter = append(filter, bson.E{"e", r.Event})
+	}
+	if r.ObjName != "" {
+		filter = append(filter, bson.E{"eobj", r.ObjName})
+	}
+	if r.Epoch.T > 0 {
+		filter = append(filter, bson.E{"ep", r.Epoch})
+	}
+	if r.OPID != "" {
+		filter = append(filter, bson.E{"opid", r.OPID})
+	}
+	if !r.TimeMin.IsZero() {
+		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})
+	}
+	if !r.TimeMax.IsZero() {
+		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
+	}
+
+	outC, errC := make(chan *Entry), make(chan error)
+
+	go func() {
+		defer close(errC)
+		defer close(outC)
+
+		opt := options.Find().SetCursorType(options.TailableAwait)
+
+		cur, err := coll.Find(ctx, filter, opt)
+		if err != nil {
+			errC <- errors.WithMessage(err, "query")
+			return
+		}
+		defer cur.Close(context.Background())
+
+		for cur.Next(ctx) {
+			e := &Entry{}
+			if err := cur.Decode(e); err != nil {
+				errC <- errors.WithMessage(err, "decode")
+				return
+			}
+
+			e.ObjID, _ = cur.Current.Lookup("_id").ObjectIDOK()
+			outC <- e
+		}
+	}()
+
+	return outC, errC
 }

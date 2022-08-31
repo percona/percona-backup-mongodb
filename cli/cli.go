@@ -15,6 +15,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -45,6 +46,7 @@ type logsOpts struct {
 	event    string
 	opid     string
 	extr     bool
+	follow   bool
 }
 
 type cliResult interface {
@@ -136,6 +138,7 @@ func Main() {
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
+	logsCmd.Flag("follow", "Follow output").Short('f').Default("false").BoolVar(&logs.follow)
 	logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64Var(&logs.tail)
 	logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').StringVar(&logs.node)
 	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
@@ -320,6 +323,11 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 		r.Severity = plog.Info
 	}
 
+	if l.follow {
+		err := followLogs(cn, r, r.Node == "", l.extr)
+		return nil, err
+	}
+
 	o, err := cn.LogGet(r, l.tail)
 	if err != nil {
 		return nil, errors.Wrap(err, "get logs")
@@ -335,6 +343,31 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 	}
 
 	return o, nil
+}
+
+func followLogs(cn *pbm.PBM, r *plog.LogRequest, showNode, expr bool) error {
+	outC, errC := log.Follow(cn.Context(), cn.Conn.Database(pbm.DB).Collection(pbm.LogCollection), r, false)
+
+	for {
+		select {
+		case entry, ok := <-outC:
+			if !ok {
+				return nil
+			}
+
+			fmt.Println(entry.Stringify(tsUTC, showNode, expr))
+		case err, ok := <-errC:
+			if !ok {
+				return nil
+			}
+
+			return err
+		}
+	}
+}
+
+func tsUTC(ts int64) string {
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
 
 type snapshotStat struct {
