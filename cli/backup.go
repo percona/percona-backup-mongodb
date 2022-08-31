@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"gopkg.in/yaml.v2"
 
@@ -249,6 +250,18 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	}
 	if bcp.Err != "" {
 		rv.Err = &bcp.Err
+	}
+
+	if version.IsLegacyArchive(rv.PBMVersion) {
+		stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+		if err != nil {
+			return nil, errors.WithMessage(err, "get storage")
+		}
+
+		rv.Size, err = getLegacySnapshotSize(bcp.Replsets, stg)
+		if err != nil {
+			return nil, errors.WithMessage(err, "get snapshot size")
+		}
 	}
 
 	rv.Replsets = make([]bcpReplDesc, len(bcp.Replsets))
