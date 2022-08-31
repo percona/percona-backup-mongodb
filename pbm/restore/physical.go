@@ -49,6 +49,7 @@ type PhysRestore struct {
 	tmpConf *os.File
 	rsConf  *pbm.RSConfig // original replset config
 	startTS int64
+	secOpts *pbm.MongodOptsSec
 
 	name     string
 	opid     string
@@ -113,6 +114,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		rsConf:   rcf,
 		nodeInfo: inf,
 		tmpPort:  tmpPort,
+		secOpts:  opts.Security,
 	}, nil
 }
 
@@ -150,7 +152,7 @@ func (r *PhysRestore) close(noerr bool) {
 	if noerr {
 		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
 		if err != nil {
-			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+			r.log.Error("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
 		}
 	}
 	if r.stopHB != nil {
@@ -1006,6 +1008,7 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	opts.Net.BindIp = "localhost"
 	opts.Net.Port = r.tmpPort
 	opts.Storage.DBpath = r.dbpath
+	opts.Security = r.secOpts
 
 	r.tmpConf, err = os.CreateTemp("", "pbmMongdTmpConf")
 	if err != nil {
