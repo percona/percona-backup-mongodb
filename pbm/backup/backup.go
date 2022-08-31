@@ -334,7 +334,7 @@ func countLogicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storag
 			eg.Go(func() error {
 				f, err := stg.FileStat(filename)
 				if err != nil {
-					return errors.WithMessagef(err, "namespace %q file %q", ns, f)
+					return errors.WithMessagef(err, "namespace %q file %q", ns, filename)
 				}
 				atomic.AddInt64(&totalSize, f.Size)
 				return nil
