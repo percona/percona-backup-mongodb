@@ -12,6 +12,10 @@ func New() *Blackhole {
 	return &Blackhole{}
 }
 
+func (*Blackhole) Type() storage.Type {
+	return storage.BlackHole
+}
+
 func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {
 	_, err := io.Copy(io.Discard, data)
 	return err

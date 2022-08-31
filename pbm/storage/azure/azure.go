@@ -65,6 +65,10 @@ func New(opts Conf, l *log.Event) (*Blob, error) {
 	return b, nil
 }
 
+func (*Blob) Type() storage.Type {
+	return storage.Azure
+}
+
 func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {

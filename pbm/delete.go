@@ -124,7 +124,7 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
 func (p *PBM) deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
-	if meta.Store.Type == storage.Filesystem {
+	if stg.Type() == storage.Filesystem {
 		return p.deleteLogicalBackupFilesFromFS(stg, meta.Name)
 	}
 

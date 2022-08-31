@@ -233,6 +233,10 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 
 const defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 
+func (*S3) Type() storage.Type {
+	return storage.S3
+}
+
 func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	switch s.opts.Provider {
 	default:

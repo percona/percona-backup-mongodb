@@ -34,6 +34,10 @@ func New(opts Conf) *FS {
 	}
 }
 
+func (*FS) Type() storage.Type {
+	return storage.Filesystem
+}
+
 func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 	filepath := path.Join(fs.opts.Path, name)
 
