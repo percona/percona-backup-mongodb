@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"gopkg.in/yaml.v2"
 
@@ -200,24 +199,26 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 }
 
 type bcpDesc struct {
-	Name         string              `json:"name" yaml:"name"`
-	Type         pbm.BackupType      `json:"type" yaml:"type"`
-	LastWriteTS  primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
-	Namespaces   []string            `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
-	MongoVersion string              `json:"mongodb_version" yaml:"mongodb_version"`
-	PBMVersion   string              `json:"pbm_version" yaml:"pbm_version"`
-	Status       pbm.Status          `json:"status" yaml:"status"`
-	Size         int64               `json:"size" yaml:"size"`
-	Err          *string             `json:"error,omitempty" yaml:"error,omitempty"`
-	Replsets     []bcpReplDesc       `json:"replsets" yaml:"replsets"`
+	Name             string         `json:"name" yaml:"name"`
+	Type             pbm.BackupType `json:"type" yaml:"type"`
+	LastWriteTS      string         `json:"last_write_ts" yaml:"last_write_ts"`
+	LastTransitionTS string         `json:"last_transition_ts" yaml:"last_transition_ts"`
+	Namespaces       []string       `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	MongoVersion     string         `json:"mongodb_version" yaml:"mongodb_version"`
+	PBMVersion       string         `json:"pbm_version" yaml:"pbm_version"`
+	Status           pbm.Status     `json:"status" yaml:"status"`
+	Size             int64          `json:"size" yaml:"size"`
+	Err              *string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Replsets         []bcpReplDesc  `json:"replsets" yaml:"replsets"`
 }
 
 type bcpReplDesc struct {
-	Name        string              `json:"name" yaml:"name"`
-	Status      pbm.Status          `json:"status" yaml:"status"`
-	LastWriteTS primitive.Timestamp `json:"last_write_ts" yaml:"last_write_ts"`
-	IsConfigSvr *bool               `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
-	Error       *string             `json:"error,omitempty" yaml:"error,omitempty"`
+	Name             string     `json:"name" yaml:"name"`
+	Status           pbm.Status `json:"status" yaml:"status"`
+	LastWriteTS      string     `json:"last_write_ts" yaml:"last_write_ts"`
+	LastTransitionTS string     `json:"last_transition_ts" yaml:"last_transition_ts"`
+	IsConfigSvr      *bool      `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
+	Error            *string    `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 func (b *bcpDesc) String() string {
@@ -236,14 +237,15 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	}
 
 	rv := &bcpDesc{
-		Name:         bcp.Name,
-		Type:         bcp.Type,
-		Namespaces:   bcp.Namespaces,
-		MongoVersion: bcp.MongoVersion,
-		PBMVersion:   bcp.PBMVersion,
-		LastWriteTS:  bcp.LastWriteTS,
-		Status:       bcp.Status,
-		Size:         bcp.Size,
+		Name:             bcp.Name,
+		Type:             bcp.Type,
+		Namespaces:       bcp.Namespaces,
+		MongoVersion:     bcp.MongoVersion,
+		PBMVersion:       bcp.PBMVersion,
+		LastWriteTS:      fmt.Sprintf("%d,%d", bcp.LastWriteTS.T, bcp.LastWriteTS.I),
+		LastTransitionTS: fmt.Sprintf("%d", bcp.LastTransitionTS),
+		Status:           bcp.Status,
+		Size:             bcp.Size,
 	}
 	if bcp.Err != "" {
 		rv.Err = &bcp.Err
@@ -252,10 +254,11 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	rv.Replsets = make([]bcpReplDesc, len(bcp.Replsets))
 	for i, r := range bcp.Replsets {
 		rv.Replsets[i] = bcpReplDesc{
-			Name:        r.Name,
-			IsConfigSvr: r.IsConfigSvr,
-			Status:      r.Status,
-			LastWriteTS: r.LastWriteTS,
+			Name:             r.Name,
+			IsConfigSvr:      r.IsConfigSvr,
+			Status:           r.Status,
+			LastWriteTS:      fmt.Sprintf("%d,%d", r.LastWriteTS.T, r.LastWriteTS.I),
+			LastTransitionTS: fmt.Sprintf("%d", bcp.LastTransitionTS),
 		}
 		if r.Error != "" {
 			rv.Replsets[i].Error = &r.Error

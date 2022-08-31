@@ -584,7 +584,6 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
 			Namespaces: bcp.Namespaces,
-			Size:       bcp.Size,
 			Status:     bcp.Status,
 			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
