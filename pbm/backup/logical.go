@@ -181,7 +181,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 	}
 	dbs, err := m.ListDatabaseNames(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "list databases")
 	}
 	if len(dbs) == 0 {
 		return rv, nil
@@ -200,7 +200,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 			}
 			res, err := m.Database(db).ListCollectionSpecifications(ctx, q)
 			if err != nil {
-				return err
+				return errors.WithMessagef(err, "list collections for %q", db)
 			}
 			if len(res) == 0 {
 				return nil
@@ -216,24 +216,24 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 				}
 
 				eg.Go(func() error {
+					ns := db + "." + coll.Name
 					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
 					if err := res.Err(); err != nil {
-						return err
+						return errors.WithMessagef(err, "collStats %q", ns)
 					}
 
 					var doc struct {
 						StorageSize int64 `bson:"storageSize"`
 					}
 
-					ns := db + "." + coll.Name
 					if err := res.Decode(&doc); err != nil {
 						return errors.WithMessagef(err, "decode %q", ns)
 					}
 
 					mu.Lock()
-					defer mu.Unlock()
-
 					rv[ns] = doc.StorageSize
+					mu.Unlock()
+
 					return nil
 				})
 			}
