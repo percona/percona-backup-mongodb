@@ -18,6 +18,7 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -283,7 +284,7 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression pbm.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
+func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
 	fstat, err := os.Stat(src)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
@@ -293,7 +294,7 @@ func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compre
 
 	dst += compression.Suffix()
 
-	_, err = Upload(ctx, &file{src}, stg, compression, compressLevel, dst, int(fstat.Size()))
+	_, err = Upload(ctx, &file{src}, stg, compression, compressLevel, dst, fstat.Size())
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}

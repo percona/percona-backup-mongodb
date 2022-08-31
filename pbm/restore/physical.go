@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -219,49 +220,48 @@ func (r *PhysRestore) waitMgoShutdown() error {
 
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
-// - Each node writes file with the given state.
-// - Replset leader (primary node) waits for files from all replicaset' nodes. And
-//   writes a status file for the relicaset.
-// - Cluster leader (primary node on config server) waits for status files from
-//   all replicasets. And sets status file for the cluster.
-// - Each node in turn waits for the cluster status file and returns (move further)
-//   once it's observed.
+//   - Each node writes file with the given state.
+//   - Replset leader (primary node) waits for files from all replicaset' nodes. And
+//     writes a status file for the relicaset.
+//   - Cluster leader (primary node on config server) waits for status files from
+//     all replicasets. And sets status file for the cluster.
+//   - Each node in turn waits for the cluster status file and returns (move further)
+//     once it's observed.
 //
 // State structure on storage:
 //
-//	.pbm.restore/<restore-name>
-// 		rs.<rs-name>/
-// 			node.<node-name>.hb			// hearbeats. last beat ts inside.
-// 			node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-// 			rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-//		cluster.hb						// hearbeats. last beat ts inside.
-// 		cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//		.pbm.restore/<restore-name>
+//			rs.<rs-name>/
+//				node.<node-name>.hb			// hearbeats. last beat ts inside.
+//				node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//				rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//			cluster.hb						// hearbeats. last beat ts inside.
+//			cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //
-//  For example:
+//	 For example:
 //
-//      2022-08-02T18:50:35.1889332Z
-//      ├── cluster.done
-//      ├── cluster.hb
-//      ├── cluster.running
-//      ├── cluster.starting
-//      ├── rs.rs1
-//      │   ├── node.rs101:27017.done
-//      │   ├── node.rs101:27017.hb
-//      │   ├── node.rs101:27017.running
-//      │   ├── node.rs101:27017.starting
-//      │   ├── node.rs102:27017.done
-//      │   ├── node.rs102:27017.hb
-//      │   ├── node.rs102:27017.running
-//      │   ├── node.rs102:27017.starting
-//      │   ├── node.rs103:27017.done
-//      │   ├── node.rs103:27017.hb
-//      │   ├── node.rs103:27017.running
-//      │   ├── node.rs103:27017.starting
-//      │   ├── rs.done
-//      │   ├── rs.hb
-//      │   ├── rs.running
-//      │   └── rs.starting
-//
+//	     2022-08-02T18:50:35.1889332Z
+//	     ├── cluster.done
+//	     ├── cluster.hb
+//	     ├── cluster.running
+//	     ├── cluster.starting
+//	     ├── rs.rs1
+//	     │   ├── node.rs101:27017.done
+//	     │   ├── node.rs101:27017.hb
+//	     │   ├── node.rs101:27017.running
+//	     │   ├── node.rs101:27017.starting
+//	     │   ├── node.rs102:27017.done
+//	     │   ├── node.rs102:27017.hb
+//	     │   ├── node.rs102:27017.running
+//	     │   ├── node.rs102:27017.starting
+//	     │   ├── node.rs103:27017.done
+//	     │   ├── node.rs103:27017.hb
+//	     │   ├── node.rs103:27017.running
+//	     │   ├── node.rs103:27017.starting
+//	     │   ├── rs.done
+//	     │   ├── rs.hb
+//	     │   ├── rs.running
+//	     │   └── rs.starting
 func (r *PhysRestore) toState(status pbm.Status) (err error) {
 	defer func() {
 		if err != nil {
@@ -421,17 +421,17 @@ func (r *PhysRestore) waitFiles(state pbm.Status, objs map[string]struct{}) (err
 // Unlike in logical restore, _every_ node of the replicaset is taking part in
 // a physical restore. In that way, we avoid logical resync between nodes after
 // the restore. Each node in the cluster does:
-// - Stores current replicset config and mongod port.
-// - Checks backup and stops all routine writes to the db.
-// - Stops mongod and wipes out datadir.
-// - Copies backup data to the datadir.
-// - Starts standalone mongod on ephemeral (tmp) port and reset some internal
-//   data also setting one-node replicaset and sets oplogTruncateAfterPoint
-//   to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
-//   to which journals would be replayed.
-// - Starts standalone mongod to recover oplog from journals.
-// - Cleans up data and resets replicaset config to the working state.
-// - Shuts down mongod and agent (the leader also dumps metadata to the storage).
+//   - Stores current replicset config and mongod port.
+//   - Checks backup and stops all routine writes to the db.
+//   - Stops mongod and wipes out datadir.
+//   - Copies backup data to the datadir.
+//   - Starts standalone mongod on ephemeral (tmp) port and reset some internal
+//     data also setting one-node replicaset and sets oplogTruncateAfterPoint
+//     to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
+//     to which journals would be replayed.
+//   - Starts standalone mongod to recover oplog from journals.
+//   - Cleans up data and resets replicaset config to the working state.
+//   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
@@ -579,7 +579,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	if err != nil {
 		return errors.Wrap(err, "encode restore meta")
 	}
-	err = r.stg.Save(name, &buf, buf.Len())
+	err = r.stg.Save(name, &buf, int64(buf.Len()))
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}
@@ -606,7 +606,7 @@ func (r *PhysRestore) copyFiles() error {
 				}
 				defer sr.Close()
 
-				data, err := Decompress(sr, r.bcp.Compression)
+				data, err := compress.Decompress(sr, r.bcp.Compression)
 				if err != nil {
 					return errors.Wrapf(err, "decompress object %s", src)
 				}

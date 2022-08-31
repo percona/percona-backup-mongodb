@@ -144,7 +144,12 @@ func (bl backupListOut) String() string {
 		return bl.Snapshots[i].RestoreTS < bl.Snapshots[j].RestoreTS
 	})
 	for _, b := range bl.Snapshots {
-		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, b.Type, fmtTS(int64(b.RestoreTS)))
+		kind := string(b.Type)
+		if len(b.Namespaces) != 0 {
+			kind += ", selective"
+		}
+
+		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, kind, fmtTS(int64(b.RestoreTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -219,6 +224,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 
 		s = append(s, snapshotStat{
 			Name:       b.Name,
+			Namespaces: b.Namespaces,
 			Status:     b.Status,
 			RestoreTS:  int64(b.LastWriteTS.T),
 			PBMVersion: b.PBMVersion,

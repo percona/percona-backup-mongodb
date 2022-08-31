@@ -1,9 +1,10 @@
 package main
 
 import (
+	"golang.org/x/mod/semver"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"golang.org/x/mod/semver"
 )
 
 func runPhysical(t *sharded.Cluster, typ testTyp) {

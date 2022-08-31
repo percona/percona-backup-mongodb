@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -74,10 +75,10 @@ func Main() {
 	backup := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 		EnumVar(&backup.compression,
-			string(pbm.CompressionTypeNone), string(pbm.CompressionTypeGZIP),
-			string(pbm.CompressionTypeSNAPPY), string(pbm.CompressionTypeLZ4),
-			string(pbm.CompressionTypeS2), string(pbm.CompressionTypePGZIP),
-			string(pbm.CompressionTypeZstandard),
+			string(compress.CompressionTypeNone), string(compress.CompressionTypeGZIP),
+			string(compress.CompressionTypeSNAPPY), string(compress.CompressionTypeLZ4),
+			string(compress.CompressionTypeS2), string(compress.CompressionTypePGZIP),
+			string(compress.CompressionTypeZstandard),
 		)
 	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup)).
 		Default(string(pbm.LogicalBackup)).Short('t').
@@ -87,15 +88,21 @@ func Main() {
 		)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
+	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).StringVar(&backup.ns)
 	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
+
+	descBcpCmd := pbmCmd.Command("describe-backup", "Describe backup")
+	descBcp := descBcp{}
+	descBcpCmd.Arg("backup_name", "Backup name").StringVar(&descBcp.name)
 
 	restoreCmd := pbmCmd.Command("restore", "Restore backup")
 	restore := restoreOpts{}
 	restoreCmd.Arg("backup_name", "Backup name to restore").StringVar(&restore.bcp)
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
+	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).StringVar(&restore.ns)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
@@ -196,6 +203,8 @@ func Main() {
 		out, err = runBackup(pbmClient, &backup, pbmOutF)
 	case cancelBcpCmd.FullCommand():
 		out, err = cancelBcp(pbmClient)
+	case descBcpCmd.FullCommand():
+		out, err = describeBackup(pbmClient, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(pbmClient, &restore, pbmOutF)
 	case replayCmd.FullCommand():
@@ -330,6 +339,7 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 
 type snapshotStat struct {
 	Name       string         `json:"name"`
+	Namespaces []string       `json:"nss,omitempty"`
 	Size       int64          `json:"size,omitempty"`
 	Status     pbm.Status     `json:"status"`
 	Err        error          `json:"error,omitempty"`
@@ -373,7 +383,10 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString("{")
 	b.WriteString(fmt.Sprintf("\"%s\":", c.k))
-	json.NewEncoder(&b).Encode(c.v)
+	err := json.NewEncoder(&b).Encode(c.v)
+	if err != nil {
+		return nil, err
+	}
 	b.WriteString("}")
 	return b.Bytes(), nil
 }

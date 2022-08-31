@@ -3,21 +3,41 @@ package backup
 import (
 	"context"
 	"io"
-	"log"
-	"time"
+	"path"
+	"strings"
+	"sync"
 
-	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/mongodb/mongo-tools/common/options"
-	"github.com/mongodb/mongo-tools/common/progress"
-	"github.com/mongodb/mongo-tools/mongodump"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
-	oplog := NewOplog(b.node)
+	var db, coll string
+	if len(bcp.Namespaces) != 0 {
+		db, coll = parseNS(bcp.Namespaces[0])
+	}
+
+	nssSize, err := getNamespacesSize(ctx, b.node.Session(), db, coll)
+	if err != nil {
+		return errors.WithMessage(err, "get namespaces size")
+	}
+	if bcp.Compression == compress.CompressionTypeNone {
+		for n := range nssSize {
+			nssSize[n] *= 4
+		}
+	}
+
+	oplog := oplog.NewOplogBackup(b.node)
 	oplogTS, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
@@ -25,8 +45,8 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = oplogTS
-	rsMeta.OplogName = getDstName("oplog", bcp, inf.SetName)
-	rsMeta.DumpName = getDstName("dump", bcp, inf.SetName)
+	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
+	rsMeta.DumpName = path.Join(bcp.Name, rsMeta.Name, archive.MetaFile)
 	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
@@ -53,47 +73,52 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	// Save users and roles to the tmp collections so the restore would copy that data
-	// to the system collections. Have to do this because of issues with the restore and preserverUUID.
-	// see: https://jira.percona.com/browse/PBM-636 and comments
-	lw, err := b.node.CopyUsersNRolles()
-	if err != nil {
-		return errors.Wrap(err, "copy users and roles for the restore")
-	}
-
-	defer func() {
-		l.Info("dropping tmp collections")
-		err := b.node.DropTMPcoll()
+	if len(bcp.Namespaces) == 0 {
+		// Save users and roles to the tmp collections so the restore would copy that data
+		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
+		// see: https://jira.percona.com/browse/PBM-636 and comments
+		lw, err := b.node.CopyUsersNRolles()
 		if err != nil {
-			l.Warning("drop tmp users and roles: %v", err)
+			return errors.Wrap(err, "copy users and roles for the restore")
 		}
-	}()
 
-	// before proceeding any further we have to be sure that tmp users and roles
-	// have replicated to the node we're about to take a backup from
-	// *copying made on a primary but backup does a secondary node
-	l.Debug("wait for tmp users %v", lw)
-	err = b.node.WaitForWrite(lw)
-	if err != nil {
-		return errors.Wrap(err, "wait for tmp users and roles replication")
-	}
+		defer func() {
+			l.Info("dropping tmp collections")
+			err := b.node.DropTMPcoll()
+			if err != nil {
+				l.Warning("drop tmp users and roles: %v", err)
+			}
+		}()
 
-	sz, err := b.node.SizeDBs()
-	if err != nil {
-		return errors.Wrap(err, "mongodump")
-	}
-	// if backup wouldn't be compressed we're assuming
-	// that the dump size could be up to 4x lagrer due to
-	// mongo's wieredtiger compression
-	if bcp.Compression == pbm.CompressionTypeNone {
-		sz *= 4
+		// before proceeding any further we have to be sure that tmp users and roles
+		// have replicated to the node we're about to take a backup from
+		// *copying made on a primary but backup does a secondary node
+		l.Debug("wait for tmp users %v", lw)
+		err = b.node.WaitForWrite(lw)
+		if err != nil {
+			return errors.Wrap(err, "wait for tmp users and roles replication")
+		}
 	}
 
-	dump, err := newDump(b.node.ConnURI(), b.node.DumpConns())
-	if err != nil {
-		return errors.Wrap(err, "init mongodump options")
+	var dump io.WriterTo
+	if len(nssSize) == 0 {
+		dump = snapshot.DummyBackup{}
+	} else {
+		dump, err = snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
+		if err != nil {
+			return errors.Wrap(err, "init mongodump options")
+		}
 	}
-	_, err = Upload(ctx, dump, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.DumpName, sz)
+
+	err = snapshot.UploadDump(dump,
+		func(ns, ext string, r io.Reader) error {
+			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
+			return stg.Save(filepath, r, nssSize[ns])
+		},
+		snapshot.UploadDumpOptions{
+			Compression:      bcp.Compression,
+			CompressionLevel: bcp.CompressionLevel,
+		})
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
 	}
@@ -147,108 +172,98 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	return nil
 }
 
-type mdump struct {
-	opts  *options.ToolOptions
-	conns int
-	stopC chan struct{}
-}
+func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
+	rv := make(map[string]int64)
 
-func newDump(curi string, conns int) (*mdump, error) {
-	if conns <= 0 {
-		conns = 1
+	q := bson.D{}
+	if db != "" {
+		q = append(q, bson.E{"name", db})
 	}
-
-	var err error
-
-	opts := options.New("mongodump", "0.0.1", "none", "", true, options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
-	opts.URI, err = options.NewURI(curi)
+	dbs, err := m.ListDatabaseNames(ctx, q)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse connection string")
+		return nil, errors.WithMessage(err, "list databases")
+	}
+	if len(dbs) == 0 {
+		return rv, nil
 	}
 
-	err = opts.NormalizeOptionsAndURI()
-	if err != nil {
-		return nil, errors.Wrap(err, "parse opts")
-	}
+	mu := sync.Mutex{}
+	eg, ctx := errgroup.WithContext(ctx)
 
-	opts.Direct = true
+	for _, db := range dbs {
+		db := db
 
-	return &mdump{
-		opts:  opts,
-		conns: conns,
-	}, nil
-}
-
-// "logger" for the mongodup's ProgressManager.
-// need it to be able to write new progress data in a new line
-type progressWriter struct{}
-
-func (*progressWriter) Write(m []byte) (int, error) {
-	log.Printf("%s", m)
-	return len(m), nil
-}
-
-// Write always return 0 as written bytes. Needed to satisfy interface
-func (d *mdump) WriteTo(w io.Writer) (int64, error) {
-	pm := progress.NewBarWriter(&progressWriter{}, time.Second*60, 24, false)
-	mdump := mongodump.MongoDump{
-		ToolOptions: d.opts,
-		OutputOptions: &mongodump.OutputOptions{
-			// Archive = "-" means, for mongodump, use the provided Writer
-			// instead of creating a file. This is not clear at plain sight,
-			// you nee to look the code to discover it.
-			Archive:                "-",
-			NumParallelCollections: d.conns,
-		},
-		InputOptions:    &mongodump.InputOptions{},
-		SessionProvider: &db.SessionProvider{},
-		OutputWriter:    w,
-		ProgressManager: pm,
-	}
-	err := mdump.Init()
-	if err != nil {
-		return 0, errors.Wrap(err, "init")
-	}
-	pm.Start()
-	defer pm.Stop()
-
-	d.stopC = make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-d.stopC:
-			mdump.HandleInterrupt()
-		}
-
-		d.stopC = nil
-	}()
-
-	err = mdump.Dump()
-
-	return 0, errors.Wrap(err, "make dump")
-}
-
-func (d *mdump) Cancel() {
-	if c := d.stopC; c != nil {
-		select {
-		case _, ok := <-c:
-			if ok {
-				close(c)
+		eg.Go(func() error {
+			q := bson.D{}
+			if coll != "" {
+				q = append(q, bson.E{"name", coll})
 			}
-		default:
-		}
+			res, err := m.Database(db).ListCollectionSpecifications(ctx, q)
+			if err != nil {
+				return errors.WithMessagef(err, "list collections for %q", db)
+			}
+			if len(res) == 0 {
+				return nil
+			}
+
+			eg, ctx := errgroup.WithContext(ctx)
+
+			for _, coll := range res {
+				coll := coll
+
+				if coll.Type == "view" || strings.HasPrefix(coll.Name, "system.buckets.") {
+					continue
+				}
+
+				eg.Go(func() error {
+					ns := db + "." + coll.Name
+					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
+					if err := res.Err(); err != nil {
+						return errors.WithMessagef(err, "collStats %q", ns)
+					}
+
+					var doc struct {
+						StorageSize int64 `bson:"storageSize"`
+					}
+
+					if err := res.Decode(&doc); err != nil {
+						return errors.WithMessagef(err, "decode %q", ns)
+					}
+
+					mu.Lock()
+					rv[ns] = doc.StorageSize
+					mu.Unlock()
+
+					return nil
+				})
+			}
+
+			return eg.Wait()
+		})
 	}
+
+	err = eg.Wait()
+	return rv, err
 }
 
-func getDstName(typ string, bcp *pbm.BackupCmd, rsName string) string {
-	name := bcp.Name
+func parseNS(ns string) (string, string) {
+	var db, coll string
 
-	if rsName != "" {
-		name += "_" + rsName
+	switch s := strings.SplitN(ns, ".", 2); len(s) {
+	case 0:
+		return "", ""
+	case 1:
+		db = s[0]
+	case 2:
+		db, coll = s[0], s[1]
 	}
 
-	return name + "." + typ + bcp.Compression.Suffix()
+	if db == "*" {
+		db = ""
+	}
+	if coll == "*" {
+		coll = ""
+	}
+
+	return db, coll
 }

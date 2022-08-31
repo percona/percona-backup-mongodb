@@ -11,13 +11,25 @@ var (
 	ErrEmpty    = errors.New("file is empty")
 )
 
+// Type represents a type of the destination storage for backups
+type Type string
+
+const (
+	Undef      Type = ""
+	S3         Type = "s3"
+	Azure      Type = "azure"
+	Filesystem Type = "filesystem"
+	BlackHole  Type = "blackhole"
+)
+
 type FileInfo struct {
 	Name string // with path
 	Size int64
 }
 
 type Storage interface {
-	Save(name string, data io.Reader, size int) error
+	Type() Type
+	Save(name string, data io.Reader, size int64) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)

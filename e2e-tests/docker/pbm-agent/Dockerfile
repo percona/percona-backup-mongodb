@@ -1,4 +1,4 @@
-FROM golang:1.18
+FROM golang:1.19
 ARG MONGODB_VERSION=4.2
 ENV VERSION=${MONGODB_VERSION:-4.2}
 RUN mkdir /opt/backups

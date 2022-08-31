@@ -74,6 +74,21 @@ func TestCompatibility(t *testing.T) {
 			"1.14.0",
 			false,
 		},
+		{
+			"1.9.0",
+			"1.10.0",
+			true,
+		},
+		{
+			"1.9.0",
+			"2.0.0",
+			true,
+		},
+		{
+			"2.0.0",
+			"3.0.0",
+			true,
+		},
 	}
 
 	for _, test := range cases {
