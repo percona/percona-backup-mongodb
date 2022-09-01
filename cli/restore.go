@@ -371,6 +371,8 @@ type descrRestoreOpts struct {
 type describeRestoreResult struct {
 	Name               string           `yaml:"name" json:"name"`
 	Backup             string           `yaml:"backup" json:"backup"`
+	RestoreFrom        *string          `yaml:"restore_from,omitempty" json:"restore_from,omitempty"`
+	RestoreTo          *string          `yaml:"restore_to,omitempty" json:"restore_to,omitempty"`
 	Type               pbm.BackupType   `yaml:"type" json:"type"`
 	Status             pbm.Status       `yaml:"status" json:"status"`
 	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
@@ -457,6 +459,14 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).Format(time.RFC3339)
 	if meta.Status == pbm.StatusError {
 		res.Error = &meta.Error
+	}
+	if meta.StartPITR != 0 {
+		s := fmt.Sprintf("%d", meta.StartPITR)
+		res.RestoreTo = &s
+	}
+	if meta.PITR != 0 {
+		s := fmt.Sprintf("%d", meta.PITR)
+		res.RestoreTo = &s
 	}
 
 	for _, rs := range meta.Replsets {
