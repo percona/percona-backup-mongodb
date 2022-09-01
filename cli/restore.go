@@ -374,6 +374,7 @@ type describeRestoreResult struct {
 	Type               pbm.BackupType   `yaml:"type" json:"type"`
 	Status             pbm.Status       `yaml:"status" json:"status"`
 	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
+	Namespaces         []string         `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
 	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
 	OPID               string           `yaml:"opid" json:"opid"`
 	StartTS            int64            `yaml:"-" json:"start_ts"`
@@ -448,6 +449,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 	res.Backup = meta.Backup
 	res.Type = meta.Type
 	res.Status = meta.Status
+	res.Namespaces = meta.Namespaces
 	res.OPID = meta.OPID
 	res.StartTS = meta.StartTS
 	res.StartTime = time.Unix(res.StartTS, 0).Format(time.RFC3339)

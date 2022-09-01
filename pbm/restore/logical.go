@@ -81,7 +81,17 @@ func (r *Restore) exit(err error, l *log.Event) {
 func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	err = r.init(cmd.Name, cmd.Namespaces, opid, l)
+	bcp, err := r.SnapshotMeta(cmd.BackupName)
+	if err != nil {
+		return err
+	}
+
+	nss := cmd.Namespaces
+	if len(nss) == 0 {
+		nss = bcp.Namespaces
+	}
+
+	err = r.init(cmd.Name, nss, opid, l)
 	if err != nil {
 		return err
 	}
@@ -89,11 +99,6 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	err = r.cn.SetRestoreBackup(r.name, cmd.BackupName)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
-	}
-
-	bcp, err := r.SnapshotMeta(cmd.BackupName)
-	if err != nil {
-		return err
 	}
 
 	err = r.checkSnapshot(bcp)
@@ -148,19 +153,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	err = r.init(cmd.Name, cmd.Namespaces, opid, l)
-	if err != nil {
-		return err
-	}
-
 	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
-	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
-		if err != nil {
-			return errors.Wrap(err, "set PITR timestamp")
-		}
-	}
-
 	var bcp *pbm.BackupMeta
 	if cmd.Bcp == "" {
 		bcp, err = r.cn.GetLastBackup(&tsTo)
@@ -177,6 +170,23 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		}
 		if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
 			return errors.New("snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+		}
+	}
+
+	nss := cmd.Namespaces
+	if len(nss) == 0 {
+		nss = bcp.Namespaces
+	}
+
+	err = r.init(cmd.Name, nss, opid, l)
+	if err != nil {
+		return err
+	}
+
+	if r.nodeInfo.IsLeader() {
+		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
+		if err != nil {
+			return errors.Wrap(err, "set PITR timestamp")
 		}
 	}
 

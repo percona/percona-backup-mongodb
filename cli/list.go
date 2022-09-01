@@ -28,6 +28,7 @@ type restoreStatus struct {
 	StartPointInTime int64           `json:"start-point-in-time,omitempty"`
 	PointInTime      int64           `json:"point-in-time,omitempty"`
 	Name             string          `json:"name,omitempty"`
+	Namespaces       []string        `json:"namespaces,omitempty"`
 	Error            string          `json:"error,omitempty"`
 }
 
@@ -49,13 +50,24 @@ func (r restoreListOut) String() string {
 		var rprint, name string
 
 		if v.Type == restoreSnapshot {
-			name = fmt.Sprintf("%s [backup: %s]", v.Name, v.Snapshot)
+			n := ""
+			if len(v.Namespaces) != 0 {
+				n = ", selective"
+			}
+			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
 		} else if v.Type == restoreReplay {
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		} else {
-			name = "PITR: " + time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
+			n := ""
+			if len(v.Namespaces) != 0 {
+				n = ", selective"
+			}
+			name = fmt.Sprintf("PITR: %s [backup: %s%s]",
+				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339),
+				v.Snapshot,
+				n)
 		}
 
 		switch v.Status {
@@ -111,6 +123,7 @@ func restoreList(cn *pbm.PBM, size int64) (*restoreListOut, error) {
 			StartPointInTime: r.StartPITR,
 			PointInTime:      r.PITR,
 			Name:             r.Name,
+			Namespaces:       r.Namespaces,
 			Error:            r.Error,
 		}
 
