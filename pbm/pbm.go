@@ -607,12 +607,13 @@ const (
 	StatusInit  Status = "init"
 	StatusReady Status = "ready"
 
-	StatusStarting  Status = "starting"
-	StatusRunning   Status = "running"
-	StatusDumpDone  Status = "dumpDone"
-	StatusDone      Status = "done"
-	StatusCancelled Status = "canceled"
-	StatusError     Status = "error"
+	StatusStarting   Status = "starting"
+	StatusRunning    Status = "running"
+	StatusDumpDone   Status = "dumpDone"
+	StatusPartlyDone Status = "partlyDone"
+	StatusDone       Status = "done"
+	StatusCancelled  Status = "canceled"
+	StatusError      Status = "error"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {

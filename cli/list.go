@@ -59,8 +59,8 @@ func (r restoreListOut) String() string {
 		}
 
 		switch v.Status {
-		case pbm.StatusDone:
-			rprint = name + "\tdone"
+		case pbm.StatusDone, pbm.StatusPartlyDone:
+			rprint = fmt.Sprintf("%s\t%s", name, v.Status)
 		case pbm.StatusError:
 			rprint = fmt.Sprintf("%s\tFailed with \"%s\"", name, v.Error)
 		default:
