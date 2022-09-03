@@ -317,8 +317,7 @@ func countLogicalBackupSize(ctx context.Context, bcp *pbm.BackupMeta, stg storag
 			return nil
 		})
 
-		metafile := path.Join(bcp.Name, rs.Name, archive.MetaFile)
-		nss, err := pbm.ReadArchiveNamespaces(stg, metafile)
+		nss, err := pbm.ReadArchiveNamespaces(stg, rs.DumpName)
 		if err != nil {
 			return 0, errors.WithMessage(err, "read archive namespaces")
 		}

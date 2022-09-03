@@ -165,10 +165,9 @@ func checkBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 			continue
 		}
 
-		metafile := path.Join(bcp.Name, rs.Name, archive.MetaFile)
-		nss, err := ReadArchiveNamespaces(stg, metafile)
+		nss, err := ReadArchiveNamespaces(stg, rs.DumpName)
 		if err != nil {
-			return errors.WithMessagef(err, "parse metafile %q", metafile)
+			return errors.WithMessagef(err, "parse metafile %q", rs.DumpName)
 		}
 
 		for _, ns := range nss {
