@@ -252,6 +252,16 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "set shard's files list")
 	}
 
+	size := int64(0)
+	for _, f := range rsMeta.Files {
+		size += f.Size
+	}
+
+	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
+	if err != nil {
+		return errors.Wrap(err, "inc backup size")
+	}
+
 	return nil
 }
 

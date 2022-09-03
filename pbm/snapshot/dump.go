@@ -2,6 +2,8 @@ package snapshot
 
 import (
 	"io"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 
@@ -16,8 +18,10 @@ type UploadDumpOptions struct {
 
 type UploadFunc func(ns, ext string, r io.Reader) error
 
-func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) error {
+func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
+	wg := sync.WaitGroup{}
 	pr, pw := io.Pipe()
+	size := int64(0)
 
 	go func() {
 		_, err := wt.WriteTo(pw)
@@ -27,16 +31,22 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) error
 	newWriter := func(ns string) (io.WriteCloser, error) {
 		pr, pw := io.Pipe()
 
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
+
 			ext := ""
 			if ns != archive.MetaFile {
 				ext += opts.Compression.Suffix()
 			}
 
-			err := upload(ns, ext, pr)
+			rc := &readCounter{r: pr}
+			err := upload(ns, ext, rc)
 			if err != nil {
 				pr.CloseWithError(errors.WithMessagef(err, "upload: %q", ns))
 			}
+
+			atomic.AddInt64(&size, rc.n)
 		}()
 
 		if ns == archive.MetaFile {
@@ -44,12 +54,13 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) error
 		}
 
 		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
-		dwc := &delegatedWriteCloser{w, pw}
+		dwc := io.WriteCloser(&delegatedWriteCloser{w, pw})
 		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
 	}
 
 	err := archive.Decompose(pr, newWriter)
-	return errors.WithMessage(err, "decompose")
+	wg.Wait()
+	return size, errors.WithMessage(err, "decompose")
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
@@ -81,6 +92,17 @@ func DownloadDump(download DownloadFunc, compression compress.CompressionType, m
 	}()
 
 	return pr, nil
+}
+
+type readCounter struct {
+	r io.Reader
+	n int64
+}
+
+func (c *readCounter) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 type delegatedWriteCloser struct {
