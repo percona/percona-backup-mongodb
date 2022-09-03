@@ -421,7 +421,6 @@ func (s *S3) newPartReader(fname string) *partReader {
 }
 
 func (pr *partReader) setSession(s *s3.S3) {
-	s.Client.Config.HTTPClient.Timeout = time.Second * 60
 	pr.sess = s
 }
 
@@ -626,6 +625,7 @@ func (s *S3) session() (*session.Session, error) {
 	})
 
 	httpClient := http.DefaultClient
+	httpClient.Timeout = 60 * time.Second
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
 			Transport: &http.Transport{
