@@ -110,7 +110,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		}
 	}
 
-	err = snapshot.UploadDump(dump,
+	snapshotSize, err := snapshot.UploadDump(dump,
 		func(ns, ext string, r io.Reader) error {
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
@@ -164,9 +164,14 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
 	oplog.SetTailingSpan(fwTS, lwTS)
 	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	_, err = Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
+	oplogSize, err := Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
 	if err != nil {
 		return errors.Wrap(err, "oplog")
+	}
+
+	err = b.cn.IncBackupSize(ctx, bcp.Name, snapshotSize+oplogSize)
+	if err != nil {
+		return errors.Wrap(err, "inc backup size")
 	}
 
 	return nil
