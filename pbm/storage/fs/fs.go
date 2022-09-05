@@ -34,10 +34,14 @@ func New(opts Conf) *FS {
 	}
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int) error {
+func (*FS) Type() storage.Type {
+	return storage.Filesystem
+}
+
+func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 	filepath := path.Join(fs.opts.Path, name)
 
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0700)
+	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o700)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -47,7 +51,7 @@ func (fs *FS) Save(name string, data io.Reader, _ int) error {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
 	defer fw.Close()
-	err = os.Chmod(filepath, 0600)
+	err = os.Chmod(filepath, 0o600)
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}
@@ -133,7 +137,7 @@ func (fs *FS) Copy(src, dst string) error {
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
 func (fs *FS) Delete(name string) error {
-	err := os.Remove(path.Join(fs.opts.Path, name))
+	err := os.RemoveAll(path.Join(fs.opts.Path, name))
 	if os.IsNotExist(err) {
 		return storage.ErrNotExist
 	}

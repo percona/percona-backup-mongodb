@@ -28,6 +28,7 @@ type restoreStatus struct {
 	StartPointInTime int64           `json:"start-point-in-time,omitempty"`
 	PointInTime      int64           `json:"point-in-time,omitempty"`
 	Name             string          `json:"name,omitempty"`
+	Namespaces       []string        `json:"namespaces,omitempty"`
 	Error            string          `json:"error,omitempty"`
 }
 
@@ -49,13 +50,22 @@ func (r restoreListOut) String() string {
 		var rprint, name string
 
 		if v.Type == restoreSnapshot {
-			name = fmt.Sprintf("%s [backup: %s]", v.Name, v.Snapshot)
+			n := ""
+			if len(v.Namespaces) != 0 {
+				n = ", selective"
+			}
+			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
 		} else if v.Type == restoreReplay {
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		} else {
-			name = "PITR: " + time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
+			n := ""
+			if len(v.Namespaces) != 0 {
+				n = ", selective"
+			}
+			name = fmt.Sprintf("PITR: %s [restore time: %s%s]",
+				v.Name, time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339), n)
 		}
 
 		switch v.Status {
@@ -111,6 +121,7 @@ func restoreList(cn *pbm.PBM, size int64) (*restoreListOut, error) {
 			StartPointInTime: r.StartPITR,
 			PointInTime:      r.PITR,
 			Name:             r.Name,
+			Namespaces:       r.Namespaces,
 			Error:            r.Error,
 		}
 
@@ -144,7 +155,12 @@ func (bl backupListOut) String() string {
 		return bl.Snapshots[i].RestoreTS < bl.Snapshots[j].RestoreTS
 	})
 	for _, b := range bl.Snapshots {
-		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, b.Type, fmtTS(int64(b.RestoreTS)))
+		kind := string(b.Type)
+		if len(b.Namespaces) != 0 {
+			kind += ", selective"
+		}
+
+		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, kind, fmtTS(int64(b.RestoreTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -219,6 +235,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 
 		s = append(s, snapshotStat{
 			Name:       b.Name,
+			Namespaces: b.Namespaces,
 			Status:     b.Status,
 			RestoreTS:  int64(b.LastWriteTS.T),
 			PBMVersion: b.PBMVersion,

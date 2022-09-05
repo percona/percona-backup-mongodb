@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"regexp"
 	"strings"
@@ -144,19 +144,6 @@ func skipCtl(str string) []byte {
 	return []byte(str)
 }
 
-func stripCtl(str string) []byte {
-	b := make([]byte, len(str))
-	var bl int
-	for i := 0; i < len(str); i++ {
-		c := str[i]
-		if c >= 32 && c != 127 {
-			b[bl] = c
-			bl++
-		}
-	}
-	return b[:bl]
-}
-
 func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
 	tmr := time.NewTimer(waitFor)
 	tkr := time.NewTicker(500 * time.Millisecond)
@@ -244,7 +231,7 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 }
 
 func (c *Ctl) CheckPITRestore(t time.Time, timeout time.Duration) error {
-	rinlist := "PITR: " + t.Format("2006-01-02T15:04:05Z")
+	rinlist := "restore time: " + t.Format("2006-01-02T15:04:05Z")
 	return c.waitForRestore(rinlist, timeout)
 }
 
@@ -272,18 +259,17 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 				return err
 			}
 			for _, s := range strings.Split(out, "\n") {
-				s := strings.TrimSpace(s)
-				if s == rinlist {
+				if !strings.Contains(s, rinlist) {
+					continue
+				}
+
+				_, status, _ := strings.Cut(s, "\t")
+				status = strings.TrimSpace(status)
+				if status == "done" {
 					return nil
 				}
-				if strings.HasPrefix(s, rinlist) {
-					status := strings.TrimSpace(strings.Split(s, rinlist)[1])
-					if status == "done" {
-						return nil
-					}
-					if strings.Contains(status, "Failed with") {
-						return errors.New(status)
-					}
+				if strings.Contains(status, "Failed with") {
+					return errors.New(status)
 				}
 			}
 		}
@@ -357,7 +343,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 				return "", errors.Wrap(err, "ContainerExecInspect")
 			}
 			if !insp.Running {
-				logs, err := ioutil.ReadAll(container.Reader)
+				logs, err := io.ReadAll(container.Reader)
 				if err != nil {
 					return "", errors.Wrap(err, "read logs of failed container")
 				}
@@ -383,7 +369,7 @@ func (c *Ctl) ContainerLogs() (string, error) {
 		return "", errors.Wrap(err, "get logs of failed container")
 	}
 	defer r.Close()
-	logs, err := ioutil.ReadAll(r)
+	logs, err := io.ReadAll(r)
 	if err != nil {
 		return "", errors.Wrap(err, "read logs of failed container")
 	}

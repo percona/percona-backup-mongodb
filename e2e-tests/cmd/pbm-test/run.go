@@ -5,11 +5,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {

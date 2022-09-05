@@ -2,7 +2,6 @@ package blackhole
 
 import (
 	"io"
-	"io/ioutil"
 
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -13,8 +12,12 @@ func New() *Blackhole {
 	return &Blackhole{}
 }
 
-func (*Blackhole) Save(_ string, data io.Reader, _ int) error {
-	_, err := io.Copy(ioutil.Discard, data)
+func (*Blackhole) Type() storage.Type {
+	return storage.BlackHole
+}
+
+func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {
+	_, err := io.Copy(io.Discard, data)
 	return err
 }
 

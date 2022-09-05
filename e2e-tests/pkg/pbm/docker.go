@@ -2,7 +2,7 @@ package pbm
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"log"
 	"sync"
 	"time"
@@ -235,7 +235,7 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 				return "", errors.Wrap(err, "ContainerExecInspect")
 			}
 			if !insp.Running {
-				logs, err := ioutil.ReadAll(container.Reader)
+				logs, err := io.ReadAll(container.Reader)
 				if err != nil {
 					return "", errors.Wrap(err, "read logs of failed container")
 				}

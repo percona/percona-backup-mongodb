@@ -4,55 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/mongodb/mongo-tools/common/options"
-	"github.com/mongodb/mongo-tools/mongorestore"
+	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
-
-var excludeFromRestore = []string{
-	pbm.DB + "." + pbm.CmdStreamCollection,
-	pbm.DB + "." + pbm.LogCollection,
-	pbm.DB + "." + pbm.ConfigCollection,
-	pbm.DB + "." + pbm.BcpCollection,
-	pbm.DB + "." + pbm.BcpOldCollection,
-	pbm.DB + "." + pbm.RestoresCollection,
-	pbm.DB + "." + pbm.LockCollection,
-	pbm.DB + "." + pbm.LockOpCollection,
-	pbm.DB + "." + pbm.PITRChunksCollection,
-	pbm.DB + "." + pbm.PITRChunksOldCollection,
-	pbm.DB + "." + pbm.AgentsStatusCollection,
-	pbm.DB + "." + pbm.PBMOpLogCollection,
-	"config.version",
-	"config.mongos",
-	"config.lockpings",
-	"config.locks",
-	"config.system.sessions",
-	"config.cache.*",
-	"config.shards",
-	"config.transactions",
-	"config.transaction_coordinators",
-	"admin.system.version",
-	"config.system.indexBuilds",
-}
-
-var excludeFromOplog = []string{
-	"config.rangeDeletions",
-	pbm.DB + "." + pbm.TmpUsersCollection,
-	pbm.DB + "." + pbm.TmpRolesCollection,
-}
 
 type Restore struct {
 	name     string
@@ -70,7 +40,7 @@ type Restore struct {
 	shards []pbm.Shard
 	rsMap  map[string]string
 
-	oplog *Oplog
+	oplog *oplog.OplogRestore
 	log   *log.Event
 	opid  string
 }
@@ -111,7 +81,17 @@ func (r *Restore) exit(err error, l *log.Event) {
 func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	err = r.init(cmd.Name, opid, l)
+	bcp, err := r.SnapshotMeta(cmd.BackupName)
+	if err != nil {
+		return err
+	}
+
+	nss := cmd.Namespaces
+	if len(nss) == 0 {
+		nss = bcp.Namespaces
+	}
+
+	err = r.init(cmd.Name, nss, opid, l)
 	if err != nil {
 		return err
 	}
@@ -119,11 +99,6 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	err = r.cn.SetRestoreBackup(r.name, cmd.BackupName)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
-	}
-
-	bcp, err := r.SnapshotMeta(cmd.BackupName)
-	if err != nil {
-		return err
 	}
 
 	err = r.checkSnapshot(bcp)
@@ -146,7 +121,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp)
+	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
 	if err != nil {
 		return err
 	}
@@ -162,7 +137,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, nil, nil, false)
+	}}, &applyOplogOption{nss: cmd.Namespaces})
 	if err != nil {
 		return err
 	}
@@ -178,19 +153,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	err = r.init(cmd.Name, opid, l)
-	if err != nil {
-		return err
-	}
-
 	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
-	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
-		if err != nil {
-			return errors.Wrap(err, "set PITR timestamp")
-		}
-	}
-
 	var bcp *pbm.BackupMeta
 	if cmd.Bcp == "" {
 		bcp, err = r.cn.GetLastBackup(&tsTo)
@@ -207,6 +170,23 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		}
 		if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
 			return errors.New("snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+		}
+	}
+
+	nss := cmd.Namespaces
+	if len(nss) == 0 {
+		nss = bcp.Namespaces
+	}
+
+	err = r.init(cmd.Name, nss, opid, l)
+	if err != nil {
+		return err
+	}
+
+	if r.nodeInfo.IsLeader() {
+		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
+		if err != nil {
+			return errors.Wrap(err, "set PITR timestamp")
 		}
 	}
 
@@ -230,7 +210,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		bcpShards[i] = bcp.Replsets[i].Name
 	}
 
-	if !sliceHasString(bcpShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+	if !Contains(bcpShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
 		return r.Done() // skip. no backup for current rs
 	}
 
@@ -249,7 +229,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp)
+	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
 	if err != nil {
 		return err
 	}
@@ -267,7 +247,8 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), nil, &tsTo, false)
+	oplogOption := applyOplogOption{end: &tsTo, nss: cmd.Namespaces}
+	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
 	if err != nil {
 		return err
 	}
@@ -282,7 +263,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	if err = r.init(cmd.Name, opid, l); err != nil {
+	if err = r.init(cmd.Name, nil, opid, l); err != nil {
 		return errors.Wrap(err, "init")
 	}
 
@@ -312,7 +293,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		return errors.WithMessage(err, "topology")
 	}
 
-	if !sliceHasString(oplogShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+	if !Contains(oplogShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
 		return r.Done() // skip. no oplog for current rs
 	}
 
@@ -326,15 +307,19 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		return err
 	}
 
-	err = r.applyOplog(chunks, &cmd.Start, &cmd.End, true)
-	if err != nil {
+	oplogOption := applyOplogOption{
+		start:  &cmd.Start,
+		end:    &cmd.End,
+		unsafe: true,
+	}
+	if err = r.applyOplog(chunks, &oplogOption); err != nil {
 		return err
 	}
 
 	return r.Done()
 }
 
-func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (err error) {
 	r.log = l
 
 	r.nodeInfo, err = r.node.GetInfo()
@@ -354,13 +339,14 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 		}
 
 		meta := &pbm.RestoreMeta{
-			Type:     pbm.LogicalBackup,
-			OPID:     r.opid,
-			Name:     r.name,
-			StartTS:  time.Now().Unix(),
-			Status:   pbm.StatusStarting,
-			Replsets: []pbm.RestoreReplset{},
-			Hb:       ts,
+			Type:       pbm.LogicalBackup,
+			OPID:       r.opid,
+			Name:       r.name,
+			Namespaces: nss,
+			StartTS:    time.Now().Unix(),
+			Status:     pbm.StatusStarting,
+			Replsets:   []pbm.RestoreReplset{},
+			Hb:         ts,
 		}
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
@@ -569,36 +555,57 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 	return nil
 }
 
-const (
-	preserveUUID = true
-
-	batchSizeDefault           = 500
-	numInsertionWorkersDefault = 10
-)
-
 func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	r.log.Info("moving to state %s", status)
 	_, err := toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 	return err
 }
 
-func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
-	sr, err := r.stg.SourceReader(dump)
-	if err != nil {
-		return errors.Wrapf(err, "get object %s for the storage", dump)
-	}
-	defer sr.Close()
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
+	var rdr io.ReadCloser
 
-	dumpReader, err := Decompress(sr, bcp.Compression)
-	if err != nil {
-		return errors.Wrapf(err, "decompress object %s", dump)
+	if version.IsLegacyArchive(bcp.PBMVersion) {
+		sr, err := r.stg.SourceReader(dump)
+		if err != nil {
+			return errors.Wrapf(err, "get object %s for the storage", dump)
+		}
+		defer sr.Close()
+
+		rdr, err = compress.Decompress(sr, bcp.Compression)
+		if err != nil {
+			return errors.Wrapf(err, "decompress object %s", dump)
+		}
+	} else {
+		if len(nss) == 0 {
+			nss = []string{"*.*"}
+		}
+
+		var m *ns.Matcher
+		m, err = ns.NewMatcher(nss)
+		if err != nil {
+			return err
+		}
+
+		rdr, err = snapshot.DownloadDump(
+			func(ns string) (io.ReadCloser, error) {
+				return r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
+			},
+			bcp.Compression,
+			m.Has)
 	}
-	defer dumpReader.Close()
+	if err != nil {
+		return err
+	}
+	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(dumpReader)
+	err = r.snapshot(rdr)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
+	}
+
+	if isSelective(bcp.Namespaces) || isSelective(nss) {
+		return nil
 	}
 
 	r.log.Info("restoring users and roles")
@@ -618,6 +625,16 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta) (err error) {
 	}
 
 	return nil
+}
+
+func isSelective(nss []string) bool {
+	for _, ns := range nss {
+		if ns != "" && ns != "*.*" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
@@ -783,7 +800,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 		case <-tk.C:
 			err := r.checkWaitingTxns(observedTxn)
 			if err != nil {
-				e = &err
+				*e = err
 				return
 			}
 		case <-done:
@@ -792,16 +809,24 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 	}
 }
 
+type applyOplogOption struct {
+	start  *primitive.Timestamp
+	end    *primitive.Timestamp
+	nss    []string
+	unsafe bool
+}
+
 // In order to sync distributed transactions (commit ontly when all participated shards are committed),
 // on all participated in the retore agents:
 // distTxnChecker:
 // - Receiving distributed transactions from the oplog applier, will add set it to the shards restore meta.
 // - If txn's state is `commit` it will wait from all of the rest of the shards for:
-// 		- either transaction committed on the shard (have `commitTransaction`);
-//      - or shard didn't participate in the transaction (more on that below);
-//      - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
-//    If any of the shards encounters the latter - the transaction is sent back to the applier as aborted.
-// 	  Otherwise - committed.
+//   - either transaction committed on the shard (have `commitTransaction`);
+//   - or shard didn't participate in the transaction (more on that below);
+//   - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
+//     If any of the shards encounters the latter - the transaction is sent back to the applier as aborted.
+//     Otherwise - committed.
+//
 // By looking at just transactions in the oplog we can't tell which shards were participating in it. So given that
 // starting `opTime` of the transaction is the same on all shards, we can assume that if some shard(s) oplog applier
 // observed greater than the txn's `opTime` and hadn't seen such txn - it wasn't part of this transaction at all. To
@@ -809,7 +834,7 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 // any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
 // instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
 // sharded clusters even if there are no dist txns at all.
-func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Timestamp, unsafe bool) error {
+func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption) error {
 	r.log.Info("starting oplog replay")
 	var err error
 
@@ -827,19 +852,23 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Time
 		txnSyncErr = make(chan error)
 	}
 
-	r.oplog, err = NewOplog(r.node, mgoV, unsafe, preserveUUID, ctxn, txnSyncErr)
+	r.oplog, err = oplog.NewOplogRestore(r.node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
 	if err != nil {
 		return errors.Wrap(err, "create oplog")
 	}
 
 	var startTS, endTS primitive.Timestamp
-	if start != nil {
-		startTS = *start
+	if options.start != nil {
+		startTS = *options.start
 	}
-	if end != nil {
-		endTS = *end
+	if options.end != nil {
+		endTS = *options.end
 	}
 	r.oplog.SetTimeframe(startTS, endTS)
+	err = r.oplog.SetIncludeNSS(options.nss)
+	if err != nil {
+		return errors.WithMessage(err, "set include nss")
+	}
 
 	var waitTxnErr error
 	if r.nodeInfo.IsSharded() {
@@ -869,7 +898,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, start, end *primitive.Time
 		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
 		lts, err = r.replayChunk(chnk.FName, chnk.Compression)
 		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = r.replayChunk(chnk.FName, pbm.CompressionTypeS2)
+			lts, err = r.replayChunk(chnk.FName, compress.CompressionTypeS2)
 		}
 		if err != nil {
 			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -1005,77 +1034,28 @@ func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 }
 
 func (r *Restore) snapshot(input io.Reader) (err error) {
-	topts := options.New("mongorestore", "0.0.1", "none", "", true, options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
-	topts.URI, err = options.NewURI(r.node.ConnURI())
-	if err != nil {
-		return errors.Wrap(err, "parse connection string")
-	}
-
-	err = topts.NormalizeOptionsAndURI()
-	if err != nil {
-		return errors.Wrap(err, "parse opts")
-	}
-
-	topts.Direct = true
-	topts.WriteConcern = writeconcern.New(writeconcern.WMajority())
-
 	cfg, err := r.cn.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 
-	batchSize := batchSizeDefault
-	if cfg.Restore.BatchSize > 0 {
-		batchSize = cfg.Restore.BatchSize
-	}
-	numInsertionWorkers := numInsertionWorkersDefault
-	if cfg.Restore.NumInsertionWorkers > 0 {
-		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
-	}
-
-	mopts := mongorestore.Options{}
-	mopts.ToolOptions = topts
-	mopts.InputOptions = &mongorestore.InputOptions{
-		Archive: "-",
-	}
-	mopts.OutputOptions = &mongorestore.OutputOptions{
-		BulkBufferSize:           batchSize,
-		BypassDocumentValidation: true,
-		Drop:                     true,
-		NumInsertionWorkers:      numInsertionWorkers,
-		NumParallelCollections:   1,
-		PreserveUUID:             preserveUUID,
-		StopOnError:              true,
-		WriteConcern:             "majority",
-	}
-	mopts.NSOptions = &mongorestore.NSOptions{
-		NSExclude: excludeFromRestore,
-	}
-
-	mr, err := mongorestore.New(mopts)
+	rf, err := snapshot.NewRestore(r.node.ConnURI(), &cfg)
 	if err != nil {
-		return errors.Wrap(err, "create mongorestore obj")
-	}
-	mr.SkipUsersAndRoles = true
-	mr.InputReader = input
-
-	rdumpResult := mr.Restore()
-	mr.Close()
-	if rdumpResult.Err != nil {
-		return errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
+		return err
 	}
 
-	return nil
+	_, err = rf.ReadFrom(input)
+	return err
 }
 
-func (r *Restore) replayChunk(file string, c pbm.CompressionType) (lts primitive.Timestamp, err error) {
+func (r *Restore) replayChunk(file string, c compress.CompressionType) (lts primitive.Timestamp, err error) {
 	or, err := r.stg.SourceReader(file)
 	if err != nil {
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
-	oplogReader, err := Decompress(or, c)
+	oplogReader, err := compress.Decompress(or, c)
 	if err != nil {
 		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}

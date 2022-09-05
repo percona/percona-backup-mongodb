@@ -14,6 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 )
 
 const (
@@ -25,12 +27,12 @@ const (
 
 // OplogChunk is index metadata for the oplog chunks
 type OplogChunk struct {
-	RS          string              `bson:"rs"`
-	FName       string              `bson:"fname"`
-	Compression CompressionType     `bson:"compression"`
-	StartTS     primitive.Timestamp `bson:"start_ts"`
-	EndTS       primitive.Timestamp `bson:"end_ts"`
-	size        int64               `bson:"-"`
+	RS          string                   `bson:"rs"`
+	FName       string                   `bson:"fname"`
+	Compression compress.CompressionType `bson:"compression"`
+	StartTS     primitive.Timestamp      `bson:"start_ts"`
+	EndTS       primitive.Timestamp      `bson:"end_ts"`
+	size        int64                    `bson:"-"`
 }
 
 // IsPITR checks if PITR is enabled
@@ -433,9 +435,9 @@ func PITRmetaFromFName(f string) *OplogChunk {
 		return nil
 	}
 	if len(fparts) == 4 {
-		chnk.Compression = FileCompression(fparts[3])
+		chnk.Compression = compress.FileCompression(fparts[3])
 	} else {
-		chnk.Compression = CompressionTypeNone
+		chnk.Compression = compress.CompressionTypeNone
 	}
 
 	start := pitrParseTS(fparts[0])

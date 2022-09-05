@@ -14,8 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -120,15 +120,9 @@ func (c *Collection) WriteTo(w io.Writer) (int64, error) {
 	return written, errors.Wrap(cur.Err(), "cursor")
 }
 
-func genData(b []byte) {
-	for i := 0; i < len(b); i++ {
-		b[i] = byte(rand.Int63()&25 + 'a')
-	}
-}
-
 const fileName = "pbmSpeedTest"
 
-func Run(nodeCN *mongo.Client, stg storage.Storage, compression pbm.CompressionType, level *int, sizeGb float64, collection string) (*Results, error) {
+func Run(nodeCN *mongo.Client, stg storage.Storage, compression compress.CompressionType, level *int, sizeGb float64, collection string) (*Results, error) {
 	var src backup.Source
 	var err error
 	if collection != "" {

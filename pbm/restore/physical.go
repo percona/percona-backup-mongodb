@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -236,7 +237,7 @@ func (r *PhysRestore) waitMgoShutdown() error {
 //  to "done" or "partlyDone". Cluster is "partlyDone" if at least one replset
 //  is "partlyDone".
 //
-// - Each node writes file with the given state.
+// - Each node writes a file with the given state.
 // - The replset leader (primary node) or every rs node, in case of status
 //   "done",  waits for files from all replica set nodes. And writes a status
 //   file for the replica set.
@@ -652,7 +653,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	if err != nil {
 		return errors.Wrap(err, "encode restore meta")
 	}
-	err = r.stg.Save(name, &buf, buf.Len())
+	err = r.stg.Save(name, &buf, int64(buf.Len()))
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}
@@ -679,7 +680,7 @@ func (r *PhysRestore) copyFiles() error {
 				}
 				defer sr.Close()
 
-				data, err := Decompress(sr, r.bcp.Compression)
+				data, err := compress.Decompress(sr, r.bcp.Compression)
 				if err != nil {
 					return errors.Wrapf(err, "decompress object %s", src)
 				}

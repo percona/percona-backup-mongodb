@@ -65,10 +65,14 @@ func New(opts Conf, l *log.Event) (*Blob, error) {
 	return b, nil
 }
 
-func (b *Blob) Save(name string, data io.Reader, sizeb int) error {
+func (*Blob) Type() storage.Type {
+	return storage.Azure
+}
+
+func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {
-		ps := sizeb / maxBlocks * 11 / 10 // add 10% just in case
+		ps := int(sizeb / maxBlocks * 11 / 10) // add 10% just in case
 		if ps > bufsz {
 			bufsz = ps
 		}
@@ -209,7 +213,7 @@ func (b *Blob) container() (azblob.ContainerURL, error) {
 	p := azblob.NewPipeline(cred, azblob.PipelineOptions{
 		Retry: azblob.RetryOptions{
 			MaxTries:   defaultRetries,
-			TryTimeout: time.Minute * time.Duration(2*defaultUploadBuff/(1<<20)), //0.5Mb/sec
+			TryTimeout: time.Minute * time.Duration(2*defaultUploadBuff/(1<<20)), // 0.5Mb/sec
 		},
 	})
 
