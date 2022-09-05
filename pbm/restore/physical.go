@@ -476,7 +476,7 @@ func checkFile(f string, stg storage.Storage) (ok bool, err error) {
 		return true, nil
 	}
 
-	if err == storage.ErrNotExist {
+	if err == storage.ErrNotExist || err == storage.ErrEmpty {
 		return false, nil
 	}
 
