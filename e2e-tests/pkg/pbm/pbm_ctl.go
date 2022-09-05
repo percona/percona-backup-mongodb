@@ -231,7 +231,7 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 }
 
 func (c *Ctl) CheckPITRestore(t time.Time, timeout time.Duration) error {
-	rinlist := "PITR: " + t.Format("2006-01-02T15:04:05Z")
+	rinlist := "restore time: " + t.Format("2006-01-02T15:04:05Z")
 	return c.waitForRestore(rinlist, timeout)
 }
 
@@ -259,18 +259,17 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 				return err
 			}
 			for _, s := range strings.Split(out, "\n") {
-				s := strings.TrimSpace(s)
-				if s == rinlist {
+				if !strings.Contains(s, rinlist) {
+					continue
+				}
+
+				_, status, _ := strings.Cut(s, "\t")
+				status = strings.TrimSpace(status)
+				if status == "done" {
 					return nil
 				}
-				if strings.HasPrefix(s, rinlist) {
-					status := strings.TrimSpace(strings.Split(s, rinlist)[1])
-					if status == "done" {
-						return nil
-					}
-					if strings.Contains(status, "Failed with") {
-						return errors.New(status)
-					}
+				if strings.Contains(status, "Failed with") {
+					return errors.New(status)
 				}
 			}
 		}

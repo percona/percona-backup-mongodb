@@ -64,10 +64,8 @@ func (r restoreListOut) String() string {
 			if len(v.Namespaces) != 0 {
 				n = ", selective"
 			}
-			name = fmt.Sprintf("PITR: %s [backup: %s%s]",
-				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339),
-				v.Snapshot,
-				n)
+			name = fmt.Sprintf("PITR: %s [restore time: %s%s]",
+				v.Name, time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339), n)
 		}
 
 		switch v.Status {
