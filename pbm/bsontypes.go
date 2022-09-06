@@ -253,12 +253,13 @@ type MongodOptsSec struct {
 		Secret     *string `bson:"secret,omitempty" json:"secret,omitempty" yaml:"secret,omitempty"`
 	} `bson:"vault,omitempty" json:"vault,omitempty" yaml:"vault,omitempty"`
 	KMIP *struct {
-		ServerName            *string `bson:"serverName,omitempty" json:"serverName,omitempty" yaml:"serverName,omitempty"`
-		Port                  *int    `bson:"port,omitempty" json:"port,omitempty" yaml:"port,omitempty"`
-		ClientCertificateFile *string `bson:"clientCertificateFile,omitempty" json:"clientCertificateFile,omitempty" yaml:"clientCertificateFile,omitempty"`
-		ClientKeyFile         *string `bson:"clientKeyFile,omitempty" json:"clientKeyFile,omitempty" yaml:"clientKeyFile,omitempty"`
-		ServerCAFile          *string `bson:"serverCAFile,omitempty" json:"serverCAFile,omitempty" yaml:"serverCAFile,omitempty"`
-		KeyIdentifier         *string `bson:"keyIdentifier,omitempty" json:"keyIdentifier,omitempty" yaml:"keyIdentifier,omitempty"`
+		ServerName                *string `bson:"serverName,omitempty" json:"serverName,omitempty" yaml:"serverName,omitempty"`
+		Port                      *int    `bson:"port,omitempty" json:"port,omitempty" yaml:"port,omitempty"`
+		ClientCertificateFile     *string `bson:"clientCertificateFile,omitempty" json:"clientCertificateFile,omitempty" yaml:"clientCertificateFile,omitempty"`
+		ClientKeyFile             *string `bson:"clientKeyFile,omitempty" json:"clientKeyFile,omitempty" yaml:"clientKeyFile,omitempty"`
+		ServerCAFile              *string `bson:"serverCAFile,omitempty" json:"serverCAFile,omitempty" yaml:"serverCAFile,omitempty"`
+		KeyIdentifier             *string `bson:"keyIdentifier,omitempty" json:"keyIdentifier,omitempty" yaml:"keyIdentifier,omitempty"`
+		ClientCertificatePassword *string `bson:"clientCertificatePassword,omitempty" json:"-" yaml:"clientCertificatePassword,omitempty"`
 	} `bson:"kmip,omitempty" json:"kmip,omitempty" yaml:"kmip,omitempty"`
 }
 
