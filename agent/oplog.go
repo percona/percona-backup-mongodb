@@ -109,6 +109,30 @@ func (a *Agent) EnsureOplog(r *pbm.EnsureOplogCmd, opID pbm.OPID, ep pbm.Epoch) 
 		return
 	}
 
+	epoch := ep.TS()
+	lock := a.pbm.NewLock(pbm.LockHeader{
+		Type:    pbm.CmdEnsureOplog,
+		Replset: nodeInfo.SetName,
+		Node:    nodeInfo.Me,
+		OPID:    opID.String(),
+		Epoch:   &epoch,
+	})
+
+	nominated, err := a.acquireLock(lock, l, nil)
+	if err != nil {
+		l.Error("acquiring lock: %s", err.Error())
+		return
+	}
+	if !nominated {
+		l.Debug("ensure oplog: skip: lock not acquired")
+		return
+	}
+	defer func() {
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+	}()
+
 	from, err := findPreviousOplogTS(a.pbm.Context(), a.node.Session(), r.From)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
