@@ -96,16 +96,12 @@ func (a *Agent) EnsureOplog(r *pbm.EnsureOplogCmd, opID pbm.OPID, ep pbm.Epoch) 
 		return
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdEnsureOplog),
-		fmt.Sprintf("%s-%s",
-			time.Unix(int64(r.From.T), 0).UTC().Format(time.RFC3339),
-			time.Unix(int64(r.Till.T), 0).UTC().Format(time.RFC3339)),
-		opID.String(),
-		ep.TS())
+	name := fmt.Sprintf("%s-%s", pbm.FormatTimestamp(r.From), pbm.FormatTimestamp(r.Till))
+	l := a.log.NewEvent(string(pbm.CmdEnsureOplog), name, opID.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
-		l.Error("get node info: %v", err)
+		l.Error("get node info: %s", err.Error())
 		return
 	}
 	if nodeInfo.IsStandalone() {
@@ -115,12 +111,18 @@ func (a *Agent) EnsureOplog(r *pbm.EnsureOplogCmd, opID pbm.OPID, ep pbm.Epoch) 
 
 	from, err := findPreviousOplogTS(a.pbm.Context(), a.node.Session(), r.From)
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			err = pbm.ErrNotFound
+		}
 		l.Error("lookup first oplog record: %s", err.Error())
 		return
 	}
 
 	till, err := findFollowingOplogTS(a.pbm.Context(), a.node.Session(), r.Till)
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			err = pbm.ErrNotFound
+		}
 		l.Error("lookup last oplog record: %s", err.Error())
 		return
 	}
@@ -159,13 +161,7 @@ func (a *Agent) EnsureOplog(r *pbm.EnsureOplogCmd, opID pbm.OPID, ep pbm.Epoch) 
 
 		_, err = backup.Upload(a.pbm.Context(), o, stg, compression, compressionLevel, filename, -1)
 		if err != nil {
-			l.Error("unable to upload chunk %v.%v", t.from, t.till)
-			l.Debug("remove %s due to upload errors", filename)
-
-			if err := stg.Delete(filename); err != nil {
-				l.Error("remove %s: %v", filename, err)
-			}
-
+			l.Error("failed to upload %s - %s chunk", pbm.FormatTimestamp(t.from), pbm.FormatTimestamp(t.till))
 			return
 		}
 
@@ -178,36 +174,32 @@ func (a *Agent) EnsureOplog(r *pbm.EnsureOplogCmd, opID pbm.OPID, ep pbm.Epoch) 
 		}
 
 		if err := a.pbm.PITRAddChunk(meta); err != nil {
-			l.Error("unable to save chunk meta %v: %s", meta, err.Error())
+			l.Error("failed to save %s - %s chunk meta: %s",
+				pbm.FormatTimestamp(t.from), pbm.FormatTimestamp(t.till), err.Error())
 			return
 		}
 
-		l.Info("saved oplog chunk %s - %s", t.from, t.till)
+		l.Info("saved %s - %s oplog chunk", pbm.FormatTimestamp(t.from), pbm.FormatTimestamp(t.till))
 	}
 
 	l.Info("ensure oplog chunks: completed")
 }
 
 func findPreviousOplogTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) (primitive.Timestamp, error) {
-	res := m.Database("local").Collection("oplog.rs").FindOne(ctx,
-		bson.M{"ts": bson.M{"$lte": ts}},
-		options.FindOne().SetSort(bson.D{{"ts", -1}}))
-	if err := res.Err(); err != nil {
-		return primitive.Timestamp{}, err
-	}
-
-	var v struct{ TS primitive.Timestamp }
-	if err := res.Decode(&v); err != nil {
-		return primitive.Timestamp{}, errors.WithMessage(err, "decode")
-	}
-
-	return v.TS, nil
+	f := bson.M{"ts": bson.M{"$lte": ts}}
+	o := options.FindOne().SetSort(bson.D{{"ts", -1}})
+	res := m.Database("local").Collection("oplog.rs").FindOne(ctx, f, o)
+	return findOplogTSHelper(res)
 }
 
 func findFollowingOplogTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) (primitive.Timestamp, error) {
-	res := m.Database("local").Collection("oplog.rs").FindOne(ctx,
-		bson.M{"ts": bson.M{"$gte": ts}},
-		options.FindOne().SetSort(bson.D{{"ts", 1}}))
+	f := bson.M{"ts": bson.M{"$gte": ts}}
+	o := options.FindOne().SetSort(bson.D{{"ts", 1}})
+	res := m.Database("local").Collection("oplog.rs").FindOne(ctx, f, o)
+	return findOplogTSHelper(res)
+}
+
+func findOplogTSHelper(res *mongo.SingleResult) (primitive.Timestamp, error) {
 	if err := res.Err(); err != nil {
 		return primitive.Timestamp{}, err
 	}
