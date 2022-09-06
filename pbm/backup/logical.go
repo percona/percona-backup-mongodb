@@ -110,8 +110,18 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		}
 	}
 
+	cfg, err := b.cn.GetConfig()
+	if err != nil {
+		return errors.WithMessage(err, "get config")
+	}
+
 	snapshotSize, err := snapshot.UploadDump(dump,
 		func(ns, ext string, r io.Reader) error {
+			stg, err := pbm.Storage(cfg, l)
+			if err != nil {
+				return errors.WithMessage(err, "get storage")
+			}
+
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},

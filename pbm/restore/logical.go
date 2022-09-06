@@ -586,9 +586,19 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return err
 		}
 
+		cfg, err := r.cn.GetConfig()
+		if err != nil {
+			return errors.WithMessage(err, "get config")
+		}
+
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				return r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
+				stg, err := pbm.Storage(cfg, r.log)
+				if err != nil {
+					return nil, errors.WithMessage(err, "get storage")
+				}
+
+				return stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
 			},
 			bcp.Compression,
 			m.Has)
