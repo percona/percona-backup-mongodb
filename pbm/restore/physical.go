@@ -911,7 +911,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 			case <-tk.C:
 				err := r.hb()
 				if err != nil {
-					l.Error("send heartbeat: %v", err)
+					l.Warning("send heartbeat: %v", err)
 				}
 			case <-r.stopHB:
 				return
