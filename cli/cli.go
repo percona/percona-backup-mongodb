@@ -106,6 +106,11 @@ func Main() {
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
+	ensureOplogOpt := ensureOplogOptions{}
+	ensureOplogCmd := pbmCmd.Command("ensure-oplog", "Save and check oplog range")
+	ensureOplogCmd.Arg("from", fmt.Sprintf("Oplog first time. Set in format %s", datetimeFormat)).Required().StringVar(&ensureOplogOpt.from)
+	ensureOplogCmd.Arg("till", fmt.Sprintf("Oplog last time. Set in format %s", datetimeFormat)).Default(time.Now().UTC().Format(dateFormat)).StringVar(&ensureOplogOpt.till)
+
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
@@ -207,6 +212,8 @@ func Main() {
 		out, err = describeBackup(pbmClient, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(pbmClient, &restore, pbmOutF)
+	case ensureOplogCmd.FullCommand():
+		out, err = ensureOplog(pbmClient, ensureOplogOpt, pbmOutF)
 	case replayCmd.FullCommand():
 		out, err = replayOplog(pbmClient, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
