@@ -247,10 +247,11 @@ type MongodOptsSec struct {
 	EncryptionKeyFile    *string `bson:"encryptionKeyFile,omitempty" json:"encryptionKeyFile,omitempty" yaml:"encryptionKeyFile,omitempty"`
 	RelaxPermChecks      *bool   `bson:"relaxPermChecks,omitempty" json:"relaxPermChecks,omitempty" yaml:"relaxPermChecks,omitempty"`
 	Vault                *struct {
-		ServerName *string `bson:"serverName,omitempty" json:"serverName,omitempty" yaml:"serverName,omitempty"`
-		Port       *int    `bson:"port,omitempty" json:"port,omitempty" yaml:"port,omitempty"`
-		TokenFile  *string `bson:"tokenFile,omitempty" json:"tokenFile,omitempty" yaml:"tokenFile,omitempty"`
-		Secret     *string `bson:"secret,omitempty" json:"secret,omitempty" yaml:"secret,omitempty"`
+		ServerName   *string `bson:"serverName,omitempty" json:"serverName,omitempty" yaml:"serverName,omitempty"`
+		Port         *int    `bson:"port,omitempty" json:"port,omitempty" yaml:"port,omitempty"`
+		TokenFile    *string `bson:"tokenFile,omitempty" json:"tokenFile,omitempty" yaml:"tokenFile,omitempty"`
+		Secret       *string `bson:"secret,omitempty" json:"secret,omitempty" yaml:"secret,omitempty"`
+		ServerCAFile *string `bson:"serverCAFile,omitempty" json:"serverCAFile,omitempty" yaml:"serverCAFile,omitempty"`
 	} `bson:"vault,omitempty" json:"vault,omitempty" yaml:"vault,omitempty"`
 	KMIP *struct {
 		ServerName                *string `bson:"serverName,omitempty" json:"serverName,omitempty" yaml:"serverName,omitempty"`
