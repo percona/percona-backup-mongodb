@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -18,12 +17,12 @@ func (a *Agent) OplogReplay(r *pbm.ReplayCmd, opID pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdReplay),
-		fmt.Sprintf("%s-%s",
-			time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
-			time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339)),
-		opID.String(),
-		ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdReplay), r.Name, opID.String(), ep.TS())
+
+	l.Info("time: %s-%s",
+		time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
+		time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339),
+	)
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
