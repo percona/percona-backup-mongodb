@@ -214,12 +214,13 @@ type bcpDesc struct {
 }
 
 type bcpReplDesc struct {
-	Name             string     `json:"name" yaml:"name"`
-	Status           pbm.Status `json:"status" yaml:"status"`
-	LastWriteTS      string     `json:"last_write_ts" yaml:"last_write_ts"`
-	LastTransitionTS string     `json:"last_transition_ts" yaml:"last_transition_ts"`
-	IsConfigSvr      *bool      `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
-	Error            *string    `json:"error,omitempty" yaml:"error,omitempty"`
+	Name             string             `json:"name" yaml:"name"`
+	Status           pbm.Status         `json:"status" yaml:"status"`
+	LastWriteTS      string             `json:"last_write_ts" yaml:"last_write_ts"`
+	LastTransitionTS string             `json:"last_transition_ts" yaml:"last_transition_ts"`
+	IsConfigSvr      *bool              `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
+	SecurityOpts     *pbm.MongodOptsSec `json:"security,omitempty" yaml:"security,omitempty"`
+	Error            *string            `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 func (b *bcpDesc) String() string {
@@ -275,6 +276,9 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		}
 		if r.Error != "" {
 			rv.Replsets[i].Error = &r.Error
+		}
+		if r.MongodOpts.Security != nil {
+			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
 		}
 	}
 
