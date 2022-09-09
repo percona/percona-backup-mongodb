@@ -19,7 +19,6 @@ import (
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type statusOptions struct {
@@ -693,14 +692,34 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 }
 
 func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
-	if version.IsLegacyArchive(bcp.PBMVersion) {
-		return getLegacySnapshotSize(bcp.Replsets, stg)
+	if bcp.Size > 0 {
+		return bcp.Size, nil
 	}
-
-	return bcp.Size, nil
+	return getLegacySnapshotSize(bcp.Replsets, bcp.Type, stg)
 }
 
-func getLegacySnapshotSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
+func getLegacySnapshotSize(rsets []pbm.BackupReplset, typ pbm.BackupType, stg storage.Storage) (s int64, err error) {
+	switch typ {
+	case pbm.LogicalBackup:
+		return getLegacyLogicalSize(rsets, stg)
+	case pbm.PhysicalBackup:
+		return getLegacyPhysSize(rsets, stg)
+	default:
+		return 0, errors.Errorf("unknown backup type %s", typ)
+	}
+}
+
+func getLegacyPhysSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
+	for _, rs := range rsets {
+		for _, f := range rs.Files {
+			s += f.StgSize
+		}
+	}
+
+	return s, nil
+}
+
+func getLegacyLogicalSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
 	for _, rs := range rsets {
 		ds, err := stg.FileStat(rs.DumpName)
 		if err != nil {
