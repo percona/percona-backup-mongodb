@@ -22,6 +22,7 @@ type restoreOpts struct {
 	pitrBase string
 	wait     bool
 	ns       string
+	exclude  string
 	rsMap    string
 }
 
@@ -63,6 +64,10 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 	if err != nil {
 		return nil, errors.WithMessage(err, "parse --ns option")
 	}
+	exclude, err := parseCLIExcludeOption(o.exclude)
+	if err != nil {
+		return nil, errors.WithMessage(err, "parse --exclude option")
+	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
@@ -75,7 +80,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 
 	switch {
 	case o.bcp != "":
-		m, err := restore(cn, o.bcp, nss, rsMap, outf)
+		m, err := restore(cn, o.bcp, nss, exclude, rsMap, outf)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +106,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		}
 		return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 	case o.pitr != "":
-		m, err := pitrestore(cn, o.pitr, o.pitrBase, nss, rsMap, outf)
+		m, err := pitrestore(cn, o.pitr, o.pitrBase, nss, exclude, rsMap, outf)
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +185,7 @@ func (e errRestoreFailed) Error() string {
 	return e.string
 }
 
-func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
+func restore(cn *pbm.PBM, bcpName string, nss, exclude []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
 	bcp, err := cn.GetBackupMeta(bcpName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		return nil, errors.Errorf("backup '%s' not found", bcpName)
@@ -204,6 +209,7 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 			Name:       name,
 			BackupName: bcpName,
 			Namespaces: nss,
+			Exclude:    exclude,
 			RSMap:      rsMapping,
 		},
 	})
@@ -271,7 +277,7 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
-func pitrestore(cn *pbm.PBM, t, base string, nss []string, rsMap map[string]string, outf outFormat) (rmeta *pbm.RestoreMeta, err error) {
+func pitrestore(cn *pbm.PBM, t, base string, nss, exclude []string, rsMap map[string]string, outf outFormat) (rmeta *pbm.RestoreMeta, err error) {
 	ts, err := parseTS(t)
 	if err != nil {
 		return nil, err
@@ -291,6 +297,7 @@ func pitrestore(cn *pbm.PBM, t, base string, nss []string, rsMap map[string]stri
 			I:          int64(ts.I),
 			Bcp:        base,
 			Namespaces: nss,
+			Exclude:    exclude,
 			RSMap:      rsMap,
 		},
 	})
@@ -377,6 +384,7 @@ type describeRestoreResult struct {
 	Status             pbm.Status       `yaml:"status" json:"status"`
 	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
 	Namespaces         []string         `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
+	Exclude            []string         `yaml:"exclude,omitempty" json:"exclude,omitempty"`
 	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
 	OPID               string           `yaml:"opid" json:"opid"`
 	StartTS            int64            `yaml:"-" json:"start_ts"`
@@ -452,6 +460,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 	res.Type = meta.Type
 	res.Status = meta.Status
 	res.Namespaces = meta.Namespaces
+	res.Exclude = meta.Exclude
 	res.OPID = meta.OPID
 	res.StartTS = meta.StartTS
 	res.StartTime = time.Unix(res.StartTS, 0).Format(time.RFC3339)

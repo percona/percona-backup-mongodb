@@ -63,6 +63,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 		OPID:           opid.String(),
 		Name:           bcp.Name,
 		Namespaces:     bcp.Namespaces,
+		Exclude:        bcp.Exclude,
 		Compression:    bcp.Compression,
 		StartTS:        time.Now().Unix(),
 		Status:         pbm.StatusStarting,

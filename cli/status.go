@@ -501,7 +501,7 @@ func (s storageStat) String() string {
 		}
 
 		kind := string(sn.Type)
-		if len(sn.Namespaces) != 0 {
+		if len(sn.Namespaces) != 0 || len(sn.Exclude) != 0 {
 			kind += ", selective"
 		}
 
@@ -583,6 +583,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
 			Namespaces: bcp.Namespaces,
+			Exclude:    bcp.Exclude,
 			Status:     bcp.Status,
 			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,

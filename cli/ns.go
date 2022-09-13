@@ -103,3 +103,43 @@ func parseCLINSOption(s string) ([]string, error) {
 
 	return rv, nil
 }
+
+func parseCLIExcludeOption(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+
+	m := make(map[string]map[string]struct{})
+	for _, ns := range strings.Split(s, ",") {
+		db, coll, ok := strings.Cut(strings.TrimSpace(ns), ".")
+		if !ok {
+			return nil, errors.WithMessage(ErrInvalidNamespace, ns)
+		}
+		if db == "" || coll == "" || db == "*" {
+			return nil, errors.WithMessage(ErrInvalidNamespace, ns)
+		}
+		if strings.HasPrefix(coll, "system.") {
+			return nil, ErrForbiddenCollection
+		}
+
+		if _, ok := m[db]; !ok {
+			m[db] = make(map[string]struct{})
+		}
+		m[db][coll] = struct{}{}
+	}
+
+	rv := []string{}
+	for db, colls := range m {
+		if _, ok := colls["*"]; ok && len(colls) != 1 {
+			return nil, errors.WithMessagef(ErrAmbiguousNamespace,
+				"cannot use * with other collections in %q database", db)
+		}
+
+		for coll := range colls {
+			rv = append(rv, db+"."+coll)
+		}
+	}
+
+	return rv, nil
+}

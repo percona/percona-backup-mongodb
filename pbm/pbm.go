@@ -162,6 +162,7 @@ type BackupCmd struct {
 	Type             BackupType               `bson:"type"`
 	Name             string                   `bson:"name"`
 	Namespaces       []string                 `bson:"nss,omitempty"`
+	Exclude          []string                 `bson:"exclude,omitempty"`
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
 }
@@ -180,6 +181,7 @@ type RestoreCmd struct {
 	Name       string            `bson:"name"`
 	BackupName string            `bson:"backupName"`
 	Namespaces []string          `bson:"nss,omitempty"`
+	Exclude    []string          `bson:"exclude,omitempty"`
 	RSMap      map[string]string `bson:"rsMap,omitempty"`
 }
 
@@ -204,6 +206,7 @@ type PITRestoreCmd struct {
 	I          int64             `bson:"i"`
 	Bcp        string            `bson:"bcp"`
 	Namespaces []string          `bson:"nss,omitempty"`
+	Exclude    []string          `bson:"exclude,omitempty"`
 	RSMap      map[string]string `bson:"rsMap,omitempty"`
 }
 
@@ -472,6 +475,7 @@ type BackupMeta struct {
 	OPID             string                   `bson:"opid" json:"opid"`
 	Name             string                   `bson:"name" json:"name"`
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
+	Exclude          []string                 `bson:"exclude,omitempty" json:"exclude,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	Store            StorageConf              `bson:"store" json:"store"`
@@ -747,6 +751,7 @@ func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int) (*BackupMeta, error) {
 	q := bson.D{
 		{"nss", nil},
+		{"exclude", nil},
 		{"status", StatusDone},
 		{"type", bson.M{"$ne": string(PhysicalBackup)}},
 	}

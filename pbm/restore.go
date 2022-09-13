@@ -19,6 +19,7 @@ type RestoreMeta struct {
 	OPID             string              `bson:"opid" json:"opid"`
 	Backup           string              `bson:"backup" json:"backup"`
 	Namespaces       []string            `bson:"nss,omitempty" json:"nss,omitempty"`
+	Exclude          []string            `bson:"exclude,omitempty" json:"exclude,omitempty"`
 	StartPITR        int64               `bson:"start_pitr" json:"start_pitr"`
 	PITR             int64               `bson:"pitr" json:"pitr"`
 	Replsets         []RestoreReplset    `bson:"replsets" json:"replsets"`

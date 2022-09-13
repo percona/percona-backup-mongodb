@@ -90,8 +90,12 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	if len(nss) == 0 {
 		nss = bcp.Namespaces
 	}
+	exclude := cmd.Exclude
+	if len(exclude) == 0 {
+		exclude = bcp.Exclude
+	}
 
-	err = r.init(cmd.Name, nss, opid, l)
+	err = r.init(cmd.Name, nss, exclude, opid, l)
 	if err != nil {
 		return err
 	}
@@ -121,7 +125,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
+	err = r.RunSnapshot(dump, bcp, cmd.Namespaces, exclude)
 	if err != nil {
 		return err
 	}
@@ -137,7 +141,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, &applyOplogOption{nss: cmd.Namespaces})
+	}}, &applyOplogOption{nss: cmd.Namespaces, exclude: exclude})
 	if err != nil {
 		return err
 	}
@@ -177,8 +181,12 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 	if len(nss) == 0 {
 		nss = bcp.Namespaces
 	}
+	exclude := cmd.Exclude
+	if len(exclude) == 0 {
+		exclude = bcp.Exclude
+	}
 
-	err = r.init(cmd.Name, nss, opid, l)
+	err = r.init(cmd.Name, nss, exclude, opid, l)
 	if err != nil {
 		return err
 	}
@@ -229,7 +237,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
+	err = r.RunSnapshot(dump, bcp, cmd.Namespaces, exclude)
 	if err != nil {
 		return err
 	}
@@ -247,7 +255,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	oplogOption := applyOplogOption{end: &tsTo, nss: cmd.Namespaces}
+	oplogOption := applyOplogOption{end: &tsTo, nss: cmd.Namespaces, exclude: exclude}
 	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
 	if err != nil {
 		return err
@@ -263,7 +271,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	if err = r.init(cmd.Name, nil, opid, l); err != nil {
+	if err = r.init(cmd.Name, nil, nil, opid, l); err != nil {
 		return errors.Wrap(err, "init")
 	}
 
@@ -319,7 +327,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 	return r.Done()
 }
 
-func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) init(name string, nss, exclude []string, opid pbm.OPID, l *log.Event) (err error) {
 	r.log = l
 
 	r.nodeInfo, err = r.node.GetInfo()
@@ -343,6 +351,7 @@ func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (
 			OPID:       r.opid,
 			Name:       r.name,
 			Namespaces: nss,
+			Exclude:    exclude,
 			StartTS:    time.Now().Unix(),
 			Status:     pbm.StatusStarting,
 			Replsets:   []pbm.RestoreReplset{},
@@ -561,7 +570,7 @@ func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	return err
 }
 
-func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss, exclude []string) (err error) {
 	var rdr io.ReadCloser
 
 	if version.IsLegacyArchive(bcp.PBMVersion) {
@@ -580,8 +589,11 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			nss = []string{"*.*"}
 		}
 
-		var m *ns.Matcher
-		m, err = ns.NewMatcher(nss)
+		include, err := ns.NewMatcher(nss)
+		if err != nil {
+			return err
+		}
+		exclude, err := ns.NewMatcher(bcp.Exclude)
 		if err != nil {
 			return err
 		}
@@ -601,7 +613,8 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 				return stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
 			},
 			bcp.Compression,
-			m.Has)
+			include.Has,
+			exclude.Has)
 	}
 	if err != nil {
 		return err
@@ -614,7 +627,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if isSelective(bcp.Namespaces) || isSelective(nss) {
+	if isSelective(bcp.Namespaces) || isSelective(nss) || len(bcp.Exclude) != 0 {
 		return nil
 	}
 
@@ -820,10 +833,11 @@ func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
 }
 
 type applyOplogOption struct {
-	start  *primitive.Timestamp
-	end    *primitive.Timestamp
-	nss    []string
-	unsafe bool
+	start   *primitive.Timestamp
+	end     *primitive.Timestamp
+	nss     []string
+	exclude []string
+	unsafe  bool
 }
 
 // In order to sync distributed transactions (commit ontly when all participated shards are committed),
@@ -878,6 +892,10 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	err = r.oplog.SetIncludeNSS(options.nss)
 	if err != nil {
 		return errors.WithMessage(err, "set include nss")
+	}
+	err = r.oplog.SetExcludeNSS(options.exclude)
+	if err != nil {
+		return errors.WithMessage(err, "set exclude nss")
 	}
 
 	var waitTxnErr error

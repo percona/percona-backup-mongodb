@@ -89,6 +89,7 @@ func Main() {
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).StringVar(&backup.ns)
+	backupCmd.Flag("exclude", `Namespaces to exclude from backup (e.g. "db1.*,db2.collection")`).StringVar(&backup.exclude)
 	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
@@ -103,6 +104,7 @@ func Main() {
 	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).StringVar(&restore.pitr)
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).StringVar(&restore.ns)
+	restoreCmd.Flag("exclude", `Namespaces to exclude from restore (e.g. "db1.*,db2.collection2")`).StringVar(&restore.exclude)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
@@ -340,6 +342,7 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 type snapshotStat struct {
 	Name       string         `json:"name"`
 	Namespaces []string       `json:"nss,omitempty"`
+	Exclude    []string       `json:"exclude,omitempty"`
 	Size       int64          `json:"size,omitempty"`
 	Status     pbm.Status     `json:"status"`
 	Err        error          `json:"error,omitempty"`

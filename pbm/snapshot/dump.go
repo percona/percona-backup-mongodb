@@ -65,7 +65,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
 
-func DownloadDump(download DownloadFunc, compression compress.CompressionType, match archive.MatchFunc) (io.ReadCloser, error) {
+func DownloadDump(download DownloadFunc, compression compress.CompressionType, include, exclude archive.MatchFunc) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 
 	go func() {
@@ -87,7 +87,7 @@ func DownloadDump(download DownloadFunc, compression compress.CompressionType, m
 			return r, errors.WithMessagef(err, "create decompressor: %q", ns)
 		}
 
-		err := archive.Compose(pw, match, newReader)
+		err := archive.Compose(pw, newReader, include, exclude)
 		pw.CloseWithError(errors.WithMessage(err, "compose"))
 	}()
 

@@ -104,7 +104,12 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	if len(nssSize) == 0 {
 		dump = snapshot.DummyBackup{}
 	} else {
-		dump, err = snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
+		dump, err = snapshot.NewBackup(b.node.ConnURI(), snapshot.BackupOptions{
+			Concurrency: b.node.DumpConns(),
+			Database:    db,
+			Collection:  coll,
+			NSExclude:   bcp.Exclude,
+		})
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
 		}

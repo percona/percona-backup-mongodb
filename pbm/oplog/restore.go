@@ -91,12 +91,22 @@ type OplogRestore struct {
 	unsafe bool
 }
 
+var defaultOplogExcludeNSS []string
+
+func init() {
+	defaultOplogExcludeNSS = make([]string, len(snapshot.ExcludeFromRestore)+len(excludeFromOplog))
+	copy(defaultOplogExcludeNSS, snapshot.ExcludeFromRestore)
+	copy(defaultOplogExcludeNSS[len(snapshot.ExcludeFromRestore):], excludeFromOplog)
+}
+
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
-	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
+	// todo(bootstrap)
+	m, err := ns.NewMatcher(defaultOplogExcludeNSS)
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
 	}
+	// todo(bootstrap)
 	noUUID, err := ns.NewMatcher(dontPreserveUUID)
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -186,6 +196,24 @@ func (o *OplogRestore) SetIncludeNSS(nss []string) error {
 	}
 
 	o.includeNS = m
+	return nil
+}
+
+func (o *OplogRestore) SetExcludeNSS(nss []string) error {
+	if len(nss) == 0 {
+		return nil
+	}
+
+	exclude := make([]string, len(defaultOplogExcludeNSS)+len(nss))
+	copy(exclude, defaultOplogExcludeNSS)
+	copy(exclude[len(defaultOplogExcludeNSS):], nss)
+
+	m, err := ns.NewMatcher(exclude)
+	if err != nil {
+		return err
+	}
+
+	o.excludeNS = m
 	return nil
 }
 

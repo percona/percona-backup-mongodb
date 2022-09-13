@@ -57,7 +57,7 @@ func Decompose(r io.Reader, newWriter NewWriter) error {
 
 type MatchFunc func(ns string) bool
 
-func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
+func Compose(w io.Writer, newReader NewReader, include, exclude MatchFunc) error {
 	meta, err := readMetadata(newReader)
 	if err != nil {
 		return errors.WithMessage(err, "metadata")
@@ -65,7 +65,8 @@ func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
 
 	nss := make([]*Namespace, 0, len(meta.Namespaces))
 	for _, ns := range meta.Namespaces {
-		if match(NSify(ns.Database, ns.Collection)) {
+		n := NSify(ns.Database, ns.Collection)
+		if !exclude(n) && include(n) {
 			nss = append(nss, ns)
 		}
 	}

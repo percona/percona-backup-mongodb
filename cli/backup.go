@@ -23,6 +23,7 @@ type backupOpts struct {
 	compression      string
 	compressionLevel []int
 	ns               string
+	exclude          string
 	wait             bool
 }
 
@@ -49,6 +50,13 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	}
 	if len(nss) != 0 && b.typ == string(pbm.PhysicalBackup) {
 		return nil, errors.New("--ns flag is not allowed for physical backup")
+	}
+	exclude, err := parseCLIExcludeOption(b.exclude)
+	if err != nil {
+		return nil, errors.WithMessage(err, "parse --exclude option")
+	}
+	if len(exclude) != 0 && b.typ == string(pbm.PhysicalBackup) {
+		return nil, errors.New("--exclude flag is not allowed for physical backup")
 	}
 
 	if err := checkConcurrentOp(cn); err != nil {
@@ -89,6 +97,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 			Type:             pbm.BackupType(b.typ),
 			Name:             b.name,
 			Namespaces:       nss,
+			Exclude:          exclude,
 			Compression:      compression,
 			CompressionLevel: level,
 		},
@@ -205,6 +214,7 @@ type bcpDesc struct {
 	LastWriteTS      string         `json:"last_write_ts" yaml:"last_write_ts"`
 	LastTransitionTS string         `json:"last_transition_ts" yaml:"last_transition_ts"`
 	Namespaces       []string       `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	Exclude          []string       `json:"exclude,omitempty" yaml:"exclude,omitempty"`
 	MongoVersion     string         `json:"mongodb_version" yaml:"mongodb_version"`
 	PBMVersion       string         `json:"pbm_version" yaml:"pbm_version"`
 	Status           pbm.Status     `json:"status" yaml:"status"`
@@ -242,6 +252,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		Name:             bcp.Name,
 		Type:             bcp.Type,
 		Namespaces:       bcp.Namespaces,
+		Exclude:          bcp.Exclude,
 		MongoVersion:     bcp.MongoVersion,
 		PBMVersion:       bcp.PBMVersion,
 		LastWriteTS:      fmt.Sprintf("%d,%d", bcp.LastWriteTS.T, bcp.LastWriteTS.I),

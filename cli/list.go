@@ -29,6 +29,7 @@ type restoreStatus struct {
 	PointInTime      int64           `json:"point-in-time,omitempty"`
 	Name             string          `json:"name,omitempty"`
 	Namespaces       []string        `json:"namespaces,omitempty"`
+	Exclude          []string        `json:"exclude,omitempty"`
 	Error            string          `json:"error,omitempty"`
 }
 
@@ -51,7 +52,7 @@ func (r restoreListOut) String() string {
 
 		if v.Type == restoreSnapshot {
 			n := ""
-			if len(v.Namespaces) != 0 {
+			if len(v.Namespaces) != 0 || len(v.Exclude) != 0 {
 				n = ", selective"
 			}
 			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
@@ -61,7 +62,7 @@ func (r restoreListOut) String() string {
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		} else {
 			n := ""
-			if len(v.Namespaces) != 0 {
+			if len(v.Namespaces) != 0 || len(v.Exclude) != 0 {
 				n = ", selective"
 			}
 			name = fmt.Sprintf("PITR: %s [restore time: %s%s]",
@@ -122,6 +123,7 @@ func restoreList(cn *pbm.PBM, size int64) (*restoreListOut, error) {
 			PointInTime:      r.PITR,
 			Name:             r.Name,
 			Namespaces:       r.Namespaces,
+			Exclude:          r.Exclude,
 			Error:            r.Error,
 		}
 
@@ -156,7 +158,7 @@ func (bl backupListOut) String() string {
 	})
 	for _, b := range bl.Snapshots {
 		kind := string(b.Type)
-		if len(b.Namespaces) != 0 {
+		if len(b.Namespaces) != 0 || len(b.Exclude) != 0 {
 			kind += ", selective"
 		}
 
@@ -236,6 +238,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 		s = append(s, snapshotStat{
 			Name:       b.Name,
 			Namespaces: b.Namespaces,
+			Exclude:    b.Exclude,
 			Status:     b.Status,
 			RestoreTS:  int64(b.LastWriteTS.T),
 			PBMVersion: b.PBMVersion,

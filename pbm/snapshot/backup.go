@@ -22,10 +22,21 @@ type backuper struct {
 	stopC chan struct{}
 }
 
-func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
-	if conns <= 0 {
-		conns = 1
+type BackupOptions struct {
+	Concurrency int
+	Database    string
+	Collection  string
+	NSExclude   []string
+}
+
+func NewBackup(curi string, o BackupOptions) (io.WriterTo, error) {
+	if o.Concurrency <= 0 {
+		o.Concurrency = 1
 	}
+
+	nsExclude := make([]string, 0, len(ExcludeFromRestore)+len(o.NSExclude))
+	copy(nsExclude, ExcludeFromRestore)
+	copy(nsExclude[len(ExcludeFromRestore):], o.NSExclude)
 
 	var err error
 
@@ -42,10 +53,9 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 	}
 
 	opts.Direct = true
-	opts.Namespace = &options.Namespace{DB: d, Collection: c}
+	opts.Namespace = &options.Namespace{DB: o.Database, Collection: o.Collection}
 
 	backup := &backuper{}
-
 	backup.pm = progress.NewBarWriter(&progressWriter{}, time.Second*60, 24, false)
 	backup.d = &mongodump.MongoDump{
 		ToolOptions: opts,
@@ -54,12 +64,13 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 			// instead of creating a file. This is not clear at plain sight,
 			// you nee to look the code to discover it.
 			Archive:                "-",
-			NumParallelCollections: conns,
+			NumParallelCollections: o.Concurrency,
+			ExcludedCollections:    nsExclude,
 		},
 		InputOptions:      &mongodump.InputOptions{},
 		SessionProvider:   &db.SessionProvider{},
 		ProgressManager:   backup.pm,
-		SkipUsersAndRoles: d != "",
+		SkipUsersAndRoles: o.Database != "" || len(o.NSExclude) != 0,
 	}
 	return backup, nil
 }
