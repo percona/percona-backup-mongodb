@@ -277,7 +277,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		if r.Error != "" {
 			rv.Replsets[i].Error = &r.Error
 		}
-		if r.MongodOpts.Security != nil {
+		if r.MongodOpts != nil && r.MongodOpts.Security != nil {
 			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
 		}
 	}
