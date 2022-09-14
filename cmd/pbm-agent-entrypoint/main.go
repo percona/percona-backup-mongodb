@@ -13,6 +13,7 @@ const (
 )
 
 func main() {
+	_, isSidecar := os.LookupEnv(envSidecar)
 	for {
 		cmd := exec.Command(agentCmd, os.Args...)
 		cmd.Stderr = os.Stderr
