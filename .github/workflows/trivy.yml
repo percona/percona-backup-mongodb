@@ -1,13 +1,13 @@
-name: build
+name: Scan
 on:
   push:
-    branches: [ "main", custom/*, dev/*, doc/*, master, release/* ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-20.04
+  scan:
+    name: Trivy
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
