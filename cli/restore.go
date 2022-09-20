@@ -162,7 +162,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 		}
 
 		switch rmeta.Status {
-		case pbm.StatusDone:
+		case pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
 			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}

@@ -253,13 +253,13 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		rv.Err = &bcp.Err
 	}
 
-	if version.IsLegacyArchive(rv.PBMVersion) {
+	if bcp.Size == 0 {
 		stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil {
 			return nil, errors.WithMessage(err, "get storage")
 		}
 
-		rv.Size, err = getLegacySnapshotSize(bcp.Replsets, stg)
+		rv.Size, err = getLegacySnapshotSize(bcp.Replsets, bcp.Type, stg)
 		if err != nil {
 			return nil, errors.WithMessage(err, "get snapshot size")
 		}
@@ -277,7 +277,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		if r.Error != "" {
 			rv.Replsets[i].Error = &r.Error
 		}
-		if r.MongodOpts.Security != nil {
+		if r.MongodOpts != nil && r.MongodOpts.Security != nil {
 			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
 		}
 	}
