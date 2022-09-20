@@ -262,6 +262,12 @@ type Entries struct {
 	Data     []Entry `json:"data"`
 	ShowNode bool    `json:"-"`
 	Extr     bool    `json:"-"`
+	loc      *time.Location
+}
+
+func (e *Entries) SetLocation(l string) (err error) {
+	e.loc, err = time.LoadLocation(l)
+	return err
 }
 
 func (e Entries) MarshalJSON() ([]byte, error) {
@@ -269,8 +275,16 @@ func (e Entries) MarshalJSON() ([]byte, error) {
 }
 
 func (e Entries) String() (s string) {
+	if e.loc == nil {
+		e.loc = time.UTC
+	}
+
+	f := func(ts int64) string {
+		return time.Unix(ts, 0).In(e.loc).Format(time.RFC3339)
+	}
+
 	for _, entry := range e.Data {
-		s += entry.string(tsUTC, e.ShowNode, e.Extr) + "\n"
+		s += entry.string(f, e.ShowNode, e.Extr) + "\n"
 	}
 
 	return s
