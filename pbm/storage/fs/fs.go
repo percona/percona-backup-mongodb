@@ -41,7 +41,7 @@ func (*FS) Type() storage.Type {
 func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 	filepath := path.Join(fs.opts.Path, name)
 
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o700)
+	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -51,7 +51,7 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
 	defer fw.Close()
-	err = os.Chmod(filepath, 0o600)
+	err = os.Chmod(filepath, 0o644)
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}
