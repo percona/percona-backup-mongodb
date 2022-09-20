@@ -271,7 +271,9 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdRestore), r.BackupName, opid.String(), ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
+
+	l.Info("backup: %s", r.BackupName)
 
 	var stg storage.Storage
 	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
