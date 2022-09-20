@@ -162,7 +162,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 		}
 
 		switch rmeta.Status {
-		case pbm.StatusDone:
+		case pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
 			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
@@ -487,7 +487,16 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 				LastTransitionTime: time.Unix(node.LastTransitionTS, 0).Format(time.RFC3339),
 			}
 			if node.Status == pbm.StatusError {
-				mnode.Error = &node.Error
+				serr := node.Error
+				mnode.Error = &serr
+			}
+
+			if rs.Status == pbm.StatusPartlyDone &&
+				node.Status != pbm.StatusDone &&
+				node.Status != pbm.StatusError {
+				mnode.Status = pbm.StatusError
+				serr := fmt.Sprintf("Node lost. Last heartbeat: %d", node.Hb.T)
+				mnode.Error = &serr
 			}
 
 			mrs.Nodes = append(mrs.Nodes, mnode)

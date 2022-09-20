@@ -254,7 +254,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 
 	size := int64(0)
 	for _, f := range rsMeta.Files {
-		size += f.Size
+		size += f.StgSize
 	}
 
 	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
