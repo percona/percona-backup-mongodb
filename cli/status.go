@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -156,13 +157,22 @@ type rs struct {
 }
 
 type node struct {
-	Host string   `json:"host"`
-	Ver  string   `json:"agent"`
-	OK   bool     `json:"ok"`
-	Errs []string `json:"errors,omitempty"`
+	Host  string   `json:"host"`
+	Ver   string   `json:"agent"`
+	Arb   *bool    `json:"arbiter,omitempty"`
+	Delay *int64   `json:"delaySecs,omitempty"`
+	OK    bool     `json:"ok"`
+	Errs  []string `json:"errors,omitempty"`
 }
 
 func (n node) String() (s string) {
+	if n.Arb != nil && *n.Arb {
+		return fmt.Sprintf("%s: arbiter node is not supported", n.Host)
+	}
+	if n.Delay != nil && *n.Delay != 0 {
+		return fmt.Sprintf("%s: delayed node is not supported", n.Host)
+	}
+
 	s += fmt.Sprintf("%s: pbm-agent %v", n.Host, n.Ver)
 	if n.OK {
 		s += " OK"
@@ -205,7 +215,7 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 			return nil, errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
 		}
 
-		sstat, sterr := pbm.GetReplsetStatus(cn.Context(), rconn)
+		rsConfig, sterr := replSetGetConfig(cn.Context(), rconn)
 
 		// don't need the connection anymore despite the result
 		rconn.Disconnect(cn.Context())
@@ -214,12 +224,25 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 			return nil, errors.Wrapf(err, "get replset status for `%s`", c.RS)
 		}
 		lrs := rs{Name: c.RS}
-		for i, n := range sstat.Members {
-			lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Name})
+		for i, n := range rsConfig.Members {
+			lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Host})
 
 			nd := &lrs.Nodes[i]
 
-			stat, err := cn.GetAgentStatus(c.RS, n.Name)
+			if n.ArbiterOnly {
+				t := n.ArbiterOnly
+				nd.Arb = &t
+			}
+
+			if n.SlaveDelay != 0 {
+				d := n.SlaveDelay
+				nd.Delay = &d
+			} else if n.SecondaryDelaySecs != 0 {
+				d := n.SecondaryDelaySecs
+				nd.Delay = &d
+			}
+
+			stat, err := cn.GetAgentStatus(c.RS, n.Host)
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				nd.Ver = "NOT FOUND"
 				continue
@@ -238,6 +261,20 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 	}
 
 	return ret, nil
+}
+
+func replSetGetConfig(ctx context.Context, m *mongo.Client) (*pbm.RSConfig, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{{"replSetGetConfig", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "run command")
+	}
+
+	val := struct{ Config *pbm.RSConfig }{}
+	if err := res.Decode(&val); err != nil {
+		return nil, errors.WithMessage(err, "decode")
+	}
+
+	return val.Config, nil
 }
 
 func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {

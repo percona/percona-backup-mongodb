@@ -49,6 +49,25 @@ func (a *Agent) InitLogger(cn *pbm.PBM) {
 	a.log = a.pbm.Logger()
 }
 
+func (a *Agent) CanStart() error {
+	info, err := a.node.GetInfo()
+	if err != nil {
+		return errors.WithMessage(err, "get node info")
+	}
+
+	if info.Msg == "isdbgrid" {
+		return errors.New("mongos is not supported")
+	}
+	if info.ArbiterOnly {
+		return errors.New("arbiter node is not supported")
+	}
+	if info.SlaveDelay != 0 || info.SecondaryDelaySecs != 0 {
+		return errors.New("delayed node is not supported")
+	}
+
+	return nil
+}
+
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
 	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
