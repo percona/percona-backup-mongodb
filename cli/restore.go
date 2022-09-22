@@ -370,27 +370,29 @@ type descrRestoreOpts struct {
 
 type describeRestoreResult struct {
 	Name               string           `yaml:"name" json:"name"`
+	OPID               string           `yaml:"opid" json:"opid"`
 	Backup             string           `yaml:"backup" json:"backup"`
-	RestoreFrom        *string          `yaml:"restore_from,omitempty" json:"restore_from,omitempty"`
-	RestoreTo          *string          `yaml:"restore_to,omitempty" json:"restore_to,omitempty"`
 	Type               pbm.BackupType   `yaml:"type" json:"type"`
 	Status             pbm.Status       `yaml:"status" json:"status"`
 	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
 	Namespaces         []string         `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
+	StartTS            *int64           `yaml:"start_ts,omitempty" json:"start_ts,omitempty"`
+	StartTime          *string          `yaml:"start,omitempty" json:"start,omitempty"`
+	PITR               *int64           `yaml:"ts_to_restore,omitempty" json:"ts_to_restore,omitempty"`
+	PITRTime           *string          `yaml:"time_to_restore,omitempty" json:"time_to_restore,omitempty"`
+	LastTransitionTS   int64            `yaml:"last_transition_ts" json:"last_transition_ts"`
+	LastTransitionTime string           `yaml:"last_transition_time" json:"last_transition_time"`
 	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
-	OPID               string           `yaml:"opid" json:"opid"`
-	StartTS            int64            `yaml:"-" json:"start_ts"`
-	StartTime          string           `yaml:"start" json:"-"`
-	LastTransitionTS   int64            `yaml:"-" json:"last_transition_ts"`
-	LastTransitionTime string           `yaml:"last_transition_time" json:"-"`
 }
 
 type RestoreReplset struct {
 	Name               string        `yaml:"name" json:"name"`
 	Status             pbm.Status    `yaml:"status" json:"status"`
 	Error              *string       `yaml:"error,omitempty" json:"error,omitempty"`
-	LastTransitionTS   int64         `yaml:"-" json:"last_transition_ts"`
-	LastTransitionTime string        `yaml:"last_transition_time" json:"-"`
+	LastWriteTS        int64         `json:"last_write_ts" yaml:"last_write_ts"`
+	LastTransitionTS   int64         `yaml:"last_transition_ts" json:"last_transition_ts"`
+	LastWriteTime      string        `json:"last_write_time" yaml:"last_write_time"`
+	LastTransitionTime string        `yaml:"last_transition_time" json:"last_transition_time"`
 	Nodes              []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
 }
 
@@ -398,8 +400,8 @@ type RestoreNode struct {
 	Name               string     `yaml:"name" json:"name"`
 	Status             pbm.Status `yaml:"status" json:"status"`
 	Error              *string    `yaml:"error,omitempty" json:"error,omitempty"`
-	LastTransitionTS   int64      `yaml:"-" json:"last_transition_ts"`
-	LastTransitionTime string     `yaml:"last_transition_time" json:"-"`
+	LastTransitionTS   int64      `yaml:"last_transition_ts" json:"last_transition_ts"`
+	LastTransitionTime string     `yaml:"last_transition_time" json:"last_transition_time"`
 }
 
 func (r describeRestoreResult) String() string {
@@ -453,28 +455,30 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 	res.Status = meta.Status
 	res.Namespaces = meta.Namespaces
 	res.OPID = meta.OPID
-	res.StartTS = meta.StartTS
-	res.StartTime = time.Unix(res.StartTS, 0).Format(time.RFC3339)
 	res.LastTransitionTS = meta.LastTransitionTS
-	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).Format(time.RFC3339)
+	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).UTC().Format(time.RFC3339)
 	if meta.Status == pbm.StatusError {
 		res.Error = &meta.Error
 	}
 	if meta.StartPITR != 0 {
-		s := fmt.Sprintf("%d", meta.StartPITR)
-		res.RestoreTo = &s
+		res.StartTS = &meta.StartPITR
+		s := time.Unix(meta.StartPITR, 0).UTC().Format(time.RFC3339)
+		res.StartTime = &s
 	}
 	if meta.PITR != 0 {
-		s := fmt.Sprintf("%d", meta.PITR)
-		res.RestoreTo = &s
+		res.PITR = &meta.PITR
+		s := time.Unix(meta.PITR, 0).UTC().Format(time.RFC3339)
+		res.PITRTime = &s
 	}
 
 	for _, rs := range meta.Replsets {
 		mrs := RestoreReplset{
 			Name:               rs.Name,
 			Status:             rs.Status,
+			LastWriteTS:        int64(rs.LastWriteTS.T),
 			LastTransitionTS:   rs.LastTransitionTS,
-			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).Format(time.RFC3339),
+			LastWriteTime:      time.Unix(int64(rs.LastWriteTS.T), 0).UTC().Format(time.RFC3339),
+			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).UTC().Format(time.RFC3339),
 		}
 		if rs.Status == pbm.StatusError {
 			mrs.Error = &rs.Error
@@ -484,7 +488,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 				Name:               node.Name,
 				Status:             node.Status,
 				LastTransitionTS:   node.LastTransitionTS,
-				LastTransitionTime: time.Unix(node.LastTransitionTS, 0).Format(time.RFC3339),
+				LastTransitionTime: time.Unix(node.LastTransitionTS, 0).UTC().Format(time.RFC3339),
 			}
 			if node.Status == pbm.StatusError {
 				serr := node.Error
