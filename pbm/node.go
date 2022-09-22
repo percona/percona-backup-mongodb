@@ -366,14 +366,7 @@ func (n *Node) GetOpts(defaults *MongodOpts) (*MongodOpts, error) {
 }
 
 func (n *Node) GetRSconf() (*RSConfig, error) {
-	rsc := struct {
-		Conf RSConfig `bson:"config" json:"config"`
-	}{}
-	err := n.cn.Database("admin").RunCommand(n.ctx, bson.D{{"replSetGetConfig", 1}}).Decode(&rsc)
-	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command")
-	}
-	return &rsc.Conf, nil
+	return GetReplSetConfig(n.ctx, n.cn)
 }
 
 func (n *Node) Shutdown() error {
@@ -382,4 +375,18 @@ func (n *Node) Shutdown() error {
 		return nil
 	}
 	return err
+}
+
+func GetReplSetConfig(ctx context.Context, m *mongo.Client) (*RSConfig, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{{"replSetGetConfig", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "run command")
+	}
+
+	val := struct{ Config *RSConfig }{}
+	if err := res.Decode(&val); err != nil {
+		return nil, errors.WithMessage(err, "decode")
+	}
+
+	return val.Config, nil
 }

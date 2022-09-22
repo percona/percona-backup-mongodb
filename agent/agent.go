@@ -61,7 +61,7 @@ func (a *Agent) CanStart() error {
 	if info.ArbiterOnly {
 		return errors.New("arbiter node is not supported")
 	}
-	if info.SlaveDelay != 0 || info.SecondaryDelaySecs != 0 {
+	if info.SecondaryDelayOld != 0 || info.SecondaryDelaySecs != 0 {
 		return errors.New("delayed node is not supported")
 	}
 

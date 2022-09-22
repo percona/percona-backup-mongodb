@@ -39,7 +39,7 @@ type NodeInfo struct {
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	Passive                      bool                 `bson:"passive,omitempty"`
 	ArbiterOnly                  bool                 `bson:"arbiterOnly"`
-	SlaveDelay                   int                  `bson:"slaveDelay"`
+	SecondaryDelayOld            int                  `bson:"slaveDelay"`
 	SecondaryDelaySecs           int                  `bson:"secondaryDelaySecs"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
@@ -308,6 +308,6 @@ type RSMember struct {
 	Hidden             bool              `bson:"hidden,omitempty" json:"hidden"`
 	Priority           float64           `bson:"priority,omitempty" json:"priority"`
 	Tags               map[string]string `bson:"tags,omitempty" json:"tags"`
-	SlaveDelay         int64             `bson:"slaveDelay"`
+	SecondaryDelayOld  int64             `bson:"slaveDelay"`
 	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs"`
 }
