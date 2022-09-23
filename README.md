@@ -42,7 +42,7 @@ You can install Percona Backup for MongoDB in the following ways:
 
 Find the installation instructions in the [official documentation](https://www.percona.com/doc/percona-backup-mongodb/installation.html)
 
-Alternaively, you can [run Percona Backup for MongoDB as a Docker container](https://hub.docker.com/r/percona/percona-backup-mongodb).
+Alternatively, you can [run Percona Backup for MongoDB as a Docker container](https://hub.docker.com/r/percona/percona-backup-mongodb).
 
 ## Submit Bug Report / Feature Request
 
