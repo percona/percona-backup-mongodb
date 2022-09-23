@@ -369,39 +369,39 @@ type descrRestoreOpts struct {
 }
 
 type describeRestoreResult struct {
-	Name               string           `yaml:"name" json:"name"`
-	OPID               string           `yaml:"opid" json:"opid"`
-	Backup             string           `yaml:"backup" json:"backup"`
-	Type               pbm.BackupType   `yaml:"type" json:"type"`
-	Status             pbm.Status       `yaml:"status" json:"status"`
-	Error              *string          `yaml:"error,omitempty" json:"error,omitempty"`
-	Namespaces         []string         `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
-	StartTS            *int64           `yaml:"start_ts,omitempty" json:"start_ts,omitempty"`
-	StartTime          *string          `yaml:"start,omitempty" json:"start,omitempty"`
-	PITR               *int64           `yaml:"ts_to_restore,omitempty" json:"ts_to_restore,omitempty"`
-	PITRTime           *string          `yaml:"time_to_restore,omitempty" json:"time_to_restore,omitempty"`
-	LastTransitionTS   int64            `yaml:"last_transition_ts" json:"last_transition_ts"`
-	LastTransitionTime string           `yaml:"last_transition_time" json:"last_transition_time"`
-	Replsets           []RestoreReplset `yaml:"replsets" json:"replsets"`
+	Name               string           `json:"name" yaml:"name"`
+	OPID               string           `json:"opid" yaml:"opid"`
+	Backup             string           `json:"backup" yaml:"backup"`
+	Type               pbm.BackupType   `json:"type" yaml:"type"`
+	Status             pbm.Status       `json:"status" yaml:"status"`
+	Error              *string          `json:"error,omitempty" yaml:"error,omitempty"`
+	Namespaces         []string         `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	StartTS            *int64           `json:"start_ts,omitempty" yaml:"-"`
+	StartTime          *string          `json:"start,omitempty" yaml:"start,omitempty"`
+	PITR               *int64           `json:"ts_to_restore,omitempty" yaml:"-"`
+	PITRTime           *string          `json:"time_to_restore,omitempty" yaml:"time_to_restore,omitempty"`
+	LastTransitionTS   int64            `json:"last_transition_ts" yaml:"-"`
+	LastTransitionTime string           `json:"last_transition_time" yaml:"last_transition_time"`
+	Replsets           []RestoreReplset `json:"replsets" yaml:"replsets"`
 }
 
 type RestoreReplset struct {
-	Name               string        `yaml:"name" json:"name"`
-	Status             pbm.Status    `yaml:"status" json:"status"`
-	Error              *string       `yaml:"error,omitempty" json:"error,omitempty"`
-	LastWriteTS        int64         `json:"last_write_ts" yaml:"last_write_ts"`
-	LastTransitionTS   int64         `yaml:"last_transition_ts" json:"last_transition_ts"`
+	Name               string        `json:"name" yaml:"name"`
+	Status             pbm.Status    `json:"status" yaml:"status"`
+	Error              *string       `json:"error,omitempty" yaml:"error,omitempty"`
+	LastWriteTS        int64         `json:"last_write_ts" yaml:"-"`
+	LastTransitionTS   int64         `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string        `json:"last_write_time" yaml:"last_write_time"`
-	LastTransitionTime string        `yaml:"last_transition_time" json:"last_transition_time"`
-	Nodes              []RestoreNode `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+	LastTransitionTime string        `json:"last_transition_time" yaml:"last_transition_time"`
+	Nodes              []RestoreNode `json:"nodes,omitempty" yaml:"nodes,omitempty"`
 }
 
 type RestoreNode struct {
-	Name               string     `yaml:"name" json:"name"`
-	Status             pbm.Status `yaml:"status" json:"status"`
-	Error              *string    `yaml:"error,omitempty" json:"error,omitempty"`
-	LastTransitionTS   int64      `yaml:"last_transition_ts" json:"last_transition_ts"`
-	LastTransitionTime string     `yaml:"last_transition_time" json:"last_transition_time"`
+	Name               string     `json:"name" yaml:"name"`
+	Status             pbm.Status `json:"status" yaml:"status"`
+	Error              *string    `json:"error,omitempty" yaml:"error,omitempty"`
+	LastTransitionTS   int64      `json:"last_transition_ts" yaml:"-"`
+	LastTransitionTime string     `json:"last_transition_time" yaml:"last_transition_time"`
 }
 
 func (r describeRestoreResult) String() string {

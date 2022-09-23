@@ -203,15 +203,15 @@ type bcpDesc struct {
 	Name               string         `json:"name" yaml:"name"`
 	OPID               string         `json:"opid" yaml:"opid"`
 	Type               pbm.BackupType `json:"type" yaml:"type"`
-	LastWriteTS        int64          `json:"last_write_ts" yaml:"last_write_ts"`
-	LastTransitionTS   int64          `json:"last_transition_ts" yaml:"last_transition_ts"`
+	LastWriteTS        int64          `json:"last_write_ts" yaml:"-"`
+	LastTransitionTS   int64          `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string         `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string         `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string       `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	MongoVersion       string         `json:"mongodb_version" yaml:"mongodb_version"`
 	PBMVersion         string         `json:"pbm_version" yaml:"pbm_version"`
 	Status             pbm.Status     `json:"status" yaml:"status"`
-	Size               int64          `json:"size" yaml:"size"`
+	Size               int64          `json:"size" yaml:"-"`
 	HSize              string         `json:"size_h" yaml:"size_h"`
 	Err                *string        `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets           []bcpReplDesc  `json:"replsets" yaml:"replsets"`
@@ -220,8 +220,8 @@ type bcpDesc struct {
 type bcpReplDesc struct {
 	Name               string             `json:"name" yaml:"name"`
 	Status             pbm.Status         `json:"status" yaml:"status"`
-	LastWriteTS        int64              `json:"last_write_ts" yaml:"last_write_ts"`
-	LastTransitionTS   int64              `json:"last_transition_ts" yaml:"last_transition_ts"`
+	LastWriteTS        int64              `json:"last_write_ts" yaml:"-"`
+	LastTransitionTS   int64              `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string             `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string             `json:"last_transition_time" yaml:"last_transition_time"`
 	IsConfigSvr        *bool              `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
