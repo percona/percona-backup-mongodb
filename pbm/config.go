@@ -46,7 +46,8 @@ func (c Config) String() string {
 	if c.Storage.S3.Credentials.Vault.Token != "" {
 		c.Storage.S3.Credentials.Vault.Token = "***"
 	}
-	if c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
+	if c.Storage.S3.ServerSideEncryption != nil &&
+		c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
 		c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
 	}
 	if c.Storage.Azure.Credentials.Key != "" {
