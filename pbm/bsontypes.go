@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -98,6 +99,10 @@ type ClusterTime struct {
 
 type ConfigServerState struct {
 	OpTime *OpTime `bson:"opTime"`
+}
+
+func FormatTimestamp(t primitive.Timestamp) string {
+	return fmt.Sprintf("%d,%d", t.T, t.I)
 }
 
 type Operation string
