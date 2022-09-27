@@ -228,6 +228,18 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
+	if d.OlderThan == 0 {
+		enabled, oplogOnly, err := a.pbm.IsPITRExt()
+		if err != nil {
+			l.Error("get config: %s", err.Error())
+			return
+		}
+		if enabled && !oplogOnly {
+			l.Error("cannot delete all oplog chunks when snapshot-based PITR is enabled")
+			return
+		}
+	}
+
 	epts := ep.TS()
 	lock := a.pbm.NewLockCol(pbm.LockHeader{
 		Replset: a.node.RS(),
