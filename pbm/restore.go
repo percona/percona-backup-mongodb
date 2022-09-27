@@ -215,13 +215,16 @@ func (p *PBM) changeRestoreState(clause bson.D, s Status, msg string) error {
 	return err
 }
 
-func (p *PBM) SetRestoreBackup(name, backupName string) error {
+func (p *PBM) SetRestoreBackup(name, backupName string, nss []string) error {
+	d := bson.M{"backup": backupName}
+	if nss != nil {
+		d["nss"] = nss
+	}
+
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}},
-		bson.D{
-			{"$set", bson.M{"backup": backupName}},
-		},
+		bson.D{{"$set", d}},
 	)
 
 	return err
