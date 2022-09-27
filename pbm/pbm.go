@@ -914,8 +914,7 @@ func (p *PBM) Context() context.Context {
 
 // GetNodeInfo returns mongo node info
 func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
-	inf := &NodeInfo{}
-	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(inf)
+	inf, err := GetNodeInfo(p.ctx, p.Conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}

@@ -38,6 +38,9 @@ type NodeInfo struct {
 	Secondary                    bool                 `bson:"secondary,omitempty"`
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	Passive                      bool                 `bson:"passive,omitempty"`
+	ArbiterOnly                  bool                 `bson:"arbiterOnly"`
+	SecondaryDelayOld            int                  `bson:"slaveDelay"`
+	SecondaryDelaySecs           int                  `bson:"secondaryDelaySecs"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
 	LastWrite                    MongoLastWrite       `bson:"lastWrite"`
@@ -298,11 +301,13 @@ type RSConfig struct {
 }
 
 type RSMember struct {
-	ID           int               `bson:"_id" json:"_id"`
-	Host         string            `bson:"host" json:"host"`
-	ArbiterOnly  bool              `bson:"arbiterOnly,omitempty" json:"arbiterOnly"`
-	BuildIndexes bool              `bson:"buildIndexes,omitempty" json:"buildIndexes"`
-	Hidden       bool              `bson:"hidden,omitempty" json:"hidden"`
-	Priority     float64           `bson:"priority,omitempty" json:"priority"`
-	Tags         map[string]string `bson:"tags,omitempty" json:"tags"`
+	ID                 int               `bson:"_id" json:"_id"`
+	Host               string            `bson:"host" json:"host"`
+	ArbiterOnly        bool              `bson:"arbiterOnly,omitempty" json:"arbiterOnly"`
+	BuildIndexes       bool              `bson:"buildIndexes,omitempty" json:"buildIndexes"`
+	Hidden             bool              `bson:"hidden,omitempty" json:"hidden"`
+	Priority           float64           `bson:"priority,omitempty" json:"priority"`
+	Tags               map[string]string `bson:"tags,omitempty" json:"tags"`
+	SecondaryDelayOld  int64             `bson:"slaveDelay"`
+	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs"`
 }

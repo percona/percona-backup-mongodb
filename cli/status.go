@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
@@ -156,14 +158,28 @@ type rs struct {
 }
 
 type node struct {
-	Host string   `json:"host"`
-	Ver  string   `json:"agent"`
-	OK   bool     `json:"ok"`
-	Errs []string `json:"errors,omitempty"`
+	Host  string   `json:"host"`
+	Ver   string   `json:"agent"`
+	P     bool     `json:"primary"`
+	Arb   *bool    `json:"arbiter,omitempty"`
+	Delay *int64   `json:"delaySecs,omitempty"`
+	OK    bool     `json:"ok"`
+	Errs  []string `json:"errors,omitempty"`
 }
 
 func (n node) String() (s string) {
-	s += fmt.Sprintf("%s: pbm-agent %v", n.Host, n.Ver)
+	if n.Arb != nil && *n.Arb {
+		return fmt.Sprintf("%s [!Arbiter]: Not Supported", n.Host)
+	}
+	if n.Delay != nil && *n.Delay != 0 {
+		return fmt.Sprintf("%s [!Delayed]: Not Supported", n.Host)
+	}
+
+	p := "S"
+	if n.P {
+		p = "P"
+	}
+	s += fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, p, n.Ver)
 	if n.OK {
 		s += " OK"
 		return s
@@ -197,47 +213,78 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 		return nil, errors.Wrap(err, "read cluster time")
 	}
 
+	eg, ctx := errgroup.WithContext(cn.Context())
+	m := sync.Mutex{}
+
 	var ret cluster
-
 	for _, c := range clstr {
-		rconn, err := connect(cn.Context(), uri, c.Host)
-		if err != nil {
-			return nil, errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
-		}
+		c := c
 
-		sstat, sterr := pbm.GetReplsetStatus(cn.Context(), rconn)
-
-		// don't need the connection anymore despite the result
-		rconn.Disconnect(cn.Context())
-
-		if sterr != nil {
-			return nil, errors.Wrapf(err, "get replset status for `%s`", c.RS)
-		}
-		lrs := rs{Name: c.RS}
-		for i, n := range sstat.Members {
-			lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Name})
-
-			nd := &lrs.Nodes[i]
-
-			stat, err := cn.GetAgentStatus(c.RS, n.Name)
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				nd.Ver = "NOT FOUND"
-				continue
-			} else if err != nil {
-				nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: get agent status: %v", err))
-				continue
+		eg.Go(func() error {
+			rconn, err := connect(ctx, uri, c.Host)
+			if err != nil {
+				return errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
 			}
-			if stat.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-				nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
-				continue
+
+			rsConfig, err := pbm.GetReplSetConfig(ctx, rconn)
+			if err != nil {
+				rconn.Disconnect(ctx)
+				return errors.Wrapf(err, "get replset status for `%s`", c.RS)
 			}
-			nd.Ver = "v" + stat.Ver
-			nd.OK, nd.Errs = stat.OK()
-		}
-		ret = append(ret, lrs)
+			info, err := pbm.GetNodeInfo(ctx, rconn)
+			// don't need the connection anymore despite the result
+			rconn.Disconnect(ctx)
+			if err != nil {
+				return errors.WithMessage(err, "get node info")
+			}
+
+			lrs := rs{Name: c.RS}
+			for i, n := range rsConfig.Members {
+				lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Host})
+
+				nd := &lrs.Nodes[i]
+				if n.Host == info.Primary {
+					nd.P = true
+				}
+
+				if n.ArbiterOnly {
+					t := n.ArbiterOnly
+					nd.Arb = &t
+				}
+
+				if n.SecondaryDelayOld != 0 {
+					d := n.SecondaryDelayOld
+					nd.Delay = &d
+				} else if n.SecondaryDelaySecs != 0 {
+					d := n.SecondaryDelaySecs
+					nd.Delay = &d
+				}
+
+				stat, err := cn.GetAgentStatus(c.RS, n.Host)
+				if errors.Is(err, mongo.ErrNoDocuments) {
+					nd.Ver = "NOT FOUND"
+					continue
+				} else if err != nil {
+					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: get agent status: %v", err))
+					continue
+				}
+				if stat.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
+					continue
+				}
+				nd.Ver = "v" + stat.Ver
+				nd.OK, nd.Errs = stat.OK()
+			}
+
+			m.Lock()
+			ret = append(ret, lrs)
+			m.Unlock()
+			return nil
+		})
 	}
 
-	return ret, nil
+	err = eg.Wait()
+	return ret, err
 }
 
 func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
