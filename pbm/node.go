@@ -109,8 +109,7 @@ func (n *Node) connect(direct bool) (*mongo.Client, error) {
 }
 
 func (n *Node) GetInfo() (*NodeInfo, error) {
-	i := &NodeInfo{}
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"isMaster", 1}}).Decode(i)
+	i, err := GetNodeInfo(n.ctx, n.cn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
@@ -273,8 +272,7 @@ func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
 }
 
 func LastWrite(cn *mongo.Client, majority bool) (primitive.Timestamp, error) {
-	inf := &NodeInfo{}
-	err := cn.Database("admin").RunCommand(context.Background(), bson.D{{"isMaster", 1}}).Decode(inf)
+	inf, err := GetNodeInfo(context.TODO(), cn)
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
@@ -375,6 +373,17 @@ func (n *Node) Shutdown() error {
 		return nil
 	}
 	return err
+}
+
+func GetNodeInfo(ctx context.Context, m *mongo.Client) (*NodeInfo, error) {
+	res := m.Database(DB).RunCommand(ctx, bson.D{{"isMaster", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "cmd: isMaster")
+	}
+
+	n := &NodeInfo{}
+	err := res.Decode(&n)
+	return n, errors.WithMessage(err, "decode")
 }
 
 func GetReplSetConfig(ctx context.Context, m *mongo.Client) (*RSConfig, error) {
