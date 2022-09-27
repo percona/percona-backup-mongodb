@@ -389,9 +389,7 @@ type RestoreReplset struct {
 	Name               string        `json:"name" yaml:"name"`
 	Status             pbm.Status    `json:"status" yaml:"status"`
 	Error              *string       `json:"error,omitempty" yaml:"error,omitempty"`
-	LastWriteTS        int64         `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64         `json:"last_transition_ts" yaml:"-"`
-	LastWriteTime      string        `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string        `json:"last_transition_time" yaml:"last_transition_time"`
 	Nodes              []RestoreNode `json:"nodes,omitempty" yaml:"nodes,omitempty"`
 }
@@ -475,9 +473,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 		mrs := RestoreReplset{
 			Name:               rs.Name,
 			Status:             rs.Status,
-			LastWriteTS:        int64(rs.LastWriteTS.T),
 			LastTransitionTS:   rs.LastTransitionTS,
-			LastWriteTime:      time.Unix(int64(rs.LastWriteTS.T), 0).UTC().Format(time.RFC3339),
 			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).UTC().Format(time.RFC3339),
 		}
 		if rs.Status == pbm.StatusError {
