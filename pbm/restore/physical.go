@@ -1138,7 +1138,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.New("snapshot name doesn't set")
 	}
 
-	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name)
+	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name, nil)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}

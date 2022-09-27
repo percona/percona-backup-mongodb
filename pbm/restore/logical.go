@@ -86,17 +86,17 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
+	err = r.init(cmd.Name, opid, l)
+	if err != nil {
+		return err
+	}
+
 	nss := cmd.Namespaces
 	if len(nss) == 0 {
 		nss = bcp.Namespaces
 	}
 
-	err = r.init(cmd.Name, nss, opid, l)
-	if err != nil {
-		return err
-	}
-
-	err = r.cn.SetRestoreBackup(r.name, cmd.BackupName)
+	err = r.cn.SetRestoreBackup(r.name, cmd.BackupName, nss)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
@@ -153,6 +153,11 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
+	err = r.init(cmd.Name, opid, l)
+	if err != nil {
+		return err
+	}
+
 	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
 	var bcp *pbm.BackupMeta
 	if cmd.Bcp == "" {
@@ -178,11 +183,6 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		nss = bcp.Namespaces
 	}
 
-	err = r.init(cmd.Name, nss, opid, l)
-	if err != nil {
-		return err
-	}
-
 	if r.nodeInfo.IsLeader() {
 		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
 		if err != nil {
@@ -190,7 +190,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		}
 	}
 
-	err = r.cn.SetRestoreBackup(r.name, bcp.Name)
+	err = r.cn.SetRestoreBackup(r.name, bcp.Name, nss)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
@@ -263,7 +263,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	if err = r.init(cmd.Name, nil, opid, l); err != nil {
+	if err = r.init(cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
 	}
 
@@ -319,7 +319,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 	return r.Done()
 }
 
-func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	r.log = l
 
 	r.nodeInfo, err = r.node.GetInfo()
@@ -339,14 +339,13 @@ func (r *Restore) init(name string, nss []string, opid pbm.OPID, l *log.Event) (
 		}
 
 		meta := &pbm.RestoreMeta{
-			Type:       pbm.LogicalBackup,
-			OPID:       r.opid,
-			Name:       r.name,
-			Namespaces: nss,
-			StartTS:    time.Now().Unix(),
-			Status:     pbm.StatusStarting,
-			Replsets:   []pbm.RestoreReplset{},
-			Hb:         ts,
+			Type:     pbm.LogicalBackup,
+			OPID:     r.opid,
+			Name:     r.name,
+			StartTS:  time.Now().Unix(),
+			Status:   pbm.StatusStarting,
+			Replsets: []pbm.RestoreReplset{},
+			Hb:       ts,
 		}
 		err = r.cn.SetRestoreMeta(meta)
 		if err != nil {
