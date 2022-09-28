@@ -102,7 +102,7 @@ func (s *Slicer) Catchup() error {
 	}
 
 	if rstr != nil && rstr.StartTS > int64(chnk.StartTS.T) {
-		s.l.Info("restore after %s the chunk %s, skip", rstr.Backup, chnk)
+		s.l.Info("restore `%s` is after the chunk `%s`, skip", rstr.Backup, chnk.FName)
 		return nil
 	}
 
@@ -257,6 +257,15 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		return errors.Wrap(err, "get NodeInfo data")
 	}
 
+	// early check for the log sufficiency to display error
+	// before the timer clicks (not to wait minutes to report)
+	ok, err := s.oplog.IsSufficient(s.lastTS)
+	if err != nil {
+		return errors.Wrap(err, "check oplog sufficiency")
+	}
+	if !ok {
+		return oplog.ErrInsuffRange{s.lastTS}
+	}
 	s.l.Debug(LogStartMsg)
 
 	lastSlice := false
