@@ -53,21 +53,17 @@ func tsLocal(ts int64) string {
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
-func tsUTC(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
-}
-
 func (e *Entry) String() (s string) {
-	return e.string(tsLocal, false, false)
+	return e.Stringify(tsLocal, false, false)
 }
 
 func (e *Entry) StringNode() (s string) {
-	return e.string(tsLocal, true, false)
+	return e.Stringify(tsLocal, true, false)
 }
 
 type tsformatf func(ts int64) string
 
-func (e *Entry) string(f tsformatf, showNode, extr bool) (s string) {
+func (e *Entry) Stringify(f tsformatf, showNode, extr bool) (s string) {
 	node := ""
 	if showNode {
 		node = " [" + e.RS + "/" + e.Node + "]"
@@ -284,16 +280,16 @@ func (e Entries) String() (s string) {
 	}
 
 	for _, entry := range e.Data {
-		s += entry.string(f, e.ShowNode, e.Extr) + "\n"
+		s += entry.Stringify(f, e.ShowNode, e.Extr) + "\n"
 	}
 
 	return s
 }
 
-func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (*Entries, error) {
-	filter := bson.D{{"s", bson.M{"$lte": r.Severity}}}
+func buildLogFilter(r *LogRequest, exactSeverity bool) bson.D {
+	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
 	if exactSeverity {
-		filter = bson.D{{"s", r.Severity}}
+		filter = bson.D{bson.E{"s", r.Severity}}
 	}
 
 	if r.RS != "" {
@@ -321,6 +317,11 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
 	}
 
+	return filter
+}
+
+func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (*Entries, error) {
+	filter := buildLogFilter(r, exactSeverity)
 	cur, err := cn.Find(
 		context.TODO(),
 		filter,
@@ -345,4 +346,36 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	}
 
 	return e, nil
+}
+
+func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+	filter := buildLogFilter(r, exactSeverity)
+	outC, errC := make(chan *Entry), make(chan error)
+
+	go func() {
+		defer close(errC)
+		defer close(outC)
+
+		opt := options.Find().SetCursorType(options.TailableAwait)
+
+		cur, err := coll.Find(ctx, filter, opt)
+		if err != nil {
+			errC <- errors.WithMessage(err, "query")
+			return
+		}
+		defer cur.Close(context.Background())
+
+		for cur.Next(ctx) {
+			e := &Entry{}
+			if err := cur.Decode(e); err != nil {
+				errC <- errors.WithMessage(err, "decode")
+				return
+			}
+
+			e.ObjID, _ = cur.Current.Lookup("_id").ObjectIDOK()
+			outC <- e
+		}
+	}()
+
+	return outC, errC
 }

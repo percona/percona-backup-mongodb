@@ -15,7 +15,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -46,6 +46,7 @@ type logsOpts struct {
 	opid     string
 	location string
 	extr     bool
+	follow   bool
 }
 
 type cliResult interface {
@@ -142,6 +143,7 @@ func Main() {
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
+	logsCmd.Flag("follow", "Follow output").Short('f').Default("false").BoolVar(&logs.follow)
 	logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").Short('t').Default("20").Int64Var(&logs.tail)
 	logsCmd.Flag("node", "Target node in format replset[/host:posrt]").Short('n').StringVar(&logs.node)
 	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
@@ -292,7 +294,7 @@ func exitErr(e error, f outFormat) {
 }
 
 func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
-	r := &plog.LogRequest{}
+	r := &log.LogRequest{}
 
 	if l.node != "" {
 		n := strings.Split(l.node, "/")
@@ -316,17 +318,22 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 
 	switch l.severity {
 	case "F":
-		r.Severity = plog.Fatal
+		r.Severity = log.Fatal
 	case "E":
-		r.Severity = plog.Error
+		r.Severity = log.Error
 	case "W":
-		r.Severity = plog.Warning
+		r.Severity = log.Warning
 	case "I":
-		r.Severity = plog.Info
+		r.Severity = log.Info
 	case "D":
-		r.Severity = plog.Debug
+		r.Severity = log.Debug
 	default:
-		r.Severity = plog.Info
+		r.Severity = log.Info
+	}
+
+	if l.follow {
+		err := followLogs(cn, r, r.Node == "", l.extr)
+		return nil, err
 	}
 
 	o, err := cn.LogGet(r, l.tail)
@@ -349,6 +356,31 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 	}
 
 	return o, nil
+}
+
+func followLogs(cn *pbm.PBM, r *log.LogRequest, showNode, expr bool) error {
+	outC, errC := log.Follow(cn.Context(), cn.Conn.Database(pbm.DB).Collection(pbm.LogCollection), r, false)
+
+	for {
+		select {
+		case entry, ok := <-outC:
+			if !ok {
+				return nil
+			}
+
+			fmt.Println(entry.Stringify(tsUTC, showNode, expr))
+		case err, ok := <-errC:
+			if !ok {
+				return nil
+			}
+
+			return err
+		}
+	}
+}
+
+func tsUTC(ts int64) string {
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
 
 type snapshotStat struct {
@@ -510,9 +542,9 @@ func isTTY() bool {
 
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	l, err := cn.LogGet(
-		&plog.LogRequest{
-			LogKeys: plog.LogKeys{
-				Severity: plog.Error,
+		&log.LogRequest{
+			LogKeys: log.LogKeys{
+				Severity: log.Error,
 				Event:    string(op),
 			},
 		}, 1)
