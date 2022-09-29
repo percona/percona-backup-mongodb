@@ -53,10 +53,6 @@ func tsLocal(ts int64) string {
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
-func tsUTC(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
-}
-
 func (e *Entry) String() (s string) {
 	return e.Stringify(tsLocal, false, false)
 }
@@ -290,64 +286,7 @@ func (e Entries) String() (s string) {
 	return s
 }
 
-func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (*Entries, error) {
-	filter := bson.D{{"s", bson.M{"$lte": r.Severity}}}
-	if exactSeverity {
-		filter = bson.D{{"s", r.Severity}}
-	}
-
-	if r.RS != "" {
-		filter = append(filter, bson.E{"rs", r.RS})
-	}
-	if r.Node != "" {
-		filter = append(filter, bson.E{"node", r.Node})
-	}
-	if r.Event != "" {
-		filter = append(filter, bson.E{"e", r.Event})
-	}
-	if r.ObjName != "" {
-		filter = append(filter, bson.E{"eobj", r.ObjName})
-	}
-	if r.Epoch.T > 0 {
-		filter = append(filter, bson.E{"ep", r.Epoch})
-	}
-	if r.OPID != "" {
-		filter = append(filter, bson.E{"opid", r.OPID})
-	}
-	if !r.TimeMin.IsZero() {
-		filter = append(filter, bson.E{"ts", bson.M{"$gte": r.TimeMin.Unix()}})
-	}
-	if !r.TimeMax.IsZero() {
-		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
-	}
-
-	cur, err := cn.Find(
-		context.TODO(),
-		filter,
-		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}, {"ns", -1}}),
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "get list from mongo")
-	}
-	defer cur.Close(context.TODO())
-
-	e := new(Entries)
-	for cur.Next(context.TODO()) {
-		l := Entry{}
-		err := cur.Decode(&l)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		if id, ok := cur.Current.Lookup("_id").ObjectIDOK(); ok {
-			l.ObjID = id
-		}
-		e.Data = append(e.Data, l)
-	}
-
-	return e, nil
-}
-
-func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+func buildLogFilter(r *LogRequest, exactSeverity bool) bson.D {
 	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
 	if exactSeverity {
 		filter = bson.D{bson.E{"s", r.Severity}}
@@ -378,6 +317,39 @@ func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSev
 		filter = append(filter, bson.E{"ts", bson.M{"$lte": r.TimeMax.Unix()}})
 	}
 
+	return filter
+}
+
+func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (*Entries, error) {
+	filter := buildLogFilter(r, exactSeverity)
+	cur, err := cn.Find(
+		context.TODO(),
+		filter,
+		options.Find().SetLimit(limit).SetSort(bson.D{{"ts", -1}, {"ns", -1}}),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "get list from mongo")
+	}
+	defer cur.Close(context.TODO())
+
+	e := new(Entries)
+	for cur.Next(context.TODO()) {
+		l := Entry{}
+		err := cur.Decode(&l)
+		if err != nil {
+			return nil, errors.Wrap(err, "message decode")
+		}
+		if id, ok := cur.Current.Lookup("_id").ObjectIDOK(); ok {
+			l.ObjID = id
+		}
+		e.Data = append(e.Data, l)
+	}
+
+	return e, nil
+}
+
+func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+	filter := buildLogFilter(r, exactSeverity)
 	outC, errC := make(chan *Entry), make(chan error)
 
 	go func() {
