@@ -38,12 +38,16 @@ build-stest:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
 
 install: install-pbm install-agent install-stest
+install-all: install install-entrypoint
+install-k8s: install-all
 install-pbm:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm
 install-agent:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent
 install-stest:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
+install-entrypoint:
+	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent-entrypoint
 
 # RACE DETECTOR ON
 build-race: build-pbm-race build-agent-race build-stest-race

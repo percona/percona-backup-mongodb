@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -75,7 +76,14 @@ func runConfig(cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
 		}
 		return outMsg{"Storage resync started"}, nil
 	case len(c.file) > 0:
-		buf, err := os.ReadFile(c.file)
+		var buf []byte
+		var err error
+
+		if c.file == "-" {
+			buf, err = io.ReadAll(os.Stdin)
+		} else {
+			buf, err = os.ReadFile(c.file)
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to read config file")
 		}

@@ -49,6 +49,25 @@ func (a *Agent) InitLogger(cn *pbm.PBM) {
 	a.log = a.pbm.Logger()
 }
 
+func (a *Agent) CanStart() error {
+	info, err := a.node.GetInfo()
+	if err != nil {
+		return errors.WithMessage(err, "get node info")
+	}
+
+	if info.Msg == "isdbgrid" {
+		return errors.New("mongos is not supported")
+	}
+	if info.ArbiterOnly {
+		return errors.New("arbiter node is not supported")
+	}
+	if info.SecondaryDelayOld != 0 || info.SecondaryDelaySecs != 0 {
+		return errors.New("delayed node is not supported")
+	}
+
+	return nil
+}
+
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
 	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
@@ -88,6 +107,8 @@ func (a *Agent) Start() error {
 				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResync:
 				a.Resync(cmd.OPID, ep)
+			case pbm.CmdEnsureOplog:
+				a.EnsureOplog(cmd.EnsureOplog, cmd.OPID, ep)
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
@@ -205,6 +226,18 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if !nodeInfo.IsLeader() {
 		l.Info("not a member of the leader rs, skipping")
 		return
+	}
+
+	if d.OlderThan == 0 {
+		enabled, oplogOnly, err := a.pbm.IsPITRExt()
+		if err != nil {
+			l.Error("get config: %s", err.Error())
+			return
+		}
+		if enabled && !oplogOnly {
+			l.Error("cannot delete all oplog chunks when snapshot-based PITR is enabled")
+			return
+		}
 	}
 
 	epts := ep.TS()

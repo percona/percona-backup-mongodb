@@ -45,6 +45,7 @@ type logsOpts struct {
 	severity string
 	event    string
 	opid     string
+	location string
 	extr     bool
 	follow   bool
 }
@@ -108,6 +109,11 @@ func Main() {
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
+	ensureOplogOpt := ensureOplogOptions{}
+	ensureOplogCmd := pbmCmd.Command("ensure-oplog", "Save and check oplog range")
+	ensureOplogCmd.Arg("from", fmt.Sprintf("Oplog first time. Set in format %s", datetimeFormat)).Required().StringVar(&ensureOplogOpt.from)
+	ensureOplogCmd.Arg("till", fmt.Sprintf("Oplog last time. Set in format %s", datetimeFormat)).Default(time.Now().UTC().Format(dateFormat)).StringVar(&ensureOplogOpt.till)
+
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).Required().StringVar(&replayOpts.start)
@@ -144,6 +150,7 @@ func Main() {
 	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").Short('s').Default("I").EnumVar(&logs.severity, "D", "I", "W", "E", "F")
 	logsCmd.Flag("event", "Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resync, pitr, pitrestore, delete").Short('e').StringVar(&logs.event)
 	logsCmd.Flag("opid", "Operation ID").Short('i').StringVar(&logs.opid)
+	logsCmd.Flag("timezone", "Timezone of log output. `Local`, `UTC` or a location name corresponding to a file in the IANA Time Zone database, such as `America/New_York`").StringVar(&logs.location)
 	logsCmd.Flag("extra", "Show extra data in text format").Hidden().Short('x').BoolVar(&logs.extr)
 
 	statusOpts := statusOptions{}
@@ -210,6 +217,8 @@ func Main() {
 		out, err = describeBackup(pbmClient, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(pbmClient, &restore, pbmOutF)
+	case ensureOplogCmd.FullCommand():
+		out, err = ensureOplog(pbmClient, ensureOplogOpt, pbmOutF)
 	case replayCmd.FullCommand():
 		out, err = replayOplog(pbmClient, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
@@ -340,6 +349,11 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 	for i := len(o.Data)/2 - 1; i >= 0; i-- {
 		opp := len(o.Data) - 1 - i
 		o.Data[i], o.Data[opp] = o.Data[opp], o.Data[i]
+	}
+
+	err = o.SetLocation(l.location)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to parse timezone: %v\n\n", err)
 	}
 
 	return o, nil

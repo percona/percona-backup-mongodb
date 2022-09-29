@@ -1,7 +1,9 @@
 package s3
 
 import (
+	"crypto/md5"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/minio/minio-go"
+	"github.com/minio/minio-go/pkg/encrypt"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -114,8 +117,15 @@ func (l SDKDebugLogLevel) SDKLogLevel() aws.LogLevelType {
 }
 
 type AWSsse struct {
+	// Used to specify the SSE algorithm used when keys are managed by the server
 	SseAlgorithm string `bson:"sseAlgorithm" json:"sseAlgorithm" yaml:"sseAlgorithm"`
 	KmsKeyID     string `bson:"kmsKeyID" json:"kmsKeyID" yaml:"kmsKeyID"`
+	// Used to specify SSE-C style encryption. For Amazon S3 SseCustomerAlgorithm must be 'AES256'
+	// see https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerSideEncryptionCustomerKeys.html
+	SseCustomerAlgorithm string `bson:"sseCustomerAlgorithm" json:"sseCustomerAlgorithm" yaml:"sseCustomerAlgorithm"`
+	// If SseCustomerAlgorithm is set, this must be a base64 encoded key compatible with the algorithm
+	// specified in the SseCustomerAlgorithm field.
+	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
 func (c *Conf) Cast() error {
@@ -257,10 +267,19 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}
 
 		sse := s.opts.ServerSideEncryption
-		if sse != nil && sse.SseAlgorithm != "" {
-			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse != nil {
 			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+				uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+			} else if sse.SseCustomerAlgorithm != "" {
+				uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+				uplInput.SSECustomerKey = aws.String(string(decodedKey[:]))
+				if err != nil {
+					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+				}
+				keyMD5 := md5.Sum(decodedKey[:])
+				uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 			}
 		}
 
@@ -309,9 +328,34 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, minio.PutObjectOptions{
+		putOpts := minio.PutObjectOptions{
 			StorageClass: s.opts.StorageClass,
-		})
+		}
+
+		// Enable server-side encryption if configured
+		sse := s.opts.ServerSideEncryption
+		if sse != nil {
+			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+				sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
+				if err != nil {
+					return errors.Wrap(err, "Could not create SSE KMS")
+				}
+				putOpts.ServerSideEncryption = sseKms
+			} else if sse.SseCustomerAlgorithm != "" {
+				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+				if err != nil {
+					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+				}
+
+				sseCus, err := encrypt.NewSSEC(decodedKey)
+				if err != nil {
+					return errors.Wrap(err, "Could not create SSE-C SSE key")
+				}
+				putOpts.ServerSideEncryption = sseCus
+			}
+		}
+
+		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
 		return errors.Wrap(err, "upload to GCS")
 	}
 }
@@ -361,20 +405,54 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (s *S3) Copy(src, dst string) error {
-	_, err := s.s3s.CopyObject(&s3.CopyObjectInput{
+
+	copyOpts := &s3.CopyObjectInput{
 		Bucket:     aws.String(s.opts.Bucket),
 		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
 		Key:        aws.String(path.Join(s.opts.Prefix, dst)),
-	})
+	}
+
+	sse := s.opts.ServerSideEncryption
+	if sse != nil {
+		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			copyOpts.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+			copyOpts.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		} else if sse.SseCustomerAlgorithm != "" {
+			copyOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			copyOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+			if err != nil {
+				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+			}
+			keyMD5 := md5.Sum(decodedKey[:])
+			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+		}
+	}
+
+	_, err := s.s3s.CopyObject(copyOpts)
 
 	return err
 }
 
 func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
-	h, err := s.s3s.HeadObject(&s3.HeadObjectInput{
+	headOpts := &s3.HeadObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
-	})
+	}
+
+	sse := s.opts.ServerSideEncryption
+	if sse != nil && sse.SseCustomerAlgorithm != "" {
+		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+		headOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+		if err != nil {
+			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+		}
+		keyMD5 := md5.Sum(decodedKey[:])
+		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+	}
+
+	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
 			return inf, storage.ErrNotExist
@@ -445,11 +523,25 @@ func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
 }
 
 func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
-	s3obj, err := pr.sess.GetObject(&s3.GetObjectInput{
+	getObjOpts := &s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
 		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
-	})
+	}
+
+	sse := pr.opts.ServerSideEncryption
+	if sse != nil && sse.SseCustomerAlgorithm != "" {
+		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+		getObjOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+		if err != nil {
+			return 0, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+		}
+		keyMD5 := md5.Sum(decodedKey[:])
+		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+	}
+
+	s3obj, err := pr.sess.GetObject(getObjOpts)
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
@@ -464,12 +556,18 @@ func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
 		pr.setSize(s3obj)
 	}
 
-	if pr.opts.ServerSideEncryption != nil {
-		sse := pr.opts.ServerSideEncryption
-
-		s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+	if sse != nil {
 		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		} else if sse.SseCustomerAlgorithm != "" {
+			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			// We don't pass in the key in this case, just the MD5 hash of the key
+			// for verification
+			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
+			keyMD5 := md5.Sum(decodedKey[:])
+			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}
 

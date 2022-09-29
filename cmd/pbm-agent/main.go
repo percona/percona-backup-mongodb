@@ -56,7 +56,11 @@ func main() {
 
 	hidecreds()
 
-	log.Println("Exit:", runAgent(url, *dumpConns))
+	err = runAgent(url, *dumpConns)
+	log.Println("Exit:", err)
+	if err != nil {
+		os.Exit(1)
+	}
 }
 
 func runAgent(mongoURI string, dumpConns int) error {
@@ -74,6 +78,10 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "connect to the node")
 	}
 	agnt.InitLogger(pbmClient)
+
+	if err := agnt.CanStart(); err != nil {
+		return errors.WithMessage(err, "pre-start check")
+	}
 
 	go agnt.PITR()
 	go agnt.HbStatus()

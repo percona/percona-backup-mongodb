@@ -71,6 +71,7 @@ const (
 	CmdReplay       Command = "replay"
 	CmdCancelBackup Command = "cancelBackup"
 	CmdResync       Command = "resync"
+	CmdEnsureOplog  Command = "ensureOplog"
 	CmdPITR         Command = "pitr"
 	CmdPITRestore   Command = "pitrestore"
 	CmdDeleteBackup Command = "delete"
@@ -89,6 +90,8 @@ func (c Command) String() string {
 		return "Backup cancellation"
 	case CmdResync:
 		return "Resync storage"
+	case CmdEnsureOplog:
+		return "Ensure oplog chunks"
 	case CmdPITR:
 		return "PITR incremental backup"
 	case CmdPITRestore:
@@ -105,15 +108,16 @@ func (c Command) String() string {
 type OPID primitive.ObjectID
 
 type Cmd struct {
-	Cmd        Command          `bson:"cmd"`
-	Backup     *BackupCmd       `bson:"backup,omitempty"`
-	Restore    *RestoreCmd      `bson:"restore,omitempty"`
-	Replay     *ReplayCmd       `bson:"replay,omitempty"`
-	PITRestore *PITRestoreCmd   `bson:"pitrestore,omitempty"`
-	Delete     *DeleteBackupCmd `bson:"delete,omitempty"`
-	DeletePITR *DeletePITRCmd   `bson:"deletePitr,omitempty"`
-	TS         int64            `bson:"ts"`
-	OPID       OPID             `bson:"-"`
+	Cmd         Command          `bson:"cmd"`
+	Backup      *BackupCmd       `bson:"backup,omitempty"`
+	Restore     *RestoreCmd      `bson:"restore,omitempty"`
+	EnsureOplog *EnsureOplogCmd  `bson:"ensureOplog,omitempty"`
+	Replay      *ReplayCmd       `bson:"replay,omitempty"`
+	PITRestore  *PITRestoreCmd   `bson:"pitrestore,omitempty"`
+	Delete      *DeleteBackupCmd `bson:"delete,omitempty"`
+	DeletePITR  *DeletePITRCmd   `bson:"deletePitr,omitempty"`
+	TS          int64            `bson:"ts"`
+	OPID        OPID             `bson:"-"`
 }
 
 func OPIDfromStr(s string) (OPID, error) {
@@ -174,6 +178,15 @@ func (b BackupCmd) String() string {
 		level = strconv.Itoa(*b.CompressionLevel)
 	}
 	return fmt.Sprintf("name: %s, compression: %s (level: %s)", b.Name, b.Compression, level)
+}
+
+type EnsureOplogCmd struct {
+	From primitive.Timestamp `bson:"from"`
+	Till primitive.Timestamp `bson:"till"`
+}
+
+func (c EnsureOplogCmd) String() string {
+	return fmt.Sprintf("time range: %d - %d", c.From, c.Till)
 }
 
 type RestoreCmd struct {
@@ -778,6 +791,7 @@ func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
 		bson.D{
+			{"nss", nil},
 			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
 			{"status", StatusDone},
 		},
@@ -914,8 +928,7 @@ func (p *PBM) Context() context.Context {
 
 // GetNodeInfo returns mongo node info
 func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
-	inf := &NodeInfo{}
-	err := p.Conn.Database(DB).RunCommand(p.ctx, bson.D{{"isMaster", 1}}).Decode(inf)
+	inf, err := GetNodeInfo(p.ctx, p.Conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}

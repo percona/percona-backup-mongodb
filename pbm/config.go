@@ -46,6 +46,10 @@ func (c Config) String() string {
 	if c.Storage.S3.Credentials.Vault.Token != "" {
 		c.Storage.S3.Credentials.Vault.Token = "***"
 	}
+	if c.Storage.S3.ServerSideEncryption != nil &&
+		c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
+		c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
+	}
 	if c.Storage.Azure.Credentials.Key != "" {
 		c.Storage.Azure.Credentials.Key = "***"
 	}
@@ -65,14 +69,6 @@ type PITRConf struct {
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
-}
-
-func (c *PITRConf) Cast() error {
-	if c.Compression == "" {
-		c.Compression = compress.CompressionTypeS2
-	}
-
-	return nil
 }
 
 // StorageConf is a configuration of the backup storage
@@ -372,19 +368,28 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 }
 
 func (p *PBM) GetConfig() (Config, error) {
-	var c Config
 	res := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{})
-	if res.Err() != nil {
-		return Config{}, errors.Wrap(res.Err(), "get")
+	if err := res.Err(); err != nil {
+		return Config{}, errors.WithMessage(err, "get")
 	}
-	err := res.Decode(&c)
-	if err != nil {
-		return c, errors.Wrap(err, "decode")
+
+	var c Config
+	if err := res.Decode(&c); err != nil {
+		return Config{}, errors.Wrap(err, "decode")
 	}
-	err = c.PITR.Cast()
-	if err != nil {
-		return c, errors.Wrap(err, "cast options")
+
+	if c.PITR.Compression == "" {
+		if c.Backup.Compression != "" {
+			c.PITR.Compression = c.Backup.Compression
+		} else {
+			c.PITR.Compression = compress.CompressionTypeS2
+		}
 	}
+
+	if c.PITR.CompressionLevel == nil && c.Backup.CompressionLevel != nil {
+		c.PITR.CompressionLevel = c.Backup.CompressionLevel
+	}
+
 	return c, nil
 }
 

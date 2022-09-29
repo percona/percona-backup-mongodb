@@ -157,7 +157,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil {
 			r.log.Error("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
 		}
-	} else if cleanup {
+	} else if cleanup { // clean-up dbpath on err if needed
 		r.log.Debug("clean-up dbpath")
 		err := removeAll(r.dbpath, r.log)
 		if err != nil {
@@ -483,6 +483,17 @@ func checkFile(f string, stg storage.Storage) (ok bool, err error) {
 	return false, err
 }
 
+type nodeStatus int
+
+const (
+	restoreStared nodeStatus = 1 << iota
+	restoreDone
+)
+
+func (n nodeStatus) is(s nodeStatus) bool {
+	return n&s != 0
+}
+
 // Snapshot restores data from the physical snapshot.
 //
 // Initial sync and coordination between nodes happens via `admin.pbmRestore`
@@ -505,7 +516,6 @@ func checkFile(f string, stg storage.Storage) (ok bool, err error) {
 // - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
 	l.Debug("port: %d", r.tmpPort)
-	var waitingDone bool
 
 	meta := &pbm.RestoreMeta{
 		Type:     pbm.PhysicalBackup,
@@ -520,14 +530,15 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
 	}
 
+	var progress nodeStatus
 	defer func() {
-		if err != nil {
-			if !errors.Is(err, ErrNoDataForShard) {
-				r.MarkFailed(meta, err, waitingDone)
-			}
+		// set failed status of node on error, but
+		// don't mark node as failed after the local restore succeed
+		if err != nil && !progress.is(restoreDone) && !errors.Is(err, ErrNoDataForShard) {
+			r.MarkFailed(meta, err, !progress.is(restoreStared))
 		}
 
-		r.close(err == nil, waitingDone)
+		r.close(err == nil, progress.is(restoreStared) && !progress.is(restoreDone))
 	}()
 
 	err = r.init(cmd.Name, opid, l)
@@ -573,7 +584,16 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		return err
 	}
 
-	waitingDone = true
+	// A point of no return. From now on, we should clean the dbPath if an
+	// error happens before the node is restored successfully.
+	// The mongod most probably won't start anyway (or will start in an
+	// inconsistent state). But the clean path will allow starting the cluster
+	// and doing InitialSync on this node should the restore succeed on other
+	// nodes.
+	//
+	// Should not be set before `r.flush()` as `flush` cleans the dbPath on its
+	// own (which sets the no-return point).
+	progress |= restoreStared
 
 	l.Info("copying backup data")
 	err = r.copyFiles()
@@ -598,6 +618,12 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	if err != nil {
 		return errors.Wrap(err, "clean-up, rs_reset")
 	}
+
+	l.Info("restore on node succeed")
+	// The node at this stage was restored successfully, so we shouldn't
+	// clean up dbPath nor write error status for the node whatever happens
+	// next.
+	progress |= restoreDone
 
 	stat, err := r.toState(pbm.StatusDone)
 	if err != nil {
@@ -1112,7 +1138,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.New("snapshot name doesn't set")
 	}
 
-	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name)
+	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name, nil)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
@@ -1174,7 +1200,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, waitingDone bool) {
+func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
 	var nerr nodeErr
 	if errors.As(e, &nerr) {
 		e = nerr
@@ -1194,14 +1220,17 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, waitingDone boo
 		r.log.Error("write error state `%v` to storage: %v", e, err)
 	}
 
-	if r.nodeInfo.IsPrimary && !waitingDone {
+	// At some point, every node will try to set an rs and cluster state
+	// (in `toState` method).
+	// Here we are not aware of partlyDone etc so leave it to the `toState`.
+	if r.nodeInfo.IsPrimary && markCluster {
 		serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
 			errStatus(err), -1)
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", err, serr)
 		}
 	}
-	if r.nodeInfo.IsClusterLeader() && !waitingDone {
+	if r.nodeInfo.IsClusterLeader() && markCluster {
 		serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
 			errStatus(err), -1)
 		if serr != nil {
