@@ -16,7 +16,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -295,7 +294,7 @@ func exitErr(e error, f outFormat) {
 }
 
 func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
-	r := &plog.LogRequest{}
+	r := &log.LogRequest{}
 
 	if l.node != "" {
 		n := strings.Split(l.node, "/")
@@ -319,17 +318,17 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 
 	switch l.severity {
 	case "F":
-		r.Severity = plog.Fatal
+		r.Severity = log.Fatal
 	case "E":
-		r.Severity = plog.Error
+		r.Severity = log.Error
 	case "W":
-		r.Severity = plog.Warning
+		r.Severity = log.Warning
 	case "I":
-		r.Severity = plog.Info
+		r.Severity = log.Info
 	case "D":
-		r.Severity = plog.Debug
+		r.Severity = log.Debug
 	default:
-		r.Severity = plog.Info
+		r.Severity = log.Info
 	}
 
 	if l.follow {
@@ -359,7 +358,7 @@ func runLogs(cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
 	return o, nil
 }
 
-func followLogs(cn *pbm.PBM, r *plog.LogRequest, showNode, expr bool) error {
+func followLogs(cn *pbm.PBM, r *log.LogRequest, showNode, expr bool) error {
 	outC, errC := log.Follow(cn.Context(), cn.Conn.Database(pbm.DB).Collection(pbm.LogCollection), r, false)
 
 	for {
@@ -543,9 +542,9 @@ func isTTY() bool {
 
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	l, err := cn.LogGet(
-		&plog.LogRequest{
-			LogKeys: plog.LogKeys{
-				Severity: plog.Error,
+		&log.LogRequest{
+			LogKeys: log.LogKeys{
+				Severity: log.Error,
 				Event:    string(op),
 			},
 		}, 1)
