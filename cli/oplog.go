@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -115,11 +116,14 @@ func (r ensureOplogResult) String() string {
 func ensureOplog(cn *pbm.PBM, o ensureOplogOptions, outf outFormat) (fmt.Stringer, error) {
 	fromTS, err := parseTS(o.from)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse from time")
+		return nil, errors.WithMessage(err, "parse from time")
 	}
 	tillTS, err := parseTS(o.till)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse till time")
+		return nil, errors.WithMessage(err, "parse till time")
+	}
+	if primitive.CompareTimestamp(fromTS, tillTS) != -1 {
+		return nil, errors.New("start time should less than end time")
 	}
 
 	if err := checkConcurrentOp(cn); err != nil {
