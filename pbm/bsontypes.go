@@ -308,10 +308,10 @@ type RSConfig struct {
 type RSMember struct {
 	ID                 int               `bson:"_id" json:"_id"`
 	Host               string            `bson:"host" json:"host"`
-	ArbiterOnly        bool              `bson:"arbiterOnly,omitempty" json:"arbiterOnly"`
-	BuildIndexes       bool              `bson:"buildIndexes,omitempty" json:"buildIndexes"`
-	Hidden             bool              `bson:"hidden,omitempty" json:"hidden"`
-	Priority           float64           `bson:"priority,omitempty" json:"priority"`
+	ArbiterOnly        bool              `bson:"arbiterOnly" json:"arbiterOnly"`
+	BuildIndexes       bool              `bson:"buildIndexes" json:"buildIndexes"`
+	Hidden             bool              `bson:"hidden" json:"hidden"`
+	Priority           float64           `bson:"priority" json:"priority"`
 	Tags               map[string]string `bson:"tags,omitempty" json:"tags"`
 	SecondaryDelayOld  int64             `bson:"slaveDelay"`
 	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs"`
