@@ -110,8 +110,8 @@ func Main() {
 
 	ensureOplogOpt := ensureOplogOptions{}
 	ensureOplogCmd := pbmCmd.Command("ensure-oplog", "Save and check oplog range")
-	ensureOplogCmd.Arg("from", fmt.Sprintf("Oplog first time. Set in format %s", datetimeFormat)).Required().StringVar(&ensureOplogOpt.from)
-	ensureOplogCmd.Arg("till", fmt.Sprintf("Oplog last time. Set in format %s", datetimeFormat)).Default(time.Now().UTC().Format(dateFormat)).StringVar(&ensureOplogOpt.till)
+	ensureOplogCmd.Flag("start", fmt.Sprintf("Oplog first time. Set in format %s", datetimeFormat)).Required().StringVar(&ensureOplogOpt.from)
+	ensureOplogCmd.Flag("end", fmt.Sprintf("Oplog last time. Set in format %s", datetimeFormat)).Required().StringVar(&ensureOplogOpt.till)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
 	replayOpts := replayOptions{}
