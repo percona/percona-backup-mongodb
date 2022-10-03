@@ -313,6 +313,6 @@ type RSMember struct {
 	Hidden             bool              `bson:"hidden" json:"hidden"`
 	Priority           float64           `bson:"priority" json:"priority"`
 	Tags               map[string]string `bson:"tags,omitempty" json:"tags"`
-	SecondaryDelayOld  int64             `bson:"slaveDelay"`
-	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs"`
+	SecondaryDelayOld  int64             `bson:"slaveDelay,omitempty"`
+	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs,omitempty"`
 }
