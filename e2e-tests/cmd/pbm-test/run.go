@@ -59,8 +59,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 		}
 	}
 
-	runTest("Ensure Oplog", t.EnsureOplog)
-
 	t.SetBallastData(1e5)
 
 	runTest("Check the Running Backup can't be deleted",
