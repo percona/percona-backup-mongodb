@@ -107,8 +107,6 @@ func (a *Agent) Start() error {
 				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResync:
 				a.Resync(cmd.OPID, ep)
-			case pbm.CmdEnsureOplog:
-				a.EnsureOplog(cmd.EnsureOplog, cmd.OPID, ep)
 			case pbm.CmdPITRestore:
 				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:

@@ -71,6 +71,14 @@ type PITRConf struct {
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
+func (c *PITRConf) Cast() error {
+	if c.Compression == "" {
+		c.Compression = compress.CompressionTypeS2
+	}
+
+	return nil
+}
+
 // StorageConf is a configuration of the backup storage
 type StorageConf struct {
 	Type       storage.Type `bson:"type" json:"type" yaml:"type"`
@@ -368,28 +376,19 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 }
 
 func (p *PBM) GetConfig() (Config, error) {
-	res := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{})
-	if err := res.Err(); err != nil {
-		return Config{}, errors.WithMessage(err, "get")
-	}
-
 	var c Config
-	if err := res.Decode(&c); err != nil {
-		return Config{}, errors.Wrap(err, "decode")
+	res := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{})
+	if res.Err() != nil {
+		return Config{}, errors.Wrap(res.Err(), "get")
 	}
-
-	if c.PITR.Compression == "" {
-		if c.Backup.Compression != "" {
-			c.PITR.Compression = c.Backup.Compression
-		} else {
-			c.PITR.Compression = compress.CompressionTypeS2
-		}
+	err := res.Decode(&c)
+	if err != nil {
+		return c, errors.Wrap(err, "decode")
 	}
-
-	if c.PITR.CompressionLevel == nil && c.Backup.CompressionLevel != nil {
-		c.PITR.CompressionLevel = c.Backup.CompressionLevel
+	err = c.PITR.Cast()
+	if err != nil {
+		return c, errors.Wrap(err, "cast options")
 	}
-
 	return c, nil
 }
 
