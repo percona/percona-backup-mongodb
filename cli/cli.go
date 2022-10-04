@@ -129,12 +129,14 @@ func Main() {
 	deleteBcpCmd.Arg("name", "Backup name").StringVar(&deleteBcp.name)
 	deleteBcpCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deleteBcp.olderThan)
 	deleteBcpCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deleteBcp.force)
+	deleteBcpCmd.Flag("ignore-pitr", "Ignore PITR base snapshot restriction").BoolVar(&deleteBcp.ignorePITR)
 
 	deletePitrCmd := pbmCmd.Command("delete-pitr", "Delete PITR chunks")
 	deletePitr := deletePitrOpts{}
 	deletePitrCmd.Flag("older-than", fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deletePitr.olderThan)
 	deletePitrCmd.Flag("all", "Delete all chunks").Short('a').BoolVar(&deletePitr.all)
 	deletePitrCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deletePitr.force)
+	deletePitrCmd.Flag("ignore-pitr", "Ignore PITR base snapshot restriction").BoolVar(&deletePitr.ignorePITR)
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}

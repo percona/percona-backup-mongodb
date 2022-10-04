@@ -44,7 +44,7 @@ func (m *MongoPBM) GetBackupMeta(bcpName string) (*pbm.BackupMeta, error) {
 }
 
 func (m *MongoPBM) DeleteBackup(bcpName string) error {
-	return m.p.DeleteBackup(bcpName, m.p.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", "", primitive.Timestamp{}))
+	return m.p.DeleteBackup(bcpName, true, m.p.Logger().NewEvent(string(pbm.CmdDeleteBackup), "", "", primitive.Timestamp{}))
 }
 
 func (m *MongoPBM) Storage() (storage.Storage, error) {

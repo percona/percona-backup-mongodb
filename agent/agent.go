@@ -184,7 +184,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		obj := t.Format("2006-01-02T15:04:05Z")
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		l.Info("deleting backups older than %v", t)
-		err := a.pbm.DeleteOlderThan(t, l)
+		err := a.pbm.DeleteOlderThan(t, d.IgnorePITR, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -192,7 +192,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	case d.Backup != "":
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		l.Info("deleting backup")
-		err := a.pbm.DeleteBackup(d.Backup, l)
+		err := a.pbm.DeleteBackup(d.Backup, d.IgnorePITR, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return

@@ -215,12 +215,14 @@ func (p PITRestoreCmd) String() string {
 }
 
 type DeleteBackupCmd struct {
-	Backup    string `bson:"backup"`
-	OlderThan int64  `bson:"olderthan"`
+	Backup     string `bson:"backup"`
+	OlderThan  int64  `bson:"olderthan"`
+	IgnorePITR bool   `bson:"ignorePITR"`
 }
 
 type DeletePITRCmd struct {
-	OlderThan int64 `bson:"olderthan"`
+	OlderThan  int64 `bson:"olderthan"`
+	IgnorePITR bool  `bson:"ignorePITR"`
 }
 
 func (d DeleteBackupCmd) String() string {
