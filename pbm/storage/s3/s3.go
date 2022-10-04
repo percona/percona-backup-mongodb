@@ -426,6 +426,10 @@ func (s *S3) Copy(src, dst string) error {
 			}
 			keyMD5 := md5.Sum(decodedKey[:])
 			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+
+			copyOpts.CopySourceSSECustomerAlgorithm = copyOpts.SSECustomerAlgorithm
+			copyOpts.CopySourceSSECustomerKey = copyOpts.SSECustomerKey
+			copyOpts.CopySourceSSECustomerKeyMD5 = copyOpts.SSECustomerKeyMD5
 		}
 	}
 
