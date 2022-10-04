@@ -82,10 +82,6 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		return errors.Wrapf(err, "copy current pitr meta from %s to %s", PITRChunksCollection, PITRChunksOldCollection)
 	}
 
-	if len(bcps) == 0 {
-		return nil
-	}
-
 	var ins []interface{}
 	for _, b := range bcps {
 		l.Debug("bcp: %v", b.Name)
@@ -109,9 +105,12 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 		}
 		ins = append(ins, v)
 	}
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).InsertMany(p.ctx, ins)
-	if err != nil {
-		return errors.Wrap(err, "insert retrieved backups meta")
+
+	if len(ins) != 0 {
+		_, err = p.Conn.Database(DB).Collection(BcpCollection).InsertMany(p.ctx, ins)
+		if err != nil {
+			return errors.Wrap(err, "insert retrieved backups meta")
+		}
 	}
 
 	pitrf, err := stg.List(PITRfsPrefix, "")
