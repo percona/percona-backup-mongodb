@@ -58,12 +58,6 @@ func (a *Agent) CanStart() error {
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
 	}
-	if info.ArbiterOnly {
-		return errors.New("arbiter node is not supported")
-	}
-	if info.SecondaryDelayOld != 0 || info.SecondaryDelaySecs != 0 {
-		return errors.New("delayed node is not supported")
-	}
 
 	return nil
 }
