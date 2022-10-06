@@ -157,29 +157,35 @@ type rs struct {
 	Nodes []node `json:"nodes"`
 }
 
+type RSRole string
+
+const (
+	RolePrimary   RSRole = "P"
+	RoleSecondary RSRole = "S"
+	RoleArbiter   RSRole = "A"
+	RoleHidden    RSRole = "H"
+	RoleDelayed   RSRole = "D"
+)
+
 type node struct {
-	Host  string   `json:"host"`
-	Ver   string   `json:"agent"`
-	P     bool     `json:"primary"`
-	Arb   *bool    `json:"arbiter,omitempty"`
-	Delay *int64   `json:"delaySecs,omitempty"`
-	OK    bool     `json:"ok"`
-	Errs  []string `json:"errors,omitempty"`
+	Host string   `json:"host"`
+	Ver  string   `json:"agent"`
+	Role RSRole   `json:"role"`
+	OK   bool     `json:"ok"`
+	Errs []string `json:"errors,omitempty"`
 }
 
 func (n node) String() (s string) {
-	if n.Arb != nil && *n.Arb {
-		return fmt.Sprintf("%s [!Arbiter]: Not Supported", n.Host)
-	}
-	if n.Delay != nil && *n.Delay != 0 {
-		return fmt.Sprintf("%s [!Delayed]: Not Supported", n.Host)
+	if n.Role == RoleArbiter {
+		return fmt.Sprintf("%s [!Arbiter]: arbiter node is not supported", n.Host)
 	}
 
-	p := "S"
-	if n.P {
-		p = "P"
+	role := n.Role
+	if role != RolePrimary && role != RoleSecondary {
+		role = RoleSecondary
 	}
-	s += fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, p, n.Ver)
+
+	s += fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
 	if n.OK {
 		s += " OK"
 		return s
@@ -243,21 +249,15 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 				lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Host})
 
 				nd := &lrs.Nodes[i]
-				if n.Host == info.Primary {
-					nd.P = true
-				}
-
-				if n.ArbiterOnly {
-					t := n.ArbiterOnly
-					nd.Arb = &t
-				}
-
-				if n.SecondaryDelayOld != 0 {
-					d := n.SecondaryDelayOld
-					nd.Delay = &d
-				} else if n.SecondaryDelaySecs != 0 {
-					d := n.SecondaryDelaySecs
-					nd.Delay = &d
+				switch {
+				case n.Host == info.Primary:
+					nd.Role = RolePrimary
+				case n.ArbiterOnly:
+					nd.Role = RoleArbiter
+				case n.SecondaryDelayOld != 0 || n.SecondaryDelaySecs != 0:
+					nd.Role = RoleDelayed
+				case n.Hidden:
+					nd.Role = RoleHidden
 				}
 
 				stat, err := cn.GetAgentStatus(c.RS, n.Host)
