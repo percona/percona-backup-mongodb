@@ -235,11 +235,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist 
 		return nil, nil
 	}
 
-	return p.PITRGetValidTimelinesFrom(rs, fch.StartTS, until, flist)
-}
-
-func (p *PBM) PITRGetValidTimelinesFrom(rs string, from, until primitive.Timestamp, flist map[string]int64) (tlines []Timeline, err error) {
-	slices, err := p.PITRGetChunksSlice(rs, from, until)
+	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
 	}
@@ -255,10 +251,6 @@ func (p *PBM) PITRGetValidTimelinesFrom(rs string, from, until primitive.Timesta
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
 func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
-	return p.PITRTimelinesSince(primitive.Timestamp{})
-}
-
-func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, err error) {
 	shards, err := p.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -271,7 +263,7 @@ func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, e
 
 	var tlns [][]Timeline
 	for _, s := range shards {
-		t, err := p.PITRGetValidTimelinesFrom(s.RS, from, now, nil)
+		t, err := p.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}

@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -16,13 +15,13 @@ import (
 
 // DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
-func (p *PBM) DeleteBackup(name string, ignorePITR bool, l *log.Event) error {
+func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 	meta, err := p.GetBackupMeta(name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
 
-	err = p.probeDelete(meta, ignorePITR)
+	err = p.probeDelete(meta)
 	if err != nil {
 		return err
 	}
@@ -45,7 +44,7 @@ func (p *PBM) DeleteBackup(name string, ignorePITR bool, l *log.Event) error {
 	return nil
 }
 
-func (p *PBM) probeDelete(backup *BackupMeta, force bool) error {
+func (p *PBM) probeDelete(backup *BackupMeta) error {
 	// check if backup isn't running
 	switch backup.Status {
 	case StatusDone, StatusCancelled, StatusError:
@@ -53,28 +52,25 @@ func (p *PBM) probeDelete(backup *BackupMeta, force bool) error {
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
 	}
 
-	if force || len(backup.Namespaces) != 0 {
+	if len(backup.Namespaces) != 0 {
 		return nil
 	}
 
+	ispitr, oplogOnly, err := p.IsPITRExt()
+	if err != nil {
+		return errors.Wrap(err, "unable check pitr state")
+	}
+
+	// if PITR is off or no base snapshot is required, any backup can be deleted
+	if !ispitr || oplogOnly {
+		return nil
+	}
 	nxt, err := p.BackupGetNext(backup)
 	if err != nil {
 		return errors.Wrap(err, "check next backup")
 	}
-	if nxt != nil {
-		return nil
-	}
-
-	tlns, err := p.PITRTimelinesSince(backup.LastWriteTS)
-	if err != nil {
-		return errors.Wrap(err, "get PITR chunks")
-	}
-
-	// if backup isn't a base for any PITR timeline
-	for _, t := range tlns {
-		if t.Start <= backup.LastWriteTS.T {
-			return errors.Errorf("unable to delete: backup is a base for '%s'", t)
-		}
+	if nxt == nil {
+		return errors.New("unable to delete the last full backup while PITR is on")
 	}
 
 	return nil
@@ -177,7 +173,7 @@ func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Stora
 }
 
 // DeleteOlderThan deletes backups which older than given Time
-func (p *PBM) DeleteOlderThan(t time.Time, ignorePITR bool, l *log.Event) error {
+func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 	stg, err := p.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
@@ -187,30 +183,19 @@ func (p *PBM) DeleteOlderThan(t time.Time, ignorePITR bool, l *log.Event) error 
 		bson.M{
 			"start_ts": bson.M{"$lt": t.Unix()},
 		},
-		options.Find().SetSort(bson.D{{"start_ts", 1}}),
 	)
 	if err != nil {
 		return errors.Wrap(err, "get backups list")
 	}
-
-	bcps := []*BackupMeta{}
-	if err := cur.All(p.ctx, &bcps); err != nil {
-		return errors.Wrap(cur.Err(), "cursor")
-	}
-
-	bcpCnt := len(bcps)
-	if bcpCnt == 0 {
-		return nil
-	}
-
-	lastIndex := bcpCnt - 1
-	for i, m := range bcps {
-		force := true
-		if i == lastIndex {
-			force = ignorePITR
+	defer cur.Close(p.ctx)
+	for cur.Next(p.ctx) {
+		m := new(BackupMeta)
+		err := cur.Decode(m)
+		if err != nil {
+			return errors.Wrap(err, "decode backup meta")
 		}
 
-		err = p.probeDelete(m, force)
+		err = p.probeDelete(m)
 		if err != nil {
 			return errors.WithMessagef(err, "delete %q", m.Name)
 		}
@@ -224,6 +209,10 @@ func (p *PBM) DeleteOlderThan(t time.Time, ignorePITR bool, l *log.Event) error 
 		if err != nil {
 			return errors.Wrap(err, "delete backup meta from db")
 		}
+	}
+
+	if cur.Err() != nil {
+		return errors.Wrap(cur.Err(), "cursor")
 	}
 
 	return nil

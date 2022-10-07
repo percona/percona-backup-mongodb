@@ -13,10 +13,9 @@ import (
 )
 
 type deleteBcpOpts struct {
-	name       string
-	olderThan  string
-	force      bool
-	ignorePITR bool
+	name      string
+	olderThan string
+	force     bool
 }
 
 func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
@@ -33,7 +32,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 
 	cmd := pbm.Cmd{
 		Cmd:    pbm.CmdDeleteBackup,
-		Delete: &pbm.DeleteBackupCmd{IgnorePITR: d.ignorePITR},
+		Delete: &pbm.DeleteBackupCmd{},
 	}
 	if len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
@@ -88,10 +87,9 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 }
 
 type deletePitrOpts struct {
-	olderThan  string
-	force      bool
-	all        bool
-	ignorePITR bool
+	olderThan string
+	force     bool
+	all       bool
 }
 
 func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
@@ -127,7 +125,7 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 
 	cmd := pbm.Cmd{
 		Cmd:        pbm.CmdDeletePITR,
-		DeletePITR: &pbm.DeletePITRCmd{IgnorePITR: d.ignorePITR},
+		DeletePITR: &pbm.DeletePITRCmd{},
 	}
 	if !d.all && len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
