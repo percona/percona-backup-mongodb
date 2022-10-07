@@ -284,10 +284,6 @@ func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, e
 }
 
 func gettimelines(slices []OplogChunk) (tlines []Timeline) {
-	if len(slices) == 0 {
-		return
-	}
-
 	var tl Timeline
 	var prevEnd primitive.Timestamp
 	for _, s := range slices {
