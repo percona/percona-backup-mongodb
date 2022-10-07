@@ -7,9 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/pkg/errors"
 )
 
 type deleteBcpOpts struct {
@@ -95,17 +94,6 @@ type deletePitrOpts struct {
 func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
 	if !d.all && len(d.olderThan) == 0 {
 		return nil, errors.New("either --older-than or --all should be set")
-	}
-
-	if d.all {
-		enabled, oplogOnly, err := pbmClient.IsPITRExt()
-		if err != nil {
-			return nil, errors.WithMessage(err, "get config")
-		}
-
-		if enabled && !oplogOnly {
-			return nil, errors.New("cannot delete all oplog chunks when snapshot-based PITR is enabled")
-		}
 	}
 
 	if !d.force && isTTY() {

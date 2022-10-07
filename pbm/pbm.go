@@ -778,7 +778,6 @@ func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
 		bson.D{
-			{"nss", nil},
 			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
 			{"status", StatusDone},
 		},

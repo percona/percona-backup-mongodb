@@ -21,7 +21,12 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 		return errors.Wrap(err, "get backup meta")
 	}
 
-	err = p.probeDelete(meta)
+	tlns, err := p.PITRTimelines()
+	if err != nil {
+		return errors.Wrap(err, "get PITR chunks")
+	}
+
+	err = p.probeDelete(meta, tlns)
 	if err != nil {
 		return err
 	}
@@ -44,7 +49,7 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 	return nil
 }
 
-func (p *PBM) probeDelete(backup *BackupMeta) error {
+func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	// check if backup isn't running
 	switch backup.Status {
 	case StatusDone, StatusCancelled, StatusError:
@@ -52,17 +57,20 @@ func (p *PBM) probeDelete(backup *BackupMeta) error {
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
 	}
 
-	if len(backup.Namespaces) != 0 {
-		return nil
+	// if backup isn't a base for any PITR timeline
+	for _, t := range tlns {
+		if backup.LastWriteTS.T == t.Start {
+			return errors.Errorf("unable to delete: backup is a base for '%s'", t)
+		}
 	}
 
-	ispitr, oplogOnly, err := p.IsPITRExt()
+	ispitr, err := p.IsPITR()
 	if err != nil {
 		return errors.Wrap(err, "unable check pitr state")
 	}
 
-	// if PITR is off or no base snapshot is required, any backup can be deleted
-	if !ispitr || oplogOnly {
+	// if PITR is ON and there are no chunks yet we shouldn't delete the most recent back
+	if !ispitr || tlns != nil {
 		return nil
 	}
 	nxt, err := p.BackupGetNext(backup)
@@ -70,7 +78,7 @@ func (p *PBM) probeDelete(backup *BackupMeta) error {
 		return errors.Wrap(err, "check next backup")
 	}
 	if nxt == nil {
-		return errors.New("unable to delete the last full backup while PITR is on")
+		return errors.New("unable to delete the last backup while PITR is on")
 	}
 
 	return nil
@@ -178,6 +186,12 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
+
+	tlns, err := p.PITRTimelines()
+	if err != nil {
+		return errors.Wrap(err, "get PITR chunks")
+	}
+
 	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
 		p.ctx,
 		bson.M{
@@ -195,9 +209,10 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 			return errors.Wrap(err, "decode backup meta")
 		}
 
-		err = p.probeDelete(m)
+		err = p.probeDelete(m, tlns)
 		if err != nil {
-			return errors.WithMessagef(err, "delete %q", m.Name)
+			l.Info("deleting %s: %v", m.Name, err)
+			continue
 		}
 
 		err = p.DeleteBackupFiles(m, stg)
