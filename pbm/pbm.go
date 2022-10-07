@@ -215,14 +215,12 @@ func (p PITRestoreCmd) String() string {
 }
 
 type DeleteBackupCmd struct {
-	Backup     string `bson:"backup"`
-	OlderThan  int64  `bson:"olderthan"`
-	IgnorePITR bool   `bson:"ignorePITR"`
+	Backup    string `bson:"backup"`
+	OlderThan int64  `bson:"olderthan"`
 }
 
 type DeletePITRCmd struct {
-	OlderThan  int64 `bson:"olderthan"`
-	IgnorePITR bool  `bson:"ignorePITR"`
+	OlderThan int64 `bson:"olderthan"`
 }
 
 func (d DeleteBackupCmd) String() string {
@@ -780,7 +778,6 @@ func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
 		p.ctx,
 		bson.D{
-			{"nss", nil},
 			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
 			{"status", StatusDone},
 		},

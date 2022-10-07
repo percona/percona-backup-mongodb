@@ -37,17 +37,16 @@ type OplogChunk struct {
 
 // IsPITR checks if PITR is enabled
 func (p *PBM) IsPITR() (bool, error) {
-	enabled, _, err := p.IsPITRExt()
-	return enabled, err
-}
-
-func (p *PBM) IsPITRExt() (bool, bool, error) {
 	cfg, err := p.GetConfig()
-	if err != nil && errors.Is(err, mongo.ErrNoDocuments) {
-		err = nil
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "get config")
 	}
 
-	return cfg.PITR.Enabled, cfg.PITR.OplogOnly, errors.WithMessage(err, "get config")
+	return cfg.PITR.Enabled, nil
 }
 
 // PITRrun checks if PITR slicing is running. It looks for PITR locks
@@ -235,11 +234,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist 
 		return nil, nil
 	}
 
-	return p.PITRGetValidTimelinesFrom(rs, fch.StartTS, until, flist)
-}
-
-func (p *PBM) PITRGetValidTimelinesFrom(rs string, from, until primitive.Timestamp, flist map[string]int64) (tlines []Timeline, err error) {
-	slices, err := p.PITRGetChunksSlice(rs, from, until)
+	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
 	}
@@ -255,10 +250,6 @@ func (p *PBM) PITRGetValidTimelinesFrom(rs string, from, until primitive.Timesta
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
 func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
-	return p.PITRTimelinesSince(primitive.Timestamp{})
-}
-
-func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, err error) {
 	shards, err := p.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -271,7 +262,7 @@ func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, e
 
 	var tlns [][]Timeline
 	for _, s := range shards {
-		t, err := p.PITRGetValidTimelinesFrom(s.RS, from, now, nil)
+		t, err := p.PITRGetValidTimelines(s.RS, now, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}
@@ -284,10 +275,6 @@ func (p *PBM) PITRTimelinesSince(from primitive.Timestamp) (tlines []Timeline, e
 }
 
 func gettimelines(slices []OplogChunk) (tlines []Timeline) {
-	if len(slices) == 0 {
-		return
-	}
-
 	var tl Timeline
 	var prevEnd primitive.Timestamp
 	for _, s := range slices {

@@ -178,7 +178,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		obj := t.Format("2006-01-02T15:04:05Z")
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		l.Info("deleting backups older than %v", t)
-		err := a.pbm.DeleteOlderThan(t, d.IgnorePITR, l)
+		err := a.pbm.DeleteOlderThan(t, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -186,7 +186,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	case d.Backup != "":
 		l = a.pbm.Logger().NewEvent(string(pbm.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		l.Info("deleting backup")
-		err := a.pbm.DeleteBackup(d.Backup, d.IgnorePITR, l)
+		err := a.pbm.DeleteBackup(d.Backup, l)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -218,18 +218,6 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if !nodeInfo.IsLeader() {
 		l.Info("not a member of the leader rs, skipping")
 		return
-	}
-
-	if d.OlderThan == 0 {
-		enabled, oplogOnly, err := a.pbm.IsPITRExt()
-		if err != nil {
-			l.Error("get config: %s", err.Error())
-			return
-		}
-		if enabled && !oplogOnly {
-			l.Error("cannot delete all oplog chunks when snapshot-based PITR is enabled")
-			return
-		}
 	}
 
 	epts := ep.TS()

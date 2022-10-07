@@ -7,16 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/pkg/errors"
 )
 
 type deleteBcpOpts struct {
-	name       string
-	olderThan  string
-	force      bool
-	ignorePITR bool
+	name      string
+	olderThan string
+	force     bool
 }
 
 func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
@@ -33,7 +31,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 
 	cmd := pbm.Cmd{
 		Cmd:    pbm.CmdDeleteBackup,
-		Delete: &pbm.DeleteBackupCmd{IgnorePITR: d.ignorePITR},
+		Delete: &pbm.DeleteBackupCmd{},
 	}
 	if len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
@@ -88,26 +86,14 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 }
 
 type deletePitrOpts struct {
-	olderThan  string
-	force      bool
-	all        bool
-	ignorePITR bool
+	olderThan string
+	force     bool
+	all       bool
 }
 
 func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
 	if !d.all && len(d.olderThan) == 0 {
 		return nil, errors.New("either --older-than or --all should be set")
-	}
-
-	if d.all {
-		enabled, oplogOnly, err := pbmClient.IsPITRExt()
-		if err != nil {
-			return nil, errors.WithMessage(err, "get config")
-		}
-
-		if enabled && !oplogOnly {
-			return nil, errors.New("cannot delete all oplog chunks when snapshot-based PITR is enabled")
-		}
 	}
 
 	if !d.force && isTTY() {
@@ -127,7 +113,7 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 
 	cmd := pbm.Cmd{
 		Cmd:        pbm.CmdDeletePITR,
-		DeletePITR: &pbm.DeletePITRCmd{IgnorePITR: d.ignorePITR},
+		DeletePITR: &pbm.DeletePITRCmd{},
 	}
 	if !d.all && len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
