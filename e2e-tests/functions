@@ -212,5 +212,5 @@ destroy_cluster() {
     local compose=$1
 
     docker-compose -f $compose ps
-    docker-compose -f $compose down
+    docker-compose -f $compose down -v
 }
