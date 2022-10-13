@@ -46,12 +46,12 @@ users_og=$(mongo_run 'db.getSiblingDB("admin").system.users.find({}, {_id: 1}).s
 date
 desc 'Destroy cluster'
 docker-compose -f ${test_dir}/docker/docker-compose.yaml rm -fs
+desc 'Removing PSMDB volumes'
+docker volume rm $(docker volume ls --filter name=data -q)
 
 date
 desc 'Start a new cluster'
 start_cluster "$MONGO_VERSION"
-date
-pbm_run status
 date
 
 desc 'Create test user and role'
