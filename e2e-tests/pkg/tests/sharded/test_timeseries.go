@@ -37,6 +37,7 @@ func (c *Cluster) Timeseries() {
 
 	ts1.stop()
 	ts2.stop()
+	time.Sleep(time.Second * 60)
 	c.pitrOff()
 
 	time.Sleep(time.Second * 6)
