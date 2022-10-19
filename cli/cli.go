@@ -381,7 +381,8 @@ type snapshotStat struct {
 	Namespaces []string       `json:"nss,omitempty"`
 	Size       int64          `json:"size,omitempty"`
 	Status     pbm.Status     `json:"status"`
-	Err        error          `json:"error,omitempty"`
+	Err        error          `json:"-"`
+	ErrString  string         `json:"error,omitempty"`
 	RestoreTS  int64          `json:"restoreTo"`
 	PBMVersion string         `json:"pbmVersion"`
 	Type       pbm.BackupType `json:"type"`
