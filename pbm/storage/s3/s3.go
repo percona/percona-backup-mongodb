@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"runtime"
 	"strconv"
@@ -19,11 +20,13 @@ import (
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/minio/minio-go"
 	"github.com/minio/minio-go/pkg/encrypt"
 	"github.com/pkg/errors"
@@ -716,15 +719,31 @@ func (s *S3) session() (*session.Session, error) {
 		}})
 	}
 
-	ec2Session, err := session.NewSession()
+	awsSession, err := session.NewSession()
 	if err != nil {
 		return nil, errors.WithMessage(err, "new session")
 	}
 
 	// allow fetching credentials from env variables and ec2 metadata endpoint
 	providers = append(providers, &credentials.EnvProvider{})
+
+	// If defined, IRSA-related credentials should have the priority over any potential role attached to the EC2.
+	awsRoleARN := os.Getenv("AWS_ROLE_ARN")
+	awsTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+
+	if awsRoleARN != "" && awsTokenFile != "" {
+		tokenFetcher := stscreds.FetchTokenPath(awsTokenFile)
+
+		providers = append(providers, stscreds.NewWebIdentityRoleProviderWithOptions(
+			sts.New(awsSession),
+			awsRoleARN,
+			"",
+			tokenFetcher,
+		))
+	}
+
 	providers = append(providers, &ec2rolecreds.EC2RoleProvider{
-		Client: ec2metadata.New(ec2Session),
+		Client: ec2metadata.New(awsSession),
 	})
 
 	httpClient := http.DefaultClient
