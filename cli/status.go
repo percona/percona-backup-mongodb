@@ -634,7 +634,10 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
-			Err:        bcp.Error(),
+		}
+		if err := bcp.Error(); err != nil {
+			snpsht.Err = err
+			snpsht.ErrString = err.Error()
 		}
 
 		switch bcp.Status {
@@ -649,7 +652,9 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			// leave as it is, not to rewrite status with the `stuck` error
 		default:
 			if bcp.Hb.T+pbm.StaleFrameSec < now.T {
-				snpsht.Err = fmt.Errorf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				errStr := fmt.Sprintf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				snpsht.Err = errors.New(errStr)
+				snpsht.ErrString = errStr
 				snpsht.Status = pbm.StatusError
 			}
 		}
@@ -657,6 +662,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht.Size, err = getBackupSize(&bcp, stg)
 		if err != nil {
 			snpsht.Err = err
+			snpsht.ErrString = err.Error()
 			snpsht.Status = pbm.StatusError
 		}
 
