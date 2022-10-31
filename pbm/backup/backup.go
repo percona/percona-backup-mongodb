@@ -31,9 +31,10 @@ func init() {
 }
 
 type Backup struct {
-	cn   *pbm.PBM
-	node *pbm.Node
-	typ  pbm.BackupType
+	cn       *pbm.PBM
+	node     *pbm.Node
+	typ      pbm.BackupType
+	incrBase bool
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {
@@ -49,6 +50,15 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node) *Backup {
 		cn:   cn,
 		node: node,
 		typ:  pbm.PhysicalBackup,
+	}
+}
+
+func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
+	return &Backup{
+		cn:       cn,
+		node:     node,
+		typ:      pbm.IncrementalBackup,
+		incrBase: base,
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -47,20 +46,22 @@ type BackupCursor struct {
 	id    UUID
 	n     *pbm.Node
 	l     *plog.Event
+	opts  bson.D
 	close chan struct{}
 }
 
-func NewBackupCursor(n *pbm.Node, l *plog.Event) *BackupCursor {
+func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	return &BackupCursor{
-		n: n,
-		l: l,
+		n:    n,
+		l:    l,
+		opts: opts,
 	}
 }
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Cursor, err error) {
 	for i := 0; i < retry; i++ {
 		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
-			{{"$backupCursor", bson.D{}}},
+			{{"$backupCursor", bc.opts}},
 		})
 		if err != nil && strings.Contains(err.Error(), "(Location50915)") {
 			bc.l.Debug("a checkpoint took place, retrying")
@@ -157,7 +158,32 @@ func (bc *BackupCursor) Close() {
 }
 
 func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
-	cursor := NewBackupCursor(b.node, l)
+	var currOpts bson.D
+	if b.typ == pbm.IncrementalBackup {
+		currOpts = bson.D{
+			{"thisBackupName", bcp.Name},
+			{"incrementalBackup", true},
+		}
+		if !b.incrBase {
+			src, err := b.cn.LastIncrementalBackup()
+			if err != nil {
+				return errors.Wrap(err, "define base backup")
+			}
+			if src == nil {
+				return errors.Wrap(err, "nil base backup")
+			}
+
+			// ? should be done during Init()?
+			if inf.IsLeader() {
+				err := b.cn.SetSrcBackup(bcp.Name, src.Name)
+				if err != nil {
+					return errors.Wrap(err, "set source backup in meta")
+				}
+			}
+			currOpts = append(currOpts, bson.E{"srcBackupName", src.Name})
+		}
+	}
+	cursor := NewBackupCursor(b.node, l, currOpts)
 	defer cursor.Close()
 
 	bcur, err := cursor.Data(ctx)
@@ -230,20 +256,10 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	}
 
 	l.Info("uploading files")
-	subdir := bcp.Name + "/" + rsMeta.Name
-	for _, bd := range append(bcur.Data, jrnls...) {
-		select {
-		case <-ctx.Done():
-			return ErrCancelled
-		default:
-		}
-
-		f, err := writeFile(ctx, bd.Name, subdir+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression, bcp.CompressionLevel, l)
-		if err != nil {
-			return errors.Wrapf(err, "upload file `%s`", bd.Name)
-		}
-		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
-		rsMeta.Files = append(rsMeta.Files, *f)
+	rsMeta.Files, err = uploadFiles(ctx, append(bcur.Data, jrnls...), bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+	if err != nil {
+		return err
 	}
 	l.Info("uploading done")
 
@@ -294,8 +310,47 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
-	fstat, err := os.Stat(src)
+func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (meta []pbm.File, err error) {
+	var wfile pbm.File
+	for _, bd := range files {
+		select {
+		case <-ctx.Done():
+			return nil, ErrCancelled
+		default:
+		}
+
+		if incr && wfile.Off == 0 && wfile.Len == 0 {
+			continue
+		}
+
+		if wfile.Name == bd.Name &&
+			wfile.Off+wfile.Len == bd.Len {
+			wfile.Len += bd.Len
+			continue
+		}
+
+		f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(bd.Name, trimPrefix), stg, comprT, comprL, l)
+		if err != nil {
+			return meta, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+		}
+		f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+		meta = append(meta, *f)
+
+		wfile = bd
+	}
+
+	f, err := writeFile(ctx, wfile, subdir, stg, comprT, comprL, l)
+	if err != nil {
+		return meta, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+	}
+	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+
+	return append(meta, *f), nil
+}
+
+func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
+	fstat, err := os.Stat(src.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
@@ -304,7 +359,7 @@ func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compre
 
 	dst += compression.Suffix()
 
-	_, err = Upload(ctx, &file{src}, stg, compression, compressLevel, dst, fstat.Size())
+	_, err = Upload(ctx, &src, stg, compression, compressLevel, dst, fstat.Size())
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
@@ -315,25 +370,13 @@ func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compre
 	}
 
 	return &pbm.File{
-		Name:    src,
+		Name:    src.Name,
 		Size:    fstat.Size(),
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
+		Off:     src.Off,
+		Len:     src.Len,
 	}, nil
-}
-
-type file struct {
-	path string
-}
-
-func (f *file) WriteTo(w io.Writer) (int64, error) {
-	fd, err := os.Open(f.path)
-	if err != nil {
-		return 0, errors.Wrap(err, "open file for reading")
-	}
-	defer fd.Close()
-
-	return io.Copy(w, fd)
 }
 
 func fmtSize(size int64) string {
