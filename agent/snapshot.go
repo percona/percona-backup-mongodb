@@ -88,6 +88,8 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.IncrementalBackup:
+		bcp = backup.NewIncremental(a.pbm, a.node, cmd.IncrBase)
 	case pbm.LogicalBackup:
 		fallthrough
 	default:

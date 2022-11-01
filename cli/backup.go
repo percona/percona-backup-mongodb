@@ -20,6 +20,7 @@ import (
 type backupOpts struct {
 	name             string
 	typ              string
+	base             bool
 	compression      string
 	compressionLevel []int
 	ns               string
@@ -87,6 +88,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		Cmd: pbm.CmdBackup,
 		Backup: &pbm.BackupCmd{
 			Type:             pbm.BackupType(b.typ),
+			IncrBase:         b.base,
 			Name:             b.name,
 			Namespaces:       nss,
 			Compression:      compression,

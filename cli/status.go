@@ -755,7 +755,7 @@ func getLegacySnapshotSize(rsets []pbm.BackupReplset, typ pbm.BackupType, stg st
 	switch typ {
 	case pbm.LogicalBackup:
 		return getLegacyLogicalSize(rsets, stg)
-	case pbm.PhysicalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
 		return getLegacyPhysSize(rsets, stg)
 	default:
 		return 0, errors.Errorf("unknown backup type %s", typ)

@@ -161,7 +161,7 @@ func (c Cmd) String() string {
 
 type BackupCmd struct {
 	Type             BackupType               `bson:"type"`
-	Source           string                   `bson:"src,omitempty"`
+	IncrBase         bool                     `bson:"base"`
 	Name             string                   `bson:"name"`
 	Namespaces       []string                 `bson:"nss,omitempty"`
 	Compression      compress.CompressionType `bson:"compression"`
@@ -553,6 +553,13 @@ type File struct {
 	Size    int64       `bson:"fileSize" json:"fileSize"`
 	StgSize int64       `bson:"stgSize" json:"stgSize"`
 	Fmode   os.FileMode `bson:"fmode" json:"fmode"`
+}
+
+func (f File) String() string {
+	if f.Off == 0 && f.Len == 0 {
+		return f.Name
+	}
+	return fmt.Sprintf("%s [%d:%d]", f.Name, f.Off, f.Len)
 }
 
 func (f *File) WriteTo(w io.Writer) (int64, error) {
@@ -1073,4 +1080,8 @@ func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{
 	}
 
 	return n, nil
+}
+
+func BackupCursorName(s string) string {
+	return strings.NewReplacer("-", "", ":", "").Replace(s)
 }

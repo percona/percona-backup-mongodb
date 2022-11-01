@@ -226,7 +226,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	switch b.typ {
 	case pbm.LogicalBackup:
 		err = b.doLogical(ctx, bcp, opid, &rsMeta, inf, stg, l)
-	case pbm.PhysicalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
 		err = b.doPhysical(ctx, bcp, opid, &rsMeta, inf, stg, l)
 	default:
 		return errors.New("undefined backup type")
