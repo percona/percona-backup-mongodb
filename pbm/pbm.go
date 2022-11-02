@@ -532,8 +532,9 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
-	Files            []File              `bson:"files,omitempty" json:"files,omitempty" `
-	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty" `
+	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
+	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
+	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`

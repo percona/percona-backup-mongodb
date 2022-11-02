@@ -57,6 +57,7 @@ type PhysRestore struct {
 	nodeInfo *pbm.NodeInfo
 	stg      storage.Storage
 	bcp      *pbm.BackupMeta
+	files    [][]pbm.File
 
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
@@ -688,44 +689,47 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 }
 
 func (r *PhysRestore) copyFiles() error {
-	for _, rs := range r.bcp.Replsets {
-		if rs.Name == r.nodeInfo.SetName {
-			for _, f := range rs.Files {
-				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
-				dst := filepath.Join(r.dbpath, f.Name)
+	bbb, _ := json.MarshalIndent(r.files, "", "\t")
+	r.log.Debug("==> FILES\n%s", bbb)
 
-				err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
-				if err != nil {
-					return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
-				}
+	for i := len(r.files) - 1; i >= 0; i-- {
+		for _, f := range r.files[i] {
+			src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
+			if f.Len != 0 {
+				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
+			dst := filepath.Join(r.dbpath, f.Name)
 
-				r.log.Info("copy <%s> to <%s>", src, dst)
-				sr, err := r.stg.SourceReader(src)
-				if err != nil {
-					return errors.Wrapf(err, "create source reader for <%s>", src)
-				}
-				defer sr.Close()
+			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
+			if err != nil {
+				return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
+			}
 
-				data, err := compress.Decompress(sr, r.bcp.Compression)
-				if err != nil {
-					return errors.Wrapf(err, "decompress object %s", src)
-				}
-				defer data.Close()
+			r.log.Info("copy <%s> to <%s>", src, dst)
+			sr, err := r.stg.SourceReader(src)
+			if err != nil {
+				return errors.Wrapf(err, "create source reader for <%s>", src)
+			}
+			defer sr.Close()
 
-				fw, err := os.Create(dst)
-				if err != nil {
-					return errors.Wrapf(err, "create destination file <%s>", dst)
-				}
-				defer fw.Close()
-				err = os.Chmod(dst, f.Fmode)
-				if err != nil {
-					return errors.Wrapf(err, "change permissions for file <%s>", dst)
-				}
+			data, err := compress.Decompress(sr, r.bcp.Compression)
+			if err != nil {
+				return errors.Wrapf(err, "decompress object %s", src)
+			}
+			defer data.Close()
 
-				_, err = io.Copy(fw, data)
-				if err != nil {
-					return errors.Wrapf(err, "copy file <%s>", dst)
-				}
+			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
+			if err != nil {
+				return errors.Wrapf(err, "create/open destination file <%s>", dst)
+			}
+			defer fw.Close()
+			if f.Off != 0 {
+				_, err := fw.Seek(f.Off, io.SeekStart)
+				return errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
+			}
+			_, err = io.Copy(fw, data)
+			if err != nil {
+				return errors.Wrapf(err, "copy file <%s>", dst)
 			}
 		}
 	}
@@ -1125,6 +1129,54 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	return nil
 }
 
+func (r *PhysRestore) setBcpFiles() (err error) {
+	bcp := r.bcp
+	partj := ""
+
+	rs := getRS(bcp, r.nodeInfo.SetName)
+	data := append([]pbm.File{}, rs.Files...)
+	for _, j := range rs.Journal {
+		data = append(data, j)
+		if j.Len != 0 && j.Len != j.Size {
+			partj = j.Name
+		}
+	}
+	r.files = append(r.files, data)
+
+	for bcp.SrcBackup != "" {
+		r.log.Debug("get src %s", bcp.SrcBackup)
+		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
+		if err != nil {
+			return errors.Wrapf(err, "get source backup")
+		}
+
+		rs = getRS(bcp, r.nodeInfo.SetName)
+		data := append([]pbm.File{}, rs.Files...)
+
+		if partj != "" {
+			for _, j := range rs.Journal {
+				if partj == j.Name {
+					data = append(data, j)
+				}
+				if j.Len == 0 || j.Len == j.Size {
+					partj = ""
+				}
+			}
+		}
+		r.files = append(r.files, data)
+	}
+	return nil
+}
+
+func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
+	for _, r := range bcp.Replsets {
+		if r.Name == rs {
+			return &r
+		}
+	}
+	return nil
+}
+
 func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
@@ -1154,6 +1206,11 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 	if semver.Compare(majmin(r.bcp.MongoVersion), majmin(mgoV.VersionString)) != 0 {
 		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
+	}
+
+	err = r.setBcpFiles()
+	if err != nil {
+		return errors.Wrap(err, "get data for restore")
 	}
 
 	s, err := r.cn.ClusterMembers()

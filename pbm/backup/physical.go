@@ -256,7 +256,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	}
 
 	l.Info("uploading data")
-	rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	rsMeta.Journal, rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
 		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -264,12 +264,12 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	ju, _, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
 		false, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
 	}
-	rsMeta.Files = append(rsMeta.Files, ju...)
+	rsMeta.Journal = append(rsMeta.Journal, ju...)
 	l.Info("uploading journals")
 
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta.Files)
@@ -319,10 +319,12 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
+const journalPrefix = "journal/WiredTigerLog."
+
 func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (meta []pbm.File, err error) {
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (journal, data []pbm.File, err error) {
 	if len(files) == 0 {
-		return meta, err
+		return journal, data, err
 	}
 
 	l.Debug("$BC")
@@ -334,7 +336,7 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 	for _, bd := range files[1:] {
 		select {
 		case <-ctx.Done():
-			return nil, ErrCancelled
+			return nil, nil, ErrCancelled
 		default:
 		}
 
@@ -350,28 +352,36 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 
 		f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
 		if err != nil {
-			return meta, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+			return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
 		f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
-		meta = append(meta, *f)
+
+		if strings.HasPrefix(f.Name, journalPrefix) {
+			journal = append(journal, *f)
+		} else {
+			data = append(data, *f)
+		}
 
 		wfile = bd
 	}
 
 	if incr && wfile.Off == 0 && wfile.Len == 0 {
-		return meta, nil
+		return journal, data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, subdir, stg, comprT, comprL, l)
+	f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
 	if err != nil {
-		return meta, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
 	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+	if strings.HasPrefix(f.Name, journalPrefix) {
+		journal = append(journal, *f)
+	} else {
+		data = append(data, *f)
+	}
 
-	return append(meta, *f), nil
+	return journal, data, nil
 }
-
-const ChunkSuffix = ".bcpchunk."
 
 func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
 	fstat, err := os.Stat(src.Name)
@@ -383,7 +393,7 @@ func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storag
 	sz := fstat.Size()
 	if src.Len != 0 {
 		sz = src.Len
-		dst += fmt.Sprintf("%s%d-%d", ChunkSuffix, src.Off, src.Len)
+		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
 	}
 	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
