@@ -18,6 +18,7 @@ type RestoreMeta struct {
 	Name             string              `bson:"name" json:"name"`
 	OPID             string              `bson:"opid" json:"opid"`
 	Backup           string              `bson:"backup" json:"backup"`
+	BcpChain         []string            `bson:"bcp_chain" json:"bcp_chain"` // for incremental
 	Namespaces       []string            `bson:"nss,omitempty" json:"nss,omitempty"`
 	StartPITR        int64               `bson:"start_pitr" json:"start_pitr"`
 	PITR             int64               `bson:"pitr" json:"pitr"`

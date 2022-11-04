@@ -293,7 +293,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	switch bcp.Type {
-	case pbm.PhysicalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
 		a.HbPause()
 		err = a.restorePhysical(r, opid, ep, l)
 	case pbm.LogicalBackup:

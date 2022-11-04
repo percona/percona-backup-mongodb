@@ -732,12 +732,13 @@ func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, size int64) err
 	return err
 }
 
-func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
+func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
-			{"$set", bson.M{"replsets.$.files": f}},
+			{"$set", bson.M{"replsets.$.files": rs.Files}},
+			{"$set", bson.M{"replsets.$.journal": rs.Journal}},
 		},
 	)
 

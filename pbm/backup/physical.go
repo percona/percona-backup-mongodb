@@ -272,7 +272,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	rsMeta.Journal = append(rsMeta.Journal, ju...)
 	l.Info("uploading journals")
 
-	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta.Files)
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
@@ -280,6 +280,9 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	size := int64(0)
 	for _, f := range rsMeta.Files {
 		size += f.StgSize
+	}
+	for _, j := range rsMeta.Journal {
+		size += j.StgSize
 	}
 
 	err = b.cn.IncBackupSize(ctx, bcp.Name, size)

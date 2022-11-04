@@ -41,6 +41,11 @@ const (
 	defaultPort = 27017
 )
 
+type files struct {
+	BcpName string
+	Cmpr    compress.CompressionType
+	Data    []pbm.File
+}
 type PhysRestore struct {
 	cn     *pbm.PBM
 	node   *pbm.Node
@@ -57,7 +62,7 @@ type PhysRestore struct {
 	nodeInfo *pbm.NodeInfo
 	stg      storage.Storage
 	bcp      *pbm.BackupMeta
-	files    [][]pbm.File
+	files    []files
 
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
@@ -551,9 +556,17 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	if err != nil {
 		return err
 	}
+	meta.Type = r.bcp.Type
 	err = r.setTmpConf()
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
+	}
+
+	if meta.Type == pbm.IncrementalBackup {
+		meta.BcpChain = make([]string, 0, len(r.files))
+		for i := len(r.files) - 1; i >= 0; i-- {
+			meta.BcpChain = append(meta.BcpChain, r.files[i].BcpName)
+		}
 	}
 
 	_, err = r.toState(pbm.StatusStarting)
@@ -693,8 +706,9 @@ func (r *PhysRestore) copyFiles() error {
 	r.log.Debug("==> FILES\n%s", bbb)
 
 	for i := len(r.files) - 1; i >= 0; i-- {
-		for _, f := range r.files[i] {
-			src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
+		set := r.files[i]
+		for _, f := range set.Data {
+			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
@@ -712,7 +726,7 @@ func (r *PhysRestore) copyFiles() error {
 			}
 			defer sr.Close()
 
-			data, err := compress.Decompress(sr, r.bcp.Compression)
+			data, err := compress.Decompress(sr, set.Cmpr)
 			if err != nil {
 				return errors.Wrapf(err, "decompress object %s", src)
 			}
@@ -725,7 +739,9 @@ func (r *PhysRestore) copyFiles() error {
 			defer fw.Close()
 			if f.Off != 0 {
 				_, err := fw.Seek(f.Off, io.SeekStart)
-				return errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
+				if err != nil {
+					return errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
+				}
 			}
 			_, err = io.Copy(fw, data)
 			if err != nil {
@@ -1134,9 +1150,13 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 	partj := ""
 
 	rs := getRS(bcp, r.nodeInfo.SetName)
-	data := append([]pbm.File{}, rs.Files...)
+	data := files{
+		BcpName: bcp.Name,
+		Cmpr:    bcp.Compression,
+		Data:    append([]pbm.File{}, rs.Files...),
+	}
 	for _, j := range rs.Journal {
-		data = append(data, j)
+		data.Data = append(data.Data, j)
 		if j.Len != 0 && j.Len != j.Size {
 			partj = j.Name
 		}
@@ -1163,7 +1183,11 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 				}
 			}
 		}
-		r.files = append(r.files, data)
+		r.files = append(r.files, files{
+			BcpName: bcp.Name,
+			Cmpr:    bcp.Compression,
+			Data:    data,
+		})
 	}
 	return nil
 }
