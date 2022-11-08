@@ -648,6 +648,12 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			fallthrough
 		case pbm.StatusDone:
 			snpsht.RestoreTS = int64(bcp.LastWriteTS.T)
+			snpsht.Size, err = getBackupSize(&bcp, stg)
+			if err != nil {
+				snpsht.Err = err
+				snpsht.ErrString = err.Error()
+				snpsht.Status = pbm.StatusError
+			}
 		case pbm.StatusCancelled:
 			// leave as it is, not to rewrite status with the `stuck` error
 		default:
@@ -657,13 +663,6 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 				snpsht.ErrString = errStr
 				snpsht.Status = pbm.StatusError
 			}
-		}
-
-		snpsht.Size, err = getBackupSize(&bcp, stg)
-		if err != nil {
-			snpsht.Err = err
-			snpsht.ErrString = err.Error()
-			snpsht.Status = pbm.StatusError
 		}
 
 		s.Snapshot = append(s.Snapshot, snpsht)
