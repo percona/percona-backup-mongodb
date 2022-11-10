@@ -38,10 +38,16 @@ var terminatorBytes = []byte{0xFF, 0xFF, 0xFF, 0xFF}
 
 type MatchFunc func(ns string) bool
 
+func DefaultMatchFunc(string) bool { return true }
+
 func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
 	meta, err := readPrelude(r)
 	if err != nil {
 		return errors.WithMessage(err, "predule")
+	}
+
+	if match == nil {
+		match = DefaultMatchFunc
 	}
 
 	c := newConsumer(newWriter, match)
@@ -49,6 +55,7 @@ func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
 		return errors.WithMessage(err, "archive parser")
 	}
 
+	// save metadata for selected namespaces only
 	nss := make([]*Namespace, 0, len(meta.Namespaces))
 	for _, n := range meta.Namespaces {
 		ns := NSify(n.Database, n.Collection)
@@ -327,6 +334,7 @@ func (c *consumer) HeaderBSON(data []byte) error {
 
 	ns := NSify(h.Database, h.Collection)
 	if !c.match(ns) {
+		// non-selected namespace. ignore
 		c.curr = ""
 		return nil
 	}
@@ -350,6 +358,7 @@ func (c *consumer) HeaderBSON(data []byte) error {
 func (c *consumer) BodyBSON(data []byte) error {
 	ns := c.curr
 	if ns == "" {
+		// ignored. skip data loading/reading
 		return nil
 	}
 

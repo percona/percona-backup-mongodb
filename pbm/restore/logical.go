@@ -156,6 +156,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	return r.Done()
 }
 
+// newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
 func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 	dbs := make(map[string]bool, len(nss))
 	for _, ns := range nss {
@@ -170,6 +171,7 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 			return false
 		}
 
+		// create/drop database and movePrimary ops contain o2._id with the database name
 		for _, e := range r.Query {
 			if e.Key != "_id" {
 				continue
@@ -637,6 +639,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		}
 
 		if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+			// restore cluster specific configs only
 			return r.configsvrRestore(&cfg, bcp, nss)
 		}
 
@@ -686,6 +689,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 	return nil
 }
 
+// configsvrRestore upserts config.databases documents for selected dbs.
 func (r *Restore) configsvrRestore(cfg *pbm.Config, bcp *pbm.BackupMeta, nss []string) error {
 	stg, err := pbm.Storage(*cfg, r.log)
 	if err != nil {
@@ -705,6 +709,8 @@ func (r *Restore) configsvrRestore(cfg *pbm.Config, bcp *pbm.BackupMeta, nss []s
 		}
 	}
 
+	// go config.databases' docs and pick only selected databases docs
+	// insert/replace in bulk
 	models := []mongo.WriteModel{}
 	for buf := make([]byte, archive.MaxBSONSize); ; {
 		var data []byte

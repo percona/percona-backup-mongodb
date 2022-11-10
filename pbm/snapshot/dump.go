@@ -14,7 +14,10 @@ import (
 type UploadDumpOptions struct {
 	Compression      compress.CompressionType
 	CompressionLevel *int
-	NSFilter         archive.MatchFunc
+	// NSFilter check whether a namespace is selected for backup.
+	// Useful when 2 or more namespaces are selected for backup.
+	// mongo-tools is limited to backup a single collection or a single db (but with all collections).
+	NSFilter archive.MatchFunc
 }
 
 type UploadFunc func(ns, ext string, r io.Reader) error

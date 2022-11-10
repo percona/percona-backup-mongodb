@@ -32,6 +32,8 @@ import (
 
 type Record = db.Oplog
 
+// OpFilter can be used to filter out oplog records by content.
+// Useful for apply only subset of operations depending on conditions
 type OpFilter func(*Record) bool
 
 func DefaultOpFilter(*Record) bool { return true }
@@ -133,6 +135,7 @@ func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID b
 	}, nil
 }
 
+// SetOpFilter allows to restrict skip ops by specific conditions
 func (o *OplogRestore) SetOpFilter(f OpFilter) {
 	if f == nil {
 		f = DefaultOpFilter
