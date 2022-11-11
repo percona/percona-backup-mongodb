@@ -702,9 +702,6 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 }
 
 func (r *PhysRestore) copyFiles() error {
-	bbb, _ := json.MarshalIndent(r.files, "", "\t")
-	r.log.Debug("==> FILES\n%s", bbb)
-
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
@@ -1145,6 +1142,22 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	return nil
 }
 
+// Sets replset files that have to be copied to the target during the restore.
+// For non-incremental backups it's just the content of backups files (data) and
+// journals. For the incrementals it will gather files from preceding backups
+// travelling back in time from the target backup up to the closest base. Journal
+// files would be treated differently. We need to restore only journals from the
+// target (latest) backup. As the data from preceding journals already became
+// a data (checkpoint) in the following backup. But if the target backup
+// contains a chunk of the journal that started in the previous one(s), we should
+// retrieve that beginning.
+// Given `b` is backup, `j` is journals and `b3` is a target:
+// b0[j00], b1[j01, j02], b2[j02.10-16, j03], b3[j03.24-16, j04, j05]
+// journals in needed:
+// b2[j03], b3[j03.24-16, j04, j05]
+//
+// The restore should be done in reverse order. Applying files (diffs)
+// starting from the base and moving forward in time up to the target backup.
 func (r *PhysRestore) setBcpFiles() (err error) {
 	bcp := r.bcp
 	partj := ""

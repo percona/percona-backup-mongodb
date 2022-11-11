@@ -324,48 +324,49 @@ func (id *UUID) IsZero() bool {
 
 const journalPrefix = "journal/WiredTigerLog."
 
+// Uploads given files to the storage. files may come as 16Mb (by default)
+// blocks in that case it will concat consecutive blocks in one bigger file.
+// For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
+// If this is an incremental, NOT base backup, it will skip unchanged
+// files (Len == 0).
 func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
 	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (journal, data []pbm.File, err error) {
 	if len(files) == 0 {
 		return journal, data, err
 	}
 
-	l.Debug("$BC")
-	for _, bd := range files {
-		l.Debug("==> %s", bd)
-	}
-
 	wfile := files[0]
-	for _, bd := range files[1:] {
+	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():
 			return nil, nil, ErrCancelled
 		default:
 		}
 
-		if incr && bd.Off == 0 && bd.Len == 0 {
+		// skip onchanged files if increment
+		if incr && file.Off == 0 && file.Len == 0 {
 			continue
 		}
 
-		if wfile.Name == bd.Name &&
-			wfile.Off+wfile.Len == bd.Off {
-			wfile.Len += bd.Len
+		if wfile.Name == file.Name &&
+			wfile.Off+wfile.Len == file.Off {
+			wfile.Len += file.Len
 			continue
 		}
 
-		f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
+		fw, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
 		if err != nil {
 			return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
-		f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+		fw.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
 
-		if strings.HasPrefix(f.Name, journalPrefix) {
-			journal = append(journal, *f)
+		if strings.HasPrefix(fw.Name, journalPrefix) {
+			journal = append(journal, *fw)
 		} else {
-			data = append(data, *f)
+			data = append(data, *fw)
 		}
 
-		wfile = bd
+		wfile = file
 	}
 
 	if incr && wfile.Off == 0 && wfile.Len == 0 {
@@ -395,12 +396,17 @@ func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storag
 	dst += compression.Suffix()
 	sz := fstat.Size()
 	if src.Len != 0 {
+		// Len is always a multiple of the fixed size block (16Mb default)
+		// so Off + Len might be bigger than the actual file size
 		sz = src.Len
+		if src.Off+src.Len > src.Size {
+			sz = src.Size - src.Off
+		}
 		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
 	}
 	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
-	_, err = Upload(ctx, &src, stg, compression, compressLevel, dst, fstat.Size())
+	_, err = Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
