@@ -739,7 +739,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -803,7 +803,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -824,7 +824,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -910,18 +910,53 @@ func (r *PhysRestore) resetRS() error {
 	return nil
 }
 
-func conn(port int, rs string) (*mongo.Client, error) {
+// Tries to connect to mongo n times, timeout is applied for each try.
+// If a try is unsuccessful, it will check the mongo logs and retry if
+// there are no errors or fatals.
+func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Client, err error) {
+	type mlog struct {
+		T struct {
+			Date string `json:"$date"`
+		} `json:"t"`
+		S   string `json:"s"`
+		Msg string `json:"msg"`
+	}
+	for i := 0; i < n; i++ {
+		cn, err = conn(port, tout)
+		if err == nil {
+			return cn, nil
+		}
+
+		f, ferr := os.Open(logpath)
+		if ferr != nil {
+			return nil, errors.Errorf("open logs: %v, connect err: %v", ferr, err)
+		}
+		defer f.Close()
+		m := []mlog{}
+		derr := json.NewDecoder(f).Decode(&m)
+		if derr != nil {
+			return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
+		}
+
+		for _, msg := range m {
+			if msg.S == "E" || msg.S == "F" {
+				return nil, errors.Errorf("mongo failed with [%s] %s / %s, connect err: %v", msg.S, msg.Msg, msg.T.Date, err)
+			}
+		}
+	}
+
+	return nil, errors.Errorf("failed to  connect after %d tries: %v", n, err)
+}
+
+func conn(port int, tout time.Duration) (*mongo.Client, error) {
 	ctx := context.Background()
 
 	opts := options.Client().
 		SetHosts([]string{"localhost:" + strconv.Itoa(port)}).
 		SetAppName("pbm-physical-restore").
 		SetDirect(true).
-		SetConnectTimeout(time.Second * 60)
-
-	if rs != "" {
-		opts = opts.SetReplicaSet(rs)
-	}
+		SetConnectTimeout(time.Second * 120).
+		SetServerSelectionTimeout(tout)
 
 	conn, err := mongo.NewClient(opts)
 	if err != nil {
