@@ -14,6 +14,10 @@ import (
 type UploadDumpOptions struct {
 	Compression      compress.CompressionType
 	CompressionLevel *int
+	// NSFilter check whether a namespace is selected for backup.
+	// Useful when 2 or more namespaces are selected for backup.
+	// mongo-tools is limited to backup a single collection or a single db (but with all collections).
+	NSFilter archive.MatchFunc
 }
 
 type UploadFunc func(ns, ext string, r io.Reader) error
@@ -58,7 +62,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
 	}
 
-	err := archive.Decompose(pr, newWriter)
+	err := archive.Decompose(pr, newWriter, opts.NSFilter)
 	wg.Wait()
 	return size, errors.WithMessage(err, "decompose")
 }

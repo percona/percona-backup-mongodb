@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -121,7 +122,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
+	err = r.RunSnapshot(dump, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -131,13 +132,19 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
+	oplogOption := &applyOplogOption{nss: nss}
+	if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+		oplogOption.nss = []string{"config.databases"}
+		oplogOption.filter = newConfigsvrOpFilter(nss)
+	}
+
 	err = r.applyOplog([]pbm.OplogChunk{{
 		RS:          r.nodeInfo.SetName,
 		FName:       oplog,
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
-	}}, &applyOplogOption{nss: cmd.Namespaces})
+	}}, oplogOption)
 	if err != nil {
 		return err
 	}
@@ -147,6 +154,37 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	}
 
 	return r.Done()
+}
+
+// newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
+func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
+	dbs := make(map[string]bool, len(nss))
+	for _, ns := range nss {
+		db, _, _ := strings.Cut(ns, ".")
+		if db != "" && db != "*" {
+			dbs[db] = true
+		}
+	}
+
+	return func(r *oplog.Record) bool {
+		if r.Namespace != "config.databases" {
+			return false
+		}
+
+		// create/drop database and movePrimary ops contain o2._id with the database name
+		for _, e := range r.Query {
+			if e.Key != "_id" {
+				continue
+			}
+
+			v, _ := e.Value.(string)
+			if dbs[v] {
+				return true
+			}
+		}
+
+		return false
+	}
 }
 
 // PITR do the Point-in-Time Recovery
@@ -229,7 +267,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
-	err = r.RunSnapshot(dump, bcp, cmd.Namespaces)
+	err = r.RunSnapshot(dump, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -247,7 +285,12 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	oplogOption := applyOplogOption{end: &tsTo, nss: cmd.Namespaces}
+	oplogOption := applyOplogOption{end: &tsTo, nss: nss}
+	if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+		oplogOption.nss = []string{"config.databases"}
+		oplogOption.filter = newConfigsvrOpFilter(nss)
+	}
+
 	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
 	if err != nil {
 		return err
@@ -576,6 +619,10 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		}
 	} else {
 		if len(nss) == 0 {
+			nss = bcp.Namespaces
+		}
+
+		if !isSelective(nss) {
 			nss = []string{"*.*"}
 		}
 
@@ -585,7 +632,17 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return err
 		}
 
-		cfg, err := r.cn.GetConfig()
+		if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+			// restore cluster specific configs only
+			return r.configsvrRestore(bcp, nss)
+		}
+
+		var cfg pbm.Config
+		// get pbm.Config for creating a storage.Storage later.
+		// while r.stg is already created storage for the restore,
+		// it triggers data race warnings during concurrent file downloading/reading.
+		// for that, it's better to create a new storage for each file
+		cfg, err = r.cn.GetConfig()
 		if err != nil {
 			return errors.WithMessage(err, "get config")
 		}
@@ -613,7 +670,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if isSelective(bcp.Namespaces) || isSelective(nss) {
+	if isSelective(nss) {
 		return nil
 	}
 
@@ -634,6 +691,66 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 	}
 
 	return nil
+}
+
+// configsvrRestore upserts config.databases documents for selected dbs.
+func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
+	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"))
+	if err != nil {
+		return err
+	}
+
+	ss := make(map[string]bool, len(nss))
+	for _, ns := range nss {
+		db, _, _ := strings.Cut(ns, ".")
+		if db != "" && db != "*" {
+			ss[db] = true
+		}
+	}
+
+	// go config.databases' docs and pick only selected databases docs
+	// insert/replace in bulk
+	models := []mongo.WriteModel{}
+	for buf := make([]byte, archive.MaxBSONSize); ; {
+		var data []byte
+
+		data, err = archive.ReadBSONBuffer(rdr, buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return err
+		}
+
+		db, _ := bson.Raw(data).Lookup("_id").StringValueOK()
+		if !ss[db] {
+			continue
+		}
+
+		doc := bson.D{}
+		err = bson.Unmarshal(data, &doc)
+		if err != nil {
+			return errors.WithMessage(err, "unmarshal")
+		}
+
+		model := mongo.NewReplaceOneModel()
+		model.SetFilter(bson.D{{"_id", db}})
+		model.SetReplacement(doc)
+		model.SetUpsert(true)
+		models = append(models, model)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+
+	if len(models) == 0 {
+		return nil
+	}
+
+	coll := r.cn.Conn.Database("config").Collection("databases")
+	_, err = coll.BulkWrite(r.cn.Context(), models)
+	return errors.WithMessage(err, "update config.databases")
 }
 
 func isSelective(nss []string) bool {
@@ -823,6 +940,7 @@ type applyOplogOption struct {
 	end    *primitive.Timestamp
 	nss    []string
 	unsafe bool
+	filter oplog.OpFilter
 }
 
 // In order to sync distributed transactions (commit ontly when all participated shards are committed),
@@ -865,6 +983,8 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	if err != nil {
 		return errors.Wrap(err, "create oplog")
 	}
+
+	r.oplog.SetOpFilter(options.filter)
 
 	var startTS, endTS primitive.Timestamp
 	if options.start != nil {

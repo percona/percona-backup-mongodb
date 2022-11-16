@@ -30,6 +30,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
+type Record = db.Oplog
+
+// OpFilter can be used to filter out oplog records by content.
+// Useful for apply only subset of operations depending on conditions
+type OpFilter func(*Record) bool
+
+func DefaultOpFilter(*Record) bool { return true }
+
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
 	pbm.DB + "." + pbm.TmpUsersCollection,
@@ -89,6 +97,8 @@ type OplogRestore struct {
 	cnamespase   string
 
 	unsafe bool
+
+	filter OpFilter
 }
 
 // NewOplogRestore creates an object for an oplog applying
@@ -121,7 +131,17 @@ func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID b
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
 		unsafe:            unsafe,
+		filter:            DefaultOpFilter,
 	}, nil
+}
+
+// SetOpFilter allows to restrict skip ops by specific conditions
+func (o *OplogRestore) SetOpFilter(f OpFilter) {
+	if f == nil {
+		f = DefaultOpFilter
+	}
+
+	o.filter = f
 }
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
@@ -209,6 +229,10 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	}
 
 	if o.includeNS != nil && !o.includeNS.Has(oe.Namespace) {
+		return nil
+	}
+
+	if !o.filter(&oe) {
 		return nil
 	}
 

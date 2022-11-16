@@ -24,7 +24,13 @@ import (
 func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
 	var db, coll string
 	if len(bcp.Namespaces) != 0 {
-		db, coll = parseNS(bcp.Namespaces[0])
+		// for selective backup, configsvr does not hold any data.
+		// only some collections from config db is required to restore cluster state
+		if inf.IsConfigSrv() {
+			db = "config"
+		} else {
+			db, coll = parseNS(bcp.Namespaces[0])
+		}
 	}
 
 	nssSize, err := getNamespacesSize(ctx, b.node.Session(), db, coll)
@@ -115,6 +121,11 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.WithMessage(err, "get config")
 	}
 
+	nsFilter := archive.DefaultMatchFunc
+	if len(bcp.Namespaces) != 0 && inf.IsConfigSrv() {
+		nsFilter = makeConfigsvrNSFilter()
+	}
+
 	snapshotSize, err := snapshot.UploadDump(dump,
 		func(ns, ext string, r io.Reader) error {
 			stg, err := pbm.Storage(cfg, l)
@@ -128,6 +139,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		snapshot.UploadDumpOptions{
 			Compression:      bcp.Compression,
 			CompressionLevel: bcp.CompressionLevel,
+			NSFilter:         nsFilter,
 		})
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
@@ -185,6 +197,15 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	}
 
 	return nil
+}
+
+func makeConfigsvrNSFilter() archive.MatchFunc {
+	// list of required namespaces for further selective restore
+	allowed := map[string]bool{
+		"config.databases": true,
+	}
+
+	return func(ns string) bool { return allowed[ns] }
 }
 
 func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
