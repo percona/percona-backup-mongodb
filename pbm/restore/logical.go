@@ -632,15 +632,19 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return err
 		}
 
+		if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+			// restore cluster specific configs only
+			return r.configsvrRestore(bcp, nss)
+		}
+
 		var cfg pbm.Config
+		// get pbm.Config for creating a storage.Storage later.
+		// while r.stg is already created storage for the restore,
+		// it triggers data race warnings during concurrent file downloading/reading.
+		// for that, it's better to create a new storage for each file
 		cfg, err = r.cn.GetConfig()
 		if err != nil {
 			return errors.WithMessage(err, "get config")
-		}
-
-		if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
-			// restore cluster specific configs only
-			return r.configsvrRestore(&cfg, bcp, nss)
 		}
 
 		rdr, err = snapshot.DownloadDump(
@@ -690,13 +694,8 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 }
 
 // configsvrRestore upserts config.databases documents for selected dbs.
-func (r *Restore) configsvrRestore(cfg *pbm.Config, bcp *pbm.BackupMeta, nss []string) error {
-	stg, err := pbm.Storage(*cfg, r.log)
-	if err != nil {
-		return errors.WithMessage(err, "get storage")
-	}
-
-	rdr, err := stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"))
+func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
+	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"))
 	if err != nil {
 		return err
 	}
