@@ -148,7 +148,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 func checkBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage) error {
 	// !!! TODO: Check physical files ?
-	if bcp.Type == PhysicalBackup {
+	if bcp.Type == PhysicalBackup || bcp.Type == IncrementalBackup {
 		return nil
 	}
 

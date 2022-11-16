@@ -82,12 +82,14 @@ func Main() {
 			string(compress.CompressionTypeS2), string(compress.CompressionTypePGZIP),
 			string(compress.CompressionTypeZstandard),
 		)
-	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup)).
+	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup, pbm.IncrementalBackup)).
 		Default(string(pbm.LogicalBackup)).Short('t').
 		EnumVar(&backup.typ,
 			string(pbm.PhysicalBackup),
 			string(pbm.LogicalBackup),
+			string(pbm.IncrementalBackup),
 		)
+	backupCmd.Flag("base", "Is this a base for incremental backups").BoolVar(&backup.base)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).StringVar(&backup.ns)

@@ -135,7 +135,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	var rmeta *pbm.RestoreMeta
 
 	getMeta := cn.GetRestoreMeta
-	if m.Type == pbm.PhysicalBackup {
+	if m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup {
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
 			return pbm.GetPhysRestoreMeta(name, stg)
 		}
