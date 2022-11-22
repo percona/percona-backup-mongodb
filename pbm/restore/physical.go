@@ -949,15 +949,17 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 			return nil, errors.Errorf("open logs: %v, connect err: %v", ferr, err)
 		}
 		defer f.Close()
-		m := []mlog{}
-		derr := json.NewDecoder(f).Decode(&m)
-		if derr != nil {
-			return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
-		}
 
-		for _, msg := range m {
-			if msg.S == "E" || msg.S == "F" {
-				return nil, errors.Errorf("mongo failed with [%s] %s / %s, connect err: %v", msg.S, msg.Msg, msg.T.Date, err)
+		dec := json.NewDecoder(f)
+		for {
+			var m mlog
+			if derr := dec.Decode(&m); derr == io.EOF {
+				break
+			} else if derr != nil {
+				return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
+			}
+			if m.S == "E" || m.S == "F" {
+				return nil, errors.Errorf("mongo failed with [%s] %s / %s, connect err: %v", m.S, m.Msg, m.T.Date, err)
 			}
 		}
 	}
