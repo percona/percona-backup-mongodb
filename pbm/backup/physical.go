@@ -167,10 +167,10 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		if !b.incrBase {
 			src, err := b.cn.LastIncrementalBackup()
 			if err != nil {
-				return errors.Wrap(err, "define base backup")
+				return errors.Wrap(err, "define source backup")
 			}
 			if src == nil {
-				return errors.Wrap(err, "nil base backup")
+				return errors.Wrap(err, "nil source backup")
 			}
 
 			// ? should be done during Init()?

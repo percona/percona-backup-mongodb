@@ -542,6 +542,7 @@ type BackupReplset struct {
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Node             string              `bson:"node" json:"node"` // node that performed backup
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	MongodOpts       *MongodOpts         `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`

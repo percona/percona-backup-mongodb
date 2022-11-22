@@ -111,6 +111,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 
 	rsMeta := pbm.BackupReplset{
 		Name:         inf.SetName,
+		Node:         inf.Me,
 		StartTS:      time.Now().UTC().Unix(),
 		Status:       pbm.StatusRunning,
 		Conditions:   []pbm.Condition{},

@@ -114,7 +114,27 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 			return
 		}
 		l.Debug("init backup meta")
-		nodes, err := a.pbm.BcpNodesPriority()
+
+		// Incremental backup history is stored by WiredTiger on the node
+		// not replset. So an `incremental && not_base` backup should land on
+		// the agent that made a previous (src) backup.
+		const srcHostMultiplier = 3.0
+		var c map[string]float64
+		if cmd.Type == pbm.IncrementalBackup && !cmd.IncrBase {
+			src, err := a.pbm.LastIncrementalBackup()
+			if err != nil {
+				// try backup anyway
+				l.Warning("define source backup: %v", err)
+			} else {
+				for _, rs := range src.Replsets {
+					if rs.Name == nodeInfo.SetName {
+						c = map[string]float64{rs.Node: srcHostMultiplier}
+						break
+					}
+				}
+			}
+		}
+		nodes, err := a.pbm.BcpNodesPriority(c)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return

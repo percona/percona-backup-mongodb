@@ -39,7 +39,9 @@ type agentScore func(AgentStat) float64
 
 // BcpNodesPriority returns list nodes grouped by backup preferences
 // in descended order. First are nodes with the highest priority.
-func (p *PBM) BcpNodesPriority() (*NodesPriority, error) {
+// Custom coefficients might be passed. These will be ignored though
+// if the config is set.
+func (p *PBM) BcpNodesPriority(c map[string]float64) (*NodesPriority, error) {
 	cfg, err := p.GetConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
@@ -51,14 +53,14 @@ func (p *PBM) BcpNodesPriority() (*NodesPriority, error) {
 
 	// if cfg.Backup.Priority doesn't set apply defaults
 	f := func(a AgentStat) float64 {
-		switch {
-		case a.State == NodeStatePrimary:
+		if coeff, ok := c[a.Node]; ok && c != nil {
+			return defaultScore * coeff
+		} else if a.State == NodeStatePrimary {
 			return defaultScore / 2
-		case a.Hidden:
+		} else if a.Hidden {
 			return defaultScore * 2
-		default:
-			return defaultScore
 		}
+		return defaultScore
 	}
 
 	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
