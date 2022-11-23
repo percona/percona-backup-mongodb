@@ -92,7 +92,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		if err == nil {
 			return restoreRet{
 				done:     true,
-				physical: m.Type == pbm.PhysicalBackup,
+				physical: m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup,
 			}, nil
 		}
 
@@ -229,7 +229,7 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 
 	// physical restore may take more time to start
 	const waitPhysRestoreStart = time.Second * 120
-	if bcp.Type == pbm.PhysicalBackup {
+	if bcp.Type == pbm.PhysicalBackup || bcp.Type == pbm.IncrementalBackup {
 		ep, _ := cn.GetEpoch()
 		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
 		if err != nil {
