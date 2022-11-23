@@ -748,17 +748,27 @@ func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error
 	if bcp.Size > 0 {
 		return bcp.Size, nil
 	}
-	return getLegacySnapshotSize(bcp.Replsets, bcp.Type, stg)
+
+	switch bcp.Status {
+	case pbm.StatusDone, pbm.StatusCancelled, pbm.StatusError:
+		s, err = getLegacySnapshotSize(bcp, stg)
+		if errors.Is(err, errMissedFile) && bcp.Status != pbm.StatusDone {
+			// canceled/failed backup can be incomplete. ignore
+			err = nil
+		}
+	}
+
+	return s, err
 }
 
-func getLegacySnapshotSize(rsets []pbm.BackupReplset, typ pbm.BackupType, stg storage.Storage) (s int64, err error) {
-	switch typ {
+func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	switch bcp.Type {
 	case pbm.LogicalBackup:
-		return getLegacyLogicalSize(rsets, stg)
+		return getLegacyLogicalSize(bcp, stg)
 	case pbm.PhysicalBackup, pbm.IncrementalBackup:
-		return getLegacyPhysSize(rsets, stg)
+		return getLegacyPhysSize(bcp.Replsets, stg)
 	default:
-		return 0, errors.Errorf("unknown backup type %s", typ)
+		return 0, errors.Errorf("unknown backup type %s", bcp.Type)
 	}
 }
 
@@ -772,19 +782,30 @@ func getLegacyPhysSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64,
 	return s, nil
 }
 
-func getLegacyLogicalSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
-	for _, rs := range rsets {
-		ds, err := stg.FileStat(rs.DumpName)
-		if err != nil {
-			return s, errors.Wrapf(err, "get file %s", rs.DumpName)
+var errMissedFile = errors.New("missed file")
+
+func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	for _, rs := range bcp.Replsets {
+		ds, er := stg.FileStat(rs.DumpName)
+		if er != nil {
+			if bcp.Status == pbm.StatusDone || !errors.Is(er, storage.ErrNotExist) {
+				return s, errors.Wrapf(er, "get file %s", rs.DumpName)
+			}
+
+			err = errMissedFile
 		}
-		op, err := stg.FileStat(rs.OplogName)
-		if err != nil {
-			return s, errors.Wrapf(err, "get file %s", rs.OplogName)
+
+		op, er := stg.FileStat(rs.OplogName)
+		if er != nil {
+			if bcp.Status == pbm.StatusDone || !errors.Is(er, storage.ErrNotExist) {
+				return s, errors.Wrapf(er, "get file %s", rs.OplogName)
+			}
+
+			err = errMissedFile
 		}
 
 		s += ds.Size + op.Size
 	}
 
-	return s, nil
+	return s, err
 }

@@ -287,7 +287,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 			return nil, errors.WithMessage(err, "get storage")
 		}
 
-		rv.Size, err = getLegacySnapshotSize(bcp.Replsets, bcp.Type, stg)
+		rv.Size, err = getLegacySnapshotSize(bcp, stg)
 		if err != nil {
 			return nil, errors.WithMessage(err, "get snapshot size")
 		}
