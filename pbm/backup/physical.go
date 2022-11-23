@@ -188,6 +188,11 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
+		if b.typ == pbm.IncrementalBackup && strings.Contains(err.Error(), "(UnknownError) 2: No such file or directory") {
+			return errors.New("can't find incremental backup history." +
+				" Previous backup was made on another node." +
+				" You can make a new base incremental backup to start a new history.")
+		}
 		return errors.Wrap(err, "get backup files")
 	}
 
