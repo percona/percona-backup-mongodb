@@ -744,6 +744,12 @@ func (r *PhysRestore) copyFiles() error {
 			if err != nil {
 				return errors.Wrapf(err, "copy file <%s>", dst)
 			}
+			if f.Size != 0 {
+				err = fw.Truncate(f.Size)
+				if err != nil {
+					return errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
+				}
+			}
 		}
 	}
 	return nil
