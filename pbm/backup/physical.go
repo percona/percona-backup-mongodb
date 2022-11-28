@@ -348,14 +348,15 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		default:
 		}
 
-		// skip onchanged files if increment
-		if incr && file.Off == 0 && file.Len == 0 {
+		// skip unchanged files if increment
+		if incr && file.Len == 0 {
 			continue
 		}
 
 		if wfile.Name == file.Name &&
 			wfile.Off+wfile.Len == file.Off {
 			wfile.Len += file.Len
+			wfile.Size = file.Size
 			continue
 		}
 
