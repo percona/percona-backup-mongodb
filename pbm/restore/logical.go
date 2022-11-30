@@ -647,14 +647,17 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return errors.WithMessage(err, "get config")
 		}
 
+		mapRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
 				stg, err := pbm.Storage(cfg, r.log)
 				if err != nil {
 					return nil, errors.WithMessage(err, "get storage")
 				}
-
-				return stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
+				// while importing backup made by RS with another name
+				// that current RS we can't use our r.node.RS() to point files
+				// we have to use mapping passed by --replset-mapping option
+				return stg.SourceReader(path.Join(bcp.Name, mapRS(r.node.RS()), ns))
 			},
 			bcp.Compression,
 			m.Has)
