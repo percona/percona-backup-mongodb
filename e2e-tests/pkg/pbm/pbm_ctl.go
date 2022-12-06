@@ -223,7 +223,7 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 				case pbm.StatusDone:
 					return nil
 				case pbm.StatusError:
-					errors.Errorf("failed with %s", r.Error)
+					return errors.Errorf("failed with %s", r.Error)
 				}
 			}
 		}
