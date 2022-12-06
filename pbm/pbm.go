@@ -35,7 +35,7 @@ const (
 	// by agents to coordinate mutually exclusive operations (e.g. backup/restore)
 	LockCollection = "pbmLock"
 	// LockOpCollection is the name of the mongo collection that is used
-	// by agents to coordinate operations that doesn't need to be
+	// by agents to coordinate operations that don't need to be
 	// mutually exclusive to other operation types (e.g. backup-delete)
 	LockOpCollection = "pbmLockOp"
 	// BcpCollection is a collection for backups metadata
@@ -255,7 +255,7 @@ type PBM struct {
 
 // New creates a new PBM object.
 // In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
-// If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
+// If agent's or ctl's local node is not a member of ConfigServer, after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -288,7 +288,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	// no need in this connection anymore, we need a new one with the ConfigServer
 	err = client.Disconnect(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "diconnect old client")
+		return nil, errors.Wrap(err, "disconnect old client")
 	}
 
 	chost := strings.Split(csvr.URI, "/")
@@ -606,8 +606,8 @@ func (p *PBM) SetBackupMeta(m *BackupMeta) error {
 	return err
 }
 
-// RS returns the metada of the replset with given name.
-// It returns nil if no replsent found.
+// RS returns the metadata of the replset with given name.
+// It returns nil if no replset found.
 func (b *BackupMeta) RS(name string) *BackupReplset {
 	for _, rs := range b.Replsets {
 		if rs.Name == name {
