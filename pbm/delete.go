@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -87,7 +88,7 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 // DeleteBackupFiles removes backup's artifacts from storage
 func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	switch meta.Type {
-	case PhysicalBackup:
+	case PhysicalBackup, IncrementalBackup:
 		return p.deletePhysicalBackupFiles(meta, stg)
 	case LogicalBackup:
 		fallthrough
@@ -107,6 +108,19 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
 			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
+			if f.Len != 0 {
+				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
+			err = stg.Delete(fname)
+			if err != nil && err != storage.ErrNotExist {
+				return errors.Wrapf(err, "delete %s", fname)
+			}
+		}
+		for _, f := range r.Journal {
+			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
+			if f.Len != 0 {
+				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
 			err = stg.Delete(fname)
 			if err != nil && err != storage.ErrNotExist {
 				return errors.Wrapf(err, "delete %s", fname)
