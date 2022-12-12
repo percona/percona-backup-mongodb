@@ -1032,7 +1032,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 const hbFrameSec = 60 * 2
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
-	r.stg, err = r.cn.GetStorage(r.log)
+	r.stg, err = r.cn.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
