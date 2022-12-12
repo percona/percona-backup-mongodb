@@ -201,7 +201,8 @@ func (r *PhysRestore) flush() error {
 		time.Sleep(time.Second * 1)
 	}
 
-	err = r.waitMgoShutdown()
+	r.log.Debug("waiting for the node to shutdown")
+	err = waitMgoShutdown(r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown")
 	}
@@ -215,15 +216,13 @@ func (r *PhysRestore) flush() error {
 	return nil
 }
 
-func (r *PhysRestore) waitMgoShutdown() error {
-	r.log.Debug("waiting for the node to shutdown")
-
+func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 	for range tk.C {
-		f, err := os.Stat(path.Join(r.dbpath, mongofslock))
+		f, err := os.Stat(path.Join(dbpath, mongofslock))
 		if err != nil {
-			return errors.Wrapf(err, "check for lock file %s", path.Join(r.dbpath, mongofslock))
+			return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
 		}
 
 		if f.Size() == 0 {
@@ -801,7 +800,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -809,10 +808,15 @@ func (r *PhysRestore) prepareData() error {
 	return nil
 }
 
-func shutdown(c *mongo.Client) error {
+func shutdown(c *mongo.Client, dbpath string) error {
 	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
+	}
+
+	err = waitMgoShutdown(dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown")
 	}
 
 	return nil
@@ -831,7 +835,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -925,7 +929,7 @@ func (r *PhysRestore) resetRS() error {
 		}
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
