@@ -105,8 +105,8 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		if err != nil {
 			return nil, err
 		}
-		if !o.wait || m == nil {
-			return restoreRet{PITR: o.pitr}, nil
+		if !o.wait {
+			return restoreRet{PITR: o.pitr, Name: m.Name}, nil
 		}
 		fmt.Print("Started.\nWaiting to finish")
 		err = waitRestore(cn, m)
@@ -299,7 +299,7 @@ func pitrestore(cn *pbm.PBM, t, base string, nss []string, rsMap map[string]stri
 	}
 
 	if outf != outText {
-		return nil, nil
+		return &pbm.RestoreMeta{Name: name}, nil
 	}
 
 	fmt.Printf("Starting restore to the point in time '%s'", t)
