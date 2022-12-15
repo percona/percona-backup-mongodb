@@ -82,7 +82,7 @@ type OplogRestore struct {
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
-	includeNS         *ns.Matcher
+	selectedNS        func(string) bool
 	noUUIDns          *ns.Matcher
 
 	txn        chan pbm.RestoreTxn
@@ -127,6 +127,7 @@ func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID b
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      idx.NewIndexCatalog(),
 		excludeNS:         m,
+		selectedNS:        func(string) bool { return true },
 		noUUIDns:          noUUID,
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
@@ -195,17 +196,25 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	return lts, bsonSource.Err()
 }
 
-func (o *OplogRestore) SetIncludeNSS(nss []string) error {
+func (o *OplogRestore) SetSelectedNSS(nss []string) error {
 	if len(nss) == 0 {
+		o.selectedNS = func(string) bool { return true }
 		return nil
 	}
 
-	m, err := ns.NewMatcher(nss)
-	if err != nil {
-		return err
+	nsSet := make(map[string]struct{})
+	for _, ns := range nss {
+		nsSet[ns] = struct{}{}
+
+		db, _, _ := strings.Cut(ns, ".")
+		nsSet[db+".$cmd"] = struct{}{}
 	}
 
-	o.includeNS = m
+	o.selectedNS = func(s string) bool {
+		_, ok := nsSet[s]
+		return ok
+	}
+
 	return nil
 }
 
@@ -228,7 +237,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if o.includeNS != nil && !o.includeNS.Has(oe.Namespace) {
+	if !o.selectedNS(oe.Namespace) {
 		return nil
 	}
 
