@@ -82,7 +82,7 @@ type OplogRestore struct {
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
-	selectedNS        func(string) bool
+	selectedNSS       map[string]map[string]bool
 	noUUIDns          *ns.Matcher
 
 	txn        chan pbm.RestoreTxn
@@ -127,7 +127,6 @@ func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID b
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      idx.NewIndexCatalog(),
 		excludeNS:         m,
-		selectedNS:        func(string) bool { return true },
 		noUUIDns:          noUUID,
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
@@ -196,26 +195,64 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	return lts, bsonSource.Err()
 }
 
-func (o *OplogRestore) SetSelectedNSS(nss []string) error {
+func (o *OplogRestore) SetSelectedNSS(nss []string) {
 	if len(nss) == 0 {
-		o.selectedNS = func(string) bool { return true }
-		return nil
+		o.selectedNSS = nil
+		return
 	}
 
-	nsSet := make(map[string]struct{})
+	dbs := make(map[string]map[string]bool)
 	for _, ns := range nss {
-		nsSet[ns] = struct{}{}
+		db, coll, _ := strings.Cut(ns, ".")
+		if db == "*" {
+			db = ""
+		}
+		if coll == "*" {
+			coll = ""
+		}
 
-		db, _, _ := strings.Cut(ns, ".")
-		nsSet[db+".$cmd"] = struct{}{}
+		colls := dbs[db]
+		if colls == nil {
+			colls = make(map[string]bool)
+		}
+
+		colls[coll] = true
+		dbs[db] = colls
 	}
 
-	o.selectedNS = func(s string) bool {
-		_, ok := nsSet[s]
-		return ok
+	o.selectedNSS = dbs
+}
+
+func (o *OplogRestore) isOpSelected(oe *Record) bool {
+	if o.selectedNSS == nil || o.selectedNSS[""] != nil {
+		return true
 	}
 
-	return nil
+	db, coll, _ := strings.Cut(oe.Namespace, ".")
+	colls := o.selectedNSS[db]
+	if len(colls) == 0 {
+		return false
+	}
+	if colls[""] || colls[coll] {
+		return true
+	}
+
+	if oe.Operation != "c" || coll != "$cmd" {
+		return false
+	}
+
+	m := oe.Object.Map()
+
+	if ns, ok := m["create"]; ok {
+		s, _ := ns.(string)
+		return colls[s]
+	}
+	if ns, ok := m["drop"]; ok {
+		s, _ := ns.(string)
+		return colls[s]
+	}
+
+	return false
 }
 
 func (o *OplogRestore) LastOpTS() uint32 {
@@ -237,7 +274,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if !o.selectedNS(oe.Namespace) {
+	if !o.isOpSelected(&oe) {
 		return nil
 	}
 
