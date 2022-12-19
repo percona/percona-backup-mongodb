@@ -64,6 +64,14 @@ var knownCommands = map[string]struct{}{
 	"commitIndexBuild": {},
 }
 
+var selectedNSSupportedCommands = []string{
+	"create",
+	"drop",
+	"createIndexes",
+	"dropIndexes",
+	"collMod",
+}
+
 var dontPreserveUUID = []string{
 	"admin.system.users",
 	"admin.system.roles",
@@ -82,7 +90,7 @@ type OplogRestore struct {
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
-	selectedNSS       map[string]map[string]bool
+	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
 
 	txn        chan pbm.RestoreTxn
@@ -195,61 +203,54 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	return lts, bsonSource.Err()
 }
 
-func (o *OplogRestore) SetSelectedNSS(nss []string) {
+func (o *OplogRestore) SetIncludeNS(nss []string) {
 	if len(nss) == 0 {
-		o.selectedNSS = nil
+		o.includeNS = nil
 		return
 	}
 
 	dbs := make(map[string]map[string]bool)
 	for _, ns := range nss {
-		db, coll, _ := strings.Cut(ns, ".")
-		if db == "*" {
-			db = ""
+		d, c, _ := strings.Cut(ns, ".")
+		if d == "*" {
+			d = ""
 		}
-		if coll == "*" {
-			coll = ""
+		if c == "*" {
+			c = ""
 		}
 
-		colls := dbs[db]
+		colls := dbs[d]
 		if colls == nil {
 			colls = make(map[string]bool)
 		}
-
-		colls[coll] = true
-		dbs[db] = colls
+		colls[c] = true
+		dbs[d] = colls
 	}
 
-	o.selectedNSS = dbs
+	o.includeNS = dbs
 }
 
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
-	if o.selectedNSS == nil || o.selectedNSS[""] != nil {
+	if o.includeNS == nil || o.includeNS[""] != nil {
 		return true
 	}
 
-	db, coll, _ := strings.Cut(oe.Namespace, ".")
-	colls := o.selectedNSS[db]
-	if len(colls) == 0 {
-		return false
-	}
-	if colls[""] || colls[coll] {
+	d, c, _ := strings.Cut(oe.Namespace, ".")
+	colls := o.includeNS[d]
+	if colls[""] || colls[c] {
 		return true
 	}
 
-	if oe.Operation != "c" || coll != "$cmd" {
+	if oe.Operation != "c" || c != "$cmd" {
 		return false
 	}
 
 	m := oe.Object.Map()
-
-	if ns, ok := m["create"]; ok {
-		s, _ := ns.(string)
-		return colls[s]
-	}
-	if ns, ok := m["drop"]; ok {
-		s, _ := ns.(string)
-		return colls[s]
+	for _, cmd := range selectedNSSupportedCommands {
+		if ns, ok := m[cmd]; ok {
+			s, _ := ns.(string)
+			return colls[s]
+		}
 	}
 
 	return false

@@ -994,7 +994,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		endTS = *options.end
 	}
 	r.oplog.SetTimeframe(startTS, endTS)
-	r.oplog.SetSelectedNSS(options.nss)
+	r.oplog.SetIncludeNS(options.nss)
 
 	var waitTxnErr error
 	if r.nodeInfo.IsSharded() {
