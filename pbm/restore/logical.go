@@ -695,7 +695,11 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 
 // configsvrRestore upserts config.databases documents for selected dbs.
 func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
-	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"))
+	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"+bcp.Compression.Suffix()))
+	if err != nil {
+		return err
+	}
+	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
 	}
