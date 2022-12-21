@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"container/heap"
 	"crypto/md5"
 	"crypto/tls"
@@ -12,6 +13,7 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -565,6 +567,7 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 			cc = s.opts.NumDownloadWorkers
 		}
 
+		cc = 1
 		pr.Run(cc)
 
 		exitErr := io.EOF
@@ -677,17 +680,6 @@ func (pr *partReader) writeChunk(r *chunk, to io.Writer, retry int) error {
 	b, err := io.CopyBuffer(to, r.r, pr.buf)
 	pr.written += b
 	r.r.Close()
-	if err == nil {
-		return nil
-	}
-
-	if r.meta.attempt < downloadRetries {
-		r.meta.attempt++
-		r.meta.start = pr.written
-		pr.l.Warning("copy err: %v, try to reconnect in %v", err, time.Second*time.Duration(r.meta.attempt))
-		go func() { pr.taskq <- r.meta }()
-		return nil
-	}
 
 	return err
 }
@@ -796,6 +788,7 @@ func (pr *partReader) getChunk(s *s3.S3, start, end int64) (io.ReadCloser, error
 		pr.l.Warning("errGetObj Err: %v", err)
 		return nil, errGetObj(err)
 	}
+	defer s3obj.Body.Close()
 
 	if sse != nil {
 		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
@@ -812,7 +805,30 @@ func (pr *partReader) getChunk(s *s3.S3, start, end int64) (io.ReadCloser, error
 		}
 	}
 
-	return s3obj.Body, nil
+	buf := newBuffer()
+	_, err = io.Copy(buf, s3obj.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "copy")
+	}
+	return buf, nil
+}
+
+type buffer struct {
+	*bytes.Buffer
+}
+
+func newBuffer() *buffer {
+	return &buffer{bufferPool.Get().(*bytes.Buffer)}
+}
+
+func (b *buffer) Close() error {
+	b.Buffer.Reset()
+	bufferPool.Put(b.Buffer)
+	return nil
+}
+
+var bufferPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
 }
 
 // Delete deletes given file.

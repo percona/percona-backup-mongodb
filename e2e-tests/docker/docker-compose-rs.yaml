@@ -63,6 +63,8 @@ services:
       - data-rs103:/data/db
   agent-rs101:
     container_name: "pbmagent_rs101"
+    ports:
+      - "6061:6060"
     user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
@@ -85,6 +87,8 @@ services:
       - NET_ADMIN
   agent-rs102:
     container_name: "pbmagent_rs102"
+    ports:
+      - "6062:6060"
     user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
@@ -106,6 +110,8 @@ services:
       - data-rs102:/data/db
   agent-rs103:
     container_name: "pbmagent_rs103"
+    ports:
+      - "6063:6060"
     user: "1001"
     labels:
       - "com.percona.pbm.app=agent"
@@ -137,12 +143,12 @@ services:
       - "MINIO_ACCESS_KEY=minio1234"
       - "MINIO_SECRET_KEY=minio1234"
     command: server /backups
-  createbucket:
-    image: minio/mc
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+  # createbucket:
+  #   image: minio/mc
+  #   depends_on:
+  #     - minio
+  #   entrypoint: >
+  #     /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
 volumes:
   backups: null
   data-rs101: null
