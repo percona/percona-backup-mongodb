@@ -126,11 +126,9 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 				// try backup anyway
 				l.Warning("define source backup: %v", err)
 			} else {
+				c = make(map[string]float64)
 				for _, rs := range src.Replsets {
-					if rs.Name == nodeInfo.SetName {
-						c = map[string]float64{rs.Node: srcHostMultiplier}
-						break
-					}
+					c[rs.Node] = srcHostMultiplier
 				}
 			}
 		}
