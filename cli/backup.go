@@ -282,14 +282,18 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	}
 
 	if bcp.Size == 0 {
-		stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
-		if err != nil {
-			return nil, errors.WithMessage(err, "get storage")
-		}
+		switch bcp.Status {
+		case pbm.StatusDone, pbm.StatusCancelled, pbm.StatusError:
+			stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+			if err != nil {
+				return nil, errors.WithMessage(err, "get storage")
+			}
 
-		rv.Size, err = getLegacySnapshotSize(bcp, stg)
-		if err != nil {
-			return nil, errors.WithMessage(err, "get snapshot size")
+			rv.Size, err = getLegacySnapshotSize(bcp, stg)
+			if errors.Is(err, errMissedFile) && bcp.Status != pbm.StatusDone {
+				// canceled/failed backup can be incomplete. ignore
+				return nil, errors.WithMessage(err, "get snapshot size")
+			}
 		}
 	}
 
