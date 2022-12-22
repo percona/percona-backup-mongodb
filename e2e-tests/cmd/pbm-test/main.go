@@ -10,9 +10,10 @@ import (
 type testTyp string
 
 const (
-	testsUnknown testTyp = ""
-	testsSharded testTyp = "sharded"
-	testsRS      testTyp = "rs"
+	testsUnknown   testTyp = ""
+	testsSharded   testTyp = "sharded"
+	testsRemapping testTyp = "remapping"
+	testsRS        testTyp = "rs"
 
 	defaultMongoUser = "bcp"
 	defaultMongoPass = "test1234"
@@ -49,6 +50,8 @@ func main() {
 		runSharded(mUser, mPass, bcpT)
 	case testsRS:
 		runRS(mUser, mPass, bcpT)
+	case testsRemapping:
+		runRemapping(mUser, mPass)
 	default:
 		log.Fatalln("UNKNOWN TEST TYPE:", typ)
 	}
@@ -64,6 +67,7 @@ func runRS(mUser, mPass string, bcpT bcpTyp) {
 			"rs1": allTheNetworks,
 		},
 		DockerSocket: dockerSocket,
+		PbmContainer: "pbmagent_rs101",
 	})
 
 	switch bcpT {
@@ -72,6 +76,35 @@ func runRS(mUser, mPass string, bcpT bcpTyp) {
 	default:
 		run(tests, testsRS)
 	}
+}
+
+func runRemapping(mUser, mPass string) {
+	allTheNetworksRS1 := "mongodb://" + mUser + ":" + mPass + "@rs101:27017/"
+	allTheNetworksRS2 := "mongodb://" + mUser + ":" + mPass + "@rs201:27017/"
+	tests := &sharded.RemappingEnvironment{
+		Donor: sharded.New(sharded.ClusterConf{
+			Mongos:          allTheNetworksRS1,
+			Configsrv:       allTheNetworksRS1,
+			ConfigsrvRsName: "rs1",
+			Shards: map[string]string{
+				"rs1": allTheNetworksRS1,
+			},
+			DockerSocket: dockerSocket,
+			PbmContainer: "pbmagent_rs101",
+		}),
+		Recipient: sharded.New(sharded.ClusterConf{
+			Mongos:          allTheNetworksRS2,
+			Configsrv:       allTheNetworksRS2,
+			ConfigsrvRsName: "rs2",
+			Shards: map[string]string{
+				"rs2": allTheNetworksRS2,
+			},
+			DockerSocket: dockerSocket,
+			PbmContainer: "pbmagent_rs201",
+		}),
+		Remapping: map[string]string{"rs2": "rs1"},
+	}
+	runRemappingTests(tests)
 }
 
 func runSharded(mUser, mPass string, bcpT bcpTyp) {
@@ -84,6 +117,7 @@ func runSharded(mUser, mPass string, bcpT bcpTyp) {
 			"rs2": "mongodb://" + mUser + ":" + mPass + "@rs201:27017/",
 		},
 		DockerSocket: dockerSocket,
+		PbmContainer: "pbmagent_rs101",
 	})
 
 	switch bcpT {
