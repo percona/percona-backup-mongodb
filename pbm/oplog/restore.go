@@ -68,8 +68,14 @@ var selectedNSSupportedCommands = []string{
 	"create",
 	"drop",
 	"createIndexes",
+	"deleteIndex",
+	"deleteIndexes",
+	"dropIndex",
 	"dropIndexes",
 	"collMod",
+	"startIndexBuild",
+	"abortIndexBuild",
+	"commitIndexBuild",
 }
 
 var dontPreserveUUID = []string{
