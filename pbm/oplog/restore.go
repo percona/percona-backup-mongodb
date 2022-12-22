@@ -64,6 +64,14 @@ var knownCommands = map[string]struct{}{
 	"commitIndexBuild": {},
 }
 
+var selectedNSSupportedCommands = []string{
+	"create",
+	"drop",
+	"createIndexes",
+	"dropIndexes",
+	"collMod",
+}
+
 var dontPreserveUUID = []string{
 	"admin.system.users",
 	"admin.system.roles",
@@ -82,7 +90,7 @@ type OplogRestore struct {
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
-	includeNS         *ns.Matcher
+	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
 
 	txn        chan pbm.RestoreTxn
@@ -195,18 +203,57 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err er
 	return lts, bsonSource.Err()
 }
 
-func (o *OplogRestore) SetIncludeNSS(nss []string) error {
+func (o *OplogRestore) SetIncludeNS(nss []string) {
 	if len(nss) == 0 {
-		return nil
+		o.includeNS = nil
+		return
 	}
 
-	m, err := ns.NewMatcher(nss)
-	if err != nil {
-		return err
+	dbs := make(map[string]map[string]bool)
+	for _, ns := range nss {
+		d, c, _ := strings.Cut(ns, ".")
+		if d == "*" {
+			d = ""
+		}
+		if c == "*" {
+			c = ""
+		}
+
+		colls := dbs[d]
+		if colls == nil {
+			colls = make(map[string]bool)
+		}
+		colls[c] = true
+		dbs[d] = colls
 	}
 
-	o.includeNS = m
-	return nil
+	o.includeNS = dbs
+}
+
+func (o *OplogRestore) isOpSelected(oe *Record) bool {
+	if o.includeNS == nil || o.includeNS[""] != nil {
+		return true
+	}
+
+	d, c, _ := strings.Cut(oe.Namespace, ".")
+	colls := o.includeNS[d]
+	if colls[""] || colls[c] {
+		return true
+	}
+
+	if oe.Operation != "c" || c != "$cmd" {
+		return false
+	}
+
+	m := oe.Object.Map()
+	for _, cmd := range selectedNSSupportedCommands {
+		if ns, ok := m[cmd]; ok {
+			s, _ := ns.(string)
+			return colls[s]
+		}
+	}
+
+	return false
 }
 
 func (o *OplogRestore) LastOpTS() uint32 {
@@ -228,7 +275,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if o.includeNS != nil && !o.includeNS.Has(oe.Namespace) {
+	if !o.isOpSelected(&oe) {
 		return nil
 	}
 
