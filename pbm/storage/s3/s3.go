@@ -1,19 +1,18 @@
 package s3
 
 import (
-	"bytes"
 	"container/heap"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
+	plog "log"
 	"net/http"
 	"net/url"
 	"path"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,7 +40,7 @@ const (
 
 	defaultS3Region = "us-east-1"
 
-	downloadChuckSize = 100 << 20 // 10Mb
+	downloadChuckSize = 10 << 20 // 10Mb
 	downloadRetries   = 10
 )
 
@@ -568,18 +567,20 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 		}
 
 		cc = 1
+		s.log.Debug("=> file %s", name)
 		pr.Run(cc)
 
 		exitErr := io.EOF
 		defer func() {
 			w.CloseWithError(exitErr)
 			pr.Reset()
+			s.log.Debug("=> FIN file %s / %v", name, exitErr)
 		}()
 
 		cbuf := &chunksBuf{}
 		heap.Init(cbuf)
 
-		buffThrottle := cc * 20
+		buffThrottle := cc //* 20
 
 		for {
 			select {
@@ -614,10 +615,10 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 					}
 				}
 
-				if len(*cbuf) == 0 && pr.UnpauseSch() {
+				if len(*cbuf) < buffThrottle && pr.UnpauseSch() {
 					s.log.Debug("scheduling unpaused")
 				}
-
+				pr.l.Debug("=> %d, %d | %v", pr.written, pr.fsize, pr.written >= pr.fsize)
 				// we've read all bytes in the object
 				if pr.written >= pr.fsize {
 					return
@@ -637,6 +638,10 @@ func (pr *partReader) PauseSch() bool {
 	return atomic.CompareAndSwapInt32(&pr.pause, 0, 1)
 }
 
+func (pr *partReader) Paused() bool {
+	return atomic.LoadInt32(&pr.pause) == 1
+}
+
 func (pr *partReader) UnpauseSch() bool {
 	if atomic.CompareAndSwapInt32(&pr.pause, 2, 0) {
 		pr.unpause <- struct{}{}
@@ -650,7 +655,7 @@ func (pr *partReader) Run(concurrency int) {
 	pr.resultq = make(chan chunk)
 	pr.errc = make(chan error)
 	pr.close = make(chan struct{})
-
+	pr.l.Debug("=> RUN")
 	go func() {
 		for sent := int64(0); sent <= pr.fsize; {
 			select {
@@ -658,7 +663,14 @@ func (pr *partReader) Run(concurrency int) {
 				return
 			default:
 			}
+			if pr.Paused() {
+				if atomic.CompareAndSwapInt32(&pr.pause, 1, 2) {
+					pr.l.Debug("scheduler paused, waiting on chan")
+					<-pr.unpause
+				}
+			}
 			pr.taskq <- chunkMeta{sent, sent + downloadChuckSize - 1, 0}
+			pr.l.Debug("=> sched chunk %d, %d | %d", sent, sent+downloadChuckSize-1, pr.fsize)
 			sent += downloadChuckSize
 		}
 	}()
@@ -690,6 +702,7 @@ func (pr *partReader) worker() {
 		pr.errc <- errors.Wrap(err, "create session")
 		return
 	}
+	buf := newdbuf(int(downloadChuckSize), int(downloadChuckSize))
 	for {
 		select {
 		case ch := <-pr.taskq:
@@ -702,7 +715,7 @@ func (pr *partReader) worker() {
 					return
 				}
 			}
-			r, err := pr.retryChunk(sess, ch.start, ch.end, downloadRetries)
+			r, err := pr.retryChunk(buf, sess, ch.start, ch.end, downloadRetries)
 			if err != nil {
 				pr.errc <- err
 				return
@@ -716,9 +729,9 @@ func (pr *partReader) worker() {
 	}
 }
 
-func (pr *partReader) retryChunk(s *s3.S3, start, end int64, retries int) (r io.ReadCloser, err error) {
+func (pr *partReader) retryChunk(buf *dbuff, s *s3.S3, start, end int64, retries int) (r io.ReadCloser, err error) {
 	for i := 0; i < retries; i++ {
-		r, err = pr.tryChunk(s, start, end)
+		r, err = pr.tryChunk(buf, s, start, end)
 		if err == nil {
 			return r, nil
 		}
@@ -736,17 +749,17 @@ func (pr *partReader) retryChunk(s *s3.S3, start, end int64, retries int) (r io.
 	return nil, err
 }
 
-func (pr *partReader) tryChunk(s *s3.S3, start, end int64) (r io.ReadCloser, err error) {
+func (pr *partReader) tryChunk(buf *dbuff, s *s3.S3, start, end int64) (r io.ReadCloser, err error) {
 	// just quickly retry w/o new session in case of fail.
 	// more sophisticated retry on a caller side.
 	const retry = 2
 	for i := 0; i < retry; i++ {
-		r, err = pr.getChunk(s, start, end)
+		r, err = pr.getChunk(buf, s, start, end)
 
 		if err == nil || err == io.EOF {
 			return r, nil
 		}
-
+		pr.l.Debug("===> ERR %v", err)
 		switch err.(type) {
 		case errGetObj:
 			return r, err
@@ -758,7 +771,8 @@ func (pr *partReader) tryChunk(s *s3.S3, start, end int64) (r io.ReadCloser, err
 	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.fsize, retry)
 }
 
-func (pr *partReader) getChunk(s *s3.S3, start, end int64) (io.ReadCloser, error) {
+func (pr *partReader) getChunk(buf *dbuff, s *s3.S3, start, end int64) (io.ReadCloser, error) {
+	pr.l.Debug("=> getChunk %d-%d", start, end)
 	getObjOpts := &s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
@@ -805,31 +819,143 @@ func (pr *partReader) getChunk(s *s3.S3, start, end int64) (io.ReadCloser, error
 		}
 	}
 
-	buf := newBuffer()
-	_, err = io.Copy(buf, s3obj.Body)
+	// buf := newBuffer()
+	// _, err = io.Copy(buf, s3obj.Body)
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, "copy")
+	// }
+	// return buf, nil
+	// buf, err := io.ReadAll(s3obj.Body)
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, "copy")
+	// }
+
+	// return io.NopCloser(bytes.NewBuffer(buf)), nil
+
+	ch := buf.getChunk()
+	_, err = io.Copy(ch, s3obj.Body)
 	if err != nil {
+		ch.Close()
 		return nil, errors.Wrap(err, "copy")
 	}
-	return buf, nil
+	pr.l.Debug("==> RET %d %d", start, end)
+	return ch, nil
 }
 
-type buffer struct {
-	*bytes.Buffer
+type dbuff struct {
+	buf     []byte
+	chunksz int
+	mapsize uint64
+	bmap    atomic.Uint64
 }
 
-func newBuffer() *buffer {
-	return &buffer{bufferPool.Get().(*bytes.Buffer)}
+func newdbuf(size, chunksz int) *dbuff {
+	return &dbuff{
+		buf:     make([]byte, size),
+		chunksz: chunksz,
+		mapsize: 1<<(size/chunksz) - 1,
+	}
 }
 
-func (b *buffer) Close() error {
-	b.Buffer.Reset()
-	bufferPool.Put(b.Buffer)
+func (b *dbuff) getChunk() *dchunk {
+	for {
+		m := b.bmap.Load()
+		if m >= b.mapsize {
+			continue
+		}
+		f := ffree(m)
+		if b.bmap.CompareAndSwap(m, m^uint64(1)<<f) {
+			return &dchunk{buf: b, i: f * b.chunksz, l: f * b.chunksz, cap: b.chunksz}
+		}
+	}
+}
+
+func (b *dbuff) putChunk(c *dchunk) {
+	flip := uint64(1 << uint64(c.i/b.chunksz))
+	for {
+		m := b.bmap.Load()
+		if b.bmap.CompareAndSwap(m, m&^flip) {
+			return
+		}
+	}
+}
+
+func ffree(x uint64) int {
+	x = ^x
+	return bcnt((x & (-x)) - 1)
+}
+
+func bcnt(x uint64) int {
+	const m1 = 0x5555555555555555
+	const m2 = 0x3333333333333333
+	const m4 = 0x0f0f0f0f0f0f0f0f
+	const h01 = 0x0101010101010101
+
+	x -= (x >> 1) & m1
+	x = (x & m2) + ((x >> 2) & m2)
+	x = (x + (x >> 4)) & m4
+	return int((x * h01) >> 56)
+}
+
+type dchunk struct {
+	i   int
+	l   int
+	cap int
+	buf *dbuff
+}
+
+func (c *dchunk) Write(p []byte) (n int, err error) {
+	n = copy(c.buf.buf[c.l:], p)
+
+	c.l += n
+	// plog.Printf("+> W %d / %d / %d  / %d", len(p), n, c.i, c.l)
+	return n, nil
+}
+
+func (c *dchunk) Read(p []byte) (n int, err error) {
+	n = copy(p, c.buf.buf[c.i:c.l])
+	c.i += n
+
+	plog.Printf("+> R %d / %d / %d  / %d / %v", len(p), n, c.i, c.l, c.i == c.l)
+
+	if c.i == c.l {
+		return n, io.EOF
+	}
+
+	return n, nil
+}
+
+func (c *dchunk) Close() error {
+	plog.Printf("+> Close %d %d", c.i, c.l)
+	c.buf.putChunk(c)
 	return nil
 }
 
-var bufferPool = sync.Pool{
-	New: func() any { return new(bytes.Buffer) },
-}
+// type buffer struct {
+// 	*bytes.Buffer
+// }
+
+// func newBuffer() *buffer {
+// 	plog.Println("==> new buf")
+
+// 	return &buffer{bufferPool.Get().(*bytes.Buffer)}
+// }
+
+// func (b *buffer) Close() error {
+// 	plog.Println("==> close buf")
+// 	b.Buffer.Reset()
+// 	bufferPool.Put(b.Buffer)
+// 	return nil
+// }
+
+// var bufferPool = sync.Pool{
+// 	New: func() any {
+// 		b := new(bytes.Buffer)
+// 		b.Grow(downloadChuckSize)
+// 		plog.Println("==> c buf")
+// 		return b
+// 	},
+// }
 
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists

@@ -8,7 +8,7 @@ MONGO_PASS=${MONGO_PASS:-"test1234"}
 CONFIGSVR=${CONFIGSVR:-"false"}
 SINGLE_NODE=${SINGLE_NODE:-"false"}
 
-mongo <<EOF
+mongosh <<EOF
 rs.initiate(
     {
         _id: '$REPLSET_NAME',
@@ -23,11 +23,11 @@ EOF
 
 sleep 5
 
-mongo <<EOF
+mongosh <<EOF
 db.getSiblingDB("admin").createUser({ user: "${MONGO_USER}", pwd: "${MONGO_PASS}", roles: [ "root", "userAdminAnyDatabase", "clusterAdmin" ] })
 EOF
 
-mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
+mongosh "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
 db.getSiblingDB("admin").createRole({ "role": "pbmAnyAction",
 "privileges": [
    { "resource": { "anyResource": true },
@@ -57,7 +57,7 @@ if [ $SINGLE_NODE == "true" ] ; then
     exit 0
 fi
 
-mongo "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
+mongosh "mongodb://${MONGO_USER}:${MONGO_PASS}@localhost/?replicaSet=${REPLSET_NAME}" <<EOF
 rs.reconfig(
     {
         _id: "${REPLSET_NAME}",

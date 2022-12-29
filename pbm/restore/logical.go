@@ -649,6 +649,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
+				r.log.Debug("*** Read %s", ns)
 				stg, err := pbm.Storage(cfg, r.log)
 				if err != nil {
 					return nil, errors.WithMessage(err, "get storage")
