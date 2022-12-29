@@ -88,6 +88,8 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.IncrementalBackup:
+		bcp = backup.NewIncremental(a.pbm, a.node, cmd.IncrBase)
 	case pbm.LogicalBackup:
 		fallthrough
 	default:
@@ -112,7 +114,25 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 			return
 		}
 		l.Debug("init backup meta")
-		nodes, err := a.pbm.BcpNodesPriority()
+
+		// Incremental backup history is stored by WiredTiger on the node
+		// not replset. So an `incremental && not_base` backup should land on
+		// the agent that made a previous (src) backup.
+		const srcHostMultiplier = 3.0
+		var c map[string]float64
+		if cmd.Type == pbm.IncrementalBackup && !cmd.IncrBase {
+			src, err := a.pbm.LastIncrementalBackup()
+			if err != nil {
+				// try backup anyway
+				l.Warning("define source backup: %v", err)
+			} else {
+				c = make(map[string]float64)
+				for _, rs := range src.Replsets {
+					c[rs.Node] = srcHostMultiplier
+				}
+			}
+		}
+		nodes, err := a.pbm.BcpNodesPriority(c)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return
@@ -291,7 +311,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	switch bcp.Type {
-	case pbm.PhysicalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
 		a.HbPause()
 		err = a.restorePhysical(r, opid, ep, l)
 	case pbm.LogicalBackup:

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -47,20 +46,22 @@ type BackupCursor struct {
 	id    UUID
 	n     *pbm.Node
 	l     *plog.Event
+	opts  bson.D
 	close chan struct{}
 }
 
-func NewBackupCursor(n *pbm.Node, l *plog.Event) *BackupCursor {
+func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	return &BackupCursor{
-		n: n,
-		l: l,
+		n:    n,
+		l:    l,
+		opts: opts,
 	}
 }
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Cursor, err error) {
 	for i := 0; i < retry; i++ {
 		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
-			{{"$backupCursor", bson.D{}}},
+			{{"$backupCursor", bc.opts}},
 		})
 		if err != nil && strings.Contains(err.Error(), "(Location50915)") {
 			bc.l.Debug("a checkpoint took place, retrying")
@@ -157,11 +158,41 @@ func (bc *BackupCursor) Close() {
 }
 
 func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
-	cursor := NewBackupCursor(b.node, l)
+	currOpts := bson.D{}
+	if b.typ == pbm.IncrementalBackup {
+		currOpts = bson.D{
+			{"thisBackupName", pbm.BackupCursorName(bcp.Name)},
+			{"incrementalBackup", true},
+		}
+		if !b.incrBase {
+			src, err := b.cn.LastIncrementalBackup()
+			if err != nil {
+				return errors.Wrap(err, "define source backup")
+			}
+			if src == nil {
+				return errors.Wrap(err, "nil source backup")
+			}
+
+			// ? should be done during Init()?
+			if inf.IsLeader() {
+				err := b.cn.SetSrcBackup(bcp.Name, src.Name)
+				if err != nil {
+					return errors.Wrap(err, "set source backup in meta")
+				}
+			}
+			currOpts = append(currOpts, bson.E{"srcBackupName", pbm.BackupCursorName(src.Name)})
+		}
+	}
+	cursor := NewBackupCursor(b.node, l, currOpts)
 	defer cursor.Close()
 
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
+		if b.typ == pbm.IncrementalBackup && strings.Contains(err.Error(), "(UnknownError) 2: No such file or directory") {
+			return errors.New("can't find incremental backup history." +
+				" Previous backup was made on another node." +
+				" You can make a new base incremental backup to start a new history.")
+		}
 		return errors.Wrap(err, "get backup files")
 	}
 
@@ -229,25 +260,24 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get journal files")
 	}
 
-	l.Info("uploading files")
-	subdir := bcp.Name + "/" + rsMeta.Name
-	for _, bd := range append(bcur.Data, jrnls...) {
-		select {
-		case <-ctx.Done():
-			return ErrCancelled
-		default:
-		}
-
-		f, err := writeFile(ctx, bd.Name, subdir+"/"+strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/"), stg, bcp.Compression, bcp.CompressionLevel, l)
-		if err != nil {
-			return errors.Wrapf(err, "upload file `%s`", bd.Name)
-		}
-		f.Name = strings.TrimPrefix(bd.Name, bcur.Meta.DBpath+"/")
-		rsMeta.Files = append(rsMeta.Files, *f)
+	l.Info("uploading data")
+	rsMeta.Journal, rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+	if err != nil {
+		return err
 	}
-	l.Info("uploading done")
+	l.Info("uploading data done")
 
-	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta.Files)
+	l.Info("uploading journals")
+	ju, _, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+		false, stg, bcp.Compression, bcp.CompressionLevel, l)
+	if err != nil {
+		return err
+	}
+	rsMeta.Journal = append(rsMeta.Journal, ju...)
+	l.Info("uploading journals")
+
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
@@ -255,6 +285,9 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	size := int64(0)
 	for _, f := range rsMeta.Files {
 		size += f.StgSize
+	}
+	for _, j := range rsMeta.Journal {
+		size += j.StgSize
 	}
 
 	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
@@ -294,17 +327,92 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
-	fstat, err := os.Stat(src)
+const journalPrefix = "journal/WiredTigerLog."
+
+// Uploads given files to the storage. files may come as 16Mb (by default)
+// blocks in that case it will concat consecutive blocks in one bigger file.
+// For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
+// If this is an incremental, NOT base backup, it will skip unchanged
+// files (Len == 0).
+func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (journal, data []pbm.File, err error) {
+	if len(files) == 0 {
+		return journal, data, err
+	}
+
+	wfile := files[0]
+	for _, file := range files[1:] {
+		select {
+		case <-ctx.Done():
+			return nil, nil, ErrCancelled
+		default:
+		}
+
+		// skip unchanged files if increment
+		if incr && file.Len == 0 {
+			continue
+		}
+
+		if wfile.Name == file.Name &&
+			wfile.Off+wfile.Len == file.Off {
+			wfile.Len += file.Len
+			wfile.Size = file.Size
+			continue
+		}
+
+		fw, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
+		if err != nil {
+			return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+		}
+		fw.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+
+		if strings.HasPrefix(fw.Name, journalPrefix) {
+			journal = append(journal, *fw)
+		} else {
+			data = append(data, *fw)
+		}
+
+		wfile = file
+	}
+
+	if incr && wfile.Off == 0 && wfile.Len == 0 {
+		return journal, data, nil
+	}
+
+	f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
+	if err != nil {
+		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+	}
+	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+	if strings.HasPrefix(f.Name, journalPrefix) {
+		journal = append(journal, *f)
+	} else {
+		data = append(data, *f)
+	}
+
+	return journal, data, nil
+}
+
+func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
+	fstat, err := os.Stat(src.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
 
-	l.Debug("uploading: %s %s", src, fmtSize(fstat.Size()))
-
 	dst += compression.Suffix()
+	sz := fstat.Size()
+	if src.Len != 0 {
+		// Len is always a multiple of the fixed size block (16Mb default)
+		// so Off + Len might be bigger than the actual file size
+		sz = src.Len
+		if src.Off+src.Len > src.Size {
+			sz = src.Size - src.Off
+		}
+		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
+	}
+	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
-	_, err = Upload(ctx, &file{src}, stg, compression, compressLevel, dst, fstat.Size())
+	_, err = Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
@@ -315,25 +423,13 @@ func writeFile(ctx context.Context, src, dst string, stg storage.Storage, compre
 	}
 
 	return &pbm.File{
-		Name:    src,
+		Name:    src.Name,
 		Size:    fstat.Size(),
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
+		Off:     src.Off,
+		Len:     src.Len,
 	}, nil
-}
-
-type file struct {
-	path string
-}
-
-func (f *file) WriteTo(w io.Writer) (int64, error) {
-	fd, err := os.Open(f.path)
-	if err != nil {
-		return 0, errors.Wrap(err, "open file for reading")
-	}
-	defer fd.Close()
-
-	return io.Copy(w, fd)
 }
 
 func fmtSize(size int64) string {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -34,7 +35,7 @@ const (
 	// by agents to coordinate mutually exclusive operations (e.g. backup/restore)
 	LockCollection = "pbmLock"
 	// LockOpCollection is the name of the mongo collection that is used
-	// by agents to coordinate operations that doesn't need to be
+	// by agents to coordinate operations that don't need to be
 	// mutually exclusive to other operation types (e.g. backup-delete)
 	LockOpCollection = "pbmLockOp"
 	// BcpCollection is a collection for backups metadata
@@ -160,6 +161,7 @@ func (c Cmd) String() string {
 
 type BackupCmd struct {
 	Type             BackupType               `bson:"type"`
+	IncrBase         bool                     `bson:"base"`
 	Name             string                   `bson:"name"`
 	Namespaces       []string                 `bson:"nss,omitempty"`
 	Compression      compress.CompressionType `bson:"compression"`
@@ -253,7 +255,7 @@ type PBM struct {
 
 // New creates a new PBM object.
 // In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
-// If agent's or ctl's local node is not a member of CongigServer, after discovering current topology connection will be established to ConfigServer.
+// If agent's or ctl's local node is not a member of ConfigServer, after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -286,7 +288,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	// no need in this connection anymore, we need a new one with the ConfigServer
 	err = client.Disconnect(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "diconnect old client")
+		return nil, errors.Wrap(err, "disconnect old client")
 	}
 
 	chost := strings.Split(csvr.URI, "/")
@@ -462,15 +464,22 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 type BackupType string
 
 const (
-	PhysicalBackup BackupType = "physical"
-	LogicalBackup  BackupType = "logical"
+	PhysicalBackup    BackupType = "physical"
+	IncrementalBackup BackupType = "incremental"
+	LogicalBackup     BackupType = "logical"
 )
 
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
-	Type             BackupType               `bson:"type" json:"type"`
-	OPID             string                   `bson:"opid" json:"opid"`
-	Name             string                   `bson:"name" json:"name"`
+	Type BackupType `bson:"type" json:"type"`
+	OPID string     `bson:"opid" json:"opid"`
+	Name string     `bson:"name" json:"name"`
+
+	// SrcBackup is the source for the incremental backups. The souce might be
+	// incremental as well.
+	// Empty means this is a full backup (and a base for further incremental bcps).
+	SrcBackup string `bson:"src_backup,omitempty" json:"src_backup,omitempty"`
+
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
@@ -523,8 +532,9 @@ type Condition struct {
 
 type BackupReplset struct {
 	Name             string              `bson:"name" json:"name"`
-	Files            []File              `bson:"files,omitempty" json:"files,omitempty" `
-	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty" `
+	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
+	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
+	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
@@ -532,6 +542,7 @@ type BackupReplset struct {
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	Node             string              `bson:"node" json:"node"` // node that performed backup
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	MongodOpts       *MongodOpts         `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
@@ -539,9 +550,32 @@ type BackupReplset struct {
 
 type File struct {
 	Name    string      `bson:"filename" json:"filename"`
+	Off     int64       `bson:"offset" json:"offset"` // offset for incremental backups
+	Len     int64       `bson:"length" json:"length"` // length of chunk after the offset
 	Size    int64       `bson:"fileSize" json:"fileSize"`
 	StgSize int64       `bson:"stgSize" json:"stgSize"`
 	Fmode   os.FileMode `bson:"fmode" json:"fmode"`
+}
+
+func (f File) String() string {
+	if f.Off == 0 && f.Len == 0 {
+		return f.Name
+	}
+	return fmt.Sprintf("%s [%d:%d]", f.Name, f.Off, f.Len)
+}
+
+func (f *File) WriteTo(w io.Writer) (int64, error) {
+	fd, err := os.Open(f.Name)
+	if err != nil {
+		return 0, errors.Wrap(err, "open file for reading")
+	}
+	defer fd.Close()
+
+	if f.Len == 0 && f.Off == 0 {
+		return io.Copy(w, fd)
+	}
+
+	return io.Copy(w, io.NewSectionReader(fd, f.Off, f.Len))
 }
 
 // Status is a backup current status
@@ -572,8 +606,8 @@ func (p *PBM) SetBackupMeta(m *BackupMeta) error {
 	return err
 }
 
-// RS returns the metada of the replset with given name.
-// It returns nil if no replsent found.
+// RS returns the metadata of the replset with given name.
+// It returns nil if no replset found.
 func (b *BackupMeta) RS(name string) *BackupReplset {
 	for _, rs := range b.Replsets {
 		if rs.Name == name {
@@ -622,6 +656,18 @@ func (p *PBM) BackupHB(bcpName string) error {
 	)
 
 	return errors.Wrap(err, "write into db")
+}
+
+func (p *PBM) SetSrcBackup(bcpName, srcName string) error {
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"src_backup": srcName}},
+		},
+	)
+
+	return err
 }
 
 func (p *PBM) SetFirstWrite(bcpName string, first primitive.Timestamp) error {
@@ -687,12 +733,13 @@ func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, size int64) err
 	return err
 }
 
-func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, f []File) error {
+func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
-			{"$set", bson.M{"replsets.$.files": f}},
+			{"$set", bson.M{"replsets.$.files": rs.Files}},
+			{"$set", bson.M{"replsets.$.journal": rs.Journal}},
 		},
 	)
 
@@ -733,23 +780,23 @@ func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 	return b, errors.Wrap(err, "decode")
 }
 
+func (p *PBM) LastIncrementalBackup() (*BackupMeta, error) {
+	return p.getRecentBackup(nil, nil, -1, bson.D{{"type", string(IncrementalBackup)}})
+}
+
 // GetLastBackup returns last successfully finished backup
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
-	return p.getRecentBackup(nil, before, -1)
+	return p.getRecentBackup(nil, before, -1, bson.D{{"nss", nil}, {"type", string(LogicalBackup)}})
 }
 
 func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
-	return p.getRecentBackup(after, nil, 1)
+	return p.getRecentBackup(after, nil, 1, bson.D{{"nss", nil}, {"type", string(LogicalBackup)}})
 }
 
-func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int) (*BackupMeta, error) {
-	q := bson.D{
-		{"nss", nil},
-		{"status", StatusDone},
-		{"type", bson.M{"$ne": string(PhysicalBackup)}},
-	}
+func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts bson.D) (*BackupMeta, error) {
+	q := append(opts, bson.E{"status", StatusDone})
 	if after != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
 	}
@@ -1036,4 +1083,8 @@ func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{
 	}
 
 	return n, nil
+}
+
+func BackupCursorName(s string) string {
+	return strings.NewReplacer("-", "", ":", "").Replace(s)
 }

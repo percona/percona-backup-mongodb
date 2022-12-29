@@ -41,6 +41,11 @@ const (
 	defaultPort = 27017
 )
 
+type files struct {
+	BcpName string
+	Cmpr    compress.CompressionType
+	Data    []pbm.File
+}
 type PhysRestore struct {
 	cn     *pbm.PBM
 	node   *pbm.Node
@@ -57,6 +62,7 @@ type PhysRestore struct {
 	nodeInfo *pbm.NodeInfo
 	stg      storage.Storage
 	bcp      *pbm.BackupMeta
+	files    []files
 
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
@@ -195,7 +201,8 @@ func (r *PhysRestore) flush() error {
 		time.Sleep(time.Second * 1)
 	}
 
-	err = r.waitMgoShutdown()
+	r.log.Debug("waiting for the node to shutdown")
+	err = waitMgoShutdown(r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown")
 	}
@@ -209,15 +216,13 @@ func (r *PhysRestore) flush() error {
 	return nil
 }
 
-func (r *PhysRestore) waitMgoShutdown() error {
-	r.log.Debug("waiting for the node to shutdown")
-
+func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 	for range tk.C {
-		f, err := os.Stat(path.Join(r.dbpath, mongofslock))
+		f, err := os.Stat(path.Join(dbpath, mongofslock))
 		if err != nil {
-			return errors.Wrapf(err, "check for lock file %s", path.Join(r.dbpath, mongofslock))
+			return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
 		}
 
 		if f.Size() == 0 {
@@ -550,9 +555,17 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	if err != nil {
 		return err
 	}
+	meta.Type = r.bcp.Type
 	err = r.setTmpConf()
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
+	}
+
+	if meta.Type == pbm.IncrementalBackup {
+		meta.BcpChain = make([]string, 0, len(r.files))
+		for i := len(r.files) - 1; i >= 0; i-- {
+			meta.BcpChain = append(meta.BcpChain, r.files[i].BcpName)
+		}
 	}
 
 	_, err = r.toState(pbm.StatusStarting)
@@ -688,43 +701,52 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 }
 
 func (r *PhysRestore) copyFiles() error {
-	for _, rs := range r.bcp.Replsets {
-		if rs.Name == r.nodeInfo.SetName {
-			for _, f := range rs.Files {
-				src := filepath.Join(r.bcp.Name, r.nodeInfo.SetName, f.Name+r.bcp.Compression.Suffix())
-				dst := filepath.Join(r.dbpath, f.Name)
+	for i := len(r.files) - 1; i >= 0; i-- {
+		set := r.files[i]
+		for _, f := range set.Data {
+			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
+			if f.Len != 0 {
+				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
+			dst := filepath.Join(r.dbpath, f.Name)
 
-				err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
-				if err != nil {
-					return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
-				}
+			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
+			if err != nil {
+				return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
+			}
 
-				r.log.Info("copy <%s> to <%s>", src, dst)
-				sr, err := r.stg.SourceReader(src)
-				if err != nil {
-					return errors.Wrapf(err, "create source reader for <%s>", src)
-				}
-				defer sr.Close()
+			r.log.Info("copy <%s> to <%s>", src, dst)
+			sr, err := r.stg.SourceReader(src)
+			if err != nil {
+				return errors.Wrapf(err, "create source reader for <%s>", src)
+			}
+			defer sr.Close()
 
-				data, err := compress.Decompress(sr, r.bcp.Compression)
-				if err != nil {
-					return errors.Wrapf(err, "decompress object %s", src)
-				}
-				defer data.Close()
+			data, err := compress.Decompress(sr, set.Cmpr)
+			if err != nil {
+				return errors.Wrapf(err, "decompress object %s", src)
+			}
+			defer data.Close()
 
-				fw, err := os.Create(dst)
+			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
+			if err != nil {
+				return errors.Wrapf(err, "create/open destination file <%s>", dst)
+			}
+			defer fw.Close()
+			if f.Off != 0 {
+				_, err := fw.Seek(f.Off, io.SeekStart)
 				if err != nil {
-					return errors.Wrapf(err, "create destination file <%s>", dst)
+					return errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
 				}
-				defer fw.Close()
-				err = os.Chmod(dst, f.Fmode)
+			}
+			_, err = io.Copy(fw, data)
+			if err != nil {
+				return errors.Wrapf(err, "copy file <%s>", dst)
+			}
+			if f.Size != 0 {
+				err = fw.Truncate(f.Size)
 				if err != nil {
-					return errors.Wrapf(err, "change permissions for file <%s>", dst)
-				}
-
-				_, err = io.Copy(fw, data)
-				if err != nil {
-					return errors.Wrapf(err, "copy file <%s>", dst)
+					return errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
 				}
 			}
 		}
@@ -739,7 +761,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -778,7 +800,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -786,10 +808,15 @@ func (r *PhysRestore) prepareData() error {
 	return nil
 }
 
-func shutdown(c *mongo.Client) error {
+func shutdown(c *mongo.Client, dbpath string) error {
 	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
+	}
+
+	err = waitMgoShutdown(dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown")
 	}
 
 	return nil
@@ -803,12 +830,12 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -824,7 +851,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := conn(r.tmpPort, "")
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -902,7 +929,7 @@ func (r *PhysRestore) resetRS() error {
 		}
 	}
 
-	err = shutdown(c)
+	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -910,18 +937,55 @@ func (r *PhysRestore) resetRS() error {
 	return nil
 }
 
-func conn(port int, rs string) (*mongo.Client, error) {
+// Tries to connect to mongo n times, timeout is applied for each try.
+// If a try is unsuccessful, it will check the mongo logs and retry if
+// there are no errors or fatals.
+func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Client, err error) {
+	type mlog struct {
+		T struct {
+			Date string `json:"$date"`
+		} `json:"t"`
+		S   string `json:"s"`
+		Msg string `json:"msg"`
+	}
+	for i := 0; i < n; i++ {
+		cn, err = conn(port, tout)
+		if err == nil {
+			return cn, nil
+		}
+
+		f, ferr := os.Open(logpath)
+		if ferr != nil {
+			return nil, errors.Errorf("open logs: %v, connect err: %v", ferr, err)
+		}
+		defer f.Close()
+
+		dec := json.NewDecoder(f)
+		for {
+			var m mlog
+			if derr := dec.Decode(&m); derr == io.EOF {
+				break
+			} else if derr != nil {
+				return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
+			}
+			if m.S == "E" || m.S == "F" {
+				return nil, errors.Errorf("mongo failed with [%s] %s / %s, connect err: %v", m.S, m.Msg, m.T.Date, err)
+			}
+		}
+	}
+
+	return nil, errors.Errorf("failed to  connect after %d tries: %v", n, err)
+}
+
+func conn(port int, tout time.Duration) (*mongo.Client, error) {
 	ctx := context.Background()
 
 	opts := options.Client().
 		SetHosts([]string{"localhost:" + strconv.Itoa(port)}).
 		SetAppName("pbm-physical-restore").
 		SetDirect(true).
-		SetConnectTimeout(time.Second * 60)
-
-	if rs != "" {
-		opts = opts.SetReplicaSet(rs)
-	}
+		SetConnectTimeout(time.Second * 120).
+		SetServerSelectionTimeout(tout)
 
 	conn, err := mongo.NewClient(opts)
 	if err != nil {
@@ -972,7 +1036,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 const hbFrameSec = 60 * 2
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
-	r.stg, err = r.cn.GetStorage(r.log)
+	r.stg, err = r.cn.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -1125,6 +1189,78 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	return nil
 }
 
+// Sets replset files that have to be copied to the target during the restore.
+// For non-incremental backups it's just the content of backups files (data) and
+// journals. For the incrementals it will gather files from preceding backups
+// travelling back in time from the target backup up to the closest base. Journal
+// files would be treated differently. We need to restore only journals from the
+// target (latest) backup. As the data from preceding journals already became
+// a data (checkpoint) in the following backup. But if the target backup
+// contains a chunk of the journal that started in the previous one(s), we should
+// retrieve that beginning.
+// Given `b` is backup, `j` is journals and `b3` is a target:
+// b0[j00], b1[j01, j02], b2[j02.10-16, j03], b3[j03.24-16, j04, j05]
+// journals in needed:
+// b2[j03], b3[j03.24-16, j04, j05]
+//
+// The restore should be done in reverse order. Applying files (diffs)
+// starting from the base and moving forward in time up to the target backup.
+func (r *PhysRestore) setBcpFiles() (err error) {
+	bcp := r.bcp
+	partj := ""
+
+	rs := getRS(bcp, r.nodeInfo.SetName)
+	data := files{
+		BcpName: bcp.Name,
+		Cmpr:    bcp.Compression,
+		Data:    append([]pbm.File{}, rs.Files...),
+	}
+	for _, j := range rs.Journal {
+		data.Data = append(data.Data, j)
+		if j.Len != 0 && j.Len != j.Size {
+			partj = j.Name
+		}
+	}
+	r.files = append(r.files, data)
+
+	for bcp.SrcBackup != "" {
+		r.log.Debug("get src %s", bcp.SrcBackup)
+		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
+		if err != nil {
+			return errors.Wrapf(err, "get source backup")
+		}
+
+		rs = getRS(bcp, r.nodeInfo.SetName)
+		data := append([]pbm.File{}, rs.Files...)
+
+		if partj != "" {
+			for _, j := range rs.Journal {
+				if partj == j.Name {
+					data = append(data, j)
+				}
+				if j.Len == 0 || j.Len == j.Size {
+					partj = ""
+				}
+			}
+		}
+		r.files = append(r.files, files{
+			BcpName: bcp.Name,
+			Cmpr:    bcp.Compression,
+			Data:    data,
+		})
+	}
+	return nil
+}
+
+func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
+	for _, r := range bcp.Replsets {
+		if r.Name == rs {
+			return &r
+		}
+	}
+	return nil
+}
+
 func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
@@ -1154,6 +1290,11 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 	if semver.Compare(majmin(r.bcp.MongoVersion), majmin(mgoV.VersionString)) != 0 {
 		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
+	}
+
+	err = r.setBcpFiles()
+	if err != nil {
+		return errors.Wrap(err, "get data for restore")
 	}
 
 	s, err := r.cn.ClusterMembers()

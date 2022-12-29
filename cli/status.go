@@ -634,7 +634,10 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
-			Err:        bcp.Error(),
+		}
+		if err := bcp.Error(); err != nil {
+			snpsht.Err = err
+			snpsht.ErrString = err.Error()
 		}
 
 		switch bcp.Status {
@@ -649,7 +652,9 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			// leave as it is, not to rewrite status with the `stuck` error
 		default:
 			if bcp.Hb.T+pbm.StaleFrameSec < now.T {
-				snpsht.Err = fmt.Errorf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				errStr := fmt.Sprintf("Backup stuck at `%v` stage, last beat ts: %d", bcp.Status, bcp.Hb.T)
+				snpsht.Err = errors.New(errStr)
+				snpsht.ErrString = errStr
 				snpsht.Status = pbm.StatusError
 			}
 		}
@@ -657,6 +662,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		snpsht.Size, err = getBackupSize(&bcp, stg)
 		if err != nil {
 			snpsht.Err = err
+			snpsht.ErrString = err.Error()
 			snpsht.Status = pbm.StatusError
 		}
 
@@ -742,17 +748,27 @@ func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error
 	if bcp.Size > 0 {
 		return bcp.Size, nil
 	}
-	return getLegacySnapshotSize(bcp.Replsets, bcp.Type, stg)
+
+	switch bcp.Status {
+	case pbm.StatusDone, pbm.StatusCancelled, pbm.StatusError:
+		s, err = getLegacySnapshotSize(bcp, stg)
+		if errors.Is(err, errMissedFile) && bcp.Status != pbm.StatusDone {
+			// canceled/failed backup can be incomplete. ignore
+			err = nil
+		}
+	}
+
+	return s, err
 }
 
-func getLegacySnapshotSize(rsets []pbm.BackupReplset, typ pbm.BackupType, stg storage.Storage) (s int64, err error) {
-	switch typ {
+func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	switch bcp.Type {
 	case pbm.LogicalBackup:
-		return getLegacyLogicalSize(rsets, stg)
-	case pbm.PhysicalBackup:
-		return getLegacyPhysSize(rsets, stg)
+		return getLegacyLogicalSize(bcp, stg)
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+		return getLegacyPhysSize(bcp.Replsets, stg)
 	default:
-		return 0, errors.Errorf("unknown backup type %s", typ)
+		return 0, errors.Errorf("unknown backup type %s", bcp.Type)
 	}
 }
 
@@ -766,19 +782,30 @@ func getLegacyPhysSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64,
 	return s, nil
 }
 
-func getLegacyLogicalSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
-	for _, rs := range rsets {
-		ds, err := stg.FileStat(rs.DumpName)
-		if err != nil {
-			return s, errors.Wrapf(err, "get file %s", rs.DumpName)
+var errMissedFile = errors.New("missed file")
+
+func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+	for _, rs := range bcp.Replsets {
+		ds, er := stg.FileStat(rs.DumpName)
+		if er != nil {
+			if bcp.Status == pbm.StatusDone || !errors.Is(er, storage.ErrNotExist) {
+				return s, errors.Wrapf(er, "get file %s", rs.DumpName)
+			}
+
+			err = errMissedFile
 		}
-		op, err := stg.FileStat(rs.OplogName)
-		if err != nil {
-			return s, errors.Wrapf(err, "get file %s", rs.OplogName)
+
+		op, er := stg.FileStat(rs.OplogName)
+		if er != nil {
+			if bcp.Status == pbm.StatusDone || !errors.Is(er, storage.ErrNotExist) {
+				return s, errors.Wrapf(er, "get file %s", rs.OplogName)
+			}
+
+			err = errMissedFile
 		}
 
 		s += ds.Size + op.Size
 	}
 
-	return s, nil
+	return s, err
 }

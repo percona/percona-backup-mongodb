@@ -92,7 +92,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		if err == nil {
 			return restoreRet{
 				done:     true,
-				physical: m.Type == pbm.PhysicalBackup,
+				physical: m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup,
 			}, nil
 		}
 
@@ -105,8 +105,8 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		if err != nil {
 			return nil, err
 		}
-		if !o.wait || m == nil {
-			return restoreRet{PITR: o.pitr}, nil
+		if !o.wait {
+			return restoreRet{PITR: o.pitr, Name: m.Name}, nil
 		}
 		fmt.Print("Started.\nWaiting to finish")
 		err = waitRestore(cn, m)
@@ -135,7 +135,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	var rmeta *pbm.RestoreMeta
 
 	getMeta := cn.GetRestoreMeta
-	if m.Type == pbm.PhysicalBackup {
+	if m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup {
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
 			return pbm.GetPhysRestoreMeta(name, stg)
 		}
@@ -229,7 +229,7 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 
 	// physical restore may take more time to start
 	const waitPhysRestoreStart = time.Second * 120
-	if bcp.Type == pbm.PhysicalBackup {
+	if bcp.Type == pbm.PhysicalBackup || bcp.Type == pbm.IncrementalBackup {
 		ep, _ := cn.GetEpoch()
 		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
 		if err != nil {
@@ -299,7 +299,7 @@ func pitrestore(cn *pbm.PBM, t, base string, nss []string, rsMap map[string]stri
 	}
 
 	if outf != outText {
-		return nil, nil
+		return &pbm.RestoreMeta{Name: name}, nil
 	}
 
 	fmt.Printf("Starting restore to the point in time '%s'", t)
