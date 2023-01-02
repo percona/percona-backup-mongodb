@@ -56,7 +56,7 @@
 #       kmsKeyID: 
 # Options for server-side encryption with customer-provided keys stored 
 # on the client side
-#       sseCustomerAlgorythm: AES256
+#       sseCustomerAlgorithm: AES256
 #       sseCustomerKey: 
  
 # Retry upload configuration options.
