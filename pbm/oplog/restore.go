@@ -600,6 +600,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if localeValue == "simple" {
 				o.indexCatalog.SetCollation(dbName, collName, true)
 			}
+
+			op2 := op
+			op2.Object = bson.D{{"drop", collName}}
+			if err := o.handleNonTxnOp(op2); err != nil {
+				return errors.WithMessage(err, "oplog: drop collection before create")
+			}
 		}
 	}
 
