@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"container/heap"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
@@ -12,7 +11,6 @@ import (
 	"path"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -38,9 +36,6 @@ const (
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
-
-	downloadChuckSize = 10 << 20 //
-	downloadRetries   = 10
 )
 
 type Conf struct {
@@ -54,15 +49,6 @@ type Conf struct {
 	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
-
-	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
-	// during the download. By default, it's set to GOMAXPROCS. Setting this
-	// option too high may result in performance degradation. As routines
-	// might prefetch too many chunks (HTTPBody). Although we can prefetch
-	// chunks concurrently the data should be written sequentially. And while
-	// chunks will be  waiting to be read and sent to the destination the
-	// `HTTPClient.Timeout` will run out and the chunk should be prefetched again.
-	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -227,9 +213,11 @@ const (
 )
 
 type S3 struct {
-	opts Conf
-	log  *log.Event
-	s3s  *s3.S3
+	opts  Conf
+	log   *log.Event
+	s3s   *s3.S3
+	arena []*arena // default mem buffer for downloads
+	cc    int      // download concurrency
 }
 
 func New(opts Conf, l *log.Event) (*S3, error) {
@@ -239,8 +227,10 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	}
 
 	s := &S3{
-		opts: opts,
-		log:  l,
+		opts:  opts,
+		log:   l,
+		arena: []*arena{newArena(downloadChuckSize, downloadChuckSize)},
+		cc:    1,
 	}
 
 	s.s3s, err = s.s3session()
@@ -415,7 +405,6 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (s *S3) Copy(src, dst string) error {
-
 	copyOpts := &s3.CopyObjectInput{
 		Bucket:     aws.String(s.opts.Bucket),
 		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
@@ -485,418 +474,6 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	}
 
 	return inf, nil
-}
-
-type errGetObj error
-
-type partReader struct {
-	fname   string
-	getSess func() (*s3.S3, error)
-	l       *log.Event
-	opts    *Conf
-	fsize   int64
-	written int64
-	buf     []byte
-	pause   int32
-
-	taskq   chan chunkMeta
-	resultq chan chunk
-	errc    chan error
-	close   chan struct{}
-	unpause chan struct{}
-}
-
-func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader {
-	return &partReader{
-		l:     s.log,
-		buf:   make([]byte, chunkSize),
-		opts:  &s.opts,
-		fname: fname,
-		fsize: fsize,
-		getSess: func() (*s3.S3, error) {
-			sess, err := s.s3session()
-			if err != nil {
-				return nil, err
-			}
-			sess.Client.Config.HTTPClient.Timeout = time.Second * 60
-			return sess, nil
-		},
-	}
-}
-
-type chunkMeta struct {
-	start int64
-	end   int64
-}
-
-type chunk struct {
-	r    io.ReadCloser
-	meta chunkMeta
-}
-
-type chunksBuf []*chunk
-
-func (b chunksBuf) Len() int           { return len(b) }
-func (b chunksBuf) Less(i, j int) bool { return b[i].meta.start < b[j].meta.start }
-func (b chunksBuf) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b *chunksBuf) Push(x any)        { *b = append(*b, x.(*chunk)) }
-func (b *chunksBuf) Pop() any {
-	old := *b
-	n := len(old)
-	x := old[n-1]
-	*b = old[0 : n-1]
-	return x
-}
-
-func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	fstat, err := s.FileStat(name)
-	if err != nil {
-		return nil, errors.Wrap(err, "get file stat")
-	}
-
-	r, w := io.Pipe()
-
-	go func() {
-		pr := s.newPartReader(name, fstat.Size, downloadChuckSize)
-
-		cc := runtime.GOMAXPROCS(0)
-		if s.opts.NumDownloadWorkers > 0 {
-			cc = s.opts.NumDownloadWorkers
-		}
-
-		pr.Run(cc)
-
-		exitErr := io.EOF
-		defer func() {
-			w.CloseWithError(exitErr)
-			pr.Reset()
-		}()
-
-		cbuf := &chunksBuf{}
-		heap.Init(cbuf)
-
-		buffThrottle := cc * 20
-
-		for {
-			select {
-			case rs := <-pr.resultq:
-				// Although chunks are requested concurrently they must be written sequentially
-				// to the destination as it is not necessary a file (decompress, mongorestore etc.).
-				// If it is not its turn (previous chunks weren't written yet) the chunk will be
-				// added to the buffer to wait. If the buffer grows too much the scheduling of new
-				// chunks will be paused for buffer to be handled.
-				if rs.meta.start != pr.written {
-					heap.Push(cbuf, &rs)
-					if len(*cbuf) == buffThrottle && pr.PauseSch() {
-						s.log.Debug("buffer is full (%d), pause the new chunks scheduling until it's handled", len(*cbuf))
-					}
-					continue
-				}
-
-				err := pr.writeChunk(&rs, w, downloadRetries)
-				if err != nil {
-					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse", rs.meta.start, rs.meta.end)
-					return
-				}
-
-				// check if we can send something from the buffer
-				for len(*cbuf) > 0 && []*chunk(*cbuf)[0].meta.start == pr.written {
-					r := heap.Pop(cbuf).(*chunk)
-					err := pr.writeChunk(r, w, downloadRetries)
-					if err != nil {
-						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse buffer", r.meta.start, r.meta.end)
-						return
-					}
-				}
-
-				if len(*cbuf) < buffThrottle && pr.UnpauseSch() {
-					s.log.Debug("scheduling unpaused")
-				}
-				// we've read all bytes in the object
-				if pr.written >= pr.fsize {
-					return
-				}
-
-			case err := <-pr.errc:
-				exitErr = errors.Wrapf(err, "SourceReader: download '%s/%s'", s.opts.Bucket, name)
-				return
-			}
-		}
-	}()
-
-	return r, nil
-}
-
-func (pr *partReader) PauseSch() bool {
-	return atomic.CompareAndSwapInt32(&pr.pause, 0, 1)
-}
-
-func (pr *partReader) Paused() bool {
-	return atomic.LoadInt32(&pr.pause) == 1
-}
-
-func (pr *partReader) UnpauseSch() bool {
-	if atomic.CompareAndSwapInt32(&pr.pause, 2, 0) {
-		pr.unpause <- struct{}{}
-		return true
-	}
-	return atomic.CompareAndSwapInt32(&pr.pause, 1, 0)
-}
-
-func (pr *partReader) Run(concurrency int) {
-	pr.taskq = make(chan chunkMeta, concurrency)
-	pr.resultq = make(chan chunk)
-	pr.errc = make(chan error)
-	pr.close = make(chan struct{})
-	go func() {
-		for sent := int64(0); sent <= pr.fsize; {
-			select {
-			case <-pr.close:
-				return
-			default:
-			}
-			if pr.Paused() {
-				if atomic.CompareAndSwapInt32(&pr.pause, 1, 2) {
-					pr.l.Debug("scheduler paused, waiting on chan")
-					<-pr.unpause
-				}
-			}
-			pr.taskq <- chunkMeta{sent, sent + downloadChuckSize - 1}
-			sent += downloadChuckSize
-		}
-	}()
-
-	for i := 0; i < concurrency; i++ {
-		go pr.worker()
-	}
-}
-
-func (pr *partReader) Reset() {
-	close(pr.close)
-}
-
-func (pr *partReader) writeChunk(r *chunk, to io.Writer, retry int) error {
-	if r == nil || r.r == nil {
-		return nil
-	}
-
-	b, err := io.CopyBuffer(to, r.r, pr.buf)
-	pr.written += b
-	r.r.Close()
-
-	return err
-}
-
-func (pr *partReader) worker() {
-	sess, err := pr.getSess()
-	if err != nil {
-		pr.errc <- errors.Wrap(err, "create session")
-		return
-	}
-	buf := newdbuf(int(downloadChuckSize)*10, int(downloadChuckSize))
-	for {
-		select {
-		case ch := <-pr.taskq:
-			r, err := pr.retryChunk(buf, sess, ch.start, ch.end, downloadRetries)
-			if err != nil {
-				pr.errc <- err
-				return
-			}
-
-			pr.resultq <- chunk{r: r, meta: ch}
-
-		case <-pr.close:
-			return
-		}
-	}
-}
-
-func (pr *partReader) retryChunk(buf *dbuff, s *s3.S3, start, end int64, retries int) (r io.ReadCloser, err error) {
-	for i := 0; i < retries; i++ {
-		r, err = pr.tryChunk(buf, s, start, end)
-		if err == nil {
-			return r, nil
-		}
-
-		pr.l.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
-		time.Sleep(time.Second * time.Duration(i))
-		s, err = pr.getSess()
-		if err != nil {
-			pr.l.Warning("recreate session err: %v", err)
-			continue
-		}
-		pr.l.Info("session recreated, resuming download")
-	}
-
-	return nil, err
-}
-
-func (pr *partReader) tryChunk(buf *dbuff, s *s3.S3, start, end int64) (r io.ReadCloser, err error) {
-	// just quickly retry w/o new session in case of fail.
-	// more sophisticated retry on a caller side.
-	const retry = 2
-	for i := 0; i < retry; i++ {
-		r, err = pr.getChunk(buf, s, start, end)
-
-		if err == nil || err == io.EOF {
-			return r, nil
-		}
-		switch err.(type) {
-		case errGetObj:
-			return r, err
-		}
-
-		pr.l.Warning("failed to download chunk %d-%d", start, end)
-	}
-
-	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.fsize, retry)
-}
-
-func (pr *partReader) getChunk(buf *dbuff, s *s3.S3, start, end int64) (io.ReadCloser, error) {
-	getObjOpts := &s3.GetObjectInput{
-		Bucket: aws.String(pr.opts.Bucket),
-		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
-		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", start, end)),
-	}
-
-	sse := pr.opts.ServerSideEncryption
-	if sse != nil && sse.SseCustomerAlgorithm != "" {
-		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		getObjOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
-		if err != nil {
-			return nil, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
-		}
-		keyMD5 := md5.Sum(decodedKey[:])
-		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
-	}
-
-	s3obj, err := s.GetObject(getObjOpts)
-	if err != nil {
-		// if object size is undefined, we would read
-		// until HTTP code 416 (Requested Range Not Satisfiable)
-		var er awserr.RequestFailure
-		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
-			return nil, io.EOF
-		}
-		pr.l.Warning("errGetObj Err: %v", err)
-		return nil, errGetObj(err)
-	}
-	defer s3obj.Body.Close()
-
-	if sse != nil {
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
-		} else if sse.SseCustomerAlgorithm != "" {
-			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-			// We don't pass in the key in this case, just the MD5 hash of the key
-			// for verification
-			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
-			keyMD5 := md5.Sum(decodedKey[:])
-			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
-		}
-	}
-
-	ch := buf.getChunk()
-	_, err = io.Copy(ch, s3obj.Body)
-	if err != nil {
-		ch.Close()
-		return nil, errors.Wrap(err, "copy")
-	}
-	return ch, nil
-}
-
-// download buffer
-// TODO: describe
-type dbuff struct {
-	buf     []byte
-	chunksz int
-	mapsize uint64
-	fmap    atomic.Uint64 // buf's free spots bitmap
-}
-
-func newdbuf(size, chunksz int) *dbuff {
-	return &dbuff{
-		buf:     make([]byte, size),
-		chunksz: chunksz,
-		mapsize: 1<<(size/chunksz) - 1,
-	}
-}
-
-func (b *dbuff) getChunk() *dchunk {
-	for {
-		m := b.fmap.Load()
-		if m >= b.mapsize {
-			continue
-		}
-		f := freepos(m)
-		if b.fmap.CompareAndSwap(m, m^uint64(1)<<f) {
-			return &dchunk{i: f * b.chunksz, l: f * b.chunksz, buf: b, pos: f}
-		}
-	}
-}
-
-func (b *dbuff) putChunk(c *dchunk) {
-
-	flip := uint64(1 << uint64(c.pos))
-	for {
-		m := b.fmap.Load()
-		if b.fmap.CompareAndSwap(m, m&^flip) {
-			return
-		}
-	}
-}
-
-// returns position of the first (rightmost) unset (zero) bit
-func freepos(x uint64) int {
-	x = ^x
-	return popcnt((x & (-x)) - 1)
-}
-
-// count the num of populated (set to 1) bit
-func popcnt(x uint64) int {
-	const m1 = 0x5555555555555555
-	const m2 = 0x3333333333333333
-	const m4 = 0x0f0f0f0f0f0f0f0f
-	const h01 = 0x0101010101010101
-
-	x -= (x >> 1) & m1
-	x = (x & m2) + ((x >> 2) & m2)
-	x = (x + (x >> 4)) & m4
-	return int((x * h01) >> 56)
-}
-
-type dchunk struct {
-	i int
-	l int
-
-	pos int // position in buffer
-	buf *dbuff
-}
-
-func (c *dchunk) Write(p []byte) (n int, err error) {
-	n = copy(c.buf.buf[c.l:], p)
-
-	c.l += n
-	return n, nil
-}
-
-func (c *dchunk) Read(p []byte) (n int, err error) {
-	n = copy(p, c.buf.buf[c.i:c.l])
-	c.i += n
-
-	if c.i == c.l {
-		return n, io.EOF
-	}
-
-	return n, nil
-}
-
-func (c *dchunk) Close() error {
-	c.buf.putChunk(c)
-	return nil
 }
 
 // Delete deletes given file.

@@ -193,6 +193,8 @@ func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 	return o.Body(azblob.RetryReaderOptions{MaxRetryRequests: defaultRetries}), nil
 }
 
+func (b *Blob) SetDownloadOpts(_, _ int) {}
+
 func (b *Blob) Delete(name string) error {
 	_, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Delete(context.TODO(), azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
 	if err != nil {

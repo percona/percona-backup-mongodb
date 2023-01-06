@@ -130,8 +130,23 @@ func (s *StorageConf) Path() string {
 
 // RestoreConf is config options for the restore
 type RestoreConf struct {
-	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
+	// Logical restore
+	//
+	// num of documents to buffer
+	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+
+	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
+	// during the download. By default, it's set to GOMAXPROCS. Setting this
+	// option too high may result in performance degradation. As routines
+	// might prefetch too many chunks (HTTPBody). Although we can prefetch
+	// chunks concurrently the data should be written sequentially. And while
+	// chunks will be  waiting to be read and sent to the destination the
+	// `HTTPClient.Timeout` will run out and the chunk should be prefetched again.
+	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
+	// DownloadBufferMb stest the size of in-memmory buffer used used to
+	// download files from the storage
+	DownloadBufferMb int `bson:"downloadBufferMb" json:"downloadBufferMb,omitempty" yaml:"downloadBufferMb,omitempty"`
 }
 
 type BackupConf struct {
