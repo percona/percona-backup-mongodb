@@ -57,7 +57,7 @@ RUN set -ex; \
 
 RUN microdnf install percona-server-mongodb-shell
 
-COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /go/bin/pbm-speed-test /usr/local/bin/
+COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /go/bin/pbm-agent-entrypoint /go/bin/pbm-speed-test /usr/local/bin/
 COPY ./docker/start-agent.sh /start-agent.sh
 
 USER nobody
