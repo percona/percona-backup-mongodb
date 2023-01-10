@@ -43,7 +43,7 @@ func DefaultMatchFunc(string) bool { return true }
 func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
 	meta, err := readPrelude(r)
 	if err != nil {
-		return errors.WithMessage(err, "predule")
+		return errors.WithMessage(err, "prelude")
 	}
 
 	if match == nil {
@@ -89,7 +89,7 @@ func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
 	meta.Namespaces = nss
 
 	if err := writePrelude(w, meta); err != nil {
-		return errors.WithMessage(err, "predule")
+		return errors.WithMessage(err, "prelude")
 	}
 
 	err = writeAllNamespaces(w, newReader,
@@ -99,15 +99,15 @@ func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
 }
 
 func readPrelude(r io.Reader) (*archiveMeta, error) {
-	predule := archive.Prelude{}
-	err := predule.Read(r)
+	prelude := archive.Prelude{}
+	err := prelude.Read(r)
 	if err != nil {
 		return nil, errors.WithMessage(err, "read")
 	}
 
-	m := &archiveMeta{Header: predule.Header}
-	m.Namespaces = make([]*Namespace, len(predule.NamespaceMetadatas))
-	for i, n := range predule.NamespaceMetadatas {
+	m := &archiveMeta{Header: prelude.Header}
+	m.Namespaces = make([]*Namespace, len(prelude.NamespaceMetadatas))
+	for i, n := range prelude.NamespaceMetadatas {
 		m.Namespaces[i] = &Namespace{CollectionMetadata: n}
 	}
 
@@ -115,13 +115,13 @@ func readPrelude(r io.Reader) (*archiveMeta, error) {
 }
 
 func writePrelude(w io.Writer, m *archiveMeta) error {
-	predule := archive.Prelude{Header: m.Header}
-	predule.NamespaceMetadatas = make([]*archive.CollectionMetadata, len(m.Namespaces))
+	prelude := archive.Prelude{Header: m.Header}
+	prelude.NamespaceMetadatas = make([]*archive.CollectionMetadata, len(m.Namespaces))
 	for i, n := range m.Namespaces {
-		predule.NamespaceMetadatas[i] = n.CollectionMetadata
+		prelude.NamespaceMetadatas[i] = n.CollectionMetadata
 	}
 
-	err := predule.Write(w)
+	err := prelude.Write(w)
 	return errors.WithMessage(err, "write")
 }
 
