@@ -30,12 +30,16 @@ test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
 build: build-pbm build-agent build-stest
+build-all: build build-entrypoint
+build-k8s: build-all
 build-pbm:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
 build-agent:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
 build-stest:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
+build-entrypoint:
+	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent-entrypoint ./cmd/pbm-agent-entrypoint
 
 install: install-pbm install-agent install-stest
 install-all: install install-entrypoint
@@ -85,17 +89,25 @@ install-stest-tests:
 
 # STATIC BUILDS
 build-static: build-pbm-static build-agent-static build-stest-static
+build-static-all: build-static build-static-entrypoint
+build-static-k8s: build-static-all
 build-pbm-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
 build-agent-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
 build-stest-static:
 	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
+build-static-entrypoint:
+	$(ENVS_STATIC) go build -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) -o ./bin/pbm-agent-entrypoint ./cmd/pbm-agent-entrypoint
 
 install-static: install-pbm-static install-agent-static install-stest-static
+install-static-all: install-static install-static-entrypoint
+install-static-k8s: install-static-all
 install-pbm-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm
 install-agent-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-agent
 install-stest-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
+install-static-entrypoint:
+	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-agent-entrypoint
