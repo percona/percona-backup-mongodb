@@ -1047,7 +1047,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		return errors.Wrap(err, "get storage")
 	}
 
-	r.stg.SetDownloadOpts(cfg.Restore.NumDownloadWorkers, cfg.Restore.DownloadBufferMb)
+	r.stg.SetDownloadOpts(cfg.Restore.NumDownloadWorkers, cfg.Restore.MaxDownloadBufferMb)
 
 	r.log = l
 

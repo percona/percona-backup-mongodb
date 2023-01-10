@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	downloadChuckSize = 8 << 20
-	downloadRetries   = 10
+	downloadChuckSizeDefault = 8 << 20
+	downloadRetries          = 10
+	downloadBufferDefault    = 256 << 20
 )
 
 func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
@@ -30,30 +31,62 @@ func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
 		cc = runtime.GOMAXPROCS(0)
 	}
 
-	s.cc = cc
-	s.log.Debug("concurrency set to %d", s.cc)
-
-	s.arena = []*arena{}
-	// TODO: take into account bufSizeMb
-	for i := 0; i < s.cc; i++ {
-		s.arena = append(s.arena, newArena(downloadChuckSize*8, downloadChuckSize))
+	bufSize := bufSizeMb << 20
+	if bufSize == 0 {
+		bufSize = downloadBufferDefault
 	}
+	// download buffer can't be smaller than downloadChuckSizeDefault
+	if bufSize < downloadChuckSizeDefault {
+		bufSize = downloadChuckSizeDefault
+	}
+
+	// Calc a total size, span size for arena and arenas count (hence workers
+	// num - concurrency). A real buffer size (arenaSize*cc) might be smaller
+	// than bufSizeMb as evenly distribute between arenas and the arenaSize
+	// should be a multiplier of spanSize. As we gonna read from storage by
+	// spanSize chunks, if bufSize is not big enough to spread it over given
+	// cc, we'll slash down cc so it makes sense. As we currently have a
+	// limitation by the number of spans in the arena (64 - due to 64bit
+	// free-space mask), we'll increase the spanSize to be big enough for the
+	// targeted arena->total buffer size.
+	spanSize := downloadChuckSizeDefault
+	if bufSize/cc < spanSize {
+		cc = bufSize / spanSize
+	} else {
+		for {
+			if bufSize/cc/spanSize <= 64 {
+				break
+			}
+			spanSize <<= 1
+		}
+	}
+	arenaSize := spanSize * (bufSize / cc / spanSize)
+	s.log.Debug("download buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+
+	s.arenas = []*arena{}
+	for i := 0; i < cc; i++ {
+		s.arenas = append(s.arenas, newArena(arenaSize, spanSize))
+	}
+
+	s.chunkSize = spanSize
+	s.cc = cc
 }
 
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	return s.sourceReader(name, s.arena, s.cc, downloadChuckSize)
+	return s.sourceReader(name, s.arenas, s.cc, s.chunkSize)
 }
 
 type errGetObj error
 
 type partReader struct {
-	fname   string
-	getSess func() (*s3.S3, error)
-	l       *log.Event
-	opts    *Conf
-	fsize   int64
-	written int64
-	buf     []byte
+	fname     string
+	getSess   func() (*s3.S3, error)
+	l         *log.Event
+	opts      *Conf
+	fsize     int64
+	written   int64
+	buf       []byte
+	chunkSize int64
 
 	taskq   chan chunkMeta
 	resultq chan chunk
@@ -63,11 +96,12 @@ type partReader struct {
 
 func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader {
 	return &partReader{
-		l:     s.log,
-		buf:   make([]byte, 32*1024),
-		opts:  &s.opts,
-		fname: fname,
-		fsize: fsize,
+		l:         s.log,
+		buf:       make([]byte, 32*1024),
+		opts:      &s.opts,
+		fname:     fname,
+		fsize:     fsize,
+		chunkSize: int64(chunkSize),
 		getSess: func() (*s3.S3, error) {
 			sess, err := s.s3session()
 			if err != nil {
@@ -186,8 +220,8 @@ func (pr *partReader) Run(concurrency int, arenas []*arena) {
 			select {
 			case <-pr.close:
 				return
-			case pr.taskq <- chunkMeta{sent, sent + downloadChuckSize - 1}:
-				sent += downloadChuckSize
+			case pr.taskq <- chunkMeta{sent, sent + pr.chunkSize - 1}:
+				sent += pr.chunkSize
 			}
 		}
 	}()
@@ -337,27 +371,30 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 // download arena
 // TODO: describe
 type arena struct {
-	buf       []byte
-	spansize  int
-	spannum   uint64
-	freeindex atomic.Uint64 // buf's free spans bitmap
+	buf        []byte
+	spansize   int
+	spanBitCnt uint64
+	freeindex  atomic.Uint64 // buf's free spans bitmap
 
-	cpbuf []byte
+	cpbuf []byte // preallocated buffer for io.Copy
 }
 
 func newArena(size, spansize int) *arena {
+	snum := size / spansize
+
+	size = spansize * snum
 	return &arena{
-		buf:      make([]byte, size),
-		spansize: spansize,
-		spannum:  1<<(size/spansize) - 1,
-		cpbuf:    make([]byte, 32*1024),
+		buf:        make([]byte, size),
+		spansize:   spansize,
+		spanBitCnt: 1<<(size/spansize) - 1,
+		cpbuf:      make([]byte, 32*1024),
 	}
 }
 
 func (b *arena) getSpan() *dspan {
 	for {
 		m := b.freeindex.Load()
-		if m >= b.spannum {
+		if m >= b.spanBitCnt {
 			continue
 		}
 		f := firstzero(m)

@@ -144,9 +144,9 @@ type RestoreConf struct {
 	// chunks will be  waiting to be read and sent to the destination the
 	// `HTTPClient.Timeout` will run out and the chunk should be prefetched again.
 	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
-	// DownloadBufferMb stest the size of in-memmory buffer used used to
+	// MaxDownloadBufferMb stest the max size of in-memmory buffer used used to
 	// download files from the storage
-	DownloadBufferMb int `bson:"downloadBufferMb" json:"downloadBufferMb,omitempty" yaml:"downloadBufferMb,omitempty"`
+	MaxDownloadBufferMb int `bson:"maxDownloadBufferMb" json:"maxDownloadBufferMb,omitempty" yaml:"maxDownloadBufferMb,omitempty"`
 }
 
 type BackupConf struct {
