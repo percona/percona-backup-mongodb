@@ -482,10 +482,11 @@ build_tarball(){
     export VERSION
     export GITBRANCH
     export GITCOMMIT
-    make build
+    make build-all
     cp ./bin/pbm ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-agent ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-speed-test ${WORKDIR}/${PSMDIR}/
+    cp ./bin/pbm-agent-entrypoint ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
 
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}
