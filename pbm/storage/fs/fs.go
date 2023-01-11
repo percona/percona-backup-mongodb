@@ -70,7 +70,7 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
-func (fs *FS) SetDownloadOpts(_, _ int) {}
+func (fs *FS) SetDownloadOpts(_, _, _ int) {}
 
 func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
 	f, err := os.Stat(path.Join(fs.opts.Path, name))

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	mlog "log"
 	"net/http"
 	"path"
 	"runtime"
@@ -22,26 +21,30 @@ import (
 )
 
 const (
-	downloadChuckSizeDefault = 16 << 20
+	downloadChuckSizeDefault = 8 << 20
 	downloadRetries          = 10
-	downloadBufferDefault    = 256 << 20
 
-	// max amount of spans in the arena
-	arenaMaxSpans = 16
+	ccBufferDefault = 512 << 20
+	ccSpanDefault   = 32 << 20
+	arenaMaxSpans   = 16 // max amount of spans in the arena
 )
 
-func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
+func (s *S3) SetDownloadOpts(cc, bufSizeMb, spanSize int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
 	}
 
+	if spanSize == 0 {
+		spanSize = ccSpanDefault
+	}
+
 	bufSize := bufSizeMb << 20
 	if bufSize == 0 {
-		bufSize = downloadBufferDefault
+		bufSize = ccBufferDefault
 	}
-	// download buffer can't be smaller than downloadChuckSizeDefault
-	if bufSize < downloadChuckSizeDefault {
-		bufSize = downloadChuckSizeDefault
+	// download buffer can't be smaller than spanSize
+	if bufSize < spanSize {
+		bufSize = spanSize
 	}
 
 	// Calc a total size, span size for arena and arenas count (hence workers
@@ -53,10 +56,11 @@ func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
 	// arena, there is not much sense in having too many spans as they won't
 	// be utilised. We'll increase the spanSize to be big enough for the
 	// targeted arena->total buffer size.
-	spanSize := downloadChuckSizeDefault
 	if bufSize/cc < spanSize {
 		cc = bufSize / spanSize
 	} else {
+		// TODO?: adjust arenaMaxSpans so spanSize won't be to much (try to keep it under 128Mb - need tests).
+		// 		  buf: 32.00GB, cc: 4, arenaMaxSpans: 16 => spanSize: 512Mb !!!
 		for {
 			if bufSize/cc/spanSize <= arenaMaxSpans {
 				break
@@ -403,9 +407,6 @@ func (b *arena) getSpan() *dspan {
 		}
 		f := firstzero(m)
 		if b.freeindex.CompareAndSwap(m, m^uint64(1)<<f) {
-			if f > 1 {
-				mlog.Println("=> fspan", f)
-			}
 			return &dspan{i: f * b.spansize, l: f * b.spansize, buf: b, pos: f}
 		}
 	}

@@ -1033,7 +1033,11 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	return nil
 }
 
-const hbFrameSec = 60 * 2
+const (
+	hbFrameSec = 60 * 2
+
+	downloadSpanSize = 32 << 20
+)
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	var cfg pbm.Config
@@ -1047,7 +1051,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		return errors.Wrap(err, "get storage")
 	}
 
-	r.stg.SetDownloadOpts(cfg.Restore.NumDownloadWorkers, cfg.Restore.MaxDownloadBufferMb)
+	r.stg.SetDownloadOpts(cfg.Restore.NumDownloadWorkers, cfg.Restore.MaxDownloadBufferMb, downloadSpanSize)
 
 	r.log = l
 
