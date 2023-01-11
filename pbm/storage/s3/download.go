@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	mlog "log"
 	"net/http"
 	"path"
 	"runtime"
@@ -21,9 +22,12 @@ import (
 )
 
 const (
-	downloadChuckSizeDefault = 8 << 20
+	downloadChuckSizeDefault = 16 << 20
 	downloadRetries          = 10
 	downloadBufferDefault    = 256 << 20
+
+	// max amount of spans in the arena
+	arenaMaxSpans = 16
 )
 
 func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
@@ -45,16 +49,16 @@ func (s *S3) SetDownloadOpts(cc, bufSizeMb int) {
 	// than bufSizeMb as evenly distribute between arenas and the arenaSize
 	// should be a multiplier of spanSize. As we gonna read from storage by
 	// spanSize chunks, if bufSize is not big enough to spread it over given
-	// cc, we'll slash down cc so it makes sense. As we currently have a
-	// limitation by the number of spans in the arena (64 - due to 64bit
-	// free-space mask), we'll increase the spanSize to be big enough for the
+	// cc, we'll slash down cc so it makes sense. As each worker has its own
+	// arena, there is not much sense in having too many spans as they won't
+	// be utilised. We'll increase the spanSize to be big enough for the
 	// targeted arena->total buffer size.
 	spanSize := downloadChuckSizeDefault
 	if bufSize/cc < spanSize {
 		cc = bufSize / spanSize
 	} else {
 		for {
-			if bufSize/cc/spanSize <= 64 {
+			if bufSize/cc/spanSize <= arenaMaxSpans {
 				break
 			}
 			spanSize <<= 1
@@ -399,6 +403,9 @@ func (b *arena) getSpan() *dspan {
 		}
 		f := firstzero(m)
 		if b.freeindex.CompareAndSwap(m, m^uint64(1)<<f) {
+			if f > 1 {
+				mlog.Println("=> fspan", f)
+			}
 			return &dspan{i: f * b.spansize, l: f * b.spansize, buf: b, pos: f}
 		}
 	}
