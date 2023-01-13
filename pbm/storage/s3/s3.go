@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	gcs "cloud.google.com/go/storage"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -325,41 +327,65 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}).Upload(uplInput)
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
-		// using minio client with GCS because it
-		// allows to disable chuncks muiltipertition for upload
-		mc, err := minio.NewWithRegion(GCSEndpointURL, s.opts.Credentials.AccessKeyID, s.opts.Credentials.SecretAccessKey, true, s.opts.Region)
-		if err != nil {
-			return errors.Wrap(err, "NewWithRegion")
-		}
-		putOpts := minio.PutObjectOptions{
-			StorageClass: s.opts.StorageClass,
-		}
-
-		// Enable server-side encryption if configured
-		sse := s.opts.ServerSideEncryption
-		if sse != nil {
-			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-				sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
-				if err != nil {
-					return errors.Wrap(err, "Could not create SSE KMS")
-				}
-				putOpts.ServerSideEncryption = sseKms
-			} else if sse.SseCustomerAlgorithm != "" {
-				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-				if err != nil {
-					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
-				}
-
-				sseCus, err := encrypt.NewSSEC(decodedKey)
-				if err != nil {
-					return errors.Wrap(err, "Could not create SSE-C SSE key")
-				}
-				putOpts.ServerSideEncryption = sseCus
+		if s.hasStaticCredentials() {
+			// using minio client with GCS because it
+			// allows to disable chuncks muiltipertition for upload
+			mc, err := minio.NewWithRegion(GCSEndpointURL, s.opts.Credentials.AccessKeyID, s.opts.Credentials.SecretAccessKey, true, s.opts.Region)
+			if err != nil {
+				return errors.Wrap(err, "NewWithRegion")
 			}
+			putOpts := minio.PutObjectOptions{
+				StorageClass: s.opts.StorageClass,
+			}
+
+			// Enable server-side encryption if configured
+			sse := s.opts.ServerSideEncryption
+			if sse != nil {
+				if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+					sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
+					if err != nil {
+						return errors.Wrap(err, "Could not create SSE KMS")
+					}
+					putOpts.ServerSideEncryption = sseKms
+				} else if sse.SseCustomerAlgorithm != "" {
+					decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+					if err != nil {
+						return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+					}
+
+					sseCus, err := encrypt.NewSSEC(decodedKey)
+					if err != nil {
+						return errors.Wrap(err, "Could not create SSE-C SSE key")
+					}
+					putOpts.ServerSideEncryption = sseCus
+				}
+			}
+
+			_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
+			return errors.Wrap(err, "upload to GCS")
 		}
 
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
-		return errors.Wrap(err, "upload to GCS")
+		// If no credentials have been provisioned, try to use default GCP authent (for example thru service account)
+		ctx := context.Background()
+
+		client, err := gcs.NewClient(ctx)
+		if err != nil {
+			return errors.Wrap(err, "create GCS client")
+		}
+
+		writer := client.Bucket(s.opts.Bucket).Object(path.Join(s.opts.Prefix, name)).NewWriter(ctx)
+
+		_, err = io.Copy(writer, data)
+		if err != nil {
+			return errors.Wrap(err, "writing in GCS")
+		}
+
+		err = writer.Close()
+		if err != nil {
+			return errors.Wrap(err, "close GCS writer")
+		}
+
+		return nil
 	}
 }
 
@@ -704,14 +730,20 @@ func (s *S3) s3session() (*s3.S3, error) {
 		return nil, errors.Wrap(err, "create aws session")
 	}
 
-	return s3.New(sess), nil
+	s3client := s3.New(sess)
+
+	if s.opts.Provider == S3ProviderGCS && !s.hasStaticCredentials() {
+		adaptS3Client(s3client)
+	}
+
+	return s3client, nil
 }
 
 func (s *S3) session() (*session.Session, error) {
 	var providers []credentials.Provider
 
 	// if we have credentials, set them first in the providers list
-	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
+	if s.hasStaticCredentials() {
 		providers = append(providers, &credentials.StaticProvider{Value: credentials.Value{
 			AccessKeyID:     s.opts.Credentials.AccessKeyID,
 			SecretAccessKey: s.opts.Credentials.SecretAccessKey,
@@ -726,6 +758,11 @@ func (s *S3) session() (*session.Session, error) {
 
 	// allow fetching credentials from env variables and ec2 metadata endpoint
 	providers = append(providers, &credentials.EnvProvider{})
+
+	// if we don't have creds, trying to talk to GCS
+	if s.opts.Provider == S3ProviderGCS && !s.hasStaticCredentials() {
+		providers = append(providers, &GcpTokenProvider{})
+	}
 
 	// If defined, IRSA-related credentials should have the priority over any potential role attached to the EC2.
 	awsRoleARN := os.Getenv("AWS_ROLE_ARN")
@@ -764,6 +801,10 @@ func (s *S3) session() (*session.Session, error) {
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
 		Logger:           awsLogger(s.log),
 	})
+}
+
+func (s *S3) hasStaticCredentials() bool {
+	return s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != ""
 }
 
 func awsLogger(l *log.Event) aws.Logger {
