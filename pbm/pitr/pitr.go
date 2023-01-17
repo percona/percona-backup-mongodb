@@ -471,6 +471,10 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 
 // !!! should be agreed with pbm.PITRmetaFromFName()
 func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.CompressionType) string {
+	return ChunkName(s.rs, first, last, c)
+}
+
+func ChunkName(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 
@@ -479,7 +483,7 @@ func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.Compressi
 		name.WriteString(pbm.PITRfsPrefix)
 		name.WriteString("/")
 	}
-	name.WriteString(s.rs)
+	name.WriteString(rs)
 	name.WriteString("/")
 	name.WriteString(ft.Format("20060102"))
 	name.WriteString("/")
