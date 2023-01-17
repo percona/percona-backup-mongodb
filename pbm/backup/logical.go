@@ -43,7 +43,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		}
 	}
 
-	oplog := oplog.NewOplogBackup(b.node)
+	oplog := oplog.NewOplogBackup(b.node.Session())
 	oplogTS, err := oplog.LastWrite()
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")

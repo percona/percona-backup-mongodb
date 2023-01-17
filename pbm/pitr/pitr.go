@@ -41,7 +41,7 @@ func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage, ep pb
 		rs:      rs,
 		span:    int64(pbm.PITRdefaultSpan),
 		storage: to,
-		oplog:   oplog.NewOplogBackup(node),
+		oplog:   oplog.NewOplogBackup(node.Session()),
 		l:       cn.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS()),
 		ep:      ep,
 	}
