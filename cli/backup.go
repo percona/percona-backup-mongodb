@@ -68,20 +68,14 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, errors.Wrap(err, "get remote-store")
 	}
 
-	var level *int
-	if len(b.compressionLevel) > 0 {
-		level = &b.compressionLevel[0]
-	} else if cfg.Backup.CompressionLevel != nil {
-		level = cfg.Backup.CompressionLevel
+	compression := cfg.Backup.Compression
+	if b.compression != "" {
+		compression = compress.CompressionType(b.compression)
 	}
 
-	compression := compress.CompressionType(b.compression)
-	if compression == "" {
-		if cfg.Backup.Compression != "" {
-			compression = cfg.Backup.Compression
-		} else {
-			compression = compress.CompressionTypeS2
-		}
+	level := cfg.Backup.CompressionLevel
+	if len(b.compressionLevel) != 0 {
+		level = &b.compressionLevel[0]
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
