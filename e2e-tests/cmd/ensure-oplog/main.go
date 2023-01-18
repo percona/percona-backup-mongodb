@@ -24,7 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 )
 
-var logger = log.New(os.Stdout, "", log.LstdFlags)
+var logger = log.New(os.Stdout, "", log.Ltime)
 
 func main() {
 	ctx := context.Background()
@@ -254,7 +254,9 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 
 	missedChunks := findChunkRanges(chunks, firstOpT, lastOpT)
 	if len(missedChunks) == 0 {
-		return errors.New("no missed oplog chunk")
+		logger.Printf("[%s] no missed chunk: %s - %s",
+			uri, formatTimestamp(firstOpT), formatTimestamp(lastOpT))
+		return nil
 	}
 
 	cfg, err := pbmC.GetConfig()
@@ -277,14 +279,14 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 
-		_, err = backup.Upload(ctx, o, stg, compression, cfg.PITR.CompressionLevel, filename, -1)
+		n, err := backup.Upload(ctx, o, stg, compression, cfg.PITR.CompressionLevel, filename, -1)
 		if err != nil {
 			return errors.WithMessagef(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))
 		}
 
-		logger.Printf("[%s] uploaded chunk: %s - %s",
-			uri, formatTimestamp(t.from), formatTimestamp(t.till))
+		logger.Printf("[%s] uploaded chunk: %s - %s (%d bytes)",
+			uri, formatTimestamp(t.from), formatTimestamp(t.till), n)
 
 		meta := pbm.OplogChunk{
 			RS:          info.SetName,
