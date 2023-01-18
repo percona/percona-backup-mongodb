@@ -314,7 +314,7 @@ func findPreviousOplogTS(ctx context.Context, m *mongo.Client, ts primitive.Time
 	if !ts.IsZero() {
 		f["ts"] = bson.M{"$lte": ts}
 	}
-	o := options.FindOne().SetSort(bson.D{{"ts", -1}})
+	o := options.FindOne().SetSort(bson.D{{"ts", 1}})
 	res := m.Database("local").Collection("oplog.rs").FindOne(ctx, f, o)
 	return findOplogTSHelper(res)
 }
@@ -324,7 +324,7 @@ func findFollowingOplogTS(ctx context.Context, m *mongo.Client, ts primitive.Tim
 	if !ts.IsZero() {
 		f["ts"] = bson.M{"$gte": ts}
 	}
-	o := options.FindOne().SetSort(bson.D{{"ts", 1}})
+	o := options.FindOne().SetSort(bson.D{{"ts", -1}})
 	res := m.Database("local").Collection("oplog.rs").FindOne(ctx, f, o)
 	return findOplogTSHelper(res)
 }
