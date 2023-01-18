@@ -24,6 +24,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
 )
 
+var logger = log.New(os.Stdout, "", log.LstdFlags)
+
 func main() {
 	ctx := context.Background()
 
@@ -171,6 +173,9 @@ func sayHello(ctx context.Context, m *mongo.Client) (*hello, error) {
 }
 
 func ensureClusterOplog(ctx context.Context, uri string, from, till primitive.Timestamp) error {
+	logger.Printf("[%s] ensuring cluster oplog: %s - %s",
+		uri, formatTimestamp(from), formatTimestamp(from))
+
 	m, err := connect(ctx, uri)
 	if err != nil {
 		return errors.WithMessage(err, "connect")
@@ -197,10 +202,20 @@ func ensureClusterOplog(ctx context.Context, uri string, from, till primitive.Ti
 		})
 	}
 
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	logger.Printf("[%s] ensured cluster oplog: %s - %s",
+		uri, formatTimestamp(from), formatTimestamp(from))
+
+	return nil
 }
 
-func ensureReplsetOplog(ctx context.Context, uri string, fromTS, tillTS primitive.Timestamp) error {
+func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Timestamp) error {
+	logger.Printf("[%s] ensure replset oplog: %s - %s",
+		uri, formatTimestamp(from), formatTimestamp(from))
+
 	m, err := connect(ctx, uri)
 	if err != nil {
 		return errors.WithMessage(err, "connect")
@@ -214,27 +229,30 @@ func ensureReplsetOplog(ctx context.Context, uri string, fromTS, tillTS primitiv
 		return errors.New("cannot ensure oplog in standalone mode")
 	}
 
-	from, err := findPreviousOplogTS(ctx, m, fromTS)
+	firstOpT, err := findPreviousOplogTS(ctx, m, from)
 	if err != nil {
 		return errors.WithMessage(err, "lookup first oplog record")
 	}
 
-	till, err := findFollowingOplogTS(ctx, m, tillTS)
+	lastOpT, err := findFollowingOplogTS(ctx, m, till)
 	if err != nil {
 		return errors.WithMessage(err, "lookup first oplog record")
 	}
+
+	logger.Printf("[%s] ensuring replset oplog (actual): %s - %s",
+		uri, formatTimestamp(firstOpT), formatTimestamp(lastOpT))
 
 	pbmC, err := pbm.New(ctx, uri, "ensure-oplog")
 	if err != nil {
 		return errors.WithMessage(err, "connect to PBM")
 	}
 
-	chunks, err := pbmC.PITRGetChunksSlice(info.SetName, from, till)
+	chunks, err := pbmC.PITRGetChunksSlice(info.SetName, firstOpT, lastOpT)
 	if err != nil {
 		return errors.WithMessage(err, "get chunks")
 	}
 
-	missedChunks := findChunkRanges(chunks, from, till)
+	missedChunks := findChunkRanges(chunks, firstOpT, lastOpT)
 	if len(missedChunks) == 0 {
 		return errors.New("no missed oplog chunk")
 	}
@@ -252,6 +270,9 @@ func ensureReplsetOplog(ctx context.Context, uri string, fromTS, tillTS primitiv
 	compression := compress.CompressionType(cfg.PITR.Compression)
 
 	for _, t := range missedChunks {
+		logger.Printf("[%s] ensure missed chunk: %s - %s",
+			uri, formatTimestamp(t.from), formatTimestamp(t.till))
+
 		filename := pitr.ChunkName(info.SetName, t.from, t.till, compression)
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
@@ -261,6 +282,9 @@ func ensureReplsetOplog(ctx context.Context, uri string, fromTS, tillTS primitiv
 			return errors.WithMessagef(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))
 		}
+
+		logger.Printf("[%s] uploaded chunk: %s - %s",
+			uri, formatTimestamp(t.from), formatTimestamp(t.till))
 
 		meta := pbm.OplogChunk{
 			RS:          info.SetName,
@@ -274,7 +298,13 @@ func ensureReplsetOplog(ctx context.Context, uri string, fromTS, tillTS primitiv
 			return errors.WithMessagef(err, "failed to save %s - %s chunk meta",
 				formatTimestamp(t.from), formatTimestamp(t.till))
 		}
+
+		logger.Printf("[%s] saved chunk meta: %s - %s",
+			uri, formatTimestamp(t.from), formatTimestamp(t.till))
 	}
+
+	logger.Printf("[%s] ensured replset oplog: %s - %s",
+		uri, formatTimestamp(firstOpT), formatTimestamp(lastOpT))
 
 	return nil
 }
