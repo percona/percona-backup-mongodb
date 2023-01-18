@@ -20,6 +20,8 @@ RUN wget -qO - https://www.mongodb.org/static/pgp/server-${VERSION}.asc | apt-ke
 	vim \
 	make \
 	gcc \
+	nload \
+	htop \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/pbm

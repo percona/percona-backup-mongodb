@@ -213,12 +213,11 @@ const (
 )
 
 type S3 struct {
-	opts      Conf
-	log       *log.Event
-	s3s       *s3.S3
-	arenas    []*arena // mem buffer for downloads
-	chunkSize int
-	cc        int // download concurrency
+	opts Conf
+	log  *log.Event
+	s3s  *s3.S3
+
+	d *Download // default downloader for small files
 }
 
 func New(opts Conf, l *log.Event) (*S3, error) {
@@ -228,16 +227,20 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	}
 
 	s := &S3{
-		opts:      opts,
-		log:       l,
-		chunkSize: downloadChuckSizeDefault,
-		arenas:    []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		cc:        1,
+		opts: opts,
+		log:  l,
 	}
 
 	s.s3s, err = s.s3session()
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
+	}
+
+	s.d = &Download{
+		s3:        s,
+		arenas:    []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
+		chunkSize: downloadChuckSizeDefault,
+		cc:        1,
 	}
 
 	return s, nil

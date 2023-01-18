@@ -35,4 +35,3 @@ func (NopReadCloser) Read(b []byte) (int, error) {
 func (NopReadCloser) Close() error { return nil }
 
 func (*Blackhole) SourceReader(name string) (io.ReadCloser, error) { return NopReadCloser{}, nil }
-func (b *Blackhole) SetDownloadOpts(_, _, _ int)                   {}

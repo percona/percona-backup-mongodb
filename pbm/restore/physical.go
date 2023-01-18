@@ -30,6 +30,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 const (
@@ -63,6 +64,8 @@ type PhysRestore struct {
 	stg      storage.Storage
 	bcp      *pbm.BackupMeta
 	files    []files
+
+	confOpts pbm.RestoreConf
 
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
@@ -700,6 +703,13 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 }
 
 func (r *PhysRestore) copyFiles() error {
+	readFn := r.stg.SourceReader
+	// var readFn storage.SourceReader
+	if t, ok := r.stg.(*s3.S3); ok {
+		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, 0)
+		readFn = d.SourceReader
+		defer r.log.Debug("download stat: %s", d.Stat())
+	}
 	cpbuf := make([]byte, 32*1024)
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
@@ -716,7 +726,7 @@ func (r *PhysRestore) copyFiles() error {
 			}
 
 			r.log.Info("copy <%s> to <%s>", src, dst)
-			sr, err := r.stg.SourceReader(src)
+			sr, err := readFn(src)
 			if err != nil {
 				return errors.Wrapf(err, "create source reader for <%s>", src)
 			}
@@ -1033,11 +1043,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	return nil
 }
 
-const (
-	hbFrameSec = 60 * 2
-
-	downloadSpanSize = 32 << 20
-)
+const hbFrameSec = 60 * 2
 
 func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	var cfg pbm.Config
@@ -1051,7 +1057,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		return errors.Wrap(err, "get storage")
 	}
 
-	r.stg.SetDownloadOpts(cfg.Restore.NumDownloadWorkers, cfg.Restore.MaxDownloadBufferMb, downloadSpanSize)
+	r.confOpts = cfg.Restore
 
 	r.log = l
 

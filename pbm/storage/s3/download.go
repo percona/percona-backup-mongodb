@@ -29,18 +29,48 @@ const (
 	arenaMaxSpans   = 16 // max amount of spans in the arena
 )
 
-func (s *S3) SetDownloadOpts(cc, bufSizeMb, spanSize int) {
+type DownloadStat struct {
+	Arenas      []ArenaStat `bson:"a" json:"a"`
+	Concurrency int         `bson:"cc" json:"cc"`
+	ArenaSize   int         `bson:"arSize" json:"arSize"`
+	SpansNum    int         `bson:"spanNum" json:"spanNum"`
+	SpanSize    int         `bson:"spanSize" json:"spanSize"`
+	BufSize     int         `bson:"bufSize" json:"bufSize"`
+}
+
+func (s DownloadStat) String() string {
+	return fmt.Sprintf("buf %d, arena %d, span %d, spanNum %d, cc %d, %v",
+		s.BufSize, s.ArenaSize, s.SpanSize, s.SpansNum, s.Concurrency, s.Arenas)
+}
+
+type Download struct {
+	s3 *S3
+
+	arenas    []*arena // mem buffer for downloads
+	chunkSize int
+	cc        int // download concurrency
+
+	stat DownloadStat
+}
+
+func (s *S3) NewDownload(cc, bufSizeMb, spanSize int) *Download {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
 	}
 
+	defSpan := false
 	if spanSize == 0 {
 		spanSize = ccSpanDefault
+		defSpan = true
 	}
 
 	bufSize := bufSizeMb << 20
 	if bufSize == 0 {
-		bufSize = ccBufferDefault
+		if defSpan {
+			bufSize = ccBufferDefault
+		} else {
+			bufSize = spanSize * cc * arenaMaxSpans
+		}
 	}
 	// download buffer can't be smaller than spanSize
 	if bufSize < spanSize {
@@ -59,29 +89,53 @@ func (s *S3) SetDownloadOpts(cc, bufSizeMb, spanSize int) {
 	if bufSize/cc < spanSize {
 		cc = bufSize / spanSize
 	} else {
-		// TODO?: adjust arenaMaxSpans so spanSize won't be to much (try to keep it under 128Mb - need tests).
-		// 		  buf: 32.00GB, cc: 4, arenaMaxSpans: 16 => spanSize: 512Mb !!!
-		for {
-			if bufSize/cc/spanSize <= arenaMaxSpans {
-				break
+		if defSpan {
+			for bufSize/cc/spanSize > arenaMaxSpans {
+				spanSize <<= 1
 			}
-			spanSize <<= 1
+		} else {
+			bufSize = arenaMaxSpans * cc * spanSize
 		}
 	}
 	arenaSize := spanSize * (bufSize / cc / spanSize)
 	s.log.Debug("download buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
 
-	s.arenas = []*arena{}
+	arenas := []*arena{}
 	for i := 0; i < cc; i++ {
-		s.arenas = append(s.arenas, newArena(arenaSize, spanSize))
+		arenas = append(arenas, newArena(arenaSize, spanSize))
 	}
 
-	s.chunkSize = spanSize
-	s.cc = cc
+	return &Download{
+		s3:        s,
+		arenas:    arenas,
+		chunkSize: spanSize,
+		cc:        cc,
+
+		stat: DownloadStat{
+			Concurrency: cc,
+			ArenaSize:   arenaSize,
+			SpansNum:    arenaSize / spanSize,
+			SpanSize:    spanSize,
+			BufSize:     arenaSize * cc,
+		},
+	}
+}
+
+func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
+	return d.s3.sourceReader(name, d.arenas, d.cc, d.chunkSize)
+}
+
+func (d *Download) Stat() DownloadStat {
+	d.stat.Arenas = []ArenaStat{}
+	for _, a := range d.arenas {
+		d.stat.Arenas = append(d.stat.Arenas, a.stat)
+	}
+
+	return d.stat
 }
 
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	return s.sourceReader(name, s.arenas, s.cc, s.chunkSize)
+	return s.d.SourceReader(name)
 }
 
 type errGetObj error
@@ -384,7 +438,16 @@ type arena struct {
 	spanBitCnt uint64
 	freeindex  atomic.Uint64 // buf's free spans bitmap
 
+	stat ArenaStat
+
 	cpbuf []byte // preallocated buffer for io.Copy
+}
+
+type ArenaStat struct {
+	// the max amount of span was occupied simultaneously
+	MaxSpan int `bson:"MaxSpan" json:"MaxSpan"`
+	// how many times getSpan() was waiting for the free span
+	WaitCnt int `bson:"WaitCnt" json:"WaitCnt"`
 }
 
 func newArena(size, spansize int) *arena {
@@ -400,12 +463,23 @@ func newArena(size, spansize int) *arena {
 }
 
 func (b *arena) getSpan() *dspan {
+	var w bool
 	for {
 		m := b.freeindex.Load()
 		if m >= b.spanBitCnt {
+			if !w {
+				b.stat.WaitCnt++
+				w = true
+			}
+
 			continue
 		}
 		f := firstzero(m)
+
+		if f+1 > b.stat.MaxSpan {
+			b.stat.MaxSpan = f + 1
+		}
+
 		if b.freeindex.CompareAndSwap(m, m^uint64(1)<<f) {
 			return &dspan{i: f * b.spansize, l: f * b.spansize, buf: b, pos: f}
 		}
