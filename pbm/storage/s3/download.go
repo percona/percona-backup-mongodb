@@ -24,9 +24,8 @@ const (
 	downloadChuckSizeDefault = 8 << 20
 	downloadRetries          = 10
 
-	ccBufferDefault = 512 << 20
-	ccSpanDefault   = 32 << 20
-	arenaMaxSpans   = 16 // max amount of spans in the arena
+	ccSpanDefault = 32 << 20
+	arenaSpans    = 8 // an amount of spans in arena
 )
 
 type DownloadStat struct {
@@ -54,51 +53,8 @@ type Download struct {
 }
 
 func (s *S3) NewDownload(cc, bufSizeMb, spanSize int) *Download {
-	if cc == 0 {
-		cc = runtime.GOMAXPROCS(0)
-	}
-
-	defSpan := false
-	if spanSize == 0 {
-		spanSize = ccSpanDefault
-		defSpan = true
-	}
-
-	bufSize := bufSizeMb << 20
-	if bufSize == 0 {
-		if defSpan {
-			bufSize = ccBufferDefault
-		} else {
-			bufSize = spanSize * cc * arenaMaxSpans
-		}
-	}
-	// download buffer can't be smaller than spanSize
-	if bufSize < spanSize {
-		bufSize = spanSize
-	}
-
-	// Calc a total size, span size for arena and arenas count (hence workers
-	// num - concurrency). A real buffer size (arenaSize*cc) might be smaller
-	// than bufSizeMb as evenly distribute between arenas and the arenaSize
-	// should be a multiplier of spanSize. As we gonna read from storage by
-	// spanSize chunks, if bufSize is not big enough to spread it over given
-	// cc, we'll slash down cc so it makes sense. As each worker has its own
-	// arena, there is not much sense in having too many spans as they won't
-	// be utilised. We'll increase the spanSize to be big enough for the
-	// targeted arena->total buffer size.
-	if bufSize/cc < spanSize {
-		cc = bufSize / spanSize
-	} else {
-		if defSpan {
-			for bufSize/cc/spanSize > arenaMaxSpans {
-				spanSize <<= 1
-			}
-		} else {
-			bufSize = arenaMaxSpans * cc * spanSize
-		}
-	}
-	arenaSize := spanSize * (bufSize / cc / spanSize)
-	s.log.Debug("download buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+	arenaSize, spanSize, cc := opts(cc, bufSizeMb, spanSize)
+	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
 
 	arenas := []*arena{}
 	for i := 0; i < cc; i++ {
@@ -119,6 +75,43 @@ func (s *S3) NewDownload(cc, bufSizeMb, spanSize int) *Download {
 			BufSize:     arenaSize * cc,
 		},
 	}
+}
+
+const lowCPU = 8
+
+// Adjust download options. We go from spanSize. But if bufMaxMb is
+// set, it will be a hard limit on total memory
+func opts(cc, bufMaxMb, spanSize int) (arenaSize, span, c int) {
+	if cc == 0 {
+		cc = runtime.GOMAXPROCS(0)
+	}
+
+	spans := arenaSpans
+	if cc > lowCPU {
+		spans *= 2
+	}
+
+	if spanSize == 0 {
+		spanSize = ccSpanDefault
+	}
+
+	bufSize := bufMaxMb << 20
+
+	if bufSize == 0 || spanSize*spans*cc <= bufSize {
+		return spanSize * spans, spanSize, cc
+	}
+
+	// download buffer can't be smaller than spanSize
+	if bufSize < spanSize {
+		spanSize = bufSize
+	}
+
+	// shrink coucurrency if bufSize too small
+	if bufSize/cc < spanSize {
+		cc = bufSize / spanSize
+	}
+
+	return spanSize * (bufSize / cc / spanSize), spanSize, cc
 }
 
 func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
