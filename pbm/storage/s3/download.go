@@ -52,8 +52,8 @@ type Download struct {
 	stat DownloadStat
 }
 
-func (s *S3) NewDownload(cc, bufSizeMb, spanSize int) *Download {
-	arenaSize, spanSize, cc := opts(cc, bufSizeMb, spanSize)
+func (s *S3) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
+	arenaSize, spanSize, cc := downloadOpts(cc, bufSizeMb, spanSizeMb)
 	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
 
 	arenas := []*arena{}
@@ -81,7 +81,7 @@ const lowCPU = 8
 
 // Adjust download options. We go from spanSize. But if bufMaxMb is
 // set, it will be a hard limit on total memory
-func opts(cc, bufMaxMb, spanSize int) (arenaSize, span, c int) {
+func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
 	}
@@ -91,6 +91,7 @@ func opts(cc, bufMaxMb, spanSize int) (arenaSize, span, c int) {
 		spans *= 2
 	}
 
+	spanSize := spanSizeMb << 20
 	if spanSize == 0 {
 		spanSize = ccSpanDefault
 	}

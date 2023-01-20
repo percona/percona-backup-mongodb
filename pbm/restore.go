@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -29,6 +30,11 @@ type RestoreMeta struct {
 	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	Type             BackupType          `bson:"type" json:"type"`
 	Leader           string              `bson:"l,omitempty" json:"l,omitempty"`
+	Stat             *RestoreStat        `bson:"stat,omitempty" json:"stat,omitempty"`
+}
+
+type RestoreStat struct {
+	Download map[string]map[string]s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
 }
 
 type RestoreReplset struct {

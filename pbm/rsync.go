@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -48,7 +49,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	l.Debug("got physical restores list: %v", len(rstrs))
 	for _, rs := range rstrs {
 		rname := strings.TrimSuffix(rs.Name, ".json")
-		rmeta, err := GetPhysRestoreMeta(rname, stg)
+		rmeta, err := GetPhysRestoreMeta(rname, stg, l)
 		if err != nil {
 			l.Error("get meta for restore %s: %v", rs.Name, err)
 			if rmeta == nil {
@@ -236,7 +237,7 @@ func (p *PBM) moveCollection(coll, as string) error {
 	return errors.Wrap(err, "remove current data")
 }
 
-func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta, err error) {
+func GetPhysRestoreMeta(restore string, stg storage.Storage, l *log.Event) (rmeta *RestoreMeta, err error) {
 	mjson := filepath.Join(PhysRestoresDir, restore) + ".json"
 	_, err = stg.FileStat(mjson)
 	if err != nil && err != storage.ErrNotExist {
@@ -255,7 +256,7 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 		}
 	}
 
-	condsm, err := ParsePhysRestoreStatus(restore, stg)
+	condsm, err := ParsePhysRestoreStatus(restore, stg, l)
 	if err != nil {
 		return rmeta, errors.Wrap(err, "parse physical restore status")
 	}
@@ -275,6 +276,7 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 	rmeta.Hb = condsm.Hb
 	rmeta.Conditions = condsm.Conditions
 	rmeta.Type = PhysicalBackup
+	rmeta.Stat = condsm.Stat
 
 	return rmeta, err
 }
@@ -282,7 +284,7 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta
 // ParsePhysRestoreStatus parses phys restore's sync files and creates RestoreMeta.
 //
 // On files format, see comments for *PhysRestore.toState() in pbm/restore/physical.go
-func ParsePhysRestoreStatus(restore string, stg storage.Storage) (*RestoreMeta, error) {
+func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (*RestoreMeta, error) {
 	rfiles, err := stg.List(PhysRestoresDir+"/"+restore, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "get files")
@@ -359,6 +361,28 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage) (*RestoreMeta, 
 					rs.rs.LastTransitionTS = l.Timestamp
 					rs.rs.Error = l.Error
 				}
+			case "stat":
+				src, err := stg.SourceReader(filepath.Join(PhysRestoresDir, restore, f.Name))
+				if err != nil {
+					l.Error("get stat file %s: %v", f.Name, err)
+					break
+				}
+				if meta.Stat == nil {
+					meta.Stat = &RestoreStat{Download: make(map[string]map[string]s3.DownloadStat)}
+				}
+				st := struct {
+					D s3.DownloadStat `json:"d"`
+				}{}
+				err = json.NewDecoder(src).Decode(&st)
+				if err != nil {
+					l.Error("unmarshal stat file %s: %v", f.Name, err)
+					break
+				}
+				if _, ok := meta.Stat.Download[rsName]; !ok {
+					meta.Stat.Download[rsName] = make(map[string]s3.DownloadStat)
+				}
+				nName := strings.Join(p[1:], ".")
+				meta.Stat.Download[rsName][nName] = st.D
 			}
 			rss[rsName] = rs
 

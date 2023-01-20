@@ -142,6 +142,7 @@ type RestoreConf struct {
 	// MaxDownloadBufferMb stest the max size of in-memmory buffer that is used
 	// to download files from the storage.
 	MaxDownloadBufferMb int `bson:"maxDownloadBufferMb" json:"maxDownloadBufferMb,omitempty" yaml:"maxDownloadBufferMb,omitempty"`
+	DownloadChunkMb     int `bson:"downloadChunkMb" json:"downloadChunkMb,omitempty" yaml:"downloadChunkMb,omitempty"`
 }
 
 type BackupConf struct {

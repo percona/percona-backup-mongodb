@@ -69,10 +69,11 @@ type PhysRestore struct {
 
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
-	syncPathNode    string
-	syncPathRS      string
-	syncPathCluster string
-	syncPathPeers   map[string]struct{}
+	syncPathNode     string
+	syncPathNodeStat string
+	syncPathRS       string
+	syncPathCluster  string
+	syncPathPeers    map[string]struct{}
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok.
 	//
@@ -611,9 +612,13 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	progress |= restoreStared
 
 	l.Info("copying backup data")
-	err = r.copyFiles()
+	dstat, err := r.copyFiles()
 	if err != nil {
 		return errors.Wrap(err, "copy files")
+	}
+	err = r.writeStat(dstat)
+	if err != nil {
+		r.log.Warning("write download stat: %v", err)
 	}
 
 	l.Info("preparing data")
@@ -654,6 +659,25 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	return nil
 }
 
+func (r *PhysRestore) writeStat(stat any) error {
+	d := struct {
+		D any `json:"d"`
+	}{
+		D: stat,
+	}
+	b, err := json.Marshal(d)
+	if err != nil {
+		return errors.Wrap(err, "marshal")
+	}
+
+	err = r.stg.Save(r.syncPathNodeStat, bytes.NewBuffer(b), -1)
+	if err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
 func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) error {
 	name := fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, meta.Name)
 	_, err := r.stg.FileStat(name)
@@ -670,7 +694,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	// The meta generated here is more for debugging porpuses (just in case).
 	// `pbm status` and `resync` will always rebuild it from agents' reports
 	// not relying solely on this file.
-	condsm, err := pbm.GetPhysRestoreMeta(meta.Name, r.stg)
+	condsm, err := pbm.GetPhysRestoreMeta(meta.Name, r.stg, r.log)
 	if err == nil {
 		meta.Replsets = condsm.Replsets
 		meta.Status = condsm.Status
@@ -702,13 +726,16 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() error {
+func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 	readFn := r.stg.SourceReader
-	// var readFn storage.SourceReader
 	if t, ok := r.stg.(*s3.S3); ok {
-		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, 0)
+		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
-		defer r.log.Debug("download stat: %s", d.Stat())
+		defer func() {
+			s := d.Stat()
+			stat = &s
+			r.log.Debug("download stat: %s", s)
+		}()
 	}
 	cpbuf := make([]byte, 32*1024)
 	for i := len(r.files) - 1; i >= 0; i-- {
@@ -722,46 +749,46 @@ func (r *PhysRestore) copyFiles() error {
 
 			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
 			if err != nil {
-				return errors.Wrapf(err, "create path %s", filepath.Dir(dst))
+				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
 			}
 
 			r.log.Info("copy <%s> to <%s>", src, dst)
 			sr, err := readFn(src)
 			if err != nil {
-				return errors.Wrapf(err, "create source reader for <%s>", src)
+				return stat, errors.Wrapf(err, "create source reader for <%s>", src)
 			}
 			defer sr.Close()
 
 			data, err := compress.Decompress(sr, set.Cmpr)
 			if err != nil {
-				return errors.Wrapf(err, "decompress object %s", src)
+				return stat, errors.Wrapf(err, "decompress object %s", src)
 			}
 			defer data.Close()
 
 			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
 			if err != nil {
-				return errors.Wrapf(err, "create/open destination file <%s>", dst)
+				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
 			}
 			defer fw.Close()
 			if f.Off != 0 {
 				_, err := fw.Seek(f.Off, io.SeekStart)
 				if err != nil {
-					return errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
+					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
 				}
 			}
 			_, err = io.CopyBuffer(fw, data, cpbuf)
 			if err != nil {
-				return errors.Wrapf(err, "copy file <%s>", dst)
+				return stat, errors.Wrapf(err, "copy file <%s>", dst)
 			}
 			if f.Size != 0 {
 				err = fw.Truncate(f.Size)
 				if err != nil {
-					return errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
+					return stat, errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
 				}
 			}
 		}
 	}
-	return nil
+	return stat, nil
 }
 
 func (r *PhysRestore) prepareData() error {
@@ -1067,6 +1094,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	r.startTS = time.Now().Unix()
 
 	r.syncPathNode = fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	r.syncPathNodeStat = fmt.Sprintf("%s/%s/rs.%s/stat.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
 	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
 	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
 	r.syncPathPeers = make(map[string]struct{})

@@ -124,7 +124,8 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 
 func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	ep, _ := cn.GetEpoch()
-	stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), m.Backup, m.OPID, ep.TS()))
+	l := cn.Logger().NewEvent(string(pbm.CmdRestore), m.Backup, m.OPID, ep.TS())
+	stg, err := cn.GetStorage(l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -137,7 +138,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 	getMeta := cn.GetRestoreMeta
 	if m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup {
 		getMeta = func(name string) (*pbm.RestoreMeta, error) {
-			return pbm.GetPhysRestoreMeta(name, stg)
+			return pbm.GetPhysRestoreMeta(name, stg, l)
 		}
 	}
 
@@ -237,7 +238,7 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 		}
 
 		fn = func(name string) (*pbm.RestoreMeta, error) {
-			return pbm.GetPhysRestoreMeta(name, stg)
+			return pbm.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
 		}
 		ctx, cancel = context.WithTimeout(context.Background(), waitPhysRestoreStart)
 	} else {
@@ -426,12 +427,13 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 			return nil, errors.Wrap(err, "unable to  unmarshal config file")
 		}
 
-		stg, err := pbm.Storage(cfg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
+		l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
+		stg, err := pbm.Storage(cfg, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg)
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, l)
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
