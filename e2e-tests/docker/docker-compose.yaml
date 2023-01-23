@@ -54,6 +54,7 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
+      - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: mongod --configsvr --dbpath /data/db --replSet cfg --bind_ip_all --port 27017 --keyFile /opt/keyFile --storageEngine wiredTiger  --wiredTigerCacheSizeGB 1
     volumes:
       - ./scripts/start.sh:/opt/start.sh

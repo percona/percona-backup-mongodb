@@ -139,7 +139,7 @@ type RestoreConf struct {
 	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
 	// during the download. By default, it's set to GOMAXPROCS.
 	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
-	// MaxDownloadBufferMb stest the max size of in-memmory buffer that is used
+	// MaxDownloadBufferMb sets the max size of the in-memory buffer that is used
 	// to download files from the storage.
 	MaxDownloadBufferMb int `bson:"maxDownloadBufferMb" json:"maxDownloadBufferMb,omitempty" yaml:"maxDownloadBufferMb,omitempty"`
 	DownloadChunkMb     int `bson:"downloadChunkMb" json:"downloadChunkMb,omitempty" yaml:"downloadChunkMb,omitempty"`
