@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"strconv"
@@ -22,10 +20,6 @@ import (
 const mongoConnFlag = "mongodb-uri"
 
 func main() {
-	go func() {
-		log.Println(http.ListenAndServe(":6060", nil))
-	}()
-
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
