@@ -1,7 +1,7 @@
 FROM golang:1.19 as goimg
 
 FROM ubuntu:20.04
-# ARG MONGODB_VERSION=4.2
+ARG MONGODB_VERSION=4.2
 ENV VERSION=${MONGODB_VERSION:-6.0}
 COPY --from=goimg /usr/local/go /usr/local/go
 ENV PATH=$PATH:/usr/local/go/bin
