@@ -130,8 +130,10 @@ func (s *StorageConf) Path() string {
 
 // RestoreConf is config options for the restore
 type RestoreConf struct {
-	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
-	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	BatchSize            int    `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
+	NumInsertionWorkers  int    `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	ExcludeNamespaces    string `bson:"excludeNamespaces" json:"excludeNamespaces" yaml:"excludeNamespaces"`
+	ConvertLegacyIndexes bool   `bson:"convertLegacyIndexes" json:"convertLegacyIndexes" yaml:"convertLegacyIndexes"`
 }
 
 type BackupConf struct {

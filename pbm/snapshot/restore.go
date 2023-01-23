@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"io"
+	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -71,6 +72,15 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
 
+	splitFunc := func(c rune) bool {
+		return c == ','
+	}
+	excludeNamespaces := strings.FieldsFunc(cfg.Restore.ExcludeNamespaces, splitFunc)
+	for i := range excludeNamespaces {
+		excludeNamespaces[i] = strings.TrimSpace(excludeNamespaces[i])
+	}
+	ExcludeFromRestore = append(ExcludeFromRestore, excludeNamespaces...)
+
 	mopts := mongorestore.Options{}
 	mopts.ToolOptions = topts
 	mopts.InputOptions = &mongorestore.InputOptions{
@@ -85,6 +95,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,
 		WriteConcern:             "majority",
+		ConvertLegacyIndexes:     cfg.Restore.ConvertLegacyIndexes,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
