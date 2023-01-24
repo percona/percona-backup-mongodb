@@ -237,10 +237,10 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	}
 
 	s.d = &Download{
-		s3:        s,
-		arenas:    []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		chunkSize: downloadChuckSizeDefault,
-		cc:        1,
+		s3:       s,
+		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
+		spanSize: downloadChuckSizeDefault,
+		cc:       1,
 	}
 
 	return s, nil

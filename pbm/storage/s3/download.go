@@ -20,6 +20,29 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
+// Downloading objects from the storage.
+//
+// Each object can be downloaded concurrently in chunks. If a download of a
+// chunk has failed it will be retried a certain amount of time before
+// returning with an error.
+// It starts with the number of workers equal to the concurrency setting. Each
+// worker takes a task with a needed object range (chunk) and downloads it into
+// a part (span) of its memory buffer (arena). Returns an io.ReaderCloser
+// object with the content of the span. And gets a next free span to download
+// the next chunk.
+// The consumer closing io.ReaderCloser marks the respective span as free reuse.
+// An arenas pool is created with the `Download` object and reused for every next
+// downloaded object.
+// Although the object's chunks can be downloaded concurrently, they should be
+// streamed to the consumer sequentially (objects usually are compressed, hence
+// the consumer can't be an oi.Seeker). Therefore if a downloaded span's range
+// is out of order (preceding chunks aren't downloaded yet) it is added to the
+// heap structure (`chunksQueue`) and waits for its queue to be passed to
+// the consumer.
+// The max size the buffer of would be `arenaSize * concurrency`. Where
+// `arenaSize` is `spanSize * spansInArena`. It doesn't mean all of this size
+// would be allocated as some of the span slots may remain unused.
+
 const (
 	downloadChuckSizeDefault = 8 << 20
 	downloadRetries          = 10
@@ -42,12 +65,13 @@ func (s DownloadStat) String() string {
 		s.BufSize, s.ArenaSize, s.SpanSize, s.SpansNum, s.Concurrency, s.Arenas)
 }
 
+// Download is used to concurrently download objects from the storage.
 type Download struct {
 	s3 *S3
 
-	arenas    []*arena // mem buffer for downloads
-	chunkSize int
-	cc        int // download concurrency
+	arenas   []*arena // mem buffer for downloads
+	spanSize int
+	cc       int // download concurrency
 
 	stat DownloadStat
 }
@@ -62,10 +86,10 @@ func (s *S3) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
 	}
 
 	return &Download{
-		s3:        s,
-		arenas:    arenas,
-		chunkSize: spanSize,
-		cc:        cc,
+		s3:       s,
+		arenas:   arenas,
+		spanSize: spanSize,
+		cc:       cc,
 
 		stat: DownloadStat{
 			Concurrency: cc,
@@ -77,15 +101,18 @@ func (s *S3) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
 	}
 }
 
+// assume we need more spans in arena above this number of CPUs used
 const lowCPU = 8
 
 // Adjust download options. We go from spanSize. But if bufMaxMb is
-// set, it will be a hard limit on total memory
+// set, it will be a hard limit on total memory.
 func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
 	}
 
+	// broad assumption that increased amount of concurrency may lead to
+	// extra contention hence need in more spans in arena
 	spans := arenaSpans
 	if cc > lowCPU {
 		spans *= 2
@@ -97,7 +124,6 @@ func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	}
 
 	bufSize := bufMaxMb << 20
-
 	if bufSize == 0 || spanSize*spans*cc <= bufSize {
 		return spanSize * spans, spanSize, cc
 	}
@@ -116,7 +142,7 @@ func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 }
 
 func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
-	return d.s3.sourceReader(name, d.arenas, d.cc, d.chunkSize)
+	return d.s3.sourceReader(name, d.arenas, d.cc, d.spanSize)
 }
 
 func (d *Download) Stat() DownloadStat {
@@ -134,15 +160,17 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 
 type errGetObj error
 
+// requests an object in chunks and retries if download has failed
 type partReader struct {
 	fname     string
-	getSess   func() (*s3.S3, error)
-	l         *log.Event
-	opts      *Conf
-	fsize     int64
+	fsize     int64 // a total size of object (file) to download
 	written   int64
-	buf       []byte
 	chunkSize int64
+
+	getSess func() (*s3.S3, error)
+	l       *log.Event
+	opts    *Conf
+	buf     []byte // preallocated buf for io.Copy
 
 	taskq   chan chunkMeta
 	resultq chan chunk
@@ -179,6 +207,7 @@ type chunk struct {
 	meta chunkMeta
 }
 
+// a queue (heap) for out-of-order chunks
 type chunksQueue []*chunk
 
 func (b chunksQueue) Len() int           { return len(b) }
@@ -271,6 +300,8 @@ func (pr *partReader) Run(concurrency int, arenas []*arena) {
 	pr.resultq = make(chan chunk)
 	pr.errc = make(chan error)
 	pr.close = make(chan struct{})
+
+	// schedule chunks for download
 	go func() {
 		for sent := int64(0); sent <= pr.fsize; {
 			select {
@@ -424,13 +455,16 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	return ch, nil
 }
 
-// download arena
-// TODO: describe
+// Download arena (bytes slice) is split into spans (represented by `dpsan`)
+// whose size should be equal to download chunks. `dspan` implements io.Wrire
+// and io.ReaderCloser interface. Close() marks the span as free to use
+// (download another chunk).
+// Free/busy spans list is managed via lock-free bitmap index.
 type arena struct {
 	buf        []byte
 	spansize   int
 	spanBitCnt uint64
-	freeindex  atomic.Uint64 // buf's free spans bitmap
+	freeindex  atomic.Uint64 // free slots bitmap
 
 	stat ArenaStat
 
@@ -461,6 +495,7 @@ func (b *arena) getSpan() *dspan {
 	for {
 		m := b.freeindex.Load()
 		if m >= b.spanBitCnt {
+			// write stat on contention - no free spans now
 			if !w {
 				b.stat.WaitCnt++
 				w = true
@@ -468,20 +503,26 @@ func (b *arena) getSpan() *dspan {
 
 			continue
 		}
-		f := firstzero(m)
+		i := firstzero(m)
 
-		if f+1 > b.stat.MaxSpan {
-			b.stat.MaxSpan = f + 1
+		if i+1 > b.stat.MaxSpan {
+			b.stat.MaxSpan = i + 1
 		}
 
-		if b.freeindex.CompareAndSwap(m, m^uint64(1)<<f) {
-			return &dspan{i: f * b.spansize, l: f * b.spansize, buf: b, pos: f}
+		if b.freeindex.CompareAndSwap(m, m^uint64(1)<<i) {
+			return &dspan{
+				rp:    i * b.spansize,
+				wp:    i * b.spansize,
+				high:  (i + 1) * b.spansize,
+				slot:  i,
+				arena: b,
+			}
 		}
 	}
 }
 
 func (b *arena) putSpan(c *dspan) {
-	flip := uint64(1 << uint64(c.pos))
+	flip := uint64(1 << uint64(c.slot))
 	for {
 		m := b.freeindex.Load()
 		if b.freeindex.CompareAndSwap(m, m&^flip) {
@@ -490,7 +531,7 @@ func (b *arena) putSpan(c *dspan) {
 	}
 }
 
-// returns position of the first (rightmost) unset (zero) bit
+// returns a position of the first (rightmost) unset (zero) bit
 func firstzero(x uint64) int {
 	x = ^x
 	return popcnt((x & (-x)) - 1)
@@ -510,32 +551,33 @@ func popcnt(x uint64) int {
 }
 
 type dspan struct {
-	i int
-	l int
+	rp   int // current read pos in the arena
+	wp   int // current write pos in the arena
+	high int // high bound index of span in the arena
 
-	pos int // position in buffer
-	buf *arena
+	slot  int    // slot number in the arena
+	arena *arena // link to the arena
 }
 
-func (c *dspan) Write(p []byte) (n int, err error) {
-	n = copy(c.buf.buf[c.l:], p)
+func (s *dspan) Write(p []byte) (n int, err error) {
+	n = copy(s.arena.buf[s.wp:s.high], p)
 
-	c.l += n
+	s.wp += n
 	return n, nil
 }
 
-func (c *dspan) Read(p []byte) (n int, err error) {
-	n = copy(p, c.buf.buf[c.i:c.l])
-	c.i += n
+func (s *dspan) Read(p []byte) (n int, err error) {
+	n = copy(p, s.arena.buf[s.rp:s.wp])
+	s.rp += n
 
-	if c.i == c.l {
+	if s.rp == s.wp {
 		return n, io.EOF
 	}
 
 	return n, nil
 }
 
-func (c *dspan) Close() error {
-	c.buf.putSpan(c)
+func (s *dspan) Close() error {
+	s.arena.putSpan(s)
 	return nil
 }
