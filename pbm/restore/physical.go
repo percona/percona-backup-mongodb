@@ -65,7 +65,7 @@ type PhysRestore struct {
 	files    []files
 
 	// path to files on a storage the node will sync its
-	// state with the resto of the cluster
+	// state with the rest of the cluster
 	syncPathNode    string
 	syncPathRS      string
 	syncPathCluster string
@@ -236,57 +236,56 @@ func waitMgoShutdown(dbpath string) error {
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 //
-//  Status "done" is a special case. If at least one node in the replset moved
-//  to the "done", the replset is "partlyDone". And a replset is "done" if all
-//  nodes moved to "done". For cluster success, all replsets must move either
-//  to "done" or "partlyDone". Cluster is "partlyDone" if at least one replset
-//  is "partlyDone".
+//		Status "done" is a special case. If at least one node in the replset moved
+//		to the "done", the replset is "partlyDone". And a replset is "done" if all
+//		nodes moved to "done". For cluster success, all replsets must move either
+//		to "done" or "partlyDone". Cluster is "partlyDone" if at least one replset
+//		is "partlyDone".
 //
-// - Each node writes a file with the given state.
-// - The replset leader (primary node) or every rs node, in case of status
-//   "done",  waits for files from all replica set nodes. And writes a status
-//   file for the replica set.
-// - The cluster leader (primary node - on config server in case of sharded) or
-//   every node, in case of status "done",  waits for status files from all
-//   replica sets. And sets the status file for the cluster.
-// - Each node in turn waits for the cluster status file and returns (move further)
-//   once it's observed.
+//	  - Each node writes a file with the given state.
+//	  - The replset leader (primary node) or every rs node, in case of status
+//	    "done",  waits for files from all replica set nodes. And writes a status
+//	    file for the replica set.
+//	  - The cluster leader (primary node - on config server in case of sharded) or
+//	    every node, in case of status "done",  waits for status files from all
+//	    replica sets. And sets the status file for the cluster.
+//	  - Each node in turn waits for the cluster status file and returns (move further)
+//	    once it's observed.
 //
 // State structure on storage:
 //
-//	.pbm.restore/<restore-name>
-// 		rs.<rs-name>/
-// 			node.<node-name>.hb			// hearbeats. last beat ts inside.
-// 			node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-// 			rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-//		cluster.hb						// hearbeats. last beat ts inside.
-// 		cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//		.pbm.restore/<restore-name>
+//			rs.<rs-name>/
+//				node.<node-name>.hb			// hearbeats. last beat ts inside.
+//				node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//				rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
+//			cluster.hb						// hearbeats. last beat ts inside.
+//			cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //
-//  For example:
+//	 For example:
 //
-//      2022-08-02T18:50:35.1889332Z
-//      ├── cluster.done
-//      ├── cluster.hb
-//      ├── cluster.running
-//      ├── cluster.starting
-//      ├── rs.rs1
-//      │   ├── node.rs101:27017.done
-//      │   ├── node.rs101:27017.hb
-//      │   ├── node.rs101:27017.running
-//      │   ├── node.rs101:27017.starting
-//      │   ├── node.rs102:27017.done
-//      │   ├── node.rs102:27017.hb
-//      │   ├── node.rs102:27017.running
-//      │   ├── node.rs102:27017.starting
-//      │   ├── node.rs103:27017.done
-//      │   ├── node.rs103:27017.hb
-//      │   ├── node.rs103:27017.running
-//      │   ├── node.rs103:27017.starting
-//      │   ├── rs.done
-//      │   ├── rs.hb
-//      │   ├── rs.running
-//      │   └── rs.starting
-//
+//	     2022-08-02T18:50:35.1889332Z
+//	     ├── cluster.done
+//	     ├── cluster.hb
+//	     ├── cluster.running
+//	     ├── cluster.starting
+//	     ├── rs.rs1
+//	     │   ├── node.rs101:27017.done
+//	     │   ├── node.rs101:27017.hb
+//	     │   ├── node.rs101:27017.running
+//	     │   ├── node.rs101:27017.starting
+//	     │   ├── node.rs102:27017.done
+//	     │   ├── node.rs102:27017.hb
+//	     │   ├── node.rs102:27017.running
+//	     │   ├── node.rs102:27017.starting
+//	     │   ├── node.rs103:27017.done
+//	     │   ├── node.rs103:27017.hb
+//	     │   ├── node.rs103:27017.running
+//	     │   ├── node.rs103:27017.starting
+//	     │   ├── rs.done
+//	     │   ├── rs.hb
+//	     │   ├── rs.running
+//	     │   └── rs.starting
 func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error) {
 	defer func() {
 		if err != nil {
@@ -508,17 +507,17 @@ func (n nodeStatus) is(s nodeStatus) bool {
 // Unlike in logical restore, _every_ node of the replicaset is taking part in
 // a physical restore. In that way, we avoid logical resync between nodes after
 // the restore. Each node in the cluster does:
-// - Stores current replicset config and mongod port.
-// - Checks backup and stops all routine writes to the db.
-// - Stops mongod and wipes out datadir.
-// - Copies backup data to the datadir.
-// - Starts standalone mongod on ephemeral (tmp) port and reset some internal
-//   data also setting one-node replicaset and sets oplogTruncateAfterPoint
-//   to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
-//   to which journals would be replayed.
-// - Starts standalone mongod to recover oplog from journals.
-// - Cleans up data and resets replicaset config to the working state.
-// - Shuts down mongod and agent (the leader also dumps metadata to the storage).
+//   - Stores current replicset config and mongod port.
+//   - Checks backup and stops all routine writes to the db.
+//   - Stops mongod and wipes out datadir.
+//   - Copies backup data to the datadir.
+//   - Starts standalone mongod on ephemeral (tmp) port and reset some internal
+//     data also setting one-node replicaset and sets oplogTruncateAfterPoint
+//     to the backup's `last write`. `oplogTruncateAfterPoint` set the time up
+//     to which journals would be replayed.
+//   - Starts standalone mongod to recover oplog from journals.
+//   - Cleans up data and resets replicaset config to the working state.
+//   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 

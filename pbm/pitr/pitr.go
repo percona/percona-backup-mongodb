@@ -333,7 +333,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		}
 
 		// in case there is a lock, even a legit one (our own, or backup's one) but it is stale
-		// we should return so the slicer would get thru the lock acquisition again.
+		// we should return so the slicer would get through the lock acquisition again.
 		ts, err := s.pbm.ClusterTime()
 		if err != nil {
 			return errors.Wrap(err, "read cluster time")
@@ -352,7 +352,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 				return errors.Wrap(err, "define last write timestamp")
 			}
 		case pbm.CmdUndefined:
-			return errors.New("undefinded behaviour operation is running")
+			return errors.New("undefined behaviour operation is running")
 		case pbm.CmdBackup:
 			// continue only if we had `backupSig`
 			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
