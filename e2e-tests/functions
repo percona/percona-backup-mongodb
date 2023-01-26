@@ -65,7 +65,12 @@ mongo_run() {
     local cmd=$1
     local rs=$2
 
-    docker-compose -f $COMPOSE_PATH exec -T "${rs}01" mongo "mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost/?replicaSet=${rs}" --quiet --eval="${cmd}"
+    mongo="mongo"
+    if ! [ -x "$(command -v ${mongo})" ]; then
+        mongo="mongosh"
+    fi
+
+    docker-compose -f $COMPOSE_PATH exec -T "${rs}01" $mongo "mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost/?replicaSet=${rs}" --quiet --eval="${cmd}"
 }
 
 wait_backup() {
@@ -153,6 +158,11 @@ start_cluster() {
     echo 'Build agents and tests'
     docker-compose -f $COMPOSE_PATH build
 
+    mongo="mongo"
+    if ! [ -x "$(command -v ${mongo})" ]; then
+        mongo="mongosh"
+    fi
+
     if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
         chmod -R 777 "${test_dir}/docker/backups"
@@ -168,7 +178,7 @@ start_cluster() {
     docker-compose -f $COMPOSE_PATH exec -T rs101 /opt/start.sh
     docker-compose -f $COMPOSE_PATH exec -T rs201 /opt/start.sh
     sleep 15
-    docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
+    docker-compose -f $COMPOSE_PATH exec -T mongos $mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
