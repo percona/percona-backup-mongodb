@@ -99,6 +99,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -120,6 +121,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -141,6 +143,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -164,6 +167,7 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - CONFIGSVR=false
+      - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --shardsvr  --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
@@ -209,6 +213,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
@@ -231,6 +236,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -252,6 +258,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -320,6 +327,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -341,6 +349,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -362,6 +371,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN

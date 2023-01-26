@@ -1,16 +1,32 @@
-FROM golang:1.19
 ARG MONGODB_VERSION=4.2
-ENV VERSION=${MONGODB_VERSION:-4.2}
-RUN mkdir /opt/backups
-RUN wget -qO - https://www.mongodb.org/static/pgp/server-${VERSION}.asc | apt-key add - && \
-	echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/$VERSION main" | tee /etc/apt/sources.list.d/mongodb-org-$VERSION.list && \
-	apt-get update && apt-get install -y --no-install-recommends \
+ARG MONGODB_IMAGE=percona/percona-server-mongodb
+
+FROM golang:1.19 as goimg
+
+FROM ${MONGODB_IMAGE}:${MONGODB_VERSION}
+
+USER 0
+
+RUN dnf config-manager --enable ol8_u4_security_validation; \
+	dnf config-manager --enable ol8_codeready_builder; \
+	dnf -y install epel-release; \
+	dnf -y update; \
+	dnf -y install \
 	libfaketime \
-	iproute2 \
-	libkrb5-dev \
-	mongodb-org \
+	iproute \
+	krb5-devel \
 	vim \
-	&& rm -rf /var/lib/apt/lists/*
+	make \
+	gcc \
+	nload \
+	htop
+
+COPY --from=goimg /usr/local/go /usr/local/go
+ENV PATH=$PATH:/usr/local/go/bin
+ENV GOPATH /go
+ENV PATH $GOPATH/bin:$PATH
+RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
+RUN mkdir /opt/backups
 
 WORKDIR /opt/pbm
 COPY . .

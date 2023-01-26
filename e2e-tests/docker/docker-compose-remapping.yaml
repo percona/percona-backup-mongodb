@@ -32,6 +32,7 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - SINGLE_NODE=true
+      - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
@@ -52,6 +53,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
@@ -96,6 +98,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
