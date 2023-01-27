@@ -327,7 +327,7 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-const journalPrefix = "journal/WiredTigerLog."
+const journalFile = "WiredTigerLog."
 
 // Uploads given files to the storage. files may come as 16Mb (by default)
 // blocks in that case it will concat consecutive blocks in one bigger file.
@@ -366,7 +366,7 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		}
 		fw.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
 
-		if strings.HasPrefix(fw.Name, journalPrefix) {
+		if strings.Contains(fw.Name, journalFile) {
 			journal = append(journal, *fw)
 		} else {
 			data = append(data, *fw)
@@ -384,7 +384,7 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
 	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
-	if strings.HasPrefix(f.Name, journalPrefix) {
+	if strings.Contains(f.Name, journalFile) {
 		journal = append(journal, *f)
 	} else {
 		data = append(data, *f)
