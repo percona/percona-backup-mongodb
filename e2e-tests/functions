@@ -66,7 +66,7 @@ mongo_run() {
     local rs=$2
 
     mongo="mongo"
-    if ! [ -x "$(command -v ${mongo})" ]; then
+    if [ "${MONGODB_VERSION:0:1}" -ge 6 ]; then
         mongo="mongosh"
     fi
 
@@ -159,7 +159,7 @@ start_cluster() {
     docker-compose -f $COMPOSE_PATH build
 
     mongo="mongo"
-    if ! [ -x "$(command -v ${mongo})" ]; then
+    if [ "${mongo_version:0:1}" -ge 6 ]; then
         mongo="mongosh"
     fi
 
