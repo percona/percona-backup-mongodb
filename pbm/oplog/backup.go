@@ -16,19 +16,15 @@ import (
 
 // OplogBackup is used for reading the Mongodb oplog
 type OplogBackup struct {
-	node  *pbm.Node
-	cl    *mongo.Collection
+	cl    *mongo.Client
 	stopC chan struct{}
 	start primitive.Timestamp
 	end   primitive.Timestamp
 }
 
 // NewOplogBackup creates a new Oplog instance
-func NewOplogBackup(node *pbm.Node) *OplogBackup {
-	return &OplogBackup{
-		node: node,
-		cl:   node.Session().Database("local").Collection("oplog.rs"),
-	}
+func NewOplogBackup(m *mongo.Client) *OplogBackup {
+	return &OplogBackup{cl: m}
 }
 
 // SetTailingSpan sets oplog tailing window
@@ -69,7 +65,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 		ot.stopC = nil
 	}()
 
-	cur, err := ot.cl.Find(ctx,
+	cur, err := ot.cl.Database("local").Collection("oplog.rs").Find(ctx,
 		bson.M{
 			"ts": bson.M{"$gte": ot.start},
 		},
@@ -145,7 +141,10 @@ func (ot *OplogBackup) Cancel() {
 
 // IsSufficient check is oplog is sufficient back from the given date
 func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
-	c, err := ot.cl.CountDocuments(context.Background(), bson.M{"ts": bson.M{"$lte": from}}, options.Count().SetLimit(1))
+	c, err := ot.cl.Database("local").Collection("oplog.rs").
+		CountDocuments(context.Background(),
+			bson.M{"ts": bson.M{"$lte": from}},
+			options.Count().SetLimit(1))
 	if err != nil {
 		return false, err
 	}
@@ -155,5 +154,5 @@ func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 
 // LastWrite returns a timestamp of the last write operation readable by majority reads
 func (ot *OplogBackup) LastWrite() (primitive.Timestamp, error) {
-	return pbm.LastWrite(ot.node.Session(), true)
+	return pbm.LastWrite(ot.cl, true)
 }
