@@ -261,7 +261,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	}
 
 	l.Info("uploading data")
-	rsMeta.Journal, rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
 		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -269,13 +269,13 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, _, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
 		false, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
 	}
-	rsMeta.Journal = append(rsMeta.Journal, ju...)
-	l.Info("uploading journals")
+	rsMeta.Files = append(rsMeta.Files, ju...)
+	l.Info("uploading journals done")
 
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
@@ -285,9 +285,6 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	size := int64(0)
 	for _, f := range rsMeta.Files {
 		size += f.StgSize
-	}
-	for _, j := range rsMeta.Journal {
-		size += j.StgSize
 	}
 
 	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
@@ -332,24 +329,32 @@ const journalPrefix = "journal/WiredTigerLog."
 // Uploads given files to the storage. files may come as 16Mb (by default)
 // blocks in that case it will concat consecutive blocks in one bigger file.
 // For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
-// If this is an incremental, NOT base backup, it will skip unchanged
-// files (Len == 0).
+// If this is an incremental, NOT base backup, it will skip uploading of
+// unchanged files (Len == 0) but add them to the meta as we need know
+// what files shouldn't be restored (those which isn't in the target backup).
 func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (journal, data []pbm.File, err error) {
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (data []pbm.File, err error) {
 	if len(files) == 0 {
-		return journal, data, err
+		return data, err
 	}
 
 	wfile := files[0]
 	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ErrCancelled
+			return nil, ErrCancelled
 		default:
 		}
 
-		// skip unchanged files if increment
+		// skip uploading unchanged files if incremental
+		// but add them to the meta to keep track files to be restored
+		// from prev backups
 		if incr && file.Len == 0 {
+			file.Off = -1
+			file.Len = -1
+			file.Name = strings.TrimPrefix(file.Name, trimPrefix)
+
+			data = append(data, file)
 			continue
 		}
 
@@ -362,35 +367,28 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 
 		fw, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
 		if err != nil {
-			return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
 		fw.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
 
-		if strings.HasPrefix(fw.Name, journalPrefix) {
-			journal = append(journal, *fw)
-		} else {
-			data = append(data, *fw)
-		}
+		data = append(data, *fw)
 
 		wfile = file
 	}
 
 	if incr && wfile.Off == 0 && wfile.Len == 0 {
-		return journal, data, nil
+		return data, nil
 	}
 
 	f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
 	if err != nil {
-		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
 	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
-	if strings.HasPrefix(f.Name, journalPrefix) {
-		journal = append(journal, *f)
-	} else {
-		data = append(data, *f)
-	}
 
-	return journal, data, nil
+	data = append(data, *f)
+
+	return data, nil
 }
 
 func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
