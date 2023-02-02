@@ -240,23 +240,6 @@ func waitMgoShutdown(dbpath string) error {
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 //
-<<<<<<< HEAD
-// Status "done" is a special case. If at least one node in the replset moved
-// to the "done", the replset is "partlyDone". And a replset is "done" if all
-// nodes moved to "done". For cluster success, all replsets must move either
-// to "done" or "partlyDone". Cluster is "partlyDone" if at least one replset
-// is "partlyDone".
-//
-//   - Each node writes a file with the given state.
-//   - The replset leader (primary node) or every rs node, in case of status
-//     "done",  waits for files from all replica set nodes. And writes a status
-//     file for the replica set.
-//   - The cluster leader (primary node - on config server in case of sharded) or
-//     every node, in case of status "done",  waits for status files from all
-//     replica sets. And sets the status file for the cluster.
-//   - Each node in turn waits for the cluster status file and returns (move further)
-//     once it's observed.
-=======
 //		Status "done" is a special case. If at least one node in the replset moved
 //		to the "done", the replset is "partlyDone". And a replset is "done" if all
 //		nodes moved to "done". For cluster success, all replsets must move either
@@ -272,7 +255,6 @@ func waitMgoShutdown(dbpath string) error {
 //	    replica sets. And sets the status file for the cluster.
 //	  - Each node in turn waits for the cluster status file and returns (move further)
 //	    once it's observed.
->>>>>>> main
 //
 // State structure on storage:
 //
