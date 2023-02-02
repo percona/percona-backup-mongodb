@@ -30,6 +30,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
