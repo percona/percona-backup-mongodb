@@ -181,6 +181,21 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 				}
 			}
 			currOpts = append(currOpts, bson.E{"srcBackupName", pbm.BackupCursorName(src.Name)})
+		} else {
+			// We don't need any previous incremental backup history if
+			// this is a base backup. So we can flush it to free up resources.
+			l.Debug("flush incremental backup history")
+			cr, err := NewBackupCursor(b.node, l, bson.D{
+				{"disableIncrementalBackup", true},
+			}).create(ctx, cursorCreateRetries)
+			if err != nil {
+				l.Warning("flush incremental backup history error: %v", err)
+			} else {
+				err = cr.Close(ctx)
+				if err != nil {
+					l.Warning("close cursor disableIncrementalBackup: %v", err)
+				}
+			}
 		}
 	}
 	cursor := NewBackupCursor(b.node, l, currOpts)
