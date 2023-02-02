@@ -159,6 +159,9 @@ func (bl backupListOut) String() string {
 		if len(b.Namespaces) != 0 {
 			kind += ", selective"
 		}
+		if b.Type == pbm.IncrementalBackup && b.SrcBackup == "" {
+			kind += ", base"
+		}
 
 		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, kind, fmtTS(int64(b.RestoreTS)))
 	}
@@ -240,6 +243,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 			RestoreTS:  int64(b.LastWriteTS.T),
 			PBMVersion: b.PBMVersion,
 			Type:       b.Type,
+			SrcBackup:  b.SrcBackup,
 		})
 	}
 

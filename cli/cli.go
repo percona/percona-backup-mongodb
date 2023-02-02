@@ -388,6 +388,7 @@ type snapshotStat struct {
 	RestoreTS  int64          `json:"restoreTo"`
 	PBMVersion string         `json:"pbmVersion"`
 	Type       pbm.BackupType `json:"type"`
+	SrcBackup  string         `json:"src"`
 }
 
 type pitrRange struct {

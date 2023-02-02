@@ -551,6 +551,9 @@ func (s storageStat) String() string {
 		if len(sn.Namespaces) != 0 {
 			kind += ", selective"
 		}
+		if sn.Type == pbm.IncrementalBackup && sn.SrcBackup == "" {
+			kind += ", base"
+		}
 
 		ret += fmt.Sprintf("    %s %s <%s> %s\n",
 			sn.Name, fmtSize(sn.Size), kind, status)
@@ -634,6 +637,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			RestoreTS:  bcp.LastTransitionTS,
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
+			SrcBackup:  bcp.SrcBackup,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err
