@@ -41,7 +41,7 @@ func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage, ep pb
 		rs:      rs,
 		span:    int64(pbm.PITRdefaultSpan),
 		storage: to,
-		oplog:   oplog.NewOplogBackup(node),
+		oplog:   oplog.NewOplogBackup(node.Session()),
 		l:       cn.Logger().NewEvent(string(pbm.CmdPITR), "", "", ep.TS()),
 		ep:      ep,
 	}
@@ -333,7 +333,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		}
 
 		// in case there is a lock, even a legit one (our own, or backup's one) but it is stale
-		// we should return so the slicer would get thru the lock acquisition again.
+		// we should return so the slicer would get through the lock acquisition again.
 		ts, err := s.pbm.ClusterTime()
 		if err != nil {
 			return errors.Wrap(err, "read cluster time")
@@ -352,7 +352,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 				return errors.Wrap(err, "define last write timestamp")
 			}
 		case pbm.CmdUndefined:
-			return errors.New("undefinded behaviour operation is running")
+			return errors.New("undefined behaviour operation is running")
 		case pbm.CmdBackup:
 			// continue only if we had `backupSig`
 			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
@@ -471,6 +471,10 @@ func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) 
 
 // !!! should be agreed with pbm.PITRmetaFromFName()
 func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.CompressionType) string {
+	return ChunkName(s.rs, first, last, c)
+}
+
+func ChunkName(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 
@@ -479,7 +483,7 @@ func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.Compressi
 		name.WriteString(pbm.PITRfsPrefix)
 		name.WriteString("/")
 	}
-	name.WriteString(s.rs)
+	name.WriteString(rs)
 	name.WriteString("/")
 	name.WriteString(ft.Format("20060102"))
 	name.WriteString("/")

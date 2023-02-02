@@ -68,20 +68,14 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, errors.Wrap(err, "get remote-store")
 	}
 
-	var level *int
-	if len(b.compressionLevel) > 0 {
-		level = &b.compressionLevel[0]
-	} else if cfg.Backup.CompressionLevel != nil {
-		level = cfg.Backup.CompressionLevel
+	compression := cfg.Backup.Compression
+	if b.compression != "" {
+		compression = compress.CompressionType(b.compression)
 	}
 
-	compression := compress.CompressionType(b.compression)
-	if compression == "" {
-		if cfg.Backup.Compression != "" {
-			compression = cfg.Backup.Compression
-		} else {
-			compression = compress.CompressionTypeS2
-		}
+	level := cfg.Backup.CompressionLevel
+	if len(b.compressionLevel) != 0 {
+		level = &b.compressionLevel[0]
 	}
 
 	err = cn.SendCmd(pbm.Cmd{
@@ -282,14 +276,18 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	}
 
 	if bcp.Size == 0 {
-		stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
-		if err != nil {
-			return nil, errors.WithMessage(err, "get storage")
-		}
+		switch bcp.Status {
+		case pbm.StatusDone, pbm.StatusCancelled, pbm.StatusError:
+			stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+			if err != nil {
+				return nil, errors.WithMessage(err, "get storage")
+			}
 
-		rv.Size, err = getLegacySnapshotSize(bcp, stg)
-		if err != nil {
-			return nil, errors.WithMessage(err, "get snapshot size")
+			rv.Size, err = getLegacySnapshotSize(bcp, stg)
+			if errors.Is(err, errMissedFile) && bcp.Status != pbm.StatusDone {
+				// canceled/failed backup can be incomplete. ignore
+				return nil, errors.WithMessage(err, "get snapshot size")
+			}
 		}
 	}
 

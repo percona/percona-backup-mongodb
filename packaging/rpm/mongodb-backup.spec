@@ -3,6 +3,7 @@
 %{!?with_systemd:%global systemd 0}
 %{?el7:          %global systemd 1}
 %{?el8:          %global systemd 1}
+%{?el9:          %global systemd 1}
 
 
 Name:  percona-backup-mongodb
@@ -54,7 +55,7 @@ export GOBINPATH="/usr/local/go/bin"
 mkdir -p src/github.com/percona/
 mv percona-backup-mongodb-%{version} src/github.com/percona/percona-backup-mongodb
 ln -s src/github.com/percona/percona-backup-mongodb percona-backup-mongodb-%{version}
-cd src/github.com/percona/percona-backup-mongodb && make build
+cd src/github.com/percona/percona-backup-mongodb && make build-all
 cd %{_builddir}
 
 
@@ -71,6 +72,7 @@ cd src/
 cp github.com/percona/percona-backup-mongodb/bin/pbm-agent $RPM_BUILD_ROOT/%{_bindir}/
 cp github.com/percona/percona-backup-mongodb/bin/pbm $RPM_BUILD_ROOT/%{_bindir}/
 cp github.com/percona/percona-backup-mongodb/bin/pbm-speed-test $RPM_BUILD_ROOT/%{_bindir}/
+cp github.com/percona/percona-backup-mongodb/bin/pbm-agent-entrypoint $RPM_BUILD_ROOT/%{_bindir}/
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf
@@ -135,6 +137,7 @@ esac
 %{_bindir}/pbm-agent
 %{_bindir}/pbm
 %{_bindir}/pbm-speed-test
+%{_bindir}/pbm-agent-entrypoint
 %config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
 %config(noreplace) %attr(0640,mongod,mongod) /%{_sysconfdir}/pbm-storage.conf
 %{_sysconfdir}/pbm-conf-reference.yml
@@ -146,6 +149,9 @@ esac
 
 
 %changelog
+* Tue Jan 10 2023 Oleksandr Miroshnychenko <alex.miroshnychenko@percona.com>
+- PBM-1018 add pbm-agent-entrypoint binary
+
 * Fri Apr 29 2022 Vadim Yalovets <vadim.yalovets@percona.com>
 - PBM-828 Add full config reference file to packages
 

@@ -26,7 +26,7 @@ type Ctl struct {
 
 var backupNameRE = regexp.MustCompile(`Backup '([0-9\-\:TZ]+)' to remote store`)
 
-func NewCtl(ctx context.Context, host string) (*Ctl, error) {
+func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
 	cn, err := docker.NewClient(host, "1.39", nil, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
@@ -35,7 +35,7 @@ func NewCtl(ctx context.Context, host string) (*Ctl, error) {
 	return &Ctl{
 		cn:        cn,
 		ctx:       ctx,
-		container: "pbmagent_rs101",
+		container: pbmContainer,
 	}, nil
 }
 
@@ -277,8 +277,9 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 }
 
 // Restore starts restore and returns the name of op
-func (c *Ctl) Restore(bcpName string) (string, error) {
-	o, err := c.RunCmd("pbm", "restore", bcpName, "-o", "json")
+func (c *Ctl) Restore(bcpName string, options []string) (string, error) {
+	command := append([]string{"pbm", "restore", bcpName, "-o", "json"}, options...)
+	o, err := c.RunCmd(command...)
 	if err != nil {
 		return "", errors.Wrap(err, "run meta")
 	}

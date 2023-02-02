@@ -99,6 +99,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
@@ -123,6 +124,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN
@@ -146,6 +148,7 @@ services:
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
       - NET_ADMIN

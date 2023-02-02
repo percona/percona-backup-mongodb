@@ -9,7 +9,7 @@ CONFIGSVR=${CONFIGSVR:-"false"}
 SINGLE_NODE=${SINGLE_NODE:-"false"}
 
 mongo="mongo"
-if [ "${MONGODB_VERSION:0:1}" -ge 6 ]; then
+if ! [ -x "$(command -v ${mongo})" ]; then
     mongo="mongosh"
 fi
 

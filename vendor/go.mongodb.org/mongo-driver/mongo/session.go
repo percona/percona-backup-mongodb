@@ -200,28 +200,39 @@ func (s *sessionImpl) WithTransaction(ctx context.Context, fn func(sessCtx Sessi
 			default:
 			}
 
-			// End if context has timed out or been canceled, as retrying has no chance of success.
-			if ctx.Err() != nil {
-				return res, err
-			}
 			if errorHasLabel(err, driver.TransientTransactionError) {
 				continue
 			}
 			return res, err
 		}
 
+		// Check if callback intentionally aborted and, if so, return immediately
+		// with no error.
 		err = s.clientSession.CheckAbortTransaction()
 		if err != nil {
 			return res, nil
 		}
 
+		// If context has errored, run AbortTransaction and return, as the CommitLoop
+		// has no chance of succeeding.
+		//
+		// Aborting after a failed CommitTransaction is dangerous. Failed transaction
+		// commits may unpin the session server-side, and subsequent transaction aborts
+		// may run on a new mongos which could end up with commit and abort being executed
+		// simultaneously.
+		if ctx.Err() != nil {
+			// Wrap the user-provided Context in a new one that behaves like context.Background() for deadlines and
+			// cancellations, but forwards Value requests to the original one.
+			_ = s.AbortTransaction(internal.NewBackgroundContext(ctx))
+			return nil, ctx.Err()
+		}
+
 	CommitLoop:
 		for {
 			err = s.CommitTransaction(ctx)
-			// End when error is nil (transaction has been committed), or when context has timed out or been
-			// canceled, as retrying has no chance of success.
-			if err == nil || ctx.Err() != nil {
-				return res, err
+			// End when error is nil, as transaction has been committed.
+			if err == nil {
+				return res, nil
 			}
 
 			select {
@@ -313,10 +324,7 @@ func (s *sessionImpl) CommitTransaction(ctx context.Context) error {
 		Session(s.clientSession).ClusterClock(s.client.clock).Database("admin").Deployment(s.deployment).
 		WriteConcern(s.clientSession.CurrentWc).ServerSelector(selector).Retry(driver.RetryOncePerCommand).
 		CommandMonitor(s.client.monitor).RecoveryToken(bsoncore.Document(s.clientSession.RecoveryToken)).
-		ServerAPI(s.client.serverAPI)
-	if s.clientSession.CurrentMct != nil {
-		op.MaxTimeMS(int64(*s.clientSession.CurrentMct / time.Millisecond))
-	}
+		ServerAPI(s.client.serverAPI).MaxTime(s.clientSession.CurrentMct)
 
 	err = op.Execute(ctx)
 	// Return error without updating transaction state if it is a timeout, as the transaction has not

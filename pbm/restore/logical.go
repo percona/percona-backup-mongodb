@@ -647,14 +647,17 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return errors.WithMessage(err, "get config")
 		}
 
+		mapRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
 				stg, err := pbm.Storage(cfg, r.log)
 				if err != nil {
 					return nil, errors.WithMessage(err, "get storage")
 				}
-
-				return stg.SourceReader(path.Join(bcp.Name, r.node.RS(), ns))
+				// while importing backup made by RS with another name
+				// that current RS we can't use our r.node.RS() to point files
+				// we have to use mapping passed by --replset-mapping option
+				return stg.SourceReader(path.Join(bcp.Name, mapRS(r.node.RS()), ns))
 			},
 			bcp.Compression,
 			m.Has)
@@ -695,7 +698,11 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 
 // configsvrRestore upserts config.databases documents for selected dbs.
 func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
-	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"))
+	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"+bcp.Compression.Suffix()))
+	if err != nil {
+		return err
+	}
+	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
 	}
@@ -994,10 +1001,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		endTS = *options.end
 	}
 	r.oplog.SetTimeframe(startTS, endTS)
-	err = r.oplog.SetIncludeNSS(options.nss)
-	if err != nil {
-		return errors.WithMessage(err, "set include nss")
-	}
+	r.oplog.SetIncludeNS(options.nss)
 
 	var waitTxnErr error
 	if r.nodeInfo.IsSharded() {

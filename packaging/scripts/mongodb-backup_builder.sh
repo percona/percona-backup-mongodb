@@ -189,20 +189,13 @@ install_deps() {
     CURPLACE=$(pwd)
 
     if [ "x$OS" = "xrpm" ]; then
-      add_percona_yum_repo
       RHEL=$(rpm --eval %rhel)
-      if [ "x${RHEL}" = "x8" ]; then
-          sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-          sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+      if [ "$RHEL" -lt 9 ]; then
+          add_percona_yum_repo
       fi
-      yum -y install wget
       yum clean all
-      if [ "x${RHEL}" = "x8" ]; then
-          yum -y install rpm-build make rpmlint rpmdevtools golang git
-      else
-          yum -y install epel-release git
-          yum -y install rpmbuild rpm-build make rpmlint rpmdevtools golang krb5-devel
-      fi
+      yum -y install epel-release git wget
+      yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
       install_golang
     else
       until apt-get update; do
@@ -489,10 +482,11 @@ build_tarball(){
     export VERSION
     export GITBRANCH
     export GITCOMMIT
-    make build
+    make build-all
     cp ./bin/pbm ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-agent ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-speed-test ${WORKDIR}/${PSMDIR}/
+    cp ./bin/pbm-agent-entrypoint ${WORKDIR}/${PSMDIR}/
     cd ${WORKDIR}/
 
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}

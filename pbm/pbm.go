@@ -283,7 +283,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	err = client.Database("admin").Collection("system.version").
 		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
 	if err != nil {
-		return nil, errors.Wrap(err, "get config server connetion URI")
+		return nil, errors.Wrap(err, "get config server connection URI")
 	}
 	// no need in this connection anymore, we need a new one with the ConfigServer
 	err = client.Disconnect(ctx)
@@ -293,7 +293,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 
 	chost := strings.Split(csvr.URI, "/")
 	if len(chost) < 2 {
-		return nil, errors.Wrapf(err, "define config server connetion URI from %s", csvr.URI)
+		return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr.URI)
 	}
 
 	curi, err := url.Parse(uri)

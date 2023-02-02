@@ -4,6 +4,7 @@ BACKUP_USER="bcp"
 MONGO_PASS="test1234"
 BCP_NAME=""
 COMPOSE_PATH="${test_dir}/docker/docker-compose.yaml"
+COMPOSE_REMAPPING_PATH="${test_dir}/docker/docker-compose-remapping.yaml"
 COMPOSE_RS_PATH="${test_dir}/docker/docker-compose-rs.yaml"
 COMPOSE_SINGLE_PATH="${test_dir}/docker/docker-compose-single.yaml"
 PBM_TEST_CLEANUP=${PBM_TEST_CLEANUP:-true}
@@ -16,6 +17,9 @@ run() {
     case $compose in
         $COMPOSE_PATH)
             start_cluster "$mongo_version"
+        ;;
+        $COMPOSE_REMAPPING_PATH)
+            start_replset "$mongo_version" "$COMPOSE_REMAPPING_PATH"
         ;;
         $COMPOSE_RS_PATH)
             start_replset "$mongo_version" "$COMPOSE_RS_PATH"
@@ -34,8 +38,14 @@ run() {
             docker-compose -f $compose logs --no-color --tail=100
             desc 'PBM logs'
             docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D -x || true
+            if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+                docker-compose -f $compose exec -T agent-rs201 pbm logs -t 0 -s D -x || true
+            fi
             desc 'PBM status'
             docker-compose -f $compose exec -T agent-rs101 pbm status || true
+            if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+                docker-compose -f $compose exec -T agent-rs201 pbm status || true
+            fi
         fi
 
         desc 'Destroy cluster'
@@ -55,7 +65,12 @@ mongo_run() {
     local cmd=$1
     local rs=$2
 
-    docker-compose -f $COMPOSE_PATH exec -T "${rs}01" mongo "mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost/?replicaSet=${rs}" --quiet --eval="${cmd}"
+    mongo="mongo"
+    if [ "${MONGODB_VERSION:0:1}" -ge 6 ]; then
+        mongo="mongosh"
+    fi
+
+    docker-compose -f $COMPOSE_PATH exec -T "${rs}01" $mongo "mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost/?replicaSet=${rs}" --quiet --eval="${cmd}"
 }
 
 wait_backup() {
@@ -143,6 +158,11 @@ start_cluster() {
     echo 'Build agents and tests'
     docker-compose -f $COMPOSE_PATH build
 
+    mongo="mongo"
+    if [ "${mongo_version:0:1}" -ge 6 ]; then
+        mongo="mongosh"
+    fi
+
     if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
         chmod -R 777 "${test_dir}/docker/backups"
@@ -158,7 +178,7 @@ start_cluster() {
     docker-compose -f $COMPOSE_PATH exec -T rs101 /opt/start.sh
     docker-compose -f $COMPOSE_PATH exec -T rs201 /opt/start.sh
     sleep 15
-    docker-compose -f $COMPOSE_PATH exec -T mongos mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
+    docker-compose -f $COMPOSE_PATH exec -T mongos $mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
             agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
@@ -173,6 +193,9 @@ start_replset() {
     if [ $compose == $COMPOSE_SINGLE_PATH ]; then
         local nodes="rs101 minio createbucket"
         local agents="agent-rs101"
+    elif [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+        local nodes="rs101 rs201 minio createbucket"
+        local agents="agent-rs101 agent-rs201"
     fi
 
     genMongoKey
@@ -194,6 +217,9 @@ start_replset() {
     docker-compose -f $compose ps
     export COMPOSE_INTERACTIVE_NO_CLI=1
     docker-compose -f $compose exec -T rs101 /opt/start.sh
+    if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+        docker-compose -f $compose exec -T rs201 /opt/start.sh
+    fi
     sleep 15
 
     docker-compose -f $compose up -d $agents
