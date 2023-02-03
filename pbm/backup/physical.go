@@ -361,10 +361,12 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		default:
 		}
 
-		// skip uploading unchanged files if incremental
-		// but add them to the meta to keep track files to be restored
-		// from prev backups
-		if incr && file.Len == 0 {
+		// Skip uploading unchanged files if incremental
+		// but add them to the meta to keep track of files to be restored
+		// from prev backups. Plus sometimes the cursor can return an offset
+		// beyond the current file size. Such phantom changes shouldn't
+		// be copied. But save meta to have file size.
+		if incr && (file.Len == 0 || file.Off >= file.Size) {
 			file.Off = -1
 			file.Len = -1
 			file.Name = strings.TrimPrefix(file.Name, trimPrefix)
