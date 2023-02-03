@@ -11,7 +11,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -40,9 +39,6 @@ const (
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
-
-	downloadChuckSize = 10 << 20 // 10Mb
-	downloadRetries   = 10
 )
 
 type Conf struct {
@@ -223,6 +219,8 @@ type S3 struct {
 	opts Conf
 	log  *log.Event
 	s3s  *s3.S3
+
+	d *Download // default downloader for small files
 }
 
 func New(opts Conf, l *log.Event) (*S3, error) {
@@ -239,6 +237,13 @@ func New(opts Conf, l *log.Event) (*S3, error) {
 	s.s3s, err = s.s3session()
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
+	}
+
+	s.d = &Download{
+		s3:       s,
+		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
+		spanSize: downloadChuckSizeDefault,
+		cc:       1,
 	}
 
 	return s, nil
@@ -401,14 +406,13 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 			return true
 		})
 	if err != nil {
-		return nil, errors.Wrap(err, "get backup list")
+		return nil, err
 	}
 
 	return files, nil
 }
 
 func (s *S3) Copy(src, dst string) error {
-
 	copyOpts := &s3.CopyObjectInput{
 		Bucket:     aws.String(s.opts.Bucket),
 		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
@@ -480,204 +484,6 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	return inf, nil
 }
 
-type (
-	errGetObj  error
-	errReadObj error
-)
-
-type partReader struct {
-	fname string
-	sess  *s3.S3
-	l     *log.Event
-	opts  *Conf
-	n     int64
-	tsize int64
-	buf   []byte
-}
-
-func (s *S3) newPartReader(fname string) *partReader {
-	return &partReader{
-		l:     s.log,
-		buf:   make([]byte, downloadChuckSize),
-		opts:  &s.opts,
-		fname: fname,
-		tsize: -2,
-	}
-}
-
-func (pr *partReader) setSession(s *s3.S3) {
-	s.Client.Config.HTTPClient.Timeout = time.Second * 60
-	pr.sess = s
-}
-
-func (pr *partReader) tryNext(w io.Writer) (n int64, err error) {
-	for i := 0; i < downloadRetries; i++ {
-		n, err = pr.writeNext(w)
-
-		if err == nil || err == io.EOF {
-			return n, err
-		}
-
-		switch err.(type) {
-		case errGetObj:
-			return n, err
-		}
-
-		pr.l.Warning("failed to download chunk %d-%d", pr.n, pr.n+downloadChuckSize-1)
-	}
-
-	return 0, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", pr.n, pr.n+downloadChuckSize-1, pr.tsize, downloadRetries)
-}
-
-func (pr *partReader) writeNext(w io.Writer) (n int64, err error) {
-	getObjOpts := &s3.GetObjectInput{
-		Bucket: aws.String(pr.opts.Bucket),
-		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
-		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", pr.n, pr.n+downloadChuckSize-1)),
-	}
-
-	sse := pr.opts.ServerSideEncryption
-	if sse != nil && sse.SseCustomerAlgorithm != "" {
-		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		getObjOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
-		if err != nil {
-			return 0, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
-		}
-		keyMD5 := md5.Sum(decodedKey[:])
-		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
-	}
-
-	s3obj, err := pr.sess.GetObject(getObjOpts)
-	if err != nil {
-		// if object size is undefined, we would read
-		// until HTTP code 416 (Requested Range Not Satisfiable)
-		var er awserr.RequestFailure
-		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
-			return 0, io.EOF
-		}
-		pr.l.Warning("errGetObj Err: %v", err)
-		return 0, errGetObj(err)
-	}
-	if pr.tsize == -2 {
-		pr.setSize(s3obj)
-	}
-
-	if sse != nil {
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
-		} else if sse.SseCustomerAlgorithm != "" {
-			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-			// We don't pass in the key in this case, just the MD5 hash of the key
-			// for verification
-			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
-			keyMD5 := md5.Sum(decodedKey[:])
-			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
-		}
-	}
-
-	n, err = io.CopyBuffer(w, s3obj.Body, pr.buf)
-	s3obj.Body.Close()
-
-	pr.n += n
-
-	// we don't care about the error if we've read the entire object
-	if pr.tsize >= 0 && pr.n >= pr.tsize {
-		return 0, io.EOF
-	}
-
-	// The last chunk during the PITR restore usually won't be read fully
-	// (high chances that the targeted time will be in the middle of the chunk)
-	// so in this case the reader (oplog.Apply) will close the pipe once reaching the
-	// targeted time.
-	if err != nil && errors.Is(err, io.ErrClosedPipe) {
-		return n, nil
-	}
-
-	if err != nil {
-		pr.l.Warning("io.copy: %v", err)
-		return n, errReadObj(err)
-	}
-
-	return n, nil
-}
-
-func (pr *partReader) setSize(o *s3.GetObjectOutput) {
-	pr.tsize = -1
-	if o.ContentRange == nil {
-		if o.ContentLength != nil {
-			pr.tsize = *o.ContentLength
-		}
-		return
-	}
-
-	rng := strings.Split(*o.ContentRange, "/")
-	if len(rng) < 2 || rng[1] == "*" {
-		return
-	}
-
-	size, err := strconv.ParseInt(rng[1], 10, 64)
-	if err != nil {
-		pr.l.Warning("unable to parse object size from %s: %v", rng[1], err)
-		return
-	}
-
-	pr.tsize = size
-}
-
-// SourceReader reads object with the given name from S3
-// and pipes its data to the returned io.ReadCloser.
-//
-// It uses partReader to download the object by chunks (`downloadChuckSize`).
-// In case of error, it would retry get the next bytes up to `downloadRetries` times.
-// If it fails to do so or connection error happened, it recreates the session
-// and tries again up to `downloadRetries` times.
-func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	pr := s.newPartReader(name)
-	pr.setSession(s.s3s)
-
-	r, w := io.Pipe()
-
-	go func() {
-		defer w.Close()
-
-		var err error
-	Loop:
-		for {
-			for i := 0; i < downloadRetries; i++ {
-				_, err = pr.tryNext(w)
-				if err == nil {
-					continue Loop
-				}
-				if err == io.EOF {
-					return
-				}
-				if errors.Is(err, io.ErrClosedPipe) {
-					s.log.Info("reader closed pipe, stopping download")
-					return
-				}
-
-				s.log.Warning("got %v, try to reconnect in %v", err, time.Second*time.Duration(i+1))
-				time.Sleep(time.Second * time.Duration(i+1))
-				s3s, err := s.s3session()
-				if err != nil {
-					s.log.Warning("recreate session")
-					continue
-				}
-				pr.setSession(s3s)
-				s.log.Info("session recreated, resuming download")
-			}
-			s.log.Error("download '%s/%s' file from S3: %v", s.opts.Bucket, name, err)
-			w.CloseWithError(errors.Wrapf(err, "download '%s/%s'", s.opts.Bucket, name))
-			return
-		}
-	}()
-
-	return r, nil
-}
-
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
@@ -746,7 +552,7 @@ func (s *S3) session() (*session.Session, error) {
 		Client: ec2metadata.New(awsSession),
 	})
 
-	httpClient := http.DefaultClient
+	httpClient := &http.Client{}
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
 			Transport: &http.Transport{

@@ -122,8 +122,19 @@ func (s *StorageConf) Path() string {
 
 // RestoreConf is config options for the restore
 type RestoreConf struct {
-	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
+	// Logical restore
+	//
+	// num of documents to buffer
+	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+
+	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
+	// during the download. By default, it's set to GOMAXPROCS.
+	NumDownloadWorkers int `bson:"numDownloadWorkers" json:"numDownloadWorkers,omitempty" yaml:"numDownloadWorkers,omitempty"`
+	// MaxDownloadBufferMb sets the max size of the in-memory buffer that is used
+	// to download files from the storage.
+	MaxDownloadBufferMb int `bson:"maxDownloadBufferMb" json:"maxDownloadBufferMb,omitempty" yaml:"maxDownloadBufferMb,omitempty"`
+	DownloadChunkMb     int `bson:"downloadChunkMb" json:"downloadChunkMb,omitempty" yaml:"downloadChunkMb,omitempty"`
 }
 
 type BackupConf struct {
