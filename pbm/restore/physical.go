@@ -1237,65 +1237,50 @@ func (r *PhysRestore) setTmpConf() (err error) {
 
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
-// journals. For the incrementals it will gather files from preceding backups
-// travelling back in time from the target backup up to the closest base. Journal
-// files would be treated differently. We need to restore only journals from the
-// target (latest) backup. As the data from preceding journals already became
-// a data (checkpoint) in the following backup. But if the target backup
-// contains a chunk of the journal that started in the previous one(s), we should
-// retrieve that beginning.
-// Given `b` is backup, `j` is journals and `b3` is a target:
-// b0[j00], b1[j01, j02], b2[j02.10-16, j03], b3[j03.24-16, j04, j05]
-// journals in needed:
-// b2[j03], b3[j03.24-16, j04, j05]
+// journals. For the incrementals, it will gather files from preceding backups
+// travelling back in time from the target backup up to the closest base.
+// `Off == -1 && Len == -1` means the file remains unchanged since the last
+// backup and there is no data in this backup. We need such info in
+// the target backup to know which files from preceding backups should be
+// restored. Only files listed in the target backup will be restored.
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
 func (r *PhysRestore) setBcpFiles() (err error) {
 	bcp := r.bcp
-	partj := ""
 
 	rs := getRS(bcp, r.nodeInfo.SetName)
-	data := files{
-		BcpName: bcp.Name,
-		Cmpr:    bcp.Compression,
-		Data:    append([]pbm.File{}, rs.Files...),
-	}
-	for _, j := range rs.Journal {
-		data.Data = append(data.Data, j)
-		if j.Len != 0 && j.Len != j.Size {
-			partj = j.Name
-		}
-	}
-	r.files = append(r.files, data)
 
-	for bcp.SrcBackup != "" {
+	targetFiles := make(map[string]struct{})
+	for _, f := range append(rs.Files, rs.Journal...) {
+		targetFiles[f.Name] = struct{}{}
+	}
+
+	for {
+		data := files{
+			BcpName: bcp.Name,
+			Cmpr:    bcp.Compression,
+			Data:    []pbm.File{},
+		}
+		for _, f := range append(rs.Files, rs.Journal...) {
+			if _, ok := targetFiles[f.Name]; ok && f.Off >= 0 && f.Len >= 0 {
+				data.Data = append(data.Data, f)
+			}
+		}
+
+		r.files = append(r.files, data)
+
+		if bcp.SrcBackup == "" {
+			return nil
+		}
+
 		r.log.Debug("get src %s", bcp.SrcBackup)
 		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
 		}
-
 		rs = getRS(bcp, r.nodeInfo.SetName)
-		data := append([]pbm.File{}, rs.Files...)
-
-		if partj != "" {
-			for _, j := range rs.Journal {
-				if partj == j.Name {
-					data = append(data, j)
-				}
-				if j.Len == 0 || j.Len == j.Size {
-					partj = ""
-				}
-			}
-		}
-		r.files = append(r.files, files{
-			BcpName: bcp.Name,
-			Cmpr:    bcp.Compression,
-			Data:    data,
-		})
 	}
-	return nil
 }
 
 func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
