@@ -135,6 +135,10 @@ type RestoreConf struct {
 	// to download files from the storage.
 	MaxDownloadBufferMb int `bson:"maxDownloadBufferMb" json:"maxDownloadBufferMb,omitempty" yaml:"maxDownloadBufferMb,omitempty"`
 	DownloadChunkMb     int `bson:"downloadChunkMb" json:"downloadChunkMb,omitempty" yaml:"downloadChunkMb,omitempty"`
+
+	// MongodLocation sets the location of mongod used for internal runs during
+	// physical restore. Will try $PATH/mongod if not set.
+	MongodLocation string `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
 }
 
 type BackupConf struct {

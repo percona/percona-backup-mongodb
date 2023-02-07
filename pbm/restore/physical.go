@@ -67,6 +67,8 @@ type PhysRestore struct {
 
 	confOpts pbm.RestoreConf
 
+	mongod string // location of mongod used for internal restarts
+
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
 	syncPathNode     string
@@ -1052,7 +1054,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	opts = append(opts, []string{"--logpath", path.Join(r.dbpath, internalMongodLog)}...)
 
 	errBuf := new(bytes.Buffer)
-	cmd := exec.Command("mongod", opts...)
+	cmd := exec.Command(r.mongod, opts...)
 
 	cmd.Stderr = errBuf
 	err := cmd.Start()
@@ -1085,6 +1087,11 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	}
 
 	r.confOpts = cfg.Restore
+
+	r.mongod = "mongod" // run from $PATH by default
+	if r.confOpts.MongodLocation != "" {
+		r.mongod = r.confOpts.MongodLocation
+	}
 
 	r.log = l
 
@@ -1323,6 +1330,12 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
 	}
 
+	mv, err := r.checkMongod(r.bcp.MongoVersion)
+	if err != nil {
+		return errors.Wrap(err, "check mongod binary")
+	}
+	r.log.Debug("mongod binary: %s, version: %s", r.bcp.MongoVersion, mv)
+
 	err = r.setBcpFiles()
 	if err != nil {
 		return errors.Wrap(err, "get data for restore")
@@ -1371,6 +1384,45 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	return nil
 }
 
+// ensure mongod for internal restarts is available and matches
+// the backup's version
+func (r *PhysRestore) checkMongod(needVersion string) (version string, err error) {
+	cmd := exec.Command(r.mongod, "--version")
+
+	stderr := new(bytes.Buffer)
+	stdout := new(bytes.Buffer)
+
+	cmd.Stderr = stderr
+	cmd.Stdout = stdout
+
+	err = cmd.Run()
+	if err != nil {
+		return "", errors.Errorf("run: %v. stderr: %s", err, stderr)
+	}
+
+	s := stdout.Bytes()
+
+	idx := bytes.Index(s, []byte("{"))
+	if idx == -1 {
+		return "", errors.Errorf("parse version from output %s", s)
+	}
+
+	v := struct {
+		V string `json:"version"`
+	}{}
+	err = json.Unmarshal(s[idx:], &v)
+	if err != nil {
+		return "", errors.Wrapf(err, "parse version from output %s", s)
+
+	}
+
+	if semver.Compare(majmin(needVersion), majmin(v.V)) != 0 {
+		return "", errors.Errorf("backup's Mongo version (%s) is not compatible with mongod %s", needVersion, v.V)
+	}
+
+	return v.V, nil
+}
+
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
 	var nerr nodeErr
@@ -1397,16 +1449,16 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster boo
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.nodeInfo.IsPrimary && markCluster {
 		serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
-			errStatus(err), -1)
+			errStatus(e), -1)
 		if serr != nil {
-			r.log.Error("MarkFailed: write replset error state `%v`: %v", err, serr)
+			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
 	if r.nodeInfo.IsClusterLeader() && markCluster {
 		serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
-			errStatus(err), -1)
+			errStatus(e), -1)
 		if serr != nil {
-			r.log.Error("MarkFailed: write cluster error state `%v`: %v", err, serr)
+			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
 		}
 	}
 }
