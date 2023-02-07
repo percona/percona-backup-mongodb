@@ -1334,7 +1334,7 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	if err != nil {
 		return errors.Wrap(err, "check mongod binary")
 	}
-	r.log.Debug("mongod binary: %s, version: %s", r.bcp.MongoVersion, mv)
+	r.log.Debug("mongod binary: %s, version: %s", r.mongod, mv)
 
 	err = r.setBcpFiles()
 	if err != nil {
@@ -1400,27 +1400,16 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 		return "", errors.Errorf("run: %v. stderr: %s", err, stderr)
 	}
 
-	s := stdout.Bytes()
-
-	idx := bytes.Index(s, []byte("{"))
-	if idx == -1 {
-		return "", errors.Errorf("parse version from output %s", s)
+	_, v, ok := strings.Cut(strings.Split(stdout.String(), "\n")[0], "db version ")
+	if !ok {
+		return "", errors.Errorf("parse version from output %s", stdout.String())
 	}
 
-	v := struct {
-		V string `json:"version"`
-	}{}
-	err = json.Unmarshal(s[idx:], &v)
-	if err != nil {
-		return "", errors.Wrapf(err, "parse version from output %s", s)
-
+	if semver.Compare(majmin(needVersion), majmin(v)) != 0 {
+		return "", errors.Errorf("backup's Mongo version (%s) is not compatible with mongod %s", needVersion, v)
 	}
 
-	if semver.Compare(majmin(needVersion), majmin(v.V)) != 0 {
-		return "", errors.Errorf("backup's Mongo version (%s) is not compatible with mongod %s", needVersion, v.V)
-	}
-
-	return v.V, nil
+	return v, nil
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
