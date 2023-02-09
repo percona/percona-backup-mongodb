@@ -1095,7 +1095,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	if r.confOpts.MongodLocation != "" {
 		r.mongod = r.confOpts.MongodLocation
 	}
-	if m, ok := r.confOpts.MongodLocationMap[r.rsConf.ID+"/"+r.nodeInfo.Me]; ok {
+	if m, ok := r.confOpts.MongodLocationMap[r.nodeInfo.Me]; ok {
 		r.mongod = m
 	}
 
