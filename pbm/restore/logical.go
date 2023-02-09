@@ -9,17 +9,16 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -93,7 +92,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	}
 
 	nss := cmd.Namespaces
-	if len(nss) == 0 {
+	if !sel.IsSelective(nss) {
 		nss = bcp.Namespaces
 	}
 
@@ -133,7 +132,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	}
 
 	oplogOption := &applyOplogOption{nss: nss}
-	if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+	if r.nodeInfo.IsConfigSrv() && sel.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
@@ -158,13 +157,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 
 // newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
 func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
-	dbs := make(map[string]bool, len(nss))
-	for _, ns := range nss {
-		db, _, _ := strings.Cut(ns, ".")
-		if db != "" && db != "*" {
-			dbs[db] = true
-		}
-	}
+	selected := sel.MakeSelectedPred(nss)
 
 	return func(r *oplog.Record) bool {
 		if r.Namespace != "config.databases" {
@@ -177,10 +170,8 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 				continue
 			}
 
-			v, _ := e.Value.(string)
-			if dbs[v] {
-				return true
-			}
+			db, _ := e.Value.(string)
+			return selected(db)
 		}
 
 		return false
@@ -286,7 +277,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 	}
 
 	oplogOption := applyOplogOption{end: &tsTo, nss: nss}
-	if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+	if r.nodeInfo.IsConfigSrv() && sel.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
@@ -618,21 +609,14 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return errors.Wrapf(err, "decompress object %s", dump)
 		}
 	} else {
-		if len(nss) == 0 {
+		if !sel.IsSelective(nss) {
 			nss = bcp.Namespaces
 		}
-
-		if !isSelective(nss) {
+		if !sel.IsSelective(nss) {
 			nss = []string{"*.*"}
 		}
 
-		var m *ns.Matcher
-		m, err = ns.NewMatcher(nss)
-		if err != nil {
-			return err
-		}
-
-		if r.nodeInfo.IsConfigSrv() && isSelective(nss) {
+		if r.nodeInfo.IsConfigSrv() && sel.IsSelective(nss) {
 			// restore cluster specific configs only
 			return r.configsvrRestore(bcp, nss)
 		}
@@ -660,7 +644,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 				return stg.SourceReader(path.Join(bcp.Name, mapRS(r.node.RS()), ns))
 			},
 			bcp.Compression,
-			m.Has)
+			sel.MakeSelectedPred(nss))
 	}
 	if err != nil {
 		return err
@@ -673,7 +657,7 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if isSelective(nss) {
+	if sel.IsSelective(nss) {
 		return nil
 	}
 
@@ -694,80 +678,6 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 	}
 
 	return nil
-}
-
-// configsvrRestore upserts config.databases documents for selected dbs.
-func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
-	rdr, err := r.stg.SourceReader(path.Join(bcp.Name, r.node.RS(), "config.databases"+bcp.Compression.Suffix()))
-	if err != nil {
-		return err
-	}
-	rdr, err = compress.Decompress(rdr, bcp.Compression)
-	if err != nil {
-		return err
-	}
-
-	ss := make(map[string]bool, len(nss))
-	for _, ns := range nss {
-		db, _, _ := strings.Cut(ns, ".")
-		if db != "" && db != "*" {
-			ss[db] = true
-		}
-	}
-
-	// go config.databases' docs and pick only selected databases docs
-	// insert/replace in bulk
-	models := []mongo.WriteModel{}
-	for buf := make([]byte, archive.MaxBSONSize); ; {
-		var data []byte
-
-		data, err = archive.ReadBSONBuffer(rdr, buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-
-			return err
-		}
-
-		db, _ := bson.Raw(data).Lookup("_id").StringValueOK()
-		if !ss[db] {
-			continue
-		}
-
-		doc := bson.D{}
-		err = bson.Unmarshal(data, &doc)
-		if err != nil {
-			return errors.WithMessage(err, "unmarshal")
-		}
-
-		model := mongo.NewReplaceOneModel()
-		model.SetFilter(bson.D{{"_id", db}})
-		model.SetReplacement(doc)
-		model.SetUpsert(true)
-		models = append(models, model)
-	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-
-	if len(models) == 0 {
-		return nil
-	}
-
-	coll := r.cn.Conn.Database("config").Collection("databases")
-	_, err = coll.BulkWrite(r.cn.Context(), models)
-	return errors.WithMessage(err, "update config.databases")
-}
-
-func isSelective(nss []string) bool {
-	for _, ns := range nss {
-		if ns != "" && ns != "*.*" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
