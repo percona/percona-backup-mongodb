@@ -5,15 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"strings"
 	"time"
 
 	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -189,13 +186,6 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			}
 		}()
 
-		if inf.IsConfigSrv() && len(bcp.Namespaces) != 0 {
-			err := checkNamespaceForBackup(ctx, b.cn.Conn, bcp.Namespaces[0])
-			if err != nil {
-				return errors.WithMessage(err, "namespace check")
-			}
-		}
-
 		if bcpm.BalancerStatus == pbm.BalancerModeOn {
 			err = b.cn.SetBalancerStatus(pbm.BalancerModeOff)
 			if err != nil {
@@ -268,55 +258,6 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	// to be sure the locks released only after the "done" status had written
 	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
-}
-
-func checkNamespaceForBackup(ctx context.Context, m *mongo.Client, ns string) error {
-	db, coll := parseNS(ns)
-
-	res, err := getShardedNamespaces(ctx, m, db, coll)
-	if err != nil {
-		return errors.WithMessage(err, "get sharded namespaces")
-	}
-	if len(res) != 0 {
-		return errors.Errorf("selective backup: sharded collections: %s", strings.Join(res, ", "))
-	}
-
-	return nil
-}
-
-func getShardedNamespaces(ctx context.Context, m *mongo.Client, db, coll string) ([]string, error) {
-	cur, err := m.Database("config").Collection("collections").
-		Find(ctx, bson.D{}, options.Find().SetProjection(bson.D{{"_id", 1}}))
-	if err != nil {
-		return nil, errors.WithMessage(err, "query")
-	}
-	defer cur.Close(context.Background())
-
-	type document struct {
-		ID string `bson:"_id"`
-	}
-
-	rv := []string{}
-	for cur.Next(ctx) {
-		var doc document
-		if err := cur.Decode(&doc); err != nil {
-			return nil, errors.WithMessage(err, "decode")
-		}
-
-		d, c, _ := strings.Cut(doc.ID, ".")
-		if db != "" && db != d {
-			continue
-		}
-
-		c = strings.TrimPrefix(c, "system.buckets.")
-		if coll != "" && coll != c {
-			continue
-		}
-
-		rv = append(rv, d+"."+c)
-	}
-
-	return rv, nil
 }
 
 func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
