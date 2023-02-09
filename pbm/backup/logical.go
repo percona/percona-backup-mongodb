@@ -121,7 +121,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.WithMessage(err, "get config")
 	}
 
-	nsFilter := archive.DefaultMatchFunc
+	nsFilter := archive.DefaultNSFilter
 	if len(bcp.Namespaces) != 0 && inf.IsConfigSrv() {
 		nsFilter = makeConfigsvrNSFilter()
 	}
@@ -199,7 +199,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	return nil
 }
 
-func makeConfigsvrNSFilter() archive.MatchFunc {
+func makeConfigsvrNSFilter() archive.NSFilterFn {
 	// list of required namespaces for further selective restore
 	allowed := map[string]bool{
 		"config.databases": true,
