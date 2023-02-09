@@ -9,6 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -79,7 +81,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	if len(bcp.Namespaces) == 0 {
+	if sel.IsSelective(bcp.Namespaces) {
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
@@ -122,8 +124,15 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	}
 
 	nsFilter := archive.DefaultNSFilter
-	if len(bcp.Namespaces) != 0 && inf.IsConfigSrv() {
+	docFilter := archive.DefaultDocFilter
+	if inf.IsConfigSrv() && sel.IsSelective(bcp.Namespaces) {
+		uuids, err := fetchCollectionUUIDs(ctx, b.cn.Conn, bcp.Namespaces)
+		if err != nil {
+			return errors.WithMessage(err, "fetch uuids")
+		}
+
 		nsFilter = makeConfigsvrNSFilter()
+		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, uuids)
 	}
 
 	snapshotSize, err := snapshot.UploadDump(dump,
@@ -140,6 +149,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 			Compression:      bcp.Compression,
 			CompressionLevel: bcp.CompressionLevel,
 			NSFilter:         nsFilter,
+			DocFilter:        docFilter,
 		})
 	if err != nil {
 		return errors.Wrap(err, "mongodump")
@@ -199,13 +209,72 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	return nil
 }
 
+func fetchCollectionUUIDs(ctx context.Context, m *mongo.Client, nss []string) ([]primitive.Binary, error) {
+	cur, err := m.Database("config").Collection("collections").Find(ctx, bson.D{})
+	if err != nil {
+		return nil, errors.WithMessage(err, "query")
+	}
+	defer cur.Close(ctx)
+
+	selected := sel.MakeSelectedPred(nss)
+	uuids := []primitive.Binary{}
+	for cur.Next(ctx) {
+		if !selected(cur.Current.Lookup("_id").StringValue()) {
+			continue
+		}
+
+		subtype, data := cur.Current.Lookup("uuid").Binary()
+		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: data})
+	}
+	if err := cur.Err(); err != nil {
+		return nil, errors.WithMessage(err, "cursor")
+	}
+
+	return uuids, nil
+}
+
 func makeConfigsvrNSFilter() archive.NSFilterFn {
 	// list of required namespaces for further selective restore
 	allowed := map[string]bool{
-		"config.databases": true,
+		"config.databases":   true,
+		"config.collections": true,
+		"config.chunks":      true,
 	}
 
-	return func(ns string) bool { return allowed[ns] }
+	return func(ns string) bool {
+		return allowed[ns]
+	}
+}
+
+func makeConfigsvrDocFilter(nss []string, uuids []primitive.Binary) archive.DocFilterFn {
+	selectedNS := sel.MakeSelectedPred(nss)
+	allowedDBs := make(map[string]bool)
+	for _, ns := range nss {
+		db, _, _ := strings.Cut(ns, ".")
+		allowedDBs[db] = true
+	}
+
+	return func(ns string, doc bson.Raw) bool {
+		switch ns {
+		case "config.databases":
+			db, ok := doc.Lookup("_id").StringValueOK()
+			return ok && allowedDBs[db]
+		case "config.collections":
+			ns, ok := doc.Lookup("_id").StringValueOK()
+			return ok && selectedNS(ns)
+		case "config.chunks":
+			uuid := primitive.Binary{}
+			uuid.Subtype, uuid.Data = doc.Lookup("uuid").Binary()
+
+			for _, a := range uuids {
+				if uuid.Equal(a) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
 }
 
 func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
@@ -283,16 +352,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 }
 
 func parseNS(ns string) (string, string) {
-	var db, coll string
-
-	switch s := strings.SplitN(ns, ".", 2); len(s) {
-	case 0:
-		return "", ""
-	case 1:
-		db = s[0]
-	case 2:
-		db, coll = s[0], s[1]
-	}
+	db, coll, _ := strings.Cut(ns, ".")
 
 	if db == "*" {
 		db = ""
