@@ -524,7 +524,7 @@ func (n nodeStatus) is(s nodeStatus) bool {
 //   - Starts standalone mongod to recover oplog from journals.
 //   - Cleans up data and resets replicaset config to the working state.
 //   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -587,14 +587,17 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
 
-	l.Info("send stopAgentC")
-
 	// On this stage, the agent has to be closed on any outcome as mongod
 	// is gonna be turned off. Besides, the agent won't be able to listen to
 	// the cmd stream anymore and will flood logs with errors on that.
+	l.Info("send to stopAgent chan")
 	if stopAgentC != nil {
 		stopAgentC <- struct{}{}
 	}
+	// anget will be stopped only after we exit this func
+	// so stop heartbeats not to spam logs while the restore is running
+	l.Debug("stop agents heartbeats")
+	pauseHB()
 
 	l.Info("stopping mongod and flushing old data")
 	err = r.flush()
