@@ -85,7 +85,7 @@ func (c *Cluster) bcheckClear(name string, shard *pbm.Mongo) {
 	log.Println(name, "reseting counters")
 	dcnt, err := shard.ResetCounters()
 	if err != nil {
-		log.Fatalln("ERROR:", name, "reseting counters:", err)
+		log.Println("WARNING:", name, "resetting counters:", err)
 	}
 	log.Println(name, "deleted counters:", dcnt)
 }

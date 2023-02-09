@@ -44,6 +44,9 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	runTest("Physical Backup Data Bounds Check",
 		func() { t.BackupBoundsCheck(pbm.PhysicalBackup, cVersion) })
 
+	runTest("Incremental Backup & Restore ",
+		func() { t.IncrementalBackup(cVersion) })
+
 	if typ == testsSharded {
 		if semver.Compare(cVersion, "v4.2") >= 0 {
 			runTest("Physical Distributed Transactions backup",
