@@ -36,21 +36,29 @@ const MaxBSONSize = db.MaxBSONSize
 
 var terminatorBytes = []byte{0xFF, 0xFF, 0xFF, 0xFF}
 
-type MatchFunc func(ns string) bool
+type (
+	NSFilterFn  func(ns string) bool
+	DocFilterFn func(ns string, d bson.Raw) bool
+)
 
-func DefaultMatchFunc(string) bool { return true }
+func DefaultNSFilter(string) bool { return true }
 
-func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
+func DefaultDocFilter(string, bson.Raw) bool { return true }
+
+func Decompose(r io.Reader, newWriter NewWriter, nsFilter NSFilterFn, docFilter DocFilterFn) error {
 	meta, err := readPrelude(r)
 	if err != nil {
 		return errors.WithMessage(err, "prelude")
 	}
 
-	if match == nil {
-		match = DefaultMatchFunc
+	if nsFilter == nil {
+		nsFilter = DefaultNSFilter
+	}
+	if docFilter == nil {
+		docFilter = DefaultDocFilter
 	}
 
-	c := newConsumer(newWriter, match)
+	c := newConsumer(newWriter, nsFilter, docFilter)
 	if err := (&archive.Parser{In: r}).ReadAllBlocks(c); err != nil {
 		return errors.WithMessage(err, "archive parser")
 	}
@@ -59,7 +67,7 @@ func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
 	nss := make([]*Namespace, 0, len(meta.Namespaces))
 	for _, n := range meta.Namespaces {
 		ns := NSify(n.Database, n.Collection)
-		if !match(ns) {
+		if !nsFilter(ns) {
 			continue
 		}
 
@@ -73,7 +81,7 @@ func Decompose(r io.Reader, newWriter NewWriter, match MatchFunc) error {
 	return errors.WithMessage(err, "metadata")
 }
 
-func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
+func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
 	meta, err := readMetadata(newReader)
 	if err != nil {
 		return errors.WithMessage(err, "metadata")
@@ -81,7 +89,7 @@ func Compose(w io.Writer, match MatchFunc, newReader NewReader) error {
 
 	nss := make([]*Namespace, 0, len(meta.Namespaces))
 	for _, ns := range meta.Namespaces {
-		if match(NSify(ns.Database, ns.Collection)) {
+		if nsFilter(NSify(ns.Database, ns.Collection)) {
 			nss = append(nss, ns)
 		}
 	}
@@ -140,7 +148,8 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 				return errors.WithMessage(closeChunk(w, ns), "close empty chunk")
 			}
 
-			r, err := newReader(NSify(ns.Database, ns.Collection))
+			nss := NSify(ns.Database, ns.Collection)
+			r, err := newReader(nss)
 			if err != nil {
 				return errors.WithMessage(err, "new reader")
 			}
@@ -308,21 +317,23 @@ func ReadMetadata(r io.Reader) (*archiveMeta, error) {
 }
 
 type consumer struct {
-	open  NewWriter
-	match MatchFunc
-	nss   map[string]io.WriteCloser
-	crc   map[string]int64
-	size  map[string]int64
-	curr  string
+	open      NewWriter
+	nsFilter  NSFilterFn
+	docFilter DocFilterFn
+	nss       map[string]io.WriteCloser
+	crc       map[string]int64
+	size      map[string]int64
+	curr      string
 }
 
-func newConsumer(newWriter NewWriter, match MatchFunc) *consumer {
+func newConsumer(newWriter NewWriter, nsFilter NSFilterFn, docFilter DocFilterFn) *consumer {
 	return &consumer{
-		open:  newWriter,
-		match: match,
-		nss:   make(map[string]io.WriteCloser),
-		crc:   make(map[string]int64),
-		size:  make(map[string]int64),
+		open:      newWriter,
+		nsFilter:  nsFilter,
+		docFilter: docFilter,
+		nss:       make(map[string]io.WriteCloser),
+		crc:       make(map[string]int64),
+		size:      make(map[string]int64),
 	}
 }
 
@@ -333,7 +344,7 @@ func (c *consumer) HeaderBSON(data []byte) error {
 	}
 
 	ns := NSify(h.Database, h.Collection)
-	if !c.match(ns) {
+	if !c.nsFilter(ns) {
 		// non-selected namespace. ignore
 		c.curr = ""
 		return nil
@@ -358,7 +369,11 @@ func (c *consumer) HeaderBSON(data []byte) error {
 func (c *consumer) BodyBSON(data []byte) error {
 	ns := c.curr
 	if ns == "" {
-		// ignored. skip data loading/reading
+		// ignored ns. skip data loading/reading
+		return nil
+	}
+	if !c.docFilter(ns, bson.Raw(data)) {
+		// ignored doc. skip data loading/reading
 		return nil
 	}
 
