@@ -4,7 +4,7 @@ WORKDIR /opt/pbm
 COPY . .
 RUN make install
 
-FROM registry.access.redhat.com/ubi7/ubi-minimal
+FROM registry.access.redhat.com/ubi8/ubi-minimal
 
 LABEL org.opencontainers.image.title="Percona Backup for MongoDB"
 LABEL org.opencontainers.image.vendor="Percona"
