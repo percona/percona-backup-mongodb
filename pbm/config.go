@@ -138,7 +138,8 @@ type RestoreConf struct {
 
 	// MongodLocation sets the location of mongod used for internal runs during
 	// physical restore. Will try $PATH/mongod if not set.
-	MongodLocation string `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
+	MongodLocation    string            `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
+	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
 type BackupConf struct {
