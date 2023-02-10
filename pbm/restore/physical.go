@@ -67,6 +67,8 @@ type PhysRestore struct {
 
 	confOpts pbm.RestoreConf
 
+	mongod string // location of mongod used for internal restarts
+
 	// path to files on a storage the node will sync its
 	// state with the resto of the cluster
 	syncPathNode     string
@@ -522,7 +524,7 @@ func (n nodeStatus) is(s nodeStatus) bool {
 //   - Starts standalone mongod to recover oplog from journals.
 //   - Cleans up data and resets replicaset config to the working state.
 //   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -585,14 +587,17 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
 	}
 
-	l.Info("send stopAgentC")
-
 	// On this stage, the agent has to be closed on any outcome as mongod
 	// is gonna be turned off. Besides, the agent won't be able to listen to
 	// the cmd stream anymore and will flood logs with errors on that.
+	l.Info("send to stopAgent chan")
 	if stopAgentC != nil {
 		stopAgentC <- struct{}{}
 	}
+	// anget will be stopped only after we exit this func
+	// so stop heartbeats not to spam logs while the restore is running
+	l.Debug("stop agents heartbeats")
+	pauseHB()
 
 	l.Info("stopping mongod and flushing old data")
 	err = r.flush()
@@ -1052,7 +1057,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	opts = append(opts, []string{"--logpath", path.Join(r.dbpath, internalMongodLog)}...)
 
 	errBuf := new(bytes.Buffer)
-	cmd := exec.Command("mongod", opts...)
+	cmd := exec.Command(r.mongod, opts...)
 
 	cmd.Stderr = errBuf
 	err := cmd.Start()
@@ -1085,6 +1090,14 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	}
 
 	r.confOpts = cfg.Restore
+
+	r.mongod = "mongod" // run from $PATH by default
+	if r.confOpts.MongodLocation != "" {
+		r.mongod = r.confOpts.MongodLocation
+	}
+	if m, ok := r.confOpts.MongodLocationMap[r.nodeInfo.Me]; ok {
+		r.mongod = m
+	}
 
 	r.log = l
 
@@ -1323,6 +1336,12 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
 	}
 
+	mv, err := r.checkMongod(r.bcp.MongoVersion)
+	if err != nil {
+		return errors.Wrap(err, "check mongod binary")
+	}
+	r.log.Debug("mongod binary: %s, version: %s", r.mongod, mv)
+
 	err = r.setBcpFiles()
 	if err != nil {
 		return errors.Wrap(err, "get data for restore")
@@ -1371,6 +1390,34 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	return nil
 }
 
+// ensure mongod for internal restarts is available and matches
+// the backup's version
+func (r *PhysRestore) checkMongod(needVersion string) (version string, err error) {
+	cmd := exec.Command(r.mongod, "--version")
+
+	stderr := new(bytes.Buffer)
+	stdout := new(bytes.Buffer)
+
+	cmd.Stderr = stderr
+	cmd.Stdout = stdout
+
+	err = cmd.Run()
+	if err != nil {
+		return "", errors.Errorf("run: %v. stderr: %s", err, stderr)
+	}
+
+	_, v, ok := strings.Cut(strings.Split(stdout.String(), "\n")[0], "db version ")
+	if !ok {
+		return "", errors.Errorf("parse version from output %s", stdout.String())
+	}
+
+	if semver.Compare(majmin(needVersion), majmin(v)) != 0 {
+		return "", errors.Errorf("backup's Mongo version (%s) is not compatible with mongod %s", needVersion, v)
+	}
+
+	return v, nil
+}
+
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
 	var nerr nodeErr
@@ -1397,16 +1444,16 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster boo
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.nodeInfo.IsPrimary && markCluster {
 		serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
-			errStatus(err), -1)
+			errStatus(e), -1)
 		if serr != nil {
-			r.log.Error("MarkFailed: write replset error state `%v`: %v", err, serr)
+			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
 	if r.nodeInfo.IsClusterLeader() && markCluster {
 		serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
-			errStatus(err), -1)
+			errStatus(e), -1)
 		if serr != nil {
-			r.log.Error("MarkFailed: write cluster error state `%v`: %v", err, serr)
+			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
 		}
 	}
 }
