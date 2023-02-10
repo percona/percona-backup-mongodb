@@ -132,6 +132,11 @@ func (s *StorageConf) Path() string {
 type RestoreConf struct {
 	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"` // num of documents to buffer
 	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+
+	// MongodLocation sets the location of mongod used for internal runs during
+	// physical restore. Will try $PATH/mongod if not set.
+	MongodLocation    string            `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
+	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
 type BackupConf struct {

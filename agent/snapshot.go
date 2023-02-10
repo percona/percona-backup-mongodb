@@ -312,7 +312,6 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 	switch bcp.Type {
 	case pbm.PhysicalBackup, pbm.IncrementalBackup:
-		a.HbPause()
 		err = a.restorePhysical(r, opid, ep, l)
 	case pbm.LogicalBackup:
 		fallthrough
@@ -431,7 +430,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 	}
 
 	l.Info("restore started")
-	err = rstr.Snapshot(r, opid, l, a.closeCMD)
+	err = rstr.Snapshot(r, opid, l, a.closeCMD, a.HbPause)
 	l.Info("restore finished %v", err)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {

@@ -239,7 +239,7 @@ func (p *PBM) moveCollection(coll, as string) error {
 func GetPhysRestoreMeta(restore string, stg storage.Storage) (rmeta *RestoreMeta, err error) {
 	mjson := filepath.Join(PhysRestoresDir, restore) + ".json"
 	_, err = stg.FileStat(mjson)
-	if err != nil && err != storage.ErrNotExist {
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return nil, errors.Wrapf(err, "get file %s", mjson)
 	}
 	if err == nil {
