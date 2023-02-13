@@ -98,6 +98,8 @@ func (c *Cluster) ApplyConfig(file string) {
 	if err != nil {
 		log.Fatalf("waiting for the store resync: %v", err)
 	}
+
+	time.Sleep(time.Second * 6) // give time to refresh agent-checks
 }
 
 func (c *Cluster) ServerVersion() string {
@@ -334,9 +336,9 @@ func (c *Cluster) ReplayOplog(a, b time.Time) {
 	log.Printf("replay oplog from %v to %v finished", a, b)
 }
 
-func (c *Cluster) backup(typ pbmt.BackupType) string {
+func (c *Cluster) backup(typ pbmt.BackupType, opts ...string) string {
 	log.Println("starting backup")
-	bcpName, err := c.pbm.Backup(typ)
+	bcpName, err := c.pbm.Backup(typ, opts...)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
 		log.Fatalf("starting backup: %v\nconatiner logs: %s\n", err, l)

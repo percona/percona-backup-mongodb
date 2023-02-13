@@ -84,8 +84,9 @@ func (c *Ctl) Resync() error {
 	return nil
 }
 
-func (c *Ctl) Backup(typ pbm.BackupType) (string, error) {
-	out, err := c.RunCmd("pbm", "backup", "--type", string(typ), "--compression", "s2")
+func (c *Ctl) Backup(typ pbm.BackupType, opts ...string) (string, error) {
+	cmd := append([]string{"pbm", "backup", "--type", string(typ), "--compression", "s2"}, opts...)
+	out, err := c.RunCmd(cmd...)
 	if err != nil {
 		return "", err
 	}
@@ -142,38 +143,6 @@ func skipCtl(str string) []byte {
 		}
 	}
 	return []byte(str)
-}
-
-func (c *Ctl) CheckBackup(bcpName string, waitFor time.Duration) error {
-	tmr := time.NewTimer(waitFor)
-	tkr := time.NewTicker(500 * time.Millisecond)
-	for {
-		select {
-		case <-tmr.C:
-			sts, err := c.RunCmd("pbm", "status")
-			if err != nil {
-				return errors.Wrap(err, "timeout reached. pbm status")
-			}
-			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
-		case <-tkr.C:
-			out, err := c.RunCmd("pbm", "list")
-			if err != nil {
-				return err
-			}
-			for _, s := range strings.Split(out, "\n") {
-				s := strings.TrimSpace(s)
-				if s == bcpName {
-					return nil
-				}
-				if strings.HasPrefix(s, bcpName) {
-					status := strings.TrimSpace(strings.Split(s, bcpName)[1])
-					if strings.Contains(status, "Failed with") {
-						return errors.New(status)
-					}
-				}
-			}
-		}
-	}
 }
 
 func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
