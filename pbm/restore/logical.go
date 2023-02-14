@@ -616,9 +616,10 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			nss = []string{"*.*"}
 		}
 
+		mapRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 		if r.nodeInfo.IsConfigSrv() && sel.IsSelective(nss) {
 			// restore cluster specific configs only
-			return r.configsvrRestore(bcp, nss)
+			return r.configsvrRestore(bcp, nss, mapRS)
 		}
 
 		var cfg pbm.Config
@@ -631,7 +632,6 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 			return errors.WithMessage(err, "get config")
 		}
 
-		mapRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
 				stg, err := pbm.Storage(cfg, r.log)
