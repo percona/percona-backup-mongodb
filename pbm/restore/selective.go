@@ -25,14 +25,14 @@ const (
 const maxBulkWriteCount = 500
 
 // configsvrRestore restores for selected namespaces
-func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
+func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) error {
 	available, err := fetchAvailability(bcp, r.stg)
 	if err != nil {
 		return err
 	}
 
 	if available[databasesNS] {
-		if err := r.configsvrRestoreDatabases(bcp, nss); err != nil {
+		if err := r.configsvrRestoreDatabases(bcp, nss, mapRS); err != nil {
 			return errors.WithMessage(err, "restore config.databases")
 		}
 	}
@@ -40,14 +40,14 @@ func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string) error {
 	var uuids []primitive.Binary
 	if available[collectionsNS] {
 		var err error
-		uuids, err = r.configsvrRestoreCollections(bcp, nss)
+		uuids, err = r.configsvrRestoreCollections(bcp, nss, mapRS)
 		if err != nil {
 			return errors.WithMessage(err, "restore config.collections")
 		}
 	}
 
 	if available[chunksNS] {
-		if err := r.configsvrRestoreChunks(bcp, uuids); err != nil {
+		if err := r.configsvrRestoreChunks(bcp, uuids, mapRS); err != nil {
 			return errors.WithMessage(err, "restore config.chunks")
 		}
 	}
@@ -85,8 +85,8 @@ func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]boo
 
 // configsvrRestoreDatabases upserts config.databases documents
 // for selected databases
-func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string) error {
-	filepath := path.Join(bcp.Name, r.node.RS(), "config.databases"+bcp.Compression.Suffix())
+func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) error {
+	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.databases"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return err
@@ -123,6 +123,13 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string) e
 			return errors.WithMessage(err, "unmarshal")
 		}
 
+		for i, a := range doc {
+			if a.Key == "primaryShard" {
+				doc[i].Value = mapRS(doc[i].Value.(string))
+				break
+			}
+		}
+
 		model := mongo.NewReplaceOneModel()
 		model.SetFilter(bson.D{{"_id", db}})
 		model.SetReplacement(doc)
@@ -143,8 +150,8 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string) e
 
 // configsvrRestoreCollections upserts config.collections documents
 // for selected namespaces
-func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string) ([]primitive.Binary, error) {
-	filepath := path.Join(bcp.Name, r.node.RS(), "config.collections"+bcp.Compression.Suffix())
+func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) ([]primitive.Binary, error) {
+	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.collections"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return nil, err
@@ -205,8 +212,8 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string)
 }
 
 // configsvrRestoreChunks upserts config.chunks documents for selected namespaces
-func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.Binary) error {
-	filepath := path.Join(bcp.Name, r.node.RS(), "config.chunks"+bcp.Compression.Suffix())
+func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.Binary, mapRS pbm.RSMapFunc) error {
+	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.chunks"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return err
@@ -253,6 +260,20 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 			doc := bson.D{}
 			if err := bson.Unmarshal(raw, &doc); err != nil {
 				return errors.WithMessage(err, "unmarshal")
+			}
+
+			for i, a := range doc {
+				switch a.Key {
+				case "shard":
+					doc[i].Value = mapRS(doc[i].Value.(string))
+				case "history":
+					history := doc[i].Value.(bson.D)
+					for j, b := range history {
+						if b.Key == "shard" {
+							history[j].Value = mapRS(history[j].Value.(string))
+						}
+					}
+				}
 			}
 
 			models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
