@@ -53,7 +53,9 @@ type PhysRestore struct {
 	// an ephemeral port to restart mongod on during the restore
 	tmpPort int
 	tmpConf *os.File
-	rsConf  *pbm.RSConfig // original replset config
+	rsConf  *pbm.RSConfig     // original replset config
+	shards  map[string]string // original shards list on config server
+	cfgConn string            // shardIdentity configsvrConnectionString
 	startTS int64
 	secOpts *pbm.MongodOptsSec
 
@@ -109,6 +111,20 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		return nil, errors.Wrap(err, "get replset config")
 	}
 
+	var shards map[string]string
+	var csvr string
+	if inf.IsConfigSrv() {
+		shards, err = node.GetShardsConfig()
+		if err != nil {
+			return nil, errors.Wrap(err, "get shards list")
+		}
+	} else if inf.IsSharded() {
+		csvr, err = node.ConfSvrConn()
+		if err != nil {
+			return nil, errors.Wrap(err, "get configsvrConnectionString")
+		}
+	}
+
 	if inf.SetName == "" {
 		return nil, errors.New("undefined replica set")
 	}
@@ -123,6 +139,8 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		node:     node,
 		dbpath:   p,
 		rsConf:   rcf,
+		shards:   shards,
+		cfgConn:  csvr,
 		nodeInfo: inf,
 		tmpPort:  tmpPort,
 		secOpts:  opts.Security,
@@ -872,6 +890,30 @@ func (r *PhysRestore) resetRS() error {
 		err = c.Database("config").Collection("lockpings").Drop(ctx)
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
+		}
+		for id, host := range r.shards {
+			_, err = c.Database("config").Collection("shards").UpdateOne(
+				ctx,
+				bson.D{{"_id", id}},
+				bson.D{
+					{"$set", bson.M{"host": host}},
+				},
+			)
+
+			if err != nil {
+				return errors.Wrapf(err, "update config.shards for %s %s", id, host)
+			}
+		}
+	} else {
+		_, err = c.Database("admin").Collection("system.version").UpdateOne(
+			ctx,
+			bson.D{{"_id", "shardIdentity"}},
+			bson.D{
+				{"$set", bson.M{"configsvrConnectionString": r.cfgConn}},
+			},
+		)
+		if err != nil {
+			return errors.Wrap(err, "update shardIdentity in admin.system.version")
 		}
 	}
 
