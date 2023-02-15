@@ -277,11 +277,7 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return pbm, errors.Wrap(pbm.setupNewDB(), "setup a new backups db")
 	}
 
-	csvr := struct {
-		URI string `bson:"configsvrConnectionString"`
-	}{}
-	err = client.Database("admin").Collection("system.version").
-		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
+	csvr, err := ConfSvrConn(ctx, client)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config server connection URI")
 	}
@@ -291,9 +287,9 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrap(err, "disconnect old client")
 	}
 
-	chost := strings.Split(csvr.URI, "/")
+	chost := strings.Split(csvr, "/")
 	if len(chost) < 2 {
-		return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr.URI)
+		return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr)
 	}
 
 	curi, err := url.Parse(uri)
@@ -1087,4 +1083,14 @@ func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{
 
 func BackupCursorName(s string) string {
 	return strings.NewReplacer("-", "", ":", "").Replace(s)
+}
+
+func ConfSvrConn(ctx context.Context, cn *mongo.Client) (string, error) {
+	csvr := struct {
+		URI string `bson:"configsvrConnectionString"`
+	}{}
+	err := cn.Database("admin").Collection("system.version").
+		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
+
+	return csvr.URI, err
 }
