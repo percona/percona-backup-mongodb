@@ -117,3 +117,11 @@
 #restore:
 #  batchSize: 500
 #  numInsertionWorkers: 10
+  
+# Options to specify the custom path to mongod binaries for internal restarts 
+# during physical restore. The mongodLocationMap option allows defining custom 
+# path per node. When undefined, the default path will be used.
+#  mongodLocation: /path/to/mongod
+#  mongodLocationMap:
+#    "node01:27017": /path/to/mongod
+#    "node03:27017": /another/path/to/mongod
