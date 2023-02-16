@@ -128,7 +128,7 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 		}
 
 		for i, a := range doc {
-			if a.Key == "primaryShard" {
+			if a.Key == "primary" {
 				doc[i].Value = mapRS(doc[i].Value.(string))
 				break
 			}
@@ -270,12 +270,17 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 				case "shard":
 					doc[i].Value = mapRS(doc[i].Value.(string))
 				case "history":
-					history := doc[i].Value.(bson.D)
+					history := doc[i].Value.(bson.A)
 					for j, b := range history {
-						if b.Key == "shard" {
-							history[j].Value = mapRS(history[j].Value.(string))
+						c := b.(bson.D)
+						for k, d := range c {
+							if d.Key == "shard" {
+								c[k].Value = mapRS(d.Value.(string))
+							}
 						}
+						history[j] = c
 					}
+					doc[i].Value = history
 				}
 			}
 
