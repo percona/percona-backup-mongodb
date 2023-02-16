@@ -24,6 +24,8 @@ func TestSelectedPred(t *testing.T) {
 		{[]string{"db0.*"}, []string{"db0", "db0.c0", "db0.c1"}},
 		{[]string{"db1.*"}, []string{"db1.", "db1.c0", "db1.c1"}},
 		{[]string{"db1.c1"}, []string{"db1.c1"}},
+		{[]string{"db0.c1", "db1.c0"}, []string{"db0.c1", "db1.c0"}},
+		{[]string{"db0.c1", "db1.*"}, []string{"db0.c1", "db1.", "db1.c0", "db1.c1"}},
 		{[]string{"db0.c2"}, []string{}},
 		{[]string{"db2.c0"}, []string{}},
 		{[]string{"db2.*"}, []string{}},
