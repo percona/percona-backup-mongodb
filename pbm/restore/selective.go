@@ -1,7 +1,6 @@
 package restore
 
 import (
-	"bytes"
 	"io"
 	"path"
 	"strings"
@@ -188,7 +187,7 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 		// the data var points to reusable buf offset
 		// must be cloned to avoid all uuids' items with the same uuid
 		// from the latest doc or an uuid from random bytes
-		data = bytes.Clone(data)
+		data = append([]byte(nil), data...)
 		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: data})
 
 		doc := bson.D{}
