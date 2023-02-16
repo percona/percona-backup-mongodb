@@ -3,6 +3,7 @@ package restore
 import (
 	"io"
 	"path"
+	"strings"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -96,7 +97,11 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 		return err
 	}
 
-	selected := sel.MakeSelectedPred(nss)
+	allowedDBs := make(map[string]bool)
+	for _, ns := range nss {
+		db, _, _ := strings.Cut(ns, ".")
+		allowedDBs[db] = true
+	}
 
 	// go config.databases' docs and pick only selected databases docs
 	// insert/replace in bulk
@@ -113,7 +118,7 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 		}
 
 		db := bson.Raw(buf).Lookup("_id").StringValue()
-		if !selected(db) {
+		if !allowedDBs[db] {
 			continue
 		}
 
