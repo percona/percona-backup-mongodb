@@ -101,10 +101,9 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 	// go config.databases' docs and pick only selected databases docs
 	// insert/replace in bulk
 	models := []mongo.WriteModel{}
-	for buf := make([]byte, archive.MaxBSONSize); ; {
-		var raw []byte
-
-		raw, err = archive.ReadBSONBuffer(rdr, buf)
+	buf := make([]byte, archive.MaxBSONSize)
+	for {
+		buf, err = archive.ReadBSONBuffer(rdr, buf[:cap(buf)])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -113,13 +112,13 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 			return err
 		}
 
-		db := bson.Raw(raw).Lookup("_id").StringValue()
+		db := bson.Raw(buf).Lookup("_id").StringValue()
 		if !selected(db) {
 			continue
 		}
 
 		doc := bson.D{}
-		if err = bson.Unmarshal(raw, &doc); err != nil {
+		if err = bson.Unmarshal(buf, &doc); err != nil {
 			return errors.WithMessage(err, "unmarshal")
 		}
 
@@ -136,9 +135,7 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 		model.SetUpsert(true)
 		models = append(models, model)
 	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
+
 	if len(models) == 0 {
 		return nil
 	}
@@ -165,10 +162,9 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 
 	uuids := []primitive.Binary{}
 	models := []mongo.WriteModel{}
-	for buf := make([]byte, archive.MaxBSONSize); ; {
-		var raw []byte
-
-		raw, err := archive.ReadBSONBuffer(rdr, buf)
+	buf := make([]byte, archive.MaxBSONSize)
+	for {
+		buf, err = archive.ReadBSONBuffer(rdr, buf[:cap(buf)])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -177,16 +173,17 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 			return nil, err
 		}
 
-		ns := bson.Raw(raw).Lookup("_id").StringValue()
+		ns := bson.Raw(buf).Lookup("_id").StringValue()
 		if !selected(ns) {
 			continue
 		}
 
-		subtype, data := bson.Raw(raw).Lookup("uuid").Binary()
-		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: data})
+		subtype, data := bson.Raw(buf).Lookup("uuid").Binary()
+		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: bytes.Clone(data)})
 
 		doc := bson.D{}
-		if err = bson.Unmarshal(raw, &doc); err != nil {
+		err = bson.Unmarshal(buf, &doc)
+		if err != nil {
 			return nil, errors.WithMessage(err, "unmarshal")
 		}
 
@@ -196,9 +193,7 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 		model.SetUpsert(true)
 		models = append(models, model)
 	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
+
 	if len(models) == 0 {
 		return uuids, nil
 	}
@@ -241,24 +236,27 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 
 	models := []mongo.WriteModel{}
 	buf := make([]byte, archive.MaxBSONSize)
-	for done := false; done; {
+	for done := false; !done; {
 		// there could be thousands of chunks. write every maxBulkWriteCount docs
 		// to limit memory usage
 		for i := 0; i != maxBulkWriteCount; i++ {
-			var raw []byte
-
-			raw, err = archive.ReadBSONBuffer(rdr, buf)
+			buf, err = archive.ReadBSONBuffer(rdr, buf[:cap(buf)])
 			if err != nil {
-				break
+				if errors.Is(err, io.EOF) {
+					done = true
+					break
+				}
+
+				return err
 			}
 
-			subtype, raw := bson.Raw(raw).Lookup("uuid").Binary()
-			if !selected(primitive.Binary{Subtype: subtype, Data: raw}) {
+			subtype, data := bson.Raw(buf).Lookup("uuid").Binary()
+			if !selected(primitive.Binary{Subtype: subtype, Data: data}) {
 				continue
 			}
 
 			doc := bson.D{}
-			if err := bson.Unmarshal(raw, &doc); err != nil {
+			if err := bson.Unmarshal(buf, &doc); err != nil {
 				return errors.WithMessage(err, "unmarshal")
 			}
 
@@ -278,13 +276,7 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 
 			models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
 		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				return err
-			}
 
-			done = true
-		}
 		if len(models) == 0 {
 			return nil
 		}
