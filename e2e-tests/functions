@@ -30,24 +30,23 @@ run() {
     esac
 
     desc 'Run tests'
-    docker-compose -f $compose up tests
-    EXIT_CODE=$(docker-compose -f $compose ps -q tests | xargs docker inspect -f '{{ .State.ExitCode }}')
+    EXIT_CODE=$(docker-compose -f $compose run tests)
 
-    if [ $PBM_TEST_CLEANUP == true ]; then
-        if [ $EXIT_CODE != 0 ]; then
-            docker-compose -f $compose logs --no-color --tail=100
-            desc 'PBM logs'
-            docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D -x || true
-            if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
-                docker-compose -f $compose exec -T agent-rs201 pbm logs -t 0 -s D -x || true
-            fi
-            desc 'PBM status'
-            docker-compose -f $compose exec -T agent-rs101 pbm status || true
-            if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
-                docker-compose -f $compose exec -T agent-rs201 pbm status || true
-            fi
+    if [ "$EXIT_CODE" != 0 ]; then
+        docker-compose -f $compose logs --no-color --tail=100
+        desc 'PBM logs'
+        docker-compose -f $compose exec -T agent-rs101 pbm logs -t 0 -s D -x || true
+        if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+            docker-compose -f $compose exec -T agent-rs201 pbm logs -t 0 -s D -x || true
         fi
+        desc 'PBM status'
+        docker-compose -f $compose exec -T agent-rs101 pbm status || true
+        if [ $compose == $COMPOSE_REMAPPING_PATH ]; then
+            docker-compose -f $compose exec -T agent-rs201 pbm status || true
+        fi
+    fi
 
+    if [ "$PBM_TEST_CLEANUP" == true ]; then
         desc 'Destroy cluster'
         destroy_cluster $compose
     fi
