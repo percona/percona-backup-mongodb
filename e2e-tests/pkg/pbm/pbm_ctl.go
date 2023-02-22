@@ -24,7 +24,7 @@ type Ctl struct {
 	env       []string
 }
 
-var backupNameRE = regexp.MustCompile(`Backup '([0-9\-\:TZ]+)' to remote store`)
+var backupNameRE = regexp.MustCompile(`Starting backup '([0-9\-\:TZ]+)'`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
 	cn, err := docker.NewClient(host, "1.39", nil, nil)
