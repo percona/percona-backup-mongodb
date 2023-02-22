@@ -7,7 +7,6 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -38,17 +37,17 @@ func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.
 		}
 	}
 
-	var uuids []primitive.Binary
+	var chunkSelector sel.ChunkSelector
 	if available[collectionsNS] {
 		var err error
-		uuids, err = r.configsvrRestoreCollections(bcp, nss, mapRS)
+		chunkSelector, err = r.configsvrRestoreCollections(bcp, nss, mapRS)
 		if err != nil {
 			return errors.WithMessage(err, "restore config.collections")
 		}
 	}
 
 	if available[chunksNS] {
-		if err := r.configsvrRestoreChunks(bcp, uuids, mapRS); err != nil {
+		if err := r.configsvrRestoreChunks(bcp, chunkSelector, mapRS); err != nil {
 			return errors.WithMessage(err, "restore config.chunks")
 		}
 	}
@@ -152,7 +151,19 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 
 // configsvrRestoreCollections upserts config.collections documents
 // for selected namespaces
-func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) ([]primitive.Binary, error) {
+func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) (sel.ChunkSelector, error) {
+	ver, err := pbm.GetMongoVersion(r.cn.Context(), r.node.Session())
+	if err != nil {
+		return nil, errors.WithMessage(err, "get mongo version")
+	}
+
+	var chunkSelector sel.ChunkSelector
+	if ver.Major() >= 5 {
+		chunkSelector = sel.NewUUIDChunkSelector()
+	} else {
+		chunkSelector = sel.NewNSChunkSelector()
+	}
+
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.collections"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
@@ -165,7 +176,6 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 
 	selected := sel.MakeSelectedPred(nss)
 
-	uuids := []primitive.Binary{}
 	models := []mongo.WriteModel{}
 	buf := make([]byte, archive.MaxBSONSize)
 	for {
@@ -183,12 +193,7 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 			continue
 		}
 
-		subtype, data := bson.Raw(buf).Lookup("uuid").Binary()
-		// the data var points to reusable buf offset
-		// must be cloned to avoid all uuids' items with the same uuid
-		// from the latest doc or an uuid from random bytes
-		data = append([]byte(nil), data...)
-		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: data})
+		chunkSelector.Add(bson.Raw(buf))
 
 		doc := bson.D{}
 		err = bson.Unmarshal(buf, &doc)
@@ -204,7 +209,7 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 	}
 
 	if len(models) == 0 {
-		return uuids, nil
+		return chunkSelector, nil
 	}
 
 	coll := r.cn.Conn.Database("config").Collection("collections")
@@ -212,11 +217,11 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 		return nil, errors.WithMessage(err, "update config.collections")
 	}
 
-	return uuids, nil
+	return chunkSelector, nil
 }
 
 // configsvrRestoreChunks upserts config.chunks documents for selected namespaces
-func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.Binary, mapRS pbm.RSMapFunc) error {
+func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.ChunkSelector, mapRS pbm.RSMapFunc) error {
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.chunks"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
@@ -228,19 +233,9 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 	}
 
 	coll := r.cn.Conn.Database("config").Collection("chunks")
-	_, err = coll.DeleteMany(r.cn.Context(), bson.D{{"uuid", bson.M{"$in": uuids}}})
+	_, err = coll.DeleteMany(r.cn.Context(), selector.BuildFilter())
 	if err != nil {
 		return err
-	}
-
-	selected := func(uuid primitive.Binary) bool {
-		for _, u := range uuids {
-			if uuid.Equal(u) {
-				return true
-			}
-		}
-
-		return false
 	}
 
 	models := []mongo.WriteModel{}
@@ -259,8 +254,7 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, uuids []primitive.
 				return err
 			}
 
-			subtype, data := bson.Raw(buf).Lookup("uuid").Binary()
-			if !selected(primitive.Binary{Subtype: subtype, Data: data}) {
+			if !selector.Selected(bson.Raw(buf)) {
 				continue
 			}
 

@@ -154,10 +154,31 @@ type MongoVersion struct {
 	Version       []int  `bson:"versionArray"`
 }
 
+func (v MongoVersion) Major() int {
+	if len(v.Version) == 0 {
+		return 0
+	}
+
+	return v.Version[0]
+}
+
 func (n *Node) GetMongoVersion() (*MongoVersion, error) {
-	ver := new(MongoVersion)
-	err := n.cn.Database(DB).RunCommand(n.ctx, bson.D{{"buildInfo", 1}}).Decode(ver)
-	return ver, err
+	ver, err := GetMongoVersion(n.ctx, n.cn)
+	return &ver, err
+}
+
+func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{{"buildInfo", 1}})
+	if err := res.Err(); err != nil {
+		return MongoVersion{}, err
+	}
+
+	var ver MongoVersion
+	if err := res.Decode(&ver); err != nil {
+		return MongoVersion{}, err
+	}
+
+	return ver, nil
 }
 
 func (n *Node) GetReplsetStatus() (*ReplsetStatus, error) {

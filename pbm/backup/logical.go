@@ -9,7 +9,6 @@ import (
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
@@ -126,13 +125,13 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
 	if inf.IsConfigSrv() && sel.IsSelective(bcp.Namespaces) {
-		uuids, err := fetchCollectionUUIDs(ctx, b.cn.Conn, bcp.Namespaces)
+		chunkSelector, err := createBackupChunkSelector(ctx, b.cn.Conn, bcp.Namespaces)
 		if err != nil {
 			return errors.WithMessage(err, "fetch uuids")
 		}
 
 		nsFilter = makeConfigsvrNSFilter()
-		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, uuids)
+		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
 	}
 
 	snapshotSize, err := snapshot.UploadDump(dump,
@@ -209,7 +208,19 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	return nil
 }
 
-func fetchCollectionUUIDs(ctx context.Context, m *mongo.Client, nss []string) ([]primitive.Binary, error) {
+func createBackupChunkSelector(ctx context.Context, m *mongo.Client, nss []string) (sel.ChunkSelector, error) {
+	ver, err := pbm.GetMongoVersion(ctx, m)
+	if err != nil {
+		return nil, errors.WithMessage(err, "get mongo version")
+	}
+
+	var chunkSelector sel.ChunkSelector
+	if ver.Major() >= 5 {
+		chunkSelector = sel.NewUUIDChunkSelector()
+	} else {
+		chunkSelector = sel.NewNSChunkSelector()
+	}
+
 	cur, err := m.Database("config").Collection("collections").Find(ctx, bson.D{})
 	if err != nil {
 		return nil, errors.WithMessage(err, "query")
@@ -217,20 +228,16 @@ func fetchCollectionUUIDs(ctx context.Context, m *mongo.Client, nss []string) ([
 	defer cur.Close(ctx)
 
 	selected := sel.MakeSelectedPred(nss)
-	uuids := []primitive.Binary{}
 	for cur.Next(ctx) {
-		if !selected(cur.Current.Lookup("_id").StringValue()) {
-			continue
+		if selected(cur.Current.Lookup("_id").StringValue()) {
+			chunkSelector.Add(cur.Current)
 		}
-
-		subtype, data := cur.Current.Lookup("uuid").Binary()
-		uuids = append(uuids, primitive.Binary{Subtype: subtype, Data: data})
 	}
 	if err := cur.Err(); err != nil {
 		return nil, errors.WithMessage(err, "cursor")
 	}
 
-	return uuids, nil
+	return chunkSelector, nil
 }
 
 func makeConfigsvrNSFilter() archive.NSFilterFn {
@@ -246,7 +253,7 @@ func makeConfigsvrNSFilter() archive.NSFilterFn {
 	}
 }
 
-func makeConfigsvrDocFilter(nss []string, uuids []primitive.Binary) archive.DocFilterFn {
+func makeConfigsvrDocFilter(nss []string, selector sel.ChunkSelector) archive.DocFilterFn {
 	selectedNS := sel.MakeSelectedPred(nss)
 	allowedDBs := make(map[string]bool)
 	for _, ns := range nss {
@@ -263,14 +270,7 @@ func makeConfigsvrDocFilter(nss []string, uuids []primitive.Binary) archive.DocF
 			ns, ok := doc.Lookup("_id").StringValueOK()
 			return ok && selectedNS(ns)
 		case "config.chunks":
-			uuid := primitive.Binary{}
-			uuid.Subtype, uuid.Data = doc.Lookup("uuid").Binary()
-
-			for _, a := range uuids {
-				if uuid.Equal(a) {
-					return true
-				}
-			}
+			return selector.Selected(doc)
 		}
 
 		return false
