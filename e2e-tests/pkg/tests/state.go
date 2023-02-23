@@ -225,8 +225,8 @@ func Compare(before, after *clusterState, nss []string) bool {
 	}
 
 	for shard, beforeShardState := range before.Shards {
-		afterShardState, ok := after.Shards[shard]
-		if !ok {
+		afterShardState, kk := after.Shards[shard]
+		if !kk {
 			log.Printf("shard: not found: %q", shard)
 			ok = false
 			continue
