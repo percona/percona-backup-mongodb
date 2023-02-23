@@ -100,7 +100,7 @@ func (s uuidChunkMap) BuildFilter() bson.D {
 	uuids := make([]primitive.Binary, 0, len(s))
 	for ns := range s {
 		data, _ := hex.DecodeString(ns)
-		uuids = append(uuids, primitive.Binary{0x4, data})
+		uuids = append(uuids, primitive.Binary{Subtype: 0x4, Data: data})
 	}
 
 	return bson.D{{"uuid", bson.M{"$in": uuids}}}
