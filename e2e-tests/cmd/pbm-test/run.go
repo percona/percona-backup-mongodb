@@ -76,6 +76,10 @@ func run(t *sharded.Cluster, typ testTyp) {
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
 
+		runTest("Selective restore in sharded cluster", t.SelectiveRestoreSharded)
+
+		runTest("Selective backup in sharded cluster", t.SelectiveBackupSharded)
+
 		// TODO: in the case of non-sharded cluster there is no other agent to observe
 		// TODO: failed state during the backup. For such topology test should check if
 		// TODO: a sequential run (of the backup let's say) handles a situation.

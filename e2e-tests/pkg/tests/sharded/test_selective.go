@@ -48,7 +48,7 @@ var clusterSpec = []tests.GenDBSpec{
 	},
 }
 
-func (c *Cluster) SelectiveSharded() {
+func (c *Cluster) SelectiveRestoreSharded() {
 	ctx, mongos := c.ctx, c.mongos.Conn()
 	creds := tests.ExtractCredentionals(c.cfg.Mongos)
 
@@ -89,6 +89,61 @@ func (c *Cluster) SelectiveSharded() {
 	}
 
 	selected := []string{"db0.c00", "db0.c01", "db1.*"}
+	c.LogicalRestoreWithParams(backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
+
+	afterState, err := tests.ClusterState(ctx, mongos, creds)
+	if err != nil {
+		log.Printf("get after cluster state: %s", err.Error())
+		return
+	}
+
+	if !tests.Compare(beforeState, afterState, selected) {
+		log.Println("unexpected restored state")
+		return
+	}
+}
+
+func (c *Cluster) SelectiveBackupSharded() {
+	ctx, mongos := c.ctx, c.mongos.Conn()
+	creds := tests.ExtractCredentionals(c.cfg.Mongos)
+
+	defer func() {
+		for _, db := range clusterSpec {
+			if err := mongos.Database(db.Name).Drop(ctx); err != nil {
+				log.Printf("drop database: %s", err.Error())
+			}
+		}
+	}()
+
+	err := tests.Deploy(ctx, mongos, clusterSpec)
+	if err != nil {
+		log.Printf("deploy: %s", err.Error())
+		return
+	}
+
+	err = tests.GenerateData(ctx, mongos, clusterSpec)
+	if err != nil {
+		log.Printf("generate data (1): %s", err.Error())
+		return
+	}
+
+	beforeState, err := tests.ClusterState(ctx, mongos, creds)
+	if err != nil {
+		log.Printf("get before cluster state: %s", err.Error())
+		return
+	}
+
+	backupName := c.backup(pbm.LogicalBackup, "--ns", "db0.*", "--wait")
+	defer c.BackupDelete(backupName)
+
+	// regenerate new data
+	err = tests.GenerateData(ctx, mongos, clusterSpec)
+	if err != nil {
+		log.Printf("generate data (2): %s", err.Error())
+		return
+	}
+
+	selected := []string{"db0.c00", "db0.c01"}
 	c.LogicalRestoreWithParams(backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
 
 	afterState, err := tests.ClusterState(ctx, mongos, creds)
