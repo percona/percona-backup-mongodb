@@ -110,11 +110,7 @@ type Credentials struct {
 }
 
 func ExtractCredentionals(s string) *Credentials {
-	if strings.HasPrefix(s, "mongodb://") {
-		s = s[len("mongodb://"):]
-	}
-
-	auth, _, _ := strings.Cut(s, "@")
+	auth, _, _ := strings.Cut(strings.TrimPrefix(s, "mongodb://"), "@")
 	usr, pwd, _ := strings.Cut(auth, ":")
 	if usr == "" {
 		return nil
@@ -366,7 +362,7 @@ func getConfigChunkHashes(ctx context.Context, m *mongo.Client, selection map[st
 		} else {
 			id = cur.Current.Lookup("ns").StringValue()
 		}
-		hashes[id].(hash.Hash).Write(cur.Current)
+		hashes[id].Write(cur.Current)
 		counts[id][cur.Current.Lookup("shard").StringValue()]++
 	}
 	if err := cur.Err(); err != nil {
