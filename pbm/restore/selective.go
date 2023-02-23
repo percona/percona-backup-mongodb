@@ -297,5 +297,5 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.Chunk
 		models = models[:0]
 	}
 
-	return err
+	return nil
 }

@@ -229,7 +229,8 @@ func createBackupChunkSelector(ctx context.Context, m *mongo.Client, nss []strin
 
 	selected := sel.MakeSelectedPred(nss)
 	for cur.Next(ctx) {
-		if selected(cur.Current.Lookup("_id").StringValue()) {
+		ns := cur.Current.Lookup("_id").StringValue()
+		if selected(ns) {
 			chunkSelector.Add(cur.Current)
 		}
 	}

@@ -11,20 +11,27 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// GenDBSpec describes a database to create
 type GenDBSpec struct {
-	Name  string
-	Colls []GenCollSpec
+	Name        string
+	Collections []GenCollSpec
 }
 
+// GenCollSpec describes a collection to create. If ShardingKey is set,
+// enables sharding for the databases and shard the collection
 type GenCollSpec struct {
 	Name        string
 	ShardingKey *ShardingOptions
 }
 
+// ShardingOptions describes sharding key.
+// Directly passed to shardCollection command
 type ShardingOptions struct {
 	Key map[string]any
 }
 
+// Deploy creates databases and collections.
+// Do sharding for each collection with ShardingKey set.
 func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	ok, err := isMongos(ctx, m)
 	if err != nil {
@@ -39,7 +46,11 @@ func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	for _, db := range dbs {
 		sharded := false
 
-		for _, coll := range db.Colls {
+		if err := m.Database(db.Name).Drop(ctx); err != nil {
+			return errors.WithMessagef(err, "drop database: %q", db.Name)
+		}
+
+		for _, coll := range db.Collections {
 			if coll.ShardingKey == nil || len(coll.ShardingKey.Key) == 0 {
 				continue
 			}
@@ -68,6 +79,7 @@ func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	return nil
 }
 
+// GenerateData generates data by dbs specs
 func GenerateData(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	ok, err := isMongos(ctx, m)
 	if err != nil {
@@ -82,7 +94,7 @@ func GenerateData(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 
 	for _, d := range dbs {
 		db := m.Database(d.Name)
-		for _, c := range d.Colls {
+		for _, c := range d.Collections {
 			coll := db.Collection(c.Name)
 			docs := make([]any, rand.Int()%400+100)
 
