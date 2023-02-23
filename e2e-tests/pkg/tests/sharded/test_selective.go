@@ -11,7 +11,7 @@ import (
 var clusterSpec = []tests.GenDBSpec{
 	{
 		Name: "db0",
-		Colls: []tests.GenCollSpec{
+		Collections: []tests.GenCollSpec{
 			{
 				Name: "c00",
 			},
@@ -34,7 +34,7 @@ var clusterSpec = []tests.GenDBSpec{
 	},
 	{
 		Name: "db1",
-		Colls: []tests.GenCollSpec{
+		Collections: []tests.GenCollSpec{
 			{
 				Name: "c10",
 				ShardingKey: &tests.ShardingOptions{
