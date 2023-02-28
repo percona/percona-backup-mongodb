@@ -1305,6 +1305,9 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 	bcp := r.bcp
 
 	rs := getRS(bcp, r.nodeInfo.SetName)
+	if rs == nil {
+		return errors.Errorf("no data in the backup for the replica set %s", r.nodeInfo.SetName)
+	}
 
 	targetFiles := make(map[string]struct{})
 	for _, f := range append(rs.Files, rs.Journal...) {
@@ -1395,20 +1398,17 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	fl := make(map[string]pbm.Shard, len(s))
+	r.syncPathShards = make(map[string]struct{})
 	for _, rs := range s {
 		fl[rs.RS] = rs
+		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
-	r.syncPathShards = make(map[string]struct{})
 	var nors []string
 	for _, sh := range r.bcp.Replsets {
-		rs, ok := fl[sh.Name]
-		if !ok {
+		if _, ok := fl[sh.Name]; !ok {
 			nors = append(nors, sh.Name)
-			continue
 		}
-
-		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
 	if len(nors) > 0 {
