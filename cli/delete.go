@@ -2,13 +2,21 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type deleteBcpOpts struct {
@@ -160,4 +168,238 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 	}
 
 	return runList(pbmClient, &listOpts{})
+}
+
+type deleteAllOptions struct {
+	olderThan string
+	yes       bool
+	wait      bool
+	wtimeout  uint32
+}
+
+func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.Stringer, error) {
+	ctx, m := pbmClient.Context(), pbmClient.Conn
+
+	ts, err := parseOlderThan(d.olderThan)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse `older than` value")
+	}
+	cfg, err := pbmClient.GetConfig()
+	if err != nil {
+		return nil, errors.WithMessage(err, "get config")
+	}
+	ts, err = findAdjustedTS(ctx, m, ts, cfg.PITR.Enabled && !cfg.PITR.OplogOnly)
+	if err != nil {
+		return nil, errors.WithMessage(err, "find proper timestamp")
+	}
+	if ts.IsZero() {
+		return nil, errors.New("deletion not allowed")
+	}
+
+	if !d.yes {
+		err := askDeleteAllConfirmation(ctx, m, ts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tsop := time.Now().Unix()
+	err = pbmClient.SendCmd(pbm.Cmd{
+		Cmd:       pbm.CmdDeleteAll,
+		DeleteAll: &pbm.DeleteAllCmd{OlderThan: ts},
+	})
+	if err != nil {
+		return nil, errors.WithMessage(err, "send command")
+	}
+	if !d.wait {
+		return outMsg{"Processing by agents. Please check status later"}, nil
+	}
+
+	fmt.Print("Waiting... ")
+	wtimeout := time.Duration(d.wtimeout)
+	if wtimeout == 0 {
+		wtimeout = 60
+	}
+	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdDeleteAll}, wtimeout*time.Second)
+	if err != nil && err != errTout {
+		return nil, err
+	}
+
+	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteAll, tsop)
+	if err != nil {
+		if errors.Is(err, errTout) {
+			fmt.Println("Operation is still in progress, please check status later")
+			return nil, nil
+		}
+		return nil, errors.WithMessage(err, "read agents log")
+	}
+	if errl != "" {
+		return nil, errors.New(errl)
+	}
+
+	fmt.Println("Done")
+	return runList(pbmClient, &listOpts{full: true, unbacked: true})
+}
+
+func parseOlderThan(s string) (primitive.Timestamp, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return primitive.Timestamp{}, errInvalidDateTimeFormat
+	}
+
+	ts, err := parseTS(s)
+	if !errors.Is(err, errInvalidDateTimeFormat) {
+		return ts, err
+	}
+
+	dur, err := parseDuration(s)
+	if err != nil {
+		return primitive.Timestamp{}, err
+	}
+
+	unix := time.Now().UTC().Add(-dur).Unix()
+	return primitive.Timestamp{T: uint32(unix), I: 0}, nil
+}
+
+var errInvalidDuration = errors.New("invalid duration")
+
+func parseDuration(s string) (time.Duration, error) {
+	d, c := int64(0), ""
+	_, err := fmt.Sscanf(s, "%d%s", &d, &c)
+	if err != nil {
+		return 0, err
+	}
+	if c != "d" {
+		return 0, errInvalidDuration
+	}
+
+	return time.Duration(d * 24 * int64(time.Hour)), nil
+}
+
+func printDeleteAllInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
+	fmt.Println("Snapshots:")
+	if len(backups) == 0 {
+		fmt.Println("nothing to delete")
+	} else {
+		for i := range backups {
+			bcp := &backups[i]
+			t := bcp.Type
+			if len(bcp.Namespaces) != 0 {
+				t += ", selective"
+			}
+
+			fmt.Printf(" - %s <%s> [restore_time: %s]\n",
+				bcp.Name, t, fmtTS(int64(bcp.LastWriteTS.T)))
+		}
+	}
+
+	fmt.Println("PITR chunks (by replset name):")
+	if len(chunks) == 0 {
+		fmt.Println("nothing to delete")
+		return
+	}
+
+	type oplogRange struct {
+		Start, End primitive.Timestamp
+	}
+
+	oplogRanges := make(map[string][]oplogRange)
+	for _, c := range chunks {
+		rs := oplogRanges[c.RS]
+		if rs == nil {
+			oplogRanges[c.RS] = []oplogRange{{c.StartTS, c.EndTS}}
+			continue
+		}
+
+		lastWrite := &rs[len(rs)-1].End
+		if primitive.CompareTimestamp(*lastWrite, c.StartTS) == -1 {
+			oplogRanges[c.RS] = append(rs, oplogRange{c.StartTS, c.EndTS})
+			continue
+		}
+		if primitive.CompareTimestamp(*lastWrite, c.EndTS) == -1 {
+			*lastWrite = c.EndTS
+		}
+	}
+
+	for rs, ops := range oplogRanges {
+		fmt.Printf(" %s:\n", rs)
+
+		for _, r := range ops {
+			fmt.Printf(" - %d,%d - %d,%d\n",
+				r.Start.T, r.Start.I, r.End.T, r.End.I)
+		}
+	}
+}
+
+func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
+	if !isTTY() {
+		return errors.New("no tty")
+	}
+
+	backups, err := backup.ListBackupsBefore(ctx, m, ts)
+	if err != nil {
+		return errors.WithMessage(err, "list backups")
+	}
+	chunks, err := oplog.ListChunksBefore(ctx, m, ts)
+	if err != nil {
+		return errors.WithMessage(err, "list oplog chunks")
+	}
+
+	printDeleteAllInfo(backups, chunks)
+
+	fmt.Print("Are you sure you want delete? [y/N] ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	switch strings.TrimSpace(scanner.Text()) {
+	case "yes", "Yes", "YES", "Y", "y":
+		return nil
+	}
+
+	return errors.New("Aborted")
+}
+
+// findAdjustedTS returns a timestamp of the restore time of any following backup.
+func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {
+	backup, err := findBackupSince(ctx, m, ts, false)
+	if err != nil {
+		if !errors.Is(err, mongo.ErrNoDocuments) {
+			return primitive.Timestamp{}, err
+		}
+
+		if strict {
+			ts = primitive.Timestamp{}
+		}
+		return ts, nil
+	}
+
+	if !strict || len(backup.Namespaces) == 0 {
+		return backup.LastWriteTS, nil
+	}
+
+	// ensure there is a base snapshot for full PITR
+	_, err = findBackupSince(ctx, m, backup.LastWriteTS, true)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		err = nil
+	}
+	return backup.LastWriteTS, err
+}
+
+// findBackupSince returns a backup with restore time <= ts.
+// If fullOnly is true, only full backup (non-selective) will be returned.
+// Returned backup can be physical, logical.
+func findBackupSince(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, fullOnly bool) (*pbm.BackupMeta, error) {
+	filter := bson.D{{"last_write_ts", bson.M{"$gte": ts}}}
+	if fullOnly {
+		filter = append(filter, bson.E{"nss", nil})
+	}
+	opts := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
+	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, opts)
+	if err := cur.Err(); err != nil {
+		return nil, errors.WithMessage(err, "query")
+	}
+
+	var rv *pbm.BackupMeta
+	err := cur.Decode(&rv)
+	return rv, errors.WithMessage(err, "decode")
 }
