@@ -199,6 +199,9 @@ func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.String
 	if !d.yes {
 		err := askDeleteAllConfirmation(ctx, m, ts)
 		if err != nil {
+			if errors.Is(err, ErrAborted) {
+				return outMsg{"aborted"}, nil
+			}
 			return nil, err
 		}
 	}
@@ -215,30 +218,29 @@ func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.String
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	fmt.Print("Waiting... ")
+	fmt.Print("Waiting")
 	wtimeout := time.Duration(d.wtimeout)
 	if wtimeout == 0 {
 		wtimeout = 60
 	}
 	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdDeleteAll}, wtimeout*time.Second)
-	if err != nil && err != errTout {
+	fmt.Println()
+	if err != nil {
+		if errors.Is(err, errTout) {
+			return outMsg{"Operation is still in progress, please check status later"}, nil
+		}
 		return nil, err
 	}
 
 	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteAll, tsop)
 	if err != nil {
-		if errors.Is(err, errTout) {
-			fmt.Println("Operation is still in progress, please check status later")
-			return nil, nil
-		}
 		return nil, errors.WithMessage(err, "read agents log")
 	}
 	if errl != "" {
 		return nil, errors.New(errl)
 	}
 
-	fmt.Println("Done")
-	return runList(pbmClient, &listOpts{full: true, unbacked: true})
+	return outMsg{"Done"}, nil
 }
 
 func parseOlderThan(s string) (primitive.Timestamp, error) {
@@ -331,6 +333,8 @@ func printDeleteAllInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 	}
 }
 
+var ErrAborted = errors.New("aborted")
+
 func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
 	if !isTTY() {
 		return errors.New("no tty")
@@ -356,7 +360,7 @@ func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive
 		return nil
 	}
 
-	return errors.New("Aborted")
+	return ErrAborted
 }
 
 // findAdjustedTS returns a timestamp of the restore time of any following backup.
@@ -380,9 +384,10 @@ func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp
 	// ensure there is a base snapshot for full PITR
 	_, err = findBackupSince(ctx, m, backup.LastWriteTS, true)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		err = nil
+		return primitive.Timestamp{}, nil
 	}
-	return backup.LastWriteTS, err
+
+	return backup.LastWriteTS, nil
 }
 
 // findBackupSince returns a backup with restore time <= ts.
@@ -393,13 +398,13 @@ func findBackupSince(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 	if fullOnly {
 		filter = append(filter, bson.E{"nss", nil})
 	}
-	opts := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
+	opts := options.FindOne() //.SetProjection(bson.D{{"last_write_ts", 1}})
 	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, opts)
 	if err := cur.Err(); err != nil {
 		return nil, errors.WithMessage(err, "query")
 	}
 
-	var rv *pbm.BackupMeta
+	rv := &pbm.BackupMeta{}
 	err := cur.Decode(&rv)
 	return rv, errors.WithMessage(err, "decode")
 }
