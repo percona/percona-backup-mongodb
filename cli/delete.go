@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -398,8 +397,7 @@ func findBackupSince(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 	if fullOnly {
 		filter = append(filter, bson.E{"nss", nil})
 	}
-	opts := options.FindOne() //.SetProjection(bson.D{{"last_write_ts", 1}})
-	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, opts)
+	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter)
 	if err := cur.Err(); err != nil {
 		return nil, errors.WithMessage(err, "query")
 	}
