@@ -1154,7 +1154,9 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
 	r.syncPathPeers = make(map[string]struct{})
 	for _, m := range r.rsConf.Members {
-		r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+		if !m.ArbiterOnly {
+			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+		}
 	}
 
 	err = r.hb()

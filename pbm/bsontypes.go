@@ -310,4 +310,5 @@ type RSMember struct {
 	Tags               map[string]string `bson:"tags,omitempty" json:"tags"`
 	SecondaryDelayOld  int64             `bson:"slaveDelay,omitempty"`
 	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs,omitempty"`
+	Votes              int               `bson:"votes" json:"votes"`
 }
