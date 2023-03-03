@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -362,45 +363,45 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 }
 
 func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {
-	backup, err := findBackupSince(ctx, m, ts, false)
-	if err != nil {
-		if !errors.Is(err, mongo.ErrNoDocuments) {
+	if strict {
+		rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$gte": ts})
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				err = nil
+			}
 			return primitive.Timestamp{}, err
 		}
-
-		if strict {
-			ts = primitive.Timestamp{}
+		if rt.Equal(ts) {
+			return ts, nil
 		}
-		return ts, nil
 	}
 
-	if !strict || len(backup.Namespaces) == 0 {
-		return backup.LastWriteTS, nil
+	rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$lt": ts})
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return ts, nil
+		}
+		return primitive.Timestamp{}, err
 	}
 
-	// ensure there is a base snapshot for full PITR
-	_, err = findBackupSince(ctx, m, backup.LastWriteTS, true)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return primitive.Timestamp{}, nil
-	}
-
-	return backup.LastWriteTS, nil
+	return rt, nil
 }
 
-// findBackupSince returns a backup with restore time <= ts.
-// If fullOnly is true, only full backup (non-selective) will be returned.
-// Returned backup can be physical, logical.
-func findBackupSince(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, fullOnly bool) (*pbm.BackupMeta, error) {
-	filter := bson.D{{"last_write_ts", bson.M{"$gte": ts}}}
-	if fullOnly {
-		filter = append(filter, bson.E{"nss", nil})
+func findBaseSnapshotRestoreTS(ctx context.Context, m *mongo.Client, lastWrite any) (primitive.Timestamp, error) {
+	filter := bson.D{
+		{"nss", nil},
+		{"type", pbm.LogicalBackup},
+		{"last_write_ts", lastWrite},
 	}
-	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter)
+	options := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
+	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, options)
 	if err := cur.Err(); err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return primitive.Timestamp{}, errors.WithMessage(err, "query")
 	}
 
-	rv := &pbm.BackupMeta{}
-	err := cur.Decode(&rv)
-	return rv, errors.WithMessage(err, "decode")
+	var r struct {
+		RestoreTS primitive.Timestamp `bson:"last_write_ts"`
+	}
+	err := cur.Decode(&r)
+	return r.RestoreTS, errors.WithMessage(err, "decode")
 }
