@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -518,8 +519,48 @@ const (
 	restoreDone
 )
 
-func (n nodeStatus) is(s nodeStatus) bool {
-	return n&s != 0
+func (n nodeStatus) is(s nodeStatus) bool { return n&s != 0 }
+
+// log buffer that will dump content to the storage on restore
+// finish (whether it's successful or not). It also dumps when
+// logs size hist limit.
+type logBuff struct {
+	buf   *bytes.Buffer
+	path  string
+	cnt   int
+	write func(name string, data io.Reader) error
+	limit int64
+	mx    sync.Mutex
+}
+
+func (l *logBuff) Write(p []byte) (n int, err error) {
+	l.mx.Lock()
+	defer l.mx.Unlock()
+	if l.buf.Len()+len(p) > int(l.limit) {
+		err := l.flush()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return l.buf.Write(p)
+}
+
+func (l *logBuff) flush() error {
+	fname := fmt.Sprintf("%s.%d.log", l.path, l.cnt)
+	err := l.write(fname, l.buf)
+	if err != nil {
+		return errors.Wrapf(err, "write logs buffer to %s", fname)
+	}
+	l.buf.Reset()
+	l.cnt++
+
+	return nil
+}
+func (l *logBuff) Flush() error {
+	l.mx.Lock()
+	defer l.mx.Unlock()
+	return l.flush()
 }
 
 // Snapshot restores data from the physical snapshot.
@@ -598,6 +639,13 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	l.Debug("%s", pbm.StatusStarting)
 
 	// don't write logs to the mongo anymore
+	// but dump it on storage
+	r.cn.Logger().SefBuffer(&logBuff{
+		buf:   new(bytes.Buffer),
+		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+		limit: 1 << 20, // 1Mb
+		write: func(name string, data io.Reader) error { return r.stg.Save(name, data, -1) },
+	})
 	r.cn.Logger().PauseMgo()
 
 	_, err = r.toState(pbm.StatusRunning)

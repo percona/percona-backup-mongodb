@@ -49,6 +49,12 @@ func (a *Agent) InitLogger(cn *pbm.PBM) {
 	a.log = a.pbm.Logger()
 }
 
+func (a *Agent) Close() {
+	if a.log != nil {
+		a.log.Close()
+	}
+}
+
 func (a *Agent) CanStart() error {
 	info, err := a.node.GetInfo()
 	if err != nil {
