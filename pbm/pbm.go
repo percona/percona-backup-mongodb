@@ -76,7 +76,7 @@ const (
 	CmdPITRestore   Command = "pitrestore"
 	CmdDeleteBackup Command = "delete"
 	CmdDeletePITR   Command = "deletePitr"
-	CmdDeleteAll    Command = "deleteAll"
+	CmdCleanup      Command = "cleanup"
 )
 
 func (c Command) String() string {
@@ -99,8 +99,8 @@ func (c Command) String() string {
 		return "Delete"
 	case CmdDeletePITR:
 		return "Delete PITR chunks"
-	case CmdDeleteAll:
-		return "Delete backups and PITR chunks"
+	case CmdCleanup:
+		return "Cleanup backups and PITR chunks"
 	default:
 		return "Undefined"
 	}
@@ -116,7 +116,7 @@ type Cmd struct {
 	PITRestore *PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     *DeleteBackupCmd `bson:"delete,omitempty"`
 	DeletePITR *DeletePITRCmd   `bson:"deletePitr,omitempty"`
-	DeleteAll  *DeleteAllCmd    `bson:"deleteAll,omitempty"`
+	Cleanup    *CleanupCmd      `bson:"cleanup,omitempty"`
 	TS         int64            `bson:"ts"`
 	OPID       OPID             `bson:"-"`
 }
@@ -229,7 +229,7 @@ type DeletePITRCmd struct {
 	OlderThan int64 `bson:"olderthan"`
 }
 
-type DeleteAllCmd struct {
+type CleanupCmd struct {
 	OlderThan primitive.Timestamp `bson:"olderThan"`
 }
 

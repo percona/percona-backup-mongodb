@@ -138,12 +138,12 @@ func Main() {
 	deletePitrCmd.Flag("all", "Delete all chunks").Short('a').BoolVar(&deletePitr.all)
 	deletePitrCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deletePitr.force)
 
-	deleteAllCmd := pbmCmd.Command("delete-all", "Delete Backups and PITR chunks")
-	deleteAllOpts := deleteAllOptions{}
-	deleteAllCmd.Flag("older-than", fmt.Sprintf("Delete older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&deleteAllOpts.olderThan)
-	deleteAllCmd.Flag("yes", "Don't ask confirmation").Short('y').BoolVar(&deleteAllOpts.yes)
-	deleteAllCmd.Flag("wait", "Wait for deletion done").Short('w').BoolVar(&deleteAllOpts.wait)
-	deleteAllCmd.Flag("wtimeout", "Wait timeout in seconds").Default("60").Uint32Var(&deleteAllOpts.wtimeout)
+	cleanupCmd := pbmCmd.Command("cleanup", "Delete Backups and PITR chunks")
+	cleanupOpts := cleanupOptions{}
+	cleanupCmd.Flag("older-than", fmt.Sprintf("Delete older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&cleanupOpts.olderThan)
+	cleanupCmd.Flag("yes", "Don't ask confirmation").Short('y').BoolVar(&cleanupOpts.yes)
+	cleanupCmd.Flag("wait", "Wait for deletion done").Short('w').BoolVar(&cleanupOpts.wait)
+	cleanupCmd.Flag("wtimeout", "Wait timeout in seconds").Default("60").Uint32Var(&cleanupOpts.wtimeout)
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
@@ -228,8 +228,8 @@ func Main() {
 		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
 	case deletePitrCmd.FullCommand():
 		out, err = deletePITR(pbmClient, &deletePitr, pbmOutF)
-	case deleteAllCmd.FullCommand():
-		out, err = deleteAll(pbmClient, &deleteAllOpts, pbmOutF)
+	case cleanupCmd.FullCommand():
+		out, err = retentionCleanup(pbmClient, &cleanupOpts, pbmOutF)
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():

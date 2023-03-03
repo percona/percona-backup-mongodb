@@ -169,34 +169,32 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 	return runList(pbmClient, &listOpts{})
 }
 
-type deleteAllOptions struct {
+type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
 	wtimeout  uint32
 }
 
-func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.Stringer, error) {
-	ctx, m := pbmClient.Context(), pbmClient.Conn
-
+func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse `older than` value")
+		return nil, errors.Wrap(err, "parse --older-than")
 	}
 	cfg, err := pbmClient.GetConfig()
 	if err != nil {
 		return nil, errors.WithMessage(err, "get config")
 	}
-	ts, err = findAdjustedTS(ctx, m, ts, cfg.PITR.Enabled && !cfg.PITR.OplogOnly)
+	ts, err = findAdjustedTS(pbmClient.Context(), pbmClient.Conn, ts, cfg.PITR.Enabled && !cfg.PITR.OplogOnly)
 	if err != nil {
-		return nil, errors.WithMessage(err, "find proper timestamp")
+		return nil, errors.WithMessage(err, "find adjusted timestamp")
 	}
 	if ts.IsZero() {
 		return nil, errors.New("deletion not allowed")
 	}
 
 	if !d.yes {
-		err := askDeleteAllConfirmation(ctx, m, ts)
+		err := askCleanupConfirmation(pbmClient.Context(), pbmClient.Conn, ts)
 		if err != nil {
 			if errors.Is(err, ErrAborted) {
 				return outMsg{"aborted"}, nil
@@ -207,8 +205,8 @@ func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.String
 
 	tsop := time.Now().Unix()
 	err = pbmClient.SendCmd(pbm.Cmd{
-		Cmd:       pbm.CmdDeleteAll,
-		DeleteAll: &pbm.DeleteAllCmd{OlderThan: ts},
+		Cmd:     pbm.CmdCleanup,
+		Cleanup: &pbm.CleanupCmd{OlderThan: ts},
 	})
 	if err != nil {
 		return nil, errors.WithMessage(err, "send command")
@@ -222,7 +220,7 @@ func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.String
 	if wtimeout == 0 {
 		wtimeout = 60
 	}
-	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdDeleteAll}, wtimeout*time.Second)
+	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdCleanup}, wtimeout*time.Second)
 	fmt.Println()
 	if err != nil {
 		if errors.Is(err, errTout) {
@@ -231,7 +229,7 @@ func deleteAll(pbmClient *pbm.PBM, d *deleteAllOptions, _ outFormat) (fmt.String
 		return nil, err
 	}
 
-	errl, err := lastLogErr(pbmClient, pbm.CmdDeleteAll, tsop)
+	errl, err := lastLogErr(pbmClient, pbm.CmdCleanup, tsop)
 	if err != nil {
 		return nil, errors.WithMessage(err, "read agents log")
 	}
@@ -277,7 +275,7 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.Duration(d * 24 * int64(time.Hour)), nil
 }
 
-func printDeleteAllInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
+func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 	fmt.Println("Snapshots:")
 	if len(backups) == 0 {
 		fmt.Println("nothing to delete")
@@ -332,9 +330,10 @@ func printDeleteAllInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 	}
 }
 
+// ErrAborted returned when a user do not confirm
 var ErrAborted = errors.New("aborted")
 
-func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
+func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
 	if !isTTY() {
 		return errors.New("no tty")
 	}
@@ -348,7 +347,7 @@ func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive
 		return errors.WithMessage(err, "list oplog chunks")
 	}
 
-	printDeleteAllInfo(backups, chunks)
+	printCleanupInfo(backups, chunks)
 
 	fmt.Print("Are you sure you want delete? [y/N] ")
 
@@ -362,7 +361,6 @@ func askDeleteAllConfirmation(ctx context.Context, m *mongo.Client, ts primitive
 	return ErrAborted
 }
 
-// findAdjustedTS returns a timestamp of the restore time of any following backup.
 func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {
 	backup, err := findBackupSince(ctx, m, ts, false)
 	if err != nil {

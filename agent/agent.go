@@ -115,8 +115,8 @@ func (a *Agent) Start() error {
 				a.Delete(cmd.Delete, cmd.OPID, ep)
 			case pbm.CmdDeletePITR:
 				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
-			case pbm.CmdDeleteAll:
-				a.DeleteAll(cmd.DeleteAll, cmd.OPID, ep)
+			case pbm.CmdCleanup:
+				a.Cleanup(cmd.Cleanup, cmd.OPID, ep)
 			}
 		case err, ok := <-cerr:
 			if !ok {
@@ -274,15 +274,15 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	l.Info("done")
 }
 
-// DeleteAll deletes backups and PITR chunks from the store and cleans up its metadata
-func (a *Agent) DeleteAll(d *pbm.DeleteAllCmd, opid pbm.OPID, ep pbm.Epoch) {
+// Cleanup deletes backups and PITR chunks from the store and cleans up its metadata
+func (a *Agent) Cleanup(d *pbm.CleanupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if d == nil {
-		l := a.log.NewEvent(string(pbm.CmdDeleteAll), "", opid.String(), ep.TS())
+		l := a.log.NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
 		l.Error("missed command")
 		return
 	}
 
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdDeleteAll), "", opid.String(), ep.TS())
+	l := a.pbm.Logger().NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -298,7 +298,7 @@ func (a *Agent) DeleteAll(d *pbm.DeleteAllCmd, opid pbm.OPID, ep pbm.Epoch) {
 	lock := a.pbm.NewLockCol(pbm.LockHeader{
 		Replset: a.node.RS(),
 		Node:    a.node.Name(),
-		Type:    pbm.CmdDeleteAll,
+		Type:    pbm.CmdCleanup,
 		OPID:    opid.String(),
 		Epoch:   &epts,
 	}, pbm.LockOpCollection)
