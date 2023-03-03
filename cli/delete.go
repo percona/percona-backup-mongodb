@@ -339,7 +339,7 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 		return errors.New("no tty")
 	}
 
-	backups, err := backup.ListBackupsBefore(ctx, m, ts)
+	backups, err := backup.ListSafeToDeleteBackups(ctx, m, ts)
 	if err != nil {
 		return errors.WithMessage(err, "list backups")
 	}

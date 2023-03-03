@@ -323,7 +323,7 @@ func (a *Agent) Cleanup(d *pbm.CleanupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		l.Error("get storage: " + err.Error())
 	}
 
-	backups, err := backup.ListBackupsBefore(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
+	backups, err := backup.ListSafeToDeleteBackups(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
 	if err != nil {
 		l.Error("failed to list backups: ", err.Error())
 	}
