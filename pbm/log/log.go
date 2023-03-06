@@ -154,10 +154,6 @@ func (l *Logger) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
-func (l *Logger) SetOutput(w io.Writer) {
-	l.out = w
-}
-
 func (l *Logger) output(s Severity, event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
@@ -221,6 +217,8 @@ func (l *Logger) Output(e *Entry) error {
 		}
 	}
 
+	// once buffer is set, it's expected to remain the same
+	// until the agent is alive
 	if l.bufSet.Load() == 1 && l.buf != nil {
 		err := json.NewEncoder(l.buf).Encode(e)
 

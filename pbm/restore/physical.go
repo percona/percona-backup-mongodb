@@ -522,8 +522,8 @@ const (
 func (n nodeStatus) is(s nodeStatus) bool { return n&s != 0 }
 
 // log buffer that will dump content to the storage on restore
-// finish (whether it's successful or not). It also dumps when
-// logs size hist limit.
+// finish (whether it's successful or not). It also dumps content
+// and reset buffer when logs size hist the limit.
 type logBuff struct {
 	buf   *bytes.Buffer
 	path  string
