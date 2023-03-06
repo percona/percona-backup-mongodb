@@ -581,6 +581,9 @@ const (
 	StatusInit  Status = "init"
 	StatusReady Status = "ready"
 
+	// for phys restore, to indicate shards have been stopped
+	StatusDown Status = "down"
+
 	StatusStarting   Status = "starting"
 	StatusRunning    Status = "running"
 	StatusDumpDone   Status = "dumpDone"

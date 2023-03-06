@@ -78,11 +78,11 @@ type PhysRestore struct {
 	syncPathRS       string
 	syncPathCluster  string
 	syncPathPeers    map[string]struct{}
-	// Shards to participate in restore. Num of shards in bcp could
-	// be less than in the cluster and this is ok.
-	//
+	// Shards to participate in restore.
 	// Only the restore leader would have this info.
 	syncPathShards map[string]struct{}
+	// Non-ConfigServer shards
+	syncPathDataShards map[string]struct{}
 
 	stopHB chan struct{}
 
@@ -205,6 +205,15 @@ func (r *PhysRestore) flush() error {
 	if err != nil {
 		return errors.Wrap(err, "get replset status")
 	}
+
+	if r.nodeInfo.IsConfigSrv() {
+		r.log.Debug("waiting for shards to shutdown")
+		_, err := r.waitFiles(pbm.StatusDown, r.syncPathDataShards, false)
+		if err != nil {
+			return errors.Wrap(err, "wait for datashards to shutdown")
+		}
+	}
+
 	for {
 		inf, err := r.node.GetInfo()
 		if err != nil {
@@ -229,6 +238,14 @@ func (r *PhysRestore) flush() error {
 	err = waitMgoShutdown(r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown")
+	}
+
+	if r.nodeInfo.IsPrimary {
+		err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusDown),
+			okStatus(), -1)
+		if err != nil {
+			return errors.Wrap(err, "write replset StatusDown")
+		}
 	}
 
 	r.log.Debug("revome old data")
@@ -1156,6 +1173,16 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	for _, m := range r.rsConf.Members {
 		if !m.ArbiterOnly {
 			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+		}
+	}
+	if r.nodeInfo.IsConfigSrv() {
+		sh, err := r.cn.GetShards()
+		if err != nil {
+			return errors.Wrap(err, "get data shards")
+		}
+		r.syncPathDataShards = make(map[string]struct{})
+		for _, s := range sh {
+			r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
 		}
 	}
 
