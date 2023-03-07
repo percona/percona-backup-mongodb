@@ -139,6 +139,10 @@ func (l *Logger) SefBuffer(b Buffer) {
 
 func (l *Logger) Close() {
 	if l.bufSet.Load() == 1 && l.buf != nil {
+		// don't write buffer anymore. Flush() uses storage.Save() wich may
+		// have logging. And writing to the buffer during Flush() will cause
+		// deadlock.
+		l.bufSet.Store(0)
 		err := l.buf.Flush()
 		if err != nil {
 			log.Printf("flush log buffer on Close: %v", err)
