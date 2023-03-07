@@ -364,7 +364,7 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 
 func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {
 	if strict {
-		rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$gte": ts})
+		rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$gte": ts}, bson.D{{"last_write_ts", 1}})
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				err = nil
@@ -376,7 +376,7 @@ func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp
 		}
 	}
 
-	rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$lt": ts})
+	rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$lt": ts}, bson.D{{"last_write_ts", -1}})
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return ts, nil
@@ -387,13 +387,16 @@ func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp
 	return rt, nil
 }
 
-func findBaseSnapshotRestoreTS(ctx context.Context, m *mongo.Client, lastWrite any) (primitive.Timestamp, error) {
+func findBaseSnapshotRestoreTS(ctx context.Context, m *mongo.Client, lastWrite any, sort bson.D) (primitive.Timestamp, error) {
 	filter := bson.D{
 		{"nss", nil},
+		{"status", pbm.StatusDone},
 		{"type", pbm.LogicalBackup},
 		{"last_write_ts", lastWrite},
 	}
-	options := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
+	options := options.FindOne().
+		SetProjection(bson.D{{"last_write_ts", 1}}).
+		SetSort(sort)
 	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, options)
 	if err := cur.Err(); err != nil {
 		return primitive.Timestamp{}, errors.WithMessage(err, "query")
