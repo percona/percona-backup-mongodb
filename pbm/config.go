@@ -40,6 +40,9 @@ func (c Config) String() string {
 	if c.Storage.S3.Credentials.SecretAccessKey != "" {
 		c.Storage.S3.Credentials.SecretAccessKey = "***"
 	}
+	if c.Storage.S3.Credentials.SessionToken != "" {
+		c.Storage.S3.Credentials.SessionToken = "***"
+	}
 	if c.Storage.S3.Credentials.Vault.Secret != "" {
 		c.Storage.S3.Credentials.Vault.Secret = "***"
 	}
@@ -367,6 +370,9 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 		}
 		if c.Storage.S3.Credentials.SecretAccessKey != "" {
 			c.Storage.S3.Credentials.SecretAccessKey = "***"
+		}
+		if c.Storage.S3.Credentials.SessionToken != "" {
+			c.Storage.S3.Credentials.SessionToken = "***"
 		}
 		if c.Storage.S3.Credentials.Vault.Secret != "" {
 			c.Storage.S3.Credentials.Vault.Secret = "***"
