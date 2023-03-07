@@ -197,8 +197,8 @@ func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.S
 	if !d.yes {
 		err := askCleanupConfirmation(pbmClient.Context(), pbmClient.Conn, ts)
 		if err != nil {
-			if errors.Is(err, ErrAborted) {
-				return outMsg{"aborted"}, nil
+			if errors.Is(err, ErrAborted) || errors.Is(err, ErrNothing) {
+				return outMsg{err.Error()}, nil
 			}
 			return nil, err
 		}
@@ -244,16 +244,19 @@ func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.S
 func parseOlderThan(s string) (primitive.Timestamp, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return primitive.Timestamp{}, errInvalidDateTimeFormat
+		return primitive.Timestamp{}, errInvalidFormat
 	}
 
 	ts, err := parseTS(s)
-	if !errors.Is(err, errInvalidDateTimeFormat) {
+	if !errors.Is(err, errInvalidFormat) {
 		return ts, err
 	}
 
 	dur, err := parseDuration(s)
 	if err != nil {
+		if errors.Is(err, errInvalidDuration) {
+			err = errInvalidFormat
+		}
 		return primitive.Timestamp{}, err
 	}
 
@@ -277,10 +280,8 @@ func parseDuration(s string) (time.Duration, error) {
 }
 
 func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
-	fmt.Println("Snapshots:")
-	if len(backups) == 0 {
-		fmt.Println("nothing to delete")
-	} else {
+	if len(backups) != 0 {
+		fmt.Println("Snapshots:")
 		for i := range backups {
 			bcp := &backups[i]
 			t := bcp.Type
@@ -293,9 +294,7 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 		}
 	}
 
-	fmt.Println("PITR chunks (by replset name):")
 	if len(chunks) == 0 {
-		fmt.Println("nothing to delete")
 		return
 	}
 
@@ -321,6 +320,7 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 		}
 	}
 
+	fmt.Println("PITR chunks (by replset name):")
 	for rs, ops := range oplogRanges {
 		fmt.Printf(" %s:\n", rs)
 
@@ -331,8 +331,12 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 	}
 }
 
-// ErrAborted returned when a user do not confirm
-var ErrAborted = errors.New("aborted")
+var (
+	// ErrAborted returned when a user do not confirm
+	ErrAborted = errors.New("aborted")
+	// ErrNothing returned when no backups and oplog found
+	ErrNothing = errors.New("nothing to delete")
+)
 
 func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
 	if !isTTY() {
@@ -346,6 +350,10 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 	chunks, err := oplog.ListChunksBefore(ctx, m, ts)
 	if err != nil {
 		return errors.WithMessage(err, "list oplog chunks")
+	}
+
+	if len(backups) == 0 && len(chunks) == 0 {
+		return ErrNothing
 	}
 
 	printCleanupInfo(backups, chunks)

@@ -453,7 +453,7 @@ func cancelBcp(cn *pbm.PBM) (fmt.Stringer, error) {
 	return outMsg{"Backup cancellation has started"}, nil
 }
 
-var errInvalidDateTimeFormat = errors.New("invalid format")
+var errInvalidFormat = errors.New("invalid format")
 
 func parseDateT(v string) (time.Time, error) {
 	switch len(v) {
@@ -463,7 +463,7 @@ func parseDateT(v string) (time.Time, error) {
 		return time.Parse(dateFormat, v)
 	}
 
-	return time.Time{}, errInvalidDateTimeFormat
+	return time.Time{}, errInvalidFormat
 }
 
 func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*pbm.LockData, error) {
