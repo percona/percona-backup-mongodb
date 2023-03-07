@@ -18,14 +18,9 @@ services:
   agent-cli:
     container_name: "pbmagent_cli"
     user: "1001"
-    labels:
-      - "com.percona.pbm.app=agent"
-      - "com.percona.pbm.agent.rs=cli"
     environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
     build:
-      labels:
-        - "com.percona.pbm.app=agent"
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
       args:
