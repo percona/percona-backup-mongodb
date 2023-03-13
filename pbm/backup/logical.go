@@ -24,7 +24,7 @@ import (
 
 func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
 	var db, coll string
-	if len(bcp.Namespaces) != 0 {
+	if sel.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.
 		// only some collections from config db is required to restore cluster state
 		if inf.IsConfigSrv() {
@@ -80,7 +80,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	if sel.IsSelective(bcp.Namespaces) {
+	if !sel.IsSelective(bcp.Namespaces) {
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
