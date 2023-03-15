@@ -12,9 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/version"
 )
 
 type backupOpts struct {

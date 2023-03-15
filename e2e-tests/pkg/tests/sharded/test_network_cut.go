@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
 )
 
 func (c *Cluster) NetworkCut() {

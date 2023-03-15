@@ -26,8 +26,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/snapshot"
 )
 
 type Record = db.Oplog

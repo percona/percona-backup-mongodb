@@ -4,8 +4,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/e2e-tests/pkg/tests"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
 )
 
 var clusterSpec = []tests.GenDBSpec{

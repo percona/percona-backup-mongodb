@@ -10,11 +10,11 @@ import (
 	"github.com/alecthomas/kingpin"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
-	"github.com/percona/percona-backup-mongodb/speedt"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage/blackhole"
+	"github.com/percona/percona-backup-mongodb/v2/speedt"
+	"github.com/percona/percona-backup-mongodb/v2/version"
 )
 
 func main() {

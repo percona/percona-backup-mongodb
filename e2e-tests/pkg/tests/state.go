@@ -18,8 +18,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/sel"
 )
 
 type (

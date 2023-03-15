@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/version"
 )
 
 func TestBcpMatchCluster(t *testing.T) {

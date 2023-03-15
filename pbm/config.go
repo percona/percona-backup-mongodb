@@ -15,13 +15,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/log"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage/azure"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage/blackhole"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage/s3"
 )
 
 // Config is a pbm config

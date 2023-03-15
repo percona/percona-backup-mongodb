@@ -7,8 +7,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
 )
 
 type UploadDumpOptions struct {

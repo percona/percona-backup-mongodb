@@ -17,11 +17,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/pitr"
 )
 
 var logger = log.New(os.Stdout, "", log.Ltime)

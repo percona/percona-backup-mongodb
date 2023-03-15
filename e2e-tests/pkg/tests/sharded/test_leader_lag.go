@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
 )
 
 // LeaderLag checks if cluster deals with leader lag during backup start

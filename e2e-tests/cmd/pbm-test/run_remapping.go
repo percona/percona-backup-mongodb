@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/e2e-tests/pkg/tests/sharded"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
 )
 
 func runRemappingTests(t *sharded.RemappingEnvironment) {

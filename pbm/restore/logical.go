@@ -14,14 +14,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
-	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/log"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/v2/version"
 )
 
 type Restore struct {

@@ -17,10 +17,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/pitr"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	plog "github.com/percona/percona-backup-mongodb/v2/pbm/log"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage"
 )
 
 type statusOptions struct {

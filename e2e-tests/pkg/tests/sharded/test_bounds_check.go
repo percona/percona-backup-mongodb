@@ -6,11 +6,11 @@ import (
 	"math/rand"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/v2/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/e2e-tests/pkg/pbm"
 )
 
 type scounter struct {

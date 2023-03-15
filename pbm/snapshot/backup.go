@@ -13,7 +13,7 @@ import (
 	"github.com/mongodb/mongo-tools/mongodump"
 	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/v2/version"
 )
 
 type backuper struct {

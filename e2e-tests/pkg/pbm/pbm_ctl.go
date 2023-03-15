@@ -14,7 +14,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
 )
 
 type Ctl struct {

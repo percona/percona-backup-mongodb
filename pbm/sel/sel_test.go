@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/sel"
 )
 
 func TestSelectedPred(t *testing.T) {

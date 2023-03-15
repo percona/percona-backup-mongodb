@@ -12,8 +12,8 @@ import (
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/log"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage"
 )
 
 const (

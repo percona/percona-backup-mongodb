@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/v2/pbm"
 	"golang.org/x/mod/semver"
 )
 

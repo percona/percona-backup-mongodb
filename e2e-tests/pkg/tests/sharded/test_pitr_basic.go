@@ -9,9 +9,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/v2/pbm"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/e2e-tests/pkg/pbm"
 )
 
 func (c *Cluster) PITRbasic() {

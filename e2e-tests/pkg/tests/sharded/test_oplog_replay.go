@@ -8,7 +8,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	tpbm "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	tpbm "github.com/percona/percona-backup-mongodb/v2/e2e-tests/pkg/pbm"
 )
 
 func (c *Cluster) OplogReplay() {

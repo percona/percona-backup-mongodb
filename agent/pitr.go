@@ -7,10 +7,10 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
-	"github.com/percona/percona-backup-mongodb/pbm/pitr"
-	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/v2/pbm"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/restore"
 )
 
 type currentPitr struct {

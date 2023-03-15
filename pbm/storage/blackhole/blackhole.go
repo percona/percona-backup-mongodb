@@ -3,7 +3,7 @@ package blackhole
 import (
 	"io"
 
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/v2/pbm/storage"
 )
 
 type Blackhole struct{}
