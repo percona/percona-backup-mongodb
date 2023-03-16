@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -261,7 +262,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	}
 
 	l.Info("uploading data")
-	rsMeta.Journal, rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	rsMeta.Journal, rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
 		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -269,7 +270,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, _, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath+"/",
+	ju, _, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
 		false, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -340,6 +341,12 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		return journal, data, err
 	}
 
+	trim := func(fname string) string {
+		// path.Clean to get rid of the lading `/` in  case it's
+		// left after TrimPrefix. Just for consistent file names in metadata
+		return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
+	}
+
 	wfile := files[0]
 	for _, file := range files[1:] {
 		select {
@@ -360,11 +367,11 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
+		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
 		if err != nil {
 			return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
-		fw.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
+		fw.Name = trim(wfile.Name)
 
 		if strings.HasPrefix(fw.Name, journalPrefix) {
 			journal = append(journal, *fw)
@@ -379,16 +386,11 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		return journal, data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, subdir+"/"+strings.TrimPrefix(wfile.Name, trimPrefix), stg, comprT, comprL, l)
+	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
 	if err != nil {
 		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
-	f.Name = strings.TrimPrefix(wfile.Name, trimPrefix)
-	if strings.HasPrefix(f.Name, journalPrefix) {
-		journal = append(journal, *f)
-	} else {
-		data = append(data, *f)
-	}
+	f.Name = trim(wfile.Name)
 
 	return journal, data, nil
 }
