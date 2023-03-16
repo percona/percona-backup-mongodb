@@ -200,6 +200,7 @@ func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
 type Credentials struct {
 	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
 	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    string `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 	Vault           struct {
 		Server string `bson:"server" json:"server,omitempty" yaml:"server"`
 		Secret string `bson:"secret" json:"secret,omitempty" yaml:"secret"`
@@ -521,7 +522,7 @@ func (s *S3) session() (*session.Session, error) {
 		providers = append(providers, &credentials.StaticProvider{Value: credentials.Value{
 			AccessKeyID:     s.opts.Credentials.AccessKeyID,
 			SecretAccessKey: s.opts.Credentials.SecretAccessKey,
-			SessionToken:    "",
+			SessionToken:    s.opts.Credentials.SessionToken,
 		}})
 	}
 
