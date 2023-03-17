@@ -45,6 +45,7 @@ type files struct {
 	BcpName string
 	Cmpr    compress.CompressionType
 	Data    []pbm.File
+	dbpath  string
 }
 type PhysRestore struct {
 	cn     *pbm.PBM
@@ -732,7 +733,12 @@ func (r *PhysRestore) copyFiles() error {
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
-			dst := filepath.Join(r.dbpath, f.Name)
+			// cat dbpath from destination is there is any (see PBM-1058)
+			fname := f.Name
+			if set.dbpath != "" {
+				fname = strings.TrimPrefix(fname, set.dbpath)
+			}
+			dst := filepath.Join(r.dbpath, fname)
 
 			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
 			if err != nil {
@@ -1266,10 +1272,22 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 	partj := ""
 
 	rs := getRS(bcp, r.nodeInfo.SetName)
+	var prefix string
+	if is, prx := checkDBpath(rs.Files); is {
+		r.log.Debug("detected PBM-1058 issue in backup %s, dbpath is %s", bcp.Name, prx)
+		prefix = prx
+	}
+	if is, prx := checkDBpath(rs.Journal); is {
+		r.log.Debug("detected PBM-1058 issue in backup %s, dbpath is %s", bcp.Name, prx)
+		if prefix == "" {
+			prefix = prx
+		}
+	}
 	data := files{
 		BcpName: bcp.Name,
 		Cmpr:    bcp.Compression,
 		Data:    append([]pbm.File{}, rs.Files...),
+		dbpath:  prefix,
 	}
 	for _, j := range rs.Journal {
 		data.Data = append(data.Data, j)
@@ -1299,13 +1317,50 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 				}
 			}
 		}
+		var prefix string
+		if is, prx := checkDBpath(rs.Files); is {
+			r.log.Debug("detected PBM-1058 issue in backup %s, dbpath is %s", bcp.Name, prx)
+			prefix = prx
+		}
 		r.files = append(r.files, files{
 			BcpName: bcp.Name,
 			Cmpr:    bcp.Compression,
 			Data:    data,
+			dbpath:  prefix,
 		})
 	}
 	return nil
+}
+
+// Checks if dbpath exists in the file name (affected by PBM-1058) and
+// returns it.
+// We suppose that "journal" will always be present in the backup and it is
+// always in the dbpath root and doesn't contain subdirs, only files.
+func checkDBpath(files []pbm.File) (exists bool, prefix string) {
+	for _, f := range files {
+		exists, prefix = findDBpath(f.Name)
+		if exists && prefix != "" {
+			return exists, prefix
+		}
+	}
+
+	return exists, prefix
+}
+func findDBpath(fname string) (is bool, prefix string) {
+	if !strings.HasPrefix(fname, "/") {
+		return false, ""
+	}
+
+	is = true
+	d, _ := path.Split(fname)
+	if strings.HasSuffix(d, "/journal/") {
+		prefix = path.Dir(d[0 : len(d)-1])
+	}
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	return is, prefix
 }
 
 func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
