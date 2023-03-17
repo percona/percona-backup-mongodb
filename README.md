@@ -44,7 +44,7 @@ Find the installation instructions in the [official documentation](https://www.p
 
 Alternatively, you can [run Percona Backup for MongoDB as a Docker container](https://hub.docker.com/r/percona/percona-backup-mongodb).
 
-NOTE: The repo contains source code to build binaries. It is not a library and it is not intended to be used directly by calling exposed functions, types, etc.
+NOTE: This repository contains source code to build binaries. It is not a library and it is not intended to be used directly by calling exposed functions, types, etc.
 Please, use `pbm` CLI as it is the only public API.
 
 ## Submit Bug Report / Feature Request
