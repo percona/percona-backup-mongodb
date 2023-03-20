@@ -391,6 +391,11 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 		return journal, data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
 	f.Name = trim(wfile.Name)
+	if strings.HasPrefix(f.Name, journalPrefix) {
+		journal = append(journal, *f)
+	} else {
+		data = append(data, *f)
+	}
 
 	return journal, data, nil
 }
