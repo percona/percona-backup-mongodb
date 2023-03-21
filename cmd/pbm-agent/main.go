@@ -73,6 +73,7 @@ func runAgent(mongoURI string, dumpConns int) error {
 	}
 
 	agnt := agent.New(pbmClient)
+	defer agnt.Close()
 	err = agnt.AddNode(ctx, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")

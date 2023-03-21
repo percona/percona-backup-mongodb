@@ -24,7 +24,15 @@ type Logger struct {
 	rs   string
 	node string
 
+	buf    Buffer
+	bufSet atomic.Uint32
+
 	pauseMgo int32
+}
+
+type Buffer interface {
+	io.Writer
+	Flush() error
 }
 
 type Entry struct {
@@ -124,6 +132,24 @@ func New(cn *mongo.Collection, rs, node string) *Logger {
 	}
 }
 
+func (l *Logger) SefBuffer(b Buffer) {
+	l.buf = b
+	l.bufSet.Store(1)
+}
+
+func (l *Logger) Close() {
+	if l.bufSet.Load() == 1 && l.buf != nil {
+		// don't write buffer anymore. Flush() uses storage.Save() wich may
+		// have logging. And writing to the buffer during Flush() will cause
+		// deadlock.
+		l.bufSet.Store(0)
+		err := l.buf.Flush()
+		if err != nil {
+			log.Printf("flush log buffer on Close: %v", err)
+		}
+	}
+}
+
 func (l *Logger) PauseMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 1)
 }
@@ -192,6 +218,19 @@ func (l *Logger) Output(e *Entry) error {
 		_, err := l.cn.InsertOne(context.TODO(), e)
 		if err != nil {
 			rerr = errors.Wrap(err, "db")
+		}
+	}
+
+	// once buffer is set, it's expected to remain the same
+	// until the agent is alive
+	if l.bufSet.Load() == 1 && l.buf != nil {
+		err := json.NewEncoder(l.buf).Encode(e)
+
+		err = errors.Wrap(err, "buf")
+		if rerr != nil {
+			rerr = errors.Errorf("%v, %v", rerr, err)
+		} else {
+			rerr = err
 		}
 	}
 
