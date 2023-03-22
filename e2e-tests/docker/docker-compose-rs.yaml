@@ -48,7 +48,7 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --directoryperdb --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
@@ -62,7 +62,7 @@ services:
     hostname: rs102
     labels:
       - "com.percona.pbm.app=mongod"
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --directoryperdb --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs102:/data/db
   rs103:
@@ -75,7 +75,7 @@ services:
     hostname: rs103
     labels:
       - "com.percona.pbm.app=mongod"
-    command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
+    command: mongod --replSet rs1 --directoryperdb --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs103:/data/db
   agent-rs101:

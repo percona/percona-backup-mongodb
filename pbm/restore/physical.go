@@ -829,15 +829,19 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
-			if f.Len != 0 {
-				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
 			dst := filepath.Join(r.dbpath, f.Name)
-
 			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
 			if err != nil {
 				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
+			}
+			if f.Size == -1 {
+				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
+				continue
+			}
+
+			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
+			if f.Len != 0 {
+				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
 
 			r.log.Info("copy <%s> to <%s>", src, dst)
@@ -1386,9 +1390,9 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		return errors.Errorf("no data in the backup for the replica set %s", r.nodeInfo.SetName)
 	}
 
-	targetFiles := make(map[string]struct{})
+	targetFiles := make(map[string]bool)
 	for _, f := range append(rs.Files, rs.Journal...) {
-		targetFiles[f.Name] = struct{}{}
+		targetFiles[f.Name] = false
 	}
 
 	for {
@@ -1400,13 +1404,14 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		for _, f := range append(rs.Files, rs.Journal...) {
 			if _, ok := targetFiles[f.Name]; ok && f.Off >= 0 && f.Len >= 0 {
 				data.Data = append(data.Data, f)
+				targetFiles[f.Name] = true
 			}
 		}
 
 		r.files = append(r.files, data)
 
 		if bcp.SrcBackup == "" {
-			return nil
+			break
 		}
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
@@ -1416,6 +1421,32 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		}
 		rs = getRS(bcp, r.nodeInfo.SetName)
 	}
+
+	var dirs []pbm.File
+	dirsm := make(map[string]struct{})
+	for f, was := range targetFiles {
+		if !was {
+			dir := path.Dir(f)
+			if _, ok := dirsm[dir]; dir != "." && !ok {
+				dirs = append(dirs, pbm.File{
+					Name: f,
+					Off:  -1,
+					Len:  -1,
+					Size: -1,
+				})
+				dirsm[dir] = struct{}{}
+			}
+		}
+	}
+
+	if len(dirs) > 0 {
+		r.files = append(r.files, files{
+			BcpName: "__dir__",
+			Data:    dirs,
+		})
+	}
+
+	return nil
 }
 
 func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
