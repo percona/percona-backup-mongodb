@@ -225,7 +225,7 @@ func (t Timeline) String() string {
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise.
 // `flist` is a cache of chunk sizes.
-func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist map[string]int64) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -237,12 +237,6 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist 
 	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
-	}
-
-	if flist != nil {
-		for i, s := range slices {
-			slices[i].size = flist[s.FName]
-		}
 	}
 
 	return gettimelines(slices), nil
@@ -262,7 +256,7 @@ func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
 
 	var tlns [][]Timeline
 	for _, s := range shards {
-		t, err := p.PITRGetValidTimelines(s.RS, now, nil)
+		t, err := p.PITRGetValidTimelines(s.RS, now)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}

@@ -271,7 +271,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	rsRanges = make(map[string][]pitrRange)
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, nil)
+		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}

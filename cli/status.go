@@ -687,16 +687,6 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	fl, err := stg.List(pbm.PITRfsPrefix, "")
-	if err != nil {
-		return nil, errors.Wrap(err, "get chunks list")
-	}
-
-	flist := make(map[string]int64)
-	for _, f := range fl {
-		flist[pbm.PITRfsPrefix+"/"+f.Name] = f.Size
-	}
-
 	now, err := cn.ClusterTime()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
@@ -706,7 +696,7 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 	var size int64
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
-		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now, flist)
+		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS, err)
 		}
