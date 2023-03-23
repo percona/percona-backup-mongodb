@@ -130,8 +130,8 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 			continue
 		}
 		chnk := PITRmetaFromFName(f.Name)
-		chnk.Size = stat.Size
 		if chnk != nil {
+			chnk.Size = stat.Size
 			pitr = append(pitr, chnk)
 		}
 	}
