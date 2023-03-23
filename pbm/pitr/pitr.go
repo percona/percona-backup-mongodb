@@ -212,6 +212,10 @@ func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 	if err != nil {
 		return errors.Wrap(err, "storage copy")
 	}
+	stat, err := s.storage.FileStat(n)
+	if err != nil {
+		return errors.Wrap(err, "file stat")
+	}
 
 	meta := pbm.OplogChunk{
 		RS:          s.rs,
@@ -219,6 +223,7 @@ func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
+		Size:        stat.Size,
 	}
 	err = s.pbm.PITRAddChunk(meta)
 	if err != nil {
@@ -402,7 +407,7 @@ func (s *Slicer) upload(from, to primitive.Timestamp, compression compress.Compr
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	_, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, level, fname, -1)
+	size, err := backup.Upload(context.Background(), s.oplog, s.storage, compression, level, fname, -1)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
@@ -422,6 +427,7 @@ func (s *Slicer) upload(from, to primitive.Timestamp, compression compress.Compr
 		Compression: compression,
 		StartTS:     from,
 		EndTS:       to,
+		Size:        size,
 	}
 	err = s.pbm.PITRAddChunk(meta)
 	if err != nil {
