@@ -47,7 +47,11 @@ type files struct {
 	BcpName string
 	Cmpr    compress.CompressionType
 	Data    []pbm.File
+
+	// dbpath to cut from destination if there is any (see PBM-1058)
+	dbpath string
 }
+
 type PhysRestore struct {
 	cn     *pbm.PBM
 	node   *pbm.Node
@@ -833,7 +837,12 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
-			dst := filepath.Join(r.dbpath, f.Name)
+			// cut dbpath from destination if there is any (see PBM-1058)
+			fname := f.Name
+			if set.dbpath != "" {
+				fname = strings.TrimPrefix(fname, set.dbpath)
+			}
+			dst := filepath.Join(r.dbpath, fname)
 
 			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
 			if err != nil {
@@ -1397,10 +1406,19 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 			Cmpr:    bcp.Compression,
 			Data:    []pbm.File{},
 		}
+		// PBM-1058
+		var is1058 bool
 		for _, f := range append(rs.Files, rs.Journal...) {
 			if _, ok := targetFiles[f.Name]; ok && f.Off >= 0 && f.Len >= 0 {
 				data.Data = append(data.Data, f)
+
+				if data.dbpath == "" {
+					is1058, data.dbpath = findDBpath(f.Name)
+				}
 			}
+		}
+		if is1058 {
+			r.log.Debug("issue PBM-1058 detected in backup %s, dbpath is %s", bcp.Name, data.dbpath)
 		}
 
 		r.files = append(r.files, data)
@@ -1416,6 +1434,29 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		}
 		rs = getRS(bcp, r.nodeInfo.SetName)
 	}
+}
+
+// Checks if dbpath exists in the file name (affected by PBM-1058) and
+// returns it.
+// We suppose that "journal" will always be present in the backup and it is
+// always in the dbpath root and doesn't contain subdirs, only files. Having
+// a leading `/` indicates that restore was affected by PBM-1058 but only
+// with journal files we may detect the exact prefix.
+func findDBpath(fname string) (is bool, prefix string) {
+	if !strings.HasPrefix(fname, "/") {
+		return false, ""
+	}
+
+	is = true
+	d, _ := path.Split(fname)
+	if strings.HasSuffix(d, "/journal/") {
+		prefix = path.Dir(d[0 : len(d)-1])
+	}
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	return is, prefix
 }
 
 func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
