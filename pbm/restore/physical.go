@@ -834,7 +834,8 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 			if err != nil {
 				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
 			}
-			if f.Size == -1 {
+			// if this is a directory, only ensure it is created.
+			if set.BcpName == bcpDir {
 				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
 				continue
 			}
@@ -1371,6 +1372,8 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	return nil
 }
 
+const bcpDir = "__dir__"
+
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
 // journals. For the incrementals, it will gather files from preceding backups
@@ -1422,6 +1425,14 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		rs = getRS(bcp, r.nodeInfo.SetName)
 	}
 
+	// Directories only. Incremental $backupCusor returns collections that
+	// were created but haven't ended up in the checkpoint yet in the format
+	// if they don't belong to this backup (see PBM-1063). PBM doesn't copy
+	// such files. But they are already in WT metadata. PSMDB (WT) handles
+	// this by creating such files during the start. But fails to do so if
+	// it runs with `directoryPerDB` option. Namely fails to create a directory
+	// for the collections. So we have to detect and create these directories
+	// during the restore.
 	var dirs []pbm.File
 	dirsm := make(map[string]struct{})
 	for f, was := range targetFiles {
@@ -1441,7 +1452,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 
 	if len(dirs) > 0 {
 		r.files = append(r.files, files{
-			BcpName: "__dir__",
+			BcpName: bcpDir,
 			Data:    dirs,
 		})
 	}
