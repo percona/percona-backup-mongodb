@@ -32,7 +32,7 @@ type OplogChunk struct {
 	Compression compress.CompressionType `bson:"compression"`
 	StartTS     primitive.Timestamp      `bson:"start_ts"`
 	EndTS       primitive.Timestamp      `bson:"end_ts"`
-	size        int64                    `bson:"-"`
+	Size        int64                    `bson:"size"`
 }
 
 // IsPITR checks if PITR is enabled
@@ -287,7 +287,7 @@ func gettimelines(slices []OplogChunk) (tlines []Timeline) {
 		}
 		prevEnd = s.EndTS
 		tl.End = s.EndTS.T
-		tl.Size += s.size
+		tl.Size += s.Size
 	}
 
 	tlines = append(tlines, tl)
