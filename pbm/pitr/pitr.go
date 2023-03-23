@@ -223,6 +223,7 @@ func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 		Compression: bcp.Compression,
 		StartTS:     bcp.FirstWriteTS,
 		EndTS:       bcp.LastWriteTS,
+		Size:        stat.Size,
 	}
 	err = s.pbm.PITRAddChunk(meta)
 	if err != nil {
