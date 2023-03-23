@@ -205,6 +205,7 @@ type bcpDesc struct {
 	LastTransitionTime string         `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string       `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	MongoVersion       string         `json:"mongodb_version" yaml:"mongodb_version"`
+	FCV                string         `json:"fcv" yaml:"fcv"`
 	PBMVersion         string         `json:"pbm_version" yaml:"pbm_version"`
 	Status             pbm.Status     `json:"status" yaml:"status"`
 	Size               int64          `json:"size" yaml:"-"`
@@ -262,6 +263,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
 		MongoVersion:       bcp.MongoVersion,
+		FCV:                bcp.FCV,
 		PBMVersion:         bcp.PBMVersion,
 		LastWriteTS:        int64(bcp.LastWriteTS.T),
 		LastTransitionTS:   bcp.LastTransitionTS,
