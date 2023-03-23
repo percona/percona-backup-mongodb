@@ -482,6 +482,7 @@ type BackupMeta struct {
 	Store            StorageConf              `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
 	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp      `bson:"first_write_ts" json:"first_write_ts"`

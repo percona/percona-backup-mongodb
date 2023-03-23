@@ -181,6 +181,23 @@ func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error)
 	return ver, nil
 }
 
+func (n *Node) GetFeatureCompatibilityVersion() (string, error) {
+	res := n.cn.Database("admin").RunCommand(n.ctx, bson.D{
+		{"getParameter", 1},
+		{"featureCompatibilityVersion", 1},
+	})
+	if err := res.Err(); err != nil {
+		return "", errors.WithMessage(err, "query")
+	}
+
+	var ver struct{ FeatureCompatibilityVersion struct{ Version string } }
+	if err := res.Decode(&ver); err != nil {
+		return "", errors.WithMessage(err, "decode")
+	}
+
+	return ver.FeatureCompatibilityVersion.Version, nil
+}
+
 func (n *Node) GetReplsetStatus() (*ReplsetStatus, error) {
 	return GetReplsetStatus(n.ctx, n.cn)
 }
