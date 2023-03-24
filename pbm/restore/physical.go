@@ -32,6 +32,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/version"
 )
 
 const (
@@ -1447,6 +1448,10 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 	if r.bcp.Status != pbm.StatusDone {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error())
+	}
+
+	if !version.CompatibleWith(r.bcp.PBMVersion, pbm.BreakingChangesMap[r.bcp.Type]) {
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
 	mgoV, err := r.node.GetMongoVersion()
