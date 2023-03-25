@@ -278,13 +278,12 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 // Cleanup deletes backups and PITR chunks from the store and cleans up its metadata
 func (a *Agent) Cleanup(d *pbm.CleanupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
+
 	if d == nil {
-		l := a.log.NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
 		l.Error("missed command")
 		return
 	}
-
-	l := a.pbm.Logger().NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
