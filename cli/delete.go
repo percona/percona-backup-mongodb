@@ -287,6 +287,8 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 			t := bcp.Type
 			if len(bcp.Namespaces) != 0 {
 				t += ", selective"
+			} else if bcp.Type == pbm.IncrementalBackup && bcp.SrcBackup == "" {
+				t += ", base"
 			}
 
 			fmt.Printf(" - %s <%s> [restore_time: %s]\n",
@@ -325,8 +327,7 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 		fmt.Printf(" %s:\n", rs)
 
 		for _, r := range ops {
-			fmt.Printf(" - %d,%d - %d,%d\n",
-				r.Start.T, r.Start.I, r.End.T, r.End.I)
+			fmt.Printf(" - %s - %s\n", fmtTS(int64(r.Start.T)), fmtTS(int64(r.End.T)))
 		}
 	}
 }
