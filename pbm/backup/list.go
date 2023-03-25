@@ -33,11 +33,10 @@ func ListSafeToDeleteBackups(ctx context.Context, m *mongo.Client, ts primitive.
 		return nil, err
 	}
 
-	err = excludeLastIncrementalBase(ctx, m, backups) // exclude in-place
-	return backups, err
+	return excludeLastIncrementalChain(ctx, m, backups)
 }
 
-func excludeLastIncrementalBase(ctx context.Context, m *mongo.Client, bcps []pbm.BackupMeta) error {
+func excludeLastIncrementalChain(ctx context.Context, m *mongo.Client, bcps []pbm.BackupMeta) ([]pbm.BackupMeta, error) {
 	// lookup for the last incremental
 	i := len(bcps) - 1
 	for ; i >= 0; i-- {
@@ -47,7 +46,7 @@ func excludeLastIncrementalBase(ctx context.Context, m *mongo.Client, bcps []pbm
 	}
 	if i < 0 {
 		// not found
-		return nil
+		return bcps, nil
 	}
 
 	// check if there is an increment based on the backup
@@ -56,9 +55,9 @@ func excludeLastIncrementalBase(ctx context.Context, m *mongo.Client, bcps []pbm
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// the backup is the last increment in the chain. safe to delete
-			return nil
+			return bcps, nil
 		}
-		return errors.WithMessage(err, "query")
+		return nil, errors.WithMessage(err, "query")
 	}
 
 	// exclude only the last incremental chain
@@ -78,5 +77,5 @@ func excludeLastIncrementalBase(ctx context.Context, m *mongo.Client, bcps []pbm
 		}
 	}
 
-	return nil
+	return bcps, nil
 }
