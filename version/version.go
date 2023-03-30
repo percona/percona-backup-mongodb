@@ -9,12 +9,7 @@ import (
 )
 
 // current PBM version
-const version = "2.0.4"
-
-// !!! should be sorted in the ascending order
-var breakingChangesV = []string{
-	"1.5.0",
-}
+const version = "2.1.0-dev"
 
 var (
 	platform  string
@@ -96,10 +91,11 @@ func (i Info) All(format string) string {
 	}
 }
 
-// CompatibleWith tells if a given versions are compatible. Versions are not compatible
-// if one is crossed the breaking ponit (v1 >= breakingVersion) and the other isn't (v2 < breakingVersion)
-func Compatible(v1, v2 string) bool {
-	return compatible(v1, v2, breakingChangesV)
+// CompatibleWith checks if a given version is compatible the current one. It
+// is not compatible if the current is crossed the breaking ponit
+// (version >= breakingVersion) and the given isn't (v < breakingVersion)
+func CompatibleWith(v string, breakingv []string) bool {
+	return compatible(version, v, breakingv)
 }
 
 func compatible(v1, v2 string, breakingv []string) bool {

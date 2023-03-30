@@ -581,7 +581,7 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error())
 	}
 
-	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
 		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 

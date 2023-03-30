@@ -344,7 +344,7 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevR
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
-	if !version.Compatible(version.DefaultInfo.Version, bcp.PBMVersion) {
+	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
 		bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
 		return
 	}
