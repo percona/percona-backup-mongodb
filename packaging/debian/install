@@ -6,3 +6,4 @@ default/pbm-agent /etc/default/
 pbm-storage.conf /etc/
 pbm-agent.service /lib/systemd/system/
 pbm-conf-reference.yml /etc/
+LICENSE /usr/share/doc/percona-backup-mongodb/

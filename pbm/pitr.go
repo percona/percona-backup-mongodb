@@ -32,7 +32,7 @@ type OplogChunk struct {
 	Compression compress.CompressionType `bson:"compression"`
 	StartTS     primitive.Timestamp      `bson:"start_ts"`
 	EndTS       primitive.Timestamp      `bson:"end_ts"`
-	size        int64                    `bson:"-"`
+	Size        int64                    `bson:"size"`
 }
 
 // IsPITR checks if PITR is enabled
@@ -225,7 +225,7 @@ func (t Timeline) String() string {
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise.
 // `flist` is a cache of chunk sizes.
-func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist map[string]int64) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -237,12 +237,6 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp, flist 
 	slices, err := p.PITRGetChunksSlice(rs, fch.StartTS, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
-	}
-
-	if flist != nil {
-		for i, s := range slices {
-			slices[i].size = flist[s.FName]
-		}
 	}
 
 	return gettimelines(slices), nil
@@ -262,7 +256,7 @@ func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
 
 	var tlns [][]Timeline
 	for _, s := range shards {
-		t, err := p.PITRGetValidTimelines(s.RS, now, nil)
+		t, err := p.PITRGetValidTimelines(s.RS, now)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}
@@ -287,7 +281,7 @@ func gettimelines(slices []OplogChunk) (tlines []Timeline) {
 		}
 		prevEnd = s.EndTS
 		tl.End = s.EndTS.T
-		tl.Size += s.size
+		tl.Size += s.Size
 	}
 
 	tlines = append(tlines, tl)
