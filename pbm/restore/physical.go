@@ -849,6 +849,11 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 			if err != nil {
 				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
 			}
+			// if this is a directory, only ensure it is created.
+			if set.BcpName == bcpDir {
+				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
+				continue
+			}
 
 			r.log.Info("copy <%s> to <%s>", src, dst)
 			sr, err := readFn(src)
@@ -1377,6 +1382,8 @@ func (r *PhysRestore) setTmpConf() (err error) {
 	return nil
 }
 
+const bcpDir = "__dir__"
+
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
 // journals. For the incrementals, it will gather files from preceding backups
@@ -1396,9 +1403,9 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		return errors.Errorf("no data in the backup for the replica set %s", r.nodeInfo.SetName)
 	}
 
-	targetFiles := make(map[string]struct{})
+	targetFiles := make(map[string]bool)
 	for _, f := range append(rs.Files, rs.Journal...) {
-		targetFiles[f.Name] = struct{}{}
+		targetFiles[f.Name] = false
 	}
 
 	for {
@@ -1412,6 +1419,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		for _, f := range append(rs.Files, rs.Journal...) {
 			if _, ok := targetFiles[f.Name]; ok && f.Off >= 0 && f.Len >= 0 {
 				data.Data = append(data.Data, f)
+				targetFiles[f.Name] = true
 
 				if data.dbpath == "" {
 					is1058, data.dbpath = findDBpath(f.Name)
@@ -1425,7 +1433,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		r.files = append(r.files, data)
 
 		if bcp.SrcBackup == "" {
-			return nil
+			break
 		}
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
@@ -1435,6 +1443,40 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		}
 		rs = getRS(bcp, r.nodeInfo.SetName)
 	}
+
+	// Directories only. Incremental $backupCusor returns collections that
+	// were created but haven't ended up in the checkpoint yet in the format
+	// if they don't belong to this backup (see PBM-1063). PBM doesn't copy
+	// such files. But they are already in WT metadata. PSMDB (WT) handles
+	// this by creating such files during the start. But fails to do so if
+	// it runs with `directoryPerDB` option. Namely fails to create a directory
+	// for the collections. So we have to detect and create these directories
+	// during the restore.
+	var dirs []pbm.File
+	dirsm := make(map[string]struct{})
+	for f, was := range targetFiles {
+		if !was {
+			dir := path.Dir(f)
+			if _, ok := dirsm[dir]; dir != "." && !ok {
+				dirs = append(dirs, pbm.File{
+					Name: f,
+					Off:  -1,
+					Len:  -1,
+					Size: -1,
+				})
+				dirsm[dir] = struct{}{}
+			}
+		}
+	}
+
+	if len(dirs) > 0 {
+		r.files = append(r.files, files{
+			BcpName: bcpDir,
+			Data:    dirs,
+		})
+	}
+
+	return nil
 }
 
 // Checks if dbpath exists in the file name (affected by PBM-1058) and
