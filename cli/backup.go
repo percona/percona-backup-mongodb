@@ -333,13 +333,7 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, ver, fcv string, shards []pbm.Shard
 
 	mapRS, mapRevRS := pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
-		bcp := &bcps[i]
-		if bcps[i].Type == pbm.PhysicalBackup && len(rsMap) != 0 {
-			bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
-			continue
-		}
-
-		bcpMatchCluster(bcp, ver, fcv, sh, mapRS, mapRevRS)
+		bcpMatchCluster(&bcps[i], ver, fcv, sh, mapRS, mapRevRS)
 	}
 }
 
@@ -401,16 +395,6 @@ func majmin(v string) string {
 }
 
 var errIncompatible = errors.New("incompatible")
-
-type errRSMappingWithPhysBackup struct{}
-
-func (errRSMappingWithPhysBackup) Error() string {
-	return "unsupported with replset remapping"
-}
-
-func (errRSMappingWithPhysBackup) Unwrap() error {
-	return errIncompatible
-}
 
 type errMissedReplsets struct {
 	names     []string

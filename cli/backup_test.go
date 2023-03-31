@@ -283,38 +283,32 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			bcp:      pbm.BackupMeta{},
 			expected: errMissedReplsets{configsrv: true},
 		},
-		{
-			bcp: pbm.BackupMeta{
-				Type: pbm.PhysicalBackup,
-			},
-			rsMap:    map[string]string{"": ""},
-			expected: errRSMappingWithPhysBackup{},
-		},
 	}
 
-	for i, c := range cases {
-		c.bcp.PBMVersion = string(version.DefaultInfo.Version)
-		topology := defaultTopology
-		if c.topology != nil {
-			topology = c.topology
-		}
+	types := []pbm.BackupType{
+		pbm.LogicalBackup,
+		pbm.PhysicalBackup,
+		pbm.IncrementalBackup,
+	}
+	for _, tt := range types {
+		t.Logf("backup type: %s", tt)
+		for i, c := range cases {
+			c.bcp.PBMVersion = string(version.DefaultInfo.Version)
+			topology := defaultTopology
+			if c.topology != nil {
+				topology = c.topology
+			}
 
-		c.bcp.Status = pbm.StatusDone
-		if c.bcp.Type == pbm.PhysicalBackup && len(c.rsMap) != 0 {
-			c.bcp.SetRuntimeError(errRSMappingWithPhysBackup{})
-		} else {
-			bcpMatchCluster(&c.bcp,
-				"",
-				"",
-				topology,
-				pbm.MakeRSMapFunc(c.rsMap),
-				pbm.MakeReverseRSMapFunc(c.rsMap))
-		}
+			c.bcp.Type = tt
+			c.bcp.Status = pbm.StatusDone
+			mapRS, mapRevRS := pbm.MakeRSMapFunc(c.rsMap), pbm.MakeReverseRSMapFunc(c.rsMap)
+			bcpMatchCluster(&c.bcp, "", "", topology, mapRS, mapRevRS)
 
-		if msg := checkBcpMatchClusterError(c.bcp.Error(), c.expected); msg != "" {
-			t.Errorf("case #%d failed: %s", i, msg)
-		} else {
-			t.Logf("case #%d ok", i)
+			if msg := checkBcpMatchClusterError(c.bcp.Error(), c.expected); msg != "" {
+				t.Errorf("case #%d failed: %s", i, msg)
+			} else {
+				t.Logf("case #%d ok", i)
+			}
 		}
 	}
 }
@@ -353,15 +347,9 @@ func checkBcpMatchClusterError(err error, target error) string {
 		}
 
 		return msg
-	case errRSMappingWithPhysBackup:
-		if _, ok := target.(errRSMappingWithPhysBackup); !ok {
-			return fmt.Sprintf("expect errRSMappingWithPhysBackup, got %T", err)
-		}
-	default:
-		return fmt.Sprintf("unknown errIncompatible error: %T", err)
 	}
 
-	return ""
+	return fmt.Sprintf("unknown errIncompatible error: %T", err)
 }
 
 func BenchmarkBcpMatchCluster3x10(b *testing.B) {
