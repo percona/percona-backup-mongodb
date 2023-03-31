@@ -766,8 +766,8 @@ func updateChunksRouterTable(ctx context.Context, m *mongo.Client, rsMap map[str
 	models := make([]mongo.WriteModel, 0)
 	for cur.Next(ctx) {
 		var doc struct {
-			ID      primitive.ObjectID `bson:"_id"`
-			Shard   string             `bson:"shard"`
+			ID      any    `bson:"_id"`
+			Shard   string `bson:"shard"`
 			History []struct {
 				Shard string `bson:"shard"`
 			} `bson:"history"`
