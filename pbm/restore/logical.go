@@ -592,8 +592,9 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		}
 
 		if bcp.FCV != fcv {
-			return errors.Errorf("backup FCV %q is incompatible with the running mongo FCV %q",
+			r.log.Warning("backup FCV %q is incompatible with the running mongo FCV %q",
 				bcp.FCV, fcv)
+			return nil
 		}
 	} else {
 		ver, err := r.node.GetMongoVersion()
@@ -602,8 +603,9 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		}
 
 		if majmin(bcp.MongoVersion) != majmin(ver.VersionString) {
-			return errors.Errorf("backup mongo version %q is incompatible with the running mongo version %q",
+			r.log.Warning("backup mongo version %q is incompatible with the running mongo version %q",
 				bcp.MongoVersion, ver.VersionString)
+			return nil
 		}
 	}
 
