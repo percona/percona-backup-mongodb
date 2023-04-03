@@ -143,7 +143,6 @@ func Main() {
 	cleanupCmd.Flag("older-than", fmt.Sprintf("Delete older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&cleanupOpts.olderThan)
 	cleanupCmd.Flag("yes", "Don't ask confirmation").Short('y').BoolVar(&cleanupOpts.yes)
 	cleanupCmd.Flag("wait", "Wait for deletion done").Short('w').BoolVar(&cleanupOpts.wait)
-	cleanupCmd.Flag("wtimeout", "Wait timeout in seconds").Default("60").Uint32Var(&cleanupOpts.wtimeout)
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}

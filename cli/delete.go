@@ -174,7 +174,6 @@ type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
-	wtimeout  uint32
 }
 
 func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.Stringer, error) {
@@ -217,11 +216,7 @@ func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.S
 	}
 
 	fmt.Print("Waiting")
-	wtimeout := time.Duration(d.wtimeout)
-	if wtimeout == 0 {
-		wtimeout = 60
-	}
-	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdCleanup}, wtimeout*time.Second)
+	err = waitOp(pbmClient, &pbm.LockHeader{Type: pbm.CmdCleanup}, 10*time.Minute)
 	fmt.Println()
 	if err != nil {
 		if errors.Is(err, errTout) {
