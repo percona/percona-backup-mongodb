@@ -276,8 +276,17 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get journal files")
 	}
 
+	data := bcur.Data
+	stgb, err := getStorageBSON(bcur.Meta.DBpath)
+	if err != nil {
+		return errors.Wrap(err, "check storage.bson file")
+	}
+	if stgb != nil {
+		data = append(data, *stgb)
+	}
+
 	l.Info("uploading data")
-	rsMeta.Files, err = uploadFiles(ctx, bcur.Data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
+	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
 		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -290,8 +299,8 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	if err != nil {
 		return err
 	}
-	rsMeta.Files = append(rsMeta.Files, ju...)
 	l.Info("uploading journals done")
+	rsMeta.Files = append(rsMeta.Files, ju...)
 
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
@@ -309,6 +318,26 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	}
 
 	return nil
+}
+
+const storagebson = "storage.bson"
+
+func getStorageBSON(dbpath string) (*pbm.File, error) {
+	f, err := os.Stat(path.Join(dbpath, storagebson))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &pbm.File{
+		Name:  path.Join(dbpath, storagebson),
+		Len:   f.Size(),
+		Size:  f.Size(),
+		Fmode: f.Mode(),
+	}, nil
+
 }
 
 // UUID represents a UUID as saved in MongoDB
