@@ -225,9 +225,18 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
+	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
+	if err != nil {
+		return nil, errors.WithMessage(err, "get mongo version")
+	}
+	fcv, err := cn.GetFeatureCompatibilityVersion()
+	if err != nil {
+		return nil, errors.WithMessage(err, "get featureCompatibilityVersion")
+	}
+
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, rsMap)
+	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
@@ -331,7 +340,16 @@ func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]
 		return nil, nil
 	}
 
-	bcpMatchCluster(bcp, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
+	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
+	if err != nil {
+		return nil, errors.WithMessage(err, "get mongo version")
+	}
+	fcv, err := cn.GetFeatureCompatibilityVersion()
+	if err != nil {
+		return nil, errors.WithMessage(err, "get featureCompatibilityVersion")
+	}
+
+	bcpMatchCluster(bcp, ver.VersionString, fcv, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
 	if bcp.Status != pbm.StatusDone {
 		return nil, nil

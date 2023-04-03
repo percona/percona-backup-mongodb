@@ -609,6 +609,14 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 	if err != nil {
 		return s, errors.Wrap(err, "define cluster state")
 	}
+	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
+	if err != nil {
+		return nil, errors.WithMessage(err, "get mongo version")
+	}
+	fcv, err := cn.GetFeatureCompatibilityVersion()
+	if err != nil {
+		return nil, errors.WithMessage(err, "get featureCompatibilityVersion")
+	}
 
 	shards, err := cn.ClusterMembers()
 	if err != nil {
@@ -617,7 +625,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 
 	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, shards, inf.SetName, rsMap)
+	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
 	stg, err := cn.GetStorage(cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {

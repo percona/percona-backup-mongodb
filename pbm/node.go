@@ -182,7 +182,11 @@ func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error)
 }
 
 func (n *Node) GetFeatureCompatibilityVersion() (string, error) {
-	res := n.cn.Database("admin").RunCommand(n.ctx, bson.D{
+	return getFeatureCompatibilityVersion(n.ctx, n.cn)
+}
+
+func getFeatureCompatibilityVersion(ctx context.Context, m *mongo.Client) (string, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{
 		{"getParameter", 1},
 		{"featureCompatibilityVersion", 1},
 	})

@@ -978,6 +978,11 @@ func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
 	return inf, nil
 }
 
+// GetNodeInfo returns mongo node info
+func (p *PBM) GetFeatureCompatibilityVersion() (string, error) {
+	return getFeatureCompatibilityVersion(p.ctx, p.Conn)
+}
+
 // ClusterTime returns mongo's current cluster time
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
