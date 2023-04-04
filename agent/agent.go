@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -113,6 +117,8 @@ func (a *Agent) Start() error {
 				a.Delete(cmd.Delete, cmd.OPID, ep)
 			case pbm.CmdDeletePITR:
 				a.DeletePITR(cmd.DeletePITR, cmd.OPID, ep)
+			case pbm.CmdCleanup:
+				a.Cleanup(cmd.Cleanup, cmd.OPID, ep)
 			}
 		case err, ok := <-cerr:
 			if !ok {
@@ -268,6 +274,95 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	l.Info("done")
+}
+
+// Cleanup deletes backups and PITR chunks from the store and cleans up its metadata
+func (a *Agent) Cleanup(d *pbm.CleanupCmd, opid pbm.OPID, ep pbm.Epoch) {
+	l := a.log.NewEvent(string(pbm.CmdCleanup), "", opid.String(), ep.TS())
+
+	if d == nil {
+		l.Error("missed command")
+		return
+	}
+
+	nodeInfo, err := a.node.GetInfo()
+	if err != nil {
+		l.Error("get node info data: %v", err)
+		return
+	}
+	if !nodeInfo.IsLeader() {
+		l.Info("not a member of the leader rs, skipping")
+		return
+	}
+
+	epts := ep.TS()
+	lock := a.pbm.NewLockCol(pbm.LockHeader{
+		Replset: a.node.RS(),
+		Node:    a.node.Name(),
+		Type:    pbm.CmdCleanup,
+		OPID:    opid.String(),
+		Epoch:   &epts,
+	}, pbm.LockOpCollection)
+
+	got, err := a.acquireLock(lock, l, nil)
+	if err != nil {
+		l.Error("acquire lock: %v", err)
+		return
+	}
+	if !got {
+		l.Debug("skip: lock not acquired")
+		return
+	}
+	defer func() {
+		if err := lock.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
+	}()
+
+	stg, err := a.pbm.GetStorage(l)
+	if err != nil {
+		l.Error("get storage: " + err.Error())
+	}
+
+	eg := errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
+	chunks, err := oplog.ListChunksBefore(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
+	if err != nil {
+		l.Error("failed to list oplog chunks: ", err.Error())
+	}
+	for i := range chunks {
+		chk := &chunks[i]
+
+		eg.Go(func() error {
+			err := stg.Delete(chk.FName)
+			return errors.WithMessagef(err, "delete chunk file %q", chk.FName)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		l.Error(err.Error())
+	}
+
+	backups, err := backup.ListSafeToDeleteBackups(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
+	if err != nil {
+		l.Error("failed to list backups: ", err.Error())
+	}
+	for i := range backups {
+		bcp := &backups[i]
+
+		eg.Go(func() error {
+			err := a.pbm.DeleteBackupFiles(bcp, stg)
+			return errors.WithMessagef(err, "delete backup files %q", bcp.Name)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		l.Error(err.Error())
+	}
+
+	err = a.pbm.ResyncStorage(l)
+	if err != nil {
+		l.Error("storage resync: " + err.Error())
+	}
 }
 
 // Resync uploads a backup list from the remote store

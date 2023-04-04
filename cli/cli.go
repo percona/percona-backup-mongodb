@@ -138,6 +138,12 @@ func Main() {
 	deletePitrCmd.Flag("all", "Delete all chunks").Short('a').BoolVar(&deletePitr.all)
 	deletePitrCmd.Flag("force", "Force. Don't ask confirmation").Short('f').BoolVar(&deletePitr.force)
 
+	cleanupCmd := pbmCmd.Command("cleanup", "Delete Backups and PITR chunks")
+	cleanupOpts := cleanupOptions{}
+	cleanupCmd.Flag("older-than", fmt.Sprintf("Delete older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&cleanupOpts.olderThan)
+	cleanupCmd.Flag("yes", "Don't ask confirmation").Short('y').BoolVar(&cleanupOpts.yes)
+	cleanupCmd.Flag("wait", "Wait for deletion done").Short('w').BoolVar(&cleanupOpts.wait)
+
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
 	logsCmd.Flag("follow", "Follow output").Short('f').Default("false").BoolVar(&logs.follow)
@@ -221,6 +227,8 @@ func Main() {
 		out, err = deleteBackup(pbmClient, &deleteBcp, pbmOutF)
 	case deletePitrCmd.FullCommand():
 		out, err = deletePITR(pbmClient, &deletePitr, pbmOutF)
+	case cleanupCmd.FullCommand():
+		out, err = retentionCleanup(pbmClient, &cleanupOpts, pbmOutF)
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
@@ -444,6 +452,8 @@ func cancelBcp(cn *pbm.PBM) (fmt.Stringer, error) {
 	return outMsg{"Backup cancellation has started"}, nil
 }
 
+var errInvalidFormat = errors.New("invalid format")
+
 func parseDateT(v string) (time.Time, error) {
 	switch len(v) {
 	case len(datetimeFormat):
@@ -452,7 +462,7 @@ func parseDateT(v string) (time.Time, error) {
 		return time.Parse(dateFormat, v)
 	}
 
-	return time.Time{}, errors.New("invalid format")
+	return time.Time{}, errInvalidFormat
 }
 
 func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*pbm.LockData, error) {
