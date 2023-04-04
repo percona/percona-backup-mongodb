@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -205,6 +206,7 @@ type bcpDesc struct {
 	LastTransitionTime string         `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string       `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	MongoVersion       string         `json:"mongodb_version" yaml:"mongodb_version"`
+	FCV                string         `json:"fcv" yaml:"fcv"`
 	PBMVersion         string         `json:"pbm_version" yaml:"pbm_version"`
 	Status             pbm.Status     `json:"status" yaml:"status"`
 	Size               int64          `json:"size" yaml:"-"`
@@ -262,6 +264,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
 		MongoVersion:       bcp.MongoVersion,
+		FCV:                bcp.FCV,
 		PBMVersion:         bcp.PBMVersion,
 		LastWriteTS:        int64(bcp.LastWriteTS.T),
 		LastTransitionTS:   bcp.LastTransitionTS,
@@ -322,7 +325,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
+func bcpsMatchCluster(bcps []pbm.BackupMeta, ver, fcv string, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
 	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
 		sh[s.RS] = s.RS == confsrv
@@ -336,17 +339,29 @@ func bcpsMatchCluster(bcps []pbm.BackupMeta, shards []pbm.Shard, confsrv string,
 			continue
 		}
 
-		bcpMatchCluster(bcp, sh, mapRS, mapRevRS)
+		bcpMatchCluster(bcp, ver, fcv, sh, mapRS, mapRevRS)
 	}
 }
 
-func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
+func bcpMatchCluster(bcp *pbm.BackupMeta, ver, fcv string, shards map[string]bool, mapRS, mapRevRS pbm.RSMapFunc) {
 	if bcp.Status != pbm.StatusDone {
 		return
 	}
 	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
 		bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
 		return
+	}
+	if bcp.FCV != "" {
+		if bcp.FCV != fcv {
+			bcp.SetRuntimeError(errors.Errorf("backup FCV %q is incompatible with the running mongo FCV %q",
+				bcp.FCV, fcv))
+			return
+		}
+	} else if majmin(bcp.MongoVersion) != majmin(ver) {
+		bcp.SetRuntimeError(errors.Errorf("backup mongo version %q is incompatible with the running mongo version %q",
+			bcp.MongoVersion, ver))
+		return
+
 	}
 
 	var nomatch []string
@@ -371,6 +386,18 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, shards map[string]bool, mapRS, mapRevR
 		copy(names, nomatch)
 		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
 	}
+}
+
+func majmin(v string) string {
+	if len(v) == 0 {
+		return v
+	}
+
+	if v[0] != 'v' {
+		v = "v" + v
+	}
+
+	return semver.MajorMinor(v)
 }
 
 var errIncompatible = errors.New("incompatible")

@@ -581,8 +581,32 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error())
 	}
 
-	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
-		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+	if !version.CompatibleWith(version.DefaultInfo.Version, pbm.BreakingChangesMap[bcp.Type]) {
+		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+	}
+
+	if bcp.FCV != "" {
+		fcv, err := r.node.GetFeatureCompatibilityVersion()
+		if err != nil {
+			return errors.WithMessage(err, "get featureCompatibilityVersion")
+		}
+
+		if bcp.FCV != fcv {
+			r.log.Warning("backup FCV %q is incompatible with the running mongo FCV %q",
+				bcp.FCV, fcv)
+			return nil
+		}
+	} else {
+		ver, err := r.node.GetMongoVersion()
+		if err != nil {
+			return errors.WithMessage(err, "get mongo version")
+		}
+
+		if majmin(bcp.MongoVersion) != majmin(ver.VersionString) {
+			r.log.Warning("backup mongo version %q is incompatible with the running mongo version %q",
+				bcp.MongoVersion, ver.VersionString)
+			return nil
+		}
 	}
 
 	return nil

@@ -91,9 +91,16 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 	meta.Store = cfg.Storage
 
 	ver, err := b.node.GetMongoVersion()
-	if err == nil {
-		meta.MongoVersion = ver.VersionString
+	if err != nil {
+		return errors.WithMessage(err, "get mongo version")
 	}
+	meta.MongoVersion = ver.VersionString
+
+	fcv, err := b.node.GetFeatureCompatibilityVersion()
+	if err != nil {
+		return errors.WithMessage(err, "get featureCompatibilityVersion")
+	}
+	meta.FCV = fcv
 
 	return b.cn.SetBackupMeta(meta)
 }
