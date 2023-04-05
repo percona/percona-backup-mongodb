@@ -1013,7 +1013,16 @@ func (r *PhysRestore) resetRS() error {
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
-		err = r.updateShards(ctx, c)
+
+		mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+		ms := []mongo.WriteModel{}
+		for id, host := range r.shards {
+			ms = append(ms, &mongo.UpdateOneModel{
+				Filter: bson.D{{"id", mapRevRS(id)}},
+				Update: bson.D{{"$set", bson.M{"host": host}}},
+			})
+		}
+		_, err = c.Database("config").Collection("shards").BulkWrite(ctx, ms)
 		if err != nil {
 			return errors.Wrap(err, "update config.shards")
 		}
@@ -1096,48 +1105,6 @@ func (r *PhysRestore) resetRS() error {
 	err = shutdown(c, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
-	}
-
-	return nil
-}
-
-func (r *PhysRestore) updateShards(ctx context.Context, c *mongo.Client) error {
-	cur, err := c.Database("config").Collection("shards").Find(ctx, bson.D{})
-	if err != nil {
-		return errors.WithMessage(err, "query")
-	}
-	defer cur.Close(ctx)
-
-	// use bulk ops to bypass "temporary" duplicate key error.
-	// the `host` field has unique constraint
-	// updating one by one could fail
-	ms := []mongo.WriteModel{}
-	mapRS := pbm.MakeRSMapFunc(r.rsMap)
-	for cur.Next(ctx) {
-		var doc struct {
-			ID   string         `bson:"_id"`
-			Host string         `bson:"host"`
-			Rest map[string]any `bson:",inline"`
-		}
-
-		if err := cur.Decode(&doc); err != nil {
-			return errors.WithMessage(err, "decode")
-		}
-
-		id := mapRS(doc.ID)
-		ms = append(ms,
-			mongo.NewUpdateOneModel().
-				SetFilter(bson.D{{"_id", id}}).
-				SetUpdate(bson.D{{"$set", bson.M{"host": r.shards[id]}}}),
-		)
-	}
-	if err := cur.Err(); err != nil {
-		return errors.WithMessage(err, "cursor")
-	}
-
-	_, err = c.Database("config").Collection("shards").BulkWrite(ctx, ms)
-	if err != nil {
-		return errors.WithMessage(err, "bulk write")
 	}
 
 	return nil
