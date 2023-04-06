@@ -74,6 +74,16 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	}
 	l.Debug("got backups list: %v", len(bcps))
 
+	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteMany(p.ctx, bson.M{})
+	if err != nil {
+		return errors.Wrapf(err, "clean up %s", BcpCollection)
+	}
+
+	_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).DeleteMany(p.ctx, bson.M{})
+	if err != nil {
+		return errors.Wrapf(err, "clean up %s", PITRChunksCollection)
+	}
+
 	var ins []interface{}
 	for _, b := range bcps {
 		l.Debug("bcp: %v", b.Name)
