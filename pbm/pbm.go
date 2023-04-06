@@ -40,16 +40,12 @@ const (
 	LockOpCollection = "pbmLockOp"
 	// BcpCollection is a collection for backups metadata
 	BcpCollection = "pbmBackups"
-	// BcpOldCollection contains a backup of backups metadata
-	BcpOldCollection = "pbmBackups.old"
 	// RestoresCollection is a collection for restores metadata
 	RestoresCollection = "pbmRestores"
 	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
 	CmdStreamCollection = "pbmCmd"
 	// PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
-	// PITRChunksOldCollection contains archived index metadata of PITR chunks
-	PITRChunksOldCollection = "pbmPITRChunks.old"
 	// PBMOpLogCollection contains log of acquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
 	// AgentsStatusCollection is an agents registry with its status/health checks

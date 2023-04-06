@@ -74,15 +74,6 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 	}
 	l.Debug("got backups list: %v", len(bcps))
 
-	err = p.moveCollection(BcpCollection, BcpOldCollection)
-	if err != nil {
-		return errors.Wrapf(err, "copy current backups meta from %s to %s", BcpCollection, BcpOldCollection)
-	}
-	err = p.moveCollection(PITRChunksCollection, PITRChunksOldCollection)
-	if err != nil {
-		return errors.Wrapf(err, "copy current pitr meta from %s to %s", PITRChunksCollection, PITRChunksOldCollection)
-	}
-
 	var ins []interface{}
 	for _, b := range bcps {
 		l.Debug("bcp: %v", b.Name)
@@ -211,31 +202,6 @@ func checkFile(stg storage.Storage, filename string) error {
 	}
 
 	return nil
-}
-
-func (p *PBM) moveCollection(coll, as string) error {
-	err := p.Conn.Database(DB).Collection(as).Drop(p.ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to remove old archive from backups metadata")
-	}
-
-	cur, err := p.Conn.Database(DB).Collection(coll).Find(p.ctx, bson.M{})
-	if err != nil {
-		return errors.Wrap(err, "get current data")
-	}
-	for cur.Next(p.ctx) {
-		_, err = p.Conn.Database(DB).Collection(as).InsertOne(p.ctx, cur.Current)
-		if err != nil {
-			return errors.Wrapf(err, "insert")
-		}
-	}
-
-	if cur.Err() != nil {
-		return cur.Err()
-	}
-
-	_, err = p.Conn.Database(DB).Collection(coll).DeleteMany(p.ctx, bson.M{})
-	return errors.Wrap(err, "remove current data")
 }
 
 func GetPhysRestoreMeta(restore string, stg storage.Storage, l *log.Event) (rmeta *RestoreMeta, err error) {
