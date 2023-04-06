@@ -23,12 +23,10 @@ var ExcludeFromRestore = []string{
 	pbm.DB + "." + pbm.LogCollection,
 	pbm.DB + "." + pbm.ConfigCollection,
 	pbm.DB + "." + pbm.BcpCollection,
-	pbm.DB + "." + pbm.BcpOldCollection,
 	pbm.DB + "." + pbm.RestoresCollection,
 	pbm.DB + "." + pbm.LockCollection,
 	pbm.DB + "." + pbm.LockOpCollection,
 	pbm.DB + "." + pbm.PITRChunksCollection,
-	pbm.DB + "." + pbm.PITRChunksOldCollection,
 	pbm.DB + "." + pbm.AgentsStatusCollection,
 	pbm.DB + "." + pbm.PBMOpLogCollection,
 	"config.version",
@@ -42,6 +40,10 @@ var ExcludeFromRestore = []string{
 	"config.transaction_coordinators",
 	"admin.system.version",
 	"config.system.indexBuilds",
+
+	// deprecated PBM collections, keep it here not to bring back from old backups
+	pbm.DB + ".pbmBackups.old",
+	pbm.DB + ".pbmPITRChunks.old",
 }
 
 type restorer struct{ *mongorestore.MongoRestore }
