@@ -19,7 +19,8 @@ RUN dnf config-manager --enable ol8_u4_security_validation; \
 	make \
 	gcc \
 	nload \
-	htop
+	htop; \
+	dnf -y install tc
 
 COPY --from=goimg /usr/local/go /usr/local/go
 ENV PATH=$PATH:/usr/local/go/bin

@@ -221,7 +221,13 @@ func (c Counter) String() string {
 func (m *Mongo) ResetCounters() (int, error) {
 	r, err := m.cn.Database(testDB).Collection("counter").DeleteMany(m.ctx, bson.M{})
 	if err != nil {
-		return 0, err
+		// workaround for 'sharding status of collection is not currently known' error
+		r1, err1 := m.cn.Database(testDB).Collection("counter").CountDocuments(m.ctx, bson.M{})
+		err2 := m.cn.Database(testDB).Collection("counter").Drop(m.ctx)
+		if err1 == nil && err2 == nil {
+			return int(r1), nil
+		}
+		return 0, err2
 	}
 	return int(r.DeletedCount), nil
 }

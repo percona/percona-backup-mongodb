@@ -78,8 +78,8 @@ func (c *Cluster) SelectiveRestoreSharded() {
 		return
 	}
 
-	backupName := c.backup(pbm.LogicalBackup, "--wait")
-	defer c.BackupDelete(backupName)
+	backupName := c.backup(pbm.LogicalBackup)
+	c.BackupWaitDone(backupName)
 
 	// regenerate new data
 	err = tests.GenerateData(ctx, mongos, clusterSpec)
@@ -100,6 +100,12 @@ func (c *Cluster) SelectiveRestoreSharded() {
 	if !tests.Compare(beforeState, afterState, selected) {
 		log.Println("unexpected restored state")
 		return
+	}
+
+	log.Printf("Deleting backup %v", backupName)
+	err = c.mongopbm.DeleteBackup(backupName)
+	if err != nil {
+		log.Fatalf("Error: delete backup %s: %v", backupName, err)
 	}
 }
 
@@ -133,8 +139,8 @@ func (c *Cluster) SelectiveBackupSharded() {
 		return
 	}
 
-	backupName := c.backup(pbm.LogicalBackup, "--ns", "db0.*", "--wait")
-	defer c.BackupDelete(backupName)
+	backupName := c.backup(pbm.LogicalBackup, "--ns", "db0.*")
+	c.BackupWaitDone(backupName)
 
 	// regenerate new data
 	err = tests.GenerateData(ctx, mongos, clusterSpec)
@@ -155,5 +161,11 @@ func (c *Cluster) SelectiveBackupSharded() {
 	if !tests.Compare(beforeState, afterState, selected) {
 		log.Println("unexpected restored state")
 		return
+	}
+
+	log.Printf("Deleting backup %v", backupName)
+	err = c.mongopbm.DeleteBackup(backupName)
+	if err != nil {
+		log.Fatalf("Error: delete backup %s: %v", backupName, err)
 	}
 }

@@ -76,10 +76,10 @@ mongo_run() {
 wait_backup() {
     set +o xtrace
 
-    BCP_NAME=$(mongo_run "db.getSiblingDB(\"admin\").pbmBackups.find({}, {name: 1, _id: 0}).sort({start_ts: -1}).limit(1)" "cfg" | tail -n 1 | awk -F\" '{print$4}')
+    BCP_NAME=$(mongo_run 'db.getSiblingDB("admin").pbmBackups.find({}, {name: 1, _id: 0}).sort({start_ts: -1}).limit(1).toArray().map(function(u) {return u.name})' "cfg" | tail -n 1 | awk -F "'|\"" '{print $2}')
 
     retry=0
-    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmBackups.findOne({name: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r' )" == "done" ]; do
+    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmBackups.findOne({name: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r')" == "done" ]; do
         sleep 1
         echo -n .
         let retry+=1
