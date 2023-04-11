@@ -381,7 +381,7 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 		}
 	}
 
-	// If all nodes in the rs are in "error" stae, set rs as "error".
+	// If all nodes in the rs are in "error" state, set rs as "error".
 	// We have "partlyDone", so it's not an error if at least one node is "done".
 	for _, rs := range rss {
 		noerr := 0
