@@ -110,7 +110,7 @@ func (s *StorageConf) Path() string {
 			path += "/" + s.S3.Prefix
 		}
 	case storage.Azure:
-		path = fmt.Sprintf(azure.BlobURL, s.Azure.Account, s.Azure.Container)
+		path = fmt.Sprintf(azure.BlobURL, s.Azure.Account) + "/" + s.Azure.Container
 		if s.Azure.Prefix != "" {
 			path += "/" + s.Azure.Prefix
 		}
