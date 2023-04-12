@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -172,21 +173,35 @@ type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
+	dryRun    bool
 }
 
-func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.Stringer, error) {
+func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
 	}
+	info, err := pbm.MakeCleanupInfo(pbmClient.Context(), pbmClient.Conn, ts)
+	if err != nil {
+		return nil, errors.WithMessage(err, "make cleanup report")
+	}
+	if len(info.Backups) == 0 && len(info.Chunks) == 0 {
+		return outMsg{"nothing to delete"}, nil
+	}
+
+	if d.dryRun {
+		b := &strings.Builder{}
+		printCleanupInfoTo(b, info.Backups, info.Chunks)
+		return b, nil
+	}
 
 	if !d.yes {
-		err := askCleanupConfirmation(pbmClient.Context(), pbmClient.Conn, ts)
+		yes, err := askCleanupConfirmation(info)
 		if err != nil {
-			if errors.Is(err, ErrAborted) || errors.Is(err, ErrNothing) {
-				return outMsg{err.Error()}, nil
-			}
 			return nil, err
+		}
+		if !yes {
+			return outMsg{"aborted"}, nil
 		}
 	}
 
@@ -261,9 +276,9 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.Duration(d * 24 * int64(time.Hour)), nil
 }
 
-func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
+func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 	if len(backups) != 0 {
-		fmt.Println("Snapshots:")
+		fmt.Fprintln(w, "Snapshots:")
 		for i := range backups {
 			bcp := &backups[i]
 			t := bcp.Type
@@ -273,7 +288,7 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 				t += ", base"
 			}
 
-			fmt.Printf(" - %s <%s> [restore_time: %s]\n",
+			fmt.Fprintf(w, " - %s <%s> [restore_time: %s]\n",
 				bcp.Name, t, fmtTS(int64(bcp.LastWriteTS.T)))
 		}
 	}
@@ -304,38 +319,22 @@ func printCleanupInfo(backups []pbm.BackupMeta, chunks []pbm.OplogChunk) {
 		}
 	}
 
-	fmt.Println("PITR chunks (by replset name):")
+	fmt.Fprintln(w, "PITR chunks (by replset name):")
 	for rs, ops := range oplogRanges {
-		fmt.Printf(" %s:\n", rs)
+		fmt.Fprintf(w, " %s:\n", rs)
 
 		for _, r := range ops {
-			fmt.Printf(" - %s - %s\n", fmtTS(int64(r.Start.T)), fmtTS(int64(r.End.T)))
+			fmt.Fprintf(w, " - %s - %s\n", fmtTS(int64(r.Start.T)), fmtTS(int64(r.End.T)))
 		}
 	}
 }
 
-var (
-	// ErrAborted returned when a user do not confirm
-	ErrAborted = errors.New("aborted")
-	// ErrNothing returned when no backups and oplog found
-	ErrNothing = errors.New("nothing to delete")
-)
+func askCleanupConfirmation(info pbm.CleanupInfo) (bool, error) {
+	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
 
-func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
 	if !isTTY() {
-		return errors.New("no tty")
+		return false, errors.New("no tty")
 	}
-
-	cr, err := pbm.MakeCleanupInfo(ctx, m, ts)
-	if err != nil {
-		return errors.WithMessage(err, "make cleanup report")
-	}
-
-	if len(cr.Backups) == 0 && len(cr.Chunks) == 0 {
-		return ErrNothing
-	}
-
-	printCleanupInfo(cr.Backups, cr.Chunks)
 
 	fmt.Print("Are you sure you want delete? [y/N] ")
 
@@ -343,10 +342,10 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 	scanner.Scan()
 	switch strings.TrimSpace(scanner.Text()) {
 	case "yes", "Yes", "YES", "Y", "y":
-		return nil
+		return true, nil
 	}
 
-	return ErrAborted
+	return false, nil
 }
 
 func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {

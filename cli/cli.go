@@ -145,6 +145,7 @@ func Main() {
 	cleanupCmd.Flag("older-than", fmt.Sprintf("Delete older than date/time in format %s or %s", datetimeFormat, dateFormat)).StringVar(&cleanupOpts.olderThan)
 	cleanupCmd.Flag("yes", "Don't ask confirmation").Short('y').BoolVar(&cleanupOpts.yes)
 	cleanupCmd.Flag("wait", "Wait for deletion done").Short('w').BoolVar(&cleanupOpts.wait)
+	cleanupCmd.Flag("dry-run", "Report but do not delete").BoolVar(&cleanupOpts.dryRun)
 
 	logsCmd := pbmCmd.Command("logs", "PBM logs")
 	logs := logsOpts{}
@@ -230,7 +231,7 @@ func Main() {
 	case deletePitrCmd.FullCommand():
 		out, err = deletePITR(pbmClient, &deletePitr, pbmOutF)
 	case cleanupCmd.FullCommand():
-		out, err = retentionCleanup(pbmClient, &cleanupOpts, pbmOutF)
+		out, err = retentionCleanup(pbmClient, &cleanupOpts)
 	case logsCmd.FullCommand():
 		out, err = runLogs(pbmClient, &logs)
 	case statusCmd.FullCommand():
