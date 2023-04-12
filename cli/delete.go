@@ -15,8 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type deleteBcpOpts struct {
@@ -181,17 +179,6 @@ func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions, _ outFormat) (fmt.S
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
 	}
-	cfg, err := pbmClient.GetConfig()
-	if err != nil {
-		return nil, errors.WithMessage(err, "get config")
-	}
-	ts, err = findAdjustedTS(pbmClient.Context(), pbmClient.Conn, ts, cfg.PITR.Enabled && !cfg.PITR.OplogOnly)
-	if err != nil {
-		return nil, errors.WithMessage(err, "find adjusted timestamp")
-	}
-	if ts.IsZero() {
-		return nil, errors.New("deletion not allowed")
-	}
 
 	if !d.yes {
 		err := askCleanupConfirmation(pbmClient.Context(), pbmClient.Conn, ts)
@@ -339,20 +326,16 @@ func askCleanupConfirmation(ctx context.Context, m *mongo.Client, ts primitive.T
 		return errors.New("no tty")
 	}
 
-	backups, err := backup.ListSafeToDeleteBackups(ctx, m, ts)
+	cr, err := pbm.MakeCleanupInfo(ctx, m, ts)
 	if err != nil {
-		return errors.WithMessage(err, "list backups")
-	}
-	chunks, err := oplog.ListChunksBefore(ctx, m, ts)
-	if err != nil {
-		return errors.WithMessage(err, "list oplog chunks")
+		return errors.WithMessage(err, "make cleanup report")
 	}
 
-	if len(backups) == 0 && len(chunks) == 0 {
+	if len(cr.Backups) == 0 && len(cr.Chunks) == 0 {
 		return ErrNothing
 	}
 
-	printCleanupInfo(backups, chunks)
+	printCleanupInfo(cr.Backups, cr.Chunks)
 
 	fmt.Print("Are you sure you want delete? [y/N] ")
 
