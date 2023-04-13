@@ -14,9 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -327,28 +325,26 @@ func (a *Agent) Cleanup(d *pbm.CleanupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	eg := errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())
 
-	chunks, err := oplog.ListChunksBefore(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
+	cr, err := pbm.MakeCleanupInfo(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
 	if err != nil {
-		l.Error("failed to list oplog chunks: ", err.Error())
+		l.Error("make cleanup report: " + err.Error())
+		return
 	}
-	for i := range chunks {
-		chk := &chunks[i]
+
+	for i := range cr.Chunks {
+		name := cr.Chunks[i].FName
 
 		eg.Go(func() error {
-			err := stg.Delete(chk.FName)
-			return errors.WithMessagef(err, "delete chunk file %q", chk.FName)
+			err := stg.Delete(name)
+			return errors.WithMessagef(err, "delete chunk file %q", name)
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		l.Error(err.Error())
 	}
 
-	backups, err := backup.ListSafeToDeleteBackups(a.pbm.Context(), a.pbm.Conn, d.OlderThan)
-	if err != nil {
-		l.Error("failed to list backups: ", err.Error())
-	}
-	for i := range backups {
-		bcp := &backups[i]
+	for i := range cr.Backups {
+		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
 			err := a.pbm.DeleteBackupFiles(bcp, stg)

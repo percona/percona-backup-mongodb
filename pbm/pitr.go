@@ -37,16 +37,21 @@ type OplogChunk struct {
 
 // IsPITR checks if PITR is enabled
 func (p *PBM) IsPITR() (bool, error) {
-	cfg, err := p.GetConfig()
+	enabled, _, err := isPITREnabled(p.ctx, p.Conn)
+	return enabled, err
+}
+
+func isPITREnabled(ctx context.Context, m *mongo.Client) (bool, bool, error) {
+	cfg, err := getPBMConfig(ctx, m)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return false, nil
+			return false, false, nil
 		}
 
-		return false, errors.Wrap(err, "get config")
+		return false, false, errors.Wrap(err, "get config")
 	}
 
-	return cfg.PITR.Enabled, nil
+	return cfg.PITR.Enabled, cfg.PITR.OplogOnly, nil
 }
 
 // PITRrun checks if PITR slicing is running. It looks for PITR locks

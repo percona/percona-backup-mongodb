@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -390,7 +391,11 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 }
 
 func (p *PBM) GetConfig() (Config, error) {
-	res := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{})
+	return getPBMConfig(p.ctx, p.Conn)
+}
+
+func getPBMConfig(ctx context.Context, m *mongo.Client) (Config, error) {
+	res := m.Database(DB).Collection(ConfigCollection).FindOne(ctx, bson.D{})
 	if err := res.Err(); err != nil {
 		return Config{}, errors.WithMessage(err, "get")
 	}
