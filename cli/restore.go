@@ -49,6 +49,14 @@ func (r restoreRet) String() string {
 	case r.err != "":
 		return "\n Error: " + r.err
 	case r.Snapshot != "":
+		if r.physical {
+			return fmt.Sprintf(`
+Restore of the snapshot from '%s' has started.
+Check restore status with: pbm describe-restore %s -c </path/to/pbm.conf.yaml>
+No other pbm command is available while the restore is running!
+`,
+				r.Snapshot, r.Name)
+		}
 		return fmt.Sprintf("Restore of the snapshot from '%s' has started", r.Snapshot)
 	case r.PITR != "":
 		return fmt.Sprintf("Restore to the point in time '%s' has started", r.PITR)
@@ -73,6 +81,12 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
+	clusterTime, err := cn.ClusterTime()
+	if err != nil {
+		return nil, errors.Wrap(err, "read cluster time")
+	}
+	tdiff := time.Now().Unix() - int64(clusterTime.T)
+
 	switch {
 	case o.bcp != "":
 		m, err := restore(cn, o.bcp, nss, rsMap, outf)
@@ -80,7 +94,11 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return nil, err
 		}
 		if !o.wait {
-			return restoreRet{Name: m.Name, Snapshot: o.bcp}, nil
+			return restoreRet{
+				Name:     m.Name,
+				Snapshot: o.bcp,
+				physical: m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup,
+			}, nil
 		}
 
 		typ := " logical restore.\nWaiting to finish"
@@ -88,7 +106,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			typ = " physical restore.\nWaiting to finish"
 		}
 		fmt.Printf("Started%s", typ)
-		err = waitRestore(cn, m)
+		err = waitRestore(cn, m, tdiff)
 		if err == nil {
 			return restoreRet{
 				done:     true,
@@ -109,7 +127,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return restoreRet{PITR: o.pitr, Name: m.Name}, nil
 		}
 		fmt.Print("Started.\nWaiting to finish")
-		err = waitRestore(cn, m)
+		err = waitRestore(cn, m, tdiff)
 		if err != nil {
 			return restoreRet{err: err.Error()}, nil
 		}
@@ -122,7 +140,12 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 	}
 }
 
-func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
+// We rely on heartbeats in error detection in case of all nodes failed,
+// comparing heartbeats with the current cluster time for logical restores.
+// But for physical ones, the cluster by this time is down. So we compare with
+// the wall time taking into account a time skew (wallTime - clusterTime) taken
+// when the cluster time was still available.
+func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, tskew int64) error {
 	ep, _ := cn.GetEpoch()
 	l := cn.Logger().NewEvent(string(pbm.CmdRestore), m.Backup, m.OPID, ep.TS())
 	stg, err := cn.GetStorage(l)
@@ -142,6 +165,11 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 		}
 	}
 
+	var ctime uint32
+	frameSec := pbm.StaleFrameSec
+	if m.Type != pbm.LogicalBackup {
+		frameSec = 60 * 3
+	}
 	for range tk.C {
 		fmt.Print(".")
 		rmeta, err = getMeta(m.Name)
@@ -152,21 +180,25 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta) error {
 			return errors.Wrap(err, "get restore metadata")
 		}
 
-		if m.Type == pbm.LogicalBackup {
-			clusterTime, err := cn.ClusterTime()
-			if err != nil {
-				return errors.Wrap(err, "read cluster time")
-			}
-			if rmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
-				return errors.Errorf("operation staled, last heartbeat: %v", rmeta.Hb.T)
-			}
-		}
-
 		switch rmeta.Status {
 		case pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
 			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
+		}
+
+		if m.Type == pbm.LogicalBackup {
+			clusterTime, err := cn.ClusterTime()
+			if err != nil {
+				return errors.Wrap(err, "read cluster time")
+			}
+			ctime = clusterTime.T
+		} else {
+			ctime = uint32(time.Now().Unix() + tskew)
+		}
+
+		if rmeta.Hb.T+frameSec < ctime {
+			return errors.Errorf("operation staled, last heartbeat: %v", rmeta.Hb.T)
 		}
 	}
 

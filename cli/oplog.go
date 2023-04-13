@@ -90,7 +90,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(cn, m)
+	err = waitRestore(cn, m, 0)
 	if err != nil {
 		return oplogReplayResult{err: err.Error()}, nil
 	}
