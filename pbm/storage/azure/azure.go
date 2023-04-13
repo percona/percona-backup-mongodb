@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
+	"net/http"
 	"path"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-storage-blob-go/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -17,7 +21,7 @@ import (
 )
 
 const (
-	BlobURL = "https://%s.blob.core.windows.net/%s"
+	BlobURL = "https://%s.blob.core.windows.net"
 
 	defaultUploadBuff    = 10 << 20 // 10Mb
 	defaultUploadMaxBuff = 5
@@ -41,28 +45,22 @@ type Credentials struct {
 type Blob struct {
 	opts Conf
 	log  *log.Event
-	url  *url.URL
-	c    azblob.ContainerURL
+	// url  *url.URL
+	c *azblob.Client
 }
 
-func New(opts Conf, l *log.Event) (*Blob, error) {
-	u, err := url.Parse(fmt.Sprintf(BlobURL, opts.Account, opts.Container))
-	if err != nil {
-		return nil, errors.Wrap(err, "parse options")
-	}
-
-	b := &Blob{
+func New(opts Conf, l *log.Event) (b *Blob, err error) {
+	b = &Blob{
 		opts: opts,
 		log:  l,
-		url:  u,
 	}
 
-	b.c, err = b.container()
+	b.c, err = b.client()
 	if err != nil {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return b, nil
+	return b, b.ensureContainer()
 }
 
 func (*Blob) Type() storage.Type {
@@ -78,16 +76,19 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 		}
 	}
 
+	cc := runtime.NumCPU() / 2
+	if cc == 0 {
+		cc = 1
+	}
+
 	if b.log != nil {
 		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
 	}
 
-	_, err := azblob.UploadStreamToBlockBlob(
-		context.TODO(),
-		data,
-		b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)),
-		azblob.UploadStreamToBlockBlobOptions{BufferSize: bufsz, MaxBuffers: defaultUploadMaxBuff},
-	)
+	_, err := b.c.UploadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), data, &azblob.UploadStreamOptions{
+		BlockSize:   int64(bufsz),
+		Concurrency: cc,
+	})
 
 	return err
 }
@@ -99,20 +100,26 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		prfx = prfx + "/"
 	}
 
+	pager := b.c.NewListBlobsFlatPager(b.opts.Container, &azblob.ListBlobsFlatOptions{
+		Prefix: &prfx,
+	})
+
 	var files []storage.FileInfo
-	for m := (azblob.Marker{}); m.NotDone(); {
-		l, err := b.c.ListBlobsFlatSegment(context.TODO(), m, azblob.ListBlobsSegmentOptions{Prefix: prfx})
+	for pager.More() {
+		l, err := pager.NextPage(context.TODO())
 		if err != nil {
 			return nil, errors.Wrap(err, "list segment")
 		}
-		m = l.NextMarker
 
 		for _, b := range l.Segment.BlobItems {
+			if b.Name == nil {
+				return files, errors.Errorf("blob returned nil Name for item %v", b)
+			}
 			var sz int64
 			if b.Properties.ContentLength != nil {
 				sz = *b.Properties.ContentLength
 			}
-			f := b.Name
+			f := *b.Name
 			f = strings.TrimPrefix(f, prfx)
 			if len(f) == 0 {
 				continue
@@ -134,7 +141,7 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
-	p, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), azblob.BlobAccessConditions{}, azblob.ClientProvidedKeyOptions{})
+	p, err := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return inf, storage.ErrNotExist
@@ -143,7 +150,9 @@ func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 	}
 
 	inf.Name = name
-	inf.Size = p.ContentLength()
+	if p.ContentLength != nil {
+		inf.Size = *p.ContentLength
+	}
 
 	if inf.Size == 0 {
 		return inf, storage.ErrEmpty
@@ -153,31 +162,35 @@ func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 }
 
 func (b *Blob) Copy(src, dst string) error {
-	to := b.c.NewBlobURL(path.Join(b.opts.Prefix, dst))
-	from := b.c.NewBlobURL(path.Join(b.opts.Prefix, src))
-
-	r, err := to.StartCopyFromURL(context.TODO(), from.URL(), nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{}, azblob.DefaultAccessTier, nil)
+	to := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, dst))
+	r, err := to.StartCopyFromURL(context.TODO(), path.Join(b.opts.Prefix, src), nil)
 	if err != nil {
 		return errors.Wrap(err, "start copy")
 	}
 
-	status := r.CopyStatus()
-	for status == azblob.CopyStatusPending {
+	if r.CopyStatus == nil {
+		return errors.New("undefined copy status")
+	}
+	status := *r.CopyStatus
+	for status == blob.CopyStatusTypePending {
 		time.Sleep(time.Second * 2)
-		p, err := to.GetProperties(context.TODO(), azblob.BlobAccessConditions{}, azblob.ClientProvidedKeyOptions{})
+		p, err := to.GetProperties(context.TODO(), nil)
 		if err != nil {
 			return errors.Wrap(err, "get copy status")
 		}
-		status = p.CopyStatus()
+		if r.CopyStatus == nil {
+			return errors.New("undefined copy status")
+		}
+		status = *p.CopyStatus
 	}
 
 	switch status {
-	case azblob.CopyStatusSuccess:
+	case blob.CopyStatusTypeSuccess:
 		return nil
 
-	case azblob.CopyStatusAborted:
+	case blob.CopyStatusTypeAborted:
 		return errors.New("copy aborted")
-	case azblob.CopyStatusFailed:
+	case blob.CopyStatusTypeFailed:
 		return errors.New("copy failed")
 	default:
 		return errors.Errorf("undefined status")
@@ -185,16 +198,16 @@ func (b *Blob) Copy(src, dst string) error {
 }
 
 func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
-	o, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Download(context.TODO(), 0, 0, azblob.BlobAccessConditions{}, false, azblob.ClientProvidedKeyOptions{})
+	o, err := b.c.DownloadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "download object")
 	}
 
-	return o.Body(azblob.RetryReaderOptions{MaxRetryRequests: defaultRetries}), nil
+	return o.Body, nil
 }
 
 func (b *Blob) Delete(name string) error {
-	_, err := b.c.NewBlockBlobURL(path.Join(b.opts.Prefix, name)).Delete(context.TODO(), azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
+	_, err := b.c.DeleteBlob(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return storage.ErrNotExist
@@ -205,36 +218,37 @@ func (b *Blob) Delete(name string) error {
 	return nil
 }
 
-func (b *Blob) container() (azblob.ContainerURL, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
-	if err != nil {
-		return azblob.ContainerURL{}, errors.Wrap(err, "create credentials")
+func (b *Blob) ensureContainer() error {
+	_, err := b.c.ServiceClient().NewContainerClient(b.opts.Container).GetProperties(context.TODO(), nil)
+	// container already exists
+	if err == nil {
+		return nil
 	}
-	p := azblob.NewPipeline(cred, azblob.PipelineOptions{
-		Retry: azblob.RetryOptions{
-			MaxTries:   defaultRetries,
-			TryTimeout: time.Minute * time.Duration(2*defaultUploadBuff/(1<<20)), // 0.5Mb/sec
-		},
-	})
-
-	//  azblob.NewServiceURL(*b.url, p).NewContainerURL(b.opts.Container)
-	curl := azblob.NewContainerURL(*b.url, p)
-	_, err = curl.Create(context.TODO(), azblob.Metadata{}, azblob.PublicAccessNone)
-	if stgErr, ok := err.(azblob.StorageError); ok {
-		switch stgErr.ServiceCode() {
-		case azblob.ServiceCodeContainerAlreadyExists:
-			return curl, nil
-		default:
-			return curl, errors.Wrapf(err, "ensure container %s", b.url)
+	if stgErr, ok := err.(*azcore.ResponseError); ok {
+		if stgErr.StatusCode != http.StatusNotFound {
+			return errors.Wrap(err, "check container")
 		}
 	}
 
-	return curl, errors.Wrapf(err, "unknown error ensuring container %s", b.url)
+	_, err = b.c.CreateContainer(context.TODO(), b.opts.Container, nil)
+	return err
+}
+func (b *Blob) client() (*azblob.Client, error) {
+	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
+	if err != nil {
+		return nil, errors.Wrap(err, "create credentials")
+	}
+
+	opts := &azblob.ClientOptions{}
+	opts.Retry = policy.RetryOptions{
+		MaxRetries: defaultRetries,
+	}
+	return azblob.NewClientWithSharedKeyCredential(fmt.Sprintf(BlobURL, b.opts.Account), cred, opts)
 }
 
 func isNotFound(err error) bool {
-	if stgErr, ok := err.(azblob.StorageError); ok {
-		return stgErr.ServiceCode() == azblob.ServiceCodeBlobNotFound
+	if stgErr, ok := err.(*azcore.ResponseError); ok {
+		return stgErr.StatusCode == http.StatusNotFound
 	}
 
 	return false
