@@ -21,7 +21,7 @@ services:
     container_name: "pbmagent_cli"
     user: "1001"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017/?authSource=admin"
     build:
       dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
       context: ../..
@@ -88,7 +88,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg01:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg01:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -110,7 +110,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg02:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg02:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -132,7 +132,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=cfg"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg03:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@cfg03:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -201,7 +201,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -224,7 +224,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs102:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -246,7 +246,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs1"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs103:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -315,7 +315,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs201:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs201:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -337,7 +337,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs202:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs202:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
@@ -359,7 +359,7 @@ services:
       - "com.percona.pbm.app=agent"
       - "com.percona.pbm.agent.rs=rs2"
     environment:
-      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs203:27017"
+      - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs203:27017/?authSource=admin"
     build:
       labels:
         - "com.percona.pbm.app=agent"
