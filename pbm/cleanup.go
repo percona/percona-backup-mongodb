@@ -131,7 +131,7 @@ func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Ti
 
 	// no base snapshot after the `lw`.
 	// the backup with restore time `lw` can be deleted only if it is not used by running PITR
-	return !enabled || oplogOnly, nil
+	return enabled && !oplogOnly, nil
 }
 
 // listChunksBefore returns oplog chunks that contain an op at the ts
