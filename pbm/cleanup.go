@@ -59,7 +59,7 @@ func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 	if err != nil {
 		return CleanupInfo{}, err
 	}
-	if ok {
+	if !ok {
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
@@ -120,6 +120,7 @@ func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Ti
 		return true, nil
 	}
 	if !errors.Is(err, mongo.ErrNoDocuments) {
+		// unexpected error
 		return false, err
 	}
 
