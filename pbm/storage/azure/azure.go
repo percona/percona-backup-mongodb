@@ -163,7 +163,8 @@ func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
 
 func (b *Blob) Copy(src, dst string) error {
 	to := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, dst))
-	r, err := to.StartCopyFromURL(context.TODO(), path.Join(b.opts.Prefix, src), nil)
+	from := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, src))
+	r, err := to.StartCopyFromURL(context.TODO(), from.BlobClient().URL(), nil)
 	if err != nil {
 		return errors.Wrap(err, "start copy")
 	}
