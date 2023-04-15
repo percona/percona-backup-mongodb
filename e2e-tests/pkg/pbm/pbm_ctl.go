@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"os"
+	"gopkg.in/yaml.v2"
 
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
@@ -65,6 +67,21 @@ func (c *Ctl) PITRoff() error {
 }
 
 func (c *Ctl) ApplyConfig(file string) error {
+	contents, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+
+	var config struct {
+		Storage struct {
+			Type string `yaml:"type"`
+		} `yaml:"storage"`
+	}
+	if err := yaml.Unmarshal(contents, &config); err != nil {
+		return err
+	}
+
+	os.Setenv("STORAGE_TYPE", config.Storage.Type)
 	out, err := c.RunCmd("pbm", "config", "--file", file)
 	if err != nil {
 		return err
@@ -87,6 +104,21 @@ func (c *Ctl) Resync() error {
 func (c *Ctl) Backup(typ pbm.BackupType, opts ...string) (string, error) {
 	cmd := append([]string{"pbm", "backup", "--type", string(typ), "--compression", "s2"}, opts...)
 	out, err := c.RunCmd(cmd...)
+
+	if err != nil {
+		fmt.Println("Error:", err.Error())
+		for i := 0; i < 2; i++ {
+			fmt.Println("Timeout reached. Retrying in 5 seconds...")
+			time.Sleep(5 * time.Second)
+			out, err = c.RunCmd(cmd...)
+			if err != nil {
+				fmt.Println("Error:", err.Error())
+				continue
+			}
+			break
+		}
+	}
+
 	if err != nil {
 		return "", err
 	}
@@ -301,7 +333,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 	}
 	defer container.Close()
 
-	tmr := time.NewTimer(pbm.WaitBackupStart)
+	tmr := time.NewTimer(time.Duration(float64(pbm.WaitBackupStart) * 1.5))
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {

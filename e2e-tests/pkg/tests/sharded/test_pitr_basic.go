@@ -39,7 +39,7 @@ func (c *Cluster) PITRbasic() {
 
 	c.printBcpList()
 
-	time.Sleep(time.Second * 30)
+	time.Sleep(time.Second * 60)
 	log.Printf("Sleep for %v", time.Second*30)
 
 	bcp2 := c.LogicalBackup()

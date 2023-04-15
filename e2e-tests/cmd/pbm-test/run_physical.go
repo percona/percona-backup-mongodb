@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math/rand"
+	"time"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
@@ -22,8 +24,18 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 		{"GCS", "/etc/pbm/gcs.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
-		{"Minio", "/etc/pbm/minio.yaml"},
 	}
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(remoteStg), func(i, j int) {
+		remoteStg[i], remoteStg[j] = remoteStg[j], remoteStg[i]
+	})
+
+	minio := struct {
+		name string
+		conf string
+	}{name: "Minio", conf: "/etc/pbm/minio.yaml"}
+	remoteStg = append(remoteStg, minio)
 
 	for _, stg := range remoteStg {
 		if confExt(stg.conf) {
