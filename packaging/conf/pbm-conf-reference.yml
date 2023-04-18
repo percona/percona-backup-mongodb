@@ -31,7 +31,8 @@
 # S3 access credentials.
 #     credentials:
 #       access-key-id: 
-#       secret-access-key: 
+#       secret-access-key:
+#       session-token:  
 
 # The size of data chinks (in MB) to upload to the bucket.
 #     uploadPartSize: 10
@@ -121,3 +122,14 @@
 #restore:
 #  batchSize: 500
 #  numInsertionWorkers: 10
+
+# Adjust concurrent download of data chunks from storage for physical restore.
+#  numDownloadWorkers: 
+#  maxDownloadBufferMb: 
+#  downloadChunkMb: 32
+
+# Specify the custom path to the mongod binaries for the entire deployment/
+# individual nodes for database restarts during physical restore
+#  mongodLocation: 
+#  mongodLocationMap:
+#    "node-name:port":"path"
