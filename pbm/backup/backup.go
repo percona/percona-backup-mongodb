@@ -50,6 +50,14 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node) *Backup {
 	}
 }
 
+func NewExternal(cn *pbm.PBM, node *pbm.Node) *Backup {
+	return &Backup{
+		cn:   cn,
+		node: node,
+		typ:  pbm.ExternalBackup,
+	}
+}
+
 func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
 	return &Backup{
 		cn:       cn,
@@ -224,7 +232,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	switch b.typ {
 	case pbm.LogicalBackup:
 		err = b.doLogical(ctx, bcp, opid, &rsMeta, inf, stg, l)
-	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
 		err = b.doPhysical(ctx, bcp, opid, &rsMeta, inf, stg, l)
 	default:
 		return errors.New("undefined backup type")
@@ -398,6 +406,30 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression co
 	}
 
 	return n, nil
+}
+
+func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) (err error) {
+	err = b.cn.ChangeRSState(bcp, inf.SetName, status, "")
+	if err != nil {
+		return errors.Wrap(err, "set shard's status")
+	}
+
+	if inf.IsLeader() {
+		err = b.reconcileStatus(bcp, opid, status, wait)
+		if err != nil {
+			if errors.Cause(err) == errConvergeTimeOut {
+				return errors.Wrap(err, "couldn't get response from all shards")
+			}
+			return errors.Wrapf(err, "check cluster for backup `%s`", status)
+		}
+	}
+
+	err = b.waitForStatus(bcp, status, wait)
+	if err != nil {
+		return errors.Wrapf(err, "waiting for %s", status)
+	}
+
+	return nil
 }
 
 func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeout *time.Duration) error {

@@ -465,6 +465,7 @@ type BackupType string
 
 const (
 	PhysicalBackup    BackupType = "physical"
+	ExternalBackup    BackupType = "external"
 	IncrementalBackup BackupType = "incremental"
 	LogicalBackup     BackupType = "logical"
 )
@@ -592,6 +593,8 @@ const (
 	StatusStarting   Status = "starting"
 	StatusRunning    Status = "running"
 	StatusDumpDone   Status = "dumpDone"
+	StatusCopyReady  Status = "copyReady"
+	StatusCopyDone   Status = "copyDone"
 	StatusPartlyDone Status = "partlyDone"
 	StatusDone       Status = "done"
 	StatusCancelled  Status = "canceled"

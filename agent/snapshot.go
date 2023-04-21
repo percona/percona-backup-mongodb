@@ -88,6 +88,8 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.ExternalBackup:
+		bcp = backup.NewExternal(a.pbm, a.node)
 	case pbm.IncrementalBackup:
 		bcp = backup.NewIncremental(a.pbm, a.node, cmd.IncrBase)
 	case pbm.LogicalBackup:
@@ -311,7 +313,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	switch bcp.Type {
-	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
 		err = a.restorePhysical(r, opid, ep, l)
 	case pbm.LogicalBackup:
 		fallthrough

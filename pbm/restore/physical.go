@@ -704,14 +704,34 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
-	l.Info("copying backup data")
-	dstat, err := r.copyFiles()
-	if err != nil {
-		return errors.Wrap(err, "copy files")
-	}
-	err = r.writeStat(dstat)
-	if err != nil {
-		r.log.Warning("write download stat: %v", err)
+	if r.bcp.Type != pbm.ExternalBackup {
+		l.Info("copying backup data")
+		dstat, err := r.copyFiles()
+		if err != nil {
+			return errors.Wrap(err, "copy files")
+		}
+		err = r.writeStat(dstat)
+		if err != nil {
+			r.log.Warning("write download stat: %v", err)
+		}
+	} else {
+		_, err = r.toState(pbm.StatusCopyReady)
+		if err != nil {
+			if err != nil {
+				return errors.Wrapf(err, "moving to state %s", pbm.StatusCopyReady)
+			}
+		}
+
+		l.Info("waiting for the datadir to be copied")
+		_, err := r.waitFiles(pbm.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
+		if err != nil {
+			return errors.Wrapf(err, "check %s state", pbm.StatusCopyDone)
+		}
+
+		err = r.cleanupDatadir()
+		if err != nil {
+			return errors.Wrap(err, "cleanup datadir")
+		}
 	}
 
 	l.Info("preparing data")
@@ -750,6 +770,51 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	}
 
 	return nil
+}
+
+var rmFromDatadir = map[string]struct{}{
+	"WiredTiger.lock":    {},
+	"WiredTiger.turtle":  {},
+	"WiredTiger.wt":      {},
+	"mongod.lock":        {},
+	"ongoingBackup.lock": {},
+}
+
+// removes obsolete files from the datadir
+func (r *PhysRestore) cleanupDatadir() error {
+	rm := func(f string) bool {
+		_, ok := rmFromDatadir[f]
+		return ok
+	}
+	if r.bcp != nil {
+		m := make(map[string]struct{})
+		rs := getRS(r.bcp, r.nodeInfo.SetName)
+		if rs != nil {
+			for _, f := range rs.Files {
+				m[f.Name] = struct{}{}
+			}
+			rm = func(f string) bool {
+				_, ok := m[f]
+				return !ok
+			}
+		}
+	}
+	dbpath := path.Clean(r.dbpath) + "/"
+	return filepath.Walk(dbpath, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return errors.Wrap(err, "walking the path")
+		}
+		if info.IsDir() || !rm(strings.TrimPrefix(p, dbpath)) {
+			return nil
+		}
+
+		r.log.Debug("rm %s", p)
+		err = os.Remove(p)
+		if err != nil {
+			r.log.Error("datadir cleanup: remove %s: %v", p, err)
+		}
+		return nil
+	})
 }
 
 func (r *PhysRestore) writeStat(stat any) error {

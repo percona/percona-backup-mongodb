@@ -285,36 +285,60 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		data = append(data, *stgb)
 	}
 
-	l.Info("uploading data")
-	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
-		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
-	if err != nil {
-		return err
-	}
-	l.Info("uploading data done")
+	if b.typ != pbm.ExternalBackup {
+		l.Info("uploading data")
+		rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
+			b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+		if err != nil {
+			return err
+		}
+		l.Info("uploading data done")
 
-	l.Info("uploading journals")
-	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
-		false, stg, bcp.Compression, bcp.CompressionLevel, l)
-	if err != nil {
-		return err
-	}
-	l.Info("uploading journals done")
-	rsMeta.Files = append(rsMeta.Files, ju...)
+		l.Info("uploading journals")
+		ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
+			false, stg, bcp.Compression, bcp.CompressionLevel, l)
+		if err != nil {
+			return err
+		}
+		l.Info("uploading journals done")
+		rsMeta.Files = append(rsMeta.Files, ju...)
 
+		err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
+		if err != nil {
+			return errors.Wrap(err, "set shard's files list")
+		}
+
+		size := int64(0)
+		for _, f := range rsMeta.Files {
+			size += f.StgSize
+		}
+
+		err = b.cn.IncBackupSize(ctx, bcp.Name, size)
+		if err != nil {
+			return errors.Wrap(err, "inc backup size")
+		}
+
+		return nil
+	}
+
+	for _, f := range append(data, jrnls...) {
+		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, bcur.Meta.DBpath))
+		rsMeta.Files = append(rsMeta.Files, f)
+	}
 	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
 
-	size := int64(0)
-	for _, f := range rsMeta.Files {
-		size += f.StgSize
+	err = b.toState(pbm.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
+	if err != nil {
+		return errors.Wrapf(err, "converge to %s", pbm.StatusCopyReady)
 	}
 
-	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
+	l.Info("waiting for the datadir to be copied")
+	err = b.waitForStatus(bcp.Name, pbm.StatusCopyDone, nil)
 	if err != nil {
-		return errors.Wrap(err, "inc backup size")
+		return errors.Wrapf(err, "waiting for %s", pbm.StatusCopyDone)
 	}
 
 	return nil
