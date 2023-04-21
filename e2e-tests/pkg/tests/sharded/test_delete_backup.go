@@ -136,7 +136,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	log.Println("delete pitr all")
 	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--all")
 	if err != nil {
-		log.Fatalf("ERROR: delete all pitr")
+		log.Fatalf("ERROR: delete all pitr: %v", err)
 	}
 	log.Println("wait for delete-pitr all")
 	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeletePITR}, time.Minute*5)

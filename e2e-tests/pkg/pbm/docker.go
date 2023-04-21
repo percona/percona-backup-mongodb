@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -249,4 +250,95 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 			}
 		}
 	}
+}
+
+func (d *Docker) StartAgentContainers(labels []string) error {
+	fltr := filters.NewArgs()
+	for _, v := range labels {
+		fltr.Add("label", v)
+	}
+
+	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: fltr,
+	})
+	if err != nil {
+		return errors.Wrap(err, "container list")
+	}
+	if len(containers) == 0 {
+		return errors.Errorf("no containers found for labels %v", labels)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(containers))
+
+	for _, c := range containers {
+		wg.Add(1)
+		go func(container types.Container) {
+			defer wg.Done()
+
+			var buf strings.Builder
+			var started bool
+			for i := 1; i <= 5; i++ {
+				err := d.cn.ContainerStart(d.ctx, container.ID, types.ContainerStartOptions{})
+				if err != nil {
+					errCh <- errors.Wrapf(err, "start container %s", container.ID)
+					return
+				}
+
+				since := time.Now().Format(time.RFC3339Nano)
+				time.Sleep(5 * time.Second)
+				out, err := d.cn.ContainerLogs(d.ctx, container.ID, types.ContainerLogsOptions{
+					ShowStdout: true,
+					ShowStderr: true,
+					Follow:     false,
+					Since:      since,
+				})
+				if err != nil {
+					errCh <- errors.Wrapf(err, "get logs for container %s", container.ID)
+					return
+				}
+
+				buf.Reset()
+				_, err = io.Copy(&buf, out)
+				if err != nil {
+					errCh <- errors.Wrapf(err, "read logs for container %s", container.ID)
+					return
+				}
+
+				if strings.Contains(buf.String(), "listening for the commands") {
+					log.Printf("PBM agent %s started properly \n", container.ID)
+					started = true
+					break
+				}
+
+				err = d.cn.ContainerStop(d.ctx, container.ID, nil)
+				if err != nil {
+					errCh <- errors.Wrapf(err, "stop container %s", container.ID)
+					return
+				}
+
+				log.Printf("PBM agent %s wasn't started, retrying in %d seconds\n", container.ID, i*5)
+				time.Sleep(time.Duration(i*5) * time.Second)
+			}
+
+			if !started {
+				errCh <- errors.Errorf("Can't start container %s, last logs: %s", container.ID, buf.String())
+			}
+		}(c)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	errs := []error{}
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Errorf("Can't start PBM agents:\n%s", errs)
+	}
+
+	return nil
 }

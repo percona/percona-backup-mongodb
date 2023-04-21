@@ -186,7 +186,7 @@ func (c *Cluster) PhysicalRestoreWithParams(bcpName string, options []string) {
 	}
 
 	log.Println("restarting agents")
-	err = c.docker.StartContainers([]string{"com.percona.pbm.app=agent"})
+	err = c.docker.StartAgentContainers([]string{"com.percona.pbm.app=agent"})
 	if err != nil {
 		log.Fatalln("restart agents:", err)
 	}
