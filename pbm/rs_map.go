@@ -2,9 +2,11 @@ package pbm
 
 type RSMapFunc func(string) string
 
+func identity(a string) string { return a }
+
 func MakeRSMapFunc(m map[string]string) RSMapFunc {
-	if m == nil {
-		return func(s string) string { return s }
+	if len(m) == 0 {
+		return identity
 	}
 
 	return func(s string) string {
@@ -17,6 +19,10 @@ func MakeRSMapFunc(m map[string]string) RSMapFunc {
 }
 
 func MakeReverseRSMapFunc(m map[string]string) RSMapFunc {
+	if len(m) == 0 {
+		return identity
+	}
+
 	return MakeRSMapFunc(swapSSMap(m))
 }
 

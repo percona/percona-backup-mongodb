@@ -392,7 +392,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		return errors.Wrap(err, "get node info")
 	}
 
-	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo)
+	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo, r.RSMap)
 	if err != nil {
 		return errors.Wrap(err, "init physical backup")
 	}

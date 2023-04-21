@@ -93,9 +93,11 @@ type PhysRestore struct {
 	stopHB chan struct{}
 
 	log *log.Event
+
+	rsMap map[string]string
 }
 
-func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, error) {
+func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[string]string) (*PhysRestore, error) {
 	opts, err := node.GetOpts(nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo options")
@@ -152,6 +154,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		nodeInfo: inf,
 		tmpPort:  tmpPort,
 		secOpts:  opts.Security,
+		rsMap:    rsMap,
 	}, nil
 }
 
@@ -579,6 +582,7 @@ func (l *logBuff) flush() error {
 
 	return nil
 }
+
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
 	defer l.mx.Unlock()
@@ -830,11 +834,13 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
+
+	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	cpbuf := make([]byte, 32*1024)
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
+			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
@@ -1007,45 +1013,48 @@ func (r *PhysRestore) resetRS() error {
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
-		for id, host := range r.shards {
-			_, err = c.Database("config").Collection("shards").UpdateOne(
-				ctx,
-				bson.D{{"_id", id}},
-				bson.D{
-					{"$set", bson.M{"host": host}},
-				},
-			)
 
-			if err != nil {
-				return errors.Wrapf(err, "update config.shards for %s %s", id, host)
+		mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+		ms := []mongo.WriteModel{}
+		for id, host := range r.shards {
+			ms = append(ms, &mongo.UpdateOneModel{
+				Filter: bson.D{{"id", mapRevRS(id)}},
+				Update: bson.D{{"$set", bson.M{"host": host}}},
+			})
+		}
+		_, err = c.Database("config").Collection("shards").BulkWrite(ctx, ms)
+		if err != nil {
+			return errors.Wrap(err, "update config.shards")
+		}
+
+		if len(r.rsMap) != 0 {
+			r.log.Debug("updating router config")
+			if err := updateRouterTables(ctx, c, r.rsMap); err != nil {
+				return errors.WithMessage(err, "update router tables")
 			}
 		}
 	} else {
 		_, err = c.Database("admin").Collection("system.version").UpdateOne(
 			ctx,
 			bson.D{{"_id", "shardIdentity"}},
-			bson.D{
-				{"$set", bson.M{"configsvrConnectionString": r.cfgConn}},
-			},
+			bson.D{{"$set", bson.M{
+				"shardName":                 r.nodeInfo.SetName,
+				"configsvrConnectionString": r.cfgConn,
+			}}},
 		)
 		if err != nil {
 			return errors.Wrap(err, "update shardIdentity in admin.system.version")
 		}
 	}
 
-	err = c.Database("config").Collection("cache.collections").Drop(ctx)
+	colls, err := c.Database("config").ListCollectionNames(ctx, bson.D{{"name", bson.M{"$regex": `^cache\.`}}})
 	if err != nil {
-		return errors.Wrap(err, "drop config.cache.collections")
+		return errors.WithMessage(err, "list cache collections")
 	}
-
-	err = c.Database("config").Collection("cache.databases").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.databases")
-	}
-
-	err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
+	for _, coll := range colls {
+		if err := c.Database("config").Collection(coll).Drop(ctx); err != nil {
+			return errors.Wrapf(err, "drop %q", coll)
+		}
 	}
 
 	const retry = 5
@@ -1076,7 +1085,7 @@ func (r *PhysRestore) resetRS() error {
 		},
 	)
 	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
 	}
 
 	// PITR should be turned off after the physical restore. Otherwise, slicing resumes
@@ -1342,9 +1351,10 @@ func (r *PhysRestore) checkHB(file string) error {
 }
 
 func (r *PhysRestore) setTmpConf() (err error) {
+	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	opts := new(pbm.MongodOpts)
 	for _, v := range r.bcp.Replsets {
-		if v.Name == r.nodeInfo.SetName {
+		if v.Name == setName {
 			if v.MongodOpts == nil {
 				return nil
 			}
@@ -1398,9 +1408,10 @@ const bcpDir = "__dir__"
 func (r *PhysRestore) setBcpFiles() (err error) {
 	bcp := r.bcp
 
-	rs := getRS(bcp, r.nodeInfo.SetName)
+	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	rs := getRS(bcp, setName)
 	if rs == nil {
-		return errors.Errorf("no data in the backup for the replica set %s", r.nodeInfo.SetName)
+		return errors.Errorf("no data in the backup for the replica set %s", setName)
 	}
 
 	targetFiles := make(map[string]bool)
@@ -1441,7 +1452,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
 		}
-		rs = getRS(bcp, r.nodeInfo.SetName)
+		rs = getRS(bcp, setName)
 	}
 
 	// Directories only. Incremental $backupCusor returns collections that
@@ -1562,10 +1573,11 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Wrap(err, "get cluster members")
 	}
 
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 	fl := make(map[string]pbm.Shard, len(s))
 	r.syncPathShards = make(map[string]struct{})
 	for _, rs := range s {
-		fl[rs.RS] = rs
+		fl[mapRevRS(rs.RS)] = rs
 		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
@@ -1580,9 +1592,10 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
 	}
 
+	setName := mapRevRS(r.nodeInfo.SetName)
 	var ok bool
 	for _, v := range r.bcp.Replsets {
-		if v.Name == r.nodeInfo.SetName {
+		if v.Name == setName {
 			ok = true
 			break
 		}
