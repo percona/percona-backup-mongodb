@@ -269,6 +269,8 @@ type MongodOptsSec struct {
 	} `bson:"kmip,omitempty" json:"kmip,omitempty" yaml:"kmip,omitempty"`
 }
 
+type ExternOpts map[string]MongodOptsStorage
+
 type MongodOptsStorage struct {
 	DirectoryPerDB bool   `bson:"directoryPerDB" json:"directoryPerDB" yaml:"directoryPerDB"`
 	DBpath         string `bson:"dbPath" json:"dbPath" yaml:"dbPath"`
@@ -284,6 +286,37 @@ type MongodOptsStorage struct {
 			PrefixCompression bool `bson:"prefixCompression" json:"prefixCompression" yaml:"prefixCompression"`
 		} `bson:"indexConfig" json:"indexConfig" yaml:"indexConfig"`
 	} `bson:"wiredTiger" json:"wiredTiger" yaml:"wiredTiger"`
+}
+
+// NewMongodOptsStorage return MongodOptsStorage with default settings
+func NewMongodOptsStorage() *MongodOptsStorage {
+	m := &MongodOptsStorage{}
+	m.setDefaults()
+	return m
+}
+
+func (stg *MongodOptsStorage) setDefaults() {
+	stg.DBpath = "/data/db"
+	stg.WiredTiger.EngineConfig.JournalCompressor = "snappy"
+	stg.WiredTiger.CollectionConfig.BlockCompressor = "snappy"
+	stg.WiredTiger.IndexConfig.PrefixCompression = true
+}
+
+func (stg *MongodOptsStorage) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// n := NewMongodOptsStorage()
+	// err := unmarshal(n)
+	// if err != nil {
+	// 	return errors.Wrap(err, "unmarshal")
+	// }
+
+	stg.setDefaults()
+	type rawStg MongodOptsStorage
+	return unmarshal((*rawStg)(stg))
+
+	// type rawUser User
+	// if err := unmarshal((*rawUser)(u)); err != nil {
+	//   return err
+	// }
 }
 
 type RSConfig struct {

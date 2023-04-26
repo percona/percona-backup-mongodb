@@ -120,6 +120,8 @@ func Main() {
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).StringVar(&restore.ns)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
 	restoreCmd.Flag("external", "External restore.").Short('x').BoolVar(&restore.extern)
+	restoreCmd.Flag("config", "Mongod config for the source data. External backups only!").Short('c').StringVar(&restore.conf)
+	restoreCmd.Flag("ts", "MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!").StringVar(&restore.ts)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
