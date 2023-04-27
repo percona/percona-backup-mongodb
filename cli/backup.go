@@ -342,18 +342,16 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, ver, fcv string, shards map[string]boo
 		return
 	}
 	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
-		bcp.SetRuntimeError(errIncompatibleVersion{bcp.PBMVersion})
+		bcp.SetRuntimeError(errIncompatiblePBMVersion{bcp.PBMVersion})
 		return
 	}
 	if bcp.FCV != "" {
 		if bcp.FCV != fcv {
-			bcp.SetRuntimeError(errors.Errorf("backup FCV %q is incompatible with the running mongo FCV %q",
-				bcp.FCV, fcv))
+			bcp.SetRuntimeError(errIncompatibleFCVVersion{bcp.FCV, fcv})
 			return
 		}
 	} else if majmin(bcp.MongoVersion) != majmin(ver) {
-		bcp.SetRuntimeError(errors.Errorf("backup mongo version %q is incompatible with the running mongo version %q",
-			bcp.MongoVersion, ver))
+		bcp.SetRuntimeError(errIncompatibleMongodVersion{bcp.MongoVersion, ver})
 		return
 
 	}
@@ -423,15 +421,41 @@ func (errMissedReplsets) Unwrap() error {
 	return errIncompatible
 }
 
-type errIncompatibleVersion struct {
+type errIncompatiblePBMVersion struct {
 	bcpVer string
 }
 
-func (e errIncompatibleVersion) Unwrap() error {
+func (e errIncompatiblePBMVersion) Unwrap() error {
 	return errIncompatible
 }
 
-func (e errIncompatibleVersion) Error() string {
+func (e errIncompatiblePBMVersion) Error() string {
 	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
 		e.bcpVer, version.DefaultInfo.Version)
+}
+
+type errIncompatibleFCVVersion struct {
+	bcpVer  string
+	currVer string
+}
+
+func (e errIncompatibleFCVVersion) Unwrap() error {
+	return errIncompatible
+}
+
+func (e errIncompatibleFCVVersion) Error() string {
+	return fmt.Sprintf("backup FCV %q is incompatible with the running mongo FCV %q", e.bcpVer, e.currVer)
+}
+
+type errIncompatibleMongodVersion struct {
+	bcpVer  string
+	currVer string
+}
+
+func (e errIncompatibleMongodVersion) Unwrap() error {
+	return errIncompatible
+}
+
+func (e errIncompatibleMongodVersion) Error() string {
+	return fmt.Sprintf("backup mongo version %q is incompatible with the running mongo version %q", majmin(e.bcpVer), majmin(e.currVer))
 }
