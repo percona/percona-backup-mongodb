@@ -615,6 +615,10 @@ const (
 	StatusDone       Status = "done"
 	StatusCancelled  Status = "canceled"
 	StatusError      Status = "error"
+
+	// status to communicate last op timestamp if it's not set
+	// during external restore
+	StatusExtTS Status = "lastTS"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {

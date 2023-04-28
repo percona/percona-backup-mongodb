@@ -424,7 +424,7 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restore string) (*Conditio
 		return nil, errors.Wrapf(err, "read file %s", fname)
 	}
 
-	if cond.Status == StatusError {
+	if cond.Status == StatusError || cond.Status == StatusExtTS {
 		estr := strings.SplitN(string(b), ":", 2)
 		if len(estr) != 2 {
 			return nil, errors.Errorf("malformatted data in %s: %s", fname, b)
@@ -433,7 +433,9 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restore string) (*Conditio
 		if err != nil {
 			return nil, errors.Wrapf(err, "read ts from %s", fname)
 		}
-		cond.Error = estr[1]
+		if cond.Status == StatusError {
+			cond.Error = estr[1]
+		}
 		return &cond, nil
 	}
 

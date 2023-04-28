@@ -393,12 +393,44 @@ func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error)
 	r.log.Info("waiting for cluster")
 	cstat, err := r.waitFiles(status, map[string]struct{}{r.syncPathCluster: {}}, true)
 	if err != nil {
-		return pbm.StatusError, errors.Wrap(err, "wait for shards")
+		return pbm.StatusError, errors.Wrap(err, "wait for cluster")
 	}
 
 	r.log.Debug("converged to state %s", cstat)
 
 	return cstat, nil
+}
+
+func (r *PhysRestore) getTSFromSyncFile(path string) (primitive.Timestamp, error) {
+	res, err := r.stg.SourceReader(path + "." + string(pbm.StatusExtTS))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get timestamp")
+	}
+	b, err := io.ReadAll(res)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "read timestamp")
+	}
+	tsb := bytes.Split(b, []byte(":"))
+	if len(tsb) != 2 {
+		return primitive.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
+	}
+	tsparts := bytes.Split(tsb[1], []byte(","))
+	if len(tsparts) != 2 {
+		return primitive.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
+	}
+	ctsT, err := strconv.Atoi(string(tsparts[0]))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.T")
+	}
+	ctsI, err := strconv.Atoi(string(tsparts[1]))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.I")
+	}
+
+	return primitive.Timestamp{
+		T: uint32(ctsT),
+		I: uint32(ctsI),
+	}, nil
 }
 
 func errStatus(err error) io.Reader {
@@ -754,6 +786,59 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		}
 	}
 
+	if r.restoreTS.T == 0 {
+		cts, err := r.getLasOpTime()
+		if err != nil {
+			return errors.Wrap(err, "define last op time")
+		}
+
+		bts := bytes.NewReader([]byte(
+			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I),
+		))
+		// saving straight for RS as backup for nodes in the RS the same,
+		// hence TS would be the same as well
+		err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusExtTS), bts, -1)
+		if err != nil {
+			return errors.Wrap(err, "write RS timestamp")
+		}
+
+		if r.nodeInfo.IsClusterLeader() {
+			_, err := r.waitFiles(pbm.StatusExtTS, copyMap(r.syncPathShards), true)
+			if err != nil {
+				return errors.Wrap(err, "wait for shards timestamp")
+			}
+			var mints primitive.Timestamp
+			for sh := range r.syncPathShards {
+				ts, err := r.getTSFromSyncFile(sh)
+				if err != nil {
+					return errors.Wrapf(err, "get timestamp for RS %s", sh)
+				}
+
+				if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
+					mints = ts
+				}
+			}
+			bts := bytes.NewReader([]byte(
+				fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
+			))
+			err = r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusExtTS), bts, -1)
+			if err != nil {
+				return errors.Wrap(err, "write")
+			}
+		}
+
+		_, err = r.waitFiles(pbm.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
+		if err != nil {
+			return errors.Wrap(err, "wait for cluster timestamp")
+		}
+
+		r.restoreTS, err = r.getTSFromSyncFile(r.syncPathCluster)
+		if err != nil {
+			return errors.Wrapf(err, "get cluster timestamp")
+		}
+
+	}
+
 	l.Info("preparing data")
 	err = r.prepareData()
 	if err != nil {
@@ -977,6 +1062,47 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 		}
 	}
 	return stat, nil
+}
+
+func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "start mongo")
+	}
+
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+
+	res := c.Database("local").Collection("oplog.rs").FindOne(
+		ctx,
+		bson.M{},
+		options.FindOne().SetSort(bson.D{{"ts", -1}}),
+	)
+	if res.Err() != nil {
+		return primitive.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
+	}
+	rb, err := res.DecodeBytes()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "decode oplog entry")
+	}
+	ts := primitive.Timestamp{}
+	var ok bool
+	ts.T, ts.I, ok = rb.Lookup("ts").TimestampOK()
+	if !ok {
+		return ts, errors.Errorf("get the timestamp of record %v", rb)
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return ts, errors.Wrap(err, "shutdown mongo")
+	}
+
+	return ts, nil
 }
 
 func (r *PhysRestore) prepareData() error {
