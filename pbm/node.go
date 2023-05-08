@@ -466,3 +466,9 @@ func GetReplSetConfig(ctx context.Context, m *mongo.Client) (*RSConfig, error) {
 
 	return val.Config, nil
 }
+
+func GetShardMap(ctx context.Context, m *mongo.Client) (map[string]string, error) {
+	var r struct{ Map map[string]string }
+	err := m.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}}).Decode(&r)
+	return r.Map, err
+}

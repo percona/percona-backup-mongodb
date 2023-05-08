@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	mlog "github.com/mongodb/mongo-tools/common/log"
@@ -101,6 +102,27 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 		return errors.WithMessage(err, "get featureCompatibilityVersion")
 	}
 	meta.FCV = fcv
+
+	shardMap, err := pbm.GetShardMap(b.cn.Context(), b.cn.Conn)
+	if err != nil {
+		return errors.WithMessage(err, "getShardMap")
+	}
+
+	sm := make(map[string]string)
+	for s, uri := range shardMap {
+		if s == "config" {
+			continue // skip configsvr
+		}
+
+		rs, _, _ := strings.Cut(uri, "/")
+		if s != rs {
+			sm[rs] = s
+		}
+	}
+
+	if len(sm) != 0 {
+		meta.ShardRemap = sm
+	}
 
 	return b.cn.SetBackupMeta(meta)
 }
