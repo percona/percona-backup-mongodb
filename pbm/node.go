@@ -409,27 +409,6 @@ func (n *Node) GetRSconf() (*RSConfig, error) {
 	return GetReplSetConfig(n.ctx, n.cn)
 }
 
-func (n *Node) GetShardsConfig() (map[string]string, error) {
-	cur, err := n.cn.Database("config").Collection("shards").Find(n.ctx, bson.M{})
-	if err != nil {
-		return nil, errors.Wrap(err, "query mongo")
-	}
-
-	defer cur.Close(n.ctx)
-
-	shards := make(map[string]string)
-	for cur.Next(n.ctx) {
-		s := Shard{}
-		err := cur.Decode(&s)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		shards[s.ID] = s.Host
-	}
-
-	return shards, nil
-}
-
 func (n *Node) ConfSvrConn() (string, error) {
 	return ConfSvrConn(n.ctx, n.cn)
 }
