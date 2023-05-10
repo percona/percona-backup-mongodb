@@ -60,7 +60,7 @@ func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
 	}
 }
 
-func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
+func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, balancer pbm.BalancerMode) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -103,9 +103,23 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 	}
 	meta.FCV = fcv
 
-	shardMap, err := pbm.GetShardMap(b.cn.Context(), b.cn.Conn)
+	if inf.IsSharded() {
+		sm, err := getShardRemap(b.cn.Context(), b.cn.Conn)
+		if err != nil {
+			return errors.WithMessage(err, "get shard remap")
+		}
+		if len(sm) != 0 {
+			meta.ShardRemap = sm
+		}
+	}
+
+	return b.cn.SetBackupMeta(meta)
+}
+
+func getShardRemap(ctx context.Context, m *mongo.Client) (map[string]string, error) {
+	shardMap, err := pbm.GetShardMap(ctx, m)
 	if err != nil {
-		return errors.WithMessage(err, "getShardMap")
+		return nil, errors.WithMessage(err, "getShardMap")
 	}
 
 	sm := make(map[string]string)
@@ -120,11 +134,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 		}
 	}
 
-	if len(sm) != 0 {
-		meta.ShardRemap = sm
-	}
-
-	return b.cn.SetBackupMeta(meta)
+	return sm, nil
 }
 
 // Run runs backup.
