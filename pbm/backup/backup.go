@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"strings"
 	"time"
 
 	mlog "github.com/mongodb/mongo-tools/common/log"
@@ -104,37 +103,24 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 	meta.FCV = fcv
 
 	if inf.IsSharded() {
-		sm, err := getShardRemap(b.cn.Context(), b.cn.Conn)
+		ss, err := b.cn.GetShards()
 		if err != nil {
-			return errors.WithMessage(err, "get shard remap")
+			return errors.WithMessage(err, "get shards")
 		}
-		if len(sm) != 0 {
-			meta.ShardRemap = sm
+
+		shards := make(map[string]string)
+		for i := range ss {
+			s := &ss[i]
+			if s.RS != s.ID {
+				shards[s.RS] = s.ID
+			}
+		}
+		if len(shards) != 0 {
+			meta.ShardRemap = shards
 		}
 	}
 
 	return b.cn.SetBackupMeta(meta)
-}
-
-func getShardRemap(ctx context.Context, m *mongo.Client) (map[string]string, error) {
-	shardMap, err := pbm.GetShardMap(ctx, m)
-	if err != nil {
-		return nil, errors.WithMessage(err, "getShardMap")
-	}
-
-	sm := make(map[string]string)
-	for s, uri := range shardMap {
-		if s == "config" {
-			continue // skip configsvr
-		}
-
-		rs, _, _ := strings.Cut(uri, "/")
-		if s != rs {
-			sm[rs] = s
-		}
-	}
-
-	return sm, nil
 }
 
 // Run runs backup.

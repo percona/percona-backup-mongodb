@@ -124,9 +124,14 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 	var shards map[string]string
 	var csvr string
 	if inf.IsSharded() {
-		shards, err = pbm.GetShardMap(cn.Context(), cn.Conn)
+		ss, err := cn.GetShards()
 		if err != nil {
-			return nil, errors.Wrap(err, "get shard map")
+			return nil, errors.WithMessage(err, "get shards")
+		}
+
+		shards = make(map[string]string)
+		for _, s := range ss {
+			shards[s.ID] = s.Host
 		}
 
 		if inf.ReplsetRole() != pbm.RoleConfigSrv {
