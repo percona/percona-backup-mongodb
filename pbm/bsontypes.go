@@ -269,7 +269,7 @@ type MongodOptsSec struct {
 	} `bson:"kmip,omitempty" json:"kmip,omitempty" yaml:"kmip,omitempty"`
 }
 
-type ExternOpts map[string]MongodOptsStorage
+type ExternOpts map[string]MongodOpts
 
 type MongodOptsStorage struct {
 	DirectoryPerDB bool   `bson:"directoryPerDB" json:"directoryPerDB" yaml:"directoryPerDB"`

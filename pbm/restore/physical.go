@@ -58,13 +58,14 @@ type PhysRestore struct {
 	node   *pbm.Node
 	dbpath string
 	// an ephemeral port to restart mongod on during the restore
-	tmpPort int
-	tmpConf *os.File
-	rsConf  *pbm.RSConfig     // original replset config
-	shards  map[string]string // original shards list on config server
-	cfgConn string            // shardIdentity configsvrConnectionString
-	startTS int64
-	secOpts *pbm.MongodOptsSec
+	tmpPort     int
+	tmpConf     *os.File
+	rsConf      *pbm.RSConfig     // original replset config
+	shards      map[string]string // original shards list on config server
+	cfgConn     string            // shardIdentity configsvrConnectionString
+	startTS     int64
+	secOpts     *pbm.MongodOptsSec
+	storageOpts *pbm.MongodOptsStorage
 
 	name      string
 	opid      string
@@ -144,15 +145,16 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 	}
 
 	return &PhysRestore{
-		cn:       cn,
-		node:     node,
-		dbpath:   p,
-		rsConf:   rcf,
-		shards:   shards,
-		cfgConn:  csvr,
-		nodeInfo: inf,
-		tmpPort:  tmpPort,
-		secOpts:  opts.Security,
+		cn:          cn,
+		node:        node,
+		dbpath:      p,
+		rsConf:      rcf,
+		shards:      shards,
+		cfgConn:     csvr,
+		nodeInfo:    inf,
+		tmpPort:     tmpPort,
+		secOpts:     opts.Security,
+		storageOpts: &opts.Storage,
 	}, nil
 }
 
@@ -690,7 +692,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		meta.Type = r.bcp.Type
 	}
 
-	var excfg *pbm.MongodOptsStorage
+	var excfg *pbm.MongodOpts
 	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
 		excfg = &o
 	}
@@ -1567,10 +1569,12 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
-func (r *PhysRestore) setTmpConf(stgopts *pbm.MongodOptsStorage) (err error) {
+func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 	opts := new(pbm.MongodOpts)
-	if stgopts != nil {
-		opts.Storage = *stgopts
+	opts.Storage = *r.storageOpts
+
+	if xopts != nil {
+		opts.Storage = xopts.Storage
 	} else if r.bcp != nil {
 		for _, v := range r.bcp.Replsets {
 			if v.Name == r.nodeInfo.SetName {
