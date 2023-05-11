@@ -123,15 +123,22 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 
 	var shards map[string]string
 	var csvr string
-	if inf.IsConfigSrv() {
-		shards, err = node.GetShardsConfig()
+	if inf.IsSharded() {
+		ss, err := cn.GetShards()
 		if err != nil {
-			return nil, errors.Wrap(err, "get shards list")
+			return nil, errors.WithMessage(err, "get shards")
 		}
-	} else if inf.IsSharded() {
-		csvr, err = node.ConfSvrConn()
-		if err != nil {
-			return nil, errors.Wrap(err, "get configsvrConnectionString")
+
+		shards = make(map[string]string)
+		for _, s := range ss {
+			shards[s.ID] = s.Host
+		}
+
+		if inf.ReplsetRole() != pbm.RoleConfigSrv {
+			csvr, err = node.ConfSvrConn()
+			if err != nil {
+				return nil, errors.Wrap(err, "get configsvrConnectionString")
+			}
 		}
 	}
 
@@ -1014,31 +1021,55 @@ func (r *PhysRestore) resetRS() error {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
 
-		mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
-		ms := []mongo.WriteModel{}
-		for id, host := range r.shards {
-			ms = append(ms, &mongo.UpdateOneModel{
-				Filter: bson.D{{"id", mapRevRS(id)}},
-				Update: bson.D{{"$set", bson.M{"host": host}}},
-			})
+		cur, err := c.Database("config").Collection("shards").Find(ctx, bson.D{})
+		if err != nil {
+			return errors.WithMessage(err, "find: config.shards")
 		}
+
+		var docs []struct {
+			I string         `bson:"_id"`
+			H string         `bson:"host"`
+			R map[string]any `bson:",inline"`
+		}
+		if err := cur.All(ctx, &docs); err != nil {
+			return errors.WithMessage(err, "decode: config.shards")
+		}
+
+		sMap := r.getShardMapping(r.bcp)
+		mapS := pbm.MakeRSMapFunc(sMap)
+		ms := []mongo.WriteModel{&mongo.DeleteManyModel{Filter: bson.D{}}}
+		for _, doc := range docs {
+			doc.I = mapS(doc.I)
+			doc.H = r.shards[doc.I]
+			ms = append(ms, &mongo.InsertOneModel{Document: doc})
+		}
+
 		_, err = c.Database("config").Collection("shards").BulkWrite(ctx, ms)
 		if err != nil {
 			return errors.Wrap(err, "update config.shards")
 		}
 
-		if len(r.rsMap) != 0 {
+		if len(sMap) != 0 {
 			r.log.Debug("updating router config")
-			if err := updateRouterTables(ctx, c, r.rsMap); err != nil {
+			if err := updateRouterTables(ctx, c, sMap); err != nil {
 				return errors.WithMessage(err, "update router tables")
 			}
 		}
 	} else {
+		var currS string
+		for s, uri := range r.shards {
+			rs, _, _ := strings.Cut(uri, "/")
+			if rs == r.nodeInfo.SetName {
+				currS = s
+				break
+			}
+		}
+
 		_, err = c.Database("admin").Collection("system.version").UpdateOne(
 			ctx,
 			bson.D{{"_id", "shardIdentity"}},
 			bson.D{{"$set", bson.M{
-				"shardName":                 r.nodeInfo.SetName,
+				"shardName":                 currS,
 				"configsvrConnectionString": r.cfgConn,
 			}}},
 		)
@@ -1108,6 +1139,31 @@ func (r *PhysRestore) resetRS() error {
 	}
 
 	return nil
+}
+
+func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
+	source := make(map[string]string)
+	if bcp.ShardRemap != nil {
+		for i := range bcp.Replsets {
+			rs := bcp.Replsets[i].Name
+			if s, ok := bcp.ShardRemap[rs]; ok {
+				source[rs] = s
+			}
+		}
+	}
+
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	rv := make(map[string]string)
+	for targetS, uri := range r.shards {
+		targetRS, _, _ := strings.Cut(uri, "/")
+		sourceRS := mapRevRS(targetRS)
+		sourceS, ok := source[sourceRS]
+		if ok && sourceS != targetS {
+			rv[sourceS] = targetS
+		}
+	}
+
+	return rv
 }
 
 // Tries to connect to mongo n times, timeout is applied for each try.

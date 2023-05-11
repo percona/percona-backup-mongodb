@@ -26,13 +26,14 @@ const maxBulkWriteCount = 500
 
 // configsvrRestore restores for selected namespaces
 func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) error {
+	mapS := pbm.MakeRSMapFunc(r.sMap)
 	available, err := fetchAvailability(bcp, r.stg)
 	if err != nil {
 		return err
 	}
 
 	if available[databasesNS] {
-		if err := r.configsvrRestoreDatabases(bcp, nss, mapRS); err != nil {
+		if err := r.configsvrRestoreDatabases(bcp, nss, mapRS, mapS); err != nil {
 			return errors.WithMessage(err, "restore config.databases")
 		}
 	}
@@ -47,7 +48,7 @@ func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.
 	}
 
 	if available[chunksNS] {
-		if err := r.configsvrRestoreChunks(bcp, chunkSelector, mapRS); err != nil {
+		if err := r.configsvrRestoreChunks(bcp, chunkSelector, mapRS, mapS); err != nil {
 			return errors.WithMessage(err, "restore config.chunks")
 		}
 	}
@@ -83,9 +84,31 @@ func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]boo
 	return rv, nil
 }
 
+func (r *Restore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
+	source := bcp.ShardRemap
+	if source == nil {
+		source = make(map[string]string)
+	}
+
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	rv := make(map[string]string)
+	for _, s := range r.shards {
+		sourceRS := mapRevRS(s.RS)
+		sourceS := source[sourceRS]
+		if sourceS == "" {
+			sourceS = sourceRS
+		}
+		if sourceS != s.ID {
+			rv[sourceS] = s.ID
+		}
+	}
+
+	return rv
+}
+
 // configsvrRestoreDatabases upserts config.databases documents
 // for selected databases
-func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) error {
+func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, mapRS, mapS pbm.RSMapFunc) error {
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.databases"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
@@ -128,7 +151,7 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 
 		for i, a := range doc {
 			if a.Key == "primary" {
-				doc[i].Value = mapRS(doc[i].Value.(string))
+				doc[i].Value = mapS(doc[i].Value.(string))
 				break
 			}
 		}
@@ -221,7 +244,7 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 }
 
 // configsvrRestoreChunks upserts config.chunks documents for selected namespaces
-func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.ChunkSelector, mapRS pbm.RSMapFunc) error {
+func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.ChunkSelector, mapRS, mapS pbm.RSMapFunc) error {
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.chunks"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
@@ -266,14 +289,14 @@ func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.Chunk
 			for i, a := range doc {
 				switch a.Key {
 				case "shard":
-					doc[i].Value = mapRS(doc[i].Value.(string))
+					doc[i].Value = mapS(doc[i].Value.(string))
 				case "history":
 					history := doc[i].Value.(bson.A)
 					for j, b := range history {
 						c := b.(bson.D)
 						for k, d := range c {
 							if d.Key == "shard" {
-								c[k].Value = mapRS(d.Value.(string))
+								c[k].Value = mapS(d.Value.(string))
 							}
 						}
 						history[j] = c

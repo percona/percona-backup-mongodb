@@ -59,7 +59,7 @@ func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
 	}
 }
 
-func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMode) error {
+func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, balancer pbm.BalancerMode) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -101,6 +101,24 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, balancer pbm.BalancerMo
 		return errors.WithMessage(err, "get featureCompatibilityVersion")
 	}
 	meta.FCV = fcv
+
+	if inf.IsSharded() {
+		ss, err := b.cn.GetShards()
+		if err != nil {
+			return errors.WithMessage(err, "get shards")
+		}
+
+		shards := make(map[string]string)
+		for i := range ss {
+			s := &ss[i]
+			if s.RS != s.ID {
+				shards[s.RS] = s.ID
+			}
+		}
+		if len(shards) != 0 {
+			meta.ShardRemap = shards
+		}
+	}
 
 	return b.cn.SetBackupMeta(meta)
 }

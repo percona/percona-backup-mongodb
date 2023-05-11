@@ -38,7 +38,12 @@ type Restore struct {
 	//
 	// Only the restore leader would have this info.
 	shards []pbm.Shard
-	rsMap  map[string]string
+	// rsMap is mapping between old and new replset names. used for data restore.
+	// empty if all replset names are the same
+	rsMap map[string]string
+	// sMap is mapping between old and new shard names. used for router config update.
+	// empty if all shard names are the same
+	sMap map[string]string
 
 	oplog *oplog.OplogRestore
 	log   *log.Event
@@ -109,6 +114,10 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	err = r.setShards(bcp)
 	if err != nil {
 		return err
+	}
+
+	if r.nodeInfo.IsConfigSrv() {
+		r.sMap = r.getShardMapping(bcp)
 	}
 
 	dump, oplog, err := r.snapshotObjects(bcp)
@@ -241,6 +250,10 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 
 	if !Contains(bcpShards, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
 		return r.Done() // skip. no backup for current rs
+	}
+
+	if r.nodeInfo.IsConfigSrv() {
+		r.sMap = r.getShardMapping(bcp)
 	}
 
 	chunks, err := r.chunks(bcp.LastWriteTS, tsTo)
@@ -705,13 +718,13 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
-	if len(r.rsMap) == 0 || !r.nodeInfo.IsSharded() {
+	if len(r.sMap) == 0 || !r.nodeInfo.IsSharded() {
 		return nil
 	}
 
 	if r.nodeInfo.IsConfigSrv() {
 		r.log.Debug("updating router config")
-		if err := updateRouterTables(ctx, r.cn.Conn, r.rsMap); err != nil {
+		if err := updateRouterTables(ctx, r.cn.Conn, r.sMap); err != nil {
 			return err
 		}
 	}
@@ -720,23 +733,23 @@ func (r *Restore) updateRouterConfig(ctx context.Context) error {
 	return errors.WithMessage(res.Err(), "flushRouterConfig")
 }
 
-func updateRouterTables(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
-	if err := updateDatabasesRouterTable(ctx, m, rsMap); err != nil {
+func updateRouterTables(ctx context.Context, m *mongo.Client, sMap map[string]string) error {
+	if err := updateDatabasesRouterTable(ctx, m, sMap); err != nil {
 		return errors.WithMessage(err, "databases")
 	}
 
-	if err := updateChunksRouterTable(ctx, m, rsMap); err != nil {
+	if err := updateChunksRouterTable(ctx, m, sMap); err != nil {
 		return errors.WithMessage(err, "chunks")
 	}
 
 	return nil
 }
 
-func updateDatabasesRouterTable(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
+func updateDatabasesRouterTable(ctx context.Context, m *mongo.Client, sMap map[string]string) error {
 	coll := m.Database("config").Collection("databases")
 
-	oldNames := make(primitive.A, 0, len(rsMap))
-	for k := range rsMap {
+	oldNames := make(primitive.A, 0, len(sMap))
+	for k := range sMap {
 		oldNames = append(oldNames, k)
 	}
 
@@ -758,7 +771,7 @@ func updateDatabasesRouterTable(ctx context.Context, m *mongo.Client, rsMap map[
 
 		m := mongo.NewUpdateOneModel()
 		m.SetFilter(primitive.M{"_id": doc.ID})
-		m.SetUpdate(primitive.M{"$set": primitive.M{"primary": rsMap[doc.Primary]}})
+		m.SetUpdate(primitive.M{"$set": primitive.M{"primary": sMap[doc.Primary]}})
 
 		models = append(models, m)
 	}
@@ -773,11 +786,11 @@ func updateDatabasesRouterTable(ctx context.Context, m *mongo.Client, rsMap map[
 	return errors.WithMessage(err, "bulk write")
 }
 
-func updateChunksRouterTable(ctx context.Context, m *mongo.Client, rsMap map[string]string) error {
+func updateChunksRouterTable(ctx context.Context, m *mongo.Client, sMap map[string]string) error {
 	coll := m.Database("config").Collection("chunks")
 
-	oldNames := make(primitive.A, 0, len(rsMap))
-	for k := range rsMap {
+	oldNames := make(primitive.A, 0, len(sMap))
+	for k := range sMap {
 		oldNames = append(oldNames, k)
 	}
 
@@ -801,12 +814,12 @@ func updateChunksRouterTable(ctx context.Context, m *mongo.Client, rsMap map[str
 		}
 
 		updates := primitive.M{}
-		if n, ok := rsMap[doc.Shard]; ok {
+		if n, ok := sMap[doc.Shard]; ok {
 			updates["shard"] = n
 		}
 
 		for i, h := range doc.History {
-			if n, ok := rsMap[h.Shard]; ok {
+			if n, ok := sMap[h.Shard]; ok {
 				updates[fmt.Sprintf("history.%d.shard", i)] = n
 			}
 		}

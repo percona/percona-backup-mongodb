@@ -108,7 +108,7 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 				balancer = pbm.BalancerModeOn
 			}
 		}
-		err = bcp.Init(cmd, opid, balancer)
+		err = bcp.Init(cmd, opid, nodeInfo, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
