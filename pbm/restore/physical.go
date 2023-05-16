@@ -1864,7 +1864,6 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	fl := make(map[string]pbm.Shard, len(s))
 	for _, rs := range s {
 		fl[mapRevRS(rs.RS)] = rs
-		// r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
 	var nors []string
