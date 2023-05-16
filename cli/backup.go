@@ -274,6 +274,8 @@ type bcpDesc struct {
 type bcpReplDesc struct {
 	Name               string             `json:"name" yaml:"name"`
 	Status             pbm.Status         `json:"status" yaml:"status"`
+	Node               string             `json:"node" yaml:"node"`
+	Files              []pbm.File         `json:"files,omitempty" yaml:"-"`
 	LastWriteTS        int64              `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64              `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string             `json:"last_write_time" yaml:"last_write_time"`
@@ -354,6 +356,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	for i, r := range bcp.Replsets {
 		rv.Replsets[i] = bcpReplDesc{
 			Name:               r.Name,
+			Node:               r.Node,
 			IsConfigSvr:        r.IsConfigSvr,
 			Status:             r.Status,
 			LastWriteTS:        int64(r.LastWriteTS.T),
@@ -366,6 +369,9 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		}
 		if r.MongodOpts != nil && r.MongodOpts.Security != nil {
 			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
+		}
+		if bcp.Type == pbm.ExternalBackup {
+			rv.Replsets[i].Files = r.Files
 		}
 	}
 
