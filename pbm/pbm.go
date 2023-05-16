@@ -497,6 +497,11 @@ type BackupMeta struct {
 	// Empty means this is a full backup (and a base for further incremental bcps).
 	SrcBackup string `bson:"src_backup,omitempty" json:"src_backup,omitempty"`
 
+	// ShardRemap is map of replset to shard names.
+	// If shard name is different from replset name, it will be stored in the map.
+	// If all shard names are the same as their replset names, the map is nil.
+	ShardRemap map[string]string `bson:"shardRemap,omitempty" json:"shardRemap,omitempty"`
+
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`

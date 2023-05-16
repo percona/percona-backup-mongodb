@@ -95,9 +95,11 @@ type PhysRestore struct {
 	stopHB chan struct{}
 
 	log *log.Event
+
+	rsMap map[string]string
 }
 
-func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, error) {
+func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[string]string) (*PhysRestore, error) {
 	opts, err := node.GetOpts(nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo options")
@@ -123,15 +125,22 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 
 	var shards map[string]string
 	var csvr string
-	if inf.IsConfigSrv() {
-		shards, err = node.GetShardsConfig()
+	if inf.IsSharded() {
+		ss, err := cn.GetShards()
 		if err != nil {
-			return nil, errors.Wrap(err, "get shards list")
+			return nil, errors.WithMessage(err, "get shards")
 		}
-	} else if inf.IsSharded() {
-		csvr, err = node.ConfSvrConn()
-		if err != nil {
-			return nil, errors.Wrap(err, "get configsvrConnectionString")
+
+		shards = make(map[string]string)
+		for _, s := range ss {
+			shards[s.ID] = s.Host
+		}
+
+		if inf.ReplsetRole() != pbm.RoleConfigSrv {
+			csvr, err = node.ConfSvrConn()
+			if err != nil {
+				return nil, errors.Wrap(err, "get configsvrConnectionString")
+			}
 		}
 	}
 
@@ -155,6 +164,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo) (*PhysRestore, 
 		tmpPort:     tmpPort,
 		secOpts:     opts.Security,
 		storageOpts: &opts.Storage,
+		rsMap:       rsMap,
 	}, nil
 }
 
@@ -614,6 +624,7 @@ func (l *logBuff) flush() error {
 
 	return nil
 }
+
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
 	defer l.mx.Unlock()
@@ -1002,11 +1013,13 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
+
+	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	cpbuf := make([]byte, 32*1024)
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, r.nodeInfo.SetName, f.Name+set.Cmpr.Suffix())
+			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
@@ -1220,45 +1233,72 @@ func (r *PhysRestore) resetRS() error {
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
-		for id, host := range r.shards {
-			_, err = c.Database("config").Collection("shards").UpdateOne(
-				ctx,
-				bson.D{{"_id", id}},
-				bson.D{
-					{"$set", bson.M{"host": host}},
-				},
-			)
 
-			if err != nil {
-				return errors.Wrapf(err, "update config.shards for %s %s", id, host)
+		cur, err := c.Database("config").Collection("shards").Find(ctx, bson.D{})
+		if err != nil {
+			return errors.WithMessage(err, "find: config.shards")
+		}
+
+		var docs []struct {
+			I string         `bson:"_id"`
+			H string         `bson:"host"`
+			R map[string]any `bson:",inline"`
+		}
+		if err := cur.All(ctx, &docs); err != nil {
+			return errors.WithMessage(err, "decode: config.shards")
+		}
+
+		sMap := r.getShardMapping(r.bcp)
+		mapS := pbm.MakeRSMapFunc(sMap)
+		ms := []mongo.WriteModel{&mongo.DeleteManyModel{Filter: bson.D{}}}
+		for _, doc := range docs {
+			doc.I = mapS(doc.I)
+			doc.H = r.shards[doc.I]
+			ms = append(ms, &mongo.InsertOneModel{Document: doc})
+		}
+
+		_, err = c.Database("config").Collection("shards").BulkWrite(ctx, ms)
+		if err != nil {
+			return errors.Wrap(err, "update config.shards")
+		}
+
+		if len(sMap) != 0 {
+			r.log.Debug("updating router config")
+			if err := updateRouterTables(ctx, c, sMap); err != nil {
+				return errors.WithMessage(err, "update router tables")
 			}
 		}
 	} else {
+		var currS string
+		for s, uri := range r.shards {
+			rs, _, _ := strings.Cut(uri, "/")
+			if rs == r.nodeInfo.SetName {
+				currS = s
+				break
+			}
+		}
+
 		_, err = c.Database("admin").Collection("system.version").UpdateOne(
 			ctx,
 			bson.D{{"_id", "shardIdentity"}},
-			bson.D{
-				{"$set", bson.M{"configsvrConnectionString": r.cfgConn}},
-			},
+			bson.D{{"$set", bson.M{
+				"shardName":                 currS,
+				"configsvrConnectionString": r.cfgConn,
+			}}},
 		)
 		if err != nil {
 			return errors.Wrap(err, "update shardIdentity in admin.system.version")
 		}
 	}
 
-	err = c.Database("config").Collection("cache.collections").Drop(ctx)
+	colls, err := c.Database("config").ListCollectionNames(ctx, bson.D{{"name", bson.M{"$regex": `^cache\.`}}})
 	if err != nil {
-		return errors.Wrap(err, "drop config.cache.collections")
+		return errors.WithMessage(err, "list cache collections")
 	}
-
-	err = c.Database("config").Collection("cache.databases").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.databases")
-	}
-
-	err = c.Database("config").Collection("cache.chunks.config.system.sessions").Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "drop config.cache.chunks.config.system.sessions")
+	for _, coll := range colls {
+		if err := c.Database("config").Collection(coll).Drop(ctx); err != nil {
+			return errors.Wrapf(err, "drop %q", coll)
+		}
 	}
 
 	const retry = 5
@@ -1289,7 +1329,7 @@ func (r *PhysRestore) resetRS() error {
 		},
 	)
 	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
 	}
 
 	// PITR should be turned off after the physical restore. Otherwise, slicing resumes
@@ -1312,6 +1352,31 @@ func (r *PhysRestore) resetRS() error {
 	}
 
 	return nil
+}
+
+func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
+	source := make(map[string]string)
+	if bcp.ShardRemap != nil {
+		for i := range bcp.Replsets {
+			rs := bcp.Replsets[i].Name
+			if s, ok := bcp.ShardRemap[rs]; ok {
+				source[rs] = s
+			}
+		}
+	}
+
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	rv := make(map[string]string)
+	for targetS, uri := range r.shards {
+		targetRS, _, _ := strings.Cut(uri, "/")
+		sourceRS := mapRevRS(targetRS)
+		sourceS, ok := source[sourceRS]
+		if ok && sourceS != targetS {
+			rv[sourceS] = targetS
+		}
+	}
+
+	return rv
 }
 
 // Tries to connect to mongo n times, timeout is applied for each try.
@@ -1572,12 +1637,12 @@ func (r *PhysRestore) checkHB(file string) error {
 func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 	opts := new(pbm.MongodOpts)
 	opts.Storage = *r.storageOpts
-
 	if xopts != nil {
 		opts.Storage = xopts.Storage
 	} else if r.bcp != nil {
+		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 		for _, v := range r.bcp.Replsets {
-			if v.Name == r.nodeInfo.SetName {
+			if v.Name == setName {
 				if v.MongodOpts != nil {
 					opts.Storage = v.MongodOpts.Storage
 				}
@@ -1630,9 +1695,10 @@ const bcpDir = "__dir__"
 func (r *PhysRestore) setBcpFiles() (err error) {
 	bcp := r.bcp
 
-	rs := getRS(bcp, r.nodeInfo.SetName)
+	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	rs := getRS(bcp, setName)
 	if rs == nil {
-		return errors.Errorf("no data in the backup for the replica set %s", r.nodeInfo.SetName)
+		return errors.Errorf("no data in the backup for the replica set %s", setName)
 	}
 
 	targetFiles := make(map[string]bool)
@@ -1673,7 +1739,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
 		}
-		rs = getRS(bcp, r.nodeInfo.SetName)
+		rs = getRS(bcp, setName)
 	}
 
 	// Directories only. Incremental $backupCusor returns collections that
@@ -1794,9 +1860,11 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Wrap(err, "get cluster members")
 	}
 
+	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 	fl := make(map[string]pbm.Shard, len(s))
 	for _, rs := range s {
-		fl[rs.RS] = rs
+		fl[mapRevRS(rs.RS)] = rs
+		// r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
 	var nors []string
@@ -1810,9 +1878,10 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
 	}
 
+	setName := mapRevRS(r.nodeInfo.SetName)
 	var ok bool
 	for _, v := range r.bcp.Replsets {
-		if v.Name == r.nodeInfo.SetName {
+		if v.Name == setName {
 			ok = true
 			break
 		}

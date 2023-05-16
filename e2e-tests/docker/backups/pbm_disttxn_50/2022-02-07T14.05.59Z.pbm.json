@@ -1,6 +1,7 @@
 {
 	"opid": "62012747a5255edf83f0a6e9",
 	"name": "2022-02-07T14:05:59Z",
+    "type": "logical",
 	"replsets": [
 		{
 			"name": "rs2",

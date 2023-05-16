@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -727,8 +728,9 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
 		var bcplastWrite *primitive.Timestamp
 
-		for _, bcp := range bcps {
-			if bcp.Error() != nil {
+		for i := range bcps {
+			bcp := &bcps[i]
+			if !isValidBaseSnapshot(bcp) {
 				continue
 			}
 
@@ -744,6 +746,28 @@ func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMa
 	}
 
 	return &pitrRanges{Ranges: pr, Size: size}, nil
+}
+
+func isValidBaseSnapshot(bcp *pbm.BackupMeta) bool {
+	if bcp.Status != pbm.StatusDone || sel.IsSelective(bcp.Namespaces) {
+		return false
+	}
+
+	err := bcp.Error()
+	if err == nil {
+		return true
+	}
+
+	switch err.(type) {
+	case errMissedReplsets, errIncompatibleFCVVersion:
+		return true
+	case errIncompatibleMongodVersion:
+		if bcp.Type == pbm.LogicalBackup {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {

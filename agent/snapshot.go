@@ -110,7 +110,7 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 				balancer = pbm.BalancerModeOn
 			}
 		}
-		err = bcp.Init(cmd, opid, balancer)
+		err = bcp.Init(cmd, opid, nodeInfo, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
@@ -401,7 +401,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 		return errors.Wrap(err, "get node info")
 	}
 
-	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo)
+	rstr, err := restore.NewPhysical(a.pbm, a.node, nodeInfo, r.RSMap)
 	if err != nil {
 		return errors.Wrap(err, "init physical backup")
 	}
