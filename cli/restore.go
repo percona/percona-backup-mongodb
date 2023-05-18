@@ -115,7 +115,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		if err != nil {
 			return nil, err
 		}
-		if o.extern {
+		if o.extern && outf == outText {
 			err = waitRestore(cn, m, pbm.StatusCopyReady, tdiff)
 			if err != nil {
 				return nil, errors.Wrap(err, "waiting for the `copyReady` status")
