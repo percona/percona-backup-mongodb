@@ -87,7 +87,6 @@ type PhysRestore struct {
 	syncPathCluster  string
 	syncPathPeers    map[string]struct{}
 	// Shards to participate in restore.
-	// Only the restore leader would have this info.
 	syncPathShards map[string]struct{}
 	// Non-ConfigServer shards
 	syncPathDataShards map[string]struct{}
@@ -1530,23 +1529,30 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
 	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
 	r.syncPathPeers = make(map[string]struct{})
-	r.syncPathShards = map[string]struct{}{r.syncPathRS: {}}
 	for _, m := range r.rsConf.Members {
 		if !m.ArbiterOnly {
 			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
 		}
 	}
-	if r.nodeInfo.IsConfigSrv() {
-		sh, err := r.cn.GetShards()
-		if err != nil {
-			return errors.Wrap(err, "get data shards")
-		}
-		r.syncPathDataShards = make(map[string]struct{})
-		for _, s := range sh {
-			p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
-			r.syncPathDataShards[p] = struct{}{}
-			r.syncPathShards[p] = struct{}{}
-		}
+
+	r.syncPathShards = make(map[string]struct{})
+	dsh, err := r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get  shards")
+	}
+	for _, s := range dsh {
+		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
+		r.syncPathShards[p] = struct{}{}
+	}
+
+	r.syncPathDataShards = make(map[string]struct{})
+	sh, err := r.cn.GetShards()
+	if err != nil {
+		return errors.Wrap(err, "get data shards")
+	}
+	for _, s := range sh {
+		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
+		r.syncPathDataShards[p] = struct{}{}
 	}
 
 	err = r.hb()
