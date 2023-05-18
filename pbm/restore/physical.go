@@ -772,9 +772,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	if cmd.External {
 		_, err = r.toState(pbm.StatusCopyReady)
 		if err != nil {
-			if err != nil {
-				return errors.Wrapf(err, "moving to state %s", pbm.StatusCopyReady)
-			}
+			return errors.Wrapf(err, "moving to state %s", pbm.StatusCopyReady)
 		}
 
 		l.Info("waiting for the datadir to be copied")
@@ -800,56 +798,11 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	}
 
 	if r.restoreTS.T == 0 {
-		cts, err := r.getLasOpTime()
+		l.Info("restore timestamp isn't set, get latest common for cluster")
+		r.restoreTS, err = r.agreeCommonRestoreTS()
 		if err != nil {
-			return errors.Wrap(err, "define last op time")
+			return errors.Wrap(err, "get common restore timestamp")
 		}
-
-		bts := bytes.NewReader([]byte(
-			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I),
-		))
-		// saving straight for RS as backup for nodes in the RS the same,
-		// hence TS would be the same as well
-		err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusExtTS), bts, -1)
-		if err != nil {
-			return errors.Wrap(err, "write RS timestamp")
-		}
-
-		if r.nodeInfo.IsClusterLeader() {
-			_, err := r.waitFiles(pbm.StatusExtTS, copyMap(r.syncPathShards), true)
-			if err != nil {
-				return errors.Wrap(err, "wait for shards timestamp")
-			}
-			var mints primitive.Timestamp
-			for sh := range r.syncPathShards {
-				ts, err := r.getTSFromSyncFile(sh)
-				if err != nil {
-					return errors.Wrapf(err, "get timestamp for RS %s", sh)
-				}
-
-				if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
-					mints = ts
-				}
-			}
-			bts := bytes.NewReader([]byte(
-				fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
-			))
-			err = r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusExtTS), bts, -1)
-			if err != nil {
-				return errors.Wrap(err, "write")
-			}
-		}
-
-		_, err = r.waitFiles(pbm.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
-		if err != nil {
-			return errors.Wrap(err, "wait for cluster timestamp")
-		}
-
-		r.restoreTS, err = r.getTSFromSyncFile(r.syncPathCluster)
-		if err != nil {
-			return errors.Wrapf(err, "get cluster timestamp")
-		}
-
 	}
 
 	l.Info("preparing data")
@@ -1377,6 +1330,60 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 	}
 
 	return rv
+}
+
+func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error) {
+	cts, err := r.getLasOpTime()
+	if err != nil {
+		return ts, errors.Wrap(err, "define last op time")
+	}
+
+	bts := bytes.NewReader([]byte(
+		fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I),
+	))
+	// saving straight for RS as backup for nodes in the RS the same,
+	// hence TS would be the same as well
+	err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusExtTS), bts, -1)
+	if err != nil {
+		return ts, errors.Wrap(err, "write RS timestamp")
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		_, err := r.waitFiles(pbm.StatusExtTS, copyMap(r.syncPathShards), true)
+		if err != nil {
+			return ts, errors.Wrap(err, "wait for shards timestamp")
+		}
+		var mints primitive.Timestamp
+		for sh := range r.syncPathShards {
+			ts, err := r.getTSFromSyncFile(sh)
+			if err != nil {
+				return ts, errors.Wrapf(err, "get timestamp for RS %s", sh)
+			}
+
+			if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
+				mints = ts
+			}
+		}
+		bts := bytes.NewReader([]byte(
+			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
+		))
+		err = r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusExtTS), bts, -1)
+		if err != nil {
+			return ts, errors.Wrap(err, "write")
+		}
+	}
+
+	_, err = r.waitFiles(pbm.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
+	if err != nil {
+		return ts, errors.Wrap(err, "wait for cluster timestamp")
+	}
+
+	ts, err = r.getTSFromSyncFile(r.syncPathCluster)
+	if err != nil {
+		return ts, errors.Wrapf(err, "get cluster timestamp")
+	}
+
+	return ts, nil
 }
 
 // Tries to connect to mongo n times, timeout is applied for each try.

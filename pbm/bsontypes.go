@@ -303,20 +303,9 @@ func (stg *MongodOptsStorage) setDefaults() {
 }
 
 func (stg *MongodOptsStorage) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// n := NewMongodOptsStorage()
-	// err := unmarshal(n)
-	// if err != nil {
-	// 	return errors.Wrap(err, "unmarshal")
-	// }
-
 	stg.setDefaults()
 	type rawStg MongodOptsStorage
 	return unmarshal((*rawStg)(stg))
-
-	// type rawUser User
-	// if err := unmarshal((*rawUser)(u)); err != nil {
-	//   return err
-	// }
 }
 
 type RSConfig struct {
