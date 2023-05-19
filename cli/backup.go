@@ -174,7 +174,8 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 }
 
 func runFinishBcp(cn *pbm.PBM, bcp string) (fmt.Stringer, error) {
-	return outMsg{}, cn.ChangeBackupState(bcp, pbm.StatusCopyDone, "")
+	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
+		cn.ChangeBackupState(bcp, pbm.StatusCopyDone, "")
 }
 
 func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status pbm.Status) (*pbm.Status, error) {
