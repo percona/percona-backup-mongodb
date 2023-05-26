@@ -58,14 +58,13 @@ type PhysRestore struct {
 	node   *pbm.Node
 	dbpath string
 	// an ephemeral port to restart mongod on during the restore
-	tmpPort     int
-	tmpConf     *os.File
-	rsConf      *pbm.RSConfig     // original replset config
-	shards      map[string]string // original shards list on config server
-	cfgConn     string            // shardIdentity configsvrConnectionString
-	startTS     int64
-	secOpts     *pbm.MongodOptsSec
-	storageOpts *pbm.MongodOptsStorage
+	tmpPort int
+	tmpConf *os.File
+	rsConf  *pbm.RSConfig     // original replset config
+	shards  map[string]string // original shards list on config server
+	cfgConn string            // shardIdentity configsvrConnectionString
+	startTS int64
+	secOpts *pbm.MongodOptsSec
 
 	name      string
 	opid      string
@@ -153,17 +152,16 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 	}
 
 	return &PhysRestore{
-		cn:          cn,
-		node:        node,
-		dbpath:      p,
-		rsConf:      rcf,
-		shards:      shards,
-		cfgConn:     csvr,
-		nodeInfo:    inf,
-		tmpPort:     tmpPort,
-		secOpts:     opts.Security,
-		storageOpts: &opts.Storage,
-		rsMap:       rsMap,
+		cn:       cn,
+		node:     node,
+		dbpath:   p,
+		rsConf:   rcf,
+		shards:   shards,
+		cfgConn:  csvr,
+		nodeInfo: inf,
+		tmpPort:  tmpPort,
+		secOpts:  opts.Security,
+		rsMap:    rsMap,
 	}, nil
 }
 
@@ -1649,7 +1647,7 @@ func (r *PhysRestore) checkHB(file string) error {
 
 func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 	opts := new(pbm.MongodOpts)
-	opts.Storage = *r.storageOpts
+	opts.Storage = *pbm.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
 	} else if r.bcp != nil {
