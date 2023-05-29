@@ -1306,7 +1306,7 @@ func (r *PhysRestore) resetRS() error {
 
 func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 	source := make(map[string]string)
-	if bcp.ShardRemap != nil {
+	if bcp != nil && bcp.ShardRemap != nil {
 		for i := range bcp.Replsets {
 			rs := bcp.Replsets[i].Name
 			if s, ok := bcp.ShardRemap[rs]; ok {
