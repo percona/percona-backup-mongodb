@@ -201,7 +201,12 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		r.log.Debug("rm tmp logs")
 		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
 		if err != nil {
-			r.log.Error("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
+			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
+		}
+		extMeta := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
+		err = os.Remove(extMeta)
+		if err != nil && err != os.ErrNotExist {
+			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
 		r.log.Debug("clean-up dbpath")
@@ -648,6 +653,14 @@ func (l *logBuff) Flush() error {
 //   - Starts standalone mongod to recover oplog from journals.
 //   - Cleans up data and resets replicaset config to the working state.
 //   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
+//
+// An External restore doesn't need to have specified backup. It will look
+// for the replset metadata in the datadir after data is copied. And take
+// all needed inputs from there (restoreTS, files list, and mongod config).
+// The user may also specify restoreTS and a mongod config via CLI. The priority:
+// - CLI provided values
+// - replset metada in the datadir
+// - backup meta
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
@@ -698,15 +711,6 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		meta.Type = pbm.ExternalBackup
 	} else {
 		meta.Type = r.bcp.Type
-	}
-
-	var excfg *pbm.MongodOpts
-	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
-		excfg = &o
-	}
-	err = r.setTmpConf(excfg)
-	if err != nil {
-		return errors.Wrap(err, "set tmp config")
 	}
 
 	if meta.Type == pbm.IncrementalBackup {
@@ -766,6 +770,8 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
+	var excfg *pbm.MongodOpts
+
 	if cmd.External {
 		_, err = r.toState(pbm.StatusCopyReady)
 		if err != nil {
@@ -778,7 +784,28 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 			return errors.Wrapf(err, "check %s state", pbm.StatusCopyDone)
 		}
 
-		err = r.cleanupDatadir()
+		// try to read replset meta from the backup and use its data
+		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+		rsMetaF := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, setName))
+		conff, err := os.Open(rsMetaF)
+		var needFiles []pbm.File
+		if err == nil {
+			rsMeta := new(pbm.BackupReplset)
+			err := json.NewDecoder(conff).Decode(rsMeta)
+			if err != nil {
+				return errors.Wrap(err, "decode replset meta from the backup")
+			}
+			l.Debug("got rs meta from the backup")
+			if r.restoreTS.T == 0 {
+				r.restoreTS = rsMeta.LastWriteTS
+			}
+			excfg = rsMeta.MongodOpts
+			needFiles = rsMeta.Files
+		} else {
+			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
+		}
+
+		err = r.cleanupDatadir(needFiles)
 		if err != nil {
 			return errors.Wrap(err, "cleanup datadir")
 		}
@@ -794,8 +821,16 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		}
 	}
 
+	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
+		excfg = &o
+	}
+	err = r.setTmpConf(excfg)
+	if err != nil {
+		return errors.Wrap(err, "set tmp config")
+	}
+
 	if r.restoreTS.T == 0 {
-		l.Info("restore timestamp isn't set, get latest common for cluster")
+		l.Info("restore timestamp isn't set, get latest common ts for the cluster")
 		r.restoreTS, err = r.agreeCommonRestoreTS()
 		if err != nil {
 			return errors.Wrap(err, "get common restore timestamp")
@@ -849,24 +884,33 @@ var rmFromDatadir = map[string]struct{}{
 }
 
 // removes obsolete files from the datadir
-func (r *PhysRestore) cleanupDatadir() error {
-	rm := func(f string) bool {
-		_, ok := rmFromDatadir[f]
-		return ok
-	}
-	if r.bcp != nil {
-		m := make(map[string]struct{})
+func (r *PhysRestore) cleanupDatadir(bcpFiles []pbm.File) error {
+	var rm func(f string) bool
+
+	needFiles := bcpFiles
+	if needFiles == nil && r.bcp != nil {
 		rs := getRS(r.bcp, r.nodeInfo.SetName)
 		if rs != nil {
-			for _, f := range rs.Files {
-				m[f.Name] = struct{}{}
-			}
-			rm = func(f string) bool {
-				_, ok := m[f]
-				return !ok
-			}
+			needFiles = rs.Files
 		}
 	}
+
+	if needFiles != nil {
+		m := make(map[string]struct{})
+		for _, f := range needFiles {
+			m[f.Name] = struct{}{}
+		}
+		rm = func(f string) bool {
+			_, ok := m[f]
+			return !ok
+		}
+	} else {
+		rm = func(f string) bool {
+			_, ok := rmFromDatadir[f]
+			return ok
+		}
+	}
+
 	dbpath := path.Clean(r.dbpath) + "/"
 	return filepath.Walk(dbpath, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -1329,6 +1373,12 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 	return rv
 }
 
+// in case restore-to-time isn't specified (external restore w/o backup
+// and --ts provided) the cluster will agree on the latest common ts. Each
+// node will pick the ts of the last event in the oplog. Each replset will
+// pick the oldest ts and put it as the reples ts. And the cluster will
+// pick the oldest ts proposed by replsets. All comms done via storage. Similar
+// to the restore states with proposed ts in *.lastTS files.
 func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error) {
 	cts, err := r.getLasOpTime()
 	if err != nil {
