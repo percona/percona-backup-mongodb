@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -275,29 +276,28 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		l.Error("get node info: %v", err)
 		return
 	}
-	if !nodeInfo.IsPrimary {
-		l.Info("Node in not suitable for restore")
-		return
-	}
 
-	epts := ep.TS()
-	lock := a.pbm.NewLock(pbm.LockHeader{
-		Type:    pbm.CmdPITRestore,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
-		OPID:    opid.String(),
-		Epoch:   &epts,
-	})
+	var lock *pbm.Lock
+	if nodeInfo.IsPrimary {
+		epts := ep.TS()
+		lock = a.pbm.NewLock(pbm.LockHeader{
+			Type:    pbm.CmdPITRestore,
+			Replset: nodeInfo.SetName,
+			Node:    nodeInfo.Me,
+			OPID:    opid.String(),
+			Epoch:   &epts,
+		})
 
-	got, err := a.acquireLock(lock, l, nil)
-	if err != nil {
-		l.Error("acquiring lock: %v", err)
-		return
-	}
-	if !got {
-		l.Debug("skip: lock not acquired")
-		l.Error("unable to run the restore while another backup or restore process running")
-		return
+		got, err := a.acquireLock(lock, l, nil)
+		if err != nil {
+			l.Error("acquiring lock: %v", err)
+			return
+		}
+		if !got {
+			l.Debug("skip: lock not acquired")
+			l.Error("unable to run the restore while another backup or restore process running")
+			return
+		}
 	}
 
 	defer func() {
@@ -307,8 +307,49 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 	}()
 
+	stg, err := a.pbm.GetStorage(l)
+	if err != nil {
+		l.Error("get storage: %v", err)
+		return
+	}
+	ts := primitive.Timestamp{T: uint32(r.TS), I: uint32(r.I)}
+	bcp, err := restore.GetBaseBackup(a.pbm, r.Bcp, ts, stg)
+	if err != nil {
+		l.Error("define base backup: %v", err)
+		return
+	}
+
 	l.Info("recovery started")
-	err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
+	switch bcp.Type {
+	case pbm.LogicalBackup:
+		if !nodeInfo.IsPrimary {
+			l.Info("Node in not suitable for restore")
+			return
+		}
+		err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
+	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+		if lock != nil {
+			// Don't care about errors. Anyway, the lock gonna disappear after the
+			// restore. And the commands stream is down as well.
+			// The lock also updates its heartbeats but Restore waits only for one state
+			// with the timeout twice as short pbm.StaleFrameSec.
+			lock.Release()
+		}
+
+		var rstr *restore.PhysRestore
+		rstr, err = restore.NewPhysical(a.pbm, a.node, nodeInfo, r.RSMap)
+		if err != nil {
+			l.Error("init physical backup: %v", err)
+			return
+		}
+
+		err = rstr.Snapshot(&pbm.RestoreCmd{
+			Name:       r.Name,
+			BackupName: bcp.Name,
+			Namespaces: r.Namespaces,
+			RSMap:      r.RSMap,
+		}, &ts, opid, l, a.closeCMD, a.HbPause)
+	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no data for the shard in backup, skipping")

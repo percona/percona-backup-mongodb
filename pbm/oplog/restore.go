@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
@@ -87,7 +88,7 @@ var dontPreserveUUID = []string{
 
 // OplogRestore is the oplog applyer
 type OplogRestore struct {
-	dst               *pbm.Node
+	dst               *mongo.Client
 	ver               *db.Version
 	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
@@ -116,7 +117,7 @@ type OplogRestore struct {
 }
 
 // NewOplogRestore creates an object for an oplog applying
-func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
+func NewOplogRestore(dst *mongo.Client, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -684,7 +685,7 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 // applyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (o *OplogRestore) applyOps(entries []interface{}) error {
-	singleRes := o.dst.Session().Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
+	singleRes := o.dst.Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
 	if err := singleRes.Err(); err != nil {
 		return errors.Wrap(err, "applyOps")
 	}

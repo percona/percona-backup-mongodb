@@ -430,7 +430,7 @@ func (a *Agent) restorePhysical(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch, 
 	}
 
 	l.Info("restore started")
-	err = rstr.Snapshot(r, opid, l, a.closeCMD, a.HbPause)
+	err = rstr.Snapshot(r, nil, opid, l, a.closeCMD, a.HbPause)
 	l.Info("restore finished %v", err)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {

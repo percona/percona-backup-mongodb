@@ -86,7 +86,7 @@ func (r *Restore) exit(err error, l *log.Event) {
 func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
-	bcp, err := r.SnapshotMeta(cmd.BackupName)
+	bcp, err := SnapshotMeta(r.cn, cmd.BackupName, r.stg)
 	if err != nil {
 		return err
 	}
@@ -197,23 +197,9 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 	}
 
 	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
-	var bcp *pbm.BackupMeta
-	if cmd.Bcp == "" {
-		bcp, err = r.cn.GetLastBackup(&tsTo)
-		if errors.Is(err, pbm.ErrNotFound) {
-			return errors.Errorf("no backup found before ts %v", tsTo)
-		}
-		if err != nil {
-			return errors.Wrap(err, "define last backup")
-		}
-	} else {
-		bcp, err = r.SnapshotMeta(cmd.Bcp)
-		if err != nil {
-			return err
-		}
-		if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
-			return errors.New("snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
-		}
+	bcp, err := GetBaseBackup(r.cn, cmd.Bcp, tsTo, r.stg)
+	if err != nil {
+		return errors.Wrap(err, "get base backup")
 	}
 
 	nss := cmd.Namespaces
@@ -344,7 +330,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		return r.Done() // skip. no oplog for current rs
 	}
 
-	chunks, err := r.chunks(cmd.Start, cmd.End)
+	opChunks, err := r.chunks(cmd.Start, cmd.End)
 	if err != nil {
 		return err
 	}
@@ -359,7 +345,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		end:    &cmd.End,
 		unsafe: true,
 	}
-	if err = r.applyOplog(chunks, &oplogOption); err != nil {
+	if err = r.applyOplog(opChunks, &oplogOption); err != nil {
 		return err
 	}
 
@@ -473,46 +459,19 @@ func (r *Restore) checkTopologyForOplog(ctx context.Context, currShards []pbm.Sh
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error) {
-	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
-	chunks, err := r.cn.PITRGetChunksSlice(mapRevRS(r.nodeInfo.SetName), from, to)
-	if err != nil {
-		return nil, errors.Wrap(err, "get chunks index")
-	}
-
-	if len(chunks) == 0 {
-		return nil, errors.New("no chunks found")
-	}
-
-	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, to) == -1 {
-		return nil, errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
-	}
-
-	last := from
-	for _, c := range chunks {
-		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
-			return nil, errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
-		}
-		last = c.EndTS
-
-		_, err := r.stg.FileStat(c.FName)
-		if err != nil {
-			return nil, errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
-		}
-	}
-
-	return chunks, nil
+	return chunks(r.cn, r.stg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
-func (r *Restore) SnapshotMeta(backupName string) (bcp *pbm.BackupMeta, err error) {
-	bcp, err = r.cn.GetBackupMeta(backupName)
+func SnapshotMeta(cn *pbm.PBM, backupName string, stg storage.Storage) (bcp *pbm.BackupMeta, err error) {
+	bcp, err = cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
-		bcp, err = GetMetaFromStore(r.stg, backupName)
+		bcp, err = GetMetaFromStore(stg, backupName)
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup metadata")
 	}
 
-	return bcp, err
+	return bcp, nil
 }
 
 // setShards defines and set shards participating in the restore
@@ -933,7 +892,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		txnSyncErr = make(chan error)
 	}
 
-	r.oplog, err = oplog.NewOplogRestore(r.node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	r.oplog, err = oplog.NewOplogRestore(r.node.Session(), mgoV, options.unsafe, true, ctxn, txnSyncErr)
 	if err != nil {
 		return errors.Wrap(err, "create oplog")
 	}

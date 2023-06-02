@@ -616,7 +616,7 @@ func (l *logBuff) Flush() error {
 //   - Starts standalone mongod to recover oplog from journals.
 //   - Cleans up data and resets replicaset config to the working state.
 //   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -653,6 +653,15 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		return err
 	}
 	meta.Type = r.bcp.Type
+
+	var opChunks []pbm.OplogChunk
+	if pitr != nil {
+		opChunks, err = chunks(r.cn, r.stg, r.bcp.LastWriteTS, *pitr, r.rsConf.ID, r.rsMap)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = r.setTmpConf()
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
@@ -735,6 +744,20 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	err = r.recoverStandalone()
 	if err != nil {
 		return errors.Wrap(err, "recover oplog as standalone")
+	}
+
+	if pitr != nil {
+		l.Info("replaying pitr oplog")
+		err = r.replayOplog(r.bcp.LastWriteTS, *pitr, opChunks)
+		if err != nil {
+			return errors.Wrap(err, "replay pitr oplog")
+		}
+
+		l.Info("recovering oplog as standalone")
+		err = r.recoverStandalone()
+		if err != nil {
+			return errors.Wrap(err, "recover oplog as standalone")
+		}
 	}
 
 	l.Info("clean-up and reset replicaset config")
@@ -986,6 +1009,77 @@ func (r *PhysRestore) recoverStandalone() error {
 	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	return nil
+}
+
+func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk) error {
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+		pbm.RSConfig{
+			ID:      r.rsConf.ID,
+			CSRS:    r.nodeInfo.IsConfigSrv(),
+			Version: 1,
+			Members: []pbm.RSMember{{
+				ID:           0,
+				Host:         "localhost:" + strconv.Itoa(r.tmpPort),
+				Votes:        1,
+				Priority:     1,
+				BuildIndexes: true,
+			}},
+		},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	err = r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--replSet", r.rsConf.ID)
+	if err != nil {
+		return errors.Wrap(err, "start mongo as rs")
+	}
+
+	c, err = tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo rs")
+	}
+
+	mgoV, err := pbm.GetMongoVersion(ctx, c)
+	if err != nil || len(mgoV.Version) < 1 {
+		return errors.Wrap(err, "define mongo version")
+	}
+
+	oplogOption := applyOplogOption{
+		start:  &from,
+		end:    &to,
+		unsafe: true,
+	}
+	err = applyOplog(c, opChunks, &oplogOption, false, &mgoV, r.stg, r.log)
+	if err != nil {
+		return errors.Wrap(err, "reply oplog")
 	}
 
 	err = shutdown(c, r.dbpath)
