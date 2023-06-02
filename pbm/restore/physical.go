@@ -746,7 +746,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
 
-	if pitr != nil {
+	if pitr != nil && r.nodeInfo.IsPrimary {
 		l.Info("replaying pitr oplog")
 		err = r.replayOplog(r.bcp.LastWriteTS, *pitr, opChunks)
 		if err != nil {
@@ -1057,6 +1057,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 
 	err = r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
 		"--replSet", r.rsConf.ID)
 	if err != nil {
 		return errors.Wrap(err, "start mongo as rs")
