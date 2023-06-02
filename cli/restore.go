@@ -221,6 +221,9 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup data")
 	}
+	if len(nss) != 0 && bcp.Type != pbm.LogicalBackup {
+		return nil, errors.New("--ns flag is only allowed for logical restore")
+	}
 	if bcp.Status != pbm.StatusDone {
 		return nil, errors.Errorf("backup '%s' didn't finish successfully", bcpName)
 	}
