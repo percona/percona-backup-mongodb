@@ -18,7 +18,7 @@ $ MONGODB_VERSION=4.2 ./run-all
 *`MONGODB_VERSION` applies as for the `./run-all`
 
 ## Start test cluster
-To start tests with a running pbm-agent and minio storagee:
+To start tests with a running pbm-agent and minio storage:
 ```
 $ MONGODB_VERSION=4.4 ./start-cluster
 ```
