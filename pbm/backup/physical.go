@@ -300,30 +300,30 @@ func (b *Backup) handleExternal(bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, d
 		rsMeta.Files = append(rsMeta.Files, f)
 	}
 
-	// save rs meta along with the data files so it can be used during the restore
-	metaf := fmt.Sprintf(pbm.ExternalRsMetaFile, rsMeta.Name)
-	rsMeta.Files = append(rsMeta.Files, pbm.File{
-		Name: metaf,
-	})
-	metadst := filepath.Join(dbpath, metaf)
-	err := writeRSmetaToDisk(metadst, rsMeta)
-	if err != nil {
-		// we can restore without it
-		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
-	}
-
 	// We'll rewrite rs' LastWriteTS with the cluster LastWriteTS for the meta
 	// stored along with the external backup files. So do copy to preserve
-	// original LastWriteTS in the meta stored on PBM storage.
+	// original LastWriteTS in the meta stored on PBM storage. As rsMeta might
+	// be used outside of this method.
 	fsMeta := *rsMeta
 	bmeta, err := b.cn.GetBackupMeta(bcp.Name)
 	if err == nil {
 		fsMeta.LastWriteTS = bmeta.LastWriteTS
 	} else {
-		l.Warning("define LastWriteTS: get backup meta: %v", metadst, err)
+		l.Warning("define LastWriteTS: get backup meta: %v", err)
+	}
+	// save rs meta along with the data files so it can be used during the restore
+	metaf := fmt.Sprintf(pbm.ExternalRsMetaFile, fsMeta.Name)
+	fsMeta.Files = append(fsMeta.Files, pbm.File{
+		Name: metaf,
+	})
+	metadst := filepath.Join(dbpath, metaf)
+	err = writeRSmetaToDisk(metadst, &fsMeta)
+	if err != nil {
+		// we can restore without it
+		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
 	}
 
-	err = b.cn.RSSetPhyFiles(bcp.Name, fsMeta.Name, &fsMeta)
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
