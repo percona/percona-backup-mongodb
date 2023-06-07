@@ -88,18 +88,29 @@ func Main() {
 			string(pbm.PhysicalBackup),
 			string(pbm.LogicalBackup),
 			string(pbm.IncrementalBackup),
+			string(pbm.ExternalBackup),
 		)
 	backupCmd.Flag("base", "Is this a base for incremental backups").BoolVar(&backup.base)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backup.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).StringVar(&backup.ns)
 	backupCmd.Flag("wait", "Wait for the backup to finish").Short('w').BoolVar(&backup.wait)
+	backupCmd.Flag("list-files", "Wait for the backup to finish").Short('l').BoolVar(&backup.externList)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 
 	descBcpCmd := pbmCmd.Command("describe-backup", "Describe backup")
 	descBcp := descBcp{}
 	descBcpCmd.Arg("backup_name", "Backup name").StringVar(&descBcp.name)
+
+	finishBackupName := ""
+	backupFinishCmd := pbmCmd.Command("backup-finish", "Finish external backup")
+	backupFinishCmd.Arg("backup_name", "Backup name").StringVar(&finishBackupName)
+
+	finishRestore := descrRestoreOpts{}
+	restoreFinishCmd := pbmCmd.Command("restore-finish", "Finish external backup")
+	restoreFinishCmd.Arg("restore_name", "Restore name").StringVar(&finishRestore.restore)
+	restoreFinishCmd.Flag("config", "Path to PBM config").Short('c').Required().StringVar(&finishRestore.cfg)
 
 	restoreCmd := pbmCmd.Command("restore", "Restore backup")
 	restore := restoreOpts{}
@@ -108,6 +119,9 @@ func Main() {
 	restoreCmd.Flag("base-snapshot", "Override setting: Name of older snapshot that PITR will be based on during restore.").StringVar(&restore.pitrBase)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).StringVar(&restore.ns)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").Short('w').BoolVar(&restore.wait)
+	restoreCmd.Flag("external", "External restore.").Short('x').BoolVar(&restore.extern)
+	restoreCmd.Flag("config", "Mongod config for the source data. External backups only!").Short('c').StringVar(&restore.conf)
+	restoreCmd.Flag("ts", "MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!").StringVar(&restore.ts)
 	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).Envar(RSMappingEnvVar).StringVar(&restore.rsMap)
 
 	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
@@ -202,7 +216,8 @@ func Main() {
 
 	var pbmClient *pbm.PBM
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
-	if describeRestoreOpts.cfg == "" {
+	// or `pbm restore-finish `
+	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
 		pbmClient, err = pbm.New(ctx, *mURL, "pbm-ctl")
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
@@ -218,6 +233,10 @@ func Main() {
 		out, err = runBackup(pbmClient, &backup, pbmOutF)
 	case cancelBcpCmd.FullCommand():
 		out, err = cancelBcp(pbmClient)
+	case backupFinishCmd.FullCommand():
+		out, err = runFinishBcp(pbmClient, finishBackupName)
+	case restoreFinishCmd.FullCommand():
+		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
 		out, err = describeBackup(pbmClient, &descBcp)
 	case restoreCmd.FullCommand():
