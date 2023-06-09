@@ -307,8 +307,8 @@ func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsNa
 // In order to sync distributed transactions (commit ontly when all participated shards are committed),
 // on all participated in the retore agents:
 // distTxnChecker:
-// - Receiving distributed transactions from the oplog applier, will add set it to the shards restore meta.
-// - If txn's state is `commit` it will wait from all of the rest of the shards for:
+// - Receiving distributed transactions from the oplog applier, will add it to the shards restore meta.
+// - If txn's state is `commit` it will wait on the rest of the shards for:
 //   - either transaction committed on the shard (have `commitTransaction`);
 //   - or shard didn't participate in the transaction (more on that below);
 //   - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
@@ -322,7 +322,8 @@ func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsNa
 // any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
 // instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
 // sharded clusters even if there are no dist txns at all.
-func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool, mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) error {
+func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
+	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) error {
 	log.Info("starting oplog replay")
 
 	var (
@@ -353,8 +354,8 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 
 	// !!! TODO:
 	// var waitTxnErr error
-	// if r.nodeInfo.IsSharded() {
-	// 	r.log.Debug("starting sharded txn sync")
+	// if sharded {
+	// 	log.Debug("starting sharded txn sync")
 	// 	if len(r.shards) == 0 {
 	// 		return errors.New("participating shards undefined")
 	// 	}

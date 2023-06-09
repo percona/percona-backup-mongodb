@@ -752,12 +752,6 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}
-
-		l.Info("recovering oplog as standalone")
-		err = r.recoverStandalone()
-		if err != nil {
-			return errors.Wrap(err, "recover oplog as standalone")
-		}
 	}
 
 	l.Info("clean-up and reset replicaset config")

@@ -363,8 +363,7 @@ func isPrepareTxn(op *db.Oplog) bool {
 //			"ts" : Timestamp(1644410656, 8), ... }
 //
 // Since we sync backup/restore across shards by `ts` (`opTime`), artifacts of such transaction
-//
-//	would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
+// would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
 //
 // To avoid that we have to check if a distributed transaction was committed on all
 // participated shards before committing such transaction.
