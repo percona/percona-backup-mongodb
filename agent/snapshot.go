@@ -88,6 +88,8 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
+	case pbm.ExternalBackup:
+		bcp = backup.NewExternal(a.pbm, a.node)
 	case pbm.IncrementalBackup:
 		bcp = backup.NewIncremental(a.pbm, a.node, cmd.IncrBase)
 	case pbm.LogicalBackup:
@@ -293,25 +295,32 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
 
-	l.Info("backup: %s", r.BackupName)
+	var bcpType pbm.BackupType
 
-	var stg storage.Storage
-	bcp, err := a.pbm.GetBackupMeta(r.BackupName)
-	if errors.Is(err, pbm.ErrNotFound) {
-		stg, err = a.pbm.GetStorage(l)
+	if r.External && r.BackupName == "" {
+		bcpType = pbm.ExternalBackup
+	} else {
+		l.Info("backup: %s", r.BackupName)
+		var stg storage.Storage
+		bcp, err := a.pbm.GetBackupMeta(r.BackupName)
+		if errors.Is(err, pbm.ErrNotFound) {
+			stg, err = a.pbm.GetStorage(l)
+			if err != nil {
+				l.Error("get storage: %v", err)
+				return
+			}
+
+			bcp, err = restore.GetMetaFromStore(stg, r.BackupName)
+		}
 		if err != nil {
-			l.Error("get storage: %v", err)
+			l.Error("get backup metadata: %v", err)
 			return
 		}
-
-		bcp, err = restore.GetMetaFromStore(stg, r.BackupName)
+		bcpType = bcp.Type
 	}
-	if err != nil {
-		l.Error("get backup metadata: %v", err)
-		return
-	}
-	switch bcp.Type {
-	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+	var err error
+	switch bcpType {
+	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
 		err = a.restorePhysical(r, opid, ep, l)
 	case pbm.LogicalBackup:
 		fallthrough

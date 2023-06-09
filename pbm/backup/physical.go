@@ -3,9 +3,11 @@ package backup
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -285,8 +287,91 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		data = append(data, *stgb)
 	}
 
+	if b.typ == pbm.ExternalBackup {
+		return b.handleExternal(bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, l)
+	}
+
+	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
+}
+
+func (b *Backup) handleExternal(bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, opid pbm.OPID, inf *pbm.NodeInfo, l *plog.Event) error {
+	for _, f := range append(data, jrnls...) {
+		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
+		rsMeta.Files = append(rsMeta.Files, f)
+	}
+
+	// We'll rewrite rs' LastWriteTS with the cluster LastWriteTS for the meta
+	// stored along with the external backup files. So do copy to preserve
+	// original LastWriteTS in the meta stored on PBM storage. As rsMeta might
+	// be used outside of this method.
+	fsMeta := *rsMeta
+	bmeta, err := b.cn.GetBackupMeta(bcp.Name)
+	if err == nil {
+		fsMeta.LastWriteTS = bmeta.LastWriteTS
+	} else {
+		l.Warning("define LastWriteTS: get backup meta: %v", err)
+	}
+	// save rs meta along with the data files so it can be used during the restore
+	metaf := fmt.Sprintf(pbm.ExternalRsMetaFile, fsMeta.Name)
+	fsMeta.Files = append(fsMeta.Files, pbm.File{
+		Name: metaf,
+	})
+	metadst := filepath.Join(dbpath, metaf)
+	err = writeRSmetaToDisk(metadst, &fsMeta)
+	if err != nil {
+		// we can restore without it
+		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
+	}
+
+	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
+	if err != nil {
+		return errors.Wrap(err, "set shard's files list")
+	}
+
+	err = b.toState(pbm.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
+	if err != nil {
+		return errors.Wrapf(err, "converge to %s", pbm.StatusCopyReady)
+	}
+
+	l.Info("waiting for the datadir to be copied")
+	err = b.waitForStatus(bcp.Name, pbm.StatusCopyDone, nil)
+	if err != nil {
+		return errors.Wrapf(err, "waiting for %s", pbm.StatusCopyDone)
+	}
+
+	err = os.Remove(metadst)
+	if err != nil {
+		l.Warning("remove rs meta file <%s>: %v", metadst, err)
+	}
+
+	return nil
+}
+
+func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
+	fw, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return errors.Wrapf(err, "create/open")
+	}
+	defer fw.Close()
+
+	enc := json.NewEncoder(fw)
+	enc.SetIndent("", "\t")
+	err = enc.Encode(rsMeta)
+	if err != nil {
+		return errors.Wrap(err, "write")
+	}
+	err = fw.Sync()
+	if err != nil {
+		return errors.Wrap(err, "fsync")
+	}
+
+	return nil
+}
+
+func (b *Backup) uploadPhysical(ctx context.Context, bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, stg storage.Storage, l *plog.Event) error {
+	var err error
 	l.Info("uploading data")
-	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
+	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
 		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
@@ -294,7 +379,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, bcur.Meta.DBpath,
+	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, dbpath,
 		false, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err

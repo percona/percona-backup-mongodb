@@ -183,10 +183,26 @@ type RestoreCmd struct {
 	BackupName string            `bson:"backupName"`
 	Namespaces []string          `bson:"nss,omitempty"`
 	RSMap      map[string]string `bson:"rsMap,omitempty"`
+
+	External bool                `bson:"external"`
+	ExtConf  ExternOpts          `bson:"extConf"`
+	ExtTS    primitive.Timestamp `bson:"extTS"`
 }
 
 func (r RestoreCmd) String() string {
-	return fmt.Sprintf("name: %s, backup name: %s", r.Name, r.BackupName)
+	bcp := ""
+	if r.BackupName != "" {
+		bcp = "backup name: " + r.BackupName
+	}
+	if r.External {
+		bcp += "<external>"
+	}
+	if r.ExtTS.T > 0 {
+		bcp += fmt.Sprintf(" ts: %d,%d", r.ExtTS.T, r.ExtTS.I)
+	}
+
+	return fmt.Sprintf("name: %s, %s", r.Name, bcp)
+
 }
 
 type ReplayCmd struct {
@@ -465,6 +481,7 @@ type BackupType string
 
 const (
 	PhysicalBackup    BackupType = "physical"
+	ExternalBackup    BackupType = "external"
 	IncrementalBackup BackupType = "incremental"
 	LogicalBackup     BackupType = "logical"
 )
@@ -597,10 +614,16 @@ const (
 	StatusStarting   Status = "starting"
 	StatusRunning    Status = "running"
 	StatusDumpDone   Status = "dumpDone"
+	StatusCopyReady  Status = "copyReady"
+	StatusCopyDone   Status = "copyDone"
 	StatusPartlyDone Status = "partlyDone"
 	StatusDone       Status = "done"
 	StatusCancelled  Status = "canceled"
 	StatusError      Status = "error"
+
+	// status to communicate last op timestamp if it's not set
+	// during external restore
+	StatusExtTS Status = "lastTS"
 )
 
 func (p *PBM) SetBackupMeta(m *BackupMeta) error {

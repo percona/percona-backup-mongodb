@@ -66,12 +66,13 @@ type PhysRestore struct {
 	startTS int64
 	secOpts *pbm.MongodOptsSec
 
-	name     string
-	opid     string
-	nodeInfo *pbm.NodeInfo
-	stg      storage.Storage
-	bcp      *pbm.BackupMeta
-	files    []files
+	name      string
+	opid      string
+	nodeInfo  *pbm.NodeInfo
+	stg       storage.Storage
+	bcp       *pbm.BackupMeta
+	files     []files
+	restoreTS primitive.Timestamp
 
 	confOpts pbm.RestoreConf
 
@@ -85,7 +86,6 @@ type PhysRestore struct {
 	syncPathCluster  string
 	syncPathPeers    map[string]struct{}
 	// Shards to participate in restore.
-	// Only the restore leader would have this info.
 	syncPathShards map[string]struct{}
 	// Non-ConfigServer shards
 	syncPathDataShards map[string]struct{}
@@ -201,7 +201,12 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		r.log.Debug("rm tmp logs")
 		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
 		if err != nil {
-			r.log.Error("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
+			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
+		}
+		extMeta := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
+		err = os.Remove(extMeta)
+		if err != nil && err != os.ErrNotExist {
+			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
 		r.log.Debug("clean-up dbpath")
@@ -402,12 +407,44 @@ func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error)
 	r.log.Info("waiting for cluster")
 	cstat, err := r.waitFiles(status, map[string]struct{}{r.syncPathCluster: {}}, true)
 	if err != nil {
-		return pbm.StatusError, errors.Wrap(err, "wait for shards")
+		return pbm.StatusError, errors.Wrap(err, "wait for cluster")
 	}
 
 	r.log.Debug("converged to state %s", cstat)
 
 	return cstat, nil
+}
+
+func (r *PhysRestore) getTSFromSyncFile(path string) (primitive.Timestamp, error) {
+	res, err := r.stg.SourceReader(path + "." + string(pbm.StatusExtTS))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "get timestamp")
+	}
+	b, err := io.ReadAll(res)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "read timestamp")
+	}
+	tsb := bytes.Split(b, []byte(":"))
+	if len(tsb) != 2 {
+		return primitive.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
+	}
+	tsparts := bytes.Split(tsb[1], []byte(","))
+	if len(tsparts) != 2 {
+		return primitive.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
+	}
+	ctsT, err := strconv.Atoi(string(tsparts[0]))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.T")
+	}
+	ctsI, err := strconv.Atoi(string(tsparts[1]))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.I")
+	}
+
+	return primitive.Timestamp{
+		T: uint32(ctsT),
+		I: uint32(ctsI),
+	}, nil
 }
 
 func errStatus(err error) io.Reader {
@@ -616,6 +653,14 @@ func (l *logBuff) Flush() error {
 //   - Starts standalone mongod to recover oplog from journals.
 //   - Cleans up data and resets replicaset config to the working state.
 //   - Shuts down mongod and agent (the leader also dumps metadata to the storage).
+//
+// An External restore doesn't need to have specified backup. It will look
+// for the replset metadata in the datadir after data is copied. And take
+// all needed inputs from there (restoreTS, files list, and mongod config).
+// The user may also specify restoreTS and a mongod config via CLI. The priority:
+// - CLI provided values
+// - replset metada in the datadir
+// - backup meta
 func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
@@ -648,9 +693,8 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		return errors.Wrap(err, "init")
 	}
 
-	err = r.prepareBackup(cmd.BackupName)
-	if err != nil {
-		return err
+	if cmd.BackupName == "" && !cmd.External {
+		return errors.New("restore isn't external and no backup set")
 	}
 	meta.Type = r.bcp.Type
 
@@ -662,9 +706,20 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		}
 	}
 
-	err = r.setTmpConf()
-	if err != nil {
-		return errors.Wrap(err, "set tmp config")
+	if cmd.BackupName != "" {
+		err = r.prepareBackup(cmd.BackupName)
+		if err != nil {
+			return err
+		}
+		r.restoreTS = r.bcp.LastWriteTS
+	}
+	if cmd.ExtTS.T > 0 {
+		r.restoreTS = cmd.ExtTS
+	}
+	if cmd.External {
+		meta.Type = pbm.ExternalBackup
+	} else {
+		meta.Type = r.bcp.Type
 	}
 
 	if meta.Type == pbm.IncrementalBackup {
@@ -724,14 +779,71 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
-	l.Info("copying backup data")
-	dstat, err := r.copyFiles()
-	if err != nil {
-		return errors.Wrap(err, "copy files")
+	var excfg *pbm.MongodOpts
+
+	if cmd.External {
+		_, err = r.toState(pbm.StatusCopyReady)
+		if err != nil {
+			return errors.Wrapf(err, "moving to state %s", pbm.StatusCopyReady)
+		}
+
+		l.Info("waiting for the datadir to be copied")
+		_, err := r.waitFiles(pbm.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
+		if err != nil {
+			return errors.Wrapf(err, "check %s state", pbm.StatusCopyDone)
+		}
+
+		// try to read replset meta from the backup and use its data
+		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+		rsMetaF := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, setName))
+		conff, err := os.Open(rsMetaF)
+		var needFiles []pbm.File
+		if err == nil {
+			rsMeta := new(pbm.BackupReplset)
+			err := json.NewDecoder(conff).Decode(rsMeta)
+			if err != nil {
+				return errors.Wrap(err, "decode replset meta from the backup")
+			}
+			l.Debug("got rs meta from the backup")
+			if r.restoreTS.T == 0 {
+				r.restoreTS = rsMeta.LastWriteTS
+			}
+			excfg = rsMeta.MongodOpts
+			needFiles = rsMeta.Files
+		} else {
+			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
+		}
+
+		err = r.cleanupDatadir(needFiles)
+		if err != nil {
+			return errors.Wrap(err, "cleanup datadir")
+		}
+	} else {
+		l.Info("copying backup data")
+		dstat, err := r.copyFiles()
+		if err != nil {
+			return errors.Wrap(err, "copy files")
+		}
+		err = r.writeStat(dstat)
+		if err != nil {
+			r.log.Warning("write download stat: %v", err)
+		}
 	}
-	err = r.writeStat(dstat)
+
+	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
+		excfg = &o
+	}
+	err = r.setTmpConf(excfg)
 	if err != nil {
-		r.log.Warning("write download stat: %v", err)
+		return errors.Wrap(err, "set tmp config")
+	}
+
+	if r.restoreTS.T == 0 {
+		l.Info("restore timestamp isn't set, get latest common ts for the cluster")
+		r.restoreTS, err = r.agreeCommonRestoreTS()
+		if err != nil {
+			return errors.Wrap(err, "get common restore timestamp")
+		}
 	}
 
 	l.Info("preparing data")
@@ -778,6 +890,60 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	}
 
 	return nil
+}
+
+var rmFromDatadir = map[string]struct{}{
+	"WiredTiger.lock":    {},
+	"WiredTiger.turtle":  {},
+	"WiredTiger.wt":      {},
+	"mongod.lock":        {},
+	"ongoingBackup.lock": {},
+}
+
+// removes obsolete files from the datadir
+func (r *PhysRestore) cleanupDatadir(bcpFiles []pbm.File) error {
+	var rm func(f string) bool
+
+	needFiles := bcpFiles
+	if needFiles == nil && r.bcp != nil {
+		rs := getRS(r.bcp, r.nodeInfo.SetName)
+		if rs != nil {
+			needFiles = rs.Files
+		}
+	}
+
+	if needFiles != nil {
+		m := make(map[string]struct{})
+		for _, f := range needFiles {
+			m[f.Name] = struct{}{}
+		}
+		rm = func(f string) bool {
+			_, ok := m[f]
+			return !ok
+		}
+	} else {
+		rm = func(f string) bool {
+			_, ok := rmFromDatadir[f]
+			return ok
+		}
+	}
+
+	dbpath := path.Clean(r.dbpath) + "/"
+	return filepath.Walk(dbpath, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return errors.Wrap(err, "walking the path")
+		}
+		if info.IsDir() || !rm(strings.TrimPrefix(p, dbpath)) {
+			return nil
+		}
+
+		r.log.Debug("rm %s", p)
+		err = os.Remove(p)
+		if err != nil {
+			r.log.Error("datadir cleanup: remove %s: %v", p, err)
+		}
+		return nil
+	})
 }
 
 func (r *PhysRestore) writeStat(stat any) error {
@@ -924,6 +1090,47 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 	return stat, nil
 }
 
+func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "start mongo")
+	}
+
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+
+	res := c.Database("local").Collection("oplog.rs").FindOne(
+		ctx,
+		bson.M{},
+		options.FindOne().SetSort(bson.D{{"ts", -1}}),
+	)
+	if res.Err() != nil {
+		return primitive.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
+	}
+	rb, err := res.DecodeBytes()
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "decode oplog entry")
+	}
+	ts := primitive.Timestamp{}
+	var ok bool
+	ts.T, ts.I, ok = rb.Lookup("ts").TimestampOK()
+	if !ok {
+		return ts, errors.Errorf("get the timestamp of record %v", rb)
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return ts, errors.Wrap(err, "shutdown mongo")
+	}
+
+	return ts, nil
+}
+
 func (r *PhysRestore) prepareData() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
@@ -962,9 +1169,9 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "insert to replset.minvalid")
 	}
 
-	r.log.Debug("oplogTruncateAfterPoint: %v", r.bcp.LastWriteTS)
+	r.log.Debug("oplogTruncateAfterPoint: %v", r.restoreTS)
 	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").InsertOne(ctx,
-		bson.M{"_id": "oplogTruncateAfterPoint", "oplogTruncateAfterPoint": r.bcp.LastWriteTS},
+		bson.M{"_id": "oplogTruncateAfterPoint", "oplogTruncateAfterPoint": r.restoreTS},
 	)
 	if err != nil {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
@@ -1232,7 +1439,7 @@ func (r *PhysRestore) resetRS() error {
 
 func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 	source := make(map[string]string)
-	if bcp.ShardRemap != nil {
+	if bcp != nil && bcp.ShardRemap != nil {
 		for i := range bcp.Replsets {
 			rs := bcp.Replsets[i].Name
 			if s, ok := bcp.ShardRemap[rs]; ok {
@@ -1253,6 +1460,66 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 	}
 
 	return rv
+}
+
+// in case restore-to-time isn't specified (external restore w/o backup
+// and --ts provided) the cluster will agree on the latest common ts. Each
+// node will pick the ts of the last event in the oplog. Each replset will
+// pick the oldest ts and put it as the reples ts. And the cluster will
+// pick the oldest ts proposed by replsets. All comms done via storage. Similar
+// to the restore states with proposed ts in *.lastTS files.
+func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error) {
+	cts, err := r.getLasOpTime()
+	if err != nil {
+		return ts, errors.Wrap(err, "define last op time")
+	}
+
+	bts := bytes.NewReader([]byte(
+		fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I),
+	))
+	// saving straight for RS as backup for nodes in the RS the same,
+	// hence TS would be the same as well
+	err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusExtTS), bts, -1)
+	if err != nil {
+		return ts, errors.Wrap(err, "write RS timestamp")
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		_, err := r.waitFiles(pbm.StatusExtTS, copyMap(r.syncPathShards), true)
+		if err != nil {
+			return ts, errors.Wrap(err, "wait for shards timestamp")
+		}
+		var mints primitive.Timestamp
+		for sh := range r.syncPathShards {
+			ts, err := r.getTSFromSyncFile(sh)
+			if err != nil {
+				return ts, errors.Wrapf(err, "get timestamp for RS %s", sh)
+			}
+
+			if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
+				mints = ts
+			}
+		}
+		bts := bytes.NewReader([]byte(
+			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
+		))
+		err = r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusExtTS), bts, -1)
+		if err != nil {
+			return ts, errors.Wrap(err, "write")
+		}
+	}
+
+	_, err = r.waitFiles(pbm.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
+	if err != nil {
+		return ts, errors.Wrap(err, "wait for cluster timestamp")
+	}
+
+	ts, err = r.getTSFromSyncFile(r.syncPathCluster)
+	if err != nil {
+		return ts, errors.Wrapf(err, "get cluster timestamp")
+	}
+
+	return ts, nil
 }
 
 // Tries to connect to mongo n times, timeout is applied for each try.
@@ -1346,6 +1613,18 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 		err := cmd.Wait()
 		if err != nil {
 			slog.Printf("mongod process: %v, %s", err, errBuf)
+			mlog := path.Join(r.dbpath, internalMongodLog)
+			f, err := os.Open(mlog)
+			if err != nil {
+				slog.Printf("open mongod log %s: %v", mlog, err)
+				return
+			}
+			buf, err := io.ReadAll(f)
+			if err != nil {
+				slog.Printf("read mongod log %s: %v", mlog, err)
+				return
+			}
+			slog.Printf("mongod log:\n%s", buf)
 		}
 	}()
 	return nil
@@ -1392,15 +1671,25 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
 		}
 	}
-	if r.nodeInfo.IsConfigSrv() {
-		sh, err := r.cn.GetShards()
-		if err != nil {
-			return errors.Wrap(err, "get data shards")
-		}
-		r.syncPathDataShards = make(map[string]struct{})
-		for _, s := range sh {
-			r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
-		}
+
+	r.syncPathShards = make(map[string]struct{})
+	dsh, err := r.cn.ClusterMembers()
+	if err != nil {
+		return errors.Wrap(err, "get  shards")
+	}
+	for _, s := range dsh {
+		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
+		r.syncPathShards[p] = struct{}{}
+	}
+
+	r.syncPathDataShards = make(map[string]struct{})
+	sh, err := r.cn.GetShards()
+	if err != nil {
+		return errors.Wrap(err, "get data shards")
+	}
+	for _, s := range sh {
+		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
+		r.syncPathDataShards[p] = struct{}{}
 	}
 
 	err = r.hb()
@@ -1495,17 +1784,20 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
-func (r *PhysRestore) setTmpConf() (err error) {
-	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 	opts := new(pbm.MongodOpts)
-	for _, v := range r.bcp.Replsets {
-		if v.Name == setName {
-			if v.MongodOpts == nil {
-				return nil
+	opts.Storage = *pbm.NewMongodOptsStorage()
+	if xopts != nil {
+		opts.Storage = xopts.Storage
+	} else if r.bcp != nil {
+		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+		for _, v := range r.bcp.Replsets {
+			if v.Name == setName {
+				if v.MongodOpts != nil {
+					opts.Storage = v.MongodOpts.Storage
+				}
+				break
 			}
-
-			opts.Storage = v.MongodOpts.Storage
-			break
 		}
 	}
 
@@ -1720,10 +2012,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
 	fl := make(map[string]pbm.Shard, len(s))
-	r.syncPathShards = make(map[string]struct{})
 	for _, rs := range s {
 		fl[mapRevRS(rs.RS)] = rs
-		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, rs.RS)] = struct{}{}
 	}
 
 	var nors []string

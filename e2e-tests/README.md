@@ -9,7 +9,7 @@ $ MONGODB_VERSION=4.2 ./run-all
 
 `./run-all` would run all tests both on a sharded cluster and a non-sharded replica set.
 
-### You might whant to run some tests separately:
+### You might want to run some tests separately:
 
 * `./run-new-cluster` - restore on a blank new cluster
 * `./run-rs` - general and consistency tests on a non-sharded replicaset
@@ -18,7 +18,7 @@ $ MONGODB_VERSION=4.2 ./run-all
 *`MONGODB_VERSION` applies as for the `./run-all`
 
 ## Start test cluster
-To start a tests with running pbm-agent and minio store:
+To start tests with a running pbm-agent and minio storage:
 ```
 $ MONGODB_VERSION=4.4 ./start-cluster
 ```
@@ -26,7 +26,7 @@ $ MONGODB_VERSION=4.4 ./start-cluster
 
 `./start-replset` - to start a non-sharded replica set.
 
-You need to setup PBM though:
+You need to set up PBM though:
 ```
 $ docker-compose -f ./docker/docker-compose.yaml exec agent-rs101 pbm config --file=/etc/pbm/minio.yaml
 ```
