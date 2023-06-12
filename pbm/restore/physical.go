@@ -30,6 +30,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -696,15 +697,6 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	if cmd.BackupName == "" && !cmd.External {
 		return errors.New("restore isn't external and no backup set")
 	}
-	meta.Type = r.bcp.Type
-
-	var opChunks []pbm.OplogChunk
-	if pitr != nil {
-		opChunks, err = chunks(r.cn, r.stg, r.bcp.LastWriteTS, *pitr, r.rsConf.ID, r.rsMap)
-		if err != nil {
-			return err
-		}
-	}
 
 	if cmd.BackupName != "" {
 		err = r.prepareBackup(cmd.BackupName)
@@ -720,6 +712,14 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		meta.Type = pbm.ExternalBackup
 	} else {
 		meta.Type = r.bcp.Type
+	}
+
+	var opChunks []pbm.OplogChunk
+	if pitr != nil {
+		opChunks, err = chunks(r.cn, r.stg, r.restoreTS, *pitr, r.rsConf.ID, r.rsMap)
+		if err != nil {
+			return err
+		}
 	}
 
 	if meta.Type == pbm.IncrementalBackup {
@@ -1256,10 +1256,14 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "shutdown mongo")
 	}
 
-	err = r.startMongo("--dbpath", r.dbpath,
+	flags := []string{"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
-		"--replSet", r.rsConf.ID)
+		"--replSet", r.rsConf.ID}
+	if r.nodeInfo.IsConfigSrv() {
+		flags = append(flags, "--configsvr")
+	}
+	err = r.startMongo(flags...)
 	if err != nil {
 		return errors.Wrap(err, "start mongo as rs")
 	}
@@ -1279,7 +1283,9 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		end:    &to,
 		unsafe: true,
 	}
-	err = applyOplog(c, opChunks, &oplogOption, false, &mgoV, r.stg, r.log)
+	err = applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+		r.setTxn, r.checkTxn, r.checkWaitingTxns,
+		&mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}
@@ -1522,6 +1528,118 @@ func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error)
 	return ts, nil
 }
 
+func (r *PhysRestore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
+	shardsToFinish := len(r.syncPathShards)
+	for f := range r.syncPathShards {
+		txnr, err := r.stg.SourceReader(f + ".txn")
+		if err != nil && errors.Is(err, storage.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return pbm.TxnUnknown, errors.Wrapf(err, "get status file <%s>", f)
+		}
+
+		b, err := io.ReadAll(txnr)
+		if err != nil {
+			return pbm.TxnUnknown, errors.Wrapf(err, "read status file <%s>", f)
+		}
+
+		t := &pbm.RestoreTxn{}
+		err = t.Decode(b)
+		if err != nil {
+			return pbm.TxnUnknown, errors.Wrapf(err, "decode file <%s>", f)
+		}
+
+		if primitive.CompareTimestamp(t.Ctime, txn.Ctime) == 1 {
+			shardsToFinish--
+			continue
+		}
+
+		isDone := false
+		dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
+			return pbm.TxnUnknown, errors.Wrapf(err, "check done for <%s>", f)
+		}
+		if err == nil && dr.Size != 0 {
+			isDone = true
+		}
+
+		if t.ID != txn.ID {
+			if isDone {
+				shardsToFinish--
+				continue
+			}
+			return pbm.TxnUnknown, nil
+		}
+
+		switch t.State {
+		case pbm.TxnPrepare:
+			if isDone {
+				return pbm.TxnAbort, nil
+			}
+			return pbm.TxnUnknown, nil
+		case pbm.TxnAbort:
+			return pbm.TxnAbort, nil
+		case pbm.TxnCommit:
+			shardsToFinish--
+		}
+	}
+
+	if shardsToFinish == 0 {
+		return pbm.TxnCommit, nil
+	}
+
+	return pbm.TxnUnknown, nil
+}
+
+func (r *PhysRestore) setTxn(txn pbm.RestoreTxn) error {
+	return r.stg.Save(r.syncPathRS+".txn",
+		bytes.NewReader(txn.Encode()), -1,
+	)
+}
+
+func (r *PhysRestore) checkWaitingTxns(observedTxn map[string]struct{}, o *oplog.OplogRestore) error {
+	for f := range r.syncPathShards {
+		txnr, err := r.stg.SourceReader(f + ".txn")
+		if err != nil && errors.Is(err, storage.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return errors.Wrapf(err, "get status file <%s>", f)
+		}
+
+		b, err := io.ReadAll(txnr)
+		if err != nil {
+			return errors.Wrapf(err, "read status file <%s>", f)
+		}
+
+		t := &pbm.RestoreTxn{}
+		err = t.Decode(b)
+		if err != nil {
+			return errors.Wrapf(err, "decode file <%s>", f)
+		}
+
+		if _, ok := observedTxn[t.ID]; t.State == pbm.TxnCommit && !ok {
+			ts := primitive.Timestamp{o.LastOpTS(), 0}
+			if primitive.CompareTimestamp(ts, t.Ctime) > 0 {
+				err := r.setTxn(pbm.RestoreTxn{
+					ID:    "noop",
+					Ctime: ts,
+					State: pbm.TxnUnknown,
+				})
+				if err != nil {
+					return errors.Wrap(err, "set current op timestamp")
+				}
+			}
+
+			observedTxn[t.ID] = struct{}{}
+			return nil
+		}
+	}
+
+	return nil
+}
+
 // Tries to connect to mongo n times, timeout is applied for each try.
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
@@ -1672,24 +1790,22 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		}
 	}
 
-	r.syncPathShards = make(map[string]struct{})
 	dsh, err := r.cn.ClusterMembers()
 	if err != nil {
 		return errors.Wrap(err, "get  shards")
 	}
+	r.syncPathShards = make(map[string]struct{})
 	for _, s := range dsh {
-		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
-		r.syncPathShards[p] = struct{}{}
+		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
 	}
 
-	r.syncPathDataShards = make(map[string]struct{})
 	sh, err := r.cn.GetShards()
 	if err != nil {
 		return errors.Wrap(err, "get data shards")
 	}
+	r.syncPathDataShards = make(map[string]struct{})
 	for _, s := range sh {
-		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
-		r.syncPathDataShards[p] = struct{}{}
+		r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
 	}
 
 	err = r.hb()

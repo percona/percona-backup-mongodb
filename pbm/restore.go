@@ -1,8 +1,10 @@
 package pbm
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
@@ -89,6 +91,37 @@ type RestoreTxn struct {
 	ID    string              `bson:"id" json:"id"`
 	Ctime primitive.Timestamp `bson:"ts" json:"ts"` // commit timestamp of the transaction
 	State TxnState            `bson:"state" json:"state"`
+}
+
+func (t RestoreTxn) Encode() []byte {
+	return []byte(fmt.Sprintf("txn:%d,%d:%s:%s", t.Ctime.T, t.Ctime.I, t.ID, t.State))
+}
+
+func (t *RestoreTxn) Decode(b []byte) error {
+	for k, v := range bytes.SplitN(bytes.TrimSpace(b), []byte{':'}, 4) {
+		switch k {
+		case 0:
+		case 1:
+			if si := bytes.SplitN(v, []byte{','}, 2); len(si) == 2 {
+				tt, err := strconv.ParseInt(string(si[0]), 10, 64)
+				if err != nil {
+					return errors.Wrap(err, "parse clusterTime T")
+				}
+				ti, err := strconv.ParseInt(string(si[1]), 10, 64)
+				if err != nil {
+					return errors.Wrap(err, "parse clusterTime I")
+				}
+
+				t.Ctime = primitive.Timestamp{T: uint32(tt), I: uint32(ti)}
+			}
+		case 2:
+			t.ID = string(v)
+		case 3:
+			t.State = TxnState(string(v))
+		}
+	}
+
+	return nil
 }
 
 func (t RestoreTxn) String() string {

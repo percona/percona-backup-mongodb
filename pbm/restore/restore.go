@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -323,6 +324,7 @@ func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsNa
 // instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
 // sharded clusters even if there are no dist txns at all.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
+	setTxn setTxnFn, checkTxn checkTxnFn, checkWaitingTxn checkWaitingTxnsFn,
 	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) error {
 	log.Info("starting oplog replay")
 
@@ -352,18 +354,14 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 	oplog.SetTimeframe(startTS, endTS)
 	oplog.SetIncludeNS(options.nss)
 
-	// !!! TODO:
-	// var waitTxnErr error
-	// if sharded {
-	// 	log.Debug("starting sharded txn sync")
-	// 	if len(r.shards) == 0 {
-	// 		return errors.New("participating shards undefined")
-	// 	}
-	// 	done := make(chan struct{})
-	// 	go r.distTxnChecker(done, ctxn, txnSyncErr)
-	// 	go r.waitingTxnChecker(&waitTxnErr, done)
-	// 	defer close(done)
-	// }
+	var waitTxnErr error
+	if sharded {
+		log.Debug("starting sharded txn sync")
+		done := make(chan struct{})
+		go distTxnChecker(done, ctxn, txnSyncErr, setTxn, checkTxn, log)
+		go waitingTxnChecker(&waitTxnErr, done, checkWaitingTxn, oplog, log)
+		defer close(done)
+	}
 
 	var lts primitive.Timestamp
 	for _, chnk := range chunks {
@@ -388,14 +386,88 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		}
 
 		// !!! TODO:
-		// if waitTxnErr != nil {
-		// 	return errors.Wrap(err, "check waiting transactions")
-		// }
+		if waitTxnErr != nil {
+			return errors.Wrap(err, "check waiting transactions")
+		}
 	}
 
 	log.Info("oplog replay finished on %v", lts)
 
 	return nil
+}
+
+type setTxnFn func(txn pbm.RestoreTxn) error
+type checkTxnFn func(txn pbm.RestoreTxn) (pbm.TxnState, error)
+
+func distTxnChecker(done <-chan struct{}, ctxn chan pbm.RestoreTxn, txnSyncErr chan<- error,
+	setTxn setTxnFn, checkTxn checkTxnFn, log *log.Event) {
+	defer log.Debug("exit distTxnChecker")
+
+	for {
+		select {
+		case txn := <-ctxn:
+			log.Debug("found dist txn: %s", txn)
+			err := setTxn(txn)
+			if err != nil {
+				txnSyncErr <- errors.Wrapf(err, "set transaction %v", txn)
+				return
+			}
+
+			if txn.State == pbm.TxnCommit {
+				txn.State, err = txnWaitForShards(context.TODO(), txn, checkTxn)
+				if err != nil {
+					txnSyncErr <- errors.Wrapf(err, "wait transaction %v", txn)
+					return
+				}
+				log.Debug("txn converged to [%s] <%s>", txn.State, txn.ID)
+				ctxn <- txn
+			}
+		case <-done:
+			return
+		}
+	}
+}
+
+func txnWaitForShards(ctx context.Context, txn pbm.RestoreTxn, checkTxn checkTxnFn) (pbm.TxnState, error) {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	for {
+		select {
+		case <-tk.C:
+			s, err := checkTxn(txn)
+			if err != nil {
+				return pbm.TxnUnknown, err
+			}
+			if s == pbm.TxnCommit || s == pbm.TxnAbort {
+				return s, nil
+			}
+		case <-ctx.Done():
+			return pbm.TxnAbort, nil
+		}
+	}
+}
+
+type checkWaitingTxnsFn func(observedTxn map[string]struct{}, oplog *oplog.OplogRestore) error
+
+func waitingTxnChecker(e *error, done <-chan struct{}, checkFn checkWaitingTxnsFn, oplog *oplog.OplogRestore, log *log.Event) {
+	defer log.Debug("exit waitingTxnChecker")
+
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
+	observedTxn := make(map[string]struct{})
+	for {
+		select {
+		case <-tk.C:
+			err := checkFn(observedTxn, oplog)
+			if err != nil {
+				*e = err
+				return
+			}
+		case <-done:
+			return
+		}
+	}
 }
 
 func replayChunk(file string, oplog *oplog.OplogRestore, stg storage.Storage, c compress.CompressionType) (lts primitive.Timestamp, err error) {
