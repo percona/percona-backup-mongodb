@@ -43,6 +43,7 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 
 	opts.Direct = true
 	opts.Namespace = &options.Namespace{DB: d, Collection: c}
+	opts.Auth.Source = "admin"
 
 	backup := &backuper{}
 
