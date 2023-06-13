@@ -1531,8 +1531,20 @@ func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error)
 func (r *PhysRestore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 	shardsToFinish := len(r.syncPathShards)
 	for f := range r.syncPathShards {
+		isDone := false
+		dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
+			return pbm.TxnUnknown, errors.Wrapf(err, "check done for <%s>", f)
+		}
+		if err == nil && dr.Size != 0 {
+			isDone = true
+		}
+
 		txnr, err := r.stg.SourceReader(f + ".txn")
 		if err != nil && errors.Is(err, storage.ErrNotExist) {
+			if isDone {
+				shardsToFinish--
+			}
 			continue
 		}
 		if err != nil {
@@ -1553,15 +1565,6 @@ func (r *PhysRestore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
 		if primitive.CompareTimestamp(t.Ctime, txn.Ctime) == 1 {
 			shardsToFinish--
 			continue
-		}
-
-		isDone := false
-		dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return pbm.TxnUnknown, errors.Wrapf(err, "check done for <%s>", f)
-		}
-		if err == nil && dr.Size != 0 {
-			isDone = true
 		}
 
 		if t.ID != txn.ID {

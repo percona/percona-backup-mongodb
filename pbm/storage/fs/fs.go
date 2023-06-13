@@ -67,6 +67,9 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	filepath := path.Join(fs.opts.Path, name)
 	fr, err := os.Open(filepath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, storage.ErrNotExist
+	}
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
