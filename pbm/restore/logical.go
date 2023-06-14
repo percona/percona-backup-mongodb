@@ -823,7 +823,7 @@ func (r *Restore) restoreIndexes() error {
 
 		r.log.Info("restoring indexes for %s.%s: %s",
 			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := r.node.Session().Database(ns.DB).RunCommand(nil, rawCommand).Err()
+		err := r.node.Session().Database(ns.DB).RunCommand(r.cn.Context(), rawCommand).Err()
 		if err != nil {
 			return errors.WithMessagef(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
 		}
