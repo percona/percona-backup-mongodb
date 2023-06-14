@@ -87,6 +87,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,
 		WriteConcern:             "majority",
+		NoIndexRestore:           true,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
