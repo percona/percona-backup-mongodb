@@ -1,4 +1,4 @@
-FROM golang:1.19
+FROM golang:1.19-bullseye
 RUN apt-get update -y && apt-get install -y libkrb5-dev
 WORKDIR /opt/pbm
 COPY . .
