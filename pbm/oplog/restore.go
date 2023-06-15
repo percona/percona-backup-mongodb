@@ -116,7 +116,7 @@ type OplogRestore struct {
 }
 
 // NewOplogRestore creates an object for an oplog applying
-func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
+func NewOplogRestore(dst *pbm.Node, ic *idx.IndexCatalog, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -139,7 +139,7 @@ func NewOplogRestore(dst *pbm.Node, sv *pbm.MongoVersion, unsafe, preserveUUID b
 		preserveUUIDopt:   preserveUUID,
 		preserveUUID:      preserveUUID,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
-		indexCatalog:      idx.NewIndexCatalog(),
+		indexCatalog:      ic,
 		excludeNS:         m,
 		noUUIDns:          noUUID,
 		txn:               ctxn,
@@ -491,10 +491,6 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("failed to parse IndexDocument from commitIndexBuild in %s, %v", collectionName, op)
 			}
 
-			// if restore.OutputOptions.ConvertLegacyIndexes {
-			// 	indexes = o.convertLegacyIndexes(indexes, op.Namespace)
-			// }
-
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
@@ -510,17 +506,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
 			}
 
-			indexes := []*idx.IndexDocument{index}
-			// if restore.OutputOptions.ConvertLegacyIndexes {
-			// 	indexes = restore.convertLegacyIndexes(indexes, op.Namespace)
-			// }
-
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndexes(dbName, collName, indexes)
+			o.indexCatalog.AddIndex(dbName, collName, index)
 			return nil
 
 		case "dropDatabase":
@@ -592,6 +583,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
+			o.indexCatalog.DropCollection(dbName, collName)
+
 			collation, err := bsonutil.FindSubdocumentByKey("collation", &op.Object)
 			if err != nil {
 				o.indexCatalog.SetCollation(dbName, collName, true)
