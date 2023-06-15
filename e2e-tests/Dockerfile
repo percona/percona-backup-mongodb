@@ -1,4 +1,4 @@
-FROM golang:1.19
+FROM golang:1.19-bullseye
 WORKDIR /opt/pbm-test
 ARG TESTS_BCP_TYPE
 ENV TESTS_BCP_TYPE=${TESTS_BCP_TYPE}

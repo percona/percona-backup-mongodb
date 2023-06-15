@@ -793,6 +793,8 @@ func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, e
 		return getLegacyLogicalSize(bcp, stg)
 	case pbm.PhysicalBackup, pbm.IncrementalBackup:
 		return getLegacyPhysSize(bcp.Replsets, stg)
+	case pbm.ExternalBackup:
+		return 0, nil
 	default:
 		return 0, errors.Errorf("unknown backup type %s", bcp.Type)
 	}
