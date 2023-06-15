@@ -243,7 +243,7 @@ func (e errRestoreFailed) Error() string {
 	return e.string
 }
 
-func checkBackup(cn *pbm.PBM, o *restoreOpts) (pbm.BackupType, error) {
+func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (pbm.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return pbm.ExternalBackup, nil
 	}
@@ -256,7 +256,7 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts) (pbm.BackupType, error) {
 		return "", errors.Wrap(err, "get backup data")
 	}
 	if len(nss) != 0 && bcp.Type != pbm.LogicalBackup {
-		return nil, errors.New("--ns flag is only allowed for logical restore")
+		return "", errors.New("--ns flag is only allowed for logical restore")
 	}
 	if bcp.Status != pbm.StatusDone {
 		return "", errors.Errorf("backup '%s' didn't finish successfully", o.bcp)
@@ -266,7 +266,7 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts) (pbm.BackupType, error) {
 }
 
 func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
-	bcpType, err := checkBackup(cn, o)
+	bcpType, err := checkBackup(cn, o, nss)
 	if err != nil {
 		return nil, err
 	}
