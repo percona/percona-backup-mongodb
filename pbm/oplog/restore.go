@@ -511,7 +511,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndexes(dbName, collName, []*idx.IndexDocument{index})
+			o.indexCatalog.AddIndex(dbName, collName, index)
 			return nil
 
 		case "dropDatabase":
@@ -583,6 +583,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
+			o.indexCatalog.DropCollection(dbName, collName)
+
 			collation, err := bsonutil.FindSubdocumentByKey("collation", &op.Object)
 			if err != nil {
 				o.indexCatalog.SetCollation(dbName, collName, true)
