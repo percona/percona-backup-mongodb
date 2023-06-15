@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type restoreOpts struct {
@@ -21,8 +25,11 @@ type restoreOpts struct {
 	pitr     string
 	pitrBase string
 	wait     bool
+	extern   bool
 	ns       string
 	rsMap    string
+	conf     string
+	ts       string
 }
 
 type restoreRet struct {
@@ -66,6 +73,21 @@ No other pbm command is available while the restore is running!
 	}
 }
 
+type externRestoreRet struct {
+	Name     string `json:"name,omitempty"`
+	Snapshot string `json:"snapshot,omitempty"`
+}
+
+func (r externRestoreRet) String() string {
+	return fmt.Sprintf(`
+	Ready to copy data to the nodes data directory.
+	After the copy is done, run: pbm restore-finish %s -c </path/to/pbm.conf.yaml>
+	Check restore status with: pbm describe-restore %s -c </path/to/pbm.conf.yaml>
+	No other pbm command is available while the restore is running!
+	`,
+		r.Name, r.Name)
+}
+
 func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
@@ -88,10 +110,18 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
 	switch {
-	case o.bcp != "":
-		m, err := restore(cn, o.bcp, nss, rsMap, outf)
+	case o.bcp != "" || o.extern:
+		m, err := restore(cn, o, nss, rsMap, outf)
 		if err != nil {
 			return nil, err
+		}
+		if o.extern && outf == outText {
+			err = waitRestore(cn, m, pbm.StatusCopyReady, tdiff)
+			if err != nil {
+				return nil, errors.Wrap(err, "waiting for the `copyReady` status")
+			}
+
+			return externRestoreRet{Name: m.Name, Snapshot: o.bcp}, nil
 		}
 		if !o.wait {
 			return restoreRet{
@@ -106,7 +136,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			typ = " physical restore.\nWaiting to finish"
 		}
 		fmt.Printf("Started%s", typ)
-		err = waitRestore(cn, m, tdiff)
+		err = waitRestore(cn, m, pbm.StatusDone, tdiff)
 		if err == nil {
 			return restoreRet{
 				done:     true,
@@ -127,7 +157,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 			return restoreRet{PITR: o.pitr, Name: m.Name}, nil
 		}
 		fmt.Print("Started.\nWaiting to finish")
-		err = waitRestore(cn, m, tdiff)
+		err = waitRestore(cn, m, pbm.StatusDone, tdiff)
 		if err != nil {
 			return restoreRet{err: err.Error()}, nil
 		}
@@ -145,7 +175,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 // But for physical ones, the cluster by this time is down. So we compare with
 // the wall time taking into account a time skew (wallTime - clusterTime) taken
 // when the cluster time was still available.
-func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, tskew int64) error {
+func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, status pbm.Status, tskew int64) error {
 	ep, _ := cn.GetEpoch()
 	l := cn.Logger().NewEvent(string(pbm.CmdRestore), m.Backup, m.OPID, ep.TS())
 	stg, err := cn.GetStorage(l)
@@ -181,7 +211,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, tskew int64) error {
 		}
 
 		switch rmeta.Status {
-		case pbm.StatusDone, pbm.StatusPartlyDone:
+		case status, pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
 			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
@@ -213,35 +243,69 @@ func (e errRestoreFailed) Error() string {
 	return e.string
 }
 
-func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
-	bcp, err := cn.GetBackupMeta(bcpName)
+func checkBackup(cn *pbm.PBM, o *restoreOpts) (pbm.BackupType, error) {
+	if o.extern && o.bcp == "" {
+		return pbm.ExternalBackup, nil
+	}
+
+	bcp, err := cn.GetBackupMeta(o.bcp)
 	if errors.Is(err, pbm.ErrNotFound) {
-		return nil, errors.Errorf("backup '%s' not found", bcpName)
+		return "", errors.Errorf("backup '%s' not found", o.bcp)
 	}
 	if err != nil {
-		return nil, errors.Wrap(err, "get backup data")
+		return "", errors.Wrap(err, "get backup data")
 	}
 	if len(nss) != 0 && bcp.Type != pbm.LogicalBackup {
 		return nil, errors.New("--ns flag is only allowed for logical restore")
 	}
 	if bcp.Status != pbm.StatusDone {
-		return nil, errors.Errorf("backup '%s' didn't finish successfully", bcpName)
+		return "", errors.Errorf("backup '%s' didn't finish successfully", o.bcp)
 	}
 
+	return bcp.Type, nil
+}
+
+func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
+	bcpType, err := checkBackup(cn, o)
+	if err != nil {
+		return nil, err
+	}
 	err = checkConcurrentOp(cn)
 	if err != nil {
 		return nil, err
 	}
 
-	name := time.Now().UTC().Format(time.RFC3339Nano)
+	restore := &pbm.RestoreCmd{
+		Name:       time.Now().UTC().Format(time.RFC3339Nano),
+		BackupName: o.bcp,
+		Namespaces: nss,
+		RSMap:      rsMapping,
+		External:   o.extern,
+	}
+	if o.ts != "" {
+		restore.ExtTS, err = parseTS(o.ts)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if o.conf != "" {
+		var buf []byte
+		if o.conf == "-" {
+			buf, err = io.ReadAll(os.Stdin)
+		} else {
+			buf, err = os.ReadFile(o.conf)
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to read config file")
+		}
+		err = yaml.UnmarshalStrict(buf, &restore.ExtConf)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+		}
+	}
 	err = cn.SendCmd(pbm.Cmd{
-		Cmd: pbm.CmdRestore,
-		Restore: &pbm.RestoreCmd{
-			Name:       name,
-			BackupName: bcpName,
-			Namespaces: nss,
-			RSMap:      rsMapping,
-		},
+		Cmd:     pbm.CmdRestore,
+		Restore: restore,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
@@ -249,13 +313,17 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 
 	if outf != outText {
 		return &pbm.RestoreMeta{
-			Name:   name,
-			Backup: bcpName,
-			Type:   bcp.Type,
+			Name:   restore.Name,
+			Backup: o.bcp,
+			Type:   bcpType,
 		}, nil
 	}
 
-	fmt.Printf("Starting restore %s from '%s'", name, bcpName)
+	bcpName := o.bcp
+	if o.extern {
+		bcpName = "[external]"
+	}
+	fmt.Printf("Starting restore %s from '%s'", restore.Name, bcpName)
 
 	var (
 		fn     getRestoreMetaFn
@@ -265,24 +333,38 @@ func restore(cn *pbm.PBM, bcpName string, nss []string, rsMapping map[string]str
 
 	// physical restore may take more time to start
 	const waitPhysRestoreStart = time.Second * 120
-	if bcp.Type == pbm.PhysicalBackup || bcp.Type == pbm.IncrementalBackup {
+	if bcpType == pbm.LogicalBackup {
+		fn = cn.GetRestoreMeta
+		ctx, cancel = context.WithTimeout(context.Background(), pbm.WaitActionStart)
+	} else {
 		ep, _ := cn.GetEpoch()
-		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
+		stg, err := cn.GetStorage(cn.Logger().NewEvent(string(pbm.CmdRestore), o.bcp, "", ep.TS()))
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
 		fn = func(name string) (*pbm.RestoreMeta, error) {
-			return pbm.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(pbm.CmdRestore), bcpName, "", ep.TS()))
+			return pbm.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(pbm.CmdRestore), o.bcp, "", ep.TS()))
 		}
 		ctx, cancel = context.WithTimeout(context.Background(), waitPhysRestoreStart)
-	} else {
-		fn = cn.GetRestoreMeta
-		ctx, cancel = context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name, fn)
+	return waitForRestoreStatus(ctx, cn, restore.Name, fn)
+}
+
+func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
+	stg, err := getRestoreMetaStg(o.cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
+	path := fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, o.restore)
+	return outMsg{"Command sent. Check `pbm describe-restore ...` for the result."},
+		stg.Save(path+"."+string(pbm.StatusCopyDone),
+			bytes.NewReader([]byte(
+				fmt.Sprintf("%d", time.Now().Unix()),
+			)), -1)
 }
 
 func parseTS(t string) (ts primitive.Timestamp, err error) {
@@ -447,33 +529,38 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
+func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
+	buf, err := ioutil.ReadFile(cfgPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read config file")
+	}
+
+	var cfg pbm.Config
+	err = yaml.UnmarshalStrict(buf, &cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to  unmarshal config file")
+	}
+
+	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
+	return pbm.Storage(cfg, l)
+}
+
 func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
-	var res describeRestoreResult
-	var meta *pbm.RestoreMeta
+	var (
+		meta *pbm.RestoreMeta
+		err  error
+		res  describeRestoreResult
+	)
 	if o.cfg != "" {
-		buf, err := ioutil.ReadFile(o.cfg)
-		if err != nil {
-			return nil, errors.Wrap(err, "unable to read config file")
-		}
-
-		var cfg pbm.Config
-		err = yaml.UnmarshalStrict(buf, &cfg)
-		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
-		}
-
-		l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-		stg, err := pbm.Storage(cfg, l)
+		stg, err := getRestoreMetaStg(o.cfg)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-
-		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, l)
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
 	} else {
-		var err error
 		meta, err = cn.GetRestoreMeta(o.restore)
 		if err != nil {
 			return nil, errors.Wrap(err, "get restore meta")

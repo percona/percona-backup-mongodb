@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const ExternalRsMetaFile = "pbm.rsmeta.%s.json"
+
 type RestoreMeta struct {
 	Status           Status              `bson:"status" json:"status"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`

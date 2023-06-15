@@ -26,6 +26,7 @@ type backupOpts struct {
 	compressionLevel []int
 	ns               string
 	wait             bool
+	externList       bool
 }
 
 type backupOut struct {
@@ -35,6 +36,32 @@ type backupOut struct {
 
 func (b backupOut) String() string {
 	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
+}
+
+type externBcpOut struct {
+	Name  string          `json:"name"`
+	Nodes []externBcpNode `json:"storage"`
+
+	list bool
+}
+
+type externBcpNode struct {
+	Name  string   `json:"name"`
+	Files []string `json:"files"`
+}
+
+func (b externBcpOut) String() string {
+	s := fmt.Sprintln("Ready to copy data from:")
+	for _, n := range b.Nodes {
+		s += fmt.Sprintf("\t- %s\n", n.Name)
+		if b.list {
+			for _, f := range n.Files {
+				s += fmt.Sprintf("\t\t%s\n", f)
+			}
+		}
+	}
+	s += fmt.Sprintf("After the copy is done, run: pbm backup-finish %s\n", b.Name)
+	return s
 }
 
 type descBcp struct {
@@ -106,40 +133,70 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, err
 	}
 
-	if b.wait {
-		return outMsg{}, waitBackup(context.Background(), cn, b.name)
+	if b.typ == string(pbm.ExternalBackup) {
+		s, err := waitBackup(context.Background(), cn, b.name, pbm.StatusCopyReady)
+		if err != nil {
+			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
+		}
+		if s == nil || *s != pbm.StatusCopyReady {
+			str := "nil"
+			if s != nil {
+				str = string(*s)
+			}
+			return nil, errors.Errorf("unexpected backup status %v", str)
+		}
+
+		bcp, err := cn.GetBackupMeta(b.name)
+		if err != nil {
+			return nil, errors.Wrap(err, "get backup meta")
+		}
+		out := externBcpOut{Name: b.name, list: b.externList}
+		for _, rs := range bcp.Replsets {
+			node := externBcpNode{Name: rs.Node}
+			for _, f := range rs.Files {
+				node.Files = append(node.Files, f.Name)
+			}
+			out.Nodes = append(out.Nodes, node)
+		}
+		return out, nil
 	}
 
-	fmt.Println()
+	if b.wait {
+		fmt.Printf("\nWaiting for '%s' backup...", b.name)
+		s, err := waitBackup(context.Background(), cn, b.name, pbm.StatusDone)
+		if s != nil {
+			fmt.Printf(" %s\n", *s)
+		}
+		return outMsg{}, err
+	}
+
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
-func waitBackup(ctx context.Context, cn *pbm.PBM, name string) error {
+func runFinishBcp(cn *pbm.PBM, bcp string) (fmt.Stringer, error) {
+	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
+		cn.ChangeBackupState(bcp, pbm.StatusCopyDone, "")
+}
+
+func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status pbm.Status) (*pbm.Status, error) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-
-	fmt.Printf("\nWaiting for '%s' backup...", name)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-t.C:
 			bcp, err := cn.GetBackupMeta(name)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			switch bcp.Status {
-			case pbm.StatusDone:
-				fmt.Println(" done")
-				return nil
-			case pbm.StatusCancelled:
-				fmt.Println(" canceled")
-				return nil
+			case status, pbm.StatusDone, pbm.StatusCancelled:
+				return &bcp.Status, nil
 			case pbm.StatusError:
-				fmt.Println(" failed")
-				return bcp.Error()
+				return &bcp.Status, bcp.Error()
 			}
 		}
 
@@ -218,6 +275,8 @@ type bcpDesc struct {
 type bcpReplDesc struct {
 	Name               string             `json:"name" yaml:"name"`
 	Status             pbm.Status         `json:"status" yaml:"status"`
+	Node               string             `json:"node" yaml:"node"`
+	Files              []pbm.File         `json:"files,omitempty" yaml:"-"`
 	LastWriteTS        int64              `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64              `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string             `json:"last_write_time" yaml:"last_write_time"`
@@ -298,6 +357,7 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	for i, r := range bcp.Replsets {
 		rv.Replsets[i] = bcpReplDesc{
 			Name:               r.Name,
+			Node:               r.Node,
 			IsConfigSvr:        r.IsConfigSvr,
 			Status:             r.Status,
 			LastWriteTS:        int64(r.LastWriteTS.T),
@@ -310,6 +370,9 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		}
 		if r.MongodOpts != nil && r.MongodOpts.Security != nil {
 			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
+		}
+		if bcp.Type == pbm.ExternalBackup {
+			rv.Replsets[i].Files = r.Files
 		}
 	}
 
