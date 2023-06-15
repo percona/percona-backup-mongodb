@@ -1,7 +1,7 @@
 ARG MONGODB_VERSION=4.2
 ARG MONGODB_IMAGE=percona/percona-server-mongodb
 
-FROM golang:1.19 as goimg
+FROM golang:1.19-bullseye as goimg
 
 FROM ${MONGODB_IMAGE}:${MONGODB_VERSION}
 
