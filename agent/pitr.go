@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
@@ -259,17 +258,18 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 	return tl.Heartbeat.T+pbm.StaleFrameSec < ts.T, nil
 }
 
-// PITRestore starts the point-in-time recovery
-func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
+func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if r == nil {
-		l := a.log.NewEvent(string(pbm.CmdPITRestore), "", opid.String(), ep.TS())
+		l := a.log.NewEvent(string(pbm.CmdRestore), "", opid.String(), ep.TS())
 		l.Error("missed command")
 		return
 	}
 
-	l := a.log.NewEvent(string(pbm.CmdPITRestore), r.Name, opid.String(), ep.TS())
+	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
 
-	l.Info("to time: %s", time.Unix(r.TS, 0).UTC().Format(time.RFC3339))
+	if r.OplogTS.T > 0 {
+		l.Info("to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
+	}
 
 	nodeInfo, err := a.node.GetInfo()
 	if err != nil {
@@ -281,7 +281,7 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
 		lock = a.pbm.NewLock(pbm.LockHeader{
-			Type:    pbm.CmdPITRestore,
+			Type:    pbm.CmdRestore,
 			Replset: nodeInfo.SetName,
 			Node:    nodeInfo.Me,
 			OPID:    opid.String(),
@@ -298,42 +298,60 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			l.Error("unable to run the restore while another backup or restore process running")
 			return
 		}
-	}
 
-	defer func() {
-		err := lock.Release()
-		if err != nil {
-			l.Error("release lock: %v", err)
-		}
-	}()
+		defer func() {
+			if lock == nil {
+				return
+			}
+			err := lock.Release()
+			if err != nil {
+				l.Error("release lock: %v", err)
+			}
+		}()
+	}
 
 	stg, err := a.pbm.GetStorage(l)
 	if err != nil {
 		l.Error("get storage: %v", err)
 		return
 	}
-	ts := primitive.Timestamp{T: uint32(r.TS), I: uint32(r.I)}
-	bcp, err := restore.GetBaseBackup(a.pbm, r.Bcp, ts, stg)
-	if err != nil {
-		l.Error("define base backup: %v", err)
-		return
+
+	var bcpType pbm.BackupType
+	bcp := &pbm.BackupMeta{}
+
+	if r.External && r.BackupName == "" {
+		bcpType = pbm.ExternalBackup
+	} else {
+		l.Info("backup: %s", r.BackupName)
+		if r.OplogTS.T > 0 {
+			bcp, err = restore.GetBaseBackup(a.pbm, r.BackupName, r.OplogTS, stg)
+		} else {
+			bcp, err = restore.SnapshotMeta(a.pbm, r.BackupName, stg)
+		}
+		if err != nil {
+			l.Error("define base backup: %v", err)
+			return
+		}
+		bcpType = bcp.Type
 	}
 
 	l.Info("recovery started")
-	switch bcp.Type {
+
+	switch bcpType {
 	case pbm.LogicalBackup:
 		if !nodeInfo.IsPrimary {
 			l.Info("Node in not suitable for restore")
 			return
 		}
 		err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
-	case pbm.PhysicalBackup, pbm.IncrementalBackup:
+	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
 		if lock != nil {
 			// Don't care about errors. Anyway, the lock gonna disappear after the
 			// restore. And the commands stream is down as well.
 			// The lock also updates its heartbeats but Restore waits only for one state
 			// with the timeout twice as short pbm.StaleFrameSec.
 			lock.Release()
+			lock = nil
 		}
 
 		var rstr *restore.PhysRestore
@@ -348,7 +366,7 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			BackupName: bcp.Name,
 			Namespaces: r.Namespaces,
 			RSMap:      r.RSMap,
-		}, &ts, opid, l, a.closeCMD, a.HbPause)
+		}, &r.OplogTS, opid, l, a.closeCMD, a.HbPause)
 	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
@@ -358,15 +376,14 @@ func (a *Agent) PITRestore(r *pbm.PITRestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 		return
 	}
-	l.Info("recovery successfully finished")
 
-	if nodeInfo.IsLeader() {
+	if bcpType == pbm.LogicalBackup && nodeInfo.IsLeader() {
 		epch, err := a.pbm.ResetEpoch()
 		if err != nil {
-			l.Error("reset epoch")
-			return
+			l.Error("reset epoch: %v", err)
 		}
-
 		l.Debug("epoch set to %v", epch)
 	}
+
+	l.Info("recovery successfully finished")
 }

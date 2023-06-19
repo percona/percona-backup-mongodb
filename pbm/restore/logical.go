@@ -188,7 +188,7 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 }
 
 // PITR do the Point-in-Time Recovery
-func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }() // !!! has to be in a closure
 
 	err = r.init(cmd.Name, opid, l)
@@ -196,8 +196,8 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		return err
 	}
 
-	tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
-	bcp, err := GetBaseBackup(r.cn, cmd.Bcp, tsTo, r.stg)
+	// tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
+	bcp, err := GetBaseBackup(r.cn, cmd.BackupName, cmd.OplogTS, r.stg)
 	if err != nil {
 		return errors.Wrap(err, "get base backup")
 	}
@@ -208,7 +208,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 	}
 
 	if r.nodeInfo.IsLeader() {
-		err = r.cn.SetOplogTimestamps(r.name, 0, int64(tsTo.T))
+		err = r.cn.SetOplogTimestamps(r.name, 0, int64(cmd.OplogTS.T))
 		if err != nil {
 			return errors.Wrap(err, "set PITR timestamp")
 		}
@@ -242,7 +242,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		r.sMap = r.getShardMapping(bcp)
 	}
 
-	chunks, err := r.chunks(bcp.LastWriteTS, tsTo)
+	chunks, err := r.chunks(bcp.LastWriteTS, cmd.OplogTS)
 	if err != nil {
 		return err
 	}
@@ -275,7 +275,7 @@ func (r *Restore) PITR(cmd *pbm.PITRestoreCmd, opid pbm.OPID, l *log.Event) (err
 		EndTS:       bcp.LastWriteTS,
 	}
 
-	oplogOption := applyOplogOption{end: &tsTo, nss: nss}
+	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && sel.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)

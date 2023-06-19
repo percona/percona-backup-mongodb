@@ -69,7 +69,6 @@ const (
 	CmdCancelBackup Command = "cancelBackup"
 	CmdResync       Command = "resync"
 	CmdPITR         Command = "pitr"
-	CmdPITRestore   Command = "pitrestore"
 	CmdDeleteBackup Command = "delete"
 	CmdDeletePITR   Command = "deletePitr"
 	CmdCleanup      Command = "cleanup"
@@ -89,8 +88,6 @@ func (c Command) String() string {
 		return "Resync storage"
 	case CmdPITR:
 		return "PITR incremental backup"
-	case CmdPITRestore:
-		return "PITR restore"
 	case CmdDeleteBackup:
 		return "Delete"
 	case CmdDeletePITR:
@@ -109,7 +106,6 @@ type Cmd struct {
 	Backup     *BackupCmd       `bson:"backup,omitempty"`
 	Restore    *RestoreCmd      `bson:"restore,omitempty"`
 	Replay     *ReplayCmd       `bson:"replay,omitempty"`
-	PITRestore *PITRestoreCmd   `bson:"pitrestore,omitempty"`
 	Delete     *DeleteBackupCmd `bson:"delete,omitempty"`
 	DeletePITR *DeletePITRCmd   `bson:"deletePitr,omitempty"`
 	Cleanup    *CleanupCmd      `bson:"cleanup,omitempty"`
@@ -148,10 +144,6 @@ func (c Cmd) String() string {
 		buf.WriteString(" [")
 		buf.WriteString(c.Restore.String())
 		buf.WriteString("]")
-	case CmdPITRestore:
-		buf.WriteString(" [")
-		buf.WriteString(c.PITRestore.String())
-		buf.WriteString("]")
 	}
 	buf.WriteString(" <ts: ")
 	buf.WriteString(strconv.FormatInt(c.TS, 10))
@@ -184,6 +176,8 @@ type RestoreCmd struct {
 	Namespaces []string          `bson:"nss,omitempty"`
 	RSMap      map[string]string `bson:"rsMap,omitempty"`
 
+	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
+
 	External bool                `bson:"external"`
 	ExtConf  ExternOpts          `bson:"extConf"`
 	ExtTS    primitive.Timestamp `bson:"extTS"`
@@ -192,13 +186,16 @@ type RestoreCmd struct {
 func (r RestoreCmd) String() string {
 	bcp := ""
 	if r.BackupName != "" {
-		bcp = "backup name: " + r.BackupName
+		bcp = "snapshot: " + r.BackupName
 	}
 	if r.External {
-		bcp += "<external>"
+		bcp += "[external]"
 	}
 	if r.ExtTS.T > 0 {
-		bcp += fmt.Sprintf(" ts: %d,%d", r.ExtTS.T, r.ExtTS.I)
+		bcp += fmt.Sprintf(" external ts: <%d,%d>", r.ExtTS.T, r.ExtTS.I)
+	}
+	if r.OplogTS.T > 0 {
+		bcp += fmt.Sprintf(" point-in-time: <%d,%d>", r.OplogTS.T, r.OplogTS.I)
 	}
 
 	return fmt.Sprintf("name: %s, %s", r.Name, bcp)
@@ -214,22 +211,6 @@ type ReplayCmd struct {
 
 func (c ReplayCmd) String() string {
 	return fmt.Sprintf("name: %s, time: %d - %d", c.Name, c.Start, c.End)
-}
-
-type PITRestoreCmd struct {
-	Name       string            `bson:"name"`
-	TS         int64             `bson:"ts"`
-	I          int64             `bson:"i"`
-	Bcp        string            `bson:"bcp"`
-	Namespaces []string          `bson:"nss,omitempty"`
-	RSMap      map[string]string `bson:"rsMap,omitempty"`
-}
-
-func (p PITRestoreCmd) String() string {
-	if p.Bcp != "" {
-		return fmt.Sprintf("name: %s, point-in-time ts: %d, base-snapshot: %s", p.Name, p.TS, p.Bcp)
-	}
-	return fmt.Sprintf("name: %s, point-in-time ts: %d", p.Name, p.TS)
 }
 
 type DeleteBackupCmd struct {
