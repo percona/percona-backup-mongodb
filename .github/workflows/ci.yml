@@ -1,64 +1,46 @@
-name: CI
+name: Docker Image CI
 
-on:
-  workflow_dispatch:
-    inputs:
-      pbm_branch:
-        description: "PBM branch"
-        required: false
-      tests_ver:
-        description: "Tests version"
-        required: false
-      go_ver:
-        description: "Golang version"
-        required: false
-      pr_ver:
-        description: "PR version"
-        required: false
+on:  
+  push:
+    branches: [ main ]
 
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - 'e2e-tests/**'
-      - 'packaging/**'
-      - 'version/**'
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    runs-on: ubuntu-20.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        psmdb: ["4.2", "4.4", "5.0", "6.0"]
-        test: [logical, physical, incremental, external]
-    env:
-      PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
-      GO_VER: ${{ github.event.inputs.go_ver || 'bullseye' }}
-      PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
+
+  build:
+
+    runs-on: ubuntu-latest
 
     steps:
-     - name: Checkout testing repo
-       uses: actions/checkout@v3
-       with:
-        repository: Percona-QA/psmdb-testing
-        ref: ${{ github.event.inputs.tests_ver || 'main'}}
-        path: psmdb-testing
+    - name: Checkout repository
+      uses: actions/checkout@v2
 
-     - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
-       run: |
-        PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker-compose build
-        docker-compose up -d
-       working-directory: psmdb-testing/pbm-functional/pytest
+    - name: Log in to the Container registry
+      uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-     - name: Test ${{ matrix.test }} backup/restore on PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
-       run: |
-        docker-compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
-       working-directory: psmdb-testing/pbm-functional/pytest
 
-     - name: Publish Test Report
-       uses: mikepenz/action-junit-report@v3
-       if: success() || failure()
-       with:
-        report_paths: '**/junit.xml'
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=sha
+          type=raw,value=latest
+    
+    - name: Build and push Docker image
+      id: build-and-push
+      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+      with:
+        context: .
+        file: ./docker/Dockerfile.k8s
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
