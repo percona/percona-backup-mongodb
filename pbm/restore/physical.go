@@ -1283,11 +1283,22 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		end:    &to,
 		unsafe: true,
 	}
-	err = applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		r.setTxn, r.checkTxn, r.checkWaitingTxns,
+	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+		r.setCommitedTxn, r.getCommitedTxn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
+	}
+	if len(partial) > 0 {
+		var b bytes.Buffer
+		err := json.NewEncoder(&b).Encode(partial)
+		if err != nil {
+			return errors.Wrap(err, "encode")
+		}
+		err = r.stg.Save(r.syncPathRS+".txnErr", &b, int64(b.Len()))
+		if err != nil {
+			return errors.Wrap(err, "write partial transactions")
+		}
 	}
 
 	err = shutdown(c, r.dbpath)
@@ -1599,6 +1610,59 @@ func (r *PhysRestore) setTxn(txn pbm.RestoreTxn) error {
 	return r.stg.Save(r.syncPathRS+".txn",
 		bytes.NewReader(txn.Encode()), -1,
 	)
+}
+
+func (r *PhysRestore) setCommitedTxn(txn []pbm.RestoreTxn) error {
+	if txn == nil {
+		txn = []pbm.RestoreTxn{}
+	}
+	var b bytes.Buffer
+	err := json.NewEncoder(&b).Encode(txn)
+	if err != nil {
+		return errors.Wrap(err, "encode")
+	}
+	return r.stg.Save(r.syncPathRS+".txn",
+		&b, int64(b.Len()),
+	)
+}
+
+func (r *PhysRestore) getCommitedTxn() (map[string]primitive.Timestamp, error) {
+	shards := copyMap(r.syncPathShards)
+	txn := make(map[string]primitive.Timestamp)
+	for len(shards) > 0 {
+		for f := range shards {
+			dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return nil, errors.Wrapf(err, "check done for <%s>", f)
+			}
+			if err == nil && dr.Size != 0 {
+				delete(shards, f)
+				continue
+			}
+
+			txnr, err := r.stg.SourceReader(f + ".txn")
+			if err != nil && errors.Is(err, storage.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, errors.Wrapf(err, "get txns <%s>", f)
+			}
+			txns := []pbm.RestoreTxn{}
+			err = json.NewDecoder(txnr).Decode(&txns)
+			if err != nil {
+				return nil, errors.Wrapf(err, "deconde txns <%s>", f)
+			}
+			for _, t := range txns {
+				if t.State == pbm.TxnCommit {
+					txn[t.ID] = t.Ctime
+				}
+			}
+			delete(shards, f)
+		}
+		time.Sleep(time.Second * 5)
+	}
+
+	return txn, nil
 }
 
 func (r *PhysRestore) checkWaitingTxns(observedTxn map[string]struct{}, o *oplog.OplogRestore) error {

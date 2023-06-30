@@ -313,15 +313,18 @@ func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]str
 		}, nil
 	}
 
-	bcpName := bcp
-	pitrs := ""
-	if o.extern {
-		bcpName = "[external]"
+	bcpName := ""
+	if bcp != "" {
+		bcpName = fmt.Sprintf(" from '%s'", bcp)
 	}
+	if o.extern {
+		bcpName = " from [external]"
+	}
+	pitrs := ""
 	if o.pitr != "" {
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
-	fmt.Printf("Starting restore %s%s from '%s'", name, pitrs, bcpName)
+	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
 	var (
 		fn     getRestoreMetaFn

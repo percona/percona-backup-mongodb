@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/snappy"
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -799,279 +799,103 @@ func updateChunksRouterTable(ctx context.Context, m *mongo.Client, sMap map[stri
 	return errors.WithMessage(err, "bulk write")
 }
 
-func (r *Restore) distTxnChecker(done <-chan struct{}, ctxn chan pbm.RestoreTxn, txnSyncErr chan<- error) {
-	defer r.log.Debug("exit distTxnChecker")
+func (r *Restore) setCommitedTxn(txn []pbm.RestoreTxn) error {
+	return r.cn.RestoreSetRSTxn(r.name, r.nodeInfo.SetName, txn)
+}
 
-	for {
-		select {
-		case txn := <-ctxn:
-			r.log.Debug("found dist txn: %s", txn)
-			err := r.cn.RestoreSetRSTxn(r.name, r.nodeInfo.SetName, txn)
-			if err != nil {
-				txnSyncErr <- errors.Wrapf(err, "set transaction %v", txn)
-				return
+func (r *Restore) getCommitedTxn() (map[string]primitive.Timestamp, error) {
+	txn := make(map[string]primitive.Timestamp)
+
+	shards := make(map[string]struct{})
+	for _, s := range r.shards {
+		shards[s.RS] = struct{}{}
+	}
+
+	for len(shards) > 0 {
+		bmeta, err := r.cn.GetRestoreMeta(r.name)
+		if err != nil {
+			return nil, errors.Wrap(err, "get restore metadata")
+		}
+
+		clusterTime, err := r.cn.ClusterTime()
+		if err != nil {
+			return nil, errors.Wrap(err, "read cluster time")
+		}
+
+		// not going directly thru bmeta.Replsets to be sure we've heard back
+		// from all participated in the restore shards.
+		for _, shard := range bmeta.Replsets {
+			if _, ok := shards[shard.Name]; !ok {
+				continue
 			}
+			// check if node alive
+			lock, err := r.cn.GetLockData(&pbm.LockHeader{
+				Type:    pbm.CmdRestore,
+				OPID:    r.opid,
+				Replset: shard.Name,
+			})
 
-			if txn.State == pbm.TxnCommit {
-				txn.State, err = r.txnWaitForShards(txn)
+			// nodes are cleaning its locks moving to the done status
+			// so no lock is ok and not need to ckech the heartbeats
+			if err != mongo.ErrNoDocuments {
 				if err != nil {
-					txnSyncErr <- errors.Wrapf(err, "wait transaction %v", txn)
-					return
+					return nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 				}
-				r.log.Debug("txn converged to [%s] <%s>", txn.State, txn.ID)
-				ctxn <- txn
+				if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
+					return nil, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+				}
 			}
-		case <-done:
-			return
-		}
-	}
-}
 
-func (r *Restore) waitingTxnChecker(e *error, done <-chan struct{}) {
-	defer r.log.Debug("exit waitingTxnChecker")
-
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-
-	observedTxn := make(map[string]struct{})
-	for {
-		select {
-		case <-tk.C:
-			err := r.checkWaitingTxns(observedTxn)
-			if err != nil {
-				*e = err
-				return
+			if shard.Status == pbm.StatusError {
+				return nil, errors.Errorf("shard %s failed with: %v", shard.Name, shard.Error)
 			}
-		case <-done:
-			return
+
+			if shard.Status == pbm.StatusDone {
+				delete(shards, shard.Name)
+				continue
+			}
+
+			if shard.CommitedTxnSet {
+				for _, t := range shard.CommitedTxn {
+					if t.State == pbm.TxnCommit {
+						txn[t.ID] = t.Ctime
+					}
+				}
+				delete(shards, shard.Name)
+			}
 		}
+		time.Sleep(time.Second * 1)
 	}
+
+	return txn, nil
 }
 
-type applyOplogOption struct {
-	start  *primitive.Timestamp
-	end    *primitive.Timestamp
-	nss    []string
-	unsafe bool
-	filter oplog.OpFilter
-}
-
-// In order to sync distributed transactions (commit ontly when all participated shards are committed),
-// on all participated in the retore agents:
-// distTxnChecker:
-// - Receiving distributed transactions from the oplog applier, will add it to the shards restore meta.
-// - If txn's state is `commit` it will wait on the rest of the shards for:
-//   - either transaction committed on the shard (have `commitTransaction`);
-//   - or shard didn't participate in the transaction (more on that below);
-//   - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
-//     If any shard encounters the latter - the transaction is sent back to the applier as aborted.
-//     Otherwise - committed.
-//
-// By looking at just transactions in the oplog we can't tell which shards were participating in it. So given that
-// starting `opTime` of the transaction is the same on all shards, we can assume that if some shard(s) oplog applier
-// observed greater than the txn's `opTime` and hadn't seen such txn - it wasn't a part of this transaction at all. To
-// communicate that, each agent runs `checkWaitingTxns` which in turn periodically checks restore metadata for new
-// (unobserved before) waiting transaction events and posts the last observed opTime if there are any. We go with
-// `checkWaitingTxns` instead of just updating each observed `opTime`  since the latter would add an extra 1 write
-// to the each oplog op on sharded clusters even if there are no dist txns at all.
 func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption) error {
-	r.log.Info("starting oplog replay")
-	var err error
-
 	mgoV, err := r.node.GetMongoVersion()
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
-
-	var (
-		ctxn       chan pbm.RestoreTxn
-		txnSyncErr chan error
-	)
-	if r.nodeInfo.IsSharded() {
-		ctxn = make(chan pbm.RestoreTxn)
-		txnSyncErr = make(chan error)
-	}
-
-	r.oplog, err = oplog.NewOplogRestore(r.node.Session(), mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
+		r.setCommitedTxn, r.getCommitedTxn,
+		mgoV, r.stg, r.log)
 	if err != nil {
-		return errors.Wrap(err, "create oplog")
+		return errors.Wrap(err, "reply oplog")
 	}
 
-	r.oplog.SetOpFilter(options.filter)
-
-	var startTS, endTS primitive.Timestamp
-	if options.start != nil {
-		startTS = *options.start
-	}
-	if options.end != nil {
-		endTS = *options.end
-	}
-	r.oplog.SetTimeframe(startTS, endTS)
-	r.oplog.SetIncludeNS(options.nss)
-
-	var waitTxnErr error
-	if r.nodeInfo.IsSharded() {
-		r.log.Debug("starting sharded txn sync")
-		if len(r.shards) == 0 {
-			return errors.New("participating shards undefined")
+	if len(partial) > 0 {
+		tops := []db.Oplog{}
+		for _, t := range partial {
+			tops = append(tops, t.Oplog...)
 		}
-		done := make(chan struct{})
-		go r.distTxnChecker(done, ctxn, txnSyncErr)
-		go r.waitingTxnChecker(&waitTxnErr, done)
-		defer close(done)
-	}
 
-	var lts primitive.Timestamp
-	for _, chnk := range chunks {
-		r.log.Debug("+ applying %v", chnk)
-
-		// If the compression is Snappy and it failed we try S2.
-		// Up until v1.7.0 the compression of pitr chunks was always S2.
-		// But it was a mess in the code which lead to saving pitr chunk files
-		// with the `.snappy`` extension although it was S2 in fact. And during
-		// the restore, decompression treated .snappy as S2 ¯\_(ツ)_/¯ It wasn’t
-		// an issue since there was no choice. Now, Snappy produces `.snappy` files
-		// and S2 - `.s2` which is ok. But this means the old chunks (made by previous
-		// PBM versions) won’t be compatible - during the restore, PBM will treat such
-		// files as Snappy (judging by its suffix) but in fact, they are s2 files
-		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
-		lts, err = r.replayChunk(chnk.FName, chnk.Compression)
-		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = r.replayChunk(chnk.FName, compress.CompressionTypeS2)
-		}
+		err = r.cn.RestoreSetRSPartTxn(r.name, r.nodeInfo.SetName, tops)
 		if err != nil {
-			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
-		}
-
-		if waitTxnErr != nil {
-			return errors.Wrap(err, "check waiting transactions")
-		}
-	}
-
-	r.log.Info("oplog replay finished on %v", lts)
-
-	return nil
-}
-
-func (r *Restore) checkWaitingTxns(observedTxn map[string]struct{}) error {
-	rmeta, err := r.cn.GetRestoreMeta(r.name)
-	if err != nil {
-		return errors.Wrap(err, "get restore metadata")
-	}
-
-	for _, shard := range rmeta.Replsets {
-		if _, ok := observedTxn[shard.Txn.ID]; shard.Txn.State == pbm.TxnCommit && !ok {
-			ts := primitive.Timestamp{r.oplog.LastOpTS(), 0}
-			if primitive.CompareTimestamp(ts, shard.Txn.Ctime) > 0 {
-				err := r.cn.SetCurrentOp(r.name, r.nodeInfo.SetName, ts)
-				if err != nil {
-					return errors.Wrap(err, "set current op timestamp")
-				}
-			}
-
-			observedTxn[shard.Txn.ID] = struct{}{}
-			return nil
+			return errors.Wrap(err, "set partial transactions")
 		}
 	}
 
 	return nil
 }
-
-func (r *Restore) txnWaitForShards(txn pbm.RestoreTxn) (pbm.TxnState, error) {
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-	for {
-		select {
-		case <-tk.C:
-			s, err := r.checkTxn(txn)
-			if err != nil {
-				return pbm.TxnUnknown, err
-			}
-			if s == pbm.TxnCommit || s == pbm.TxnAbort {
-				return s, nil
-			}
-		case <-r.cn.Context().Done():
-			return pbm.TxnAbort, nil
-		}
-	}
-}
-
-func (r *Restore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
-	bmeta, err := r.cn.GetRestoreMeta(r.name)
-	if err != nil {
-		return pbm.TxnUnknown, errors.Wrap(err, "get restore metadata")
-	}
-
-	clusterTime, err := r.cn.ClusterTime()
-	if err != nil {
-		return pbm.TxnUnknown, errors.Wrap(err, "read cluster time")
-	}
-
-	// not going directly thru bmeta.Replsets to be sure we've heard back
-	// from all participated in the restore shards.
-	shardsToFinish := len(r.shards)
-	for _, sh := range r.shards {
-		for _, shard := range bmeta.Replsets {
-			if shard.Name == sh.RS {
-				// check if node alive
-				lock, err := r.cn.GetLockData(&pbm.LockHeader{
-					Type:    pbm.CmdRestore,
-					OPID:    r.opid,
-					Replset: shard.Name,
-				})
-
-				// nodes are cleaning its locks moving to the done status
-				// so no lock is ok and not need to ckech the heartbeats
-				if err != mongo.ErrNoDocuments {
-					if err != nil {
-						return pbm.TxnUnknown, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
-					}
-					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-						return pbm.TxnUnknown, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
-					}
-				}
-
-				if shard.Status == pbm.StatusError {
-					return pbm.TxnUnknown, errors.Errorf("shard %s failed with: %v", shard.Name, shard.Error)
-				}
-
-				if primitive.CompareTimestamp(shard.CurrentOp, txn.Ctime) == 1 {
-					shardsToFinish--
-					continue
-				}
-
-				if shard.Txn.ID != txn.ID {
-					if shard.Status == pbm.StatusDone ||
-						primitive.CompareTimestamp(shard.Txn.Ctime, txn.Ctime) == 1 {
-						shardsToFinish--
-						continue
-					}
-					return pbm.TxnUnknown, nil
-				}
-
-				// check status
-				switch shard.Txn.State {
-				case pbm.TxnPrepare:
-					if shard.Status == pbm.StatusDone {
-						return pbm.TxnAbort, nil
-					}
-					return pbm.TxnUnknown, nil
-				case pbm.TxnAbort:
-					return pbm.TxnAbort, nil
-				case pbm.TxnCommit:
-					shardsToFinish--
-				}
-			}
-		}
-	}
-
-	if shardsToFinish == 0 {
-		return pbm.TxnCommit, nil
-	}
-
-	return pbm.TxnUnknown, nil
-}
-
 func (r *Restore) snapshot(input io.Reader) (err error) {
 	cfg, err := r.cn.GetConfig()
 	if err != nil {

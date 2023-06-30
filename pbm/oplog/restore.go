@@ -90,7 +90,6 @@ var dontPreserveUUID = []string{
 type OplogRestore struct {
 	dst               *mongo.Client
 	ver               *db.Version
-	txnBuffer         *txn.Buffer
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
 	startTS           primitive.Timestamp
@@ -99,6 +98,11 @@ type OplogRestore struct {
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
+
+	// dist txn prepare entities yet to be commited
+	txnData map[string]Txn
+	// queue of last N commited transactions
+	txnCommit *cqueue
 
 	txn        chan pbm.RestoreTxn
 	txnSyncErr chan error
@@ -115,6 +119,8 @@ type OplogRestore struct {
 
 	filter OpFilter
 }
+
+const saveLastDistTxns = 100
 
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(dst *mongo.Client, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
@@ -147,6 +153,8 @@ func NewOplogRestore(dst *mongo.Client, sv *pbm.MongoVersion, unsafe, preserveUU
 		txnSyncErr:        txnErr,
 		unsafe:            unsafe,
 		filter:            DefaultOpFilter,
+		txnData:           make(map[string]Txn),
+		txnCommit:         newCQueue(saveLastDistTxns),
 	}, nil
 }
 
@@ -172,9 +180,6 @@ func (o *OplogRestore) SetTimeframe(start, end primitive.Timestamp) {
 func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
-
-	o.txnBuffer = txn.NewBuffer()
-	defer func() { o.txnBuffer.Stop() }() // it basically never returns an error
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -347,6 +352,33 @@ func isPrepareTxn(op *db.Oplog) bool {
 	return false
 }
 
+func isTxnOps(op *db.Oplog) bool {
+	for _, v := range op.Object {
+		if v.Key == "applyOps" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isPartial(op *db.Oplog) bool {
+	for _, v := range op.Object {
+		if v.Key == "partialTxn" {
+			return true
+		}
+	}
+
+	return false
+}
+
+type Txn struct {
+	Oplog    []db.Oplog
+	meta     txn.Meta
+	applyOps []db.Oplog
+	allOps   bool
+}
+
 // handleTxnOp accumulates transaction's ops in a buffer and then applies
 // it as non-txn ops when observes commit or just purge the buffer if the transaction
 // aborted.
@@ -365,30 +397,28 @@ func isPrepareTxn(op *db.Oplog) bool {
 // Since we sync backup/restore across shards by `ts` (`opTime`), artifacts of such transaction
 // would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
 //
-// To avoid that we have to check if a distributed transaction was committed on all
-// participated shards before committing such transaction.
-//   - Encountering `prepare` statement `handleTxnOp` would send such txn to the caller.
-//   - Bumping into `commitTransaction` it will send txn again with respective state and
-//     commit time. And waits for the response from the caller with either "commit" or "abort" state.
-//   - On "abort" transactions buffer will be purged, hence all ops are discarded.
+// We treat distributed as transactions as non-distributed - apply opps once
+// a commit message for this txn is encountered. But store uncommited dist txns
+// so applier check in the end if any of them commited on other shards
+// (and commit if so)
 func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
-	err := o.txnBuffer.AddOp(meta, op)
-	if err != nil {
-		return errors.Wrap(err, "buffering entry")
-	}
+	txnID := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
 
-	if o.txn != nil && isPrepareTxn(&op) {
-		o.txn <- pbm.RestoreTxn{
-			ID:    fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber),
-			State: pbm.TxnPrepare,
-		}
-	}
-
-	if meta.IsAbort() {
-		err := o.txnBuffer.PurgeTxn(meta)
+	if isTxnOps(&op) {
+		ops, err := txnInnerOps(&op)
 		if err != nil {
-			return errors.Wrap(err, "cleaning up transaction buffer on abort")
+			return err
 		}
+
+		t := o.txnData[txnID]
+		t.meta = meta
+		t.allOps = !isPartial(&op)
+		t.Oplog = append(t.Oplog, op)
+		t.applyOps = append(t.applyOps, ops...)
+		o.txnData[txnID] = t
+	}
+	if meta.IsAbort() {
+		delete(o.txnData, txnID)
 		return nil
 	}
 
@@ -396,65 +426,172 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 		return nil
 	}
 
-	// if the "commit" contains data, it's a non distributed transaction
-	// and we can apply it now. Otherwise we have to confirm it was committed
-	// on all participated shards.
-	if o.txn != nil && !meta.IsData() {
+	// The first op of the current chunk euquals to the last of the previous.
+	// It's done to ensure no gaps in between chunks. Although and oplog ops are
+	// idempotent, if the duplication gonna be a commit message of the distributed
+	// txn, the second commit gonna fail since we're clearing commited tnxs out
+	// of the buffer. So just skip if it is a commit duplication.
+	lastc := o.txnCommit.last()
+	if lastc != nil && txnID == lastc.ID {
+		return nil
+	}
+
+	// if the "commit" contains no data, it's a distributed transaction and we
+	// preserve it and communicate later to another shards so they can apply
+	// prepared txn if its commit didn't get into the oplog time range
+	if !meta.IsData() {
 		var cts primitive.Timestamp
 		for _, v := range op.Object {
 			if v.Key == "commitTimestamp" {
 				cts = v.Value.(primitive.Timestamp)
 			}
 		}
-		id := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
-		o.txn <- pbm.RestoreTxn{
-			ID:    id,
+
+		o.txnCommit.push(pbm.RestoreTxn{
+			ID:    txnID,
 			Ctime: cts,
 			State: pbm.TxnCommit,
-		}
-
-		select {
-		case txn := <-o.txn:
-			if txn.State == pbm.TxnAbort {
-				err := o.txnBuffer.PurgeTxn(meta)
-				if err != nil {
-					return errors.Wrapf(err, "cleaning up txn [%s] buffer on abort", id)
-				}
-				return nil
-			}
-		case err := <-o.txnSyncErr:
-			return errors.Wrapf(err, "distributed txn [%s] sync failed with", id)
-		}
+		})
 	}
 
-	// From here, we're applying transaction entries
-	ops, errs := o.txnBuffer.GetTxnStream(meta)
-
-Loop:
-	for {
-		select {
-		case op, ok := <-ops:
-			if !ok {
-				break Loop
-			}
-			err = o.handleNonTxnOp(op)
-			if err != nil {
-				return errors.Wrap(err, "applying transaction op")
-			}
-		case err := <-errs:
-			if err != nil {
-				return errors.Wrap(err, "replaying transaction")
-			}
-			break Loop
-		}
-	}
-
-	err = o.txnBuffer.PurgeTxn(meta)
+	// commit transaction
+	err := o.applyTxn(txnID)
 	if err != nil {
-		return errors.Wrap(err, "cleaning up transaction buffer")
+		b, _ := json.MarshalIndent(op, "", " ")
+		return errors.Wrapf(err, "apply txn: %s", b)
 	}
+
+	delete(o.txnData, txnID)
 
 	return nil
+}
+
+const extractErrorFmt = "error extracting transaction ops: %s: %v"
+
+func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
+	doc := txnOp.Object
+	rawAO, err := bsonutil.FindValueByKey("applyOps", &doc)
+	if err != nil {
+		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", err)
+	}
+
+	ao, ok := rawAO.(bson.A)
+	if !ok {
+		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", "not a BSON array")
+	}
+
+	ops := make([]db.Oplog, len(ao))
+	for i, v := range ao {
+		opDoc, ok := v.(bson.D)
+		if !ok {
+			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", "not a BSON document")
+		}
+		op, err := bsonDocToOplog(opDoc)
+		if err != nil {
+			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", err)
+		}
+
+		// The inner ops doesn't have these fields and they are required by lastAppliedTime.Latest in Mongomirror,
+		// so we are assigning them from the parent transaction op
+		op.Timestamp = txnOp.Timestamp
+		op.Term = txnOp.Term
+		op.Hash = txnOp.Hash
+
+		ops[i] = *op
+	}
+
+	return ops, nil
+}
+
+const opConvertErrorFmt = "error converting bson.D to op: %s: %v"
+
+func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
+	op := db.Oplog{}
+
+	for _, v := range doc {
+		switch v.Key {
+		case "op":
+			s, ok := v.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf(opConvertErrorFmt, "op field", "not a string")
+			}
+			op.Operation = s
+		case "ns":
+			s, ok := v.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf(opConvertErrorFmt, "ns field", "not a string")
+			}
+			op.Namespace = s
+		case "o":
+			d, ok := v.Value.(bson.D)
+			if !ok {
+				return nil, fmt.Errorf(opConvertErrorFmt, "o field", "not a BSON Document")
+			}
+			op.Object = d
+		case "o2":
+			d, ok := v.Value.(bson.D)
+			if !ok {
+				return nil, fmt.Errorf(opConvertErrorFmt, "o2 field", "not a BSON Document")
+			}
+			op.Query = d
+		case "ui":
+			u, ok := v.Value.(primitive.Binary)
+			if !ok {
+				return nil, fmt.Errorf(opConvertErrorFmt, "ui field", "not binary data")
+			}
+			op.UI = &u
+		}
+	}
+
+	return &op, nil
+}
+
+func (o *OplogRestore) applyTxn(id string) (err error) {
+	t, ok := o.txnData[id]
+	if !ok {
+		return errors.Errorf("unknown transaction id %s", id)
+	}
+
+	for _, op := range t.applyOps {
+		err = o.handleNonTxnOp(op)
+		if err != nil {
+			return errors.Wrap(err, "applying transaction op")
+		}
+	}
+
+	delete(o.txnData, id)
+	return nil
+}
+
+func (o *OplogRestore) TxnLeftovers() (uncommited map[string]Txn, lastCommits []pbm.RestoreTxn) {
+	return o.txnData, o.txnCommit.s
+}
+
+func (o *OplogRestore) HandleUncommitedTxn(commits map[string]primitive.Timestamp) (partial, uncommited []Txn, err error) {
+	if len(o.txnData) == 0 {
+		return nil, nil, nil
+	}
+
+	for id, t := range o.txnData {
+		if _, ok := commits[id]; ok {
+			if !t.allOps {
+				partial = append(partial, t)
+				continue
+			}
+
+			err := o.applyTxn(id)
+			if err != nil {
+				return partial, uncommited, errors.Wrapf(err, "applying uncommited txn %s", id)
+			}
+			delete(o.txnData, id)
+		}
+	}
+
+	for _, t := range o.txnData {
+		uncommited = append(uncommited, t)
+	}
+
+	return partial, uncommited, nil
 }
 
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
@@ -623,6 +760,31 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	}
 
 	return nil
+}
+
+type cqueue struct {
+	s []pbm.RestoreTxn
+	c int
+}
+
+func newCQueue(cap int) *cqueue {
+	return &cqueue{s: make([]pbm.RestoreTxn, 0, cap), c: cap}
+}
+
+func (c *cqueue) push(v pbm.RestoreTxn) {
+	if len(c.s) == c.c {
+		c.s = c.s[1:]
+	}
+
+	c.s = append(c.s, v)
+}
+
+func (c *cqueue) last() *pbm.RestoreTxn {
+	if len(c.s) == 0 {
+		return nil
+	}
+
+	return &c.s[len(c.s)-1]
 }
 
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "createIndexes" oplog entry and convert to IndexDocument

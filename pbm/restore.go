@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -45,7 +46,9 @@ type RestoreReplset struct {
 	Name             string              `bson:"name" json:"name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
-	Txn              RestoreTxn          `bson:"txn" json:"txn"`
+	CommitedTxn      []RestoreTxn        `bson:"commited_txn" json:"commited_txn"`
+	CommitedTxnSet   bool                `bson:"txn_set" json:"txn_set"`
+	PartialTxn       []db.Oplog          `bson:"partial_txn" json:"partial_txn"`
 	CurrentOp        primitive.Timestamp `bson:"op" json:"op"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
@@ -128,11 +131,21 @@ func (t RestoreTxn) String() string {
 	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
 }
 
-func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn RestoreTxn) error {
+func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{{"$set", bson.M{"replsets.$.txn": txn}}},
+		bson.D{{"$set", bson.M{"replsets.$.commited_txn": txn, "replsets.$.txn_set": true}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.partial_txn": txn}}},
 	)
 
 	return err

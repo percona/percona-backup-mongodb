@@ -325,6 +325,9 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 
 				rs.nodes[nName] = node
 			case "rs":
+				if p[1] == "txn" || p[1] == "txnErr" {
+					continue
+				}
 				cond, err := parsePhysRestoreCond(stg, f.Name, restore)
 				if err != nil {
 					return nil, err

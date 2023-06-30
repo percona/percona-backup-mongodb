@@ -1,7 +1,6 @@
 package restore
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 
@@ -209,45 +208,6 @@ func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 	}
 }
 
-func waitForStatusT(cn *pbm.PBM, name string, status pbm.Status, t time.Duration) error {
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-	tout := time.NewTicker(t)
-	defer tout.Stop()
-	for {
-		select {
-		case <-tk.C:
-			meta, err := cn.GetRestoreMeta(name)
-			if errors.Is(err, pbm.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return errors.Wrap(err, "get restore metadata")
-			}
-
-			clusterTime, err := cn.ClusterTime()
-			if err != nil {
-				return errors.Wrap(err, "read cluster time")
-			}
-
-			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
-				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
-			}
-
-			switch meta.Status {
-			case status:
-				return nil
-			case pbm.StatusError:
-				return errors.Errorf("cluster failed: %s", meta.Error)
-			}
-		case <-tout.C:
-			return errConvergeTimeOut
-		case <-cn.Context().Done():
-			return nil
-		}
-	}
-}
-
 func GetBaseBackup(cn *pbm.PBM, bcpName string, tsTo primitive.Timestamp, stg storage.Storage) (bcp *pbm.BackupMeta, err error) {
 	if bcpName == "" {
 		bcp, err = cn.GetLastBackup(&tsTo)
@@ -305,44 +265,54 @@ func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsNa
 	return chunks, nil
 }
 
-// In order to sync distributed transactions (commit ontly when all participated shards are committed),
-// on all participated in the retore agents:
-// distTxnChecker:
-// - Receiving distributed transactions from the oplog applier, will add it to the shards restore meta.
-// - If txn's state is `commit` it will wait on the rest of the shards for:
-//   - either transaction committed on the shard (have `commitTransaction`);
-//   - or shard didn't participate in the transaction (more on that below);
-//   - or shard participated in the txn (have prepare ops) but no `commitTransaction` by the end of the oplog.
-//     If any of the shards encounters the latter - the transaction is sent back to the applier as aborted.
-//     Otherwise - committed.
-//
-// By looking at just transactions in the oplog we can't tell which shards were participating in it. So given that
-// starting `opTime` of the transaction is the same on all shards, we can assume that if some shard(s) oplog applier
-// observed greater than the txn's `opTime` and hadn't seen such txn - it wasn't part of this transaction at all. To
-// communicate that, each agent runs `checkWaitingTxns` which in turn periodically checks restore metadata and sees
-// any new (unobserved before) waiting for the transaction, posts last observed opTime. We go with `checkWaitingTxns`
-// instead of just updating each observed `opTime`  since the latter would add an extra 1 write to each oplog op on
-// sharded clusters even if there are no dist txns at all.
+type applyOplogOption struct {
+	start  *primitive.Timestamp
+	end    *primitive.Timestamp
+	nss    []string
+	unsafe bool
+	filter oplog.OpFilter
+}
+
+type setCommitedTxnFn func(txn []pbm.RestoreTxn) error
+type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
+
+// By looking at just transactions in the oplog we can't tell which shards
+// were participating in it. But we can assume that if there is
+// commitTransaction at least on one shard than the transaction is commited
+// everywhere. Otherwise, transactions won't be in the oplog or everywhere
+// would be transactionAbort. So we just treat distributed as
+// non-distributed - apply opps once a commit message for this txn is
+// encountered.
+// It might happen that by the end of the oplog there are some distributed txns
+// without commit messages. We should commit such transactions only if the data is
+// full (all prepared statements observed) and this txn was committed at least by
+// one other shard. For that, each shard saves the last 100 dist transactions
+// that were committed, so other shards can check if they should commit their
+// leftovers. We store the last 100, as prepared statements and commits might be
+// separated by other oplog events so it might happen that several commit messages
+// can be cut away on some shards but present on other(s). Given oplog events of
+// dist txns are more or less aligned in [cluster]time, checking the last 100
+// should be more than enough.
+// If the transaction is more than 16Mb it will be split into several prepared
+// messages. So it might happen that on shard committed the txn but another has
+// observed not all prepared messages by the end of the oplog. In such a case we
+// should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
-	setTxn setTxnFn, checkTxn checkTxnFn, checkWaitingTxn checkWaitingTxnsFn,
-	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) error {
+	setTxn setCommitedTxnFn, getTxn getCommitedTxnFn,
+	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
 	var (
 		ctxn       chan pbm.RestoreTxn
 		txnSyncErr chan error
 	)
-	if sharded {
-		ctxn = make(chan pbm.RestoreTxn)
-		txnSyncErr = make(chan error)
-	}
 
-	oplog, err := oplog.NewOplogRestore(node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	oplogRestore, err := oplog.NewOplogRestore(node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
 	if err != nil {
-		return errors.Wrap(err, "create oplog")
+		return nil, errors.Wrap(err, "create oplog")
 	}
 
-	oplog.SetOpFilter(options.filter)
+	oplogRestore.SetOpFilter(options.filter)
 
 	var startTS, endTS primitive.Timestamp
 	if options.start != nil {
@@ -351,17 +321,8 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 	if options.end != nil {
 		endTS = *options.end
 	}
-	oplog.SetTimeframe(startTS, endTS)
-	oplog.SetIncludeNS(options.nss)
-
-	var waitTxnErr error
-	if sharded {
-		log.Debug("starting sharded txn sync")
-		done := make(chan struct{})
-		go distTxnChecker(done, ctxn, txnSyncErr, setTxn, checkTxn, log)
-		go waitingTxnChecker(&waitTxnErr, done, checkWaitingTxn, oplog, log)
-		defer close(done)
-	}
+	oplogRestore.SetTimeframe(startTS, endTS)
+	oplogRestore.SetIncludeNS(options.nss)
 
 	var lts primitive.Timestamp
 	for _, chnk := range chunks {
@@ -377,97 +338,42 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		// PBM versions) won’t be compatible - during the restore, PBM will treat such
 		// files as Snappy (judging by its suffix) but in fact, they are s2 files
 		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
-		lts, err = replayChunk(chnk.FName, oplog, stg, chnk.Compression)
+		lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression)
 		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = replayChunk(chnk.FName, oplog, stg, compress.CompressionTypeS2)
+			lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
 		}
 		if err != nil {
-			return errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
-		}
-
-		// !!! TODO:
-		if waitTxnErr != nil {
-			return errors.Wrap(err, "check waiting transactions")
+			return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
 		}
 	}
 
+	// dealing with dist txns
+	if sharded {
+		uc, c := oplogRestore.TxnLeftovers()
+		go func() {
+			err := setTxn(c)
+			if err != nil {
+				log.Error("write last commited txns %v", err)
+			}
+		}()
+		if len(uc) > 0 {
+			commits, err := getTxn()
+			if err != nil {
+				return nil, errors.Wrap(err, "get commited txns on other shards")
+			}
+			var uncomm []oplog.Txn
+			partial, uncomm, err = oplogRestore.HandleUncommitedTxn(commits)
+			if err != nil {
+				return nil, errors.Wrap(err, "handle ucommited transactions")
+			}
+			if len(uncomm) > 0 {
+				log.Info("uncommited txns %d", len(uncomm))
+			}
+		}
+	}
 	log.Info("oplog replay finished on %v", lts)
 
-	return nil
-}
-
-type setTxnFn func(txn pbm.RestoreTxn) error
-type checkTxnFn func(txn pbm.RestoreTxn) (pbm.TxnState, error)
-
-func distTxnChecker(done <-chan struct{}, ctxn chan pbm.RestoreTxn, txnSyncErr chan<- error,
-	setTxn setTxnFn, checkTxn checkTxnFn, log *log.Event) {
-	defer log.Debug("exit distTxnChecker")
-
-	for {
-		select {
-		case txn := <-ctxn:
-			log.Debug("found dist txn: %s", txn)
-			err := setTxn(txn)
-			if err != nil {
-				txnSyncErr <- errors.Wrapf(err, "set transaction %v", txn)
-				return
-			}
-
-			if txn.State == pbm.TxnCommit {
-				txn.State, err = txnWaitForShards(context.TODO(), txn, checkTxn)
-				if err != nil {
-					txnSyncErr <- errors.Wrapf(err, "wait transaction %v", txn)
-					return
-				}
-				log.Debug("txn converged to [%s] <%s>", txn.State, txn.ID)
-				ctxn <- txn
-			}
-		case <-done:
-			return
-		}
-	}
-}
-
-func txnWaitForShards(ctx context.Context, txn pbm.RestoreTxn, checkTxn checkTxnFn) (pbm.TxnState, error) {
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-	for {
-		select {
-		case <-tk.C:
-			s, err := checkTxn(txn)
-			if err != nil {
-				return pbm.TxnUnknown, err
-			}
-			if s == pbm.TxnCommit || s == pbm.TxnAbort {
-				return s, nil
-			}
-		case <-ctx.Done():
-			return pbm.TxnAbort, nil
-		}
-	}
-}
-
-type checkWaitingTxnsFn func(observedTxn map[string]struct{}, oplog *oplog.OplogRestore) error
-
-func waitingTxnChecker(e *error, done <-chan struct{}, checkFn checkWaitingTxnsFn, oplog *oplog.OplogRestore, log *log.Event) {
-	defer log.Debug("exit waitingTxnChecker")
-
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-
-	observedTxn := make(map[string]struct{})
-	for {
-		select {
-		case <-tk.C:
-			err := checkFn(observedTxn, oplog)
-			if err != nil {
-				*e = err
-				return
-			}
-		case <-done:
-			return
-		}
-	}
+	return partial, nil
 }
 
 func replayChunk(file string, oplog *oplog.OplogRestore, stg storage.Storage, c compress.CompressionType) (lts primitive.Timestamp, err error) {
