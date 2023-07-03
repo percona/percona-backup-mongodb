@@ -369,9 +369,7 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 				if meta.Stat == nil {
 					meta.Stat = &RestoreStat{Download: make(map[string]map[string]s3.DownloadStat)}
 				}
-				st := struct {
-					D s3.DownloadStat `json:"d"`
-				}{}
+				st := RestoreShardStat{}
 				err = json.NewDecoder(src).Decode(&st)
 				if err != nil {
 					l.Error("unmarshal stat file %s: %v", f.Name, err)
@@ -381,7 +379,11 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 					meta.Stat.Download[rsName] = make(map[string]s3.DownloadStat)
 				}
 				nName := strings.Join(p[1:], ".")
-				meta.Stat.Download[rsName][nName] = st.D
+				meta.Stat.DistTxn.Partial += st.Txn.Partial
+				meta.Stat.DistTxn.Uncommited += st.Txn.Uncommited
+				if st.D != nil {
+					meta.Stat.Download[rsName][nName] = *st.D
+				}
 			}
 			rss[rsName] = rs
 

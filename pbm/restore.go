@@ -39,7 +39,18 @@ type RestoreMeta struct {
 }
 
 type RestoreStat struct {
+	DistTxn  DistTxnStat                           `bson:"txn,omitempty" json:"txn,omitempty"`
 	Download map[string]map[string]s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
+}
+
+type DistTxnStat struct {
+	Partial    int `bson:"partial,omitempty" json:"partial,omitempty"`
+	Uncommited int `bson:"uncommited,omitempty" json:"uncommited,omitempty"`
+}
+
+type RestoreShardStat struct {
+	Txn DistTxnStat      `json:"txn"`
+	D   *s3.DownloadStat `json:"d"`
 }
 
 type RestoreReplset struct {
@@ -56,6 +67,7 @@ type RestoreReplset struct {
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
+	Stat             RestoreShardStat    `bson:"stat" json:"stat"`
 }
 
 type Conditions []*Condition
@@ -136,6 +148,26 @@ func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) erro
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
 		bson.D{{"$set", bson.M{"replsets.$.commited_txn": txn, "replsets.$.txn_set": true}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetRSStat(name string, rsName string, stat RestoreShardStat) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.stat": stat}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetStat(name string, stat RestoreStat) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}},
+		bson.D{{"$set", bson.M{"stat": stat}}},
 	)
 
 	return err

@@ -781,6 +781,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	progress |= restoreStared
 
 	var excfg *pbm.MongodOpts
+	var stats pbm.RestoreShardStat
 
 	if cmd.External {
 		_, err = r.toState(pbm.StatusCopyReady)
@@ -821,13 +822,9 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		}
 	} else {
 		l.Info("copying backup data")
-		dstat, err := r.copyFiles()
+		stats.D, err = r.copyFiles()
 		if err != nil {
 			return errors.Wrap(err, "copy files")
-		}
-		err = r.writeStat(dstat)
-		if err != nil {
-			r.log.Warning("write download stat: %v", err)
 		}
 	}
 
@@ -861,7 +858,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 
 	if pitr != nil && r.nodeInfo.IsPrimary {
 		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, *pitr, opChunks)
+		err = r.replayOplog(r.bcp.LastWriteTS, *pitr, opChunks, &stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}
@@ -882,6 +879,11 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	stat, err := r.toState(pbm.StatusDone)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusDone)
+	}
+
+	err = r.writeStat(stats)
+	if err != nil {
+		r.log.Warning("write download stat: %v", err)
 	}
 
 	r.log.Info("writing restore meta")
@@ -948,12 +950,7 @@ func (r *PhysRestore) cleanupDatadir(bcpFiles []pbm.File) error {
 }
 
 func (r *PhysRestore) writeStat(stat any) error {
-	d := struct {
-		D any `json:"d"`
-	}{
-		D: stat,
-	}
-	b, err := json.Marshal(d)
+	b, err := json.Marshal(stat)
 	if err != nil {
 		return errors.Wrap(err, "marshal")
 	}
@@ -1221,7 +1218,7 @@ func (r *PhysRestore) recoverStandalone() error {
 	return nil
 }
 
-func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk) error {
+func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk, stat *pbm.RestoreShardStat) error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
@@ -1284,7 +1281,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+	partial, uncomm, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
 		r.setCommitedTxn, r.getCommitedTxn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
@@ -1306,6 +1303,9 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 			return errors.Wrap(err, "write partial transactions")
 		}
 	}
+
+	stat.Txn.Partial += len(partial)
+	stat.Txn.Uncommited += len(uncomm)
 
 	err = shutdown(c, r.dbpath)
 	if err != nil {

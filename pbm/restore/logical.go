@@ -875,7 +875,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
-	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
+	partial, uncomm, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
 		r.setCommitedTxn, r.getCommitedTxn,
 		mgoV, r.stg, r.log)
 	if err != nil {
@@ -892,6 +892,13 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		if err != nil {
 			return errors.Wrap(err, "set partial transactions")
 		}
+	}
+
+	err = r.cn.RestoreSetRSStat(r.name, r.nodeInfo.SetName, pbm.RestoreShardStat{
+		Txn: pbm.DistTxnStat{Partial: len(partial), Uncommited: len(uncomm)},
+	})
+	if err != nil {
+		r.log.Warning("applyOplog: failed to set stat: %v", err)
 	}
 
 	return nil
@@ -942,6 +949,25 @@ func (r *Restore) Done() error {
 		_, err = r.reconcileStatus(pbm.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for the restore done")
+		}
+
+		m, err := r.cn.GetRestoreMeta(r.name)
+		if err != nil {
+			return errors.Wrap(err, "update stat: get restore meta")
+		}
+		if m == nil {
+			return nil
+		}
+
+		var p, u int
+		for _, rs := range m.Replsets {
+			p += rs.Stat.Txn.Partial
+			u += rs.Stat.Txn.Uncommited
+		}
+
+		err = r.cn.RestoreSetStat(r.name, pbm.RestoreStat{DistTxn: pbm.DistTxnStat{Partial: p, Uncommited: u}})
+		if err != nil {
+			return errors.Wrap(err, "set restore stat")
 		}
 	}
 
