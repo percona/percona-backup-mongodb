@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/yaml.v2"
@@ -48,9 +50,9 @@ func (r restoreRet) HasError() bool {
 func (r restoreRet) String() string {
 	switch {
 	case r.done:
-		m := "\nRestore successfully finished!\n"
+		m := fmt.Sprintf("\nRestore finished! Check pbm describe-restore %s", r.Name)
 		if r.physical {
-			m += "Restart the cluster and pbm-agents, and run `pbm config --force-resync`"
+			m += " -c </path/to/pbm.conf.yaml>\nRestart the cluster and pbm-agents, and run `pbm config --force-resync`"
 		}
 		return m
 	case r.err != "":
@@ -468,10 +470,12 @@ type describeRestoreResult struct {
 type RestoreReplset struct {
 	Name               string        `json:"name" yaml:"name"`
 	Status             pbm.Status    `json:"status" yaml:"status"`
-	Error              *string       `json:"error,omitempty" yaml:"error,omitempty"`
+	PartialTxn         []db.Oplog    `json:"partial_txn,omitempty" yaml:"-"`
+	PartialTxnStr      *string       `json:"-" yaml:"partial_txn,omitempty"`
 	LastTransitionTS   int64         `json:"last_transition_ts" yaml:"-"`
 	LastTransitionTime string        `json:"last_transition_time" yaml:"last_transition_time"`
 	Nodes              []RestoreNode `json:"nodes,omitempty" yaml:"nodes,omitempty"`
+	Error              *string       `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 type RestoreNode struct {
@@ -560,10 +564,20 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 			Name:               rs.Name,
 			Status:             rs.Status,
 			LastTransitionTS:   rs.LastTransitionTS,
+			PartialTxn:         rs.PartialTxn,
 			LastTransitionTime: time.Unix(rs.LastTransitionTS, 0).UTC().Format(time.RFC3339),
 		}
 		if rs.Status == pbm.StatusError {
 			mrs.Error = &rs.Error
+		} else if len(mrs.PartialTxn) > 0 {
+			b, err := json.Marshal(mrs.PartialTxn)
+			if err != nil {
+				return res, errors.Wrap(err, "marshal partially commited transactions")
+			}
+			str := string(b)
+			mrs.PartialTxnStr = &str
+			perr := "WARNING! Some distributed transactions were not full in the oplog for this shard. But were applied on other shard(s). See the list of not applied ops in `partial_txn`."
+			mrs.Error = &perr
 		}
 		for _, node := range rs.Nodes {
 			mnode := RestoreNode{

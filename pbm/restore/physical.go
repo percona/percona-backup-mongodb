@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -1290,12 +1291,17 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "reply oplog")
 	}
 	if len(partial) > 0 {
+		tops := []db.Oplog{}
+		for _, t := range partial {
+			tops = append(tops, t.Oplog...)
+		}
+
 		var b bytes.Buffer
-		err := json.NewEncoder(&b).Encode(partial)
+		err := json.NewEncoder(&b).Encode(tops)
 		if err != nil {
 			return errors.Wrap(err, "encode")
 		}
-		err = r.stg.Save(r.syncPathRS+".txnErr", &b, int64(b.Len()))
+		err = r.stg.Save(r.syncPathRS+".partTxn", &b, int64(b.Len()))
 		if err != nil {
 			return errors.Wrap(err, "write partial transactions")
 		}

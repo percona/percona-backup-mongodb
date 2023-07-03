@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -325,9 +326,27 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 
 				rs.nodes[nName] = node
 			case "rs":
-				if p[1] == "txn" || p[1] == "txnErr" {
+				if p[1] == "txn" {
 					continue
 				}
+				if p[1] == "partTxn" {
+					src, err := stg.SourceReader(filepath.Join(PhysRestoresDir, restore, f.Name))
+					if err != nil {
+						l.Error("get partial txn file %s: %v", f.Name, err)
+						break
+					}
+
+					ops := []db.Oplog{}
+					err = json.NewDecoder(src).Decode(&ops)
+					if err != nil {
+						l.Error("unmarshal partial txn %s: %v", f.Name, err)
+						break
+					}
+					rs.rs.PartialTxn = append(rs.rs.PartialTxn, ops...)
+					rss[rsName] = rs
+					continue
+				}
+
 				cond, err := parsePhysRestoreCond(stg, f.Name, restore)
 				if err != nil {
 					return nil, err

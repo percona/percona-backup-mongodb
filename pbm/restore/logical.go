@@ -896,6 +896,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 
 	return nil
 }
+
 func (r *Restore) snapshot(input io.Reader) (err error) {
 	cfg, err := r.cn.GetConfig()
 	if err != nil {
