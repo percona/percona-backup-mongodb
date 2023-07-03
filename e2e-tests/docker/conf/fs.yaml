@@ -1,7 +1,3 @@
-pitr:
-  enabled: false
-  oplogOnly: true
-  oplogSpanMin: 1
 storage:
     type: filesystem
     filesystem:
