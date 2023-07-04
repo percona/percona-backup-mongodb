@@ -1282,7 +1282,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		unsafe: true,
 	}
 	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		nil, r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
+		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
@@ -1618,7 +1618,7 @@ func (r *PhysRestore) setTxn(txn pbm.RestoreTxn) error {
 	)
 }
 
-func (r *PhysRestore) setCommitedTxn(txn []pbm.RestoreTxn) error {
+func (r *PhysRestore) setcommittedTxn(txn []pbm.RestoreTxn) error {
 	if txn == nil {
 		txn = []pbm.RestoreTxn{}
 	}
@@ -1632,7 +1632,7 @@ func (r *PhysRestore) setCommitedTxn(txn []pbm.RestoreTxn) error {
 	)
 }
 
-func (r *PhysRestore) getCommitedTxn() (map[string]primitive.Timestamp, error) {
+func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 	shards := copyMap(r.syncPathShards)
 	txn := make(map[string]primitive.Timestamp)
 	for len(shards) > 0 {

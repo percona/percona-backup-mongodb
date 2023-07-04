@@ -274,8 +274,8 @@ type applyOplogOption struct {
 	filter oplog.OpFilter
 }
 
-type setCommitedTxnFn func(txn []pbm.RestoreTxn) error
-type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
+type setcommittedTxnFn func(txn []pbm.RestoreTxn) error
+type getcommittedTxnFn func() (map[string]primitive.Timestamp, error)
 
 // By looking at just transactions in the oplog we can't tell which shards
 // were participating in it. But we can assume that if there is
@@ -299,7 +299,7 @@ type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
 // observed not all prepared messages by the end of the oplog. In such a case we
 // should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
-	ic *idx.IndexCatalog, setTxn setCommitedTxnFn, getTxn getCommitedTxnFn, stat *pbm.DistTxnStat,
+	ic *idx.IndexCatalog, setTxn setcommittedTxnFn, getTxn getcommittedTxnFn, stat *pbm.DistTxnStat,
 	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
@@ -364,7 +364,7 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 				return nil, errors.Wrap(err, "get committed txns on other shards")
 			}
 			var uncomm []oplog.Txn
-			partial, uncomm, err = oplogRestore.HandleUncommitedTxn(commits)
+			partial, uncomm, err = oplogRestore.HandleUncommittedTxn(commits)
 			if err != nil {
 				return nil, errors.Wrap(err, "handle ucommitted transactions")
 			}

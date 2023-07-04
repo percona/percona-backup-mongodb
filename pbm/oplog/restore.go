@@ -99,9 +99,9 @@ type OplogRestore struct {
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
 
-	// dist txn prepare entities yet to be commited
+	// dist txn prepare entities yet to be committed
 	txnData map[string]Txn
-	// queue of last N commited transactions
+	// the queue of last N committed transactions
 	txnCommit *cqueue
 
 	txn        chan pbm.RestoreTxn
@@ -401,8 +401,8 @@ type Txn struct {
 // would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
 //
 // We treat distributed as transactions as non-distributed - apply opps once
-// a commit message for this txn is encountered. But store uncommited dist txns
-// so applier check in the end if any of them commited on other shards
+// a commit message for this txn is encountered. But store uncommitted dist txns
+// so applier check in the end if any of them committed on other shards
 // (and commit if so)
 func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	txnID := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
@@ -432,7 +432,7 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// The first op of the current chunk euquals to the last of the previous.
 	// It's done to ensure no gaps in between chunks. Although and oplog ops are
 	// idempotent, if the duplication gonna be a commit message of the distributed
-	// txn, the second commit gonna fail since we're clearing commited tnxs out
+	// txn, the second commit gonna fail since we're clearing committed tnxs out
 	// of the buffer. So just skip if it is a commit duplication.
 	lastc := o.txnCommit.last()
 	if lastc != nil && txnID == lastc.ID {
@@ -566,11 +566,11 @@ func (o *OplogRestore) applyTxn(id string) (err error) {
 	return nil
 }
 
-func (o *OplogRestore) TxnLeftovers() (uncommited map[string]Txn, lastCommits []pbm.RestoreTxn) {
+func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []pbm.RestoreTxn) {
 	return o.txnData, o.txnCommit.s
 }
 
-func (o *OplogRestore) HandleUncommitedTxn(commits map[string]primitive.Timestamp) (partial, uncommited []Txn, err error) {
+func (o *OplogRestore) HandleUncommittedTxn(commits map[string]primitive.Timestamp) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil
 	}
@@ -584,17 +584,17 @@ func (o *OplogRestore) HandleUncommitedTxn(commits map[string]primitive.Timestam
 
 			err := o.applyTxn(id)
 			if err != nil {
-				return partial, uncommited, errors.Wrapf(err, "applying uncommited txn %s", id)
+				return partial, uncommitted, errors.Wrapf(err, "applying uncommitted txn %s", id)
 			}
 			delete(o.txnData, id)
 		}
 	}
 
 	for _, t := range o.txnData {
-		uncommited = append(uncommited, t)
+		uncommitted = append(uncommitted, t)
 	}
 
-	return partial, uncommited, nil
+	return partial, uncommitted, nil
 }
 
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {

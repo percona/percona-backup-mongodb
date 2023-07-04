@@ -47,9 +47,18 @@ type RestoreRSMetrics struct {
 }
 
 type DistTxnStat struct {
-	Partial          int `bson:"partial" json:"partial"`
+	// Partial is the num of transactions that were allied on other shards
+	// but can't be applied on this one since not all prepare messages got
+	// into the oplog (shouldn't happen).
+	Partial int `bson:"partial" json:"partial"`
+	// ShardUncommitted is the number of uncommitted transactions before
+	// the sync. Basically, the transaction is full but no commit message
+	// in the oplog of this shard.
 	ShardUncommitted int `bson:"shard_uncommitted" json:"shard_uncommitted"`
-	LeftUncommitted  int `bson:"left_uncommitted" json:"left_uncommitted"`
+	// LeftUncommitted is the num of transactions that remain uncommitted
+	// after the sync. The transaction is full but no commit message in the
+	// oplog of any shard.
+	LeftUncommitted int `bson:"left_uncommitted" json:"left_uncommitted"`
 }
 
 type RestoreShardStat struct {

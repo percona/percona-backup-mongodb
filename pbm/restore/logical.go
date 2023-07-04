@@ -914,11 +914,11 @@ func updateChunksRouterTable(ctx context.Context, m *mongo.Client, sMap map[stri
 	return errors.WithMessage(err, "bulk write")
 }
 
-func (r *Restore) setCommitedTxn(txn []pbm.RestoreTxn) error {
+func (r *Restore) setcommittedTxn(txn []pbm.RestoreTxn) error {
 	return r.cn.RestoreSetRSTxn(r.name, r.nodeInfo.SetName, txn)
 }
 
-func (r *Restore) getCommitedTxn() (map[string]primitive.Timestamp, error) {
+func (r *Restore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 	txn := make(map[string]primitive.Timestamp)
 
 	shards := make(map[string]struct{})
@@ -992,7 +992,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	}
 	stat := pbm.RestoreShardStat{}
 	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
-		r.indexCatalog, r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
+		r.indexCatalog, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
 		mgoV, r.stg, r.log)
 
 	if err != nil {
