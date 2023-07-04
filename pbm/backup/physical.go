@@ -69,6 +69,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 		if err != nil {
 			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(50915) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
+				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying")
 				time.Sleep(time.Second * time.Duration(i+1))
 				continue
