@@ -66,10 +66,13 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
 			{{"$backupCursor", bc.opts}},
 		})
-		if err != nil && strings.Contains(err.Error(), "(Location50915)") {
-			bc.l.Debug("a checkpoint took place, retrying")
-			time.Sleep(time.Second * time.Duration(i+1))
-			continue
+		if err != nil {
+			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(50915) {
+				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
+				bc.l.Debug("a checkpoint took place, retrying")
+				time.Sleep(time.Second * time.Duration(i+1))
+				continue
+			}
 		} else if err != nil {
 			return nil, err
 		}
@@ -348,7 +351,7 @@ func (b *Backup) handleExternal(bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, d
 }
 
 func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
-	fw, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	fw, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return errors.Wrapf(err, "create/open")
 	}
@@ -422,7 +425,6 @@ func getStorageBSON(dbpath string) (*pbm.File, error) {
 		Size:  f.Size(),
 		Fmode: f.Mode(),
 	}, nil
-
 }
 
 // UUID represents a UUID as saved in MongoDB
