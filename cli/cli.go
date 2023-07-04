@@ -82,7 +82,9 @@ func Main() {
 			string(compress.CompressionTypeS2), string(compress.CompressionTypePGZIP),
 			string(compress.CompressionTypeZstandard),
 		)
-	backupCmd.Flag("type", fmt.Sprintf("backup type: <%s>/<%s>/<%s>", pbm.PhysicalBackup, pbm.LogicalBackup, pbm.IncrementalBackup)).
+	backupCmd.Flag("type",
+		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>",
+			pbm.PhysicalBackup, pbm.LogicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup)).
 		Default(string(pbm.LogicalBackup)).Short('t').
 		EnumVar(&backup.typ,
 			string(pbm.PhysicalBackup),
