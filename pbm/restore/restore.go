@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/mongodb/mongo-tools/common/idx"
 	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/pkg/errors"
@@ -298,7 +299,7 @@ type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
 // observed not all prepared messages by the end of the oplog. In such a case we
 // should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
-	setTxn setCommitedTxnFn, getTxn getCommitedTxnFn, stat *pbm.DistTxnStat,
+	ic *idx.IndexCatalog, setTxn setCommitedTxnFn, getTxn getCommitedTxnFn, stat *pbm.DistTxnStat,
 	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
@@ -307,7 +308,7 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		txnSyncErr chan error
 	)
 
-	oplogRestore, err := oplog.NewOplogRestore(node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, options.unsafe, true, ctxn, txnSyncErr)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}

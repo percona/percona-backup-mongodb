@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,13 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/mongorestore"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -48,6 +53,8 @@ type Restore struct {
 	oplog *oplog.OplogRestore
 	log   *log.Event
 	opid  string
+
+	indexCatalog *idx.IndexCatalog
 }
 
 // New creates a new restore object
@@ -60,6 +67,8 @@ func New(cn *pbm.PBM, node *pbm.Node, rsMap map[string]string) *Restore {
 		cn:    cn,
 		node:  node,
 		rsMap: rsMap,
+
+		indexCatalog: idx.NewIndexCatalog(),
 	}
 }
 
@@ -155,6 +164,11 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 	}}, oplogOption)
 	if err != nil {
 		return err
+	}
+
+	err = r.restoreIndexes()
+	if err != nil {
+		return errors.WithMessage(err, "restore indexes")
 	}
 
 	if err = r.updateRouterConfig(r.cn.Context()); err != nil {
@@ -284,6 +298,11 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err er
 	err = r.applyOplog(append([]pbm.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
 	if err != nil {
 		return err
+	}
+
+	err = r.restoreIndexes()
+	if err != nil {
+		return errors.WithMessage(err, "restore indexes")
 	}
 
 	if err = r.updateRouterConfig(r.cn.Context()); err != nil {
@@ -637,7 +656,26 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 				// while importing backup made by RS with another name
 				// that current RS we can't use our r.node.RS() to point files
 				// we have to use mapping passed by --replset-mapping option
-				return stg.SourceReader(path.Join(bcp.Name, mapRS(r.node.RS()), ns))
+				rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.node.RS()), ns))
+				if err != nil {
+					return nil, err
+				}
+
+				if ns == archive.MetaFile {
+					data, err := io.ReadAll(rdr)
+					if err != nil {
+						return nil, err
+					}
+
+					err = r.loadIndexesFrom(bytes.NewReader(data))
+					if err != nil {
+						return nil, errors.WithMessage(err, "load indexes")
+					}
+
+					rdr = io.NopCloser(bytes.NewReader(data))
+				}
+
+				return rdr, nil
 			},
 			bcp.Compression,
 			sel.MakeSelectedPred(nss))
@@ -671,6 +709,83 @@ func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (e
 	err = pbm.DropTMPcoll(r.cn.Context(), r.node.Session())
 	if err != nil {
 		r.log.Warning("drop tmp collections: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
+	meta, err := archive.ReadMetadata(rdr)
+	if err != nil {
+		return errors.WithMessage(err, "read metadata")
+	}
+
+	for _, ns := range meta.Namespaces {
+		var md mongorestore.Metadata
+		err := bson.UnmarshalExtJSON([]byte(ns.Metadata), true, &md)
+		if err != nil {
+			return errors.WithMessagef(err, "unmarshal %s.%s metadata",
+				ns.Database, ns.Collection)
+		}
+
+		r.indexCatalog.AddIndexes(ns.Database, ns.Collection, md.Indexes)
+
+		simple := true
+		if md.Options != nil {
+			collation, ok := md.Options.Map()["collation"].(bson.D)
+			if ok {
+				locale, _ := bsonutil.FindValueByKey("locale", &collation)
+				if locale != "" && locale != "simple" {
+					simple = false
+				}
+			}
+		}
+		if simple {
+			r.indexCatalog.SetCollation(ns.Database, ns.Collection, simple)
+		}
+	}
+
+	return nil
+}
+
+func (r *Restore) restoreIndexes() error {
+	r.log.Debug("building indexes up")
+
+	for _, ns := range r.indexCatalog.Namespaces() {
+		indexes := r.indexCatalog.GetIndexes(ns.DB, ns.Collection)
+		for i, index := range indexes {
+			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
+				// The _id index is already created with the collection
+				indexes = append(indexes[:i], indexes[i+1:]...)
+				break
+			}
+		}
+
+		if len(indexes) == 0 {
+			r.log.Debug("no indexes for %s.%s", ns.DB, ns.Collection)
+			continue
+		}
+
+		var indexNames []string
+		for _, index := range indexes {
+			index.Options["ns"] = ns.DB + "." + ns.Collection
+			indexNames = append(indexNames, index.Options["name"].(string))
+			// remove the index version, forcing an update
+			delete(index.Options, "v")
+		}
+
+		rawCommand := bson.D{
+			{"createIndexes", ns.Collection},
+			{"indexes", indexes},
+			{"ignoreUnknownIndexOptions", true},
+		}
+
+		r.log.Info("restoring indexes for %s.%s: %s",
+			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
+		err := r.node.Session().Database(ns.DB).RunCommand(r.cn.Context(), rawCommand).Err()
+		if err != nil {
+			return errors.WithMessagef(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+		}
 	}
 
 	return nil
@@ -877,8 +992,9 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	}
 	stat := pbm.RestoreShardStat{}
 	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
-		r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
+		r.indexCatalog, r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
 		mgoV, r.stg, r.log)
+
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

@@ -1282,7 +1282,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		unsafe: true,
 	}
 	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
+		nil, r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
@@ -1474,7 +1474,10 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 		targetRS, _, _ := strings.Cut(uri, "/")
 		sourceRS := mapRevRS(targetRS)
 		sourceS, ok := source[sourceRS]
-		if ok && sourceS != targetS {
+		if !ok {
+			sourceS = sourceRS
+		}
+		if sourceS != targetS {
 			rv[sourceS] = targetS
 		}
 	}

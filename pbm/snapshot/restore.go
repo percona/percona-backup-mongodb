@@ -38,6 +38,7 @@ var ExcludeFromRestore = []string{
 	"config.shards",
 	"config.transactions",
 	"config.transaction_coordinators",
+	"config.image_collection",
 	"admin.system.version",
 	"config.system.indexBuilds",
 
@@ -87,6 +88,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,
 		WriteConcern:             "majority",
+		NoIndexRestore:           true,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,

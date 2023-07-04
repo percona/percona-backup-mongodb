@@ -43,6 +43,13 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 
 	opts.Direct = true
 	opts.Namespace = &options.Namespace{DB: d, Collection: c}
+	if opts.Auth.IsSet() && opts.Auth.Source == "" {
+		if opts.Auth.RequiresExternalDB() {
+			opts.Auth.Source = "$external"
+		} else {
+			opts.Auth.Source = "admin"
+		}
+	}
 
 	backup := &backuper{}
 
