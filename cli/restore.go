@@ -139,6 +139,7 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 	err = waitRestore(cn, m, pbm.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
+			Name:     m.Name,
 			done:     true,
 			physical: m.Type == pbm.PhysicalBackup || m.Type == pbm.IncrementalBackup,
 		}, nil

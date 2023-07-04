@@ -663,7 +663,7 @@ func (l *logBuff) Flush() error {
 // - CLI provided values
 // - replset metada in the datadir
 // - backup meta
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -716,8 +716,8 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 	}
 
 	var opChunks []pbm.OplogChunk
-	if pitr != nil {
-		opChunks, err = chunks(r.cn, r.stg, r.restoreTS, *pitr, r.rsConf.ID, r.rsMap)
+	if !pitr.IsZero() {
+		opChunks, err = chunks(r.cn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
@@ -856,9 +856,9 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr *primitive.Timestamp, o
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
 
-	if pitr != nil && r.nodeInfo.IsPrimary {
+	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
 		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, *pitr, opChunks, &stats)
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, opChunks, &stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}

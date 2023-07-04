@@ -267,7 +267,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 
 	l := a.log.NewEvent(string(pbm.CmdRestore), r.Name, opid.String(), ep.TS())
 
-	if r.OplogTS.T > 0 {
+	if !r.OplogTS.IsZero() {
 		l.Info("to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
 	}
 
@@ -323,7 +323,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		bcpType = pbm.ExternalBackup
 	} else {
 		l.Info("backup: %s", r.BackupName)
-		if r.OplogTS.T > 0 {
+		if !r.OplogTS.IsZero() {
 			bcp, err = restore.GetBaseBackup(a.pbm, r.BackupName, r.OplogTS, stg)
 		} else {
 			bcp, err = restore.SnapshotMeta(a.pbm, r.BackupName, stg)
@@ -343,7 +343,11 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			l.Info("Node in not suitable for restore")
 			return
 		}
-		err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
+		if r.OplogTS.IsZero() {
+			err = restore.New(a.pbm, a.node, r.RSMap).Snapshot(r, opid, l)
+		} else {
+			err = restore.New(a.pbm, a.node, r.RSMap).PITR(r, opid, l)
+		}
 	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
 		if lock != nil {
 			// Don't care about errors. Anyway, the lock gonna disappear after the
@@ -366,7 +370,7 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			BackupName: bcp.Name,
 			Namespaces: r.Namespaces,
 			RSMap:      r.RSMap,
-		}, &r.OplogTS, opid, l, a.closeCMD, a.HbPause)
+		}, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
 	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
