@@ -19,7 +19,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -367,7 +366,7 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 					break
 				}
 				if meta.Stat == nil {
-					meta.Stat = &RestoreStat{Download: make(map[string]map[string]s3.DownloadStat)}
+					meta.Stat = &RestoreStat{RS: make(map[string]map[string]RestoreRSMetrics)}
 				}
 				st := RestoreShardStat{}
 				err = json.NewDecoder(src).Decode(&st)
@@ -375,15 +374,18 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 					l.Error("unmarshal stat file %s: %v", f.Name, err)
 					break
 				}
-				if _, ok := meta.Stat.Download[rsName]; !ok {
-					meta.Stat.Download[rsName] = make(map[string]s3.DownloadStat)
+				if _, ok := meta.Stat.RS[rsName]; !ok {
+					meta.Stat.RS[rsName] = make(map[string]RestoreRSMetrics)
 				}
 				nName := strings.Join(p[1:], ".")
-				meta.Stat.DistTxn.Partial += st.Txn.Partial
-				meta.Stat.DistTxn.Uncommited += st.Txn.Uncommited
+				lstat := meta.Stat.RS[rsName][nName]
+				lstat.DistTxn.Partial += st.Txn.Partial
+				lstat.DistTxn.ShardUncommited += st.Txn.ShardUncommited
+				lstat.DistTxn.LeftUncommited += st.Txn.LeftUncommited
 				if st.D != nil {
-					meta.Stat.Download[rsName][nName] = *st.D
+					lstat.Download = *st.D
 				}
+				meta.Stat.RS[rsName][nName] = lstat
 			}
 			rss[rsName] = rs
 

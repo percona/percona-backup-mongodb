@@ -298,8 +298,8 @@ type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
 // observed not all prepared messages by the end of the oplog. In such a case we
 // should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
-	setTxn setCommitedTxnFn, getTxn getCommitedTxnFn,
-	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial, uncomm []oplog.Txn, err error) {
+	setTxn setCommitedTxnFn, getTxn getCommitedTxnFn, stat *pbm.DistTxnStat,
+	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
 	var (
@@ -309,7 +309,7 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 
 	oplogRestore, err := oplog.NewOplogRestore(node, mgoV, options.unsafe, true, ctxn, txnSyncErr)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "create oplog")
+		return nil, errors.Wrap(err, "create oplog")
 	}
 
 	oplogRestore.SetOpFilter(options.filter)
@@ -343,13 +343,14 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 			lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
 		}
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
+			return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
 		}
 	}
 
 	// dealing with dist txns
 	if sharded {
 		uc, c := oplogRestore.TxnLeftovers()
+		stat.ShardUncommited = len(uc)
 		go func() {
 			err := setTxn(c)
 			if err != nil {
@@ -359,20 +360,23 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		if len(uc) > 0 {
 			commits, err := getTxn()
 			if err != nil {
-				return nil, nil, errors.Wrap(err, "get commited txns on other shards")
+				return nil, errors.Wrap(err, "get commited txns on other shards")
 			}
+			var uncomm []oplog.Txn
 			partial, uncomm, err = oplogRestore.HandleUncommitedTxn(commits)
 			if err != nil {
-				return nil, nil, errors.Wrap(err, "handle ucommited transactions")
+				return nil, errors.Wrap(err, "handle ucommited transactions")
 			}
 			if len(uncomm) > 0 {
 				log.Info("uncommited txns %d", len(uncomm))
 			}
+			stat.Partial = len(partial)
+			stat.LeftUncommited = len(uncomm)
 		}
 	}
 	log.Info("oplog replay finished on %v", lts)
 
-	return partial, uncomm, nil
+	return partial, nil
 }
 
 func replayChunk(file string, oplog *oplog.OplogRestore, stg storage.Storage, c compress.CompressionType) (lts primitive.Timestamp, err error) {

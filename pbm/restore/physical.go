@@ -1281,8 +1281,8 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		end:    &to,
 		unsafe: true,
 	}
-	partial, uncomm, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		r.setCommitedTxn, r.getCommitedTxn,
+	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+		r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
@@ -1303,9 +1303,6 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 			return errors.Wrap(err, "write partial transactions")
 		}
 	}
-
-	stat.Txn.Partial += len(partial)
-	stat.Txn.Uncommited += len(uncomm)
 
 	err = shutdown(c, r.dbpath)
 	if err != nil {

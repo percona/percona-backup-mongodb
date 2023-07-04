@@ -875,8 +875,9 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
-	partial, uncomm, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
-		r.setCommitedTxn, r.getCommitedTxn,
+	stat := pbm.RestoreShardStat{}
+	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
+		r.setCommitedTxn, r.getCommitedTxn, &stat.Txn,
 		mgoV, r.stg, r.log)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
@@ -894,9 +895,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 		}
 	}
 
-	err = r.cn.RestoreSetRSStat(r.name, r.nodeInfo.SetName, pbm.RestoreShardStat{
-		Txn: pbm.DistTxnStat{Partial: len(partial), Uncommited: len(uncomm)},
-	})
+	err = r.cn.RestoreSetRSStat(r.name, r.nodeInfo.SetName, stat)
 	if err != nil {
 		r.log.Warning("applyOplog: failed to set stat: %v", err)
 	}
@@ -959,13 +958,20 @@ func (r *Restore) Done() error {
 			return nil
 		}
 
-		var p, u int
+		stat := make(map[string]map[string]pbm.RestoreRSMetrics)
+
 		for _, rs := range m.Replsets {
-			p += rs.Stat.Txn.Partial
-			u += rs.Stat.Txn.Uncommited
+			stat[rs.Name] = map[string]pbm.RestoreRSMetrics{
+				"_primary": {DistTxn: pbm.DistTxnStat{
+					Partial:         rs.Stat.Txn.Partial,
+					ShardUncommited: rs.Stat.Txn.ShardUncommited,
+					LeftUncommited:  rs.Stat.Txn.LeftUncommited,
+				}},
+			}
+
 		}
 
-		err = r.cn.RestoreSetStat(r.name, pbm.RestoreStat{DistTxn: pbm.DistTxnStat{Partial: p, Uncommited: u}})
+		err = r.cn.RestoreSetStat(r.name, pbm.RestoreStat{RS: stat})
 		if err != nil {
 			return errors.Wrap(err, "set restore stat")
 		}

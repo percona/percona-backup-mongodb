@@ -39,13 +39,17 @@ type RestoreMeta struct {
 }
 
 type RestoreStat struct {
-	DistTxn  DistTxnStat                           `bson:"txn,omitempty" json:"txn,omitempty"`
-	Download map[string]map[string]s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
+	RS map[string]map[string]RestoreRSMetrics `bson:"rs,omitempty" json:"rs,omitempty"`
+}
+type RestoreRSMetrics struct {
+	DistTxn  DistTxnStat     `bson:"txn,omitempty" json:"txn,omitempty"`
+	Download s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
 }
 
 type DistTxnStat struct {
-	Partial    int `bson:"partial,omitempty" json:"partial,omitempty"`
-	Uncommited int `bson:"uncommited,omitempty" json:"uncommited,omitempty"`
+	Partial         int `bson:"partial" json:"partial"`
+	ShardUncommited int `bson:"shard_uncommited" json:"shard_uncommited"`
+	LeftUncommited  int `bson:"left_uncommited" json:"left_uncommited"`
 }
 
 type RestoreShardStat struct {
