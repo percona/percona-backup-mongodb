@@ -365,12 +365,8 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			return
 		}
 
-		err = rstr.Snapshot(&pbm.RestoreCmd{
-			Name:       r.Name,
-			BackupName: bcp.Name,
-			Namespaces: r.Namespaces,
-			RSMap:      r.RSMap,
-		}, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
+		r.BackupName = bcp.Name
+		err = rstr.Snapshot(r, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
 	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
