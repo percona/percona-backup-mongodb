@@ -1365,7 +1365,10 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 		targetRS, _, _ := strings.Cut(uri, "/")
 		sourceRS := mapRevRS(targetRS)
 		sourceS, ok := source[sourceRS]
-		if ok && sourceS != targetS {
+		if !ok {
+			sourceS = sourceRS
+		}
+		if sourceS != targetS {
 			rv[sourceS] = targetS
 		}
 	}
