@@ -965,11 +965,6 @@ func (r *Restore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 				return nil, errors.Errorf("shard %s failed with: %v", shard.Name, shard.Error)
 			}
 
-			if shard.Status == pbm.StatusDone {
-				delete(shards, shard.Name)
-				continue
-			}
-
 			if shard.CommittedTxnSet {
 				for _, t := range shard.CommittedTxn {
 					if t.State == pbm.TxnCommit {
