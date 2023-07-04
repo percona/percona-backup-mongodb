@@ -47,9 +47,9 @@ type RestoreRSMetrics struct {
 }
 
 type DistTxnStat struct {
-	Partial         int `bson:"partial" json:"partial"`
-	ShardUncommited int `bson:"shard_uncommited" json:"shard_uncommited"`
-	LeftUncommited  int `bson:"left_uncommited" json:"left_uncommited"`
+	Partial          int `bson:"partial" json:"partial"`
+	ShardUncommitted int `bson:"shard_uncommitted" json:"shard_uncommitted"`
+	LeftUncommitted  int `bson:"left_uncommitted" json:"left_uncommitted"`
 }
 
 type RestoreShardStat struct {
@@ -61,8 +61,8 @@ type RestoreReplset struct {
 	Name             string              `bson:"name" json:"name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
-	CommitedTxn      []RestoreTxn        `bson:"commited_txn" json:"commited_txn"`
-	CommitedTxnSet   bool                `bson:"txn_set" json:"txn_set"`
+	CommittedTxn     []RestoreTxn        `bson:"committed_txn" json:"committed_txn"`
+	CommittedTxnSet  bool                `bson:"txn_set" json:"txn_set"`
 	PartialTxn       []db.Oplog          `bson:"partial_txn" json:"partial_txn"`
 	CurrentOp        primitive.Timestamp `bson:"op" json:"op"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
@@ -151,7 +151,7 @@ func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) erro
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{{"$set", bson.M{"replsets.$.commited_txn": txn, "replsets.$.txn_set": true}}},
+		bson.D{{"$set", bson.M{"replsets.$.committed_txn": txn, "replsets.$.txn_set": true}}},
 	)
 
 	return err

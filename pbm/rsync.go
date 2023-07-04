@@ -380,8 +380,8 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 				nName := strings.Join(p[1:], ".")
 				lstat := meta.Stat.RS[rsName][nName]
 				lstat.DistTxn.Partial += st.Txn.Partial
-				lstat.DistTxn.ShardUncommited += st.Txn.ShardUncommited
-				lstat.DistTxn.LeftUncommited += st.Txn.LeftUncommited
+				lstat.DistTxn.ShardUncommitted += st.Txn.ShardUncommitted
+				lstat.DistTxn.LeftUncommitted += st.Txn.LeftUncommitted
 				if st.D != nil {
 					lstat.Download = *st.D
 				}

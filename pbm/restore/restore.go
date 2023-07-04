@@ -279,7 +279,7 @@ type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
 
 // By looking at just transactions in the oplog we can't tell which shards
 // were participating in it. But we can assume that if there is
-// commitTransaction at least on one shard than the transaction is commited
+// commitTransaction at least on one shard then the transaction is committed
 // everywhere. Otherwise, transactions won't be in the oplog or everywhere
 // would be transactionAbort. So we just treat distributed as
 // non-distributed - apply opps once a commit message for this txn is
@@ -295,7 +295,7 @@ type getCommitedTxnFn func() (map[string]primitive.Timestamp, error)
 // dist txns are more or less aligned in [cluster]time, checking the last 100
 // should be more than enough.
 // If the transaction is more than 16Mb it will be split into several prepared
-// messages. So it might happen that on shard committed the txn but another has
+// messages. So it might happen that one shard committed the txn but another has
 // observed not all prepared messages by the end of the oplog. In such a case we
 // should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
@@ -351,28 +351,28 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 	// dealing with dist txns
 	if sharded {
 		uc, c := oplogRestore.TxnLeftovers()
-		stat.ShardUncommited = len(uc)
+		stat.ShardUncommitted = len(uc)
 		go func() {
 			err := setTxn(c)
 			if err != nil {
-				log.Error("write last commited txns %v", err)
+				log.Error("write last committed txns %v", err)
 			}
 		}()
 		if len(uc) > 0 {
 			commits, err := getTxn()
 			if err != nil {
-				return nil, errors.Wrap(err, "get commited txns on other shards")
+				return nil, errors.Wrap(err, "get committed txns on other shards")
 			}
 			var uncomm []oplog.Txn
 			partial, uncomm, err = oplogRestore.HandleUncommitedTxn(commits)
 			if err != nil {
-				return nil, errors.Wrap(err, "handle ucommited transactions")
+				return nil, errors.Wrap(err, "handle ucommitted transactions")
 			}
 			if len(uncomm) > 0 {
-				log.Info("uncommited txns %d", len(uncomm))
+				log.Info("uncommitted txns %d", len(uncomm))
 			}
 			stat.Partial = len(partial)
-			stat.LeftUncommited = len(uncomm)
+			stat.LeftUncommitted = len(uncomm)
 		}
 	}
 	log.Info("oplog replay finished on %v", lts)

@@ -575,7 +575,7 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 		} else if len(mrs.PartialTxn) > 0 {
 			b, err := json.Marshal(mrs.PartialTxn)
 			if err != nil {
-				return res, errors.Wrap(err, "marshal partially commited transactions")
+				return res, errors.Wrap(err, "marshal partially committed transactions")
 			}
 			str := string(b)
 			mrs.PartialTxnStr = &str

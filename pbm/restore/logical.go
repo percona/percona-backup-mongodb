@@ -970,8 +970,8 @@ func (r *Restore) getCommitedTxn() (map[string]primitive.Timestamp, error) {
 				continue
 			}
 
-			if shard.CommitedTxnSet {
-				for _, t := range shard.CommitedTxn {
+			if shard.CommittedTxnSet {
+				for _, t := range shard.CommittedTxn {
 					if t.State == pbm.TxnCommit {
 						txn[t.ID] = t.Ctime
 					}
@@ -1079,9 +1079,9 @@ func (r *Restore) Done() error {
 		for _, rs := range m.Replsets {
 			stat[rs.Name] = map[string]pbm.RestoreRSMetrics{
 				"_primary": {DistTxn: pbm.DistTxnStat{
-					Partial:         rs.Stat.Txn.Partial,
-					ShardUncommited: rs.Stat.Txn.ShardUncommited,
-					LeftUncommited:  rs.Stat.Txn.LeftUncommited,
+					Partial:          rs.Stat.Txn.Partial,
+					ShardUncommitted: rs.Stat.Txn.ShardUncommitted,
+					LeftUncommitted:  rs.Stat.Txn.LeftUncommitted,
 				}},
 			}
 
