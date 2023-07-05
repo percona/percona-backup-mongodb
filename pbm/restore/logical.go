@@ -50,9 +50,8 @@ type Restore struct {
 	// empty if all shard names are the same
 	sMap map[string]string
 
-	oplog *oplog.OplogRestore
-	log   *log.Event
-	opid  string
+	log  *log.Event
+	opid string
 
 	indexCatalog *idx.IndexCatalog
 }
@@ -1027,24 +1026,6 @@ func (r *Restore) snapshot(input io.Reader) (err error) {
 
 	_, err = rf.ReadFrom(input)
 	return err
-}
-
-func (r *Restore) replayChunk(file string, c compress.CompressionType) (lts primitive.Timestamp, err error) {
-	or, err := r.stg.SourceReader(file)
-	if err != nil {
-		return lts, errors.Wrapf(err, "get object %s form the storage", file)
-	}
-	defer or.Close()
-
-	oplogReader, err := compress.Decompress(or, c)
-	if err != nil {
-		return lts, errors.Wrapf(err, "decompress object %s", file)
-	}
-	defer oplogReader.Close()
-
-	lts, err = r.oplog.Apply(oplogReader)
-
-	return lts, errors.Wrap(err, "apply oplog for chunk")
 }
 
 // Done waits for the replicas to finish the job

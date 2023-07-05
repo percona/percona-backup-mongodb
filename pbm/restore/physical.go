@@ -31,7 +31,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
@@ -1545,79 +1544,6 @@ func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error)
 	return ts, nil
 }
 
-func (r *PhysRestore) checkTxn(txn pbm.RestoreTxn) (pbm.TxnState, error) {
-	shardsToFinish := len(r.syncPathShards)
-	for f := range r.syncPathShards {
-		isDone := false
-		dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return pbm.TxnUnknown, errors.Wrapf(err, "check done for <%s>", f)
-		}
-		if err == nil && dr.Size != 0 {
-			isDone = true
-		}
-
-		txnr, err := r.stg.SourceReader(f + ".txn")
-		if err != nil && errors.Is(err, storage.ErrNotExist) {
-			if isDone {
-				shardsToFinish--
-			}
-			continue
-		}
-		if err != nil {
-			return pbm.TxnUnknown, errors.Wrapf(err, "get status file <%s>", f)
-		}
-
-		b, err := io.ReadAll(txnr)
-		if err != nil {
-			return pbm.TxnUnknown, errors.Wrapf(err, "read status file <%s>", f)
-		}
-
-		t := &pbm.RestoreTxn{}
-		err = t.Decode(b)
-		if err != nil {
-			return pbm.TxnUnknown, errors.Wrapf(err, "decode file <%s>", f)
-		}
-
-		if primitive.CompareTimestamp(t.Ctime, txn.Ctime) == 1 {
-			shardsToFinish--
-			continue
-		}
-
-		if t.ID != txn.ID {
-			if isDone {
-				shardsToFinish--
-				continue
-			}
-			return pbm.TxnUnknown, nil
-		}
-
-		switch t.State {
-		case pbm.TxnPrepare:
-			if isDone {
-				return pbm.TxnAbort, nil
-			}
-			return pbm.TxnUnknown, nil
-		case pbm.TxnAbort:
-			return pbm.TxnAbort, nil
-		case pbm.TxnCommit:
-			shardsToFinish--
-		}
-	}
-
-	if shardsToFinish == 0 {
-		return pbm.TxnCommit, nil
-	}
-
-	return pbm.TxnUnknown, nil
-}
-
-func (r *PhysRestore) setTxn(txn pbm.RestoreTxn) error {
-	return r.stg.Save(r.syncPathRS+".txn",
-		bytes.NewReader(txn.Encode()), -1,
-	)
-}
-
 func (r *PhysRestore) setcommittedTxn(txn []pbm.RestoreTxn) error {
 	if txn == nil {
 		txn = []pbm.RestoreTxn{}
@@ -1669,48 +1595,6 @@ func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) 
 	}
 
 	return txn, nil
-}
-
-func (r *PhysRestore) checkWaitingTxns(observedTxn map[string]struct{}, o *oplog.OplogRestore) error {
-	for f := range r.syncPathShards {
-		txnr, err := r.stg.SourceReader(f + ".txn")
-		if err != nil && errors.Is(err, storage.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return errors.Wrapf(err, "get status file <%s>", f)
-		}
-
-		b, err := io.ReadAll(txnr)
-		if err != nil {
-			return errors.Wrapf(err, "read status file <%s>", f)
-		}
-
-		t := &pbm.RestoreTxn{}
-		err = t.Decode(b)
-		if err != nil {
-			return errors.Wrapf(err, "decode file <%s>", f)
-		}
-
-		if _, ok := observedTxn[t.ID]; t.State == pbm.TxnCommit && !ok {
-			ts := primitive.Timestamp{o.LastOpTS(), 0}
-			if primitive.CompareTimestamp(ts, t.Ctime) > 0 {
-				err := r.setTxn(pbm.RestoreTxn{
-					ID:    "noop",
-					Ctime: ts,
-					State: pbm.TxnUnknown,
-				})
-				if err != nil {
-					return errors.Wrap(err, "set current op timestamp")
-				}
-			}
-
-			observedTxn[t.ID] = struct{}{}
-			return nil
-		}
-	}
-
-	return nil
 }
 
 // Tries to connect to mongo n times, timeout is applied for each try.

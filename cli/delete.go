@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,10 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
@@ -346,51 +342,4 @@ func askCleanupConfirmation(info pbm.CleanupInfo) (bool, error) {
 	}
 
 	return false, nil
-}
-
-func findAdjustedTS(ctx context.Context, m *mongo.Client, ts primitive.Timestamp, strict bool) (primitive.Timestamp, error) {
-	if strict {
-		rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$gte": ts}, bson.D{{"last_write_ts", 1}})
-		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				err = nil
-			}
-			return primitive.Timestamp{}, err
-		}
-		if rt.Equal(ts) {
-			return ts, nil
-		}
-	}
-
-	rt, err := findBaseSnapshotRestoreTS(ctx, m, bson.M{"$lt": ts}, bson.D{{"last_write_ts", -1}})
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return ts, nil
-		}
-		return primitive.Timestamp{}, err
-	}
-
-	return rt, nil
-}
-
-func findBaseSnapshotRestoreTS(ctx context.Context, m *mongo.Client, lastWrite any, sort bson.D) (primitive.Timestamp, error) {
-	filter := bson.D{
-		{"nss", nil},
-		{"status", pbm.StatusDone},
-		{"type", pbm.LogicalBackup},
-		{"last_write_ts", lastWrite},
-	}
-	options := options.FindOne().
-		SetProjection(bson.D{{"last_write_ts", 1}}).
-		SetSort(sort)
-	cur := m.Database(pbm.DB).Collection(pbm.BcpCollection).FindOne(ctx, filter, options)
-	if err := cur.Err(); err != nil {
-		return primitive.Timestamp{}, errors.WithMessage(err, "query")
-	}
-
-	var r struct {
-		RestoreTS primitive.Timestamp `bson:"last_write_ts"`
-	}
-	err := cur.Decode(&r)
-	return r.RestoreTS, errors.WithMessage(err, "decode")
 }

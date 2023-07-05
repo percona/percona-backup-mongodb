@@ -345,16 +345,6 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	return nil
 }
 
-func isPrepareTxn(op *db.Oplog) bool {
-	for _, v := range op.Object {
-		if v.Key == "prepare" {
-			return true
-		}
-	}
-
-	return false
-}
-
 func isTxnOps(op *db.Oplog) bool {
 	for _, v := range op.Object {
 		if v.Key == "applyOps" {
