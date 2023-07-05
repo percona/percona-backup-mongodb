@@ -951,7 +951,7 @@ func (r *Restore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 			})
 
 			// nodes are cleaning its locks moving to the done status
-			// so no lock is ok and not need to ckech the heartbeats
+			// so no lock is ok, and no need to check the heartbeats
 			if err != mongo.ErrNoDocuments {
 				if err != nil {
 					return nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
