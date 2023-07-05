@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -661,7 +662,7 @@ func (l *logBuff) Flush() error {
 // - CLI provided values
 // - replset metada in the datadir
 // - backup meta
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
+func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -711,6 +712,14 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		meta.Type = pbm.ExternalBackup
 	} else {
 		meta.Type = r.bcp.Type
+	}
+
+	var opChunks []pbm.OplogChunk
+	if !pitr.IsZero() {
+		opChunks, err = chunks(r.cn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
+		if err != nil {
+			return err
+		}
 	}
 
 	if meta.Type == pbm.IncrementalBackup {
@@ -771,6 +780,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	progress |= restoreStared
 
 	var excfg *pbm.MongodOpts
+	var stats pbm.RestoreShardStat
 
 	if cmd.External {
 		_, err = r.toState(pbm.StatusCopyReady)
@@ -811,13 +821,9 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		}
 	} else {
 		l.Info("copying backup data")
-		dstat, err := r.copyFiles()
+		stats.D, err = r.copyFiles()
 		if err != nil {
 			return errors.Wrap(err, "copy files")
-		}
-		err = r.writeStat(dstat)
-		if err != nil {
-			r.log.Warning("write download stat: %v", err)
 		}
 	}
 
@@ -849,6 +855,14 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
 
+	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
+		l.Info("replaying pitr oplog")
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, opChunks, &stats)
+		if err != nil {
+			return errors.Wrap(err, "replay pitr oplog")
+		}
+	}
+
 	l.Info("clean-up and reset replicaset config")
 	err = r.resetRS()
 	if err != nil {
@@ -864,6 +878,11 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event,
 	stat, err := r.toState(pbm.StatusDone)
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", pbm.StatusDone)
+	}
+
+	err = r.writeStat(stats)
+	if err != nil {
+		r.log.Warning("write download stat: %v", err)
 	}
 
 	r.log.Info("writing restore meta")
@@ -930,12 +949,7 @@ func (r *PhysRestore) cleanupDatadir(bcpFiles []pbm.File) error {
 }
 
 func (r *PhysRestore) writeStat(stat any) error {
-	d := struct {
-		D any `json:"d"`
-	}{
-		D: stat,
-	}
-	b, err := json.Marshal(d)
+	b, err := json.Marshal(stat)
 	if err != nil {
 		return errors.Wrap(err, "marshal")
 	}
@@ -1203,6 +1217,100 @@ func (r *PhysRestore) recoverStandalone() error {
 	return nil
 }
 
+func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk, stat *pbm.RestoreShardStat) error {
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+		pbm.RSConfig{
+			ID:      r.rsConf.ID,
+			CSRS:    r.nodeInfo.IsConfigSrv(),
+			Version: 1,
+			Members: []pbm.RSMember{{
+				ID:           0,
+				Host:         "localhost:" + strconv.Itoa(r.tmpPort),
+				Votes:        1,
+				Priority:     1,
+				BuildIndexes: true,
+			}},
+		},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	flags := []string{"--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
+		"--replSet", r.rsConf.ID}
+	if r.nodeInfo.IsConfigSrv() {
+		flags = append(flags, "--configsvr")
+	}
+	err = r.startMongo(flags...)
+	if err != nil {
+		return errors.Wrap(err, "start mongo as rs")
+	}
+
+	c, err = tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo rs")
+	}
+
+	mgoV, err := pbm.GetMongoVersion(ctx, c)
+	if err != nil || len(mgoV.Version) < 1 {
+		return errors.Wrap(err, "define mongo version")
+	}
+
+	oplogOption := applyOplogOption{
+		start:  &from,
+		end:    &to,
+		unsafe: true,
+	}
+	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
+		&mgoV, r.stg, r.log)
+	if err != nil {
+		return errors.Wrap(err, "reply oplog")
+	}
+	if len(partial) > 0 {
+		tops := []db.Oplog{}
+		for _, t := range partial {
+			tops = append(tops, t.Oplog...)
+		}
+
+		var b bytes.Buffer
+		err := json.NewEncoder(&b).Encode(tops)
+		if err != nil {
+			return errors.Wrap(err, "encode")
+		}
+		err = r.stg.Save(r.syncPathRS+".partTxn", &b, int64(b.Len()))
+		if err != nil {
+			return errors.Wrap(err, "write partial transactions")
+		}
+	}
+
+	err = shutdown(c, r.dbpath)
+	if err != nil {
+		return errors.Wrap(err, "shutdown mongo")
+	}
+
+	return nil
+}
+
 func (r *PhysRestore) resetRS() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
@@ -1436,6 +1544,59 @@ func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error)
 	return ts, nil
 }
 
+func (r *PhysRestore) setcommittedTxn(txn []pbm.RestoreTxn) error {
+	if txn == nil {
+		txn = []pbm.RestoreTxn{}
+	}
+	var b bytes.Buffer
+	err := json.NewEncoder(&b).Encode(txn)
+	if err != nil {
+		return errors.Wrap(err, "encode")
+	}
+	return r.stg.Save(r.syncPathRS+".txn",
+		&b, int64(b.Len()),
+	)
+}
+
+func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
+	shards := copyMap(r.syncPathShards)
+	txn := make(map[string]primitive.Timestamp)
+	for len(shards) > 0 {
+		for f := range shards {
+			dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return nil, errors.Wrapf(err, "check done for <%s>", f)
+			}
+			if err == nil && dr.Size != 0 {
+				delete(shards, f)
+				continue
+			}
+
+			txnr, err := r.stg.SourceReader(f + ".txn")
+			if err != nil && errors.Is(err, storage.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, errors.Wrapf(err, "get txns <%s>", f)
+			}
+			txns := []pbm.RestoreTxn{}
+			err = json.NewDecoder(txnr).Decode(&txns)
+			if err != nil {
+				return nil, errors.Wrapf(err, "deconde txns <%s>", f)
+			}
+			for _, t := range txns {
+				if t.State == pbm.TxnCommit {
+					txn[t.ID] = t.Ctime
+				}
+			}
+			delete(shards, f)
+		}
+		time.Sleep(time.Second * 5)
+	}
+
+	return txn, nil
+}
+
 // Tries to connect to mongo n times, timeout is applied for each try.
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
@@ -1586,24 +1747,22 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 		}
 	}
 
-	r.syncPathShards = make(map[string]struct{})
 	dsh, err := r.cn.ClusterMembers()
 	if err != nil {
 		return errors.Wrap(err, "get  shards")
 	}
+	r.syncPathShards = make(map[string]struct{})
 	for _, s := range dsh {
-		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
-		r.syncPathShards[p] = struct{}{}
+		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
 	}
 
-	r.syncPathDataShards = make(map[string]struct{})
 	sh, err := r.cn.GetShards()
 	if err != nil {
 		return errors.Wrap(err, "get data shards")
 	}
+	r.syncPathDataShards = make(map[string]struct{})
 	for _, s := range sh {
-		p := fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)
-		r.syncPathDataShards[p] = struct{}{}
+		r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
 	}
 
 	err = r.hb()

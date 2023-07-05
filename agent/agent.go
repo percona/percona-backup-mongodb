@@ -109,8 +109,6 @@ func (a *Agent) Start() error {
 				a.OplogReplay(cmd.Replay, cmd.OPID, ep)
 			case pbm.CmdResync:
 				a.Resync(cmd.OPID, ep)
-			case pbm.CmdPITRestore:
-				a.PITRestore(cmd.PITRestore, cmd.OPID, ep)
 			case pbm.CmdDeleteBackup:
 				a.Delete(cmd.Delete, cmd.OPID, ep)
 			case pbm.CmdDeletePITR:
@@ -447,7 +445,7 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) 
 		switch lk.Type {
 		case pbm.CmdBackup:
 			fn = a.pbm.MarkBcpStale
-		case pbm.CmdRestore, pbm.CmdPITRestore:
+		case pbm.CmdRestore:
 			fn = a.pbm.MarkRestoreStale
 		default:
 			return acquireFn()

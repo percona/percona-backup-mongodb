@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -18,7 +19,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -325,6 +325,27 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 
 				rs.nodes[nName] = node
 			case "rs":
+				if p[1] == "txn" {
+					continue
+				}
+				if p[1] == "partTxn" {
+					src, err := stg.SourceReader(filepath.Join(PhysRestoresDir, restore, f.Name))
+					if err != nil {
+						l.Error("get partial txn file %s: %v", f.Name, err)
+						break
+					}
+
+					ops := []db.Oplog{}
+					err = json.NewDecoder(src).Decode(&ops)
+					if err != nil {
+						l.Error("unmarshal partial txn %s: %v", f.Name, err)
+						break
+					}
+					rs.rs.PartialTxn = append(rs.rs.PartialTxn, ops...)
+					rss[rsName] = rs
+					continue
+				}
+
 				cond, err := parsePhysRestoreCond(stg, f.Name, restore)
 				if err != nil {
 					return nil, err
@@ -345,21 +366,26 @@ func ParsePhysRestoreStatus(restore string, stg storage.Storage, l *log.Event) (
 					break
 				}
 				if meta.Stat == nil {
-					meta.Stat = &RestoreStat{Download: make(map[string]map[string]s3.DownloadStat)}
+					meta.Stat = &RestoreStat{RS: make(map[string]map[string]RestoreRSMetrics)}
 				}
-				st := struct {
-					D s3.DownloadStat `json:"d"`
-				}{}
+				st := RestoreShardStat{}
 				err = json.NewDecoder(src).Decode(&st)
 				if err != nil {
 					l.Error("unmarshal stat file %s: %v", f.Name, err)
 					break
 				}
-				if _, ok := meta.Stat.Download[rsName]; !ok {
-					meta.Stat.Download[rsName] = make(map[string]s3.DownloadStat)
+				if _, ok := meta.Stat.RS[rsName]; !ok {
+					meta.Stat.RS[rsName] = make(map[string]RestoreRSMetrics)
 				}
 				nName := strings.Join(p[1:], ".")
-				meta.Stat.Download[rsName][nName] = st.D
+				lstat := meta.Stat.RS[rsName][nName]
+				lstat.DistTxn.Partial += st.Txn.Partial
+				lstat.DistTxn.ShardUncommitted += st.Txn.ShardUncommitted
+				lstat.DistTxn.LeftUncommitted += st.Txn.LeftUncommitted
+				if st.D != nil {
+					lstat.Download = *st.D
+				}
+				meta.Stat.RS[rsName][nName] = lstat
 			}
 			rss[rsName] = rs
 

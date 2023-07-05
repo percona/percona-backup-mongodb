@@ -435,7 +435,7 @@ func (c currOp) String() string {
 	switch c.Type {
 	default:
 		return fmt.Sprintf("%s [op id: %s]", c.Type, c.OPID)
-	case pbm.CmdBackup, pbm.CmdRestore, pbm.CmdPITRestore:
+	case pbm.CmdBackup, pbm.CmdRestore:
 		return fmt.Sprintf("%s \"%s\", started at %s. Status: %s. [op id: %s]",
 			c.Type, c.Name, time.Unix((c.StartTS), 0).UTC().Format("2006-01-02T15:04:05Z"),
 			c.Status, c.OPID,
@@ -486,7 +486,7 @@ func getCurrOps(cn *pbm.PBM) (fmt.Stringer, error) {
 		case pbm.StatusDumpDone:
 			r.Status = "oplog backup"
 		}
-	case pbm.CmdRestore, pbm.CmdPITRestore:
+	case pbm.CmdRestore:
 		rst, err := cn.GetRestoreMetaByOPID(r.OPID)
 		if err != nil {
 			return r, errors.Wrap(err, "get restore info")

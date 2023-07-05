@@ -1,10 +1,13 @@
 package pbm
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -36,14 +39,40 @@ type RestoreMeta struct {
 }
 
 type RestoreStat struct {
-	Download map[string]map[string]s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
+	RS map[string]map[string]RestoreRSMetrics `bson:"rs,omitempty" json:"rs,omitempty"`
+}
+type RestoreRSMetrics struct {
+	DistTxn  DistTxnStat     `bson:"txn,omitempty" json:"txn,omitempty"`
+	Download s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
+}
+
+type DistTxnStat struct {
+	// Partial is the num of transactions that were allied on other shards
+	// but can't be applied on this one since not all prepare messages got
+	// into the oplog (shouldn't happen).
+	Partial int `bson:"partial" json:"partial"`
+	// ShardUncommitted is the number of uncommitted transactions before
+	// the sync. Basically, the transaction is full but no commit message
+	// in the oplog of this shard.
+	ShardUncommitted int `bson:"shard_uncommitted" json:"shard_uncommitted"`
+	// LeftUncommitted is the num of transactions that remain uncommitted
+	// after the sync. The transaction is full but no commit message in the
+	// oplog of any shard.
+	LeftUncommitted int `bson:"left_uncommitted" json:"left_uncommitted"`
+}
+
+type RestoreShardStat struct {
+	Txn DistTxnStat      `json:"txn"`
+	D   *s3.DownloadStat `json:"d"`
 }
 
 type RestoreReplset struct {
 	Name             string              `bson:"name" json:"name"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           Status              `bson:"status" json:"status"`
-	Txn              RestoreTxn          `bson:"txn" json:"txn"`
+	CommittedTxn     []RestoreTxn        `bson:"committed_txn" json:"committed_txn"`
+	CommittedTxnSet  bool                `bson:"txn_set" json:"txn_set"`
+	PartialTxn       []db.Oplog          `bson:"partial_txn" json:"partial_txn"`
 	CurrentOp        primitive.Timestamp `bson:"op" json:"op"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
@@ -51,6 +80,7 @@ type RestoreReplset struct {
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
+	Stat             RestoreShardStat    `bson:"stat" json:"stat"`
 }
 
 type Conditions []*Condition
@@ -91,15 +121,76 @@ type RestoreTxn struct {
 	State TxnState            `bson:"state" json:"state"`
 }
 
+func (t RestoreTxn) Encode() []byte {
+	return []byte(fmt.Sprintf("txn:%d,%d:%s:%s", t.Ctime.T, t.Ctime.I, t.ID, t.State))
+}
+
+func (t *RestoreTxn) Decode(b []byte) error {
+	for k, v := range bytes.SplitN(bytes.TrimSpace(b), []byte{':'}, 4) {
+		switch k {
+		case 0:
+		case 1:
+			if si := bytes.SplitN(v, []byte{','}, 2); len(si) == 2 {
+				tt, err := strconv.ParseInt(string(si[0]), 10, 64)
+				if err != nil {
+					return errors.Wrap(err, "parse clusterTime T")
+				}
+				ti, err := strconv.ParseInt(string(si[1]), 10, 64)
+				if err != nil {
+					return errors.Wrap(err, "parse clusterTime I")
+				}
+
+				t.Ctime = primitive.Timestamp{T: uint32(tt), I: uint32(ti)}
+			}
+		case 2:
+			t.ID = string(v)
+		case 3:
+			t.State = TxnState(string(v))
+		}
+	}
+
+	return nil
+}
+
 func (t RestoreTxn) String() string {
 	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
 }
 
-func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn RestoreTxn) error {
+func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{{"$set", bson.M{"replsets.$.txn": txn}}},
+		bson.D{{"$set", bson.M{"replsets.$.committed_txn": txn, "replsets.$.txn_set": true}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetRSStat(name string, rsName string, stat RestoreShardStat) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.stat": stat}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetStat(name string, stat RestoreStat) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}},
+		bson.D{{"$set", bson.M{"stat": stat}}},
+	)
+
+	return err
+}
+
+func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) error {
+	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
+		p.ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.partial_txn": txn}}},
 	)
 
 	return err

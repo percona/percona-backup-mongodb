@@ -354,7 +354,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backup
 
 	bcp.Restore()
 
-	log.Println("check commited transaction")
+	log.Println("check committed transaction")
 	c.checkTrxDoc(ctx, col, 30, 1)
 	c.checkTrxDoc(ctx, col, 530, 1)
 	c.checkTrxDoc(ctx, col, 130, 1)
@@ -366,7 +366,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backup
 	c.checkTrxDoc(ctx, col, 3000, 1)
 	c.checkTrxDoc(ctx, col, 3001, 1)
 
-	log.Println("check uncommited (commit wasn't dropped to backup) transaction")
+	log.Println("check uncommitted (commit wasn't dropped to backup) transaction")
 	c.checkTrxDoc(ctx, col, 0, -1)
 	c.checkTrxDoc(ctx, col, 89, -1)
 	c.checkTrxDoc(ctx, col, 99, -1)
