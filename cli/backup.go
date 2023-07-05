@@ -174,6 +174,17 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 }
 
 func runFinishBcp(cn *pbm.PBM, bcp string) (fmt.Stringer, error) {
+	meta, err := cn.GetBackupMeta(bcp)
+	if err != nil {
+		if errors.Is(err, pbm.ErrNotFound) {
+			return nil, errors.Errorf("backup %q not found", bcp)
+		}
+		return nil, err
+	}
+	if meta.Status != pbm.StatusCopyReady {
+		return nil, errors.Errorf("expected %q status. got %q", pbm.StatusCopyReady, meta.Status)
+	}
+
 	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
 		cn.ChangeBackupState(bcp, pbm.StatusCopyDone, "")
 }
