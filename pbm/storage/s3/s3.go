@@ -45,6 +45,7 @@ type Conf struct {
 	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	ForcePathStyle       *bool       `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
@@ -130,6 +131,9 @@ type AWSsse struct {
 func (c *Conf) Cast() error {
 	if c.Region == "" {
 		c.Region = defaultS3Region
+	}
+	if c.ForcePathStyle == nil {
+		c.ForcePathStyle = aws.Bool(true)
 	}
 	if c.Provider == S3ProviderUndef {
 		c.Provider = S3ProviderAWS
@@ -566,7 +570,7 @@ func (s *S3) session() (*session.Session, error) {
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
 		Credentials:      credentials.NewChainCredentials(providers),
-		S3ForcePathStyle: aws.Bool(true),
+		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
 		Logger:           awsLogger(s.log),
