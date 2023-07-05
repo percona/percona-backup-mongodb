@@ -494,7 +494,7 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", err)
 		}
 
-		// The inner ops doesn't have these fields and they are required by lastAppliedTime.Latest in Mongomirror,
+		// The inner ops doesn't have these fields,
 		// so we are assigning them from the parent transaction op
 		op.Timestamp = txnOp.Timestamp
 		op.Term = txnOp.Term
