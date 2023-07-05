@@ -400,7 +400,7 @@ type Txn struct {
 // Since we sync backup/restore across shards by `ts` (`opTime`), artifacts of such transaction
 // would be visible on shard `rs2` and won't appear on `rs1` given the restore time is `(1644410656, 8)`.
 //
-// We treat distributed as transactions as non-distributed - apply opps once
+// We treat distributed transactions as non-distributed - apply ops once
 // a commit message for this txn is encountered. But store uncommitted dist txns
 // so applier check in the end if any of them committed on other shards
 // (and commit if so)
