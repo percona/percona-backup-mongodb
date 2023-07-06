@@ -263,6 +263,9 @@ func parseDuration(s string) (time.Duration, error) {
 	d, c := int64(0), ""
 	_, err := fmt.Sscanf(s, "%d%s", &d, &c)
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return 0, errInvalidDuration
+		}
 		return 0, err
 	}
 	if c != "d" {
