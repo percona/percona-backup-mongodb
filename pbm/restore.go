@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 const ExternalRsMetaFile = "pbm.rsmeta.%s.json"
@@ -156,7 +157,7 @@ func (t RestoreTxn) String() string {
 	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
 }
 
-func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) error {
+func (p *PBM) RestoreSetRSTxn(name, rsName string, txn []RestoreTxn) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -166,7 +167,7 @@ func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) erro
 	return err
 }
 
-func (p *PBM) RestoreSetRSStat(name string, rsName string, stat RestoreShardStat) error {
+func (p *PBM) RestoreSetRSStat(name, rsName string, stat RestoreShardStat) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -186,7 +187,7 @@ func (p *PBM) RestoreSetStat(name string, stat RestoreStat) error {
 	return err
 }
 
-func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) error {
+func (p *PBM) RestoreSetRSPartTxn(name, rsName string, txn []db.Oplog) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -196,7 +197,7 @@ func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) er
 	return err
 }
 
-func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) error {
+func (p *PBM) SetCurrentOp(name, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -340,7 +341,7 @@ func (p *PBM) SetOplogTimestamps(name string, start, end int64) error {
 	return err
 }
 
-func (p *PBM) ChangeRestoreRSState(name string, rsName string, s Status, msg string) error {
+func (p *PBM) ChangeRestoreRSState(name, rsName string, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,

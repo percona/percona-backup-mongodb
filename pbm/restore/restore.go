@@ -274,8 +274,10 @@ type applyOplogOption struct {
 	filter oplog.OpFilter
 }
 
-type setcommittedTxnFn func(txn []pbm.RestoreTxn) error
-type getcommittedTxnFn func() (map[string]primitive.Timestamp, error)
+type (
+	setcommittedTxnFn func(txn []pbm.RestoreTxn) error
+	getcommittedTxnFn func() (map[string]primitive.Timestamp, error)
+)
 
 // By looking at just transactions in the oplog we can't tell which shards
 // were participating in it. But we can assume that if there is
@@ -300,7 +302,8 @@ type getcommittedTxnFn func() (map[string]primitive.Timestamp, error)
 // should report it in logs and describe-restore.
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
 	ic *idx.IndexCatalog, setTxn setcommittedTxnFn, getTxn getcommittedTxnFn, stat *pbm.DistTxnStat,
-	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event) (partial []oplog.Txn, err error) {
+	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event,
+) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
 	var (

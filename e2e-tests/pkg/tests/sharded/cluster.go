@@ -124,7 +124,6 @@ func (c *Cluster) LogicalRestore(bcpName string) {
 }
 
 func (c *Cluster) LogicalRestoreWithParams(bcpName string, options []string) {
-
 	log.Println("restoring the backup")
 	_, err := c.pbm.Restore(bcpName, options)
 	if err != nil {

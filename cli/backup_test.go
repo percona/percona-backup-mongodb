@@ -313,7 +313,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	}
 }
 
-func checkBcpMatchClusterError(err error, target error) string {
+func checkBcpMatchClusterError(err, target error) string {
 	if errors.Is(err, target) {
 		return ""
 	}

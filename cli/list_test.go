@@ -4,8 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func Test_splitByBaseSnapshot(t *testing.T) {

@@ -237,6 +237,7 @@ func (b *Blob) ensureContainer() error {
 	_, err = b.c.CreateContainer(context.TODO(), b.opts.Container, nil)
 	return err
 }
+
 func (b *Blob) client() (*azblob.Client, error) {
 	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
 	if err != nil {

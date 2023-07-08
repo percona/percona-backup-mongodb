@@ -988,7 +988,6 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
 		r.indexCatalog, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
 		mgoV, r.stg, r.log)
-
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}
@@ -1060,7 +1059,6 @@ func (r *Restore) Done() error {
 					LeftUncommitted:  rs.Stat.Txn.LeftUncommitted,
 				}},
 			}
-
 		}
 
 		err = r.cn.RestoreSetStat(r.name, pbm.RestoreStat{RS: stat})

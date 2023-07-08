@@ -15,17 +15,17 @@ run() {
 
     desc 'Start cluster'
     case $compose in
-        $COMPOSE_PATH)
-            start_cluster "$mongo_version"
+    $COMPOSE_PATH)
+        start_cluster "$mongo_version"
         ;;
-        $COMPOSE_REMAPPING_PATH)
-            start_replset "$mongo_version" "$COMPOSE_REMAPPING_PATH"
+    $COMPOSE_REMAPPING_PATH)
+        start_replset "$mongo_version" "$COMPOSE_REMAPPING_PATH"
         ;;
-        $COMPOSE_RS_PATH)
-            start_replset "$mongo_version" "$COMPOSE_RS_PATH"
+    $COMPOSE_RS_PATH)
+        start_replset "$mongo_version" "$COMPOSE_RS_PATH"
         ;;
-        $COMPOSE_SINGLE_PATH)
-            start_replset "$mongo_version" "$COMPOSE_SINGLE_PATH"
+    $COMPOSE_SINGLE_PATH)
+        start_replset "$mongo_version" "$COMPOSE_SINGLE_PATH"
         ;;
     esac
 
@@ -95,7 +95,7 @@ wait_restore() {
     set +o xtrace
 
     retry=0
-    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmRestores.findOne({backup: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r' )" == "done" ]; do
+    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmRestores.findOne({backup: \"${BCP_NAME}\"}).status" cfg | tail -n 1 | tr -d '\r')" == "done" ]; do
         sleep 1
         echo -n .
         let retry+=1
@@ -111,12 +111,12 @@ wait_noop() {
     set +o xtrace
 
     retry=0
-    until [ "$(mongo_run "db.getSiblingDB(\"admin\").pbmLock.find().count()" cfg | tail -n 1 | tr -d '\r' )" == 0 ]; do
+    until [ "$(mongo_run 'db.getSiblingDB("admin").pbmLock.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ]; do
         sleep 1
         echo -n .
         let retry+=1
         if [ $retry -ge 120 ]; then
-            mongo_run "db.getSiblingDB(\"admin\").pbmLock.find()" "cfg"
+            mongo_run 'db.getSiblingDB("admin").pbmLock.find()' "cfg"
             exit 1
         fi
     done
@@ -134,7 +134,7 @@ compare_arrays() {
     local arr1=$1
     local arr2=$2
     diff=$(diff <(printf "%s\n" "${arr1[@]}") <(printf "%s\n" "${arr2[@]}"))
-    if [[ -z "$diff" ]]; then
+    if [[ -z $diff ]]; then
         echo "OK"
     else
         exit 1
@@ -170,7 +170,7 @@ start_cluster() {
     export MONGODB_VERSION=${mongo_version:-"4.2"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
-            cfg01 cfg02 cfg03 rs101 rs102 rs103 rs201 rs202 rs203 mongos minio createbucket
+        cfg01 cfg02 cfg03 rs101 rs102 rs103 rs201 rs202 rs203 mongos minio createbucket
     sleep 25
     docker-compose -f $COMPOSE_PATH ps
     export COMPOSE_INTERACTIVE_NO_CLI=1
@@ -181,7 +181,7 @@ start_cluster() {
     docker-compose -f $COMPOSE_PATH exec -T mongos $mongo mongodb://${BACKUP_USER}:${MONGO_PASS}@localhost /opt/mongos_init.js
 
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
-            agent-cfg01 agent-cfg02 agent-cfg03  agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
+        agent-cfg01 agent-cfg02 agent-cfg03 agent-rs101 agent-rs102 agent-rs103 agent-rs201 agent-rs202 agent-rs203
 }
 
 start_replset() {

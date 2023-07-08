@@ -158,7 +158,7 @@ func (l *Logger) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
-func (l *Logger) output(s Severity, event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) output(s Severity, event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -191,23 +191,23 @@ func (l *Logger) Printf(msg string, args ...interface{}) {
 	l.output(Info, "", "", "", primitive.Timestamp{}, msg, args...)
 }
 
-func (l *Logger) Debug(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Debug, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Info(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Info, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Warning(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Warning(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Warning, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Error(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Error(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Error, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Fatal(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Fatal, event, obj, opid, epoch, msg, args...)
 }
 

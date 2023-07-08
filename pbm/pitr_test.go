@@ -67,7 +67,7 @@ func TestPITRTimelines(t *testing.T) {
 }
 
 func TestPITRMergeTimelines(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		name   string
 		tl     [][]Timeline
 		expect []Timeline

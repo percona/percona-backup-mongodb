@@ -464,7 +464,8 @@ func (id *UUID) IsZero() bool {
 // unchanged files (Len == 0) but add them to the meta as we need know
 // what files shouldn't be restored (those which isn't in the target backup).
 func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event) (data []pbm.File, err error) {
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event,
+) (data []pbm.File, err error) {
 	if len(files) == 0 {
 		return data, err
 	}

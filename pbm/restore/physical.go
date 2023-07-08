@@ -1253,10 +1253,12 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "shutdown mongo")
 	}
 
-	flags := []string{"--dbpath", r.dbpath,
+	flags := []string{
+		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
-		"--replSet", r.rsConf.ID}
+		"--replSet", r.rsConf.ID,
+	}
 	if r.nodeInfo.IsConfigSrv() {
 		flags = append(flags, "--configsvr")
 	}

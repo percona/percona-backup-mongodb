@@ -1,13 +1,13 @@
 package main
 
 import (
+	"math/rand"
+	"time"
+
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm"
-
-	"math/rand"
-	"time"
 )
 
 func runPhysical(t *sharded.Cluster, typ testTyp) {

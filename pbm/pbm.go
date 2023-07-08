@@ -199,7 +199,6 @@ func (r RestoreCmd) String() string {
 	}
 
 	return fmt.Sprintf("name: %s, %s", r.Name, bcp)
-
 }
 
 type ReplayCmd struct {
@@ -722,7 +721,7 @@ func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
 	return err
 }
 
-func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string) error {
+func (p *PBM) ChangeRSState(bcpName, rsName string, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -746,7 +745,7 @@ func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, size int64) err
 	return err
 }
 
-func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) error {
+func (p *PBM) RSSetPhyFiles(bcpName, rsName string, rs *BackupReplset) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -759,7 +758,7 @@ func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) er
 	return err
 }
 
-func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
+func (p *PBM) SetRSLastWrite(bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},

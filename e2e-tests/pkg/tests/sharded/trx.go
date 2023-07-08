@@ -183,7 +183,7 @@ func (c *Cluster) trxSet(ctx mongo.SessionContext, id int, col string) {
 
 // updateTrxRetry tries to run an update operation and in case of the StaleConfig error
 // it run flushRouterConfig and tries again
-func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, col string, filter interface{}, update interface{}) error {
+func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, col string, filter, update interface{}) error {
 	var err error
 	conn := c.mongos.Conn()
 	for i := 0; i < 3; i++ {
