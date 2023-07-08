@@ -1,0 +1,5 @@
+linters:
+  presets:
+    - bugs
+    - error
+    - unused
