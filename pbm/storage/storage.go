@@ -20,6 +20,7 @@ const (
 	Azure      Type = "azure"
 	Filesystem Type = "filesystem"
 	BlackHole  Type = "blackhole"
+	WebDAV     Type = "webdav"
 )
 
 type FileInfo struct {
