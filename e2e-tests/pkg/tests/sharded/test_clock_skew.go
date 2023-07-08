@@ -19,7 +19,7 @@ func (c *Cluster) ClockSkew(typ pbmt.BackupType, mongoVersion string) {
 
 	for k, rs := range rsNames {
 		if k >= len(timeShifts) {
-			k = k % len(timeShifts)
+			k %= len(timeShifts)
 		}
 		shift := timeShifts[k]
 

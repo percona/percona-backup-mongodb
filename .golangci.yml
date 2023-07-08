@@ -13,7 +13,7 @@ linters:
     # - nilerr
     # - nilnil
     # - lll
-    # - gocritic
+    - gocritic
     - typecheck
     # - goconst
     # - gochecknoinits

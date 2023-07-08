@@ -416,11 +416,11 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		getObjOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+		getObjOpts.SSECustomerKey = aws.String(string(decodedKey))
 		if err != nil {
 			return nil, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
-		keyMD5 := md5.Sum(decodedKey[:])
+		keyMD5 := md5.Sum(decodedKey)
 		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
@@ -446,8 +446,8 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
 			// We don't pass in the key in this case, just the MD5 hash of the key
 			// for verification
-			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
-			keyMD5 := md5.Sum(decodedKey[:])
+			// s3obj.SSECustomerKey = aws.String(string(decodedKey))
+			keyMD5 := md5.Sum(decodedKey)
 			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}

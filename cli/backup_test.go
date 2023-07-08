@@ -322,7 +322,7 @@ func checkBcpMatchClusterError(err, target error) string {
 	}
 
 	var err1 missedReplsetsError
-	if !errors.Is(err, &err1) {
+	if !errors.As(err, &err1) {
 		return fmt.Sprintf("unknown errIncompatible error: %T", err)
 	}
 	var err2 missedReplsetsError

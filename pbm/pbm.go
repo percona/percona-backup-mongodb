@@ -808,7 +808,8 @@ func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
 }
 
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts bson.D) (*BackupMeta, error) {
-	q := append(opts, bson.E{"status", StatusDone})
+	q := append(bson.D{}, opts...)
+	q = append(q, bson.E{"status", StatusDone})
 	if after != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
 	}

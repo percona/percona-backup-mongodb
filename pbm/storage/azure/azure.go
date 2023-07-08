@@ -97,7 +97,7 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	prfx := path.Join(b.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
-		prfx = prfx + "/"
+		prfx += "/"
 	}
 
 	pager := b.c.NewListBlobsFlatPager(b.opts.Container, &azblob.ListBlobsFlatOptions{
