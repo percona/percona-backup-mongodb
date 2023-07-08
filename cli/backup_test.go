@@ -314,20 +314,19 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 }
 
 func checkBcpMatchClusterError(err, target error) string {
-	if errors.Is(err, target) {
+	if err == nil && target == nil {
 		return ""
 	}
-
 	if !errors.Is(err, errIncompatible) {
 		return fmt.Sprintf("unknown error: %T", err)
 	}
 
-	err1, ok := err.(missedReplsetsError) //nolint:errorlint
-	if !ok {
+	var err1 missedReplsetsError
+	if !errors.Is(err, &err1) {
 		return fmt.Sprintf("unknown errIncompatible error: %T", err)
 	}
-	err2, ok := target.(missedReplsetsError) //nolint:errorlint
-	if !ok {
+	var err2 missedReplsetsError
+	if !errors.As(err, &err2) {
 		return fmt.Sprintf("expect errMissedReplsets, got %T", err)
 	}
 

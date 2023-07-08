@@ -15,15 +15,6 @@ func (c CursorClosedError) Error() string {
 	return "cursor was closed with:" + c.Err.Error()
 }
 
-func (CursorClosedError) Is(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	_, ok := err.(CursorClosedError) //nolint:errorlint
-	return ok
-}
-
 func (c CursorClosedError) Unwrap() error {
 	return c.Err
 }

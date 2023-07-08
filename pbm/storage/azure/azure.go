@@ -228,11 +228,10 @@ func (b *Blob) ensureContainer() error {
 	if err == nil {
 		return nil
 	}
-	var stgErr azcore.ResponseError
-	if errors.As(err, &stgErr) {
-		if stgErr.StatusCode != http.StatusNotFound {
-			return errors.Wrap(err, "check container")
-		}
+
+	var stgErr *azcore.ResponseError
+	if errors.As(err, &stgErr) && stgErr.StatusCode != http.StatusNotFound {
+		return errors.Wrap(err, "check container")
 	}
 
 	_, err = b.c.CreateContainer(context.TODO(), b.opts.Container, nil)

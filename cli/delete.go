@@ -63,7 +63,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 			Type: pbm.CmdDeleteBackup,
 		},
 		time.Second*60)
-	if err != nil && errors.Is(err, errTout) {
+	if err != nil && !errors.Is(err, errTout) {
 		return nil, err
 	}
 
@@ -140,7 +140,7 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 			Type: pbm.CmdDeletePITR,
 		},
 		time.Second*60)
-	if err != nil && errors.Is(err, errTout) {
+	if err != nil && !errors.Is(err, errTout) {
 		return nil, err
 	}
 
