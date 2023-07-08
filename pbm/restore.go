@@ -252,7 +252,7 @@ func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
 	)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, errors.Wrap(err, "get")
 	}

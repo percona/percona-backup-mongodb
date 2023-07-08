@@ -77,7 +77,7 @@ func (s *Slicer) Catchup() error {
 	}()
 
 	rstr, err := s.pbm.GetLastRestore()
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last restore")
 	}
 	if rstr != nil && rstr.StartTS > baseBcp.StartTS {
@@ -85,7 +85,7 @@ func (s *Slicer) Catchup() error {
 	}
 
 	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last slice")
 	}
 
@@ -167,7 +167,7 @@ func (s *Slicer) OplogOnlyCatchup() (err error) {
 	}()
 
 	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last slice")
 	}
 

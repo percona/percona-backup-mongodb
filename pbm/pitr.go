@@ -98,7 +98,7 @@ func (p *PBM) pitrChunk(rs string, sort int) (*OplogChunk, error) {
 	)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, errors.Wrap(err, "get")
 	}
@@ -232,7 +232,7 @@ func (t Timeline) String() string {
 // `flist` is a cache of chunk sizes.
 func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tlines []Timeline, err error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, errors.Wrap(err, "get the oldest chunk")
 	}
 	if fch == nil {

@@ -124,7 +124,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 		c.trxSet(sc, 3000, col)
 		c.trxSet(sc, 3001, col)
 
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	})
 
 	log.Println("Run trx2")

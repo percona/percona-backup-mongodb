@@ -67,8 +67,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 			{{"$backupCursor", bc.opts}},
 		})
 		if err != nil {
-			var se mongo.ServerError
-			if errors.As(err, se) && se.HasErrorCode(50915) {
+			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(50915) { //nolint:errorlint
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying")
@@ -285,7 +284,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 
 	data := bcur.Data
 	stgb, err := getStorageBSON(bcur.Meta.DBpath)
-	if err != nil {
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return errors.Wrap(err, "check storage.bson file")
 	}
 	if stgb != nil {
@@ -414,10 +413,10 @@ const storagebson = "storage.bson"
 
 func getStorageBSON(dbpath string) (*pbm.File, error) {
 	f, err := os.Stat(path.Join(dbpath, storagebson))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = storage.ErrNotExist
+		}
 		return nil, err
 	}
 

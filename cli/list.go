@@ -328,39 +328,39 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
-			return nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
+			return primitive.Timestamp{}, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 	if bcp == nil {
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 
 	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
 	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
+		return primitive.Timestamp{}, errors.WithMessage(err, "get mongo version")
 	}
 	fcv, err := cn.GetFeatureCompatibilityVersion()
 	if err != nil {
-		return nil, errors.WithMessage(err, "get featureCompatibilityVersion")
+		return primitive.Timestamp{}, errors.WithMessage(err, "get featureCompatibilityVersion")
 	}
 
 	bcpMatchCluster(bcp, ver.VersionString, fcv, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
 	if bcp.Status != pbm.StatusDone {
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 
-	return &bcp.LastWriteTS, nil
+	return bcp.LastWriteTS, nil
 }
 
-func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitrRange {
-	if lastWrite == nil || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
+func splitByBaseSnapshot(lastWrite primitive.Timestamp, tl pbm.Timeline) []pitrRange {
+	if lastWrite.IsZero() || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
 		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
 	}
 

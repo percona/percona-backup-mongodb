@@ -604,8 +604,7 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 
 func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	r.log.Info("moving to state %s", status)
-	_, err := toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
-	return err
+	return toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
 func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
@@ -1036,7 +1035,7 @@ func (r *Restore) Done() error {
 	}
 
 	if r.nodeInfo.IsLeader() {
-		_, err = r.reconcileStatus(pbm.StatusDone, nil)
+		err = r.reconcileStatus(pbm.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for the restore done")
 		}
@@ -1131,13 +1130,13 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	return nil
 }
 
-func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) (*pbm.RestoreMeta, error) {
+func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	if timeout != nil {
-		m, err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
-		return m, errors.Wrap(err, "convergeClusterWithTimeout")
+		err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
+		return errors.Wrap(err, "convergeClusterWithTimeout")
 	}
-	m, err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
-	return m, errors.Wrap(err, "convergeCluster")
+	err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
+	return errors.Wrap(err, "convergeCluster")
 }
 
 func (r *Restore) waitForStatus(status pbm.Status) error {

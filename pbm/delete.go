@@ -74,11 +74,12 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	if !ispitr || tlns != nil {
 		return nil
 	}
-	nxt, err := p.BackupGetNext(backup)
+
+	has, err := p.BackupHasNext(backup)
 	if err != nil {
 		return errors.Wrap(err, "check next backup")
 	}
-	if nxt == nil {
+	if !has {
 		return errors.New("unable to delete the last backup while PITR is on")
 	}
 

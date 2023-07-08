@@ -10,8 +10,8 @@ linters:
     # - ireturn
     # - gomnd
     # - misspell
-    # - nilerr
-    # - nilnil
+    - nilerr
+    - nilnil
     # - lll
     - gocritic
     - typecheck

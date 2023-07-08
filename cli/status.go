@@ -727,7 +727,7 @@ func getPITRranges(cn *pbm.PBM, bcps []pbm.BackupMeta, rsMap map[string]string) 
 
 	var pr []pitrRange
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
-		var bcplastWrite *primitive.Timestamp
+		var bcplastWrite primitive.Timestamp
 
 		for i := range bcps {
 			bcp := &bcps[i]
@@ -739,7 +739,7 @@ func getPITRranges(cn *pbm.PBM, bcps []pbm.BackupMeta, rsMap map[string]string) 
 				continue
 			}
 
-			bcplastWrite = &bcp.LastWriteTS
+			bcplastWrite = bcp.LastWriteTS
 			break
 		}
 

@@ -834,25 +834,21 @@ func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts
 	return b, errors.Wrap(err, "decode")
 }
 
-func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
-	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
-		p.ctx,
-		bson.D{
-			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
-			{"status", StatusDone},
-		},
-	)
-
+func (p *PBM) BackupHasNext(backup *BackupMeta) (bool, error) {
+	f := bson.D{
+		{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+		{"status", StatusDone},
+	}
+	o := options.FindOne().SetProjection(bson.D{{"_id", 1}})
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, f, o)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
+			return false, nil
 		}
-		return nil, errors.Wrap(err, "get")
+		return false, errors.WithMessage(err, "query")
 	}
 
-	b := new(BackupMeta)
-	err := res.Decode(b)
-	return b, errors.Wrap(err, "decode")
+	return true, nil
 }
 
 func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
