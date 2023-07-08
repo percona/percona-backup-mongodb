@@ -15,48 +15,48 @@ fi
 export PBM_MONGODB_URI
 
 if [ "${1:0:9}" = "pbm-agent" ]; then
-	OUT="$(mktemp)"
-	OUT_CFG="$(mktemp)"
-	timeout=5
-	for i in {1..10}; do
-		if [ "${SHARDED}" ]; then
-			echo "waiting for sharded scluster"
+    OUT="$(mktemp)"
+    OUT_CFG="$(mktemp)"
+    timeout=5
+    for i in {1..10}; do
+        if [ "${SHARDED}" ]; then
+            echo "waiting for sharded scluster"
 
-			# check in case if shard has role 'shardsrv'
-			set +o xtrace
-			mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="db.isMaster().\$configServerState.opTime.ts" --quiet | tee "$OUT"
-			set -o xtrace
-			exit_status=$?
+            # check in case if shard has role 'shardsrv'
+            set +o xtrace
+            mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="db.isMaster().\$configServerState.opTime.ts" --quiet | tee "$OUT"
+            set -o xtrace
+            exit_status=$?
 
-			# check in case if shard has role 'configsrv'
-			set +o xtrace
-			mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="db.isMaster().configsvr" --quiet | tail -n 1 | tee "$OUT_CFG"
-			set -o xtrace
-			exit_status_cfg=$?
+            # check in case if shard has role 'configsrv'
+            set +o xtrace
+            mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="db.isMaster().configsvr" --quiet | tail -n 1 | tee "$OUT_CFG"
+            set -o xtrace
+            exit_status_cfg=$?
 
-			ts=$(grep -E '^Timestamp\([0-9]+, [0-9]+\)$' "$OUT")
-			isCfg=$(grep -E '^2$' "$OUT_CFG")
+            ts=$(grep -E '^Timestamp\([0-9]+, [0-9]+\)$' "$OUT")
+            isCfg=$(grep -E '^2$' "$OUT_CFG")
 
-			if [[ ${exit_status} == 0 && ${ts} ]] || [[ ${exit_status_cfg} == 0 && ${isCfg} ]]; then
-				break
-			else
-				sleep "$((timeout * i))"
-			fi
-		else
-			set +o xtrace
-			mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="(db.isMaster().hosts).length" --quiet | tee "$OUT"
-			set -o xtrace
-			exit_status=$?
-			rs_size=$(grep -E '^([0-9]+)$' "$OUT")
-			if [[ ${exit_status} == 0 ]] && [[ $rs_size -ge 1 ]]; then
-				break
-			else
-				sleep "$((timeout * i))"
-			fi
-		fi
-	done
+            if [[ ${exit_status} == 0 && ${ts} ]] || [[ ${exit_status_cfg} == 0 && ${isCfg} ]]; then
+                break
+            else
+                sleep "$((timeout * i))"
+            fi
+        else
+            set +o xtrace
+            mongo ${PBM_MONGO_OPTS} "${PBM_MONGODB_URI}" --eval="(db.isMaster().hosts).length" --quiet | tee "$OUT"
+            set -o xtrace
+            exit_status=$?
+            rs_size=$(grep -E '^([0-9]+)$' "$OUT")
+            if [[ ${exit_status} == 0 ]] && [[ $rs_size -ge 1 ]]; then
+                break
+            else
+                sleep "$((timeout * i))"
+            fi
+        fi
+    done
 
-	rm "$OUT"
+    rm "$OUT"
 fi
 
 exec "$@"
