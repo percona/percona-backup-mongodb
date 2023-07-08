@@ -122,14 +122,12 @@ func (a *Agent) Start() error {
 				return nil
 			}
 
-			switch err.(type) {
-			case pbm.ErrorCursor:
-				return errors.Wrap(err, "stop listening")
-			default:
-				ep, _ := a.pbm.GetEpoch()
-
-				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
+			if errors.Is(err, pbm.CursorClosedError{}) {
+				return errors.WithMessage(err, "stop listening")
 			}
+
+			ep, _ := a.pbm.GetEpoch()
+			a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
 		}
 	}
 }
@@ -434,30 +432,33 @@ func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) 
 		return got, nil
 	}
 
-	switch err := err.(type) {
-	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
+	if errors.Is(err, pbm.DuplicatedOpError{}) || errors.Is(err, pbm.ConcurrentOpError{}) {
 		lg.Debug("get lock: %v", err)
 		return false, nil
-	case pbm.ErrWasStaleLock:
-		lk := err.Lock
-		lg.Debug("stale lock: %v", lk)
-		var fn func(opid string) error
-		switch lk.Type {
-		case pbm.CmdBackup:
-			fn = a.pbm.MarkBcpStale
-		case pbm.CmdRestore:
-			fn = a.pbm.MarkRestoreStale
-		default:
-			return acquireFn()
-		}
-		merr := fn(lk.OPID)
-		if merr != nil {
-			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
-		}
-		return acquireFn()
-	default:
+	}
+
+	var er pbm.StaleLockError
+	if !errors.As(err, &er) {
 		return false, err
 	}
+
+	lock := er.Lock
+	lg.Debug("stale lock: %v", lock)
+	var fn func(opid string) error
+	switch lock.Type {
+	case pbm.CmdBackup:
+		fn = a.pbm.MarkBcpStale
+	case pbm.CmdRestore:
+		fn = a.pbm.MarkRestoreStale
+	default:
+		return acquireFn()
+	}
+
+	if err := fn(lock.OPID); err != nil {
+		lg.Warning("failed to mark stale op '%s' as failed: %v", lock.OPID, err)
+	}
+
+	return acquireFn()
 }
 
 func (a *Agent) HbPause() {
@@ -479,7 +480,7 @@ func (a *Agent) HbStatus() {
 		Ver:  version.DefaultInfo.Version,
 	}
 	defer func() {
-		if err := a.pbm.RmAgentStatus(hb); err != nil {
+		if err := a.pbm.RemoveAgentStatus(hb); err != nil {
 			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 			logger.Error("remove agent heartbeat: %v", err)
 		}

@@ -96,11 +96,11 @@ func (p *PBM) pitrChunk(rs string, sort int) (*OplogChunk, error) {
 		bson.D{{"rs", rs}},
 		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
 	chnk := new(OplogChunk)
@@ -144,7 +144,7 @@ func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]Opl
 		}...)
 	}
 
-	return p.pitrGetChunksSlice(rs, q)
+	return p.pitrGetChunksSlice(q)
 }
 
 // PITRGetChunksSliceUntil returns slice of PITR oplog chunks that starts up until timestamp (exclusively)
@@ -156,10 +156,10 @@ func (p *PBM) PITRGetChunksSliceUntil(rs string, t primitive.Timestamp) ([]Oplog
 
 	q = append(q, bson.E{"start_ts", bson.M{"$lt": t}})
 
-	return p.pitrGetChunksSlice(rs, q)
+	return p.pitrGetChunksSlice(q)
 }
 
-func (p *PBM) pitrGetChunksSlice(rs string, q bson.D) ([]OplogChunk, error) {
+func (p *PBM) pitrGetChunksSlice(q bson.D) ([]OplogChunk, error) {
 	cur, err := p.Conn.Database(DB).Collection(PITRChunksCollection).Find(
 		p.ctx,
 		q,

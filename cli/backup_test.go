@@ -230,7 +230,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				},
 			},
 			rsMap: map[string]string{},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs2"},
 			},
 		},
@@ -244,7 +244,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			rsMap: map[string]string{
 				"rs1": "rs0",
 			},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs0"},
 			},
 		},
@@ -275,13 +275,13 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				"rs2": "rs1",
 				"rs4": "rs3",
 			},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs3", "rs5"},
 			},
 		},
 		{
 			bcp:      pbm.BackupMeta{},
-			expected: errMissedReplsets{configsrv: true},
+			expected: missedReplsetsError{configsrv: true},
 		},
 	}
 
@@ -322,34 +322,32 @@ func checkBcpMatchClusterError(err, target error) string {
 		return fmt.Sprintf("unknown error: %T", err)
 	}
 
-	switch err := err.(type) {
-	case errMissedReplsets:
-		target, ok := target.(errMissedReplsets)
-		if !ok {
-			return fmt.Sprintf("expect errMissedReplsets, got %T", err)
-		}
-
-		var msg string
-
-		if err.configsrv != target.configsrv {
-			msg = fmt.Sprintf("expect replsets to be %v, got %v",
-				target.configsrv, err.configsrv)
-		}
-
-		sort.Strings(err.names)
-		sort.Strings(target.names)
-
-		a := strings.Join(err.names, ", ")
-		b := strings.Join(target.names, ", ")
-
-		if a != b {
-			msg = fmt.Sprintf("expect replsets to be %v, got %v", a, b)
-		}
-
-		return msg
+	err1, ok := err.(missedReplsetsError) //nolint:errorlint
+	if !ok {
+		return fmt.Sprintf("unknown errIncompatible error: %T", err)
+	}
+	err2, ok := target.(missedReplsetsError) //nolint:errorlint
+	if !ok {
+		return fmt.Sprintf("expect errMissedReplsets, got %T", err)
 	}
 
-	return fmt.Sprintf("unknown errIncompatible error: %T", err)
+	var msg string
+	if err1.configsrv != err2.configsrv {
+		msg = fmt.Sprintf("expect replsets to be %v, got %v",
+			err2.configsrv, err1.configsrv)
+	}
+
+	sort.Strings(err1.names)
+	sort.Strings(err2.names)
+
+	a := strings.Join(err1.names, ", ")
+	b := strings.Join(err2.names, ", ")
+
+	if a != b {
+		msg = fmt.Sprintf("expect replsets to be %v, got %v", a, b)
+	}
+
+	return msg
 }
 
 func BenchmarkBcpMatchCluster3x10(b *testing.B) {

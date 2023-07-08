@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -145,8 +144,8 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		}, nil
 	}
 
-	if serr, ok := err.(errRestoreFailed); ok {
-		return restoreRet{err: serr.Error()}, nil
+	if errors.Is(err, restoreFailedError{}) {
+		return restoreRet{err: err.Error()}, nil
 	}
 	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 }
@@ -195,7 +194,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, status pbm.Status, tskew int64
 		case status, pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
-			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
+			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
 		if m.Type == pbm.LogicalBackup {
@@ -216,11 +215,11 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, status pbm.Status, tskew int64
 	return nil
 }
 
-type errRestoreFailed struct {
+type restoreFailedError struct {
 	string
 }
 
-func (e errRestoreFailed) Error() string {
+func (e restoreFailedError) Error() string {
 	return e.string
 }
 
@@ -357,7 +356,7 @@ func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]str
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name, fn)
+	return waitForRestoreStatus(ctx, name, fn)
 }
 
 func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
@@ -398,7 +397,7 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 
 type getRestoreMetaFn func(name string) (*pbm.RestoreMeta, error)
 
-func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
+func waitForRestoreStatus(ctx context.Context, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	var err error
@@ -500,7 +499,7 @@ func (r describeRestoreResult) String() string {
 }
 
 func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
-	buf, err := ioutil.ReadFile(cfgPath)
+	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
 	}

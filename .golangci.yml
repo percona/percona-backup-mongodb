@@ -3,3 +3,31 @@ linters:
     - bugs
     - error
     - unused
+  enable:
+    - errname
+    - predeclared
+    # - stylecheck
+    # - ireturn
+    # - gomnd
+    # - misspell
+    # - nilerr
+    # - nilnil
+    # - lll
+    # - gocritic
+    - typecheck
+    # - goconst
+    # - gochecknoinits
+    # - forbidigo
+    # - nonamedreturns
+  disable:
+    - contextcheck
+    - exhaustive
+    - gosec
+    - wrapcheck
+
+linters-settings:
+  govet:
+    disable:
+      - composites
+  misspell:
+    locale: "US"

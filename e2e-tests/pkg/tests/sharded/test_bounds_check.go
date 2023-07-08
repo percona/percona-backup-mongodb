@@ -9,9 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
-
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type scounter struct {

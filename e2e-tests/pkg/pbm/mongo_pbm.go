@@ -84,7 +84,7 @@ func (m *MongoPBM) waitOp(lock *pbm.LockHeader, waitFor time.Duration, f func(*p
 			lock, err := f(lock)
 			if err != nil {
 				// No lock, so operation has finished
-				if err == mongo.ErrNoDocuments {
+				if errors.Is(err, mongo.ErrNoDocuments) {
 					return nil
 				}
 				return errors.Wrap(err, "get lock data")

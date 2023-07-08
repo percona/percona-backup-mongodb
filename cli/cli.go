@@ -300,12 +300,14 @@ func exitErr(e error, f outFormat) {
 	case outJSON, outJSONpretty:
 		var m interface{}
 		m = e
-		if _, ok := e.(json.Marshaler); !ok {
+		if _, ok := e.(json.Marshaler); !ok { //nolint:errorlint
 			m = map[string]string{"Error": e.Error()}
 		}
 		var err error
 		if f == outJSONpretty {
-			err = json.NewEncoder(os.Stdout).Encode(m)
+			j := json.NewEncoder(os.Stdout)
+			j.SetIndent("", "    ")
+			err = j.Encode(m)
 		} else {
 			err = json.NewEncoder(os.Stdout).Encode(m)
 		}
@@ -523,6 +525,7 @@ func findLock(cn *pbm.PBM, fn func(*pbm.LockHeader) ([]pbm.LockData, error)) (*p
 			}
 		}
 
+		l := l
 		lk = &l
 	}
 
@@ -550,7 +553,7 @@ func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) err
 			lock, err := pbmClient.GetLockData(lock)
 			if err != nil {
 				// No lock, so operation has finished
-				if err == mongo.ErrNoDocuments {
+				if errors.Is(err, mongo.ErrNoDocuments) {
 					return nil
 				}
 				return errors.Wrap(err, "get lock data")
@@ -593,15 +596,29 @@ func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	return l.Data[0].Msg, nil
 }
 
-type concurentOpErr struct {
+type concurentOpError struct {
 	op *pbm.LockHeader
 }
 
-func (e concurentOpErr) Error() string {
+func (e concurentOpError) Error() string {
 	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
 }
 
-func (e concurentOpErr) MarshalJSON() ([]byte, error) {
+func (e concurentOpError) As(err any) bool {
+	if err == nil {
+		return false
+	}
+
+	er, ok := err.(concurentOpError)
+	if !ok {
+		return false
+	}
+
+	er.op = e.op
+	return true
+}
+
+func (e concurentOpError) MarshalJSON() ([]byte, error) {
 	s := make(map[string]interface{})
 	s["error"] = "another operation in progress"
 	s["operation"] = e.op
@@ -624,7 +641,7 @@ func checkConcurrentOp(cn *pbm.PBM) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+pbm.StaleFrameSec >= ts.T {
-			return concurentOpErr{&l.LockHeader}
+			return concurentOpError{&l.LockHeader}
 		}
 	}
 

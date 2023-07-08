@@ -339,7 +339,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		return err
 	}
 
-	err = r.checkTopologyForOplog(r.cn.Context(), r.shards, oplogShards)
+	err = r.checkTopologyForOplog(r.shards, oplogShards)
 	if err != nil {
 		return errors.WithMessage(err, "topology")
 	}
@@ -448,7 +448,7 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	return nil
 }
 
-func (r *Restore) checkTopologyForOplog(ctx context.Context, currShards []pbm.Shard, oplogShards []string) error {
+func (r *Restore) checkTopologyForOplog(currShards []pbm.Shard, oplogShards []string) error {
 	mapRS, mapRevRS := pbm.MakeRSMapFunc(r.rsMap), pbm.MakeReverseRSMapFunc(r.rsMap)
 
 	shards := make(map[string]struct{}, len(currShards))
@@ -951,7 +951,7 @@ func (r *Restore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 
 			// nodes are cleaning its locks moving to the done status
 			// so no lock is ok, and no need to check the heartbeats
-			if err != mongo.ErrNoDocuments {
+			if !errors.Is(err, mongo.ErrNoDocuments) {
 				if err != nil {
 					return nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 				}

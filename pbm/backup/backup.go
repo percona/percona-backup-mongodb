@@ -91,7 +91,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 	}
 
 	cfg, err := b.cn.GetConfig()
-	if err == pbm.ErrStorageUndefined {
+	if errors.Is(err, pbm.ErrStorageUndefined) {
 		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
 	} else if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
@@ -343,14 +343,14 @@ func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
 		nil
 }
 
-// rwErr multierror for the read/compress/write-to-store operations set
-type rwErr struct {
+// rwError multierror for the read/compress/write-to-store operations set
+type rwError struct {
 	read     error
 	compress error
 	write    error
 }
 
-func (rwe rwErr) Error() string {
+func (rwe rwError) Error() string {
 	var r string
 	if rwe.read != nil {
 		r += "read data: " + rwe.read.Error() + "."
@@ -365,7 +365,7 @@ func (rwe rwErr) Error() string {
 	return r
 }
 
-func (rwe rwErr) nil() bool {
+func (rwe rwError) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
@@ -389,7 +389,7 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression co
 		return 0, err
 	}
 
-	var rwErr rwErr
+	var rwErr rwError
 	var n int64
 	go func() {
 		n, rwErr.read = src.WriteTo(w)
@@ -435,7 +435,7 @@ func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo,
 	if inf.IsLeader() {
 		err = b.reconcileStatus(bcp, opid, status, wait)
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return errors.Wrapf(err, "check cluster for backup `%s`", status)
@@ -532,7 +532,7 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and no need to ckech the heartbeats
-				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
+				if status != pbm.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}

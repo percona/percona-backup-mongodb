@@ -80,7 +80,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitActionStart)
 	defer cancel()
 
-	m, err := waitForRestoreStatus(ctx, cn, name, cn.GetRestoreMeta)
+	m, err := waitForRestoreStatus(ctx, name, cn.GetRestoreMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func replayOplog(cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, er
 	fmt.Print("Started.\nWaiting to finish")
 	err = waitRestore(cn, m, pbm.StatusDone, 0)
 	if err != nil {
-		return oplogReplayResult{err: err.Error()}, nil
+		return oplogReplayResult{err: err.Error()}, nil //nolint:nilerr
 	}
 
 	return oplogReplayResult{Name: name, done: true}, nil

@@ -58,6 +58,7 @@ type LogKeys struct {
 const LogTimeFormat = "2006-01-02T15:04:05.000-0700"
 
 func tsLocal(ts int64) string {
+	//nolint:gosmopolitan
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
@@ -139,7 +140,7 @@ func (l *Logger) SefBuffer(b Buffer) {
 
 func (l *Logger) Close() {
 	if l.bufSet.Load() == 1 && l.buf != nil {
-		// don't write buffer anymore. Flush() uses storage.Save() wich may
+		// don't write buffer anymore. Flush() uses storage.Save() which may
 		// have logging. And writing to the buffer during Flush() will cause
 		// deadlock.
 		l.bufSet.Store(0)
@@ -162,6 +163,7 @@ func (l *Logger) output(s Severity, event, obj, opid string, epoch primitive.Tim
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
+	//nolint:gosmopolitan
 	_, tz := time.Now().Local().Zone()
 	t := time.Now().UTC()
 

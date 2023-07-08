@@ -67,14 +67,15 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 			{{"$backupCursor", bc.opts}},
 		})
 		if err != nil {
-			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(50915) {
+			var se mongo.ServerError
+			if errors.As(err, se) && se.HasErrorCode(50915) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying")
 				time.Sleep(time.Second * time.Duration(i+1))
 				continue
 			}
-		} else if err != nil {
+
 			return nil, err
 		}
 
@@ -130,7 +131,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 			select {
 			case <-bc.close:
 				bc.l.Debug("stop cursor polling: %v, cursor err: %v",
-					cur.Close(context.Background()), cur.Err()) // `ctx` is already cancelled, so use a background context
+					cur.Close(context.Background()), cur.Err()) // `ctx` is already canceled, so use a background context
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)
@@ -247,7 +248,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	if inf.IsLeader() {
 		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return errors.Wrap(err, "check cluster for backup started")
@@ -439,12 +440,12 @@ func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
 func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
 	if t != bsontype.Binary {
-		return fmt.Errorf("invalid format on unmarshal bson value")
+		return errors.New("invalid format on unmarshal bson value")
 	}
 
 	_, data, _, ok := bsoncore.ReadBinary(raw)
 	if !ok {
-		return fmt.Errorf("not enough bytes to unmarshal bson value")
+		return errors.New("not enough bytes to unmarshal bson value")
 	}
 
 	copy(id.UUID[:], data)

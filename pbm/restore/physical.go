@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	slog "log"
 	"math/rand"
 	"net"
@@ -43,6 +42,9 @@ const (
 	mongofslock = "mongod.lock"
 
 	defaultPort = 27017
+
+	tryConnCount   = 5
+	tryConnTimeout = 5 * time.Minute
 )
 
 type files struct {
@@ -206,7 +208,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 		extMeta := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
 		err = os.Remove(extMeta)
-		if err != nil && err != os.ErrNotExist {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
@@ -460,12 +462,12 @@ func okStatus() io.Reader {
 	))
 }
 
-type nodeErr struct {
+type nodeError struct {
 	node string
 	msg  string
 }
 
-func (n nodeErr) Error() string {
+func (n nodeError) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
 }
 
@@ -494,7 +496,7 @@ func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, clu
 		for f := range objs {
 			errFile := f + "." + string(pbm.StatusError)
 			_, err = r.stg.FileStat(errFile)
-			if err != nil && err != storage.ErrNotExist {
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return pbm.StatusError, errors.Wrapf(err, "get file %s", errFile)
 			}
 
@@ -510,9 +512,9 @@ func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, clu
 					return pbm.StatusError, errors.Wrapf(err, "read error file %s", errFile)
 				}
 				if status != pbm.StatusDone {
-					return pbm.StatusError, nodeErr{filepath.Base(f), string(b)}
+					return pbm.StatusError, nodeError{filepath.Base(f), string(b)}
 				}
-				curErr = nodeErr{filepath.Base(f), string(b)}
+				curErr = nodeError{filepath.Base(f), string(b)}
 				delete(objs, f)
 				continue
 			}
@@ -575,7 +577,7 @@ func checkFile(f string, stg storage.Storage) (ok bool, err error) {
 		return true, nil
 	}
 
-	if err == storage.ErrNotExist || err == storage.ErrEmpty {
+	if errors.Is(err, storage.ErrNotExist) || errors.Is(err, storage.ErrEmpty) {
 		return false, nil
 	}
 
@@ -969,7 +971,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 		r.log.Warning("meta `%s` already exists, trying write %s status with '%s'", name, s, msg)
 		return nil
 	}
-	if err != nil && err != storage.ErrNotExist {
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 
@@ -1094,7 +1096,7 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return primitive.Timestamp{}, errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
@@ -1135,7 +1137,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1204,7 +1206,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1224,7 +1226,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1267,7 +1269,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "start mongo as rs")
 	}
 
-	c, err = tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo rs")
 	}
@@ -1321,7 +1323,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1602,7 +1604,7 @@ func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) 
 // Tries to connect to mongo n times, timeout is applied for each try.
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
-func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Client, err error) {
+func tryConn(port int, logpath string) (cn *mongo.Client, err error) {
 	type mlog struct {
 		T struct {
 			Date string `json:"$date"`
@@ -1610,8 +1612,8 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		S   string `json:"s"`
 		Msg string `json:"msg"`
 	}
-	for i := 0; i < n; i++ {
-		cn, err = conn(port, tout)
+	for i := 0; i < tryConnCount; i++ {
+		cn, err = conn(port, tryConnTimeout)
 		if err == nil {
 			return cn, nil
 		}
@@ -1625,7 +1627,7 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		dec := json.NewDecoder(f)
 		for {
 			var m mlog
-			if derr := dec.Decode(&m); derr == io.EOF {
+			if derr := dec.Decode(&m); errors.Is(derr, io.EOF) {
 				break
 			} else if derr != nil {
 				return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
@@ -1636,7 +1638,7 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		}
 	}
 
-	return nil, errors.Errorf("failed to  connect after %d tries: %v", n, err)
+	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
 }
 
 func conn(port int, tout time.Duration) (*mongo.Client, error) {
@@ -1842,7 +1844,7 @@ func (r *PhysRestore) checkHB(file string) error {
 		return errors.Wrap(err, "get hb file")
 	}
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return errors.Wrap(err, "read content")
 	}
@@ -1909,7 +1911,7 @@ const bcpDir = "__dir__"
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
 // journals. For the incrementals, it will gather files from preceding backups
-// travelling back in time from the target backup up to the closest base.
+// traveling back in time from the target backup up to the closest base.
 // `Off == -1 && Len == -1` means the file remains unchanged since the last
 // backup and there is no data in this backup. We need such info in
 // the target backup to know which files from preceding backups should be
@@ -2150,7 +2152,7 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
-	var nerr nodeErr
+	var nerr nodeError
 	if errors.As(e, &nerr) {
 		e = nerr
 		meta.Replsets = []pbm.RestoreReplset{{

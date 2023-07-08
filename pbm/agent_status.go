@@ -65,13 +65,10 @@ func (p *PBM) SetAgentStatus(stat AgentStat) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func (p *PBM) RmAgentStatus(stat AgentStat) error {
-	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteOne(
-		p.ctx,
-		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
-	)
-
-	return err
+func (p *PBM) RemoveAgentStatus(stat AgentStat) error {
+	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).
+		DeleteOne(p.ctx, bson.D{{"n", stat.Node}, {"rs", stat.RS}})
+	return errors.WithMessage(err, "query")
 }
 
 // GetAgentStatus returns agent status by given node and rs
@@ -112,29 +109,20 @@ func (p *PBM) AgentStatusGC() error {
 	return errors.Wrap(err, "delete")
 }
 
-// AgentsStatus returns list of registered agents
-func (p *PBM) AgentsStatus() (agents []AgentStat, err error) {
-	err = p.AgentStatusGC()
-	if err != nil {
-		return nil, errors.Wrap(err, "remove stale statuses")
+// ListAgentStatuses returns list of registered agents
+func (p *PBM) ListAgentStatuses() ([]AgentStat, error) {
+	if err := p.AgentStatusGC(); err != nil {
+		return nil, errors.WithMessage(err, "remove stale statuses")
 	}
 
 	cur, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).Find(p.ctx, bson.M{})
 	if err != nil {
-		return nil, errors.Wrap(err, "query mongo")
-	}
-	defer cur.Close(p.ctx)
-
-	for cur.Next(p.ctx) {
-		var a AgentStat
-		err := cur.Decode(&a)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		agents = append(agents, a)
+		return nil, errors.WithMessage(err, "query")
 	}
 
-	return agents, cur.Err()
+	var agents []AgentStat
+	err = cur.All(p.ctx, &agents)
+	return agents, errors.WithMessage(err, "decode")
 }
 
 // GetReplsetStatus returns `replSetGetStatus` for the replset
@@ -148,7 +136,8 @@ func GetReplsetStatus(ctx context.Context, cn *mongo.Client) (*ReplsetStatus, er
 	status := &ReplsetStatus{}
 	err := cn.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
+		return nil, errors.WithMessage(err, "query adminCommand: replSetGetStatus")
 	}
-	return status, err
+
+	return status, nil
 }

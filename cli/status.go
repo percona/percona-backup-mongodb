@@ -69,8 +69,8 @@ func (f statusSect) String() string {
 	return fmt.Sprintf("%s\n%s\n", sprinth(f.longName), f.Obj)
 }
 
-func (s statusOut) set(cn *pbm.PBM, curi string, sfilter map[string]bool) (err error) {
-	for _, se := range s.data {
+func (o statusOut) set(cn *pbm.PBM, sfilter map[string]bool) (err error) {
+	for _, se := range o.data {
 		if sfilter != nil && !sfilter[se.Name] {
 			se.Obj = nil
 			continue
@@ -118,7 +118,7 @@ func status(cn *pbm.PBM, curi string, opts statusOptions, pretty bool) (fmt.Stri
 		}
 	}
 
-	err = out.set(cn, curi, sfilter)
+	err = out.set(cn, sfilter)
 
 	return out, err
 }
@@ -228,19 +228,19 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 		c := c
 
 		eg.Go(func() error {
-			rconn, err := connect(ctx, uri, c.Host)
+			client, err := connect(ctx, uri, c.Host)
 			if err != nil {
 				return errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
 			}
 
-			rsConfig, err := pbm.GetReplSetConfig(ctx, rconn)
+			rsConfig, err := pbm.GetReplSetConfig(ctx, client)
 			if err != nil {
-				rconn.Disconnect(ctx)
+				_ = client.Disconnect(ctx)
 				return errors.Wrapf(err, "get replset status for `%s`", c.RS)
 			}
-			info, err := pbm.GetNodeInfo(ctx, rconn)
+			info, err := pbm.GetNodeInfo(ctx, client)
 			// don't need the connection anymore despite the result
-			rconn.Disconnect(ctx)
+			_ = client.Disconnect(ctx)
 			if err != nil {
 				return errors.WithMessage(err, "get node info")
 			}
@@ -470,7 +470,7 @@ func getCurrOps(cn *pbm.PBM) (fmt.Stringer, error) {
 	}
 
 	// reaching here means no conflict operation, hence all locks are the same,
-	// hence any lock in `lk` contais info on the current op
+	// hence any lock in `lk` contains info on the current op
 	switch r.Type {
 	case pbm.CmdBackup:
 		bcp, err := cn.GetBackupByOPID(r.OPID)
@@ -672,6 +672,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 			}
 		}
 
+		bcp := bcp
 		snpsht.Size, err = getBackupSize(&bcp, stg)
 		if err != nil {
 			snpsht.Err = err
@@ -682,7 +683,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(cn, stg, bcps, rsMap)
+	s.PITR, err = getPITRranges(cn, bcps, rsMap)
 	if err != nil {
 		return s, errors.Wrap(err, "get PITR chunks")
 	}
@@ -690,7 +691,7 @@ func getStorageStat(cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) 
 	return s, nil
 }
 
-func getPITRranges(cn *pbm.PBM, stg storage.Storage, bcps []pbm.BackupMeta, rsMap map[string]string) (*pitrRanges, error) {
+func getPITRranges(cn *pbm.PBM, bcps []pbm.BackupMeta, rsMap map[string]string) (*pitrRanges, error) {
 	shards, err := cn.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -758,10 +759,11 @@ func isValidBaseSnapshot(bcp *pbm.BackupMeta) bool {
 		return true
 	}
 
-	switch err.(type) {
-	case errMissedReplsets, errIncompatibleFCVVersion:
+	switch {
+	case errors.Is(err, missedReplsetsError{}),
+		errors.Is(err, incompatibleFCVVersionError{}):
 		return true
-	case errIncompatibleMongodVersion:
+	case errors.Is(err, incompatibleMongodVersionError{}):
 		if bcp.Type == pbm.LogicalBackup {
 			return true
 		}
@@ -792,7 +794,7 @@ func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, e
 	case pbm.LogicalBackup:
 		return getLegacyLogicalSize(bcp, stg)
 	case pbm.PhysicalBackup, pbm.IncrementalBackup:
-		return getLegacyPhysSize(bcp.Replsets, stg)
+		return getLegacyPhysSize(bcp.Replsets)
 	case pbm.ExternalBackup:
 		return 0, nil
 	default:
@@ -800,7 +802,7 @@ func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, e
 	}
 }
 
-func getLegacyPhysSize(rsets []pbm.BackupReplset, stg storage.Storage) (s int64, err error) {
+func getLegacyPhysSize(rsets []pbm.BackupReplset) (s int64, err error) {
 	for _, rs := range rsets {
 		for _, f := range rs.Files {
 			s += f.StgSize

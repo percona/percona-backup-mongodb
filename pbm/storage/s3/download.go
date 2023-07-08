@@ -158,7 +158,22 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	return s.d.SourceReader(name)
 }
 
-type errGetObj error
+type getObjError struct {
+	Err error
+}
+
+func (e getObjError) Error() string {
+	return e.Err.Error()
+}
+
+func (getObjError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(getObjError) //nolint:errorlint
+	return ok
+}
 
 // requests an object in chunks and retries if download has failed
 type partReader struct {
@@ -264,7 +279,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 					continue
 				}
 
-				err := pr.writeChunk(&rs, w, downloadRetries)
+				err := pr.writeChunk(&rs, w)
 				if err != nil {
 					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse", rs.meta.start, rs.meta.end)
 					return
@@ -273,7 +288,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 				// check if we can send something from the buffer
 				for len(*cqueue) > 0 && []*chunk(*cqueue)[0].meta.start == pr.written {
 					r := heap.Pop(cqueue).(*chunk)
-					err := pr.writeChunk(r, w, downloadRetries)
+					err := pr.writeChunk(r, w)
 					if err != nil {
 						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse buffer", r.meta.start, r.meta.end)
 						return
@@ -322,7 +337,7 @@ func (pr *partReader) Reset() {
 	close(pr.close)
 }
 
-func (pr *partReader) writeChunk(r *chunk, to io.Writer, retry int) error {
+func (pr *partReader) writeChunk(r *chunk, to io.Writer) error {
 	if r == nil || r.r == nil {
 		return nil
 	}
@@ -385,11 +400,11 @@ func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (r io.Rea
 	for i := 0; i < retry; i++ {
 		r, err = pr.getChunk(buf, s, start, end)
 
-		if err == nil || err == io.EOF {
+		if err == nil || errors.Is(err, io.EOF) {
 			return r, nil
 		}
-		switch err.(type) {
-		case errGetObj:
+
+		if errors.Is(err, &getObjError{}) {
 			return r, err
 		}
 
@@ -427,7 +442,7 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			return nil, io.EOF
 		}
 		pr.l.Warning("errGetObj Err: %v", err)
-		return nil, errGetObj(err)
+		return nil, getObjError{err}
 	}
 	defer s3obj.Body.Close()
 

@@ -58,9 +58,10 @@ func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.
 
 func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]bool, error) {
 	var cfgRS *pbm.BackupReplset
-	for _, rs := range bcp.Replsets {
+	for i := range bcp.Replsets {
+		rs := &bcp.Replsets[i]
 		if rs.IsConfigSvr != nil && *rs.IsConfigSvr {
-			cfgRS = &rs
+			cfgRS = rs
 			break
 		}
 	}

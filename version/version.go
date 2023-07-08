@@ -19,7 +19,7 @@ var (
 	goVersion string
 )
 
-type Info struct {
+type Info struct { //nolint:musttag
 	Version   string
 	Platform  string
 	GitCommit string
@@ -84,7 +84,7 @@ func (i Info) All(format string) string {
 			i.GoVersion,
 		)
 	case "json":
-		v, _ := json.MarshalIndent(i, "", " ")
+		v, _ := json.MarshalIndent(i, "", " ") //nolint:errchkjson
 		return string(v)
 	default:
 		return fmt.Sprintf("%#v", i)

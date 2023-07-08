@@ -83,7 +83,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	// distributed transaction that commits before the backup ends
 	// should be visible after restore
 	log.Println("Run trx1")
-	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+	_, _ = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		c.trxSet(sc, 30, col)
 		c.trxSet(sc, 530, col)
 		c.trxSet(sc, 130, col)
@@ -103,14 +103,14 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	log.Println("Run trx2")
 	// distributed transaction that commits after the backup ends
 	// should NOT be visible after the restore
-	mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+	_ = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
 		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
 		}
 		defer func() {
 			if err != nil {
-				sess.AbortTransaction(sc)
+				_ = sess.AbortTransaction(sc)
 				log.Fatalln("ERROR: transaction:", err)
 			}
 		}()

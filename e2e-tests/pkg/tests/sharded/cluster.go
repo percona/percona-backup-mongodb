@@ -11,10 +11,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 type Cluster struct {
@@ -86,7 +85,7 @@ func (c *Cluster) ApplyConfig(file string) {
 	err := c.pbm.ApplyConfig(file)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
-		log.Fatalf("apply config: %v\nconatiner logs: %s\n", err, l)
+		log.Fatalf("apply config: %v\ncontainer logs: %s\n", err, l)
 	}
 
 	log.Println("waiting for the new storage to resync")
@@ -111,7 +110,7 @@ func (c *Cluster) ServerVersion() string {
 }
 
 func (c *Cluster) DeleteBallast() {
-	log.Println("deleteing data")
+	log.Println("deleting data")
 	deleted, err := c.mongos.ResetBallast()
 	if err != nil {
 		log.Fatalln("deleting data:", err)
@@ -256,7 +255,7 @@ func (c *Cluster) waitPhyRestore(name string, waitFor time.Duration) error {
 
 func getRestoreMetaStg(name string, stg storage.Storage) (*pbmt.RestoreMeta, error) {
 	_, err := stg.FileStat(name)
-	if err == storage.ErrNotExist {
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil, pbmt.ErrNotFound
 	}
 	if err != nil {
@@ -340,7 +339,7 @@ func (c *Cluster) backup(typ pbmt.BackupType, opts ...string) string {
 	bcpName, err := c.pbm.Backup(typ, opts...)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
-		log.Fatalf("starting backup: %v\nconatiner logs: %s\n", err, l)
+		log.Fatalf("starting backup: %v\ncontainer logs: %s\n", err, l)
 	}
 	log.Printf("backup started '%s'\n", bcpName)
 

@@ -13,10 +13,6 @@ import (
 func runPhysical(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
 
-	storage := "/etc/pbm/fs.yaml"
-	// t.ApplyConfig(storage)
-	// flush(t)
-
 	remoteStg := []struct {
 		name string
 		conf string
@@ -40,9 +36,7 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 
 	for _, stg := range remoteStg {
 		if confExt(stg.conf) {
-			storage = stg.conf
-
-			t.ApplyConfig(storage)
+			t.ApplyConfig(stg.conf)
 			flush(t)
 
 			t.SetBallastData(1e5)

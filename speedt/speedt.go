@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"reflect"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
@@ -70,7 +68,7 @@ func NewRand(size Byte) *Rand {
 func (r *Rand) WriteTo(w io.Writer) (int64, error) {
 	var written int64
 	for i := 0; written < int64(r.size); i++ {
-		n, err := w.Write(StringToBytes(dataset[i%len(dataset)]))
+		n, err := w.Write([]byte(dataset[i%len(dataset)]))
 		if err != nil {
 			return written, err
 		}
@@ -144,12 +142,4 @@ func Run(nodeCN *mongo.Client, stg storage.Storage, compression compress.Compres
 	r.Time = time.Since(ts)
 
 	return r, nil
-}
-
-// StringToBytes converts given string to the slice of bytes
-// without allocations
-func StringToBytes(s string) []byte {
-	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh := reflect.SliceHeader{sh.Data, sh.Len, sh.Len}
-	return *(*[]byte)(unsafe.Pointer(&bh))
 }

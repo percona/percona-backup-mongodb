@@ -245,7 +245,7 @@ func (n *Node) DropTMPcoll() error {
 	if err != nil {
 		return errors.Wrap(err, "connect to primary")
 	}
-	defer func() { cn.Disconnect(n.ctx) }()
+	defer func() { _ = cn.Disconnect(n.ctx) }()
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
@@ -313,20 +313,20 @@ func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
 	res := coll.FindOne(context.Background(), filter, opts)
 	err := res.Decode(&result)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return LastWrite(n.cn, true)
 		}
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions.findOne error: %v", err)
+		return primitive.Timestamp{}, fmt.Errorf("config.transactions.findOne error: %w", err)
 	}
 
 	rawTS, err := result.LookupErr("startOpTime", "ts")
 	if err != nil {
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions row had no startOpTime.ts field")
+		return primitive.Timestamp{}, errors.New("config.transactions row had no startOpTime.ts field")
 	}
 
 	t, i, ok := rawTS.TimestampOK()
 	if !ok {
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions startOpTime.ts was not a BSON timestamp")
+		return primitive.Timestamp{}, errors.New("config.transactions startOpTime.ts was not a BSON timestamp")
 	}
 
 	return primitive.Timestamp{T: t, I: i}, nil
@@ -337,7 +337,7 @@ func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
-	defer func() { cn.Disconnect(n.ctx) }()
+	defer func() { _ = cn.Disconnect(n.ctx) }()
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {

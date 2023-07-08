@@ -52,7 +52,7 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 
 func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	// check if backup isn't running
-	switch backup.Status {
+	switch backup.Status { //nolint:exhaustive
 	case StatusDone, StatusCancelled, StatusError:
 	default:
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
@@ -112,7 +112,7 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
 			err = stg.Delete(fname)
-			if err != nil && err != storage.ErrNotExist {
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
@@ -122,14 +122,14 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
 			err = stg.Delete(fname)
-			if err != nil && err != storage.ErrNotExist {
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
 	}
 
 	err = stg.Delete(meta.Name + MetadataFileSuffix)
-	if err == storage.ErrNotExist {
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
 
@@ -177,17 +177,17 @@ func (p *PBM) deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string
 func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
 	for _, r := range meta.Replsets {
 		err = stg.Delete(r.OplogName)
-		if err != nil && err != storage.ErrNotExist {
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete oplog %s", r.OplogName)
 		}
 		err = stg.Delete(r.DumpName)
-		if err != nil && err != storage.ErrNotExist {
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete dump %s", r.DumpName)
 		}
 	}
 
 	err = stg.Delete(meta.Name + MetadataFileSuffix)
-	if err == storage.ErrNotExist {
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
 
@@ -294,7 +294,7 @@ func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage
 
 	for _, chnk := range chunks {
 		err = stg.Delete(chnk.FName)
-		if err != nil && err != storage.ErrNotExist {
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
 		}
 

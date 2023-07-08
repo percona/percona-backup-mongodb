@@ -63,7 +63,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 			Type: pbm.CmdDeleteBackup,
 		},
 		time.Second*60)
-	if err != nil && err != errTout {
+	if err != nil && errors.Is(err, errTout) {
 		return nil, err
 	}
 
@@ -76,7 +76,7 @@ func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Str
 		return nil, errors.New(errl)
 	}
 
-	if err == errTout {
+	if errors.Is(err, errTout) {
 		fmt.Println("\nOperation is still in progress, please check status in a while")
 	} else {
 		time.Sleep(time.Second)
@@ -140,7 +140,7 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 			Type: pbm.CmdDeletePITR,
 		},
 		time.Second*60)
-	if err != nil && err != errTout {
+	if err != nil && errors.Is(err, errTout) {
 		return nil, err
 	}
 
@@ -153,7 +153,7 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 		return nil, errors.New(errl)
 	}
 
-	if err == errTout {
+	if errors.Is(err, errTout) {
 		fmt.Println("\nOperation is still in progress, please check status in a while")
 	} else {
 		time.Sleep(time.Second)

@@ -17,16 +17,16 @@
   "files.trimFinalNewlines": true,
   "files.trimTrailingWhitespace": true,
   "go.formatTool": "gofumpt",
-  "go.lintFlags": [
-    "--fast"
-  ],
-  "go.lintOnSave": "package",
   "go.lintTool": "golangci-lint",
   "go.useLanguageServer": true,
-  "groupImports.onSave": true,
-  "shellformat.flag": "-bn -ci -s",
   "gopls": {
+    "analyses": {
+      "composites": false,
+      "deepequalerrors": false
+    },
     "formatting.gofumpt": true,
-    "formatting.local": "github.com/percona",
-  }
+    "formatting.local": "github.com/percona"
+  },
+  "groupImports.onSave": true,
+  "shellformat.flag": "-bn -ci -s"
 }

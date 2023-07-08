@@ -1,19 +1,31 @@
 package pbm
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-type ErrorCursor struct {
-	cerr error
+type CursorClosedError struct {
+	Err error
 }
 
-func (c ErrorCursor) Error() string {
-	return fmt.Sprintln("cursor was closed with:", c.cerr)
+func (c CursorClosedError) Error() string {
+	return "cursor was closed with:" + c.Err.Error()
+}
+
+func (CursorClosedError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(CursorClosedError) //nolint:errorlint
+	return ok
+}
+
+func (c CursorClosedError) Unwrap() error {
+	return c.Err
 }
 
 func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
@@ -25,7 +37,7 @@ func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
 		defer close(errc)
 
 		ts := time.Now().UTC().Unix()
-		var lastTs int64
+		var lastTS int64
 		var lastCmd Command
 		for {
 			select {
@@ -50,7 +62,7 @@ func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
 					continue
 				}
 
-				if c.Cmd == lastCmd && c.TS == lastTs {
+				if c.Cmd == lastCmd && c.TS == lastTS {
 					continue
 				}
 
@@ -63,12 +75,12 @@ func (p *PBM) ListenCmd(cl <-chan struct{}) (<-chan Cmd, <-chan error) {
 				c.OPID = OPID(opid)
 
 				lastCmd = c.Cmd
-				lastTs = c.TS
+				lastTS = c.TS
 				cmd <- c
 				ts = time.Now().UTC().Unix()
 			}
-			if cur.Err() != nil {
-				errc <- ErrorCursor{cerr: cur.Err()}
+			if err := cur.Err(); err != nil {
+				errc <- CursorClosedError{err}
 				cur.Close(p.ctx)
 				return
 			}

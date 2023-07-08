@@ -228,7 +228,7 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 
 	for _, n := range nodes {
 		nms, err := a.pbm.GetRSNominees(bcp, rs)
-		if err != nil && err != pbm.ErrNotFound {
+		if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 			return errors.Wrap(err, "get nomination meta")
 		}
 		if nms != nil && len(nms.Ack) > 0 {

@@ -470,7 +470,8 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 
 	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
+		var aerr awserr.Error
+		if errors.As(err, &aerr) && aerr.Code() == "NotFound" {
 			return inf, storage.ErrNotExist
 		}
 
@@ -497,11 +498,9 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case s3.ErrCodeNoSuchKey:
-				return storage.ErrNotExist
-			}
+		var aerr awserr.Error
+		if errors.As(err, &aerr) && aerr.Code() == s3.ErrCodeNoSuchKey {
+			return storage.ErrNotExist
 		}
 		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
 	}
@@ -561,7 +560,7 @@ func (s *S3) session() (*session.Session, error) {
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 			},
 		}
 	}

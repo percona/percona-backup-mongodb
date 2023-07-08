@@ -213,12 +213,11 @@ func (a *Agent) pitr() (err error) {
 
 		streamErr := ibcp.Stream(ctx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if streamErr != nil {
-			switch streamErr.(type) {
-			case pitr.ErrOpMoved:
-				l.Info("streaming oplog: %v", streamErr)
-			default:
-				l.Error("streaming oplog: %v", streamErr)
+			out := l.Error
+			if errors.Is(streamErr, pitr.OpMovedError{}) {
+				out = l.Info
 			}
+			out("streaming oplog: %v", streamErr)
 		}
 
 		if err := lock.Release(); err != nil {
@@ -246,8 +245,8 @@ func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
 
 	tl, err := a.pbm.GetLockData(&pbm.LockHeader{Replset: a.node.RS()})
 	if err != nil {
-		// mongo.ErrNoDocuments means no lock and we're good to move on
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			// no lock. good to move on
 			return true, nil
 		}
 

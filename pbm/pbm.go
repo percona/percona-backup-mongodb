@@ -780,11 +780,11 @@ func (p *PBM) GetBackupByOPID(opid string) (*BackupMeta, error) {
 
 func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, clause)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
 	b := &BackupMeta{}
@@ -821,11 +821,11 @@ func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts
 		q,
 		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
 	b := new(BackupMeta)
@@ -842,11 +842,11 @@ func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
 		},
 	)
 
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
 	b := new(BackupMeta)
@@ -1000,7 +1000,7 @@ func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between node info reads, while in fact time has been moved forward.
 	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
-	if err != nil && err != mongo.ErrNoDocuments {
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 

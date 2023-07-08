@@ -93,6 +93,8 @@ func (s *StorageConf) Typ() string {
 		return "FS"
 	case storage.BlackHole:
 		return "BlackHole"
+	case storage.Undef:
+		fallthrough
 	default:
 		return "Unknown"
 	}
@@ -170,12 +172,11 @@ func keys(t reflect.Type) confMap {
 		if typ.Kind() == reflect.Ptr {
 			typ = typ.Elem()
 		}
-		switch typ.Kind() {
-		case reflect.Struct:
+		if typ.Kind() == reflect.Struct {
 			for n, t := range keys(typ) {
 				v[name+"."+n] = t
 			}
-		default:
+		} else {
 			v[name] = typ.Kind()
 		}
 	}
@@ -222,7 +223,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 
 	// TODO: if store or pitr changed - need to bump epoch
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
-	p.GetConfig()
+	_, _ = p.GetConfig()
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
@@ -337,6 +338,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "lookup in document")
 	}
+	//nolint:exhaustive
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil

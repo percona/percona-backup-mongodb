@@ -450,6 +450,7 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// commit transaction
 	err := o.applyTxn(txnID)
 	if err != nil {
+		//nolint:errchkjson
 		b, _ := json.MarshalIndent(op, "", " ")
 		return errors.Wrapf(err, "apply txn: %s", b)
 	}
@@ -459,29 +460,36 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	return nil
 }
 
-const extractErrorFmt = "error extracting transaction ops: %s: %v"
+type extractTxError struct {
+	tag string
+	msg string
+}
+
+func (e extractTxError) Error() string {
+	return fmt.Sprintf("error extracting transaction ops: applyOps %s: %v", e.tag, e.msg)
+}
 
 func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 	doc := txnOp.Object
 	rawAO, err := bsonutil.FindValueByKey("applyOps", &doc)
 	if err != nil {
-		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", err)
+		return nil, extractTxError{"field", err.Error()}
 	}
 
 	ao, ok := rawAO.(bson.A)
 	if !ok {
-		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", "not a BSON array")
+		return nil, extractTxError{"field", "not a BSON array"}
 	}
 
 	ops := make([]db.Oplog, len(ao))
 	for i, v := range ao {
 		opDoc, ok := v.(bson.D)
 		if !ok {
-			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", "not a BSON document")
+			return nil, extractTxError{"op", "not a BSON document"}
 		}
 		op, err := bsonDocToOplog(opDoc)
 		if err != nil {
-			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", err)
+			return nil, extractTxError{"op", err.Error()}
 		}
 
 		// The inner ops doesn't have these fields,
@@ -496,7 +504,14 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 	return ops, nil
 }
 
-const opConvertErrorFmt = "error converting bson.D to op: %s: %v"
+type bsonConvertError struct {
+	field string
+	msg   string
+}
+
+func (e bsonConvertError) Error() string {
+	return fmt.Sprintf("error converting bson.D to op: %s field: %s", e.field, e.msg)
+}
 
 func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 	op := db.Oplog{}
@@ -506,31 +521,31 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 		case "op":
 			s, ok := v.Value.(string)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "op field", "not a string")
+				return nil, bsonConvertError{"op field", "not a string"}
 			}
 			op.Operation = s
 		case "ns":
 			s, ok := v.Value.(string)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "ns field", "not a string")
+				return nil, bsonConvertError{"ns field", "not a string"}
 			}
 			op.Namespace = s
 		case "o":
 			d, ok := v.Value.(bson.D)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "o field", "not a BSON Document")
+				return nil, bsonConvertError{"o field", "not a BSON Document"}
 			}
 			op.Object = d
 		case "o2":
 			d, ok := v.Value.(bson.D)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "o2 field", "not a BSON Document")
+				return nil, bsonConvertError{"o2 field", "not a BSON Document"}
 			}
 			op.Query = d
 		case "ui":
 			u, ok := v.Value.(primitive.Binary)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "ui field", "not binary data")
+				return nil, bsonConvertError{"ui field", "not binary data"}
 			}
 			op.UI = &u
 		}
@@ -684,7 +699,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
+			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
@@ -753,8 +768,8 @@ type cqueue struct {
 	c int
 }
 
-func newCQueue(cap int) *cqueue {
-	return &cqueue{s: make([]pbm.RestoreTxn, 0, cap), c: cap}
+func newCQueue(capacity int) *cqueue {
+	return &cqueue{s: make([]pbm.RestoreTxn, 0, capacity), c: capacity}
 }
 
 func (c *cqueue) push(v pbm.RestoreTxn) {

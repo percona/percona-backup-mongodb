@@ -54,6 +54,8 @@ func (c CompressionType) Suffix() string {
 		return ".s2"
 	case CompressionTypeZstandard:
 		return ".zst"
+	case CompressionTypeNone:
+		fallthrough
 	default:
 		return ""
 	}
@@ -137,6 +139,8 @@ func Compress(w io.Writer, compression CompressionType, level *int) (io.WriteClo
 			encLevel = zstd.EncoderLevelFromZstd(*level)
 		}
 		return zstd.NewWriter(w, zstd.WithEncoderLevel(encLevel))
+	case CompressionTypeNone:
+		fallthrough
 	default:
 		return nopWriteCloser{w}, nil
 	}
@@ -157,6 +161,8 @@ func Decompress(r io.Reader, c CompressionType) (io.ReadCloser, error) {
 	case CompressionTypeZstandard:
 		rr, err := zstd.NewReader(r)
 		return io.NopCloser(rr), errors.Wrap(err, "zstandard reader")
+	case CompressionTypeNone:
+		fallthrough
 	default:
 		return io.NopCloser(r), nil
 	}

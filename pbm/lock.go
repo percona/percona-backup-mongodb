@@ -64,22 +64,40 @@ func (p *PBM) newLock(h LockHeader, col string) *Lock {
 	}
 }
 
-// ErrConcurrentOp means lock was already acquired by another node
-type ErrConcurrentOp struct {
+// ConcurrentOpError means lock was already acquired by another node
+type ConcurrentOpError struct {
 	Lock LockHeader
 }
 
-func (e ErrConcurrentOp) Error() string {
+func (e ConcurrentOpError) Error() string {
 	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.OPID)
 }
 
-// ErrWasStaleLock - the lock was already got but the operation seems to be staled (no hb from the node)
-type ErrWasStaleLock struct {
+func (e ConcurrentOpError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(ConcurrentOpError) //nolint:errorlint
+	return ok
+}
+
+// StaleLockError - the lock was already got but the operation seems to be staled (no hb from the node)
+type StaleLockError struct {
 	Lock LockHeader
 }
 
-func (e ErrWasStaleLock) Error() string {
+func (e StaleLockError) Error() string {
 	return fmt.Sprintf("was stale lock: %s '%s'", e.Lock.Type, e.Lock.OPID)
+}
+
+func (e StaleLockError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(StaleLockError) //nolint:errorlint
+	return ok
 }
 
 // Rewrite tries to acquire the lock instead the `old` one.
@@ -140,7 +158,7 @@ func (l *Lock) try(old *LockHeader) (got bool, err error) {
 	// peer is alive
 	if peer.Heartbeat.T+l.staleSec >= ts.T {
 		if l.OPID != peer.OPID {
-			return false, ErrConcurrentOp{Lock: peer.LockHeader}
+			return false, ConcurrentOpError{Lock: peer.LockHeader}
 		}
 		return false, nil
 	}
@@ -150,17 +168,26 @@ func (l *Lock) try(old *LockHeader) (got bool, err error) {
 		return false, errors.Wrap(err, "delete stale lock")
 	}
 
-	return false, ErrWasStaleLock{Lock: peer.LockHeader}
+	return false, StaleLockError{Lock: peer.LockHeader}
 }
 
-// ErrDuplicateOp means the operation with the same ID
+// DuplicatedOpError means the operation with the same ID
 // alredy had been running
-type ErrDuplicateOp struct {
+type DuplicatedOpError struct {
 	Lock LockHeader
 }
 
-func (e ErrDuplicateOp) Error() string {
+func (e DuplicatedOpError) Error() string {
 	return fmt.Sprintf("duplicate operation: %s [%s]", e.Lock.OPID, e.Lock.Type)
+}
+
+func (e DuplicatedOpError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(DuplicatedOpError) //nolint:errorlint
+	return ok
 }
 
 func (l *Lock) log() error {
@@ -176,7 +203,7 @@ func (l *Lock) log() error {
 		return nil
 	}
 	if strings.Contains(err.Error(), "E11000 duplicate key error") {
-		return ErrDuplicateOp{l.LockHeader}
+		return DuplicatedOpError{l.LockHeader}
 	}
 
 	return err

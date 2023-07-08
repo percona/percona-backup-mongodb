@@ -228,7 +228,8 @@ func (b *Blob) ensureContainer() error {
 	if err == nil {
 		return nil
 	}
-	if stgErr, ok := err.(*azcore.ResponseError); ok {
+	var stgErr azcore.ResponseError
+	if errors.As(err, &stgErr) {
 		if stgErr.StatusCode != http.StatusNotFound {
 			return errors.Wrap(err, "check container")
 		}
@@ -252,7 +253,8 @@ func (b *Blob) client() (*azblob.Client, error) {
 }
 
 func isNotFound(err error) bool {
-	if stgErr, ok := err.(*azcore.ResponseError); ok {
+	var stgErr azcore.ResponseError
+	if errors.As(err, &stgErr) {
 		return stgErr.StatusCode == http.StatusNotFound
 	}
 

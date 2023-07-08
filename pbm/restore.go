@@ -229,11 +229,11 @@ func (p *PBM) GetRestoreMeta(name string) (*RestoreMeta, error) {
 
 func (p *PBM) getRestoreMeta(clause bson.D) (*RestoreMeta, error) {
 	res := p.Conn.Database(DB).Collection(RestoresCollection).FindOne(p.ctx, clause)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 	r := &RestoreMeta{}
 	err := res.Decode(r)
@@ -250,11 +250,11 @@ func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
 		bson.D{{"status", StatusDone}},
 		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 	err := res.Decode(r)
 	return r, errors.Wrap(err, "decode")

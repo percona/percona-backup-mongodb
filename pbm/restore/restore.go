@@ -52,7 +52,7 @@ func toState(cn *pbm.PBM, status pbm.Status, bcp string, inf *pbm.NodeInfo, reco
 	if inf.IsLeader() {
 		meta, err = reconcileFn(status, wait)
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return nil, errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return nil, errors.Wrapf(err, "check cluster for restore `%s`", status)
@@ -141,7 +141,7 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and not need to ckech the heartbeats
-				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
+				if status != pbm.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}

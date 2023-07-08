@@ -49,17 +49,18 @@ func (r restoreListOut) String() string {
 	for _, v := range r.list {
 		var rprint, name string
 
-		if v.Type == restoreSnapshot {
+		switch v.Type {
+		case restoreSnapshot:
 			n := ""
 			if len(v.Namespaces) != 0 {
 				n = ", selective"
 			}
 			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
-		} else if v.Type == restoreReplay {
+		case restoreReplay:
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
-		} else {
+		default:
 			n := ""
 			if len(v.Namespaces) != 0 {
 				n = ", selective"
