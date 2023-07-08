@@ -178,7 +178,7 @@ func (l *Lock) log() error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 func (p *PBM) MarkBcpStale(opid string) error {

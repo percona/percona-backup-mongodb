@@ -1878,7 +1878,7 @@ func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 		}
 	}
 
-	opts.Net.BindIp = "localhost"
+	opts.Net.BindIP = "localhost"
 	opts.Net.Port = r.tmpPort
 	opts.Storage.DBpath = r.dbpath
 	opts.Security = r.secOpts

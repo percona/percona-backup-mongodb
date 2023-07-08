@@ -6,16 +6,16 @@ linters:
   enable:
     - errname
     - predeclared
-    # - stylecheck
+    - stylecheck
     # - ireturn
     # - gomnd
-    # - misspell
+    - misspell
     - nilerr
     - nilnil
-    # - lll
+    - lll
     - gocritic
     - typecheck
-    # - goconst
+    - goconst
     # - gochecknoinits
     # - forbidigo
     # - nonamedreturns

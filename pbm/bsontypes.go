@@ -234,7 +234,7 @@ func (b *BalancerStatus) IsOn() bool {
 
 type MongodOpts struct {
 	Net struct {
-		BindIp string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
+		BindIP string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
 		Port   int    `bson:"port" json:"port" yaml:"port"`
 	} `bson:"net" json:"net"`
 	Sharding struct {
