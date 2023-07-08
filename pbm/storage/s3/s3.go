@@ -470,8 +470,7 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 
 	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
-		var aerr awserr.Error
-		if errors.As(err, &aerr) && aerr.Code() == "NotFound" {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" { //nolint:errorlint
 			return inf, storage.ErrNotExist
 		}
 

@@ -252,7 +252,7 @@ func (b *Blob) client() (*azblob.Client, error) {
 }
 
 func isNotFound(err error) bool {
-	var stgErr azcore.ResponseError
+	var stgErr *azcore.ResponseError
 	if errors.As(err, &stgErr) {
 		return stgErr.StatusCode == http.StatusNotFound
 	}
