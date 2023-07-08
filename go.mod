@@ -15,6 +15,7 @@ require (
 	github.com/mongodb/mongo-tools v0.0.0-20221102190735-6d9d341edd33
 	github.com/pierrec/lz4 v2.6.1+incompatible
 	github.com/pkg/errors v0.9.1
+	github.com/studio-b12/gowebdav v0.9.0
 	go.mongodb.org/mongo-driver v1.11.2
 	golang.org/x/mod v0.8.0
 	golang.org/x/sync v0.1.0

@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/webdav"
 	"os"
 	"reflect"
 	"strconv"
@@ -57,6 +58,9 @@ func (c Config) String() string {
 	if c.Storage.Azure.Credentials.Key != "" {
 		c.Storage.Azure.Credentials.Key = "***"
 	}
+	if c.Storage.WebDAV.Credentials.Password != "" {
+		c.Storage.WebDAV.Credentials.Password = "***"
+	}
 
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -81,6 +85,7 @@ type StorageConf struct {
 	S3         s3.Conf      `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Azure      azure.Conf   `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem fs.Conf      `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+	WebDAV     webdav.Conf  `bson:"webdav,omitempty" json:"webdav,omitempty" yaml:"webdav,omitempty"`
 }
 
 func (s *StorageConf) Typ() string {
@@ -91,6 +96,8 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.Filesystem:
 		return "FS"
+	case storage.WebDAV:
+		return "WebDAV"
 	case storage.BlackHole:
 		return "BlackHole"
 	default:
@@ -117,6 +124,11 @@ func (s *StorageConf) Path() string {
 		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
+	case storage.WebDAV:
+		path = s.WebDAV.ServerURL
+		if s.WebDAV.Prefix != "" {
+			path += "/" + s.WebDAV.Prefix
+		}
 	case storage.BlackHole:
 		path = "BlackHole"
 	}
@@ -384,6 +396,9 @@ func (p *PBM) GetConfigYaml(fieldRedaction bool) ([]byte, error) {
 		if c.Storage.Azure.Credentials.Key != "" {
 			c.Storage.Azure.Credentials.Key = "***"
 		}
+		if c.Storage.WebDAV.Credentials.Password != "" {
+			c.Storage.WebDAV.Credentials.Password = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
@@ -441,6 +456,8 @@ func Storage(c Config, l *log.Event) (storage.Storage, error) {
 		return azure.New(c.Storage.Azure, l)
 	case storage.Filesystem:
 		return fs.New(c.Storage.Filesystem), nil
+	case storage.WebDAV:
+		return webdav.New(c.Storage.WebDAV, l)
 	case storage.BlackHole:
 		return blackhole.New(), nil
 	case storage.Undef:
