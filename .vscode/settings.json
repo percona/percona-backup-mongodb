@@ -1,0 +1,32 @@
+{
+  "[go]": {
+    "editor.defaultFormatter": "golang.go",
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4,
+  },
+  "[json][jsonc][yaml]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+  },
+  "[shellscript]": {
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4,
+  },
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.trimTrailingWhitespace": true,
+  "go.formatTool": "gofumpt",
+  "go.lintFlags": [
+    "--fast"
+  ],
+  "go.lintOnSave": "package",
+  "go.lintTool": "golangci-lint",
+  "go.useLanguageServer": true,
+  "groupImports.onSave": true,
+  "shellformat.flag": "-bn -ci -s",
+  "gopls": {
+    "formatting.gofumpt": true,
+    "formatting.local": "github.com/percona",
+  }
+}
