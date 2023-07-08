@@ -750,10 +750,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	err = o.applyOps([]interface{}{op})
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
-		if o.unsafe &&
-			strings.Contains(err.Error(), "E11000 duplicate key error") &&
-			op.Namespace == "config.chunks" {
-			return nil
+		if o.unsafe && op.Namespace == "config.chunks" {
+			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+				return nil
+			}
 		}
 
 		opb, errm := json.Marshal(op)

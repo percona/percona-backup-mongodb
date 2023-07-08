@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -172,11 +171,11 @@ func (l *Lock) log() error {
 	}
 
 	_, err := l.p.Conn.Database(DB).Collection(PBMOpLogCollection).InsertOne(l.p.Context(), l.LockHeader)
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), "E11000 duplicate key error") {
-		return DuplicatedOpError{l.LockHeader}
+	if err != nil {
+		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+			return DuplicatedOpError{l.LockHeader}
+		}
+		return err
 	}
 
 	return err
@@ -230,17 +229,15 @@ func (l *Lock) acquire() (bool, error) {
 	}
 
 	_, err = l.c.InsertOne(l.p.Context(), l.LockData)
-	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
+	if err != nil {
+		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+			return false, nil
+		}
 		return false, errors.Wrap(err, "acquire lock")
 	}
 
-	// if there is no duplicate key error, we got the lock
-	if err == nil {
-		l.hb()
-		return true, nil
-	}
-
-	return false, nil
+	l.hb()
+	return true, nil
 }
 
 // rewrite tries to rewrite the given lock with itself
@@ -260,17 +257,15 @@ func (l *Lock) rewrite(old *LockHeader) (bool, error) {
 
 	_, err = l.c.InsertOne(l.p.Context(), l.LockData)
 
-	if err != nil && !strings.Contains(err.Error(), "E11000 duplicate key error") {
+	if err != nil {
+		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+			return false, nil
+		}
 		return false, errors.Wrap(err, "acquire lock")
 	}
 
-	// if there is no duplicate key error, we got the lock
-	if err == nil {
-		l.hb()
-		return true, nil
-	}
-
-	return false, nil
+	l.hb()
+	return true, nil
 }
 
 // heartbeats for the lock
