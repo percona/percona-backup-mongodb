@@ -166,6 +166,19 @@ func (e getObjError) Error() string {
 	return e.Err.Error()
 }
 
+func (e getObjError) Unwap() error {
+	return e.Err
+}
+
+func (getObjError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(getObjError) //nolint:errorlint
+	return ok
+}
+
 // requests an object in chunks and retries if download has failed
 type partReader struct {
 	fname     string

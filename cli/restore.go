@@ -223,6 +223,15 @@ func (e restoreFailedError) Error() string {
 	return e.string
 }
 
+func (e restoreFailedError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(restoreFailedError) //nolint:errorlint
+	return ok
+}
+
 func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (name string, typ pbm.BackupType, err error) {
 	if o.extern && o.bcp == "" {
 		return "", pbm.ExternalBackup, nil

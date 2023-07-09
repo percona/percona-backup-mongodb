@@ -72,6 +72,15 @@ func (e ConcurrentOpError) Error() string {
 	return fmt.Sprintf("another operation is running: %s '%s'", e.Lock.Type, e.Lock.OPID)
 }
 
+func (ConcurrentOpError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(ConcurrentOpError) //nolint:errorlint
+	return ok
+}
+
 // StaleLockError - the lock was already got but the operation seems to be staled (no hb from the node)
 type StaleLockError struct {
 	Lock LockHeader
@@ -79,6 +88,15 @@ type StaleLockError struct {
 
 func (e StaleLockError) Error() string {
 	return fmt.Sprintf("was stale lock: %s '%s'", e.Lock.Type, e.Lock.OPID)
+}
+
+func (StaleLockError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(StaleLockError) //nolint:errorlint
+	return ok
 }
 
 // Rewrite tries to acquire the lock instead the `old` one.
@@ -160,6 +178,15 @@ type DuplicatedOpError struct {
 
 func (e DuplicatedOpError) Error() string {
 	return fmt.Sprintf("duplicate operation: %s [%s]", e.Lock.OPID, e.Lock.Type)
+}
+
+func (DuplicatedOpError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(DuplicatedOpError) //nolint:errorlint
+	return ok
 }
 
 func (l *Lock) log() error {
