@@ -302,7 +302,8 @@ func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
 		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
-	// Preserving the `replicaSet` parameter will cause an error while connecting to the ConfigServer (mismatched replicaset names)
+	// Preserving the `replicaSet` parameter will cause an error
+	// while connecting to the ConfigServer (mismatched replicaset names)
 	query := curi.Query()
 	query.Del("replicaSet")
 	curi.RawQuery = query.Encode()
@@ -531,33 +532,26 @@ func (s storageStat) String() string {
 		return a.RestoreTS > b.RestoreTS
 	})
 
-	for _, sn := range s.Snapshot {
+	for i := range s.Snapshot {
+		ss := &s.Snapshot[i]
 		var status string
-		switch sn.Status {
+		switch ss.Status {
 		case pbm.StatusDone:
-			status = fmt.Sprintf("[restore_to_time: %s]", fmtTS(sn.RestoreTS))
+			status = fmt.Sprintf("[restore_to_time: %s]", fmtTS(ss.RestoreTS))
 		case pbm.StatusCancelled:
-			status = fmt.Sprintf("[!canceled: %s]", fmtTS(sn.RestoreTS))
+			status = fmt.Sprintf("[!canceled: %s]", fmtTS(ss.RestoreTS))
 		case pbm.StatusError:
-			if errors.Is(sn.Err, errIncompatible) {
-				status = fmt.Sprintf("[incompatible: %s] [%s]", sn.Err.Error(), fmtTS(sn.RestoreTS))
+			if errors.Is(ss.Err, errIncompatible) {
+				status = fmt.Sprintf("[incompatible: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
 			} else {
-				status = fmt.Sprintf("[ERROR: %s] [%s]", sn.Err.Error(), fmtTS(sn.RestoreTS))
+				status = fmt.Sprintf("[ERROR: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
 			}
 		default:
-			status = fmt.Sprintf("[running: %s / %s]", sn.Status, fmtTS(sn.RestoreTS))
-		}
-
-		kind := string(sn.Type)
-		if len(sn.Namespaces) != 0 {
-			kind += ", selective"
-		}
-		if sn.Type == pbm.IncrementalBackup && sn.SrcBackup == "" {
-			kind += ", base"
+			status = fmt.Sprintf("[running: %s / %s]", ss.Status, fmtTS(ss.RestoreTS))
 		}
 
 		ret += fmt.Sprintf("    %s %s <%s> %s\n",
-			sn.Name, fmtSize(sn.Size), kind, status)
+			ss.Name, fmtSize(ss.Size), snapshotTaggedType(ss), status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -838,4 +832,26 @@ func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, er
 	}
 
 	return s, err
+}
+
+func bcpTaggedType(bcp *pbm.BackupMeta) string {
+	t := string(bcp.Type)
+	if sel.IsSelective(bcp.Namespaces) {
+		t += ", selective"
+	} else if bcp.Type == pbm.IncrementalBackup && bcp.SrcBackup == "" {
+		t += ", base"
+	}
+
+	return t
+}
+
+func snapshotTaggedType(ss *snapshotStat) string {
+	t := string(ss.Type)
+	if len(ss.Namespaces) != 0 {
+		t += ", selective"
+	} else if ss.Type == pbm.IncrementalBackup && ss.SrcBackup == "" {
+		t += ", base"
+	}
+
+	return t
 }

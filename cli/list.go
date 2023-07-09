@@ -51,22 +51,17 @@ func (r restoreListOut) String() string {
 
 		switch v.Type {
 		case restoreSnapshot:
-			n := ""
-			if len(v.Namespaces) != 0 {
-				n = ", selective"
-			}
-			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
+			name = fmt.Sprintf("%s [backup: %s]", v.Name, restoreTaggedType(&v))
 		case restoreReplay:
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		default:
-			n := ""
+			n := time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
 			if len(v.Namespaces) != 0 {
 				n = ", selective"
 			}
-			name = fmt.Sprintf("PITR: %s [restore time: %s%s]",
-				v.Name, time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339), n)
+			name = fmt.Sprintf("PITR: %s [restore time: %s]", v.Name, n)
 		}
 
 		switch v.Status {
@@ -75,7 +70,8 @@ func (r restoreListOut) String() string {
 		case pbm.StatusError:
 			rprint = fmt.Sprintf("%s\tFailed with \"%s\"", name, v.Error)
 		default:
-			rprint = fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", name, v.Status, time.Unix(v.StartTS, 0).Format(time.RFC3339))
+			rprint = fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)",
+				name, v.Status, time.Unix(v.StartTS, 0).Format(time.RFC3339))
 		}
 		s += fmt.Sprintln(" ", rprint)
 	}
@@ -155,16 +151,10 @@ func (bl backupListOut) String() string {
 	sort.Slice(bl.Snapshots, func(i, j int) bool {
 		return bl.Snapshots[i].RestoreTS < bl.Snapshots[j].RestoreTS
 	})
-	for _, b := range bl.Snapshots {
-		kind := string(b.Type)
-		if len(b.Namespaces) != 0 {
-			kind += ", selective"
-		}
-		if b.Type == pbm.IncrementalBackup && b.SrcBackup == "" {
-			kind += ", base"
-		}
-
-		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, kind, fmtTS(int64(b.RestoreTS)))
+	for i := range bl.Snapshots {
+		b := &bl.Snapshots[i]
+		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n",
+			b.Name, snapshotTaggedType(b), fmtTS(int64(b.RestoreTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -398,4 +388,13 @@ func splitByBaseSnapshot(lastWrite primitive.Timestamp, tl pbm.Timeline) []pitrR
 	}
 
 	return ranges
+}
+
+func restoreTaggedType(ss *restoreStatus) string {
+	t := string(ss.Type)
+	if len(ss.Namespaces) != 0 {
+		t += ", selective"
+	}
+
+	return t
 }

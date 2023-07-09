@@ -275,15 +275,8 @@ func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.Oplo
 		fmt.Fprintln(w, "Snapshots:")
 		for i := range backups {
 			bcp := &backups[i]
-			t := bcp.Type
-			if len(bcp.Namespaces) != 0 {
-				t += ", selective"
-			} else if bcp.Type == pbm.IncrementalBackup && bcp.SrcBackup == "" {
-				t += ", base"
-			}
-
 			fmt.Fprintf(w, " - %s <%s> [restore_time: %s]\n",
-				bcp.Name, t, fmtTS(int64(bcp.LastWriteTS.T)))
+				bcp.Name, bcpTaggedType(bcp), fmtTS(int64(bcp.LastWriteTS.T)))
 		}
 	}
 
