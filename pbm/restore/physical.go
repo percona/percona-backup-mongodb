@@ -353,9 +353,8 @@ func waitMgoShutdown(dbpath string) error {
 //	     │   ├── rs.running
 //	     │   └── rs.starting
 //
-//nolint:lll
-func (r *PhysRestore) toState(status pbm.Status) (pbm.Status, error) {
-	var err error
+//nolint:lll,nonamedreturns
+func (r *PhysRestore) toState(status pbm.Status) (_ pbm.Status, err error) {
 	defer func() {
 		if err != nil {
 			if r.nodeInfo.IsPrimary && status != pbm.StatusDone {
@@ -672,6 +671,8 @@ func (l *logBuff) Flush() error {
 // - CLI provided values
 // - replset metada in the datadir
 // - backup meta
+//
+//nolint:nonamedreturns
 func (r *PhysRestore) Snapshot(
 	cmd *pbm.RestoreCmd,
 	pitr primitive.Timestamp,
@@ -679,7 +680,7 @@ func (r *PhysRestore) Snapshot(
 	l *log.Event,
 	stopAgentC chan<- struct{},
 	pauseHB func(),
-) error {
+) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -696,7 +697,6 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	var progress nodeStatus
-	var err error
 	defer func() {
 		// set failed status of node on error, but
 		// don't mark node as failed after the local restore succeed

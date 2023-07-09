@@ -173,8 +173,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	defer func() {
-		err := lock.Release()
-		if err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -246,8 +245,7 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	defer func() {
-		err := lock.Release()
-		if err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -396,8 +394,7 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	defer func() {
-		err = lock.Release()
-		if err != nil {
+		if err = lock.Release(); err != nil {
 			l.Error("reslase lock %v: %v", lock, err)
 		}
 	}()

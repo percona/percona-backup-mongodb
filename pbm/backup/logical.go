@@ -99,8 +99,7 @@ func (b *Backup) doLogical(
 
 		defer func() {
 			l.Info("dropping tmp collections")
-			err := b.node.DropTMPcoll()
-			if err != nil {
+			if err := b.node.DropTMPcoll(); err != nil {
 				l.Warning("drop tmp users and roles: %v", err)
 			}
 		}()

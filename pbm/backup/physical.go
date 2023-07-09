@@ -87,7 +87,8 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 	return cur, err
 }
 
-func (bc *BackupCursor) Data(ctx context.Context) (*BackupCursorData, error) {
+//nolint:nonamedreturns
+func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err error) {
 	cur, err := bc.create(ctx, cursorCreateRetries)
 	if err != nil {
 		return nil, errors.Wrap(err, "create backupCursor")

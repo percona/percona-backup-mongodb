@@ -91,8 +91,9 @@ func (r *Restore) exit(err error, l *log.Event) {
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
-func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
-	var err error
+//
+//nolint:nonamedreturns
+func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }()
 
 	bcp, err := SnapshotMeta(r.cn, cmd.BackupName, r.stg)
@@ -202,8 +203,9 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 }
 
 // PITR do the Point-in-Time Recovery
-func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
-	var err error
+//
+//nolint:nonamedreturns
+func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }()
 
 	err = r.init(cmd.Name, opid, l)
@@ -313,8 +315,8 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
 	return r.Done()
 }
 
-func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) error {
-	var err error
+//nolint:nonamedreturns
+func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
 	defer func() { r.exit(err, l) }()
 
 	if err = r.init(cmd.Name, opid, l); err != nil {

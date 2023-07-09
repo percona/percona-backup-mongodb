@@ -135,7 +135,9 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 
 // Run runs backup.
 // TODO: describe flow
-func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) error {
+//
+//nolint:nonamedreturns
+func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")

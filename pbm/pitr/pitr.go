@@ -157,10 +157,10 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
-func (s *Slicer) OplogOnlyCatchup() error {
+//nolint:nonamedreturns
+func (s *Slicer) OplogOnlyCatchup() (err error) {
 	s.l.Debug("start_catchup [oplog only]")
 
-	var err error
 	defer func() {
 		if err == nil {
 			s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
