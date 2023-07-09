@@ -1,5 +1,4 @@
-FROM golang:1.19-bullseye
-RUN apt-get update -y && apt-get install -y libkrb5-dev
+FROM registry.access.redhat.com/ubi8/go-toolset:1.19
 WORKDIR /opt/pbm
 COPY . .
 RUN make install-k8s
@@ -49,7 +48,7 @@ RUN set -ex; \
 
 RUN microdnf install percona-server-mongodb-shell
 
-COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /go/bin/pbm-agent-entrypoint /go/bin/pbm-speed-test /usr/bin/
+COPY --from=0 /opt/app-root/src/go/bin/pbm /opt/app-root/src/go/bin/pbm-agent /opt/app-root/src/go/bin/pbm-agent-entrypoint /opt/app-root/src/go/bin/pbm-speed-test /usr/bin/
 COPY ./docker/start-agent.sh /start-agent.sh
 
 USER nobody

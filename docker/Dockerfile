@@ -1,5 +1,4 @@
-FROM golang:1.19-bullseye
-RUN apt-get update -y && apt-get install -y libkrb5-dev
+FROM registry.access.redhat.com/ubi8/go-toolset:1.19
 WORKDIR /opt/pbm
 COPY . .
 RUN make install
@@ -14,7 +13,7 @@ LABEL org.opencontainers.image.authors="info@percona.com"
 
 COPY LICENSE /licenses/
 
-COPY --from=0 /go/bin/pbm /go/bin/pbm-agent /go/bin/pbm-speed-test /usr/local/bin/
+COPY --from=0 /opt/app-root/src/go/bin/pbm /opt/app-root/src/go/bin/pbm-agent /opt/app-root/src/go/bin/pbm-speed-test /usr/local/bin/
 
 USER nobody
 
