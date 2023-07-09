@@ -70,7 +70,8 @@ func checkNoBackupFiles(backupName, conf string) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	mc, err := minio.NewWithRegion(endopintURL,
+		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
 	if err != nil {
 		log.Fatalln("Error: NewWithRegion:", err)
 	}

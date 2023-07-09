@@ -568,11 +568,13 @@ func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err 
 
 func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error())
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s",
+			bcp.Status, bcp.Error())
 	}
 
 	if !version.CompatibleWith(version.DefaultInfo.Version, pbm.BreakingChangesMap[bcp.Type]) {
-		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s",
+			bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
 	if bcp.FCV != "" {
@@ -593,7 +595,8 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		}
 
 		if majmin(bcp.MongoVersion) != majmin(ver.VersionString) {
-			r.log.Warning("backup mongo version %q is incompatible with the running mongo version %q",
+			r.log.Warning(
+				"backup mongo version %q is incompatible with the running mongo version %q",
 				bcp.MongoVersion, ver.VersionString)
 			return nil
 		}
@@ -1077,7 +1080,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		eroles = append(eroles, r.DB+"."+r.Role)
 	}
 
-	curr, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpRolesCollection).Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	curr, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpRolesCollection).
+		Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpRoles")
 	}
@@ -1103,7 +1107,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	if len(exclude.Users) > 0 {
 		user = exclude.Users[0].DB + "." + exclude.Users[0].User
 	}
-	cur, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpUsersCollection).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	cur, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpUsersCollection).
+		Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpUsers")
 	}

@@ -206,7 +206,8 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil {
 			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
 		}
-		extMeta := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
+		extMeta := filepath.Join(r.dbpath,
+			fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
 		err = os.Remove(extMeta)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
@@ -351,6 +352,8 @@ func waitMgoShutdown(dbpath string) error {
 //	     │   ├── rs.hb
 //	     │   ├── rs.running
 //	     │   └── rs.starting
+//
+//nolint:lll
 func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error) {
 	defer func() {
 		if err != nil {
@@ -480,7 +483,11 @@ func copyMap[K comparable, V any](m map[K]V) map[K]V {
 	return cp
 }
 
-func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, cluster bool) (retStatus pbm.Status, err error) {
+func (r *PhysRestore) waitFiles(
+	status pbm.Status,
+	objs map[string]struct{},
+	cluster bool,
+) (retStatus pbm.Status, err error) {
 	if len(objs) == 0 {
 		return pbm.StatusError, errors.New("empty objects maps")
 	}
@@ -664,7 +671,14 @@ func (l *logBuff) Flush() error {
 // - CLI provided values
 // - replset metada in the datadir
 // - backup meta
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
+func (r *PhysRestore) Snapshot(
+	cmd *pbm.RestoreCmd,
+	pitr primitive.Timestamp,
+	opid pbm.OPID,
+	l *log.Event,
+	stopAgentC chan<- struct{},
+	pauseHB func(),
+) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -1219,7 +1233,11 @@ func (r *PhysRestore) recoverStandalone() error {
 	return nil
 }
 
-func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk, stat *pbm.RestoreShardStat) error {
+func (r *PhysRestore) replayOplog(
+	from, to primitive.Timestamp,
+	opChunks []pbm.OplogChunk,
+	stat *pbm.RestoreShardStat,
+) error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
@@ -2059,7 +2077,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if !version.CompatibleWith(r.bcp.PBMVersion, pbm.BreakingChangesMap[r.bcp.Type]) {
-		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s",
+			r.bcp.PBMVersion, version.DefaultInfo.Version)
 	}
 
 	mgoV, err := r.node.GetMongoVersion()
@@ -2068,7 +2087,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if semver.Compare(majmin(r.bcp.MongoVersion), majmin(mgoV.VersionString)) != 0 {
-		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
+		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s",
+			r.bcp.MongoVersion, mgoV.VersionString)
 	}
 
 	mv, err := r.checkMongod(r.bcp.MongoVersion)

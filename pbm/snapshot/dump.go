@@ -74,7 +74,11 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
 
-func DownloadDump(download DownloadFunc, compression compress.CompressionType, match archive.NSFilterFn) (io.ReadCloser, error) {
+func DownloadDump(
+	download DownloadFunc,
+	compression compress.CompressionType,
+	match archive.NSFilterFn,
+) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 
 	go func() {

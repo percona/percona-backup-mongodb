@@ -90,7 +90,11 @@ func (c *Cluster) bcheckClear(name string, shard *pbm.Mongo) {
 	log.Println(name, "deleted counters:", dcnt)
 }
 
-func (c *Cluster) bcheckWrite(name string, shard *pbm.Mongo, t time.Duration) (<-chan *[]pbm.Counter, context.CancelFunc) {
+func (c *Cluster) bcheckWrite(
+	name string,
+	shard *pbm.Mongo,
+	t time.Duration,
+) (<-chan *[]pbm.Counter, context.CancelFunc) {
 	var data []pbm.Counter
 	ctx, cancel := context.WithCancel(c.ctx)
 	dt := make(chan *[]pbm.Counter)
@@ -126,7 +130,13 @@ func (c *Cluster) bcheckWrite(name string, shard *pbm.Mongo, t time.Duration) (<
 	return dt, cancel
 }
 
-func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp, inRange func(ts, limit primitive.Timestamp) bool) {
+func (c *Cluster) bcheckCheck(
+	name string,
+	shard *pbm.Mongo,
+	data *[]pbm.Counter,
+	bcpLastWrite primitive.Timestamp,
+	inRange func(ts, limit primitive.Timestamp) bool,
+) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()
 	if err != nil {
@@ -138,15 +148,18 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 	for i, d := range *data {
 		if inRange(d.WriteTime, bcpLastWrite) {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d [%v] in restored (%d) | last: %v. Bcp last write: %v\n", name, i, d.Count, d, len(restored), lastc, bcpLastWrite)
+				log.Fatalf("ERROR: %s no record #%d/%d [%v] in restored (%d) | last: %v. Bcp last write: %v\n",
+					name, i, d.Count, d, len(restored), lastc, bcpLastWrite)
 			}
 			r := restored[i]
 			if d.Count != r.Count {
-				log.Fatalf("ERROR: %s unmatched backuped %v and restored %v. Bcp last write: %v\n", name, d, r, bcpLastWrite)
+				log.Fatalf("ERROR: %s unmatched backuped %v and restored %v. Bcp last write: %v\n",
+					name, d, r, bcpLastWrite)
 			}
 		} else if i < len(restored) {
 			r := restored[i]
-			log.Fatalf("ERROR: %s data %v shouldn't be restored. Cmp to: %v. Bcp last write: %v\n", name, r, d, bcpLastWrite)
+			log.Fatalf("ERROR: %s data %v shouldn't be restored. Cmp to: %v. Bcp last write: %v\n",
+				name, r, d, bcpLastWrite)
 		}
 
 		lastc = d

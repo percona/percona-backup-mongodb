@@ -322,7 +322,12 @@ func getConfigCollections(ctx context.Context, m *mongo.Client) ([]*collSpec, er
 	return rv, errors.WithMessage(err, "cursor: all")
 }
 
-func getConfigChunkHashes(ctx context.Context, m *mongo.Client, selection map[string]CollName, useUUID bool) (map[NSName]chunksState, error) {
+func getConfigChunkHashes(
+	ctx context.Context,
+	m *mongo.Client,
+	selection map[string]CollName,
+	useUUID bool,
+) (map[NSName]chunksState, error) {
 	hashes := make(map[string]hash.Hash)
 	counts := make(map[string]map[ShardName]int64)
 

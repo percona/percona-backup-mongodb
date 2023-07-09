@@ -123,7 +123,15 @@ type OplogRestore struct {
 const saveLastDistTxns = 100
 
 // NewOplogRestore creates an object for an oplog applying
-func NewOplogRestore(dst *mongo.Client, ic *idx.IndexCatalog, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
+func NewOplogRestore(
+	dst *mongo.Client,
+	ic *idx.IndexCatalog,
+	sv *pbm.MongoVersion,
+	unsafe,
+	preserveUUID bool,
+	ctxn chan pbm.RestoreTxn,
+	txnErr chan error,
+) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -575,7 +583,9 @@ func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits [
 	return o.txnData, o.txnCommit.s
 }
 
-func (o *OplogRestore) HandleUncommittedTxn(commits map[string]primitive.Timestamp) (partial, uncommitted []Txn, err error) {
+func (o *OplogRestore) HandleUncommittedTxn(
+	commits map[string]primitive.Timestamp,
+) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil
 	}
@@ -645,7 +655,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			return nil
 
 		case "createIndexes":
-			// server > 4.4 no longer supports applying createIndexes oplog, we need to convert the oplog to createIndexes command and execute it
+			// server > 4.4 no longer supports applying createIndexes oplog,
+			// we need to convert the oplog to createIndexes command and execute it
 			collectionName, index := extractIndexDocumentFromCreateIndexes(op)
 			if index.Key == nil {
 				return errors.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
@@ -788,7 +799,8 @@ func (c *cqueue) last() *pbm.RestoreTxn {
 	return &c.s[len(c.s)-1]
 }
 
-// extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "createIndexes" oplog entry and convert to IndexDocument
+// extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of
+// "createIndexes" oplog entry and convert to IndexDocument
 // returns collection name and index spec
 func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocument) {
 	collectionName := ""
@@ -811,6 +823,8 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "commitIndexBuild" oplog entry and convert to IndexDocument
 // returns collection name and index specs
+//
+//nolint:lll
 func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.IndexDocument) {
 	collectionName := ""
 	for _, elem := range op.Object {

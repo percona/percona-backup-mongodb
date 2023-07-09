@@ -60,7 +60,9 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if nodeInfo.IsStandalone() {
-		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. " +
+			"Please restart it as a primary in a single-node replicaset " +
+			"to make it compatible with PBM's backup method using the oplog")
 		return
 	}
 

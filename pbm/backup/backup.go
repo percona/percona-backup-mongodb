@@ -74,16 +74,18 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 	}
 
 	meta := &pbm.BackupMeta{
-		Type:           b.typ,
-		OPID:           opid.String(),
-		Name:           bcp.Name,
-		Namespaces:     bcp.Namespaces,
-		Compression:    bcp.Compression,
-		StartTS:        time.Now().Unix(),
-		Status:         pbm.StatusStarting,
-		Replsets:       []pbm.BackupReplset{},
-		LastWriteTS:    primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		Type:        b.typ,
+		OPID:        opid.String(),
+		Name:        bcp.Name,
+		Namespaces:  bcp.Namespaces,
+		Compression: bcp.Compression,
+		StartTS:     time.Now().Unix(),
+		Status:      pbm.StatusStarting,
+		Replsets:    []pbm.BackupReplset{},
+		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
+		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
 		PBMVersion:     version.DefaultInfo.Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
@@ -381,7 +383,15 @@ type Canceller interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression compress.CompressionType, compressLevel *int, fname string, sizeb int64) (int64, error) {
+func Upload(
+	ctx context.Context,
+	src Source,
+	dst storage.Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	fname string,
+	sizeb int64,
+) (int64, error) {
 	r, pw := io.Pipe()
 
 	w, err := compress.Compress(pw, compression, compressLevel)
@@ -457,7 +467,8 @@ func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeou
 	}
 
 	if timeout != nil {
-		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout), "convergeClusterWithTimeout")
+		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout),
+			"convergeClusterWithTimeout")
 	}
 	return errors.Wrap(b.convergeCluster(bcpName, opid, shards, status), "convergeCluster")
 }
@@ -484,8 +495,15 @@ func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, statu
 
 var errConvergeTimeOut = errors.New("reached converge timeout")
 
-// convergeClusterWithTimeout waits up to the geiven timeout until all given shards reached `status` and then updates the cluster status
-func (b *Backup) convergeClusterWithTimeout(bcpName, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+// convergeClusterWithTimeout waits up to the geiven timeout until
+// all given shards reached `status` and then updates the cluster status
+func (b *Backup) convergeClusterWithTimeout(
+	bcpName,
+	opid string,
+	shards []pbm.Shard,
+	status pbm.Status,
+	t time.Duration,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 	tout := time.NewTicker(t)

@@ -299,14 +299,24 @@ func (c *Cluster) setupTrxCollection(ctx context.Context, col string) {
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 0}}, {"max", bson.M{"idx": 151}}, {"zone", "R1"}},
+		bson.D{
+			{"updateZoneKeyRange", trxdb + "." + col},
+			{"min", bson.M{"idx": 0}},
+			{"max", bson.M{"idx": 151}},
+			{"zone", "R1"},
+		},
 	).Err()
 	if err != nil {
 		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R1: %v", trxdb, col, err)
 	}
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 151}}, {"max", bson.M{"idx": 1000}}, {"zone", "R2"}},
+		bson.D{
+			{"updateZoneKeyRange", trxdb + "." + col},
+			{"min", bson.M{"idx": 151}},
+			{"max", bson.M{"idx": 1000}},
+			{"zone", "R2"},
+		},
 	).Err()
 	if err != nil {
 		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R2: %v", trxdb, col, err)
@@ -380,7 +390,8 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backup
 }
 
 func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
-	_, err := c.mongos.Conn().Database(trxdb).Collection(col).UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
+	_, err := c.mongos.Conn().Database(trxdb).Collection(col).
+		UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
 	if err != nil {
 		log.Fatalf("ERROR: update idx %v: %v", id, err)
 	}
@@ -389,7 +400,9 @@ func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
 func (c *Cluster) checkTrxDoc(ctx context.Context, col string, id, expect int) {
 	log.Println("\tcheck", id, expect)
 	r1 := pbm.TestData{}
-	err := c.mongos.Conn().Database(trxdb).Collection(col).FindOne(ctx, bson.M{"idx": id}).Decode(&r1)
+	err := c.mongos.Conn().Database(trxdb).Collection(col).
+		FindOne(ctx, bson.M{"idx": id}).
+		Decode(&r1)
 	if err != nil {
 		log.Fatalf("ERROR: get %s.%s record `idx %v`: %v", trxdb, col, id, err)
 	}

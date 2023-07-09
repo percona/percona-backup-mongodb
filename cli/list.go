@@ -261,7 +261,13 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(
+	cn *pbm.PBM,
+	size int,
+	full,
+	unbacked bool,
+	rsMap map[string]string,
+) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -328,7 +334,12 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(
+	cn *pbm.PBM,
+	sh map[string]bool,
+	rsMap map[string]string,
+	tl pbm.Timeline,
+) (primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {

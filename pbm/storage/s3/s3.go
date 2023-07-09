@@ -41,6 +41,7 @@ const (
 	defaultS3Region = "us-east-1"
 )
 
+//nolint:lll
 type Conf struct {
 	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
@@ -337,7 +338,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	case S3ProviderGCS:
 		// using minio client with GCS because it
 		// allows to disable chuncks muiltipertition for upload
-		mc, err := minio.NewWithRegion(GCSEndpointURL, s.opts.Credentials.AccessKeyID, s.opts.Credentials.SecretAccessKey, true, s.opts.Region)
+		mc, err := minio.NewWithRegion(GCSEndpointURL,
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			true,
+			s.opts.Region)
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}

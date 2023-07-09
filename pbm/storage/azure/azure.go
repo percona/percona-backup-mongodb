@@ -85,10 +85,14 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
 	}
 
-	_, err := b.c.UploadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), data, &azblob.UploadStreamOptions{
-		BlockSize:   int64(bufsz),
-		Concurrency: cc,
-	})
+	_, err := b.c.UploadStream(context.TODO(),
+		b.opts.Container,
+		path.Join(b.opts.Prefix, name),
+		data,
+		&azblob.UploadStreamOptions{
+			BlockSize:   int64(bufsz),
+			Concurrency: cc,
+		})
 
 	return err
 }
@@ -141,7 +145,10 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
-	p, err := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), nil)
+	p, err := b.c.ServiceClient().
+		NewContainerClient(b.opts.Container).
+		NewBlockBlobClient(path.Join(b.opts.Prefix, name)).
+		GetProperties(context.TODO(), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return inf, storage.ErrNotExist

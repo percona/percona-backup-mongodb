@@ -304,6 +304,8 @@ func LastWrite(cn *mongo.Client, majority bool) (primitive.Timestamp, error) {
 // OplogStartTime returns either the oldest active transaction timestamp or the
 // current oplog time if there are no active transactions.
 // taken from https://github.com/mongodb/mongo-tools/blob/1b496c4a8ff7415abc07b9621166d8e1fac00c91/mongodump/oplog_dump.go#L68
+//
+//nolint:lll
 func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
 	coll := n.cn.Database("config").Collection("transactions", options.Collection().SetReadConcern(readconcern.Local()))
 	filter := bson.D{{"state", bson.D{{"$in", bson.A{"prepared", "inProgress"}}}}}

@@ -22,7 +22,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doLogical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	rsMeta *pbm.BackupReplset,
+	inf *pbm.NodeInfo,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	var db, coll string
 	if sel.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.

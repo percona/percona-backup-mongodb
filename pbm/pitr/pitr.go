@@ -256,7 +256,12 @@ func (e OpMovedError) Is(err error) bool {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression compress.CompressionType, level *int) error {
+func (s *Slicer) Stream(
+	ctx context.Context,
+	backupSig <-chan *pbm.OPID,
+	compression compress.CompressionType,
+	level *int,
+) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}

@@ -159,7 +159,15 @@ func (l *Logger) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
-func (l *Logger) output(s Severity, event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) output(
+	s Severity,
+	event,
+	obj,
+	opid string,
+	epoch primitive.Timestamp,
+	msg string,
+	args ...interface{},
+) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -389,7 +397,12 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	return e, nil
 }
 
-func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+func Follow(
+	ctx context.Context,
+	coll *mongo.Collection,
+	r *LogRequest,
+	exactSeverity bool,
+) (<-chan *Entry, <-chan error) {
 	filter := buildLogFilter(r, exactSeverity)
 	outC, errC := make(chan *Entry), make(chan error)
 

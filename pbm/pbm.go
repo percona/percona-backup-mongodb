@@ -254,8 +254,10 @@ type PBM struct {
 }
 
 // New creates a new PBM object.
-// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
-// If agent's or ctl's local node is not a member of ConfigServer, after discovering current topology connection will be established to ConfigServer.
+// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set
+// in order to communicate via PBM collections.
+// If agent's or ctl's local node is not a member of ConfigServer,
+// after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -297,7 +299,8 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
-	// Preserving the `replicaSet` parameter will cause an error while connecting to the ConfigServer (mismatched replicaset names)
+	// Preserving the `replicaSet` parameter will cause an error
+	// while connecting to the ConfigServer (mismatched replicaset names)
 	query := curi.Query()
 	query.Del("replicaSet")
 	curi.RawQuery = query.Encode()
@@ -534,8 +537,9 @@ type Condition struct {
 }
 
 type BackupReplset struct {
-	Name             string              `bson:"name" json:"name"`
-	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"` // not used. left for backward compatibility
+	Name string `bson:"name" json:"name"`
+	// Journal is not used. left for backward compatibility
+	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
 	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
@@ -995,7 +999,8 @@ func (p *PBM) GetFeatureCompatibilityVersion() (string, error) {
 // ClusterTime returns mongo's current cluster time
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between node info reads, while in fact time has been moved forward.
+	// Otherwise, cluster timestamp could remain the same between node info reads,
+	// while in fact time has been moved forward.
 	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")

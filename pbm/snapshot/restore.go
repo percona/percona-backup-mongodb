@@ -50,7 +50,17 @@ var ExcludeFromRestore = []string{
 type restorer struct{ *mongorestore.MongoRestore }
 
 func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
-	topts := options.New("mongorestore", "0.0.1", "none", "", true, options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
+	topts := options.New("mongorestore",
+		"0.0.1",
+		"none",
+		"",
+		true,
+		options.EnabledOptions{
+			Auth:       true,
+			Connection: true,
+			Namespace:  true,
+			URI:        true,
+		})
 	var err error
 	topts.URI, err = options.NewURI(uri)
 	if err != nil {
@@ -109,7 +119,8 @@ func (r *restorer) ReadFrom(from io.Reader) (int64, error) {
 
 	rdumpResult := r.Restore()
 	if rdumpResult.Err != nil {
-		return 0, errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)", rdumpResult.Successes, rdumpResult.Failures)
+		return 0, errors.Wrapf(rdumpResult.Err, "restore mongo dump (successes: %d / fails: %d)",
+			rdumpResult.Successes, rdumpResult.Failures)
 	}
 
 	return 0, nil

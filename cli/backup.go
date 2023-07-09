@@ -409,7 +409,14 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, ver, fcv string, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
+func bcpsMatchCluster(
+	bcps []pbm.BackupMeta,
+	ver,
+	fcv string,
+	shards []pbm.Shard,
+	confsrv string,
+	rsMap map[string]string,
+) {
 	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
 		sh[s.RS] = s.RS == confsrv
@@ -564,7 +571,9 @@ type incompatibleMongodVersionError struct {
 }
 
 func (e incompatibleMongodVersionError) Error() string {
-	return fmt.Sprintf("backup mongo version %q is incompatible with the running mongo version %q", majmin(e.bcpVer), majmin(e.currVer))
+	return fmt.Sprintf(
+		"backup mongo version %q is incompatible with the running mongo version %q",
+		majmin(e.bcpVer), majmin(e.currVer))
 }
 
 func (incompatibleMongodVersionError) Is(err error) bool {

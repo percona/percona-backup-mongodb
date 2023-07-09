@@ -164,7 +164,15 @@ func (bc *BackupCursor) Close() {
 	}
 }
 
-func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doPhysical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	rsMeta *pbm.BackupReplset,
+	inf *pbm.NodeInfo,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	currOpts := bson.D{}
 	if b.typ == pbm.IncrementalBackup {
 		currOpts = bson.D{
@@ -298,7 +306,16 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
 }
 
-func (b *Backup) handleExternal(bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, opid pbm.OPID, inf *pbm.NodeInfo, l *plog.Event) error {
+func (b *Backup) handleExternal(
+	bcp *pbm.BackupCmd,
+	rsMeta *pbm.BackupReplset,
+	data,
+	jrnls []pbm.File,
+	dbpath string,
+	opid pbm.OPID,
+	inf *pbm.NodeInfo,
+	l *plog.Event,
+) error {
 	for _, f := range append(data, jrnls...) {
 		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
 		rsMeta.Files = append(rsMeta.Files, f)
@@ -372,7 +389,16 @@ func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
 	return nil
 }
 
-func (b *Backup) uploadPhysical(ctx context.Context, bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) uploadPhysical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	rsMeta *pbm.BackupReplset,
+	data,
+	jrnls []pbm.File,
+	dbpath string,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	var err error
 	l.Info("uploading data")
 	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
@@ -531,7 +557,15 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 	return data, nil
 }
 
-func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
+func writeFile(
+	ctx context.Context,
+	src pbm.File,
+	dst string,
+	stg storage.Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	l *plog.Event,
+) (*pbm.File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")

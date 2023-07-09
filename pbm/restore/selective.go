@@ -175,7 +175,11 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 
 // configsvrRestoreCollections upserts config.collections documents
 // for selected namespaces
-func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) (sel.ChunkSelector, error) {
+func (r *Restore) configsvrRestoreCollections(
+	bcp *pbm.BackupMeta,
+	nss []string,
+	mapRS pbm.RSMapFunc,
+) (sel.ChunkSelector, error) {
 	ver, err := pbm.GetMongoVersion(r.cn.Context(), r.node.Session())
 	if err != nil {
 		return nil, errors.WithMessage(err, "get mongo version")
@@ -245,7 +249,12 @@ func (r *Restore) configsvrRestoreCollections(bcp *pbm.BackupMeta, nss []string,
 }
 
 // configsvrRestoreChunks upserts config.chunks documents for selected namespaces
-func (r *Restore) configsvrRestoreChunks(bcp *pbm.BackupMeta, selector sel.ChunkSelector, mapRS, mapS pbm.RSMapFunc) error {
+func (r *Restore) configsvrRestoreChunks(
+	bcp *pbm.BackupMeta,
+	selector sel.ChunkSelector,
+	mapRS,
+	mapS pbm.RSMapFunc,
+) error {
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.chunks"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {

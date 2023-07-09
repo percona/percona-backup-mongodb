@@ -128,7 +128,8 @@ func (c *Cluster) BackupDelete(storage string) {
 	}
 
 	if list.PITR.Ranges[0].Range.Start-1 != uint32(list.Snapshots[len(list.Snapshots)-1].RestoreTS) {
-		log.Printf("ERROR: expected range starts the next second after the backup complete time, %v | %v", list.PITR.Ranges[0].Range.Start+1, uint32(list.Snapshots[len(list.Snapshots)-1].RestoreTS))
+		log.Printf("ERROR: expected range starts the next second after the backup complete time, %v | %v",
+			list.PITR.Ranges[0].Range.Start+1, uint32(list.Snapshots[len(list.Snapshots)-1].RestoreTS))
 		c.printBcpList()
 		os.Exit(1)
 	}
@@ -189,7 +190,8 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	mc, err := minio.NewWithRegion(endopintURL,
+		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
 	if err != nil {
 		log.Fatalln("ERROR: NewWithRegion:", err)
 	}
@@ -223,7 +225,9 @@ func (c *Cluster) BackupNotDeleteRunning() {
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
 	if err == nil || !strings.Contains(err.Error(), "unable to delete backup in running state") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
-		log.Fatalf("ERROR: running backup '%s' shouldn't be deleted.\nOutput: %s\nStderr:%v\nBackups list:\n%v\n%v", bcpName, o, err, list, lerr)
+		log.Fatalf("ERROR: running backup '%s' shouldn't be deleted.\n"+
+			"Output: %s\nStderr:%v\nBackups list:\n%v\n%v",
+			bcpName, o, err, list, lerr)
 	}
 	c.BackupWaitDone(bcpName)
 	time.Sleep(time.Second * 2)

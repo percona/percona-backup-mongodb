@@ -43,7 +43,14 @@ func GetMetaFromStore(stg storage.Storage, bcpName string) (*pbm.BackupMeta, err
 	return b, errors.Wrap(err, "decode")
 }
 
-func toState(cn *pbm.PBM, status pbm.Status, bcp string, inf *pbm.NodeInfo, reconcileFn reconcileStatus, wait *time.Duration) error {
+func toState(
+	cn *pbm.PBM,
+	status pbm.Status,
+	bcp string,
+	inf *pbm.NodeInfo,
+	reconcileFn reconcileStatus,
+	wait *time.Duration,
+) error {
 	err := cn.ChangeRestoreRSState(bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
@@ -93,7 +100,14 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 
 // convergeClusterWithTimeout waits up to the geiven timeout until all participating shards reached
 // `status` and then updates the cluster status
-func convergeClusterWithTimeout(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+func convergeClusterWithTimeout(
+	cn *pbm.PBM,
+	name,
+	opid string,
+	shards []pbm.Shard,
+	status pbm.Status,
+	t time.Duration,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
@@ -211,7 +225,12 @@ func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 	}
 }
 
-func GetBaseBackup(cn *pbm.PBM, bcpName string, tsTo primitive.Timestamp, stg storage.Storage) (bcp *pbm.BackupMeta, err error) {
+func GetBaseBackup(
+	cn *pbm.PBM,
+	bcpName string,
+	tsTo primitive.Timestamp,
+	stg storage.Storage,
+) (bcp *pbm.BackupMeta, err error) {
 	if bcpName == "" {
 		bcp, err = cn.GetLastBackup(&tsTo)
 		if errors.Is(err, pbm.ErrNotFound) {
@@ -228,7 +247,8 @@ func GetBaseBackup(cn *pbm.PBM, bcpName string, tsTo primitive.Timestamp, stg st
 		return nil, err
 	}
 	if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
-		return nil, errors.New("snapshot's last write is later than the target time. Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+		return nil, errors.New("snapshot's last write is later than the target time. " +
+			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
 	return bcp, nil
@@ -237,7 +257,14 @@ func GetBaseBackup(cn *pbm.PBM, bcpName string, tsTo primitive.Timestamp, stg st
 // chunks defines chunks of oplog slice in given range, ensures its integrity (timeline
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
-func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsName string, rsMap map[string]string) ([]pbm.OplogChunk, error) {
+func chunks(
+	cn *pbm.PBM,
+	stg storage.Storage,
+	from,
+	to primitive.Timestamp,
+	rsName string,
+	rsMap map[string]string,
+) ([]pbm.OplogChunk, error) {
 	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
 	chunks, err := cn.PITRGetChunksSlice(mapRevRS(rsName), from, to)
 	if err != nil {
@@ -249,19 +276,25 @@ func chunks(cn *pbm.PBM, stg storage.Storage, from, to primitive.Timestamp, rsNa
 	}
 
 	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, to) == -1 {
-		return nil, errors.Errorf("no chunk with the target time, the last chunk ends on %v", chunks[len(chunks)-1].EndTS)
+		return nil, errors.Errorf(
+			"no chunk with the target time, the last chunk ends on %v",
+			chunks[len(chunks)-1].EndTS)
 	}
 
 	last := from
 	for _, c := range chunks {
 		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
-			return nil, errors.Errorf("integrity vilolated, expect chunk with start_ts %v, but got %v", last, c.StartTS)
+			return nil, errors.Errorf(
+				"integrity vilolated, expect chunk with start_ts %v, but got %v",
+				last, c.StartTS)
 		}
 		last = c.EndTS
 
 		_, err := stg.FileStat(c.FName)
 		if err != nil {
-			return nil, errors.Errorf("failed to ensure chunk %v.%v on the storage, file: %s, error: %v", c.StartTS, c.EndTS, c.FName, err)
+			return nil, errors.Errorf(
+				"failed to ensure chunk %v.%v on the storage, file: %s, error: %v",
+				c.StartTS, c.EndTS, c.FName, err)
 		}
 	}
 
@@ -385,7 +418,12 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 	return partial, nil
 }
 
-func replayChunk(file string, oplog *oplog.OplogRestore, stg storage.Storage, c compress.CompressionType) (lts primitive.Timestamp, err error) {
+func replayChunk(
+	file string,
+	oplog *oplog.OplogRestore,
+	stg storage.Storage,
+	c compress.CompressionType,
+) (lts primitive.Timestamp, err error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)

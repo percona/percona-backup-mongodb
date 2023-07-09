@@ -16,6 +16,8 @@ const (
 // RestartAgents restarts agents during backup.
 // Currently restarts agents on all shards. Also consider restarting
 // only one shard and/or configsrv, but see https://jira.percona.com/browse/PBM-406?focusedCommentId=248029&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-248029
+//
+//nolint:lll
 func (c *Cluster) RestartAgents() {
 	if len(c.shards) == 0 {
 		log.Fatalln("no shards in cluster")

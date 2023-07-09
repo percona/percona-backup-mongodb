@@ -67,6 +67,8 @@ func (c Config) String() string {
 }
 
 // PITRConf is a Point-In-Time Recovery options
+//
+//nolint:lll
 type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
@@ -127,6 +129,8 @@ func (s *StorageConf) Path() string {
 }
 
 // RestoreConf is config options for the restore
+//
+//nolint:lll
 type RestoreConf struct {
 	// Logical restore
 	//
@@ -148,6 +152,7 @@ type RestoreConf struct {
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
+//nolint:lll
 type BackupConf struct {
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`

@@ -263,7 +263,13 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (name string, typ pb
 	return b, bcp.Type, nil
 }
 
-func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
+func restore(
+	cn *pbm.PBM,
+	o *restoreOpts,
+	nss []string,
+	rsMapping map[string]string,
+	outf outFormat,
+) (*pbm.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(cn, o, nss)
 	if err != nil {
 		return nil, err
@@ -534,7 +540,8 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
+			NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
@@ -588,7 +595,8 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 			}
 			str := string(b)
 			mrs.PartialTxnStr = &str
-			perr := "WARNING! Some distributed transactions were not full in the oplog for this shard. But were applied on other shard(s). See the list of not applied ops in `partial_txn`."
+			perr := "WARNING! Some distributed transactions were not full in the oplog for this shard. " +
+				"But were applied on other shard(s). See the list of not applied ops in `partial_txn`."
 			mrs.Error = &perr
 		}
 		for _, node := range rs.Nodes {

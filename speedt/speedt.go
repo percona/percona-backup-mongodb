@@ -27,7 +27,8 @@ type Results struct {
 }
 
 func (r Results) String() string {
-	return fmt.Sprintf("%v sent in %s.\nAvg upload rate = %.2fMB/s.", r.Size, r.Time.Round(time.Second), float64(r.Size/MB)/r.Time.Seconds())
+	return fmt.Sprintf("%v sent in %s.\nAvg upload rate = %.2fMB/s.",
+		r.Size, r.Time.Round(time.Second), float64(r.Size/MB)/r.Time.Seconds())
 }
 
 type Byte float64
@@ -120,7 +121,14 @@ func (c *Collection) WriteTo(w io.Writer) (int64, error) {
 
 const fileName = "pbmSpeedTest"
 
-func Run(nodeCN *mongo.Client, stg storage.Storage, compression compress.CompressionType, level *int, sizeGb float64, collection string) (*Results, error) {
+func Run(
+	nodeCN *mongo.Client,
+	stg storage.Storage,
+	compression compress.CompressionType,
+	level *int,
+	sizeGb float64,
+	collection string,
+) (*Results, error) {
 	var src backup.Source
 	var err error
 	if collection != "" {
