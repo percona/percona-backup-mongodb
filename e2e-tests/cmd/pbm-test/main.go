@@ -2,7 +2,9 @@ package main
 
 import (
 	"log"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 )
@@ -43,6 +45,8 @@ func main() {
 		bcpT = bcpPhysical
 	}
 	log.Println("Backup Type:", bcpT)
+
+	rand.Seed(time.Now().UnixNano())
 
 	typ := testTyp(os.Getenv("TESTS_TYPE"))
 	switch typ {

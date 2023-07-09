@@ -29,7 +29,7 @@ func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
 
 	var err error
 
-	opts := options.New("pbm-agent:dump", version.DefaultInfo.Version, "", "", false,
+	opts := options.New("pbm-agent:dump", version.Current().Version, "", "", false,
 		options.EnabledOptions{Auth: true, Connection: true, Namespace: true, URI: true})
 	opts.URI, err = options.NewURI(curi)
 	if err != nil {

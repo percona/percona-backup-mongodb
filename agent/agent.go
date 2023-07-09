@@ -73,7 +73,7 @@ func (a *Agent) CanStart() error {
 
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
-	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
+	a.log.Printf("pbm-agent:\n%s", version.Current().All(""))
 	a.log.Printf("node: %s", a.node.ID())
 
 	c, cerr := a.pbm.ListenCmd(a.closeCMD)
@@ -475,7 +475,7 @@ func (a *Agent) HbStatus() {
 	hb := pbm.AgentStat{
 		Node: a.node.Name(),
 		RS:   a.node.RS(),
-		Ver:  version.DefaultInfo.Version,
+		Ver:  version.Current().Version,
 	}
 	defer func() {
 		if err := a.pbm.RemoveAgentStatus(hb); err != nil {
@@ -579,7 +579,7 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) pbm.SubsysSta
 
 	_, err = stg.FileStat(pbm.StorInitFile)
 	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
 		if err != nil {
 			return pbm.SubsysStatus{
 				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),

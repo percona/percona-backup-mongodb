@@ -528,7 +528,7 @@ type incompatiblePBMVersionError struct {
 
 func (e incompatiblePBMVersionError) Error() string {
 	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
-		e.bcpVer, version.DefaultInfo.Version)
+		e.bcpVer, version.Current().Version)
 }
 
 func (incompatiblePBMVersionError) Is(err error) bool {

@@ -164,7 +164,7 @@ func TestBcpMatchCluster(t *testing.T) {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			m := []pbm.BackupMeta{}
 			for _, b := range c.bcps {
-				b.meta.PBMVersion = string(version.DefaultInfo.Version)
+				b.meta.PBMVersion = string(version.Current().Version)
 				b.meta.Status = pbm.StatusDone
 				m = append(m, b.meta)
 			}
@@ -293,7 +293,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	for _, tt := range types {
 		t.Logf("backup type: %s", tt)
 		for i, c := range cases {
-			c.bcp.PBMVersion = string(version.DefaultInfo.Version)
+			c.bcp.PBMVersion = string(version.Current().Version)
 			topology := defaultTopology
 			if c.topology != nil {
 				topology = c.topology

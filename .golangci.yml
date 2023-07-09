@@ -16,7 +16,7 @@ linters:
     - gocritic
     - typecheck
     - goconst
-    # - gochecknoinits
+    - gochecknoinits
     # - forbidigo
     - nonamedreturns
   disable:

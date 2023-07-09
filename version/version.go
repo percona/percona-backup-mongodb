@@ -34,12 +34,6 @@ GitBranch: %s
 BuildTime: %s
 GoVersion: %s`
 
-var DefaultInfo Info
-
-func init() {
-	DefaultInfo = Current()
-}
-
 func Current() Info {
 	v := Info{
 		Version:   version,

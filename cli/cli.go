@@ -321,11 +321,11 @@ func Main() {
 	if cmd == versionCmd.FullCommand() {
 		switch {
 		case *versionCommit:
-			out = outCaption{"GitCommit", version.DefaultInfo.GitCommit}
+			out = outCaption{"GitCommit", version.Current().GitCommit}
 		case *versionShort:
-			out = outCaption{"Version", version.DefaultInfo.Version}
+			out = outCaption{"Version", version.Current().Version}
 		default:
-			out = version.DefaultInfo
+			out = version.Current()
 		}
 		printo(out, pbmOutF)
 		return

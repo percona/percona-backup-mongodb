@@ -6,8 +6,6 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/mongodb/mongo-tools/common/idx"
-	mlog "github.com/mongodb/mongo-tools/common/log"
-	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -18,17 +16,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
-
-func init() {
-	// set date format for mongo tools (mongodump/mongorestore) logger
-	//
-	// duplicated in backup/restore packages just
-	// in the sake of clarity
-	mlog.SetDateFormat(log.LogTimeFormat)
-	mlog.SetVerbosity(&options.Verbosity{
-		VLevel: mlog.DebugLow,
-	})
-}
 
 func GetMetaFromStore(stg storage.Storage, bcpName string) (*pbm.BackupMeta, error) {
 	rd, err := stg.SourceReader(bcpName + pbm.MetadataFileSuffix)

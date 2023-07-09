@@ -7,7 +7,6 @@ import (
 	"io"
 	"time"
 
-	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -18,14 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
-
-func init() {
-	// set date format for mongo tools (mongodump/mongorestore) logger
-	//
-	// duplicated in backup/restore packages just
-	// in the sake of clarity
-	mlog.SetDateFormat(plog.LogTimeFormat)
-}
 
 type Backup struct {
 	cn       *pbm.PBM
@@ -86,7 +77,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
-		PBMVersion:     version.DefaultInfo.Version,
+		PBMVersion:     version.Current().Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
 		Hb:             ts,

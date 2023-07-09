@@ -164,6 +164,7 @@ type confMap map[string]reflect.Kind
 // _confmap is a list of config's valid keys and its types
 var _confmap confMap
 
+//nolint:gochecknoinits
 func init() {
 	_confmap = keys(reflect.TypeOf(Config{}))
 }

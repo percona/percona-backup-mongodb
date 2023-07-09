@@ -2088,7 +2088,7 @@ func (r *PhysRestore) prepareBackup(backupName string) error {
 
 	if !version.CompatibleWith(r.bcp.PBMVersion, pbm.BreakingChangesMap[r.bcp.Type]) {
 		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s",
-			r.bcp.PBMVersion, version.DefaultInfo.Version)
+			r.bcp.PBMVersion, version.Current().Version)
 	}
 
 	mgoV, err := r.node.GetMongoVersion()

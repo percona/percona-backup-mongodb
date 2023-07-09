@@ -10,10 +10,13 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kingpin"
+	mlog "github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/agent"
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -56,11 +59,11 @@ func main() {
 	if cmd == versionCmd.FullCommand() {
 		switch {
 		case *versionCommit:
-			fmt.Println(version.DefaultInfo.GitCommit)
+			fmt.Println(version.Current().GitCommit)
 		case *versionShort:
-			fmt.Println(version.DefaultInfo.Short())
+			fmt.Println(version.Current().Short())
 		default:
-			fmt.Println(version.DefaultInfo.All(*versionFormat))
+			fmt.Println(version.Current().All(*versionFormat))
 		}
 		return
 	}
@@ -78,6 +81,9 @@ func main() {
 }
 
 func runAgent(mongoURI string, dumpConns int) error {
+	mlog.SetDateFormat(plog.LogTimeFormat)
+	mlog.SetVerbosity(&options.Verbosity{VLevel: mlog.DebugLow})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

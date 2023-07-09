@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -16,10 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 type Results struct {
 	Size Byte

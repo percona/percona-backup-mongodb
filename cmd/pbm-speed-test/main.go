@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"time"
 
@@ -60,6 +61,8 @@ func main() {
 		*sampleSizeF = 1
 	}
 
+	rand.Seed(time.Now().UnixNano())
+
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
@@ -70,11 +73,11 @@ func main() {
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
-			fmt.Println(version.DefaultInfo.GitCommit)
+			fmt.Println(version.Current().GitCommit)
 		case *versionShort:
-			fmt.Println(version.DefaultInfo.Short())
+			fmt.Println(version.Current().Short())
 		default:
-			fmt.Println(version.DefaultInfo.All(*versionFormat))
+			fmt.Println(version.Current().All(*versionFormat))
 		}
 	}
 }
