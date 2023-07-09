@@ -21,14 +21,12 @@ type deleteBcpOpts struct {
 }
 
 func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
-	if !d.force && isTTY() {
-		fmt.Print("Are you sure you want delete backup(s)? [y/N] ")
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		switch strings.TrimSpace(scanner.Text()) {
-		case "yes", "Yes", "YES", "Y", "y":
-		default:
-			return nil, nil
+	if !d.force {
+		if err := askConfirmation("Are you sure you want delete backup(s)?"); err != nil {
+			if errors.Is(err, errUserCanceled) {
+				return outMsg{err.Error()}, nil
+			}
+			return nil, err
 		}
 	}
 
@@ -99,18 +97,16 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 		return nil, errors.New("either --older-than or --all should be set")
 	}
 
-	if !d.force && isTTY() {
-		all := ""
+	if !d.force {
+		q := "Are you sure you want delete chunks?"
 		if d.all {
-			all = " ALL"
+			q = "Are you sure you want delete ALL chunks?"
 		}
-		fmt.Printf("Are you sure you want delete%s chunks? [y/N] ", all)
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		switch strings.TrimSpace(scanner.Text()) {
-		case "yes", "Yes", "YES", "Y", "y":
-		default:
-			return nil, nil
+		if err := askConfirmation(q); err != nil {
+			if errors.Is(err, errUserCanceled) {
+				return outMsg{err.Error()}, nil
+			}
+			return nil, err
 		}
 	}
 
@@ -192,12 +188,11 @@ func retentionCleanup(pbmClient *pbm.PBM, d *cleanupOptions) (fmt.Stringer, erro
 	}
 
 	if !d.yes {
-		yes, err := askCleanupConfirmation(info)
-		if err != nil {
+		if err := askCleanupConfirmation(info); err != nil {
+			if errors.Is(err, errUserCanceled) {
+				return outMsg{err.Error()}, nil
+			}
 			return nil, err
-		}
-		if !yes {
-			return outMsg{"aborted"}, nil
 		}
 	}
 
@@ -328,21 +323,33 @@ func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.Oplo
 	}
 }
 
-func askCleanupConfirmation(info pbm.CleanupInfo) (bool, error) {
+func askCleanupConfirmation(info pbm.CleanupInfo) error {
 	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
+	return askConfirmation("Are you sure you want delete?")
+}
 
-	if !isTTY() {
-		return false, errors.New("no tty")
+var (
+	errNoTTY        = errors.New("no tty")
+	errUserCanceled = errors.New("canceled")
+)
+
+func askConfirmation(question string) error {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return err
+	}
+	if (fi.Mode() & os.ModeCharDevice) != 0 {
+		return errNoTTY
 	}
 
-	fmt.Print("Are you sure you want delete? [y/N] ")
+	fmt.Printf("%s [y/N] ", question)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	switch strings.TrimSpace(scanner.Text()) {
 	case "yes", "Yes", "YES", "Y", "y":
-		return true, nil
+		return nil
 	}
 
-	return false, nil
+	return errUserCanceled
 }

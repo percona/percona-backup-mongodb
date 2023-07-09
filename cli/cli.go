@@ -697,11 +697,6 @@ func waitOp(pbmClient *pbm.PBM, lock *pbm.LockHeader, waitFor time.Duration) err
 	}
 }
 
-func isTTY() bool {
-	fi, err := os.Stdin.Stat()
-	return (fi.Mode()&os.ModeCharDevice) != 0 && err == nil
-}
-
 func lastLogErr(cn *pbm.PBM, op pbm.Command, after int64) (string, error) {
 	l, err := cn.LogGet(
 		&log.LogRequest{
