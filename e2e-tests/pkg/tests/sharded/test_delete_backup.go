@@ -37,7 +37,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		}
 		c.BackupWaitDone(bcpName)
 
-		time.Sleep(time.Second * 60)
+		time.Sleep(time.Minute)
 	}
 
 	c.printBcpList()

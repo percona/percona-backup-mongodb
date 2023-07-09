@@ -391,7 +391,7 @@ func getConfigState(ctx context.Context, m *mongo.Client) (map[DBName]configDBSt
 	if err != nil {
 		return nil, errors.WithMessage(err, "get mongo version")
 	}
-	useUUID := ver.Major() >= 5
+	useUUID := ver.Major() >= 5 // since v5.0
 
 	dbs, err := getConfigDatabases(ctx, m)
 	if err != nil {
