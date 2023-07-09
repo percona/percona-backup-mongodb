@@ -135,7 +135,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 
 // Run runs backup.
 // TODO: describe flow
-func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
+func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) error {
 	inf, err := b.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -436,8 +436,8 @@ func Upload(
 	return n, nil
 }
 
-func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) (err error) {
-	err = b.cn.ChangeRSState(bcp, inf.SetName, status, "")
+func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) error {
+	err := b.cn.ChangeRSState(bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -628,9 +628,11 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	}
 }
 
+//nolint:nonamedreturns
 func (b *Backup) waitForFirstLastWrite(bcpName string) (first, last primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:

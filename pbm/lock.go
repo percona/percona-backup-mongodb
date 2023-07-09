@@ -119,7 +119,10 @@ func (l *Lock) Acquire() (bool, error) {
 	return l.try(nil)
 }
 
-func (l *Lock) try(old *LockHeader) (got bool, err error) {
+func (l *Lock) try(old *LockHeader) (bool, error) {
+	var got bool
+	var err error
+
 	if old != nil {
 		got, err = l.rewrite(old)
 	} else {

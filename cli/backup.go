@@ -224,7 +224,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status pbm.Status
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
+func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
@@ -233,6 +233,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 		select {
 		case <-tk.C:
 			fmt.Print(".")
+			var err error
 			bmeta, err = cn.GetBackupMeta(bcpName)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue

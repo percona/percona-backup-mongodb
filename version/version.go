@@ -16,7 +16,6 @@ var (
 	gitCommit string
 	gitBranch string
 	buildTime string
-	goVersion string
 )
 
 type Info struct { //nolint:musttag
@@ -41,18 +40,18 @@ func init() {
 	DefaultInfo = Current()
 }
 
-func Current() (v Info) {
-	v.Version = version
-	v.Platform = platform
-	v.GitCommit = gitCommit
-	v.GitBranch = gitBranch
-	v.BuildTime = buildTime
-	v.GoVersion = goVersion
-
+func Current() Info {
+	v := Info{
+		Version:   version,
+		Platform:  platform,
+		GitCommit: gitCommit,
+		GitBranch: gitBranch,
+		BuildTime: buildTime,
+		GoVersion: runtime.Version(),
+	}
 	if v.Platform == "" {
 		v.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	v.GoVersion = runtime.Version()
 
 	return v
 }

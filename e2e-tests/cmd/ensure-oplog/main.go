@@ -97,9 +97,10 @@ func connTopo(ctx context.Context, uri string) (topo, error) {
 	return topoUnknown, nil
 }
 
-func parseTS(t string) (ts primitive.Timestamp, err error) {
+func parseTS(t string) (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	if len(t) == 0 {
-		return
+		return ts, nil
 	}
 
 	if tt, ii, ok := strings.Cut(t, ","); ok {
@@ -121,6 +122,7 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 	const dateFormat = "2006-01-02"
 
 	var tsto time.Time
+	var err error
 	switch len(t) {
 	case len(datetimeFormat):
 		tsto, err = time.Parse(datetimeFormat, t)

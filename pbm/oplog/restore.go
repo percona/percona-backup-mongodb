@@ -188,10 +188,11 @@ func (o *OplogRestore) SetTimeframe(start, end primitive.Timestamp) {
 }
 
 // Apply applys an oplog from a given source
-func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
+func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
+	var lts primitive.Timestamp
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
 		if rawOplogEntry == nil {
@@ -562,14 +563,14 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 	return &op, nil
 }
 
-func (o *OplogRestore) applyTxn(id string) (err error) {
+func (o *OplogRestore) applyTxn(id string) error {
 	t, ok := o.txnData[id]
 	if !ok {
 		return errors.Errorf("unknown transaction id %s", id)
 	}
 
 	for _, op := range t.applyOps {
-		err = o.handleNonTxnOp(op)
+		err := o.handleNonTxnOp(op)
 		if err != nil {
 			return errors.Wrap(err, "applying transaction op")
 		}
@@ -579,10 +580,12 @@ func (o *OplogRestore) applyTxn(id string) (err error) {
 	return nil
 }
 
+//nolint:nonamedreturns
 func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []pbm.RestoreTxn) {
 	return o.txnData, o.txnCommit.s
 }
 
+//nolint:nonamedreturns
 func (o *OplogRestore) HandleUncommittedTxn(
 	commits map[string]primitive.Timestamp,
 ) (partial, uncommitted []Txn, err error) {

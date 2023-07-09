@@ -41,7 +41,8 @@ func New(pbm *pbm.PBM) *Agent {
 	}
 }
 
-func (a *Agent) AddNode(ctx context.Context, curi string, dumpConns int) (err error) {
+func (a *Agent) AddNode(ctx context.Context, curi string, dumpConns int) error {
+	var err error
 	a.node, err = pbm.NewNode(ctx, curi, dumpConns)
 	return err
 }
@@ -422,12 +423,12 @@ type lockAquireFn func() (bool, error)
 
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (got bool, err error) {
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (bool, error) {
 	if acquireFn == nil {
 		acquireFn = l.Acquire
 	}
 
-	got, err = acquireFn()
+	got, err := acquireFn()
 	if err == nil {
 		return got, nil
 	}
@@ -493,8 +494,7 @@ func (a *Agent) HbStatus() {
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	const checkStoreIn = int(60 / (pbm.AgentsStatCheckRange / time.Second))
-	var cc int
-
+	cc := 0
 	for range tk.C {
 		// don't check if on pause (e.g. physical restore)
 		if !a.HbIsRun() {
@@ -546,33 +546,25 @@ func (a *Agent) HbStatus() {
 	}
 }
 
-func (a *Agent) pbmStatus() (sts pbm.SubsysStatus) {
+func (a *Agent) pbmStatus() pbm.SubsysStatus {
 	err := a.pbm.Conn.Ping(a.pbm.Context(), nil)
 	if err != nil {
-		sts.OK = false
-		sts.Err = err.Error()
-		return
+		return pbm.SubsysStatus{Err: err.Error()}
 	}
 
-	sts.OK = true
-	return
+	return pbm.SubsysStatus{OK: true}
 }
 
-func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
+func (a *Agent) nodeStatus() pbm.SubsysStatus {
 	err := a.node.Session().Ping(a.pbm.Context(), nil)
 	if err != nil {
-		sts.OK = false
-		sts.Err = err.Error()
-		return
+		return pbm.SubsysStatus{Err: err.Error()}
 	}
 
-	sts.OK = true
-	return
+	return pbm.SubsysStatus{OK: true}
 }
 
-func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
-	sts.OK = false
-
+func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) pbm.SubsysStatus {
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	// but if storage was(is) failed, check it always
 	stat, err := a.pbm.GetAgentStatus(a.node.RS(), a.node.Name())
@@ -580,31 +572,27 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.Subs
 		log.Warning("get current storage status: %v", err)
 	}
 	if !forceCheckStorage && stat.StorageStatus.OK {
-
-		sts.OK = true
-		return sts
+		return pbm.SubsysStatus{OK: true}
 	}
 
 	stg, err := a.pbm.GetStorage(log)
 	if err != nil {
-		sts.Err = fmt.Sprintf("unable to get storage: %v", err)
-		return sts
+		return pbm.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
 	_, err = stg.FileStat(pbm.StorInitFile)
 	if errors.Is(err, storage.ErrNotExist) {
 		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
 		if err != nil {
-			sts.Err = fmt.Sprintf("storage: no init file, attempt to create failed: %v", err)
-			return sts
+			return pbm.SubsysStatus{
+				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),
+			}
 		}
 	} else if err != nil {
-		sts.Err = fmt.Sprintf("storage check failed with: %v", err)
-		return sts
+		return pbm.SubsysStatus{Err: fmt.Sprintf("storage check failed with: %v", err)}
 	}
 
-	sts.OK = true
-	return sts
+	return pbm.SubsysStatus{OK: true}
 }
 
 func logHbStatus(name string, st pbm.SubsysStatus, l *log.Event) {

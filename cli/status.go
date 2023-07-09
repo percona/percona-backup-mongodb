@@ -34,7 +34,8 @@ type statusOut struct {
 	pretty bool
 }
 
-func (o statusOut) String() (s string) {
+func (o statusOut) String() string {
+	s := ""
 	for _, sc := range o.data {
 		if sc.Obj != nil {
 			s += sc.String() + "\n"
@@ -69,13 +70,14 @@ func (f statusSect) String() string {
 	return fmt.Sprintf("%s\n%s\n", sprinth(f.longName), f.Obj)
 }
 
-func (o statusOut) set(cn *pbm.PBM, sfilter map[string]bool) (err error) {
+func (o statusOut) set(cn *pbm.PBM, sfilter map[string]bool) error {
 	for _, se := range o.data {
 		if sfilter != nil && !sfilter[se.Name] {
 			se.Obj = nil
 			continue
 		}
 
+		var err error
 		se.Obj, err = se.f(cn)
 		if err != nil {
 			return errors.Wrapf(err, "get status of %s", se.Name)
@@ -176,7 +178,7 @@ type node struct {
 	Errs []string `json:"errors,omitempty"`
 }
 
-func (n node) String() (s string) {
+func (n node) String() string {
 	if n.Role == RoleArbiter {
 		return fmt.Sprintf("%s [!Arbiter]: arbiter node is not supported", n.Host)
 	}
@@ -186,7 +188,7 @@ func (n node) String() (s string) {
 		role = RoleSecondary
 	}
 
-	s += fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
+	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
 	if n.OK {
 		s += " OK"
 		return s
@@ -199,7 +201,8 @@ func (n node) String() (s string) {
 	return s
 }
 
-func (c cluster) String() (s string) {
+func (c cluster) String() string {
+	s := ""
 	for _, rs := range c {
 		s += fmt.Sprintf("%s:\n", rs.Name)
 		for _, n := range rs.Nodes {
@@ -766,11 +769,13 @@ func isValidBaseSnapshot(bcp *pbm.BackupMeta) bool {
 	return false
 }
 
-func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
 	if bcp.Size > 0 {
 		return bcp.Size, nil
 	}
 
+	var s int64
+	var err error
 	switch bcp.Status {
 	case pbm.StatusDone, pbm.StatusCancelled, pbm.StatusError:
 		s, err = getLegacySnapshotSize(bcp, stg)
@@ -783,7 +788,7 @@ func getBackupSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error
 	return s, err
 }
 
-func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
 	switch bcp.Type {
 	case pbm.LogicalBackup:
 		return getLegacyLogicalSize(bcp, stg)
@@ -796,7 +801,8 @@ func getLegacySnapshotSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, e
 	}
 }
 
-func getLegacyPhysSize(rsets []pbm.BackupReplset) (s int64, err error) {
+func getLegacyPhysSize(rsets []pbm.BackupReplset) (int64, error) {
+	var s int64
 	for _, rs := range rsets {
 		for _, f := range rs.Files {
 			s += f.StgSize
@@ -808,7 +814,9 @@ func getLegacyPhysSize(rsets []pbm.BackupReplset) (s int64, err error) {
 
 var errMissedFile = errors.New("missed file")
 
-func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (s int64, err error) {
+func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (int64, error) {
+	var s int64
+	var err error
 	for _, rs := range bcp.Replsets {
 		ds, er := stg.FileStat(rs.DumpName)
 		if er != nil {

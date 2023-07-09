@@ -62,22 +62,23 @@ func tsLocal(ts int64) string {
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
-func (e *Entry) String() (s string) {
+func (e *Entry) String() string {
 	return e.Stringify(tsLocal, false, false)
 }
 
-func (e *Entry) StringNode() (s string) {
+func (e *Entry) StringNode() string {
 	return e.Stringify(tsLocal, true, false)
 }
 
 type tsformatf func(ts int64) string
 
-func (e *Entry) Stringify(f tsformatf, showNode, extr bool) (s string) {
+func (e *Entry) Stringify(f tsformatf, showNode, extr bool) string {
 	node := ""
 	if showNode {
 		node = " [" + e.RS + "/" + e.Node + "]"
 	}
 
+	var s string
 	if e.Event != "" || e.ObjName != "" {
 		id := []string{}
 		if e.Event != "" {
@@ -310,7 +311,8 @@ type Entries struct {
 	loc      *time.Location
 }
 
-func (e *Entries) SetLocation(l string) (err error) {
+func (e *Entries) SetLocation(l string) error {
+	var err error
 	e.loc, err = time.LoadLocation(l)
 	return err
 }
@@ -319,7 +321,7 @@ func (e Entries) MarshalJSON() ([]byte, error) {
 	return json.Marshal(e.Data)
 }
 
-func (e Entries) String() (s string) {
+func (e Entries) String() string {
 	if e.loc == nil {
 		e.loc = time.UTC
 	}
@@ -328,6 +330,7 @@ func (e Entries) String() (s string) {
 		return time.Unix(ts, 0).In(e.loc).Format(time.RFC3339)
 	}
 
+	s := ""
 	for _, entry := range e.Data {
 		s += entry.Stringify(f, e.ShowNode, e.Extr) + "\n"
 	}

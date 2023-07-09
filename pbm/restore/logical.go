@@ -91,8 +91,9 @@ func (r *Restore) exit(err error, l *log.Event) {
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
-func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
+	var err error
+	defer func() { r.exit(err, l) }()
 
 	bcp, err := SnapshotMeta(r.cn, cmd.BackupName, r.stg)
 	if err != nil {
@@ -201,8 +202,9 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 }
 
 // PITR do the Point-in-Time Recovery
-func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) error {
+	var err error
+	defer func() { r.exit(err, l) }()
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
@@ -311,8 +313,9 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err er
 	return r.Done()
 }
 
-func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) error {
+	var err error
+	defer func() { r.exit(err, l) }()
 
 	if err = r.init(cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
@@ -370,9 +373,10 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 	return r.Done()
 }
 
-func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) error {
 	r.log = l
 
+	var err error
 	r.nodeInfo, err = r.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node data")
@@ -480,8 +484,8 @@ func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error)
 	return chunks(r.cn, r.stg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
-func SnapshotMeta(cn *pbm.PBM, backupName string, stg storage.Storage) (bcp *pbm.BackupMeta, err error) {
-	bcp, err = cn.GetBackupMeta(backupName)
+func SnapshotMeta(cn *pbm.PBM, backupName string, stg storage.Storage) (*pbm.BackupMeta, error) {
+	bcp, err := cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		bcp, err = GetMetaFromStore(stg, backupName)
 	}
@@ -532,6 +536,7 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 
 var ErrNoDataForShard = errors.New("no data for shard")
 
+//nolint:nonamedreturns
 func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err error) {
 	mapRS := pbm.MakeRSMapFunc(r.rsMap)
 
@@ -610,9 +615,10 @@ func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	return toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) error {
 	var rdr io.ReadCloser
 
+	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		sr, err := r.stg.SourceReader(dump)
 		if err != nil {
@@ -1014,7 +1020,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader) (err error) {
+func (r *Restore) snapshot(input io.Reader) error {
 	cfg, err := r.cn.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")

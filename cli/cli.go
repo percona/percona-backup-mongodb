@@ -570,7 +570,7 @@ type outMsg struct {
 	Msg string `json:"msg"`
 }
 
-func (m outMsg) String() (s string) {
+func (m outMsg) String() string {
 	return m.Msg
 }
 
@@ -579,7 +579,7 @@ type outCaption struct {
 	v interface{}
 }
 
-func (c outCaption) String() (s string) {
+func (c outCaption) String() string {
 	return fmt.Sprint(c.v)
 }
 

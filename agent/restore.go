@@ -19,7 +19,7 @@ type currentPitr struct {
 	cancel context.CancelFunc
 }
 
-func (a *Agent) setPitr(p *currentPitr) (changed bool) {
+func (a *Agent) setPitr(p *currentPitr) bool {
 	a.mx.Lock()
 	defer a.mx.Unlock()
 	if a.pitrjob != nil {
@@ -84,7 +84,7 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 	}
 }
 
-func (a *Agent) pitr() (err error) {
+func (a *Agent) pitr() error {
 	// pausing for physical restore
 	if !a.HbIsRun() {
 		return nil
@@ -237,7 +237,7 @@ func (a *Agent) pitr() (err error) {
 	return nil
 }
 
-func (a *Agent) pitrLockCheck() (moveOn bool, err error) {
+func (a *Agent) pitrLockCheck() (bool, error) {
 	ts, err := a.pbm.ClusterTime()
 	if err != nil {
 		return false, errors.Wrap(err, "read cluster time")

@@ -232,7 +232,7 @@ func (e restoreFailedError) Is(err error) bool {
 	return ok
 }
 
-func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (name string, typ pbm.BackupType, err error) {
+func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (string, pbm.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", pbm.ExternalBackup, nil
 	}
@@ -388,7 +388,8 @@ func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
 			)), -1)
 }
 
-func parseTS(t string) (ts primitive.Timestamp, err error) {
+func parseTS(t string) (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
 		tt, err := strconv.ParseInt(si[0], 10, 64)
 		if err != nil {

@@ -51,7 +51,7 @@ func (re *RemappingEnvironment) BackupAndRestore(typ pbm.BackupType) {
 	checkData()
 }
 
-func (re *RemappingEnvironment) DataChecker() (check func()) {
+func (re *RemappingEnvironment) DataChecker() func() {
 	hashes1 := make(map[string]map[string]string)
 	for name, s := range re.Donor.shards {
 		h, err := s.DBhashes()

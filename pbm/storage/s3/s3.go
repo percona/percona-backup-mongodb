@@ -455,7 +455,9 @@ func (s *S3) Copy(src, dst string) error {
 	return err
 }
 
-func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
+func (s *S3) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
+
 	headOpts := &s3.HeadObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),

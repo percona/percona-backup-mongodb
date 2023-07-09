@@ -61,7 +61,10 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	}
 }
 
-func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Cursor, err error) {
+func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
+	var cur *mongo.Cursor
+	var err error
+
 	for i := 0; i < retry; i++ {
 		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
 			{{"$backupCursor", bc.opts}},
@@ -84,7 +87,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 	return cur, err
 }
 
-func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err error) {
+func (bc *BackupCursor) Data(ctx context.Context) (*BackupCursorData, error) {
 	cur, err := bc.create(ctx, cursorCreateRetries)
 	if err != nil {
 		return nil, errors.Wrap(err, "create backupCursor")
@@ -489,11 +492,20 @@ func (id *UUID) IsZero() bool {
 // If this is an incremental, NOT base backup, it will skip uploading of
 // unchanged files (Len == 0) but add them to the meta as we need know
 // what files shouldn't be restored (those which isn't in the target backup).
-func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event,
-) (data []pbm.File, err error) {
+func uploadFiles(
+	ctx context.Context,
+	files []pbm.File,
+	subdir,
+	trimPrefix string,
+	incr bool,
+	stg storage.Storage,
+	comprT compress.CompressionType,
+	comprL *int,
+	l *plog.Event,
+) ([]pbm.File, error) {
+	var data []pbm.File
 	if len(files) == 0 {
-		return data, err
+		return nil, nil
 	}
 
 	trim := func(fname string) string {

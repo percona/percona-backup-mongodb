@@ -16,7 +16,7 @@ type currentBackup struct {
 	cancel context.CancelFunc
 }
 
-func (a *Agent) setBcp(b *currentBackup) (changed bool) {
+func (a *Agent) setBcp(b *currentBackup) bool {
 	a.mx.Lock()
 	defer a.mx.Unlock()
 	if a.bcp != nil {
@@ -84,7 +84,6 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	var bcp *backup.Backup
-
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
@@ -255,9 +254,10 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 	return nil
 }
 
-func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, err error) {
+func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (bool, error) {
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
+
 	stop := time.NewTimer(pbm.WaitActionStart)
 	defer stop.Stop()
 

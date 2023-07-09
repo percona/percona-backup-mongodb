@@ -31,8 +31,9 @@ type SubsysStatus struct {
 	Err string `bson:"e"`
 }
 
-func (s *AgentStat) OK() (ok bool, errs []string) {
-	ok = true
+func (s *AgentStat) OK() (bool, []string) {
+	var errs []string
+	ok := true
 	if !s.PBMStatus.OK {
 		ok = false
 		errs = append(errs, fmt.Sprintf("PBM connection: %s", s.PBMStatus.Err))
@@ -73,16 +74,17 @@ func (p *PBM) RemoveAgentStatus(stat AgentStat) error {
 
 // GetAgentStatus returns agent status by given node and rs
 // it's up to user how to handle ErrNoDocuments
-func (p *PBM) GetAgentStatus(rs, node string) (s AgentStat, err error) {
+func (p *PBM) GetAgentStatus(rs, node string) (AgentStat, error) {
 	res := p.Conn.Database(DB).Collection(AgentsStatusCollection).FindOne(
 		p.ctx,
 		bson.D{{"n", node}, {"rs", rs}},
 	)
 	if res.Err() != nil {
-		return s, errors.Wrap(res.Err(), "query mongo")
+		return AgentStat{}, errors.Wrap(res.Err(), "query mongo")
 	}
 
-	err = res.Decode(&s)
+	var s AgentStat
+	err := res.Decode(&s)
 	return s, errors.Wrap(err, "decode")
 }
 

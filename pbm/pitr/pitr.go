@@ -157,9 +157,10 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
-func (s *Slicer) OplogOnlyCatchup() (err error) {
+func (s *Slicer) OplogOnlyCatchup() error {
 	s.l.Debug("start_catchup [oplog only]")
 
+	var err error
 	defer func() {
 		if err == nil {
 			s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
@@ -455,26 +456,31 @@ func formatts(t primitive.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
-func (s *Slicer) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
+func (s *Slicer) getOpLock(l *pbm.LockHeader) (pbm.LockData, error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
+	var lock pbm.LockData
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
-		ld, err = s.pbm.GetLockData(l)
+		var err error
+		lock, err = s.pbm.GetLockData(l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-			return ld, errors.Wrap(err, "get")
+			return lock, errors.Wrap(err, "get")
 		}
-		if ld.Type != pbm.CmdUndefined {
-			return ld, nil
+		if lock.Type != pbm.CmdUndefined {
+			return lock, nil
 		}
 		<-tk.C
 	}
 
-	return ld, nil
+	return lock, nil
 }
 
-func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) {
+func (s *Slicer) backupStartTS(opid string) (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
 	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
 		if err != nil && !errors.Is(err, pbm.ErrNotFound) {

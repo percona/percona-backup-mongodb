@@ -106,6 +106,8 @@ const lowCPU = 8
 
 // Adjust download options. We go from spanSize. But if bufMaxMb is
 // set, it will be a hard limit on total memory.
+//
+//nolint:nonamedreturns
 func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
@@ -377,7 +379,10 @@ func (pr *partReader) worker(buf *arena) {
 	}
 }
 
-func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (r io.ReadCloser, err error) {
+func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (io.ReadCloser, error) {
+	var r io.ReadCloser
+	var err error
+
 	for i := 0; i < retries; i++ {
 		r, err = pr.tryChunk(buf, s, start, end)
 		if err == nil {
@@ -397,11 +402,13 @@ func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries
 	return nil, err
 }
 
-func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (r io.ReadCloser, err error) {
+func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
 	// just quickly retry w/o new session in case of fail.
 	// more sophisticated retry on a caller side.
 	const retry = 2
+	var err error
 	for i := 0; i < retry; i++ {
+		var r io.ReadCloser
 		r, err = pr.getChunk(buf, s, start, end)
 
 		if err == nil || errors.Is(err, io.EOF) {
@@ -579,15 +586,15 @@ type dspan struct {
 	arena *arena // link to the arena
 }
 
-func (s *dspan) Write(p []byte) (n int, err error) {
-	n = copy(s.arena.buf[s.wp:s.high], p)
+func (s *dspan) Write(p []byte) (int, error) {
+	n := copy(s.arena.buf[s.wp:s.high], p)
 
 	s.wp += n
 	return n, nil
 }
 
-func (s *dspan) Read(p []byte) (n int, err error) {
-	n = copy(p, s.arena.buf[s.rp:s.wp])
+func (s *dspan) Read(p []byte) (int, error) {
+	n := copy(p, s.arena.buf[s.rp:s.wp])
 	s.rp += n
 
 	if s.rp == s.wp {

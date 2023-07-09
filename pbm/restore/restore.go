@@ -230,7 +230,9 @@ func GetBaseBackup(
 	bcpName string,
 	tsTo primitive.Timestamp,
 	stg storage.Storage,
-) (bcp *pbm.BackupMeta, err error) {
+) (*pbm.BackupMeta, error) {
+	var bcp *pbm.BackupMeta
+	var err error
 	if bcpName == "" {
 		bcp, err = cn.GetLastBackup(&tsTo)
 		if errors.Is(err, pbm.ErrNotFound) {
@@ -335,6 +337,8 @@ type (
 // messages. So it might happen that one shard committed the txn but another has
 // observed not all prepared messages by the end of the oplog. In such a case we
 // should report it in logs and describe-restore.
+//
+//nolint:nonamedreturns
 func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
 	ic *idx.IndexCatalog, setTxn setcommittedTxnFn, getTxn getcommittedTxnFn, stat *pbm.DistTxnStat,
 	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event,
@@ -423,20 +427,21 @@ func replayChunk(
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
 	c compress.CompressionType,
-) (lts primitive.Timestamp, err error) {
+) (primitive.Timestamp, error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {
+		lts := primitive.Timestamp{}
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
 	oplogReader, err := compress.Decompress(or, c)
 	if err != nil {
+		lts := primitive.Timestamp{}
 		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}
 	defer oplogReader.Close()
 
-	lts, err = oplog.Apply(oplogReader)
-
+	lts, err := oplog.Apply(oplogReader)
 	return lts, errors.Wrap(err, "apply oplog for chunk")
 }

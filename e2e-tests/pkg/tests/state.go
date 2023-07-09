@@ -146,7 +146,8 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 	}
 
 	eg, egc := errgroup.WithContext(ctx)
-	eg.Go(func() (err error) {
+	eg.Go(func() error {
+		var err error
 		rv.Counts, err = countDocuments(egc, mongos)
 		return errors.WithMessage(err, "count documents")
 	})

@@ -73,9 +73,10 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
-func (fs *FS) FileStat(name string) (inf storage.FileInfo, err error) {
-	f, err := os.Stat(path.Join(fs.opts.Path, name))
+func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
 
+	f, err := os.Stat(path.Join(fs.opts.Path, name))
 	if errors.Is(err, os.ErrNotExist) {
 		return inf, storage.ErrNotExist
 	}

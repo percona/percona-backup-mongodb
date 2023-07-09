@@ -182,7 +182,10 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (list backupListOut, err error) {
+func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (backupListOut, error) {
+	var list backupListOut
+	var err error
+
 	list.Snapshots, err = getSnapshotList(cn, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
@@ -200,7 +203,7 @@ func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]str
 	return list, nil
 }
 
-func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapshotStat, err error) {
+func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) ([]snapshotStat, error) {
 	bcps, err := cn.BackupsList(int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
@@ -229,6 +232,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
+	var s []snapshotStat
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
 
@@ -257,7 +261,7 @@ func getPitrList(
 	full,
 	unbacked bool,
 	rsMap map[string]string,
-) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+) ([]pitrRange, map[string][]pitrRange, error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -274,7 +278,7 @@ func getPitrList(
 	}
 
 	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
-	rsRanges = make(map[string][]pitrRange)
+	rsRanges := make(map[string][]pitrRange)
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now)
@@ -305,6 +309,7 @@ func getPitrList(
 		sh[s.RS] = s.RS == inf.SetName
 	}
 
+	ranges := []pitrRange{}
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
 		lastWrite, err := getBaseSnapshotLastWrite(cn, sh, rsMap, tl)
 		if err != nil {

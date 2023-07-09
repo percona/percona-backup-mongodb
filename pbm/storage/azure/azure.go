@@ -49,12 +49,13 @@ type Blob struct {
 	c *azblob.Client
 }
 
-func New(opts Conf, l *log.Event) (b *Blob, err error) {
-	b = &Blob{
+func New(opts Conf, l *log.Event) (*Blob, error) {
+	b := &Blob{
 		opts: opts,
 		log:  l,
 	}
 
+	var err error
 	b.c, err = b.client()
 	if err != nil {
 		return nil, errors.Wrap(err, "init container")
@@ -144,7 +145,9 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, nil
 }
 
-func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
+func (b *Blob) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
+
 	p, err := b.c.ServiceClient().
 		NewContainerClient(b.opts.Container).
 		NewBlockBlobClient(path.Join(b.opts.Prefix, name)).

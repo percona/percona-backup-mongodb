@@ -230,7 +230,7 @@ func (t Timeline) String() string {
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise.
 // `flist` is a cache of chunk sizes.
-func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) ([]Timeline, error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, errors.Wrap(err, "get the oldest chunk")
@@ -248,7 +248,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tline
 }
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
-func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
+func (p *PBM) PITRTimelines() ([]Timeline, error) {
 	shards, err := p.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -273,9 +273,11 @@ func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
 	return MergeTimelines(tlns...), nil
 }
 
-func gettimelines(slices []OplogChunk) (tlines []Timeline) {
+func gettimelines(slices []OplogChunk) []Timeline {
 	var tl Timeline
 	var prevEnd primitive.Timestamp
+	tlines := []Timeline{}
+
 	for _, s := range slices {
 		if prevEnd.T != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
 			tlines = append(tlines, tl)

@@ -354,7 +354,8 @@ func waitMgoShutdown(dbpath string) error {
 //	     │   └── rs.starting
 //
 //nolint:lll
-func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error) {
+func (r *PhysRestore) toState(status pbm.Status) (pbm.Status, error) {
+	var err error
 	defer func() {
 		if err != nil {
 			if r.nodeInfo.IsPrimary && status != pbm.StatusDone {
@@ -487,7 +488,7 @@ func (r *PhysRestore) waitFiles(
 	status pbm.Status,
 	objs map[string]struct{},
 	cluster bool,
-) (retStatus pbm.Status, err error) {
+) (pbm.Status, error) {
 	if len(objs) == 0 {
 		return pbm.StatusError, errors.New("empty objects maps")
 	}
@@ -495,14 +496,14 @@ func (r *PhysRestore) waitFiles(
 	tk := time.NewTicker(time.Second * 5)
 	defer tk.Stop()
 
-	retStatus = status
+	retStatus := status
 
 	var curErr error
 	var haveDone bool
 	for range tk.C {
 		for f := range objs {
 			errFile := f + "." + string(pbm.StatusError)
-			_, err = r.stg.FileStat(errFile)
+			_, err := r.stg.FileStat(errFile)
 			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return pbm.StatusError, errors.Wrapf(err, "get file %s", errFile)
 			}
@@ -526,7 +527,7 @@ func (r *PhysRestore) waitFiles(
 				continue
 			}
 
-			err := r.checkHB(f + "." + syncHbSuffix)
+			err = r.checkHB(f + "." + syncHbSuffix)
 			if err != nil {
 				curErr = errors.Wrapf(err, "check heartbeat in %s.%s", f, syncHbSuffix)
 				if status != pbm.StatusDone {
@@ -577,8 +578,8 @@ func (r *PhysRestore) waitFiles(
 	return pbm.StatusError, storage.ErrNotExist
 }
 
-func checkFile(f string, stg storage.Storage) (ok bool, err error) {
-	_, err = stg.FileStat(f)
+func checkFile(f string, stg storage.Storage) (bool, error) {
+	_, err := stg.FileStat(f)
 
 	if err == nil {
 		return true, nil
@@ -612,7 +613,7 @@ type logBuff struct {
 	mx    sync.Mutex
 }
 
-func (l *logBuff) Write(p []byte) (n int, err error) {
+func (l *logBuff) Write(p []byte) (int, error) {
 	l.mx.Lock()
 	defer l.mx.Unlock()
 	if l.buf.Len()+len(p) > int(l.limit) {
@@ -678,7 +679,7 @@ func (r *PhysRestore) Snapshot(
 	l *log.Event,
 	stopAgentC chan<- struct{},
 	pauseHB func(),
-) (err error) {
+) error {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -695,6 +696,7 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	var progress nodeStatus
+	var err error
 	defer func() {
 		// set failed status of node on error, but
 		// don't mark node as failed after the local restore succeed
@@ -1026,7 +1028,8 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
+func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
+	var stat *s3.DownloadStat
 	readFn := r.stg.SourceReader
 	if t, ok := r.stg.(*s3.S3); ok {
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
@@ -1512,7 +1515,8 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 // pick the oldest ts and put it as the reples ts. And the cluster will
 // pick the oldest ts proposed by replsets. All comms done via storage. Similar
 // to the restore states with proposed ts in *.lastTS files.
-func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error) {
+func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	cts, err := r.getLasOpTime()
 	if err != nil {
 		return ts, errors.Wrap(err, "define last op time")
@@ -1622,7 +1626,7 @@ func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) 
 // Tries to connect to mongo n times, timeout is applied for each try.
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
-func tryConn(port int, logpath string) (cn *mongo.Client, err error) {
+func tryConn(port int, logpath string) (*mongo.Client, error) {
 	type mlog struct {
 		T struct {
 			Date string `json:"$date"`
@@ -1630,6 +1634,9 @@ func tryConn(port int, logpath string) (cn *mongo.Client, err error) {
 		S   string `json:"s"`
 		Msg string `json:"msg"`
 	}
+
+	var cn *mongo.Client
+	var err error
 	for i := 0; i < tryConnCount; i++ {
 		cn, err = conn(port, tryConnTimeout)
 		if err == nil {
@@ -1729,9 +1736,8 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 
 const hbFrameSec = 60 * 2
 
-func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
-	var cfg pbm.Config
-	cfg, err = r.cn.GetConfig()
+func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) error {
+	cfg, err := r.cn.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get pbm config")
 	}
@@ -1879,7 +1885,7 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
-func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
+func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) error {
 	opts := new(pbm.MongodOpts)
 	opts.Storage = *pbm.NewMongodOptsStorage()
 	if xopts != nil {
@@ -1901,6 +1907,7 @@ func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 	opts.Storage.DBpath = r.dbpath
 	opts.Security = r.secOpts
 
+	var err error
 	r.tmpConf, err = os.CreateTemp("", "pbmMongdTmpConf")
 	if err != nil {
 		return errors.Wrap(err, "create tmp config")
@@ -1937,7 +1944,7 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
-func (r *PhysRestore) setBcpFiles() (err error) {
+func (r *PhysRestore) setBcpFiles() error {
 	bcp := r.bcp
 
 	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
@@ -1980,6 +1987,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		}
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
+		var err error
 		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
@@ -2028,13 +2036,14 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 // always in the dbpath root and doesn't contain subdirs, only files. Having
 // a leading `/` indicates that restore was affected by PBM-1058 but only
 // with journal files we may detect the exact prefix.
-func findDBpath(fname string) (is bool, prefix string) {
+func findDBpath(fname string) (bool, string) {
 	if !strings.HasPrefix(fname, "/") {
 		return false, ""
 	}
 
-	is = true
+	is := true
 	d, _ := path.Split(fname)
+	prefix := ""
 	if strings.HasSuffix(d, "/journal/") {
 		prefix = path.Dir(d[0 : len(d)-1])
 	}
@@ -2054,7 +2063,8 @@ func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
 	return nil
 }
 
-func (r *PhysRestore) prepareBackup(backupName string) (err error) {
+func (r *PhysRestore) prepareBackup(backupName string) error {
+	var err error
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		r.bcp, err = GetMetaFromStore(r.stg, backupName)
@@ -2144,6 +2154,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 // ensure mongod for internal restarts is available and matches
 // the backup's version
+//
+//nolint:nonamedreturns
 func (r *PhysRestore) checkMongod(needVersion string) (version string, err error) {
 	cmd := exec.Command(r.mongod, "--version")
 

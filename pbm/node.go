@@ -269,8 +269,10 @@ func DropTMPcoll(ctx context.Context, cn *mongo.Client) error {
 	return nil
 }
 
-func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
+func (n *Node) WaitForWrite(ts primitive.Timestamp) error {
 	var lw primitive.Timestamp
+	var err error
+
 	for i := 0; i < 21; i++ {
 		lw, err = LastWrite(n.cn, false)
 		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
@@ -334,6 +336,7 @@ func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
 	return primitive.Timestamp{T: t, I: i}, nil
 }
 
+//nolint:nonamedreturns
 func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	cn, err := n.connect(false)
 	if err != nil {

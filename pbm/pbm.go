@@ -1086,13 +1086,14 @@ func (e Epoch) TS() primitive.Timestamp {
 }
 
 // CopyColl copy documents matching the given filter and return number of copied documents
-func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{}) (n int, err error) {
+func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{}) (int, error) {
 	cur, err := from.Find(ctx, filter)
 	if err != nil {
 		return 0, errors.Wrap(err, "create cursor")
 	}
 	defer cur.Close(ctx)
 
+	n := 0
 	for cur.Next(ctx) {
 		_, err = to.InsertOne(ctx, cur.Current)
 		if err != nil {

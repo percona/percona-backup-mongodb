@@ -373,7 +373,7 @@ func (c *Cluster) SetBallastData(amount int64) {
 	log.Println("ballast data:", cnt)
 }
 
-func (c *Cluster) DataChecker() (check func()) {
+func (c *Cluster) DataChecker() func() {
 	hashes1 := make(map[string]map[string]string)
 	for name, s := range c.shards {
 		h, err := s.DBhashes()
