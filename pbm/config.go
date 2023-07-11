@@ -472,7 +472,7 @@ func Storage(c Config, l *log.Event) (storage.Storage, error) {
 	case storage.Azure:
 		return azure.New(c.Storage.Azure, l)
 	case storage.Filesystem:
-		return fs.New(c.Storage.Filesystem), nil
+		return fs.New(c.Storage.Filesystem)
 	case storage.BlackHole:
 		return blackhole.New(), nil
 	case storage.Undef:
