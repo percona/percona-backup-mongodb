@@ -29,6 +29,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"GCS", "/etc/pbm/gcs.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
+		{"WebDAV", "/etc/pbm/webdav.yaml"},
 	}
 
 	rand.Seed(time.Now().UnixNano())

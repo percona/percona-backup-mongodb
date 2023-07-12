@@ -16,3 +16,21 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+
+  lighttpd:
+      image: alpine:latest
+      hostname: lighttpd
+      volumes:
+        - backups:/backups
+        - ./conf/webdav/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
+        - ./conf/webdav/lighttpd-users:/etc/lighttpd/lighttpd-users:ro
+      working_dir: /etc/lighttpd
+      command:
+        - sh
+        - -ceu
+        - |
+           apk add --no-cache lighttpd lighttpd-mod_auth lighttpd-mod_webdav
+           exec lighttpd -D -f lighttpd.conf
+
+volumes:
+    backups: null

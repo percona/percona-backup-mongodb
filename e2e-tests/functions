@@ -170,7 +170,7 @@ start_cluster() {
     export MONGODB_VERSION=${mongo_version:-"4.2"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
-            cfg01 cfg02 cfg03 rs101 rs102 rs103 rs201 rs202 rs203 mongos minio create-minio-bucket
+            cfg01 cfg02 cfg03 rs101 rs102 rs103 rs201 rs202 rs203 mongos minio create-minio-bucket lighttpd
     sleep 25
     docker-compose -f $COMPOSE_PATH ps
     export COMPOSE_INTERACTIVE_NO_CLI=1
@@ -188,13 +188,13 @@ start_replset() {
     local mongo_version=$1
     local compose=$2
 
-    local nodes="rs101 rs102 rs103 minio create-minio-bucket"
+    local nodes="rs101 rs102 rs103 minio create-minio-bucket lighttpd"
     local agents="agent-rs101 agent-rs102 agent-rs103"
     if [ $compose == $COMPOSE_SINGLE_PATH ]; then
-        local nodes="rs101 minio create-minio-bucket"
+        local nodes="rs101 minio create-minio-bucket lighttpd"
         local agents="agent-rs101"
     elif [ $compose == $COMPOSE_REMAPPING_PATH ]; then
-        local nodes="rs101 rs201 minio create-minio-bucket"
+        local nodes="rs101 rs201 minio create-minio-bucket lighttpd"
         local agents="agent-rs101 agent-rs201"
     fi
 

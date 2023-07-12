@@ -162,6 +162,11 @@ services:
           file: docker-compose-common.yaml
           service: create-minio-bucket
 
+  lighttpd:
+      extends:
+          file: docker-compose-common.yaml
+          service: lighttpd
+
 volumes:
   backups: null
   data-rs101: null

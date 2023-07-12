@@ -1,0 +1,8 @@
+storage:
+  type: webdav
+  webdav:
+    serverUrl: http://lighttpd:80/
+    prefix: pbme2etest
+    credentials:
+      username: "username"
+      password: "password"
