@@ -86,7 +86,7 @@ func (c *Cluster) ApplyConfig(file string) {
 	err := c.pbm.ApplyConfig(file)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
-		log.Fatalf("apply config: %v\nconatiner logs: %s\n", err, l)
+		log.Fatalf("apply config: %v\ncontainer logs: %s\n", err, l)
 	}
 
 	log.Println("waiting for the new storage to resync")
@@ -341,7 +341,7 @@ func (c *Cluster) backup(typ pbmt.BackupType, opts ...string) string {
 	bcpName, err := c.pbm.Backup(typ, opts...)
 	if err != nil {
 		l, _ := c.pbm.ContainerLogs()
-		log.Fatalf("starting backup: %v\nconatiner logs: %s\n", err, l)
+		log.Fatalf("starting backup: %v\ncontainer logs: %s\n", err, l)
 	}
 	log.Printf("backup started '%s'\n", bcpName)
 
