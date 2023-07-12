@@ -63,22 +63,15 @@ services:
       - NET_ADMIN
 
   minio:
-    image: minio/minio:RELEASE.2022-08-08T18-34-09Z
-    hostname: minio
-    # ports:
-    #   - "9000:9000"
-    volumes:
-      - backups:/backups
-    environment:
-      - "MINIO_ACCESS_KEY=minio1234"
-      - "MINIO_SECRET_KEY=minio1234"
-    command: server /backups
-  createbucket:
-    image: minio/mc
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+      extends:
+          file: docker-compose-common.yaml
+          service: minio
+
+  create-minio-bucket:
+      extends:
+          file: docker-compose-common.yaml
+          service: create-minio-bucket
+
 volumes:
   backups: null
   data-rs101: null
