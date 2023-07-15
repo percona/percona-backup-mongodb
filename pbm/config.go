@@ -344,7 +344,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "lookup in document")
 	}
-	//nolint:exhaustive
+
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil

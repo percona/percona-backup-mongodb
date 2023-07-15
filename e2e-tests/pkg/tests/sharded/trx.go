@@ -13,7 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 const trxdb = "trx"
@@ -399,7 +399,7 @@ func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
 
 func (c *Cluster) checkTrxDoc(ctx context.Context, col string, id, expect int) {
 	log.Println("\tcheck", id, expect)
-	r1 := pbm.TestData{}
+	r1 := pbmt.TestData{}
 	err := c.mongos.Conn().Database(trxdb).Collection(col).
 		FindOne(ctx, bson.M{"idx": id}).
 		Decode(&r1)

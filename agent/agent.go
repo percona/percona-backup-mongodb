@@ -394,7 +394,7 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	defer func() {
-		if err = lock.Release(); err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("reslase lock %v: %v", lock, err)
 		}
 	}()

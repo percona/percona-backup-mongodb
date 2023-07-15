@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 )
 
 type listOpts struct {
@@ -51,14 +52,18 @@ func (r restoreListOut) String() string {
 
 		switch v.Type {
 		case restoreSnapshot:
-			name = fmt.Sprintf("%s [backup: %s]", v.Name, restoreTaggedType(&v))
+			t := string(v.Type)
+			if sel.IsSelective(v.Namespaces) {
+				t += ", selective"
+			}
+			name = fmt.Sprintf("%s [backup: %s]", v.Name, t)
 		case restoreReplay:
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
 		default:
 			n := time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
-			if len(v.Namespaces) != 0 {
+			if sel.IsSelective(v.Namespaces) {
 				n = ", selective"
 			}
 			name = fmt.Sprintf("PITR: %s [restore time: %s]", v.Name, n)
@@ -153,8 +158,13 @@ func (bl backupListOut) String() string {
 	})
 	for i := range bl.Snapshots {
 		b := &bl.Snapshots[i]
-		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n",
-			b.Name, snapshotTaggedType(b), fmtTS(int64(b.RestoreTS)))
+		t := string(b.Type)
+		if sel.IsSelective(b.Namespaces) {
+			t += ", selective"
+		} else if b.Type == pbm.IncrementalBackup && b.SrcBackup == "" {
+			t += ", base"
+		}
+		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, t, fmtTS(int64(b.RestoreTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -393,13 +403,4 @@ func splitByBaseSnapshot(lastWrite primitive.Timestamp, tl pbm.Timeline) []pitrR
 	}
 
 	return ranges
-}
-
-func restoreTaggedType(ss *restoreStatus) string {
-	t := string(ss.Type)
-	if len(ss.Namespaces) != 0 {
-		t += ", selective"
-	}
-
-	return t
 }

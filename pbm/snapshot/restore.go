@@ -115,6 +115,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 
 func (r *restorer) ReadFrom(from io.Reader) (int64, error) {
 	defer r.Close()
+
 	r.InputReader = from
 
 	rdumpResult := r.Restore()

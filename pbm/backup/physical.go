@@ -130,6 +130,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	go func() {
 		tk := time.NewTicker(time.Minute * 1)
 		defer tk.Stop()
+
 		for {
 			select {
 			case <-bc.close:
@@ -296,10 +297,11 @@ func (b *Backup) doPhysical(
 
 	data := bcur.Data
 	stgb, err := getStorageBSON(bcur.Meta.DBpath)
-	if err != nil && !errors.Is(err, storage.ErrNotExist) {
-		return errors.Wrap(err, "check storage.bson file")
-	}
-	if stgb != nil {
+	if err != nil {
+		if !errors.Is(err, storage.ErrNotExist) {
+			return errors.Wrap(err, "check storage.bson file")
+		}
+	} else {
 		data = append(data, *stgb)
 	}
 

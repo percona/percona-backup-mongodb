@@ -11,20 +11,20 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type Cluster struct {
 	ctx context.Context
 
-	pbm    *pbm.Ctl
-	docker *pbm.Docker
+	pbm    *pbmt.Ctl
+	docker *pbmt.Docker
 
-	mongos   *pbm.Mongo
-	shards   map[string]*pbm.Mongo
-	mongopbm *pbm.MongoPBM
+	mongos   *pbmt.Mongo
+	shards   map[string]*pbmt.Mongo
+	mongopbm *pbmt.MongoPBM
 	confsrv  string
 
 	cfg ClusterConf
@@ -45,7 +45,7 @@ func New(cfg ClusterConf) *Cluster {
 		ctx:      ctx,
 		mongos:   mgoConn(ctx, cfg.Mongos),
 		mongopbm: pbmConn(ctx, cfg.Configsrv),
-		shards:   make(map[string]*pbm.Mongo),
+		shards:   make(map[string]*pbmt.Mongo),
 		confsrv:  cfg.ConfigsrvRsName,
 		cfg:      cfg,
 	}
@@ -53,7 +53,7 @@ func New(cfg ClusterConf) *Cluster {
 		c.shards[name] = mgoConn(ctx, uri)
 	}
 
-	pbmObj, err := pbm.NewCtl(c.ctx, cfg.DockerSocket, cfg.PbmContainer)
+	pbmObj, err := pbmt.NewCtl(c.ctx, cfg.DockerSocket, cfg.PbmContainer)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}
@@ -61,7 +61,7 @@ func New(cfg ClusterConf) *Cluster {
 
 	c.pbm = pbmObj
 
-	c.docker, err = pbm.NewDocker(c.ctx, cfg.DockerSocket)
+	c.docker, err = pbmt.NewDocker(c.ctx, cfg.DockerSocket)
 	if err != nil {
 		log.Fatalln("connect to docker:", err)
 	}
@@ -89,8 +89,8 @@ func (c *Cluster) ApplyConfig(file string) {
 	}
 
 	log.Println("waiting for the new storage to resync")
-	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
-		Type: pbmt.CmdResync,
+	err = c.mongopbm.WaitOp(&pbm.LockHeader{
+		Type: pbm.CmdResync,
 	},
 		time.Minute*5,
 	)
@@ -201,8 +201,8 @@ func (c *Cluster) PhysicalRestoreWithParams(bcpName string, options []string) {
 
 	c.Reconnect()
 
-	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
-		Type: pbmt.CmdResync,
+	err = c.mongopbm.WaitOp(&pbm.LockHeader{
+		Type: pbm.CmdResync,
 	},
 		time.Minute*5,
 	)
@@ -221,7 +221,7 @@ func (c *Cluster) waitPhyRestore(name string, waitFor time.Duration) error {
 		return errors.Wrap(err, "get storage")
 	}
 
-	fname := fmt.Sprintf("%s/%s.json", pbmt.PhysRestoresDir, name)
+	fname := fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, name)
 	log.Println("checking", fname)
 
 	tmr := time.NewTimer(waitFor)
@@ -236,7 +236,7 @@ func (c *Cluster) waitPhyRestore(name string, waitFor time.Duration) error {
 			return errors.Errorf("timeout reached. status:\n%s", list)
 		case <-tkr.C:
 			rmeta, err := getRestoreMetaStg(fname, stg)
-			if errors.Is(err, pbmt.ErrNotFound) {
+			if errors.Is(err, pbm.ErrNotFound) {
 				continue
 			}
 			if err != nil {
@@ -244,19 +244,19 @@ func (c *Cluster) waitPhyRestore(name string, waitFor time.Duration) error {
 			}
 
 			switch rmeta.Status {
-			case pbmt.StatusDone:
+			case pbm.StatusDone:
 				return nil
-			case pbmt.StatusError:
+			case pbm.StatusError:
 				return errors.Errorf("restore failed with: %s", rmeta.Error)
 			}
 		}
 	}
 }
 
-func getRestoreMetaStg(name string, stg storage.Storage) (*pbmt.RestoreMeta, error) {
+func getRestoreMetaStg(name string, stg storage.Storage) (*pbm.RestoreMeta, error) {
 	_, err := stg.FileStat(name)
 	if errors.Is(err, storage.ErrNotExist) {
-		return nil, pbmt.ErrNotFound
+		return nil, pbm.ErrNotFound
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "get stat")
@@ -267,7 +267,7 @@ func getRestoreMetaStg(name string, stg storage.Storage) (*pbmt.RestoreMeta, err
 		return nil, errors.Wrapf(err, "get file %s", name)
 	}
 
-	rmeta := new(pbmt.RestoreMeta)
+	rmeta := new(pbm.RestoreMeta)
 	err = json.NewDecoder(src).Decode(rmeta)
 	if err != nil {
 		return nil, errors.Wrapf(err, "decode meta %s", name)
@@ -311,11 +311,11 @@ func (c *Cluster) PITRestore(t time.Time) {
 }
 
 func (c *Cluster) LogicalBackup() string {
-	return c.backup(pbmt.LogicalBackup)
+	return c.backup(pbm.LogicalBackup)
 }
 
 func (c *Cluster) PhysicalBackup() string {
-	return c.backup(pbmt.PhysicalBackup)
+	return c.backup(pbm.PhysicalBackup)
 }
 
 func (c *Cluster) ReplayOplog(a, b time.Time) {
@@ -334,7 +334,7 @@ func (c *Cluster) ReplayOplog(a, b time.Time) {
 	log.Printf("replay oplog from %v to %v finished", a, b)
 }
 
-func (c *Cluster) backup(typ pbmt.BackupType, opts ...string) string {
+func (c *Cluster) backup(typ pbm.BackupType, opts ...string) string {
 	log.Println("starting backup")
 	bcpName, err := c.pbm.Backup(typ, opts...)
 	if err != nil {
@@ -356,7 +356,7 @@ func (c *Cluster) BackupWaitDone(bcpName string) {
 
 	// locks being released NOT immediately after the backup succeed
 	// see https://github.com/percona/percona-backup-mongodb/blob/v1.1.3/agent/agent.go#L128-L143
-	needToWait := pbmt.WaitBackupStart + time.Second - time.Since(ts)
+	needToWait := pbm.WaitBackupStart + time.Second - time.Since(ts)
 	if needToWait > 0 {
 		log.Printf("waiting for the lock to be released for %s", needToWait)
 		time.Sleep(needToWait)
@@ -402,12 +402,12 @@ func (c *Cluster) DataChecker() func() {
 // Flush removes all backups, restores and PITR chunks metadata from the PBM db
 func (c *Cluster) Flush() error {
 	cols := []string{
-		pbmt.BcpCollection,
-		pbmt.PITRChunksCollection,
-		pbmt.RestoresCollection,
+		pbm.BcpCollection,
+		pbm.PITRChunksCollection,
+		pbm.RestoresCollection,
 	}
 	for _, cl := range cols {
-		_, err := c.mongopbm.Conn().Database(pbmt.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
+		_, err := c.mongopbm.Conn().Database(pbm.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
 		if err != nil {
 			return errors.Wrapf(err, "delete many from %s", cl)
 		}
@@ -450,26 +450,26 @@ func (c *Cluster) checkBackup(bcpName string, waitFor time.Duration) error {
 			return errors.Errorf("timeout reached. pbm status:\n%s", sts)
 		case <-tkr.C:
 			m, err := c.mongopbm.GetBackupMeta(bcpName)
-			if errors.Is(err, pbmt.ErrNotFound) {
+			if errors.Is(err, pbm.ErrNotFound) {
 				continue
 			}
 			if err != nil {
 				return errors.Wrap(err, "get backup meta")
 			}
 			switch m.Status {
-			case pbmt.StatusDone:
+			case pbm.StatusDone:
 				// to be sure the lock is released
 				time.Sleep(time.Second * 3)
 				return nil
-			case pbmt.StatusError:
+			case pbm.StatusError:
 				return m.Error()
 			}
 		}
 	}
 }
 
-func mgoConn(ctx context.Context, uri string) *pbm.Mongo {
-	m, err := pbm.NewMongo(ctx, uri)
+func mgoConn(ctx context.Context, uri string) *pbmt.Mongo {
+	m, err := pbmt.NewMongo(ctx, uri)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}
@@ -477,8 +477,8 @@ func mgoConn(ctx context.Context, uri string) *pbm.Mongo {
 	return m
 }
 
-func pbmConn(ctx context.Context, uri string) *pbm.MongoPBM {
-	m, err := pbm.NewMongoPBM(ctx, uri)
+func pbmConn(ctx context.Context, uri string) *pbmt.MongoPBM {
+	m, err := pbmt.NewMongoPBM(ctx, uri)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}

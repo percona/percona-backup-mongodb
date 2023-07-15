@@ -194,13 +194,16 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	if inf.IsLeader() {
 		hbstop := make(chan struct{})
 		defer close(hbstop)
+
 		err := b.cn.BackupHB(bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
+
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()
+
 			for {
 				select {
 				case <-tk.C:
@@ -219,6 +222,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
+
 			l.Debug("waiting for balancer off")
 			bs := waitForBalancerOff(b.cn, time.Second*30, l)
 			l.Debug("balancer status: %s", bs)
@@ -291,11 +295,13 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
+
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
 
 	var bs *pbm.BalancerStatus
 	var err error
+
 Loop:
 	for {
 		select {
@@ -312,6 +318,7 @@ Loop:
 			break Loop
 		}
 	}
+
 	if bs != nil {
 		return pbm.BalancerMode("")
 	}
@@ -470,6 +477,7 @@ func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeou
 func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -499,8 +507,10 @@ func (b *Backup) convergeClusterWithTimeout(
 ) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	tout := time.NewTicker(t)
 	defer tout.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -581,10 +591,13 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	if waitFor != nil {
 		tmr := time.NewTimer(*waitFor)
 		defer tmr.Stop()
+
 		tout = tmr.C
 	}
+
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:

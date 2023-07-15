@@ -9,9 +9,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 func (c *Cluster) PITRbasic() {
@@ -107,8 +107,8 @@ func (c *Cluster) pitrOff() {
 	}
 	log.Println("Turning pitr off")
 	log.Println("waiting for the pitr to stop")
-	err = c.mongopbm.WaitOp(&pbmt.LockHeader{
-		Type: pbmt.CmdPITR,
+	err = c.mongopbm.WaitOp(&pbm.LockHeader{
+		Type: pbm.CmdPITR,
 	},
 		time.Minute*5,
 	)
@@ -120,13 +120,13 @@ func (c *Cluster) pitrOff() {
 
 type pcounter struct {
 	mx    sync.Mutex
-	data  []pbm.Counter
-	curr  *pbm.Counter
+	data  []pbmt.Counter
+	curr  *pbmt.Counter
 	shard string
-	cn    *pbm.Mongo
+	cn    *pbmt.Mongo
 }
 
-func newpcounter(shard string, cn *pbm.Mongo) *pcounter {
+func newpcounter(shard string, cn *pbmt.Mongo) *pcounter {
 	return &pcounter{
 		shard: shard,
 		cn:    cn,
@@ -159,13 +159,13 @@ func (pc *pcounter) write(ctx context.Context, t time.Duration) {
 	}
 }
 
-func (pc *pcounter) current() *pbm.Counter {
+func (pc *pcounter) current() *pbmt.Counter {
 	pc.mx.Lock()
 	defer pc.mx.Unlock()
 	return pc.curr
 }
 
-func (c *Cluster) pitrcCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp) {
+func (c *Cluster) pitrcCheck(name string, shard *pbmt.Mongo, data *[]pbmt.Counter, bcpLastWrite primitive.Timestamp) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()
 	if err != nil {
@@ -173,7 +173,7 @@ func (c *Cluster) pitrcCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter,
 	}
 
 	log.Println(name, "checking restored counters")
-	var lastc pbm.Counter
+	var lastc pbmt.Counter
 	for i, d := range *data {
 		// if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
 		if d.WriteTime.T <= bcpLastWrite.T {

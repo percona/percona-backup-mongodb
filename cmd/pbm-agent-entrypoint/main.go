@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"log"
 	"os"
 	"os/exec"
@@ -80,9 +79,8 @@ func main() {
 
 		err = cmd.Wait()
 		if err != nil {
-			var errExit *exec.ExitError
-			if errors.As(err, &errExit) {
-				exitCode = errExit.ExitCode()
+			if exErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exErr.ExitCode()
 			}
 		}
 		if !isSidecar {

@@ -51,6 +51,7 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
 	defer fw.Close()
+
 	err = os.Chmod(filepath, 0o644)
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)

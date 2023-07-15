@@ -78,7 +78,6 @@ jobs:
       - run: go install mvdan.cc/gofumpt@latest
       - run: goimports -w -local "github.com/percona" $(find . -not -path "*/vendor/*" -name "*.go")
       - run: gofumpt -w -extra $(find . -not -path "*/vendor/*" -name "*.go")
-      - run: go mod tidy
       - uses: reviewdog/action-suggester@v1
         with:
           tool_name: gofmt

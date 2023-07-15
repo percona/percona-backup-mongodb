@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 type Backuper interface {
@@ -77,7 +77,7 @@ func (p *Pitr) Backup() {
 	log.Printf("PITR slicing for %v", ds)
 	time.Sleep(ds)
 
-	var cn *pbm.Mongo
+	var cn *pbmt.Mongo
 	for _, cn = range p.c.shards {
 		break
 	}

@@ -413,6 +413,7 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) error {
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()
+
 			for {
 				select {
 				case <-tk.C:
@@ -1094,6 +1095,7 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		return errors.Wrap(err, "create cursor for tmpRoles")
 	}
 	defer curr.Close(ctx)
+
 	_, err = rolesC.DeleteMany(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
 	if err != nil {
 		return errors.Wrap(err, "delete current roles")

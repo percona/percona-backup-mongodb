@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 func (c *Cluster) Timeseries() {
@@ -87,7 +87,7 @@ type ts struct {
 	cnt  uint64
 	done chan struct{}
 
-	m *pbm.Mongo
+	m *pbmt.Mongo
 }
 
 func (c *Cluster) newTS(col string) (*ts, error) {

@@ -302,8 +302,8 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 			if lock == nil {
 				return
 			}
-			err := lock.Release()
-			if err != nil {
+
+			if err := lock.Release(); err != nil {
 				l.Error("release lock: %v", err)
 			}
 		}()

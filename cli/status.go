@@ -553,8 +553,13 @@ func (s storageStat) String() string {
 			status = fmt.Sprintf("[running: %s / %s]", ss.Status, fmtTS(ss.RestoreTS))
 		}
 
-		ret += fmt.Sprintf("    %s %s <%s> %s\n",
-			ss.Name, fmtSize(ss.Size), snapshotTaggedType(ss), status)
+		t := string(ss.Type)
+		if sel.IsSelective(ss.Namespaces) {
+			t += ", selective"
+		} else if ss.Type == pbm.IncrementalBackup && ss.SrcBackup == "" {
+			t += ", base"
+		}
+		ret += fmt.Sprintf("    %s %s <%s> %s\n", ss.Name, fmtSize(ss.Size), t, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -757,8 +762,7 @@ func isValidBaseSnapshot(bcp *pbm.BackupMeta) bool {
 	}
 
 	switch {
-	case errors.Is(err, missedReplsetsError{}),
-		errors.Is(err, incompatibleFCVVersionError{}):
+	case errors.Is(err, missedReplsetsError{}), errors.Is(err, incompatibleFCVVersionError{}):
 		return true
 	case errors.Is(err, incompatibleMongodVersionError{}):
 		if bcp.Type == pbm.LogicalBackup {
@@ -840,26 +844,4 @@ func getLegacyLogicalSize(bcp *pbm.BackupMeta, stg storage.Storage) (int64, erro
 	}
 
 	return s, err
-}
-
-func bcpTaggedType(bcp *pbm.BackupMeta) string {
-	t := string(bcp.Type)
-	if sel.IsSelective(bcp.Namespaces) {
-		t += ", selective"
-	} else if bcp.Type == pbm.IncrementalBackup && bcp.SrcBackup == "" {
-		t += ", base"
-	}
-
-	return t
-}
-
-func snapshotTaggedType(ss *snapshotStat) string {
-	t := string(ss.Type)
-	if len(ss.Namespaces) != 0 {
-		t += ", selective"
-	} else if ss.Type == pbm.IncrementalBackup && ss.SrcBackup == "" {
-		t += ", base"
-	}
-
-	return t
 }

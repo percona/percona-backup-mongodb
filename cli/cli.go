@@ -430,16 +430,13 @@ func exitErr(e error, f outFormat) {
 		if _, ok := e.(json.Marshaler); !ok { //nolint:errorlint
 			m = map[string]string{"Error": e.Error()}
 		}
-		var err error
+
+		j := json.NewEncoder(os.Stdout)
 		if f == outJSONpretty {
-			j := json.NewEncoder(os.Stdout)
 			j.SetIndent("", "    ")
-			err = j.Encode(m)
-		} else {
-			err = json.NewEncoder(os.Stdout).Encode(m)
 		}
 
-		if err != nil {
+		if err := j.Encode(m); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: encoding error \"%v\": %v", m, err)
 		}
 	default:

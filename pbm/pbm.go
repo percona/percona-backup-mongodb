@@ -864,7 +864,6 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	backups := []BackupMeta{}
@@ -897,7 +896,6 @@ func (p *PBM) BackupsDoneList(after *primitive.Timestamp, limit int64, order int
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	backups := []BackupMeta{}
@@ -944,7 +942,6 @@ func (p *PBM) GetShards() ([]Shard, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	shards := []Shard{}

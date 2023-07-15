@@ -366,7 +366,6 @@ func (p *PBM) RestoresList(limit int64) ([]RestoreMeta, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	restores := []RestoreMeta{}

@@ -285,6 +285,7 @@ func (r *PhysRestore) flush() error {
 func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
 	for range tk.C {
 		f, err := os.Stat(path.Join(dbpath, mongofslock))
 		if err != nil {
@@ -615,6 +616,7 @@ type logBuff struct {
 func (l *logBuff) Write(p []byte) (int, error) {
 	l.mx.Lock()
 	defer l.mx.Unlock()
+
 	if l.buf.Len()+len(p) > int(l.limit) {
 		err := l.flush()
 		if err != nil {
@@ -640,6 +642,7 @@ func (l *logBuff) flush() error {
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
 	defer l.mx.Unlock()
+
 	return l.flush()
 }
 
@@ -1034,9 +1037,11 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	if t, ok := r.stg.(*s3.S3); ok {
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
+
 		defer func() {
 			s := d.Stat()
 			stat = &s
+
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
@@ -1085,16 +1090,19 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
 			}
 			defer fw.Close()
+
 			if f.Off != 0 {
 				_, err := fw.Seek(f.Off, io.SeekStart)
 				if err != nil {
 					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
 				}
 			}
+
 			_, err = io.CopyBuffer(fw, data, cpbuf)
 			if err != nil {
 				return stat, errors.Wrapf(err, "copy file <%s>", dst)
 			}
+
 			if f.Size != 0 {
 				err = fw.Truncate(f.Size)
 				if err != nil {
@@ -1805,6 +1813,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) error {
 			tk.Stop()
 			l.Debug("hearbeats stopped")
 		}()
+
 		for {
 			select {
 			case <-tk.C:

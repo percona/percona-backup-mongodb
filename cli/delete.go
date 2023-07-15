@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 )
 
 type deleteBcpOpts struct {
@@ -22,7 +23,7 @@ type deleteBcpOpts struct {
 
 func deleteBackup(pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
 	if !d.force {
-		if err := askConfirmation("Are you sure you want delete backup(s)?"); err != nil {
+		if err := askConfirmation("Are you sure you want to delete backup(s)?"); err != nil {
 			if errors.Is(err, errUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
@@ -98,9 +99,9 @@ func deletePITR(pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stri
 	}
 
 	if !d.force {
-		q := "Are you sure you want delete chunks?"
+		q := "Are you sure you want to delete chunks?"
 		if d.all {
-			q = "Are you sure you want delete ALL chunks?"
+			q = "Are you sure you want to delete ALL chunks?"
 		}
 		if err := askConfirmation(q); err != nil {
 			if errors.Is(err, errUserCanceled) {
@@ -275,8 +276,14 @@ func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.Oplo
 		fmt.Fprintln(w, "Snapshots:")
 		for i := range backups {
 			bcp := &backups[i]
+			t := string(bcp.Type)
+			if sel.IsSelective(bcp.Namespaces) {
+				t += ", selective"
+			} else if bcp.Type == pbm.IncrementalBackup && bcp.SrcBackup == "" {
+				t += ", base"
+			}
 			fmt.Fprintf(w, " - %s <%s> [restore_time: %s]\n",
-				bcp.Name, bcpTaggedType(bcp), fmtTS(int64(bcp.LastWriteTS.T)))
+				bcp.Name, t, fmtTS(int64(bcp.LastWriteTS.T)))
 		}
 	}
 
@@ -318,27 +325,28 @@ func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.Oplo
 
 func askCleanupConfirmation(info pbm.CleanupInfo) error {
 	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
-	return askConfirmation("Are you sure you want delete?")
+	return askConfirmation("Are you sure you want to delete?")
 }
 
-var (
-	errNoTTY        = errors.New("no tty")
-	errUserCanceled = errors.New("canceled")
-)
+var errUserCanceled = errors.New("canceled")
 
 func askConfirmation(question string) error {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
-		return err
+		return errors.WithMessage(err, "stat stdin")
 	}
 	if (fi.Mode() & os.ModeCharDevice) != 0 {
-		return errNoTTY
+		return errors.New("no tty")
 	}
 
 	fmt.Printf("%s [y/N] ", question)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
+	if err := scanner.Err(); err != nil {
+		return errors.WithMessage(err, "read stdin")
+	}
+
 	switch strings.TrimSpace(scanner.Text()) {
 	case "yes", "Yes", "YES", "Y", "y":
 		return nil

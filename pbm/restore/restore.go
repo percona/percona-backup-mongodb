@@ -67,6 +67,7 @@ type reconcileStatus func(status pbm.Status, timeout *time.Duration) error
 func convergeCluster(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -180,6 +181,7 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:

@@ -52,7 +52,7 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 
 func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	// check if backup isn't running
-	switch backup.Status { //nolint:exhaustive
+	switch backup.Status {
 	case StatusDone, StatusCancelled, StatusError:
 	default:
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
@@ -218,6 +218,7 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 		return errors.Wrap(err, "get backups list")
 	}
 	defer cur.Close(p.ctx)
+
 	for cur.Next(p.ctx) {
 		m := new(BackupMeta)
 		err := cur.Decode(m)

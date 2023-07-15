@@ -305,6 +305,7 @@ func (l *Lock) hb() {
 	go func() {
 		tk := time.NewTicker(l.hbRate)
 		defer tk.Stop()
+
 		for {
 			select {
 			case <-tk.C:

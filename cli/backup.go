@@ -91,7 +91,10 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	if err := checkConcurrentOp(cn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
 		var e concurentOpError
-		if !errors.As(err, &e) || e.op.Type != pbm.CmdPITR {
+		if !errors.As(err, &e) {
+			return nil, err
+		}
+		if e.op.Type != pbm.CmdPITR {
 			return nil, err
 		}
 	}
@@ -216,7 +219,6 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status pbm.Status
 				return &bcp.Status, nil
 			case pbm.StatusError:
 				return &bcp.Status, bcp.Error()
-			default:
 			}
 		}
 
