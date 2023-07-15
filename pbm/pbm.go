@@ -833,7 +833,7 @@ func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts
 		return nil, errors.Wrap(err, "get")
 	}
 
-	b := new(BackupMeta)
+	b := &BackupMeta{}
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }

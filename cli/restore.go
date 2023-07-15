@@ -416,12 +416,14 @@ type getRestoreMetaFn func(name string) (*pbm.RestoreMeta, error)
 func waitForRestoreStatus(ctx context.Context, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
-	var err error
-	meta := new(pbm.RestoreMeta)
+
+	meta := new(pbm.RestoreMeta) // TODO
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
+
+			var err error
 			meta, err = getfn(name)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue

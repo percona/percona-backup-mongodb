@@ -238,7 +238,7 @@ func (b *Backup) doPhysical(
 		return errors.Wrap(err, "get shard's last write ts")
 	}
 
-	defOpts := new(pbm.MongodOpts)
+	defOpts := &pbm.MongodOpts{}
 	defOpts.Storage.WiredTiger.EngineConfig.JournalCompressor = "snappy"
 	defOpts.Storage.WiredTiger.CollectionConfig.BlockCompressor = "snappy"
 	defOpts.Storage.WiredTiger.IndexConfig.PrefixCompression = true

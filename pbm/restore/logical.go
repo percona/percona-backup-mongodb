@@ -1102,8 +1102,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	}
 
 	for curr.Next(ctx) {
-		rl := new(interface{})
-		err := curr.Decode(rl)
+		var rl any
+		err := curr.Decode(&rl)
 		if err != nil {
 			return errors.Wrap(err, "decode role")
 		}
@@ -1131,8 +1131,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	}
 
 	for cur.Next(ctx) {
-		u := new(interface{})
-		err := cur.Decode(u)
+		var u any
+		err := cur.Decode(&u)
 		if err != nil {
 			return errors.Wrap(err, "decode user")
 		}

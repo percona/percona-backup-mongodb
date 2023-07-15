@@ -243,7 +243,7 @@ func (p *PBM) getRestoreMeta(clause bson.D) (*RestoreMeta, error) {
 // GetLastRestore returns last successfully finished restore
 // and nil if there is no such restore yet.
 func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
-	r := new(RestoreMeta)
+	r := &RestoreMeta{}
 
 	res := p.Conn.Database(DB).Collection(RestoresCollection).FindOne(
 		p.ctx,

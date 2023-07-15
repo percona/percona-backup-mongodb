@@ -103,7 +103,7 @@ func (p *PBM) pitrChunk(rs string, sort int) (*OplogChunk, error) {
 		return nil, errors.Wrap(err, "get")
 	}
 
-	chnk := new(OplogChunk)
+	chnk := &OplogChunk{}
 	err := res.Decode(chnk)
 	return chnk, errors.Wrap(err, "decode")
 }
@@ -198,7 +198,7 @@ func (p *PBM) PITRGetChunkStarts(rs string, ts primitive.Timestamp) (*OplogChunk
 		return nil, errors.Wrap(res.Err(), "get")
 	}
 
-	chnk := new(OplogChunk)
+	chnk := &OplogChunk{}
 	err := res.Decode(chnk)
 	return chnk, errors.Wrap(err, "decode")
 }

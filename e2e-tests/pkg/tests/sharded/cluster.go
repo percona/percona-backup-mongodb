@@ -267,7 +267,7 @@ func getRestoreMetaStg(name string, stg storage.Storage) (*pbm.RestoreMeta, erro
 		return nil, errors.Wrapf(err, "get file %s", name)
 	}
 
-	rmeta := new(pbm.RestoreMeta)
+	rmeta := &pbm.RestoreMeta{}
 	err = json.NewDecoder(src).Decode(rmeta)
 	if err != nil {
 		return nil, errors.Wrapf(err, "decode meta %s", name)

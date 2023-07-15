@@ -127,7 +127,8 @@ func (c *Ctl) List() (*ListOut, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "run pbm list -o json")
 	}
-	l := new(ListOut)
+
+	l := &ListOut{}
 	err = json.Unmarshal(skipCtl(o), l)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal list")

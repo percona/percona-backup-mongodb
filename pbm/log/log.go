@@ -384,7 +384,7 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	}
 	defer cur.Close(context.TODO())
 
-	e := new(Entries)
+	e := &Entries{}
 	for cur.Next(context.TODO()) {
 		l := Entry{}
 		err := cur.Decode(&l)

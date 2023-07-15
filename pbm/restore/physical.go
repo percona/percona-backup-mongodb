@@ -759,7 +759,7 @@ func (r *PhysRestore) Snapshot(
 	// don't write logs to the mongo anymore
 	// but dump it on storage
 	r.cn.Logger().SefBuffer(&logBuff{
-		buf:   new(bytes.Buffer),
+		buf:   &bytes.Buffer{},
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		write: func(name string, data io.Reader) error { return r.stg.Save(name, data, -1) },
@@ -821,7 +821,7 @@ func (r *PhysRestore) Snapshot(
 		conff, err := os.Open(rsMetaF)
 		var needFiles []pbm.File
 		if err == nil {
-			rsMeta := new(pbm.BackupReplset)
+			rsMeta := &pbm.BackupReplset{}
 			err := json.NewDecoder(conff).Decode(rsMeta)
 			if err != nil {
 				return errors.Wrap(err, "decode replset meta from the backup")
@@ -1711,7 +1711,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 
 	opts = append(opts, []string{"--logpath", path.Join(r.dbpath, internalMongodLog)}...)
 
-	errBuf := new(bytes.Buffer)
+	errBuf := &bytes.Buffer{}
 	cmd := exec.Command(r.mongod, opts...)
 
 	cmd.Stderr = errBuf
@@ -1895,7 +1895,7 @@ func (r *PhysRestore) checkHB(file string) error {
 }
 
 func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) error {
-	opts := new(pbm.MongodOpts)
+	opts := &pbm.MongodOpts{}
 	opts.Storage = *pbm.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
@@ -2168,8 +2168,8 @@ func (r *PhysRestore) prepareBackup(backupName string) error {
 func (r *PhysRestore) checkMongod(needVersion string) (version string, err error) {
 	cmd := exec.Command(r.mongod, "--version")
 
-	stderr := new(bytes.Buffer)
-	stdout := new(bytes.Buffer)
+	stderr := &bytes.Buffer{}
+	stdout := &bytes.Buffer{}
 
 	cmd.Stderr = stderr
 	cmd.Stdout = stdout

@@ -220,7 +220,7 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 	defer cur.Close(p.ctx)
 
 	for cur.Next(p.ctx) {
-		m := new(BackupMeta)
+		m := &BackupMeta{}
 		err := cur.Decode(m)
 		if err != nil {
 			return errors.Wrap(err, "decode backup meta")
