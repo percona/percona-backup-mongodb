@@ -1,2 +1,3 @@
-bin/
-dev/
+/bin/
+/dev/
+e2e-tests/docker/backups/pbm/

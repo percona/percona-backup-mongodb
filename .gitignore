@@ -1,12 +1,8 @@
-*.000
-*.upx
 .env
 .vscode/*
 !.vscode/settings.json
 .idea/
-test-out
-/dist
-/bin
+/bin/
 /dev/
 e2e-tests/docker/keyFile
 e2e-tests/docker/backups/pbm
