@@ -43,32 +43,34 @@ func run(t *sharded.Cluster, typ testTyp) {
 	remoteStg = append(remoteStg, minio)
 
 	for _, stg := range remoteStg {
-		if confExt(stg.conf) {
-			storage = stg.conf
-
-			t.ApplyConfig(storage)
-			flush(t)
-
-			t.SetBallastData(1e5)
-
-			runTest("Logical Backup & Restore "+stg.name,
-				func() { t.BackupAndRestore(pbm.LogicalBackup) })
-
-			runTest("Logical PITR & Restore "+stg.name,
-				t.PITRbasic)
-
-			printStart("Oplog Replay " + stg.name)
-			t.OplogReplay()
-			printDone("Oplog Replay " + stg.name)
-
-			t.SetBallastData(1e3)
-			flush(t)
-
-			runTest("Check Backups deletion "+stg.name,
-				func() { t.BackupDelete(storage) })
-
-			flushStore(t)
+		if !confExt(stg.conf) {
+			continue
 		}
+
+		storage = stg.conf
+
+		t.ApplyConfig(storage)
+		flush(t)
+
+		t.SetBallastData(1e5)
+
+		runTest("Logical Backup & Restore "+stg.name,
+			func() { t.BackupAndRestore(pbm.LogicalBackup) })
+
+		runTest("Logical PITR & Restore "+stg.name,
+			t.PITRbasic)
+
+		printStart("Oplog Replay " + stg.name)
+		t.OplogReplay()
+		printDone("Oplog Replay " + stg.name)
+
+		t.SetBallastData(1e3)
+		flush(t)
+
+		runTest("Check Backups deletion "+stg.name,
+			func() { t.BackupDelete(storage) })
+
+		flushStore(t)
 	}
 
 	t.SetBallastData(1e5)

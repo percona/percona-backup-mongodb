@@ -35,17 +35,19 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	remoteStg = append(remoteStg, minio)
 
 	for _, stg := range remoteStg {
-		if confExt(stg.conf) {
-			t.ApplyConfig(stg.conf)
-			flush(t)
-
-			t.SetBallastData(1e5)
-
-			runTest("Physical Backup & Restore "+stg.name,
-				func() { t.BackupAndRestore(pbm.PhysicalBackup) })
-
-			flushStore(t)
+		if !confExt(stg.conf) {
+			continue
 		}
+
+		t.ApplyConfig(stg.conf)
+		flush(t)
+
+		t.SetBallastData(1e5)
+
+		runTest("Physical Backup & Restore "+stg.name,
+			func() { t.BackupAndRestore(pbm.PhysicalBackup) })
+
+		flushStore(t)
 	}
 
 	runTest("Physical Backup Data Bounds Check",
