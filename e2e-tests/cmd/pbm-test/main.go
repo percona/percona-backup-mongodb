@@ -18,7 +18,7 @@ const (
 	defaultMongoUser = "bcp"
 	defaultMongoPass = "test1234"
 
-	dockerSocket = "unix:///var/run/docker.sock"
+	dockerSocket = "tcp://docker-host:2375"
 )
 
 type bcpTyp string
