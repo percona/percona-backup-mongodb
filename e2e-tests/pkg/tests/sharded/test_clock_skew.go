@@ -22,7 +22,7 @@ func (c *Cluster) ClockSkew(typ pbmt.BackupType, mongoVersion string) {
 		}
 		shift := timeShifts[k]
 
-		err := pbm.ClockSkew(rs, shift, c.cfg.DockerSocket)
+		err := pbm.ClockSkew(rs, shift, c.cfg.DockerURI)
 		if err != nil {
 			log.Fatalf("ERROR: clock skew for %v: %v\n", rs, err)
 		}
