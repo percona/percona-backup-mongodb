@@ -3,9 +3,8 @@ package sharded
 import (
 	"log"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
-
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func (c *Cluster) ClockSkew(typ pbmt.BackupType, mongoVersion string) {
@@ -23,7 +22,7 @@ func (c *Cluster) ClockSkew(typ pbmt.BackupType, mongoVersion string) {
 		}
 		shift := timeShifts[k]
 
-		err := pbm.ClockSkew(rs, shift, "unix:///var/run/docker.sock")
+		err := pbm.ClockSkew(rs, shift, c.cfg.DockerSocket)
 		if err != nil {
 			log.Fatalf("ERROR: clock skew for %v: %v\n", rs, err)
 		}
