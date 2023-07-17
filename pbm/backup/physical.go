@@ -61,9 +61,11 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	}
 }
 
-func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Cursor, err error) {
+var triesLimitExceededErr = errors.New("tries limit exceeded")
+
+func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
 	for i := 0; i < retry; i++ {
-		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
+		cur, err := bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
 			{{"$backupCursor", bc.opts}},
 		})
 		if err != nil {
@@ -74,14 +76,14 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (cur *mongo.Curso
 				time.Sleep(time.Second * time.Duration(i+1))
 				continue
 			}
-		} else if err != nil {
+
 			return nil, err
 		}
 
 		return cur, nil
 	}
 
-	return cur, err
+	return nil, triesLimitExceededErr
 }
 
 func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err error) {
