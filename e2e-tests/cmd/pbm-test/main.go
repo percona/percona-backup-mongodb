@@ -18,7 +18,7 @@ const (
 	defaultMongoUser = "bcp"
 	defaultMongoPass = "test1234"
 
-	dockerSocket = "unix:///var/run/docker.sock"
+	dockerURI = "tcp://docker-host:2375"
 )
 
 type bcpTyp string
@@ -66,7 +66,7 @@ func runRS(mUser, mPass string, bcpT bcpTyp) {
 		Shards: map[string]string{
 			"rs1": allTheNetworks,
 		},
-		DockerSocket: dockerSocket,
+		DockerURI:    dockerURI,
 		PbmContainer: "pbmagent_rs101",
 	})
 
@@ -89,7 +89,7 @@ func runRemapping(mUser, mPass string) {
 			Shards: map[string]string{
 				"rs1": allTheNetworksRS1,
 			},
-			DockerSocket: dockerSocket,
+			DockerURI:    dockerURI,
 			PbmContainer: "pbmagent_rs101",
 		}),
 		Recipient: sharded.New(sharded.ClusterConf{
@@ -99,7 +99,7 @@ func runRemapping(mUser, mPass string) {
 			Shards: map[string]string{
 				"rs2": allTheNetworksRS2,
 			},
-			DockerSocket: dockerSocket,
+			DockerURI:    dockerURI,
 			PbmContainer: "pbmagent_rs201",
 		}),
 		Remapping: map[string]string{"rs2": "rs1"},
@@ -116,7 +116,7 @@ func runSharded(mUser, mPass string, bcpT bcpTyp) {
 			"rs1": "mongodb://" + mUser + ":" + mPass + "@rs101:27017/",
 			"rs2": "mongodb://" + mUser + ":" + mPass + "@rs201:27017/",
 		},
-		DockerSocket: dockerSocket,
+		DockerURI:    dockerURI,
 		PbmContainer: "pbmagent_rs101",
 	})
 

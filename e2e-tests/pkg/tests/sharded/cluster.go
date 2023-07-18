@@ -35,7 +35,7 @@ type ClusterConf struct {
 	Configsrv       string
 	Mongos          string
 	Shards          map[string]string
-	DockerSocket    string
+	DockerURI       string
 	PbmContainer    string
 	ConfigsrvRsName string
 }
@@ -54,7 +54,7 @@ func New(cfg ClusterConf) *Cluster {
 		c.shards[name] = mgoConn(ctx, uri)
 	}
 
-	pbmObj, err := pbm.NewCtl(c.ctx, cfg.DockerSocket, cfg.PbmContainer)
+	pbmObj, err := pbm.NewCtl(c.ctx, cfg.DockerURI, cfg.PbmContainer)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}
@@ -62,7 +62,7 @@ func New(cfg ClusterConf) *Cluster {
 
 	c.pbm = pbmObj
 
-	c.docker, err = pbm.NewDocker(c.ctx, cfg.DockerSocket)
+	c.docker, err = pbm.NewDocker(c.ctx, cfg.DockerURI)
 	if err != nil {
 		log.Fatalln("connect to docker:", err)
 	}
@@ -124,7 +124,6 @@ func (c *Cluster) LogicalRestore(bcpName string) {
 }
 
 func (c *Cluster) LogicalRestoreWithParams(bcpName string, options []string) {
-
 	log.Println("restoring the backup")
 	_, err := c.pbm.Restore(bcpName, options)
 	if err != nil {
