@@ -7,7 +7,7 @@ Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achie
 consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v3.6 and higher.
 
 For more information about PBM components and how to use it, see
-[Percona Backup for MongoDB documentation](https://www.percona.com/doc/percona-backup-mongodb)
+[Percona Backup for MongoDB documentation](https://docs.percona.com/percona-backup-mongodb/)
 
 Percona Backup for MongoDB includes the following **features**:
 
@@ -30,9 +30,9 @@ Percona Backup for MongoDB consists of the following components:
 - **PBM Control collections** are special collections in MongoDB that store the configuration data and backup states
 - Remote backup storage as either s3-compatible or filesystem type storage
 
-![Architecture](https://github.com/percona/pbm-docs/blob/main/source/_images/pbm-architecture.png)
+![Architecture](https://github.com/percona/pbm-docs/blob/main/docs/_images/pbm-architecture.png)
 
-[Read more about PBM architecture](https://www.percona.com/doc/percona-backup-mongodb/architecture.html#pbm-architecture).
+[Read more about PBM architecture](https://docs.percona.com/percona-backup-mongodb/details/architecture.html).
 
 ## Installation
 
@@ -40,7 +40,7 @@ You can install Percona Backup for MongoDB in the following ways:
 - from Percona repository (recommended)
 - build from source code
 
-Find the installation instructions in the [official documentation](https://www.percona.com/doc/percona-backup-mongodb/installation.html)
+Find the installation instructions in the [official documentation](https://docs.percona.com/percona-backup-mongodb/installation.html)
 
 Alternatively, you can [run Percona Backup for MongoDB as a Docker container](https://hub.docker.com/r/percona/percona-backup-mongodb).
 
