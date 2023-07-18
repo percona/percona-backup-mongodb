@@ -148,8 +148,24 @@ type RestoreConf struct {
 
 type BackupConf struct {
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+}
+
+type BackupTimeouts struct {
+	// Starting is timeout (in seconds) to wait for a backup to start.
+	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
+}
+
+// StartingStatus returns timeout duration for .
+// If not set or zero, returns default value (WaitBackupStart).
+func (t *BackupTimeouts) StartingStatus() time.Duration {
+	if t == nil || t.Starting == nil || *t.Starting == 0 {
+		return WaitBackupStart
+	}
+
+	return time.Duration(*t.Starting) * time.Second
 }
 
 type confMap map[string]reflect.Kind

@@ -32,6 +32,7 @@ type Backup struct {
 	node     *pbm.Node
 	typ      pbm.BackupType
 	incrBase bool
+	timeouts *pbm.BackupTimeouts
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {
@@ -97,6 +98,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 	meta.Store = cfg.Storage
+	b.timeouts = cfg.Backup.Timeouts
 
 	ver, err := b.node.GetMongoVersion()
 	if err != nil {
@@ -232,7 +234,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 
 	// Waiting for StatusStarting to move further.
 	// In case some preparations has to be done before backup.
-	err = b.waitForStatus(bcp.Name, pbm.StatusStarting, &pbm.WaitBackupStart)
+	err = b.waitForStatus(bcp.Name, pbm.StatusStarting, ref(b.timeouts.StartingStatus()))
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
@@ -681,4 +683,8 @@ func (b *Backup) setClusterLastWrite(bcpName string) error {
 
 	err = b.cn.SetLastWrite(bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
+}
+
+func ref[T any](v T) *T {
+	return &v
 }

@@ -247,7 +247,7 @@ func (e ErrOpMoved) Error() string {
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression compress.CompressionType, level *int) error {
+func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression compress.CompressionType, level *int, timeouts *pbm.BackupTimeouts) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -290,7 +290,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 			s.l.Info("got wake_up signal")
 			if bcp != nil {
 				s.l.Info("wake_up for bcp %s", bcp.String())
-				sliceTo, err = s.backupStartTS(bcp.String())
+				sliceTo, err = s.backupStartTS(bcp.String(), timeouts.StartingStatus())
 				if err != nil {
 					return errors.Wrap(err, "get backup start TS")
 				}
@@ -332,7 +332,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		//   and a new worker was elected;
 		// - any other case (including no lock) is the undefined behaviour - return.
 		//
-		ld, err := s.getOpLock(llock)
+		ld, err := s.getOpLock(llock, timeouts.StartingStatus())
 		if err != nil {
 			return errors.Wrap(err, "check lock")
 		}
@@ -441,10 +441,10 @@ func formatts(t primitive.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
-func (s *Slicer) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
+func (s *Slicer) getOpLock(l *pbm.LockHeader, t time.Duration) (ld pbm.LockData, err error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
+	for j := 0; j < int(t.Seconds()); j++ {
 		ld, err = s.pbm.GetLockData(l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 			return ld, errors.Wrap(err, "get")
@@ -458,10 +458,10 @@ func (s *Slicer) getOpLock(l *pbm.LockHeader) (ld pbm.LockData, err error) {
 	return ld, nil
 }
 
-func (s *Slicer) backupStartTS(opid string) (ts primitive.Timestamp, err error) {
+func (s *Slicer) backupStartTS(opid string, t time.Duration) (ts primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
+	for j := 0; j < int(t.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
 		if err != nil && err != pbm.ErrNotFound {
 			return ts, errors.Wrap(err, "get backup meta")
