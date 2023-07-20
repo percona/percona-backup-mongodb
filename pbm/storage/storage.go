@@ -42,3 +42,19 @@ type Storage interface {
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
 }
+
+// ParseType parses string and returns storage type
+func ParseType(s string) Type {
+	switch s {
+	case string(S3):
+		return S3
+	case string(Azure):
+		return Azure
+	case string(Filesystem):
+		return Filesystem
+	case string(BlackHole):
+		return BlackHole
+	default:
+		return Undef
+	}
+}

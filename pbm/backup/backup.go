@@ -68,7 +68,11 @@ func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
 	}
 }
 
-func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, balancer pbm.BalancerMode) error {
+func (b *Backup) SetTimeouts(t *pbm.BackupTimeouts) {
+	b.timeouts = t
+}
+
+func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, store pbm.StorageConf, balancer pbm.BalancerMode) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -80,6 +84,7 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 		Name:           bcp.Name,
 		Namespaces:     bcp.Namespaces,
 		Compression:    bcp.Compression,
+		Store:          store,
 		StartTS:        time.Now().Unix(),
 		Status:         pbm.StatusStarting,
 		Replsets:       []pbm.BackupReplset{},
@@ -90,15 +95,6 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, bala
 		BalancerStatus: balancer,
 		Hb:             ts,
 	}
-
-	cfg, err := b.cn.GetConfig()
-	if err == pbm.ErrStorageUndefined {
-		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
-	} else if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-	meta.Store = cfg.Storage
-	b.timeouts = cfg.Backup.Timeouts
 
 	ver, err := b.node.GetMongoVersion()
 	if err != nil {
