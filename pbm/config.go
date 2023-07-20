@@ -267,11 +267,17 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	switch _confmap[key] {
 	case reflect.String:
 		v = val
-	case reflect.Uint, reflect.Uint32, reflect.Uint64:
+	case reflect.Uint, reflect.Uint32:
+		v, err = strconv.ParseUint(val, 10, 32)
+	case reflect.Uint64:
 		v, err = strconv.ParseUint(val, 10, 64)
-	case reflect.Int, reflect.Int32, reflect.Int64:
+	case reflect.Int, reflect.Int32:
+		v, err = strconv.ParseInt(val, 10, 32)
+	case reflect.Int64:
 		v, err = strconv.ParseInt(val, 10, 64)
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		v, err = strconv.ParseFloat(val, 32)
+	case reflect.Float64:
 		v, err = strconv.ParseFloat(val, 64)
 	case reflect.Bool:
 		v, err = strconv.ParseBool(val)
