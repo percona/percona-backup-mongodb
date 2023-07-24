@@ -199,7 +199,6 @@ func (r RestoreCmd) String() string {
 	}
 
 	return fmt.Sprintf("name: %s, %s", r.Name, bcp)
-
 }
 
 type ReplayCmd struct {
@@ -237,7 +236,7 @@ const (
 
 var (
 	WaitActionStart = time.Second * 15
-	WaitBackupStart = WaitActionStart + PITRcheckRange*12/10
+	WaitBackupStart = WaitActionStart + PITRcheckRange*12/10 // 33 seconds
 )
 
 // OpLog represents log of started operation.

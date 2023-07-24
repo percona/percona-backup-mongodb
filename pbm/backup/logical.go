@@ -60,7 +60,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Cause(err) == errConvergeTimeOut {
 				return errors.Wrap(err, "couldn't get response from all shards")

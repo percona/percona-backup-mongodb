@@ -148,8 +148,24 @@ type RestoreConf struct {
 
 type BackupConf struct {
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+}
+
+type BackupTimeouts struct {
+	// Starting is timeout (in seconds) to wait for a backup to start.
+	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
+}
+
+// StartingStatus returns timeout duration for .
+// If not set or zero, returns default value (WaitBackupStart).
+func (t *BackupTimeouts) StartingStatus() time.Duration {
+	if t == nil || t.Starting == nil || *t.Starting == 0 {
+		return WaitBackupStart
+	}
+
+	return time.Duration(*t.Starting) * time.Second
 }
 
 type confMap map[string]reflect.Kind
@@ -251,9 +267,17 @@ func (p *PBM) SetConfigVar(key, val string) error {
 	switch _confmap[key] {
 	case reflect.String:
 		v = val
-	case reflect.Int, reflect.Int64:
+	case reflect.Uint, reflect.Uint32:
+		v, err = strconv.ParseUint(val, 10, 32)
+	case reflect.Uint64:
+		v, err = strconv.ParseUint(val, 10, 64)
+	case reflect.Int, reflect.Int32:
+		v, err = strconv.ParseInt(val, 10, 32)
+	case reflect.Int64:
 		v, err = strconv.ParseInt(val, 10, 64)
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		v, err = strconv.ParseFloat(val, 32)
+	case reflect.Float64:
 		v, err = strconv.ParseFloat(val, 64)
 	case reflect.Bool:
 		v, err = strconv.ParseBool(val)
