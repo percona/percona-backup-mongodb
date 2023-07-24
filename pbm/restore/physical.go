@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	slog "log"
 	"math/rand"
 	"net"
@@ -1840,7 +1839,7 @@ func (r *PhysRestore) checkHB(file string) error {
 		return errors.Wrap(err, "get hb file")
 	}
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return errors.Wrap(err, "read content")
 	}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -500,7 +499,7 @@ func (r describeRestoreResult) String() string {
 }
 
 func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
-	buf, err := ioutil.ReadFile(cfgPath)
+	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
 	}
