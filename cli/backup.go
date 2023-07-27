@@ -137,7 +137,7 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 	}
 
 	fmt.Printf("Starting backup '%s'", b.name)
-	ctx, cancel := context.WithTimeout(context.Background(), pbm.WaitBackupStart)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
 	err = waitForBcpStatus(ctx, cn, b.name)
 	if err != nil {

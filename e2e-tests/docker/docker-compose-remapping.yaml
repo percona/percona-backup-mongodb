@@ -12,9 +12,13 @@ services:
       - MONGO_PASS=test1234
       - TESTS_TYPE=remapping
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./conf:/etc/pbm
       - ./backups:/opt/backups
+
+  docker-host:
+    image: alpine/socat
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    command: "tcp-listen:2375,fork,reuseaddr unix-connect:/var/run/docker.sock"
 
   rs101:
     build:

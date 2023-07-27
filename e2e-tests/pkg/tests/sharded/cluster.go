@@ -34,7 +34,7 @@ type ClusterConf struct {
 	Configsrv       string
 	Mongos          string
 	Shards          map[string]string
-	DockerSocket    string
+	DockerURI       string
 	PbmContainer    string
 	ConfigsrvRsName string
 }
@@ -53,7 +53,7 @@ func New(cfg ClusterConf) *Cluster {
 		c.shards[name] = mgoConn(ctx, uri)
 	}
 
-	pbmObj, err := pbmt.NewCtl(c.ctx, cfg.DockerSocket, cfg.PbmContainer)
+	pbmObj, err := pbmt.NewCtl(c.ctx, cfg.DockerURI, cfg.PbmContainer)
 	if err != nil {
 		log.Fatalln("connect to mongo:", err)
 	}
@@ -61,7 +61,7 @@ func New(cfg ClusterConf) *Cluster {
 
 	c.pbm = pbmObj
 
-	c.docker, err = pbmt.NewDocker(c.ctx, cfg.DockerSocket)
+	c.docker, err = pbmt.NewDocker(c.ctx, cfg.DockerURI)
 	if err != nil {
 		log.Fatalln("connect to docker:", err)
 	}

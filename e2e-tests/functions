@@ -29,6 +29,7 @@ run() {
         ;;
     esac
 
+    docker-compose -f $compose up -d docker-host
     desc 'Run tests'
     docker-compose -f $compose run tests
     EXIT_CODE=$?
@@ -238,5 +239,5 @@ destroy_cluster() {
     local compose=$1
 
     docker-compose -f $compose ps
-    docker-compose -f $compose down -v
+    docker-compose -f $compose down -v -t 2
 }

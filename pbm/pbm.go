@@ -236,7 +236,7 @@ const (
 
 var (
 	WaitActionStart = time.Second * 15
-	WaitBackupStart = WaitActionStart + PITRcheckRange*12/10
+	WaitBackupStart = WaitActionStart + PITRcheckRange*12/10 // 33 seconds
 )
 
 // OpLog represents log of started operation.
@@ -553,6 +553,10 @@ type BackupReplset struct {
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	MongodOpts       *MongodOpts         `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
+
+	// CustomThisID is customized thisBackupName value for $backupCursor (in WT: "this_id").
+	// If it is not set (empty), the default value was used.
+	CustomThisID string `bson:"this_id,omitempty" json:"this_id,omitempty"`
 }
 
 type File struct {

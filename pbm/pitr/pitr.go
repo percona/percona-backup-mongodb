@@ -261,7 +261,7 @@ func (s *Slicer) Stream(
 	ctx context.Context,
 	backupSig <-chan *pbm.OPID,
 	compression compress.CompressionType,
-	level *int,
+	level *int, timeouts *pbm.BackupTimeouts,
 ) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
@@ -305,7 +305,7 @@ func (s *Slicer) Stream(
 			s.l.Info("got wake_up signal")
 			if bcp != nil {
 				s.l.Info("wake_up for bcp %s", bcp.String())
-				sliceTo, err = s.backupStartTS(bcp.String())
+				sliceTo, err = s.backupStartTS(bcp.String(), timeouts.StartingStatus())
 				if err != nil {
 					return errors.Wrap(err, "get backup start TS")
 				}
@@ -347,7 +347,7 @@ func (s *Slicer) Stream(
 		//   and a new worker was elected;
 		// - any other case (including no lock) is the undefined behavior - return.
 		//
-		ld, err := s.getOpLock(llock)
+		ld, err := s.getOpLock(llock, timeouts.StartingStatus())
 		if err != nil {
 			return errors.Wrap(err, "check lock")
 		}
@@ -456,12 +456,12 @@ func formatts(t primitive.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
-func (s *Slicer) getOpLock(l *pbm.LockHeader) (pbm.LockData, error) {
+func (s *Slicer) getOpLock(l *pbm.LockHeader, t time.Duration) (pbm.LockData, error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
 	var lock pbm.LockData
-	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
+	for j := 0; j < int(t.Seconds()); j++ {
 		var err error
 		lock, err = s.pbm.GetLockData(l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
@@ -476,12 +476,12 @@ func (s *Slicer) getOpLock(l *pbm.LockHeader) (pbm.LockData, error) {
 	return lock, nil
 }
 
-func (s *Slicer) backupStartTS(opid string) (primitive.Timestamp, error) {
+func (s *Slicer) backupStartTS(opid string, t time.Duration) (primitive.Timestamp, error) {
 	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	for j := 0; j < int(pbm.WaitBackupStart.Seconds()); j++ {
+	for j := 0; j < int(t.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
 		if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 			return ts, errors.Wrap(err, "get backup meta")

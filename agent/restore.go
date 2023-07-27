@@ -211,7 +211,7 @@ func (a *Agent) pitr() error {
 			w:      w,
 		})
 
-		streamErr := ibcp.Stream(ctx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
+		streamErr := ibcp.Stream(ctx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error
 			if errors.Is(streamErr, pitr.OpMovedError{}) {

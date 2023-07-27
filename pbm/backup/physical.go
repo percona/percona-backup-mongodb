@@ -45,12 +45,15 @@ type BackupCursorData struct {
 	Meta *Meta
 	Data []pbm.File
 }
+
 type BackupCursor struct {
 	id    UUID
 	n     *pbm.Node
 	l     *plog.Event
 	opts  bson.D
 	close chan struct{}
+
+	CustomThisID string
 }
 
 func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
@@ -61,16 +64,36 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	}
 }
 
-func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
-	var cur *mongo.Cursor
-	var err error
+var triesLimitExceededErr = errors.New("tries limit exceeded")
 
+func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
+	opts := bc.opts
 	for i := 0; i < retry; i++ {
-		cur, err = bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
-			{{"$backupCursor", bc.opts}},
+		if i != 0 {
+			// on retry, make new thisBackupName
+			// otherwise, WT error: "Incremental identifier already exists"
+			opts = make(bson.D, len(bc.opts))
+			for j, a := range bc.opts {
+				val := a.Value
+				if a.Key == "thisBackupName" {
+					bc.CustomThisID = fmt.Sprintf("%s.%d", a.Value, i)
+					val = bc.CustomThisID
+				}
+
+				opts[j] = bson.E{a.Key, val}
+			}
+		}
+
+		cur, err := bc.n.Session().Database("admin").Aggregate(ctx, mongo.Pipeline{
+			{{"$backupCursor", opts}},
 		})
 		if err != nil {
-			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(50915) { //nolint:errorlint
+			se, ok := err.(mongo.ServerError) //nolint:errorlint
+			if !ok {
+				return nil, err
+			}
+
+			if se.HasErrorCode(50915) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying")
@@ -84,7 +107,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 		return cur, nil
 	}
 
-	return cur, err
+	return nil, triesLimitExceededErr
 }
 
 //nolint:nonamedreturns
@@ -181,6 +204,7 @@ func (b *Backup) doPhysical(
 	currOpts := bson.D{}
 	if b.typ == pbm.IncrementalBackup {
 		currOpts = bson.D{
+			// thisBackupName can be customized on retry
 			{"thisBackupName", pbm.BackupCursorName(bcp.Name)},
 			{"incrementalBackup", true},
 		}
@@ -200,7 +224,21 @@ func (b *Backup) doPhysical(
 					return errors.Wrap(err, "set source backup in meta")
 				}
 			}
-			currOpts = append(currOpts, bson.E{"srcBackupName", pbm.BackupCursorName(src.Name)})
+
+			// realSrcID is actual thisBackupName of the replset
+			var realSrcID string
+			for _, rs := range src.Replsets {
+				if rs.Name == rsMeta.Name {
+					realSrcID = rs.CustomThisID
+					break
+				}
+			}
+			if realSrcID == "" {
+				// no custom thisBackupName was used. fallback to default
+				realSrcID = pbm.BackupCursorName(src.Name)
+			}
+
+			currOpts = append(currOpts, bson.E{"srcBackupName", realSrcID})
 		} else {
 			// We don't need any previous incremental backup history if
 			// this is a base backup. So we can flush it to free up resources.
@@ -252,13 +290,17 @@ func (b *Backup) doPhysical(
 	rsMeta.Status = pbm.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
+	if cursor.CustomThisID != "" {
+		// custom thisBackupName was used
+		rsMeta.CustomThisID = cursor.CustomThisID
+	}
 	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, &pbm.WaitBackupStart)
+		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -495,18 +537,9 @@ func (id *UUID) IsZero() bool {
 // If this is an incremental, NOT base backup, it will skip uploading of
 // unchanged files (Len == 0) but add them to the meta as we need know
 // what files shouldn't be restored (those which isn't in the target backup).
-func uploadFiles(
-	ctx context.Context,
-	files []pbm.File,
-	subdir,
-	trimPrefix string,
-	incr bool,
-	stg storage.Storage,
-	comprT compress.CompressionType,
-	comprL *int,
-	l *plog.Event,
-) ([]pbm.File, error) {
-	var data []pbm.File
+func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
+	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event,
+) (data []pbm.File, err error) {
 	if len(files) == 0 {
 		return nil, nil
 	}

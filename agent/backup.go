@@ -9,6 +9,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type currentBackup struct {
@@ -97,6 +98,17 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		bcp = backup.New(a.pbm, a.node)
 	}
 
+	cfg, err := a.pbm.GetConfig()
+	if err != nil {
+		l.Error("unable to get PBM config settings: " + err.Error())
+		return
+	}
+	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undef {
+		l.Error("backups cannot be saved because PBM storage configuration hasn't been set yet")
+		return
+	}
+	bcp.SetTimeouts(cfg.Backup.Timeouts)
+
 	if nodeInfo.IsClusterLeader() {
 		balancer := pbm.BalancerModeOff
 		if nodeInfo.IsSharded() {
@@ -109,7 +121,7 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 				balancer = pbm.BalancerModeOn
 			}
 		}
-		err = bcp.Init(cmd, opid, nodeInfo, balancer)
+		err = bcp.Init(cmd, opid, nodeInfo, cfg.Storage, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return

@@ -160,7 +160,12 @@ get_system() {
 }
 
 install_golang() {
-    wget https://golang.org/dl/go1.19.linux-amd64.tar.gz -O /tmp/golang1.19.tar.gz
+    if [ x"$ARCH" = "xx86_64" ]; then
+        GO_ARCH="amd64"
+    elif [ x"$ARCH" = "xaarch64" ]; then
+        GO_ARCH="arm64"
+    fi
+    wget https://golang.org/dl/go1.19.linux-${GO_ARCH}.tar.gz -O /tmp/golang1.19.tar.gz
     tar --transform=s,go,go1.19, -zxf /tmp/golang1.19.tar.gz
     rm -rf /usr/local/go*
     mv go1.19 /usr/local/
