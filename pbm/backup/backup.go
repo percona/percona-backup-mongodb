@@ -63,7 +63,13 @@ func (b *Backup) SetTimeouts(t *pbm.BackupTimeouts) {
 	b.timeouts = t
 }
 
-func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, store pbm.StorageConf, balancer pbm.BalancerMode) error {
+func (b *Backup) Init(
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	inf *pbm.NodeInfo,
+	store pbm.StorageConf,
+	balancer pbm.BalancerMode,
+) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")

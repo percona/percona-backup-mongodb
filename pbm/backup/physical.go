@@ -64,7 +64,7 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	}
 }
 
-var triesLimitExceededErr = errors.New("tries limit exceeded")
+var errTriesLimitExceeded = errors.New("tries limit exceeded")
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
 	opts := bc.opts
@@ -107,7 +107,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 		return cur, nil
 	}
 
-	return nil, triesLimitExceededErr
+	return nil, errTriesLimitExceeded
 }
 
 //nolint:nonamedreturns
@@ -537,9 +537,17 @@ func (id *UUID) IsZero() bool {
 // If this is an incremental, NOT base backup, it will skip uploading of
 // unchanged files (Len == 0) but add them to the meta as we need know
 // what files shouldn't be restored (those which isn't in the target backup).
-func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event,
-) (data []pbm.File, err error) {
+func uploadFiles(
+	ctx context.Context,
+	files []pbm.File,
+	subdir string,
+	trimPrefix string,
+	incr bool,
+	stg storage.Storage,
+	comprT compress.CompressionType,
+	comprL *int,
+	l *plog.Event,
+) ([]pbm.File, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -551,6 +559,7 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 	}
 
 	wfile := files[0]
+	data := []pbm.File{}
 	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():

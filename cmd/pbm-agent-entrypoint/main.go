@@ -79,7 +79,7 @@ func main() {
 
 		err = cmd.Wait()
 		if err != nil {
-			if exErr, ok := err.(*exec.ExitError); ok {
+			if exErr, ok := err.(*exec.ExitError); ok { //nolint:errorlint
 				exitCode = exErr.ExitCode()
 			}
 		}
