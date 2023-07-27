@@ -93,3 +93,4 @@ The [Contributing Guide](https://github.com/percona/percona-backup-mongodb/blob/
 You can reach us:
 * on [Forums](https://forums.percona.com) and [Discord](https://discord.gg/mQEyGPkNbR)
 * by [Email](mailto:mongodb-backup@percona.com)
+* or [Professional Support](https://www.percona.com/about/contact)
