@@ -58,25 +58,27 @@ type LogKeys struct {
 const LogTimeFormat = "2006-01-02T15:04:05.000-0700"
 
 func tsLocal(ts int64) string {
+	//nolint:gosmopolitan
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
-func (e *Entry) String() (s string) {
+func (e *Entry) String() string {
 	return e.Stringify(tsLocal, false, false)
 }
 
-func (e *Entry) StringNode() (s string) {
+func (e *Entry) StringNode() string {
 	return e.Stringify(tsLocal, true, false)
 }
 
 type tsformatf func(ts int64) string
 
-func (e *Entry) Stringify(f tsformatf, showNode, extr bool) (s string) {
+func (e *Entry) Stringify(f tsformatf, showNode, extr bool) string {
 	node := ""
 	if showNode {
 		node = " [" + e.RS + "/" + e.Node + "]"
 	}
 
+	var s string
 	if e.Event != "" || e.ObjName != "" {
 		id := []string{}
 		if e.Event != "" {
@@ -139,7 +141,7 @@ func (l *Logger) SefBuffer(b Buffer) {
 
 func (l *Logger) Close() {
 	if l.bufSet.Load() == 1 && l.buf != nil {
-		// don't write buffer anymore. Flush() uses storage.Save() wich may
+		// don't write buffer anymore. Flush() uses storage.Save() which may
 		// have logging. And writing to the buffer during Flush() will cause
 		// deadlock.
 		l.bufSet.Store(0)
@@ -158,10 +160,19 @@ func (l *Logger) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
-func (l *Logger) output(s Severity, event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) output(
+	s Severity,
+	event,
+	obj,
+	opid string,
+	epoch primitive.Timestamp,
+	msg string,
+	args ...interface{},
+) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
+	//nolint:gosmopolitan
 	_, tz := time.Now().Local().Zone()
 	t := time.Now().UTC()
 
@@ -191,23 +202,23 @@ func (l *Logger) Printf(msg string, args ...interface{}) {
 	l.output(Info, "", "", "", primitive.Timestamp{}, msg, args...)
 }
 
-func (l *Logger) Debug(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Debug, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Info(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Info, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Warning(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Warning(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Warning, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Error(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Error(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Error, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *Logger) Fatal(event string, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *Logger) Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
 	l.output(Fatal, event, obj, opid, epoch, msg, args...)
 }
 
@@ -300,7 +311,8 @@ type Entries struct {
 	loc      *time.Location
 }
 
-func (e *Entries) SetLocation(l string) (err error) {
+func (e *Entries) SetLocation(l string) error {
+	var err error
 	e.loc, err = time.LoadLocation(l)
 	return err
 }
@@ -309,7 +321,7 @@ func (e Entries) MarshalJSON() ([]byte, error) {
 	return json.Marshal(e.Data)
 }
 
-func (e Entries) String() (s string) {
+func (e Entries) String() string {
 	if e.loc == nil {
 		e.loc = time.UTC
 	}
@@ -318,6 +330,7 @@ func (e Entries) String() (s string) {
 		return time.Unix(ts, 0).In(e.loc).Format(time.RFC3339)
 	}
 
+	s := ""
 	for _, entry := range e.Data {
 		s += entry.Stringify(f, e.ShowNode, e.Extr) + "\n"
 	}
@@ -371,7 +384,7 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	}
 	defer cur.Close(context.TODO())
 
-	e := new(Entries)
+	e := &Entries{}
 	for cur.Next(context.TODO()) {
 		l := Entry{}
 		err := cur.Decode(&l)
@@ -387,7 +400,12 @@ func Get(cn *mongo.Collection, r *LogRequest, limit int64, exactSeverity bool) (
 	return e, nil
 }
 
-func Follow(ctx context.Context, coll *mongo.Collection, r *LogRequest, exactSeverity bool) (<-chan *Entry, <-chan error) {
+func Follow(
+	ctx context.Context,
+	coll *mongo.Collection,
+	r *LogRequest,
+	exactSeverity bool,
+) (<-chan *Entry, <-chan error) {
 	filter := buildLogFilter(r, exactSeverity)
 	outC, errC := make(chan *Entry), make(chan error)
 

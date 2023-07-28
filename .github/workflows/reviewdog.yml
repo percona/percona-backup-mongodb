@@ -6,9 +6,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
+          go-version: "1.19"
       - name: test
         run: go test -v ./...
 
@@ -20,7 +20,6 @@ jobs:
       - name: spellcheck
         uses: reviewdog/action-shellcheck@v1
         with:
-          github_token: ${{ secrets.github_token }}
           reporter: github-pr-review
           exclude: |
             */.git/*
@@ -36,7 +35,6 @@ jobs:
       - name: misspell
         uses: reviewdog/action-misspell@v1
         with:
-          github_token: ${{ secrets.github_token }}
           reporter: github-pr-review
           locale: "US"
           exclude: |
@@ -52,30 +50,34 @@ jobs:
       - name: alex
         uses: reviewdog/action-alex@v1
         with:
-          github_token: ${{ secrets.github_token }}
+          reporter: github-pr-review
 
   golangci-lint:
     name: runner / golangci-lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
+          go-version: "1.19"
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2
         with:
-          reporter: github-pr-check
+          reporter: github-pr-review
+          level: error
 
   gofmt:
     name: runner / gofmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
-      - run: gofmt -w -s $(find . -not -path "*/vendor/*" -name "*.go")
+          go-version: "1.19"
+      - run: go install golang.org/x/tools/cmd/goimports@latest
+      - run: go install mvdan.cc/gofumpt@latest
+      - run: goimports -w -local "github.com/percona" $(find . -not -path "*/vendor/*" -name "*.go")
+      - run: gofumpt -w -extra $(find . -not -path "*/vendor/*" -name "*.go")
       - uses: reviewdog/action-suggester@v1
         with:
           tool_name: gofmt
@@ -85,9 +87,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          go-version: '1.19'
+          go-version: "1.19"
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       - run: shfmt -f . | grep -v 'vendor' | xargs shfmt -w -s
       - name: suggester / shfmt

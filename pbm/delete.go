@@ -74,11 +74,12 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	if !ispitr || tlns != nil {
 		return nil
 	}
-	nxt, err := p.BackupGetNext(backup)
+
+	has, err := p.BackupHasNext(backup)
 	if err != nil {
 		return errors.Wrap(err, "check next backup")
 	}
-	if nxt == nil {
+	if !has {
 		return errors.New("unable to delete the last backup while PITR is on")
 	}
 
@@ -86,13 +87,14 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 	switch meta.Type {
 	case PhysicalBackup, IncrementalBackup:
 		return p.deletePhysicalBackupFiles(meta, stg)
 	case LogicalBackup:
 		fallthrough
 	default:
+		var err error
 		if version.IsLegacyArchive(meta.PBMVersion) {
 			err = p.deleteLegacyLogicalBackupFiles(meta, stg)
 		} else {
@@ -104,15 +106,15 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) (err erro
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
 			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
 			if f.Len != 0 {
 				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
-			err = stg.Delete(fname)
-			if err != nil && err != storage.ErrNotExist {
+			err := stg.Delete(fname)
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
@@ -121,15 +123,15 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) (
 			if f.Len != 0 {
 				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
 			}
-			err = stg.Delete(fname)
-			if err != nil && err != storage.ErrNotExist {
+			err := stg.Delete(fname)
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
 	}
 
-	err = stg.Delete(meta.Name + MetadataFileSuffix)
-	if err == storage.ErrNotExist {
+	err := stg.Delete(meta.Name + MetadataFileSuffix)
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
 
@@ -174,20 +176,20 @@ func (p *PBM) deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string
 }
 
 // deleteLegacyLogicalBackupFiles removes backup's artifacts from storage
-func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) (err error) {
+func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 	for _, r := range meta.Replsets {
-		err = stg.Delete(r.OplogName)
-		if err != nil && err != storage.ErrNotExist {
+		err := stg.Delete(r.OplogName)
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete oplog %s", r.OplogName)
 		}
 		err = stg.Delete(r.DumpName)
-		if err != nil && err != storage.ErrNotExist {
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete dump %s", r.DumpName)
 		}
 	}
 
-	err = stg.Delete(meta.Name + MetadataFileSuffix)
-	if err == storage.ErrNotExist {
+	err := stg.Delete(meta.Name + MetadataFileSuffix)
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
 
@@ -216,8 +218,9 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 		return errors.Wrap(err, "get backups list")
 	}
 	defer cur.Close(p.ctx)
+
 	for cur.Next(p.ctx) {
-		m := new(BackupMeta)
+		m := &BackupMeta{}
 		err := cur.Decode(m)
 		if err != nil {
 			return errors.Wrap(err, "decode backup meta")
@@ -277,9 +280,10 @@ func (p *PBM) DeletePITR(until *time.Time, l *log.Event) error {
 	return p.deleteChunks(zerots, bcp.LastWriteTS, stg, l)
 }
 
-func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage, l *log.Event) (err error) {
+func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage, l *log.Event) error {
 	var chunks []OplogChunk
 
+	var err error
 	if until.T > 0 {
 		chunks, err = p.PITRGetChunksSliceUntil("", until)
 	} else {
@@ -294,7 +298,7 @@ func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage
 
 	for _, chnk := range chunks {
 		err = stg.Delete(chnk.FName)
-		if err != nil && err != storage.ErrNotExist {
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
 			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
 		}
 

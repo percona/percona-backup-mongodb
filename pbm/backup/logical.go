@@ -22,7 +22,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doLogical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	rsMeta *pbm.BackupReplset,
+	inf *pbm.NodeInfo,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	var db, coll string
 	if sel.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.
@@ -62,7 +70,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 	if inf.IsLeader() {
 		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return errors.Wrap(err, "check cluster for backup started")
@@ -91,8 +99,7 @@ func (b *Backup) doLogical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPI
 
 		defer func() {
 			l.Info("dropping tmp collections")
-			err := b.node.DropTMPcoll()
-			if err != nil {
+			if err := b.node.DropTMPcoll(); err != nil {
 				l.Warning("drop tmp users and roles: %v", err)
 			}
 		}()

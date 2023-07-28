@@ -123,7 +123,15 @@ type OplogRestore struct {
 const saveLastDistTxns = 100
 
 // NewOplogRestore creates an object for an oplog applying
-func NewOplogRestore(dst *mongo.Client, ic *idx.IndexCatalog, sv *pbm.MongoVersion, unsafe, preserveUUID bool, ctxn chan pbm.RestoreTxn, txnErr chan error) (*OplogRestore, error) {
+func NewOplogRestore(
+	dst *mongo.Client,
+	ic *idx.IndexCatalog,
+	sv *pbm.MongoVersion,
+	unsafe,
+	preserveUUID bool,
+	ctxn chan pbm.RestoreTxn,
+	txnErr chan error,
+) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -180,10 +188,11 @@ func (o *OplogRestore) SetTimeframe(start, end primitive.Timestamp) {
 }
 
 // Apply applys an oplog from a given source
-func (o *OplogRestore) Apply(src io.ReadCloser) (lts primitive.Timestamp, err error) {
+func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
+	var lts primitive.Timestamp
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
 		if rawOplogEntry == nil {
@@ -450,6 +459,7 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// commit transaction
 	err := o.applyTxn(txnID)
 	if err != nil {
+		//nolint:errchkjson
 		b, _ := json.MarshalIndent(op, "", " ")
 		return errors.Wrapf(err, "apply txn: %s", b)
 	}
@@ -459,29 +469,36 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	return nil
 }
 
-const extractErrorFmt = "error extracting transaction ops: %s: %v"
+type extractTxError struct {
+	tag string
+	msg string
+}
+
+func (e extractTxError) Error() string {
+	return fmt.Sprintf("error extracting transaction ops: applyOps %s: %v", e.tag, e.msg)
+}
 
 func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 	doc := txnOp.Object
 	rawAO, err := bsonutil.FindValueByKey("applyOps", &doc)
 	if err != nil {
-		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", err)
+		return nil, extractTxError{"field", err.Error()}
 	}
 
 	ao, ok := rawAO.(bson.A)
 	if !ok {
-		return nil, fmt.Errorf(extractErrorFmt, "applyOps field", "not a BSON array")
+		return nil, extractTxError{"field", "not a BSON array"}
 	}
 
 	ops := make([]db.Oplog, len(ao))
 	for i, v := range ao {
 		opDoc, ok := v.(bson.D)
 		if !ok {
-			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", "not a BSON document")
+			return nil, extractTxError{"op", "not a BSON document"}
 		}
 		op, err := bsonDocToOplog(opDoc)
 		if err != nil {
-			return nil, fmt.Errorf(extractErrorFmt, "applyOps op", err)
+			return nil, extractTxError{"op", err.Error()}
 		}
 
 		// The inner ops doesn't have these fields,
@@ -496,7 +513,14 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 	return ops, nil
 }
 
-const opConvertErrorFmt = "error converting bson.D to op: %s: %v"
+type bsonConvertError struct {
+	field string
+	msg   string
+}
+
+func (e bsonConvertError) Error() string {
+	return fmt.Sprintf("error converting bson.D to op: %s field: %s", e.field, e.msg)
+}
 
 func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 	op := db.Oplog{}
@@ -506,31 +530,31 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 		case "op":
 			s, ok := v.Value.(string)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "op field", "not a string")
+				return nil, bsonConvertError{"op field", "not a string"}
 			}
 			op.Operation = s
 		case "ns":
 			s, ok := v.Value.(string)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "ns field", "not a string")
+				return nil, bsonConvertError{"ns field", "not a string"}
 			}
 			op.Namespace = s
 		case "o":
 			d, ok := v.Value.(bson.D)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "o field", "not a BSON Document")
+				return nil, bsonConvertError{"o field", "not a BSON Document"}
 			}
 			op.Object = d
 		case "o2":
 			d, ok := v.Value.(bson.D)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "o2 field", "not a BSON Document")
+				return nil, bsonConvertError{"o2 field", "not a BSON Document"}
 			}
 			op.Query = d
 		case "ui":
 			u, ok := v.Value.(primitive.Binary)
 			if !ok {
-				return nil, fmt.Errorf(opConvertErrorFmt, "ui field", "not binary data")
+				return nil, bsonConvertError{"ui field", "not binary data"}
 			}
 			op.UI = &u
 		}
@@ -539,14 +563,14 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 	return &op, nil
 }
 
-func (o *OplogRestore) applyTxn(id string) (err error) {
+func (o *OplogRestore) applyTxn(id string) error {
 	t, ok := o.txnData[id]
 	if !ok {
 		return errors.Errorf("unknown transaction id %s", id)
 	}
 
 	for _, op := range t.applyOps {
-		err = o.handleNonTxnOp(op)
+		err := o.handleNonTxnOp(op)
 		if err != nil {
 			return errors.Wrap(err, "applying transaction op")
 		}
@@ -556,11 +580,15 @@ func (o *OplogRestore) applyTxn(id string) (err error) {
 	return nil
 }
 
+//nolint:nonamedreturns
 func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []pbm.RestoreTxn) {
 	return o.txnData, o.txnCommit.s
 }
 
-func (o *OplogRestore) HandleUncommittedTxn(commits map[string]primitive.Timestamp) (partial, uncommitted []Txn, err error) {
+//nolint:nonamedreturns
+func (o *OplogRestore) HandleUncommittedTxn(
+	commits map[string]primitive.Timestamp,
+) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil
 	}
@@ -630,7 +658,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			return nil
 
 		case "createIndexes":
-			// server > 4.4 no longer supports applying createIndexes oplog, we need to convert the oplog to createIndexes command and execute it
+			// server > 4.4 no longer supports applying createIndexes oplog,
+			// we need to convert the oplog to createIndexes command and execute it
 			collectionName, index := extractIndexDocumentFromCreateIndexes(op)
 			if index.Key == nil {
 				return errors.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
@@ -684,7 +713,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
+			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
@@ -735,10 +764,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	err = o.applyOps([]interface{}{op})
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
-		if o.unsafe &&
-			strings.Contains(err.Error(), "E11000 duplicate key error") &&
-			op.Namespace == "config.chunks" {
-			return nil
+		if o.unsafe && op.Namespace == "config.chunks" {
+			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+				return nil
+			}
 		}
 
 		opb, errm := json.Marshal(op)
@@ -753,8 +782,8 @@ type cqueue struct {
 	c int
 }
 
-func newCQueue(cap int) *cqueue {
-	return &cqueue{s: make([]pbm.RestoreTxn, 0, cap), c: cap}
+func newCQueue(capacity int) *cqueue {
+	return &cqueue{s: make([]pbm.RestoreTxn, 0, capacity), c: capacity}
 }
 
 func (c *cqueue) push(v pbm.RestoreTxn) {
@@ -773,19 +802,21 @@ func (c *cqueue) last() *pbm.RestoreTxn {
 	return &c.s[len(c.s)-1]
 }
 
-// extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "createIndexes" oplog entry and convert to IndexDocument
+// extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of
+// "createIndexes" oplog entry and convert to IndexDocument
 // returns collection name and index spec
 func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocument) {
 	collectionName := ""
 	indexDocument := &idx.IndexDocument{Options: bson.M{}}
 	for _, elem := range op.Object {
-		if elem.Key == "createIndexes" {
+		switch elem.Key {
+		case "createIndexes":
 			collectionName = elem.Value.(string)
-		} else if elem.Key == "key" {
+		case "key":
 			indexDocument.Key = elem.Value.(bson.D)
-		} else if elem.Key == "partialFilterExpression" {
+		case "partialFilterExpression":
 			indexDocument.PartialFilterExpression = elem.Value.(bson.D)
-		} else {
+		default:
 			indexDocument.Options[elem.Key] = elem.Value
 		}
 	}
@@ -795,6 +826,8 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "commitIndexBuild" oplog entry and convert to IndexDocument
 // returns collection name and index specs
+//
+//nolint:lll
 func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.IndexDocument) {
 	collectionName := ""
 	for _, elem := range op.Object {
@@ -811,11 +844,12 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 				var indexSpec idx.IndexDocument
 				indexSpec.Options = bson.M{}
 				for _, elem := range index.(bson.D) {
-					if elem.Key == "key" {
+					switch elem.Key {
+					case "key":
 						indexSpec.Key = elem.Value.(bson.D)
-					} else if elem.Key == "partialFilterExpression" {
+					case "partialFilterExpression":
 						indexSpec.PartialFilterExpression = elem.Value.(bson.D)
-					} else {
+					default:
 						indexSpec.Options[elem.Key] = elem.Value
 					}
 				}

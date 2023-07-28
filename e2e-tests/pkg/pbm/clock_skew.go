@@ -42,10 +42,11 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			return errors.Wrapf(err, "remove container %s", c.ID)
 		}
 
-		envs := append(containerOld.Config.Env, []string{
+		envs := append([]string{}, containerOld.Config.Env...)
+		envs = append(envs,
 			`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1`,
-			`FAKETIME=` + ts,
-		}...)
+			`FAKETIME=`+ts,
+		)
 
 		log.Printf("Creating container %s/%s with the clock skew %s\n", containerOld.ID, containerOld.Name, ts)
 		containerNew, err := cn.ContainerCreate(context.Background(), &container.Config{

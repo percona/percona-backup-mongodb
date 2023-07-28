@@ -33,7 +33,8 @@ func (c confKV) String() string {
 
 type confVals []confKV
 
-func (c confVals) String() (s string) {
+func (c confVals) String() string {
+	s := ""
 	for _, v := range c {
 		s += v.String() + "\n"
 	}

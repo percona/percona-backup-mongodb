@@ -57,6 +57,7 @@ func (c *Cluster) NetworkCut() {
 
 	// TODO: currently needed not to stuck on huge replica. Should be removed
 	// after fixing https://jira.percona.com/browse/PBM-406?focusedCommentId=248029&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-248029
+	//nolint:lll
 	for rs := range c.shards {
 		log.Println("Stopping agents on the replset", rs)
 		err := c.docker.StopAgents(rs)

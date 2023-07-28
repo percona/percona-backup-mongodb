@@ -6,15 +6,15 @@ import (
 	"math/rand"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type scounter struct {
-	data   <-chan *[]pbm.Counter
+	data   <-chan *[]pbmt.Counter
 	cancel context.CancelFunc
 }
 
@@ -26,11 +26,11 @@ func lt(t1, t2 primitive.Timestamp) bool {
 	return primitive.CompareTimestamp(t1, t2) < 0
 }
 
-func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType, mongoVersion string) {
+func (c *Cluster) BackupBoundsCheck(typ pbm.BackupType, mongoVersion string) {
 	inRange := lte
 	backup := c.LogicalBackup
 	restore := c.LogicalRestore
-	if typ == pbmt.PhysicalBackup {
+	if typ == pbm.PhysicalBackup {
 		backup = c.PhysicalBackup
 		restore = c.PhysicalRestore
 
@@ -81,7 +81,7 @@ func (c *Cluster) BackupBoundsCheck(typ pbmt.BackupType, mongoVersion string) {
 	}
 }
 
-func (c *Cluster) bcheckClear(name string, shard *pbm.Mongo) {
+func (c *Cluster) bcheckClear(name string, shard *pbmt.Mongo) {
 	log.Println(name, "reseting counters")
 	dcnt, err := shard.ResetCounters()
 	if err != nil {
@@ -90,10 +90,14 @@ func (c *Cluster) bcheckClear(name string, shard *pbm.Mongo) {
 	log.Println(name, "deleted counters:", dcnt)
 }
 
-func (c *Cluster) bcheckWrite(name string, shard *pbm.Mongo, t time.Duration) (<-chan *[]pbm.Counter, context.CancelFunc) {
-	var data []pbm.Counter
+func (c *Cluster) bcheckWrite(
+	name string,
+	shard *pbmt.Mongo,
+	t time.Duration,
+) (<-chan *[]pbmt.Counter, context.CancelFunc) {
+	var data []pbmt.Counter
 	ctx, cancel := context.WithCancel(c.ctx)
-	dt := make(chan *[]pbm.Counter)
+	dt := make(chan *[]pbmt.Counter)
 	go func() {
 		log.Println(name, "writing counters")
 		tk := time.NewTicker(t)
@@ -126,7 +130,13 @@ func (c *Cluster) bcheckWrite(name string, shard *pbm.Mongo, t time.Duration) (<
 	return dt, cancel
 }
 
-func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter, bcpLastWrite primitive.Timestamp, inRange func(ts, limit primitive.Timestamp) bool) {
+func (c *Cluster) bcheckCheck(
+	name string,
+	shard *pbmt.Mongo,
+	data *[]pbmt.Counter,
+	bcpLastWrite primitive.Timestamp,
+	inRange func(ts, limit primitive.Timestamp) bool,
+) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()
 	if err != nil {
@@ -134,19 +144,22 @@ func (c *Cluster) bcheckCheck(name string, shard *pbm.Mongo, data *[]pbm.Counter
 	}
 
 	log.Println(name, "checking restored counters")
-	var lastc pbm.Counter
+	var lastc pbmt.Counter
 	for i, d := range *data {
 		if inRange(d.WriteTime, bcpLastWrite) {
 			if len(restored) <= i {
-				log.Fatalf("ERROR: %s no record #%d/%d [%v] in restored (%d) | last: %v. Bcp last write: %v\n", name, i, d.Count, d, len(restored), lastc, bcpLastWrite)
+				log.Fatalf("ERROR: %s no record #%d/%d [%v] in restored (%d) | last: %v. Bcp last write: %v\n",
+					name, i, d.Count, d, len(restored), lastc, bcpLastWrite)
 			}
 			r := restored[i]
 			if d.Count != r.Count {
-				log.Fatalf("ERROR: %s unmatched backuped %v and restored %v. Bcp last write: %v\n", name, d, r, bcpLastWrite)
+				log.Fatalf("ERROR: %s unmatched backuped %v and restored %v. Bcp last write: %v\n",
+					name, d, r, bcpLastWrite)
 			}
 		} else if i < len(restored) {
 			r := restored[i]
-			log.Fatalf("ERROR: %s data %v shouldn't be restored. Cmp to: %v. Bcp last write: %v\n", name, r, d, bcpLastWrite)
+			log.Fatalf("ERROR: %s data %v shouldn't be restored. Cmp to: %v. Bcp last write: %v\n",
+				name, r, d, bcpLastWrite)
 		}
 
 		lastc = d

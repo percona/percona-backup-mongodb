@@ -1,21 +1,17 @@
 package main
 
 import (
+	"math/rand"
+	"time"
+
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm"
-
-	"math/rand"
-	"time"
 )
 
 func runPhysical(t *sharded.Cluster, typ testTyp) {
 	cVersion := majmin(t.ServerVersion())
-
-	storage := "/etc/pbm/fs.yaml"
-	// t.ApplyConfig(storage)
-	// flush(t)
 
 	remoteStg := []struct {
 		name string
@@ -39,19 +35,19 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 	remoteStg = append(remoteStg, minio)
 
 	for _, stg := range remoteStg {
-		if confExt(stg.conf) {
-			storage = stg.conf
-
-			t.ApplyConfig(storage)
-			flush(t)
-
-			t.SetBallastData(1e5)
-
-			runTest("Physical Backup & Restore "+stg.name,
-				func() { t.BackupAndRestore(pbm.PhysicalBackup) })
-
-			flushStore(t)
+		if !confExt(stg.conf) {
+			continue
 		}
+
+		t.ApplyConfig(stg.conf)
+		flush(t)
+
+		t.SetBallastData(1e5)
+
+		runTest("Physical Backup & Restore "+stg.name,
+			func() { t.BackupAndRestore(pbm.PhysicalBackup) })
+
+		flushStore(t)
 	}
 
 	runTest("Physical Backup Data Bounds Check",

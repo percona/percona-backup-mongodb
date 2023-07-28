@@ -245,7 +245,7 @@ func (n *Node) DropTMPcoll() error {
 	if err != nil {
 		return errors.Wrap(err, "connect to primary")
 	}
-	defer func() { cn.Disconnect(n.ctx) }()
+	defer cn.Disconnect(n.ctx) //nolint:errcheck
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {
@@ -269,8 +269,10 @@ func DropTMPcoll(ctx context.Context, cn *mongo.Client) error {
 	return nil
 }
 
-func (n *Node) WaitForWrite(ts primitive.Timestamp) (err error) {
+func (n *Node) WaitForWrite(ts primitive.Timestamp) error {
 	var lw primitive.Timestamp
+	var err error
+
 	for i := 0; i < 21; i++ {
 		lw, err = LastWrite(n.cn, false)
 		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
@@ -304,6 +306,8 @@ func LastWrite(cn *mongo.Client, majority bool) (primitive.Timestamp, error) {
 // OplogStartTime returns either the oldest active transaction timestamp or the
 // current oplog time if there are no active transactions.
 // taken from https://github.com/mongodb/mongo-tools/blob/1b496c4a8ff7415abc07b9621166d8e1fac00c91/mongodump/oplog_dump.go#L68
+//
+//nolint:lll
 func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
 	coll := n.cn.Database("config").Collection("transactions", options.Collection().SetReadConcern(readconcern.Local()))
 	filter := bson.D{{"state", bson.D{{"$in", bson.A{"prepared", "inProgress"}}}}}
@@ -313,31 +317,32 @@ func (n *Node) OplogStartTime() (primitive.Timestamp, error) {
 	res := coll.FindOne(context.Background(), filter, opts)
 	err := res.Decode(&result)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return LastWrite(n.cn, true)
 		}
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions.findOne error: %v", err)
+		return primitive.Timestamp{}, fmt.Errorf("config.transactions.findOne error: %w", err)
 	}
 
 	rawTS, err := result.LookupErr("startOpTime", "ts")
 	if err != nil {
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions row had no startOpTime.ts field")
+		return primitive.Timestamp{}, errors.New("config.transactions row had no startOpTime.ts field")
 	}
 
 	t, i, ok := rawTS.TimestampOK()
 	if !ok {
-		return primitive.Timestamp{}, fmt.Errorf("config.transactions startOpTime.ts was not a BSON timestamp")
+		return primitive.Timestamp{}, errors.New("config.transactions startOpTime.ts was not a BSON timestamp")
 	}
 
 	return primitive.Timestamp{T: t, I: i}, nil
 }
 
+//nolint:nonamedreturns
 func (n *Node) CopyUsersNRolles() (lastWrite primitive.Timestamp, err error) {
 	cn, err := n.connect(false)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
-	defer func() { cn.Disconnect(n.ctx) }()
+	defer cn.Disconnect(n.ctx) //nolint:errcheck
 
 	err = DropTMPcoll(n.ctx, cn)
 	if err != nil {

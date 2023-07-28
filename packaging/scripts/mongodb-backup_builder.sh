@@ -1,10 +1,10 @@
 #!/bin/sh
 
 shell_quote_string() {
-  echo "$1" | sed -e 's,\([^a-zA-Z0-9/_.=-]\),\\\1,g'
+    echo "$1" | sed -e 's,\([^a-zA-Z0-9/_.=-]\),\\\1,g'
 }
 
-usage () {
+usage() {
     cat <<EOF
 Usage: $0 [OPTIONS]
     The following options may be given :
@@ -23,49 +23,46 @@ Usage: $0 [OPTIONS]
         --help) usage ;;
 Example $0 --builddir=/tmp/percona-backup-mongodb --get_sources=1 --build_src_rpm=1 --build_rpm=1
 EOF
-        exit 1
+    exit 1
 }
 
-append_arg_to_args () {
-  args="$args "$(shell_quote_string "$1")
+append_arg_to_args() {
+    args="$args "$(shell_quote_string "$1")
 }
 
 parse_arguments() {
     pick_args=
-    if test "$1" = PICK-ARGS-FROM-ARGV
-    then
+    if test "$1" = PICK-ARGS-FROM-ARGV; then
         pick_args=1
         shift
     fi
 
-    for arg do
+    for arg; do
         val=$(echo "$arg" | sed -e 's;^--[^=]*=;;')
         case "$arg" in
-            --builddir=*) WORKDIR="$val" ;;
-            --build_src_rpm=*) SRPM="$val" ;;
-            --build_src_deb=*) SDEB="$val" ;;
-            --build_rpm=*) RPM="$val" ;;
-            --build_deb=*) DEB="$val" ;;
-            --get_sources=*) SOURCE="$val" ;;
-            --build_tarball=*) TARBALL="$val" ;;
-            --branch=*) BRANCH="$val" ;;
-            --repo=*) REPO="$val" ;;
-            --version=*) VERSION="$val" ;;
-            --install_deps=*) INSTALL="$val" ;;
-            --help) usage ;;
-            *)
-              if test -n "$pick_args"
-              then
-                  append_arg_to_args "$arg"
-              fi
-              ;;
+        --builddir=*) WORKDIR="$val" ;;
+        --build_src_rpm=*) SRPM="$val" ;;
+        --build_src_deb=*) SDEB="$val" ;;
+        --build_rpm=*) RPM="$val" ;;
+        --build_deb=*) DEB="$val" ;;
+        --get_sources=*) SOURCE="$val" ;;
+        --build_tarball=*) TARBALL="$val" ;;
+        --branch=*) BRANCH="$val" ;;
+        --repo=*) REPO="$val" ;;
+        --version=*) VERSION="$val" ;;
+        --install_deps=*) INSTALL="$val" ;;
+        --help) usage ;;
+        *)
+            if test -n "$pick_args"; then
+                append_arg_to_args "$arg"
+            fi
+            ;;
         esac
     done
 }
 
-add_percona_yum_repo(){
-    if [ ! -f /etc/yum.repos.d/percona-dev.repo ]
-    then
+add_percona_yum_repo() {
+    if [ ! -f /etc/yum.repos.d/percona-dev.repo ]; then
         if [ "x$RHEL" = "x8" ]; then
             cat >/etc/yum.repos.d/percona-dev.repo <<EOL
 [percona-rhel8-AppStream]
@@ -88,14 +85,12 @@ EOL
     return
 }
 
-check_workdir(){
-    if [ "x$WORKDIR" = "x$CURDIR" ]
-    then
+check_workdir() {
+    if [ "x$WORKDIR" = "x$CURDIR" ]; then
         echo >&2 "Current directory cannot be used for building!"
         exit 1
     else
-        if ! test -d "$WORKDIR"
-        then
+        if ! test -d "$WORKDIR"; then
             echo >&2 "$WORKDIR is not a directory."
             exit 1
         fi
@@ -103,29 +98,26 @@ check_workdir(){
     return
 }
 
-get_sources(){
+get_sources() {
     cd "${WORKDIR}"
-    if [ "${SOURCE}" = 0 ]
-    then
+    if [ "${SOURCE}" = 0 ]; then
         echo "Sources will not be downloaded"
         return 0
     fi
     PRODUCT=percona-backup-mongodb
-    echo "PRODUCT=${PRODUCT}" > percona-backup-mongodb.properties
-    echo "BUILD_NUMBER=${BUILD_NUMBER}" >> percona-backup-mongodb.properties
-    echo "BUILD_ID=${BUILD_ID}" >> percona-backup-mongodb.properties
-    echo "VERSION=${VERSION}" >> percona-backup-mongodb.properties
-    echo "BRANCH=${BRANCH}" >> percona-backup-mongodb.properties
+    echo "PRODUCT=${PRODUCT}" >percona-backup-mongodb.properties
+    echo "BUILD_NUMBER=${BUILD_NUMBER}" >>percona-backup-mongodb.properties
+    echo "BUILD_ID=${BUILD_ID}" >>percona-backup-mongodb.properties
+    echo "VERSION=${VERSION}" >>percona-backup-mongodb.properties
+    echo "BRANCH=${BRANCH}" >>percona-backup-mongodb.properties
     git clone "$REPO"
     retval=$?
-    if [ $retval != 0 ]
-    then
+    if [ $retval != 0 ]; then
         echo "There were some issues during repo cloning from github. Please retry one more time"
         exit 1
     fi
     cd percona-backup-mongodb
-    if [ ! -z "$BRANCH" ]
-    then
+    if [ ! -z "$BRANCH" ]; then
         git reset --hard
         git clean -xdf
         git checkout "$BRANCH"
@@ -133,17 +125,17 @@ get_sources(){
     REVISION=$(git rev-parse --short HEAD)
     GITCOMMIT=$(git rev-parse HEAD 2>/dev/null)
     GITBRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-    echo "VERSION=${VERSION}" > VERSION
-    echo "REVISION=${REVISION}" >> VERSION
-    echo "GITCOMMIT=${GITCOMMIT}" >> VERSION
-    echo "GITBRANCH=${GITBRANCH}" >> VERSION
-    echo "REVISION=${REVISION}" >> ${WORKDIR}/percona-backup-mongodb.properties
+    echo "VERSION=${VERSION}" >VERSION
+    echo "REVISION=${REVISION}" >>VERSION
+    echo "GITCOMMIT=${GITCOMMIT}" >>VERSION
+    echo "GITBRANCH=${GITBRANCH}" >>VERSION
+    echo "REVISION=${REVISION}" >>${WORKDIR}/percona-backup-mongodb.properties
     rm -fr debian rpm
     cd ${WORKDIR}
 
     mv percona-backup-mongodb ${PRODUCT}-${VERSION}
     tar --owner=0 --group=0 --exclude=.* -czf ${PRODUCT}-${VERSION}.tar.gz ${PRODUCT}-${VERSION}
-    echo "UPLOAD=UPLOAD/experimental/BUILDS/${PRODUCT}/${PRODUCT}-${VERSION}/${BRANCH}/${REVISION}/${BUILD_ID}" >> percona-backup-mongodb.properties
+    echo "UPLOAD=UPLOAD/experimental/BUILDS/${PRODUCT}/${PRODUCT}-${VERSION}/${BRANCH}/${REVISION}/${BUILD_ID}" >>percona-backup-mongodb.properties
     mkdir $WORKDIR/source_tarball
     mkdir $CURDIR/source_tarball
     cp ${PRODUCT}-${VERSION}.tar.gz $WORKDIR/source_tarball
@@ -153,7 +145,7 @@ get_sources(){
     return
 }
 
-get_system(){
+get_system() {
     if [ -f /etc/redhat-release ]; then
         RHEL=$(rpm --eval %rhel)
         ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
@@ -181,53 +173,49 @@ install_golang() {
 }
 
 install_deps() {
-    if [ $INSTALL = 0 ]
-    then
+    if [ $INSTALL = 0 ]; then
         echo "Dependencies will not be installed"
-        return;
+        return
     fi
-    if [ ! $( id -u ) -eq 0 ]
-    then
+    if [ ! $(id -u) -eq 0 ]; then
         echo "It is not possible to instal dependencies. Please run as root"
         exit 1
     fi
     CURPLACE=$(pwd)
 
     if [ "x$OS" = "xrpm" ]; then
-      RHEL=$(rpm --eval %rhel)
-      if [ "$RHEL" -lt 9 ]; then
-          add_percona_yum_repo
-      fi
-      yum clean all
-      yum -y install epel-release git wget
-      yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
-      install_golang
+        RHEL=$(rpm --eval %rhel)
+        if [ "$RHEL" -lt 9 ]; then
+            add_percona_yum_repo
+        fi
+        yum clean all
+        yum -y install epel-release git wget
+        yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
+        install_golang
     else
-      until apt-get update; do
-        sleep 1
-        echo "waiting"
-      done
-      DEBIAN_FRONTEND=noninteractive apt-get -y install lsb_release
-      export DEBIAN=$(lsb_release -sc)
-      export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-      INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git libkrb5-dev"
-      until DEBIAN_FRONTEND=noninteractive apt-get -y install ${INSTALL_LIST}; do
-        sleep 1
-        echo "waiting"
-      done
-      install_golang
+        until apt-get update; do
+            sleep 1
+            echo "waiting"
+        done
+        DEBIAN_FRONTEND=noninteractive apt-get -y install lsb_release
+        export DEBIAN=$(lsb_release -sc)
+        export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
+        INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git libkrb5-dev"
+        until DEBIAN_FRONTEND=noninteractive apt-get -y install ${INSTALL_LIST}; do
+            sleep 1
+            echo "waiting"
+        done
+        install_golang
     fi
-    return;
+    return
 }
 
-get_tar(){
+get_tar() {
     TARBALL=$1
     TARFILE=$(basename $(find $WORKDIR/$TARBALL -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
-    if [ -z $TARFILE ]
-    then
+    if [ -z $TARFILE ]; then
         TARFILE=$(basename $(find $CURDIR/$TARBALL -name 'percona-backup-mongodb*.tar.gz' | sort | tail -n1))
-        if [ -z $TARFILE ]
-        then
+        if [ -z $TARFILE ]; then
             echo "There is no $TARBALL for build"
             exit 1
         else
@@ -239,15 +227,13 @@ get_tar(){
     return
 }
 
-get_deb_sources(){
+get_deb_sources() {
     param=$1
     echo $param
     FILE=$(basename $(find $WORKDIR/source_deb -name "percona-backup-mongodb*.$param" | sort | tail -n1))
-    if [ -z $FILE ]
-    then
+    if [ -z $FILE ]; then
         FILE=$(basename $(find $CURDIR/source_deb -name "percona-backup-mongodb*.$param" | sort | tail -n1))
-        if [ -z $FILE ]
-        then
+        if [ -z $FILE ]; then
             echo "There is no sources for build"
             exit 1
         else
@@ -259,14 +245,12 @@ get_deb_sources(){
     return
 }
 
-build_srpm(){
-    if [ $SRPM = 0 ]
-    then
+build_srpm() {
+    if [ $SRPM = 0 ]; then
         echo "SRC RPM will not be created"
-        return;
+        return
     fi
-    if [ "x$OS" = "xdeb" ]
-    then
+    if [ "x$OS" = "xdeb" ]; then
         echo "It is not possible to build src rpm here"
         exit 1
     fi
@@ -284,7 +268,7 @@ build_srpm(){
     sed -e "s:@@VERSION@@:${VERSION}:g" \
         -e "s:@@RELEASE@@:${RELEASE}:g" \
         -e "s:@@REVISION@@:${REVISION}:g" \
-    packaging/rpm/mongodb-backup.spec > rpmbuild/SPECS/mongodb-backup.spec
+        packaging/rpm/mongodb-backup.spec >rpmbuild/SPECS/mongodb-backup.spec
     mv -fv ${TARFILE} ${WORKDIR}/rpmbuild/SOURCES
     rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "version ${VERSION}" --define "dist .generic" rpmbuild/SPECS/mongodb-backup.spec
     mkdir -p ${WORKDIR}/srpm
@@ -294,23 +278,19 @@ build_srpm(){
     return
 }
 
-build_rpm(){
-    if [ $RPM = 0 ]
-    then
+build_rpm() {
+    if [ $RPM = 0 ]; then
         echo "RPM will not be created"
-        return;
+        return
     fi
-    if [ "x$OS" = "xdeb" ]
-    then
+    if [ "x$OS" = "xdeb" ]; then
         echo "It is not possible to build rpm here"
         exit 1
     fi
     SRC_RPM=$(basename $(find $WORKDIR/srpm -name 'percona-backup-mongodb*.src.rpm' | sort | tail -n1))
-    if [ -z $SRC_RPM ]
-    then
+    if [ -z $SRC_RPM ]; then
         SRC_RPM=$(basename $(find $CURDIR/srpm -name 'percona-backup-mongodb*.src.rpm' | sort | tail -n1))
-        if [ -z $SRC_RPM ]
-        then
+        if [ -z $SRC_RPM ]; then
             echo "There is no src rpm for build"
             echo "You can create it using key --build_src_rpm=1"
             exit 1
@@ -328,13 +308,13 @@ build_rpm(){
     RHEL=$(rpm --eval %rhel)
     ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
 
-    echo "RHEL=${RHEL}" >> percona-backup-mongodb.properties
-    echo "ARCH=${ARCH}" >> percona-backup-mongodb.properties
+    echo "RHEL=${RHEL}" >>percona-backup-mongodb.properties
+    echo "ARCH=${ARCH}" >>percona-backup-mongodb.properties
     [[ ${PATH} == *"/usr/local/go/bin"* && -x /usr/local/go/bin/go ]] || export PATH=/usr/local/go/bin:${PATH}
-        export GOROOT="/usr/local/go/"
-        export GOPATH=$(pwd)/
-        export PATH="/usr/local/go/bin:$PATH:$GOPATH"
-        export GOBINPATH="/usr/local/go/bin"
+    export GOROOT="/usr/local/go/"
+    export GOPATH=$(pwd)/
+    export PATH="/usr/local/go/bin:$PATH:$GOPATH"
+    export GOBINPATH="/usr/local/go/bin"
     #fi
     rpmbuild --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .$OS_NAME" --rebuild rpmbuild/SRPMS/$SRC_RPM
 
@@ -348,14 +328,12 @@ build_rpm(){
     cp rpmbuild/RPMS/*/*.rpm ${CURDIR}/rpm
 }
 
-build_source_deb(){
-    if [ $SDEB = 0 ]
-    then
+build_source_deb() {
+    if [ $SDEB = 0 ]; then
         echo "source deb package will not be created"
-        return;
+        return
     fi
-    if [ "x$OS" = "xrmp" ]
-    then
+    if [ "x$OS" = "xrmp" ]; then
         echo "It is not possible to build source deb here"
         exit 1
     fi
@@ -396,19 +374,16 @@ build_source_deb(){
     cp *.diff.gz $CURDIR/source_deb
 }
 
-build_deb(){
-    if [ $DEB = 0 ]
-    then
+build_deb() {
+    if [ $DEB = 0 ]; then
         echo "Binary deb package will not be created"
-        return;
+        return
     fi
-    if [ "x$OS" = "xrmp" ]
-    then
+    if [ "x$OS" = "xrmp" ]; then
         echo "It is not possible to build binary deb here"
         exit 1
     fi
-    for file in 'dsc' 'orig.tar.gz' 'changes' 'diff.gz'
-    do
+    for file in 'dsc' 'orig.tar.gz' 'changes' 'diff.gz'; do
         get_deb_sources $file
     done
     cd $WORKDIR
@@ -417,8 +392,8 @@ build_deb(){
     export DEBIAN=$(lsb_release -sc)
     export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
     #
-    echo "DEBIAN=${DEBIAN}" >> percona-backup-mongodb.properties
-    echo "ARCH=${ARCH}" >> percona-backup-mongodb.properties
+    echo "DEBIAN=${DEBIAN}" >>percona-backup-mongodb.properties
+    echo "ARCH=${ARCH}" >>percona-backup-mongodb.properties
 
     #
     DSC=$(basename $(find . -name '*.dsc' | sort | tail -n1))
@@ -446,11 +421,10 @@ build_deb(){
     cp $WORKDIR/*.deb $CURDIR/deb
 }
 
-build_tarball(){
-    if [ $TARBALL = 0 ]
-    then
+build_tarball() {
+    if [ $TARBALL = 0 ]; then
         echo "Binary tarball will not be created"
-        return;
+        return
     fi
     get_tar "source_tarball"
     cd $WORKDIR
@@ -463,11 +437,11 @@ build_tarball(){
     fi
     #
     if [ -f /etc/redhat-release ]; then
-    export OS_RELEASE="centos$(rpm --eval %rhel)"
-    RHEL=$(rpm --eval %rhel)
+        export OS_RELEASE="centos$(rpm --eval %rhel)"
+        RHEL=$(rpm --eval %rhel)
     fi
     #
-    ARCH=$(uname -m 2>/dev/null||true)
+    ARCH=$(uname -m 2>/dev/null || true)
     TARFILE=$(basename $(find . -name 'percona-backup-mongodb*.tar.gz' | sort | grep -v "tools" | tail -n1))
     PSMDIR=${TARFILE%.tar.gz}
     PSMDIR_ABS=${WORKDIR}/${PSMDIR}

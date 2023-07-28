@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"math/rand"
+	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
@@ -90,7 +91,7 @@ func GenerateData(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	}
 
 	eg, egc := errgroup.WithContext(ctx)
-	eg.SetLimit(8)
+	eg.SetLimit(runtime.NumCPU())
 
 	for _, d := range dbs {
 		db := m.Database(d.Name)

@@ -64,7 +64,7 @@ func NewBackupCursor(n *pbm.Node, l *plog.Event, opts bson.D) *BackupCursor {
 	}
 }
 
-var triesLimitExceededErr = errors.New("tries limit exceeded")
+var errTriesLimitExceeded = errors.New("tries limit exceeded")
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
 	opts := bc.opts
@@ -88,7 +88,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 			{{"$backupCursor", opts}},
 		})
 		if err != nil {
-			se, ok := err.(mongo.ServerError)
+			se, ok := err.(mongo.ServerError) //nolint:errorlint
 			if !ok {
 				return nil, err
 			}
@@ -107,10 +107,11 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 		return cur, nil
 	}
 
-	return nil, triesLimitExceededErr
+	return nil, errTriesLimitExceeded
 }
 
-func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err error) {
+//nolint:nonamedreturns
+func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err error) {
 	cur, err := bc.create(ctx, cursorCreateRetries)
 	if err != nil {
 		return nil, errors.Wrap(err, "create backupCursor")
@@ -152,11 +153,12 @@ func (bc *BackupCursor) Data(ctx context.Context) (bcp *BackupCursorData, err er
 	go func() {
 		tk := time.NewTicker(time.Minute * 1)
 		defer tk.Stop()
+
 		for {
 			select {
 			case <-bc.close:
 				bc.l.Debug("stop cursor polling: %v, cursor err: %v",
-					cur.Close(context.Background()), cur.Err()) // `ctx` is already cancelled, so use a background context
+					cur.Close(context.Background()), cur.Err()) // `ctx` is already canceled, so use a background context
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)
@@ -190,7 +192,15 @@ func (bc *BackupCursor) Close() {
 	}
 }
 
-func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, rsMeta *pbm.BackupReplset, inf *pbm.NodeInfo, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) doPhysical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	rsMeta *pbm.BackupReplset,
+	inf *pbm.NodeInfo,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	currOpts := bson.D{}
 	if b.typ == pbm.IncrementalBackup {
 		currOpts = bson.D{
@@ -266,7 +276,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 		return errors.Wrap(err, "get shard's last write ts")
 	}
 
-	defOpts := new(pbm.MongodOpts)
+	defOpts := &pbm.MongodOpts{}
 	defOpts.Storage.WiredTiger.EngineConfig.JournalCompressor = "snappy"
 	defOpts.Storage.WiredTiger.CollectionConfig.BlockCompressor = "snappy"
 	defOpts.Storage.WiredTiger.IndexConfig.PrefixCompression = true
@@ -292,7 +302,7 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	if inf.IsLeader() {
 		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return errors.Wrap(err, "check cluster for backup started")
@@ -330,9 +340,10 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	data := bcur.Data
 	stgb, err := getStorageBSON(bcur.Meta.DBpath)
 	if err != nil {
-		return errors.Wrap(err, "check storage.bson file")
-	}
-	if stgb != nil {
+		if !errors.Is(err, storage.ErrNotExist) {
+			return errors.Wrap(err, "check storage.bson file")
+		}
+	} else {
 		data = append(data, *stgb)
 	}
 
@@ -343,7 +354,16 @@ func (b *Backup) doPhysical(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OP
 	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
 }
 
-func (b *Backup) handleExternal(bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, opid pbm.OPID, inf *pbm.NodeInfo, l *plog.Event) error {
+func (b *Backup) handleExternal(
+	bcp *pbm.BackupCmd,
+	rsMeta *pbm.BackupReplset,
+	data,
+	jrnls []pbm.File,
+	dbpath string,
+	opid pbm.OPID,
+	inf *pbm.NodeInfo,
+	l *plog.Event,
+) error {
 	for _, f := range append(data, jrnls...) {
 		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
 		rsMeta.Files = append(rsMeta.Files, f)
@@ -417,7 +437,16 @@ func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
 	return nil
 }
 
-func (b *Backup) uploadPhysical(ctx context.Context, bcp *pbm.BackupCmd, rsMeta *pbm.BackupReplset, data, jrnls []pbm.File, dbpath string, stg storage.Storage, l *plog.Event) error {
+func (b *Backup) uploadPhysical(
+	ctx context.Context,
+	bcp *pbm.BackupCmd,
+	rsMeta *pbm.BackupReplset,
+	data,
+	jrnls []pbm.File,
+	dbpath string,
+	stg storage.Storage,
+	l *plog.Event,
+) error {
 	var err error
 	l.Info("uploading data")
 	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
@@ -458,10 +487,10 @@ const storagebson = "storage.bson"
 
 func getStorageBSON(dbpath string) (*pbm.File, error) {
 	f, err := os.Stat(path.Join(dbpath, storagebson))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = storage.ErrNotExist
+		}
 		return nil, err
 	}
 
@@ -484,12 +513,12 @@ func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
 func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
 	if t != bsontype.Binary {
-		return fmt.Errorf("invalid format on unmarshal bson value")
+		return errors.New("invalid format on unmarshal bson value")
 	}
 
 	_, data, _, ok := bsoncore.ReadBinary(raw)
 	if !ok {
-		return fmt.Errorf("not enough bytes to unmarshal bson value")
+		return errors.New("not enough bytes to unmarshal bson value")
 	}
 
 	copy(id.UUID[:], data)
@@ -508,11 +537,19 @@ func (id *UUID) IsZero() bool {
 // If this is an incremental, NOT base backup, it will skip uploading of
 // unchanged files (Len == 0) but add them to the meta as we need know
 // what files shouldn't be restored (those which isn't in the target backup).
-func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix string, incr bool,
-	stg storage.Storage, comprT compress.CompressionType, comprL *int, l *plog.Event,
-) (data []pbm.File, err error) {
+func uploadFiles(
+	ctx context.Context,
+	files []pbm.File,
+	subdir string,
+	trimPrefix string,
+	incr bool,
+	stg storage.Storage,
+	comprT compress.CompressionType,
+	comprL *int,
+	l *plog.Event,
+) ([]pbm.File, error) {
 	if len(files) == 0 {
-		return data, err
+		return nil, nil
 	}
 
 	trim := func(fname string) string {
@@ -522,6 +559,7 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 	}
 
 	wfile := files[0]
+	data := []pbm.File{}
 	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():
@@ -576,7 +614,15 @@ func uploadFiles(ctx context.Context, files []pbm.File, subdir, trimPrefix strin
 	return data, nil
 }
 
-func writeFile(ctx context.Context, src pbm.File, dst string, stg storage.Storage, compression compress.CompressionType, compressLevel *int, l *plog.Event) (*pbm.File, error) {
+func writeFile(
+	ctx context.Context,
+	src pbm.File,
+	dst string,
+	stg storage.Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	l *plog.Event,
+) (*pbm.File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")

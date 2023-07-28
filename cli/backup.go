@@ -90,8 +90,11 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 
 	if err := checkConcurrentOp(cn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
-		op, ok := err.(concurentOpErr)
-		if !ok || op.op.Type != pbm.CmdPITR {
+		var e concurentOpError
+		if !errors.As(err, &e) {
+			return nil, err
+		}
+		if e.op.Type != pbm.CmdPITR {
 			return nil, err
 		}
 	}
@@ -223,7 +226,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status pbm.Status
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err error) {
+func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
@@ -232,6 +235,7 @@ func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) (err err
 		select {
 		case <-tk.C:
 			fmt.Print(".")
+			var err error
 			bmeta, err = cn.GetBackupMeta(bcpName)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue
@@ -385,7 +389,8 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 			LastTransitionTime: time.Unix(r.LastTransitionTS, 0).UTC().Format(time.RFC3339),
 		}
 		if r.Error != "" {
-			rv.Replsets[i].Error = &r.Error
+			e := r.Error
+			rv.Replsets[i].Error = &e
 		}
 		if r.MongodOpts != nil && r.MongodOpts.Security != nil {
 			rv.Replsets[i].SecurityOpts = r.MongodOpts.Security
@@ -407,7 +412,14 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 // changed to pbm.StatusError with respective error text emitted. It doesn't change meta on
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
-func bcpsMatchCluster(bcps []pbm.BackupMeta, ver, fcv string, shards []pbm.Shard, confsrv string, rsMap map[string]string) {
+func bcpsMatchCluster(
+	bcps []pbm.BackupMeta,
+	ver,
+	fcv string,
+	shards []pbm.Shard,
+	confsrv string,
+	rsMap map[string]string,
+) {
 	sh := make(map[string]bool, len(shards))
 	for _, s := range shards {
 		sh[s.RS] = s.RS == confsrv
@@ -424,16 +436,16 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, ver, fcv string, shards map[string]boo
 		return
 	}
 	if !version.CompatibleWith(bcp.PBMVersion, pbm.BreakingChangesMap[bcp.Type]) {
-		bcp.SetRuntimeError(errIncompatiblePBMVersion{bcp.PBMVersion})
+		bcp.SetRuntimeError(incompatiblePBMVersionError{bcp.PBMVersion})
 		return
 	}
 	if bcp.FCV != "" {
 		if bcp.FCV != fcv {
-			bcp.SetRuntimeError(errIncompatibleFCVVersion{bcp.FCV, fcv})
+			bcp.SetRuntimeError(incompatibleFCVVersionError{bcp.FCV, fcv})
 			return
 		}
 	} else if majmin(bcp.MongoVersion) != majmin(ver) {
-		bcp.SetRuntimeError(errIncompatibleMongodVersion{bcp.MongoVersion, ver})
+		bcp.SetRuntimeError(incompatibleMongodVersionError{bcp.MongoVersion, ver})
 		return
 
 	}
@@ -458,7 +470,7 @@ func bcpMatchCluster(bcp *pbm.BackupMeta, ver, fcv string, shards map[string]boo
 	if len(nomatch) != 0 || !hasconfsrv {
 		names := make([]string, len(nomatch))
 		copy(names, nomatch)
-		bcp.SetRuntimeError(errMissedReplsets{names: names, configsrv: !hasconfsrv})
+		bcp.SetRuntimeError(missedReplsetsError{names: names, configsrv: !hasconfsrv})
 	}
 }
 
@@ -476,12 +488,12 @@ func majmin(v string) string {
 
 var errIncompatible = errors.New("incompatible")
 
-type errMissedReplsets struct {
+type missedReplsetsError struct {
 	names     []string
 	configsrv bool
 }
 
-func (e errMissedReplsets) Error() string {
+func (e missedReplsetsError) Error() string {
 	errString := ""
 	if len(e.names) != 0 {
 		errString = "Backup doesn't match current cluster topology - it has different replica set names. " +
@@ -499,45 +511,83 @@ func (e errMissedReplsets) Error() string {
 	return errString
 }
 
-func (errMissedReplsets) Unwrap() error {
+func (missedReplsetsError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(missedReplsetsError) //nolint:errorlint
+	return ok
+}
+
+func (missedReplsetsError) Unwrap() error {
 	return errIncompatible
 }
 
-type errIncompatiblePBMVersion struct {
+type incompatiblePBMVersionError struct {
 	bcpVer string
 }
 
-func (e errIncompatiblePBMVersion) Unwrap() error {
+func (e incompatiblePBMVersionError) Error() string {
+	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
+		e.bcpVer, version.Current().Version)
+}
+
+func (incompatiblePBMVersionError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(incompatiblePBMVersionError) //nolint:errorlint
+	return ok
+}
+
+func (e incompatiblePBMVersionError) Unwrap() error {
 	return errIncompatible
 }
 
-func (e errIncompatiblePBMVersion) Error() string {
-	return fmt.Sprintf("backup version (v%s) is not compatible with PBM v%s",
-		e.bcpVer, version.DefaultInfo.Version)
-}
-
-type errIncompatibleFCVVersion struct {
+type incompatibleFCVVersionError struct {
 	bcpVer  string
 	currVer string
 }
 
-func (e errIncompatibleFCVVersion) Unwrap() error {
-	return errIncompatible
-}
-
-func (e errIncompatibleFCVVersion) Error() string {
+func (e incompatibleFCVVersionError) Error() string {
 	return fmt.Sprintf("backup FCV %q is incompatible with the running mongo FCV %q", e.bcpVer, e.currVer)
 }
 
-type errIncompatibleMongodVersion struct {
+func (incompatibleFCVVersionError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(incompatibleFCVVersionError) //nolint:errorlint
+	return ok
+}
+
+func (e incompatibleFCVVersionError) Unwrap() error {
+	return errIncompatible
+}
+
+type incompatibleMongodVersionError struct {
 	bcpVer  string
 	currVer string
 }
 
-func (e errIncompatibleMongodVersion) Unwrap() error {
-	return errIncompatible
+func (e incompatibleMongodVersionError) Error() string {
+	return fmt.Sprintf(
+		"backup mongo version %q is incompatible with the running mongo version %q",
+		majmin(e.bcpVer), majmin(e.currVer))
 }
 
-func (e errIncompatibleMongodVersion) Error() string {
-	return fmt.Sprintf("backup mongo version %q is incompatible with the running mongo version %q", majmin(e.bcpVer), majmin(e.currVer))
+func (incompatibleMongodVersionError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(incompatibleMongodVersionError) //nolint:errorlint
+	return ok
+}
+
+func (e incompatibleMongodVersionError) Unwrap() error {
+	return errIncompatible
 }

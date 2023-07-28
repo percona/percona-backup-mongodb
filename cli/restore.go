@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -145,8 +144,8 @@ func runRestore(cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, erro
 		}, nil
 	}
 
-	if serr, ok := err.(errRestoreFailed); ok {
-		return restoreRet{err: serr.Error()}, nil
+	if errors.Is(err, restoreFailedError{}) {
+		return restoreRet{err: err.Error()}, nil
 	}
 	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 }
@@ -195,7 +194,7 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, status pbm.Status, tskew int64
 		case status, pbm.StatusDone, pbm.StatusPartlyDone:
 			return nil
 		case pbm.StatusError:
-			return errRestoreFailed{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
+			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
 		if m.Type == pbm.LogicalBackup {
@@ -216,15 +215,24 @@ func waitRestore(cn *pbm.PBM, m *pbm.RestoreMeta, status pbm.Status, tskew int64
 	return nil
 }
 
-type errRestoreFailed struct {
+type restoreFailedError struct {
 	string
 }
 
-func (e errRestoreFailed) Error() string {
+func (e restoreFailedError) Error() string {
 	return e.string
 }
 
-func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (name string, typ pbm.BackupType, err error) {
+func (e restoreFailedError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(restoreFailedError) //nolint:errorlint
+	return ok
+}
+
+func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (string, pbm.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", pbm.ExternalBackup, nil
 	}
@@ -255,7 +263,13 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (name string, typ pb
 	return b, bcp.Type, nil
 }
 
-func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]string, outf outFormat) (*pbm.RestoreMeta, error) {
+func restore(
+	cn *pbm.PBM,
+	o *restoreOpts,
+	nss []string,
+	rsMapping map[string]string,
+	outf outFormat,
+) (*pbm.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(cn, o, nss)
 	if err != nil {
 		return nil, err
@@ -357,7 +371,7 @@ func restore(cn *pbm.PBM, o *restoreOpts, nss []string, rsMapping map[string]str
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn, name, fn)
+	return waitForRestoreStatus(ctx, name, fn)
 }
 
 func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
@@ -374,7 +388,8 @@ func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
 			)), -1)
 }
 
-func parseTS(t string) (ts primitive.Timestamp, err error) {
+func parseTS(t string) (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
 		tt, err := strconv.ParseInt(si[0], 10, 64)
 		if err != nil {
@@ -398,15 +413,17 @@ func parseTS(t string) (ts primitive.Timestamp, err error) {
 
 type getRestoreMetaFn func(name string) (*pbm.RestoreMeta, error)
 
-func waitForRestoreStatus(ctx context.Context, cn *pbm.PBM, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
+func waitForRestoreStatus(ctx context.Context, name string, getfn getRestoreMetaFn) (*pbm.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
-	var err error
-	meta := new(pbm.RestoreMeta)
+
+	meta := new(pbm.RestoreMeta) // TODO
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
+
+			var err error
 			meta, err = getfn(name)
 			if errors.Is(err, pbm.ErrNotFound) {
 				continue
@@ -500,7 +517,7 @@ func (r describeRestoreResult) String() string {
 }
 
 func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
-	buf, err := ioutil.ReadFile(cfgPath)
+	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
 	}
@@ -526,7 +543,8 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{}))
+		meta, err = pbm.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
+			NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
@@ -580,7 +598,8 @@ func describeRestore(cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
 			}
 			str := string(b)
 			mrs.PartialTxnStr = &str
-			perr := "WARNING! Some distributed transactions were not full in the oplog for this shard. But were applied on other shard(s). See the list of not applied ops in `partial_txn`."
+			perr := "WARNING! Some distributed transactions were not full in the oplog for this shard. " +
+				"But were applied on other shard(s). See the list of not applied ops in `partial_txn`."
 			mrs.Error = &perr
 		}
 		for _, node := range rs.Nodes {

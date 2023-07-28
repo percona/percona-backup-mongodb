@@ -145,6 +145,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 			if ns.Size == 0 {
 				mu.Lock()
 				defer mu.Unlock()
+
 				return errors.WithMessage(closeChunk(w, ns), "close empty chunk")
 			}
 
@@ -158,6 +159,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 			err = splitChunks(r, MaxBSONSize*2, func(b []byte) error {
 				mu.Lock()
 				defer mu.Unlock()
+
 				return errors.WithMessage(writeChunk(w, ns, b), "write chunk")
 			})
 			if err != nil {
@@ -166,6 +168,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 
 			mu.Lock()
 			defer mu.Unlock()
+
 			return errors.WithMessage(closeChunk(w, ns), "close chunk")
 		})
 	}

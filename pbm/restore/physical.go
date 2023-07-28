@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	slog "log"
 	"math/rand"
 	"net"
@@ -43,6 +42,9 @@ const (
 	mongofslock = "mongod.lock"
 
 	defaultPort = 27017
+
+	tryConnCount   = 5
+	tryConnTimeout = 5 * time.Minute
 )
 
 type files struct {
@@ -204,9 +206,10 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil {
 			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
 		}
-		extMeta := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
+		extMeta := filepath.Join(r.dbpath,
+			fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
 		err = os.Remove(extMeta)
-		if err != nil && err != os.ErrNotExist {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
@@ -282,6 +285,7 @@ func (r *PhysRestore) flush() error {
 func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
 	for range tk.C {
 		f, err := os.Stat(path.Join(dbpath, mongofslock))
 		if err != nil {
@@ -349,7 +353,9 @@ func waitMgoShutdown(dbpath string) error {
 //	     │   ├── rs.hb
 //	     │   ├── rs.running
 //	     │   └── rs.starting
-func (r *PhysRestore) toState(status pbm.Status) (rStatus pbm.Status, err error) {
+//
+//nolint:lll,nonamedreturns
+func (r *PhysRestore) toState(status pbm.Status) (_ pbm.Status, err error) {
 	defer func() {
 		if err != nil {
 			if r.nodeInfo.IsPrimary && status != pbm.StatusDone {
@@ -460,12 +466,12 @@ func okStatus() io.Reader {
 	))
 }
 
-type nodeErr struct {
+type nodeError struct {
 	node string
 	msg  string
 }
 
-func (n nodeErr) Error() string {
+func (n nodeError) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
 }
 
@@ -478,7 +484,11 @@ func copyMap[K comparable, V any](m map[K]V) map[K]V {
 	return cp
 }
 
-func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, cluster bool) (retStatus pbm.Status, err error) {
+func (r *PhysRestore) waitFiles(
+	status pbm.Status,
+	objs map[string]struct{},
+	cluster bool,
+) (pbm.Status, error) {
 	if len(objs) == 0 {
 		return pbm.StatusError, errors.New("empty objects maps")
 	}
@@ -486,15 +496,15 @@ func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, clu
 	tk := time.NewTicker(time.Second * 5)
 	defer tk.Stop()
 
-	retStatus = status
+	retStatus := status
 
 	var curErr error
 	var haveDone bool
 	for range tk.C {
 		for f := range objs {
 			errFile := f + "." + string(pbm.StatusError)
-			_, err = r.stg.FileStat(errFile)
-			if err != nil && err != storage.ErrNotExist {
+			_, err := r.stg.FileStat(errFile)
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return pbm.StatusError, errors.Wrapf(err, "get file %s", errFile)
 			}
 
@@ -510,14 +520,14 @@ func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, clu
 					return pbm.StatusError, errors.Wrapf(err, "read error file %s", errFile)
 				}
 				if status != pbm.StatusDone {
-					return pbm.StatusError, nodeErr{filepath.Base(f), string(b)}
+					return pbm.StatusError, nodeError{filepath.Base(f), string(b)}
 				}
-				curErr = nodeErr{filepath.Base(f), string(b)}
+				curErr = nodeError{filepath.Base(f), string(b)}
 				delete(objs, f)
 				continue
 			}
 
-			err := r.checkHB(f + "." + syncHbSuffix)
+			err = r.checkHB(f + "." + syncHbSuffix)
 			if err != nil {
 				curErr = errors.Wrapf(err, "check heartbeat in %s.%s", f, syncHbSuffix)
 				if status != pbm.StatusDone {
@@ -568,14 +578,14 @@ func (r *PhysRestore) waitFiles(status pbm.Status, objs map[string]struct{}, clu
 	return pbm.StatusError, storage.ErrNotExist
 }
 
-func checkFile(f string, stg storage.Storage) (ok bool, err error) {
-	_, err = stg.FileStat(f)
+func checkFile(f string, stg storage.Storage) (bool, error) {
+	_, err := stg.FileStat(f)
 
 	if err == nil {
 		return true, nil
 	}
 
-	if err == storage.ErrNotExist || err == storage.ErrEmpty {
+	if errors.Is(err, storage.ErrNotExist) || errors.Is(err, storage.ErrEmpty) {
 		return false, nil
 	}
 
@@ -603,9 +613,10 @@ type logBuff struct {
 	mx    sync.Mutex
 }
 
-func (l *logBuff) Write(p []byte) (n int, err error) {
+func (l *logBuff) Write(p []byte) (int, error) {
 	l.mx.Lock()
 	defer l.mx.Unlock()
+
 	if l.buf.Len()+len(p) > int(l.limit) {
 		err := l.flush()
 		if err != nil {
@@ -631,6 +642,7 @@ func (l *logBuff) flush() error {
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
 	defer l.mx.Unlock()
+
 	return l.flush()
 }
 
@@ -662,7 +674,16 @@ func (l *logBuff) Flush() error {
 // - CLI provided values
 // - replset metada in the datadir
 // - backup meta
-func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, opid pbm.OPID, l *log.Event, stopAgentC chan<- struct{}, pauseHB func()) (err error) {
+//
+//nolint:nonamedreturns
+func (r *PhysRestore) Snapshot(
+	cmd *pbm.RestoreCmd,
+	pitr primitive.Timestamp,
+	opid pbm.OPID,
+	l *log.Event,
+	stopAgentC chan<- struct{},
+	pauseHB func(),
+) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &pbm.RestoreMeta{
@@ -738,7 +759,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, op
 	// don't write logs to the mongo anymore
 	// but dump it on storage
 	r.cn.Logger().SefBuffer(&logBuff{
-		buf:   new(bytes.Buffer),
+		buf:   &bytes.Buffer{},
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		write: func(name string, data io.Reader) error { return r.stg.Save(name, data, -1) },
@@ -800,7 +821,7 @@ func (r *PhysRestore) Snapshot(cmd *pbm.RestoreCmd, pitr primitive.Timestamp, op
 		conff, err := os.Open(rsMetaF)
 		var needFiles []pbm.File
 		if err == nil {
-			rsMeta := new(pbm.BackupReplset)
+			rsMeta := &pbm.BackupReplset{}
 			err := json.NewDecoder(conff).Decode(rsMeta)
 			if err != nil {
 				return errors.Wrap(err, "decode replset meta from the backup")
@@ -969,7 +990,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 		r.log.Warning("meta `%s` already exists, trying write %s status with '%s'", name, s, msg)
 		return nil
 	}
-	if err != nil && err != storage.ErrNotExist {
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 
@@ -1010,14 +1031,17 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
+func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
+	var stat *s3.DownloadStat
 	readFn := r.stg.SourceReader
 	if t, ok := r.stg.(*s3.S3); ok {
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
+
 		defer func() {
 			s := d.Stat()
 			stat = &s
+
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
@@ -1066,16 +1090,19 @@ func (r *PhysRestore) copyFiles() (stat *s3.DownloadStat, err error) {
 				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
 			}
 			defer fw.Close()
+
 			if f.Off != 0 {
 				_, err := fw.Seek(f.Off, io.SeekStart)
 				if err != nil {
 					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
 				}
 			}
+
 			_, err = io.CopyBuffer(fw, data, cpbuf)
 			if err != nil {
 				return stat, errors.Wrapf(err, "copy file <%s>", dst)
 			}
+
 			if f.Size != 0 {
 				err = fw.Truncate(f.Size)
 				if err != nil {
@@ -1094,7 +1121,7 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return primitive.Timestamp{}, errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
@@ -1135,7 +1162,7 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1204,7 +1231,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1217,14 +1244,18 @@ func (r *PhysRestore) recoverStandalone() error {
 	return nil
 }
 
-func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.OplogChunk, stat *pbm.RestoreShardStat) error {
+func (r *PhysRestore) replayOplog(
+	from, to primitive.Timestamp,
+	opChunks []pbm.OplogChunk,
+	stat *pbm.RestoreShardStat,
+) error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1253,10 +1284,12 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "shutdown mongo")
 	}
 
-	flags := []string{"--dbpath", r.dbpath,
+	flags := []string{
+		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
-		"--replSet", r.rsConf.ID}
+		"--replSet", r.rsConf.ID,
+	}
 	if r.nodeInfo.IsConfigSrv() {
 		flags = append(flags, "--configsvr")
 	}
@@ -1265,7 +1298,7 @@ func (r *PhysRestore) replayOplog(from, to primitive.Timestamp, opChunks []pbm.O
 		return errors.Wrap(err, "start mongo as rs")
 	}
 
-	c, err = tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo rs")
 	}
@@ -1319,7 +1352,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(5, time.Minute*5, r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1490,7 +1523,8 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 // pick the oldest ts and put it as the reples ts. And the cluster will
 // pick the oldest ts proposed by replsets. All comms done via storage. Similar
 // to the restore states with proposed ts in *.lastTS files.
-func (r *PhysRestore) agreeCommonRestoreTS() (ts primitive.Timestamp, err error) {
+func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	cts, err := r.getLasOpTime()
 	if err != nil {
 		return ts, errors.Wrap(err, "define last op time")
@@ -1600,7 +1634,7 @@ func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) 
 // Tries to connect to mongo n times, timeout is applied for each try.
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
-func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Client, err error) {
+func tryConn(port int, logpath string) (*mongo.Client, error) {
 	type mlog struct {
 		T struct {
 			Date string `json:"$date"`
@@ -1608,8 +1642,11 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		S   string `json:"s"`
 		Msg string `json:"msg"`
 	}
-	for i := 0; i < n; i++ {
-		cn, err = conn(port, tout)
+
+	var cn *mongo.Client
+	var err error
+	for i := 0; i < tryConnCount; i++ {
+		cn, err = conn(port, tryConnTimeout)
 		if err == nil {
 			return cn, nil
 		}
@@ -1623,7 +1660,7 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		dec := json.NewDecoder(f)
 		for {
 			var m mlog
-			if derr := dec.Decode(&m); derr == io.EOF {
+			if derr := dec.Decode(&m); errors.Is(derr, io.EOF) {
 				break
 			} else if derr != nil {
 				return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
@@ -1634,7 +1671,7 @@ func tryConn(n int, tout time.Duration, port int, logpath string) (cn *mongo.Cli
 		}
 	}
 
-	return nil, errors.Errorf("failed to  connect after %d tries: %v", n, err)
+	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
 }
 
 func conn(port int, tout time.Duration) (*mongo.Client, error) {
@@ -1674,7 +1711,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 
 	opts = append(opts, []string{"--logpath", path.Join(r.dbpath, internalMongodLog)}...)
 
-	errBuf := new(bytes.Buffer)
+	errBuf := &bytes.Buffer{}
 	cmd := exec.Command(r.mongod, opts...)
 
 	cmd.Stderr = errBuf
@@ -1707,9 +1744,8 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 
 const hbFrameSec = 60 * 2
 
-func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
-	var cfg pbm.Config
-	cfg, err = r.cn.GetConfig()
+func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) error {
+	cfg, err := r.cn.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get pbm config")
 	}
@@ -1777,6 +1813,7 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) (err error)
 			tk.Stop()
 			l.Debug("hearbeats stopped")
 		}()
+
 		for {
 			select {
 			case <-tk.C:
@@ -1840,7 +1877,7 @@ func (r *PhysRestore) checkHB(file string) error {
 		return errors.Wrap(err, "get hb file")
 	}
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return errors.Wrap(err, "read content")
 	}
@@ -1857,8 +1894,8 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
-func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
-	opts := new(pbm.MongodOpts)
+func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) error {
+	opts := &pbm.MongodOpts{}
 	opts.Storage = *pbm.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
@@ -1874,11 +1911,12 @@ func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) (err error) {
 		}
 	}
 
-	opts.Net.BindIp = "localhost"
+	opts.Net.BindIP = "localhost"
 	opts.Net.Port = r.tmpPort
 	opts.Storage.DBpath = r.dbpath
 	opts.Security = r.secOpts
 
+	var err error
 	r.tmpConf, err = os.CreateTemp("", "pbmMongdTmpConf")
 	if err != nil {
 		return errors.Wrap(err, "create tmp config")
@@ -1907,7 +1945,7 @@ const bcpDir = "__dir__"
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
 // journals. For the incrementals, it will gather files from preceding backups
-// travelling back in time from the target backup up to the closest base.
+// traveling back in time from the target backup up to the closest base.
 // `Off == -1 && Len == -1` means the file remains unchanged since the last
 // backup and there is no data in this backup. We need such info in
 // the target backup to know which files from preceding backups should be
@@ -1915,7 +1953,7 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
-func (r *PhysRestore) setBcpFiles() (err error) {
+func (r *PhysRestore) setBcpFiles() error {
 	bcp := r.bcp
 
 	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
@@ -1958,6 +1996,7 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 		}
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
+		var err error
 		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
@@ -2006,13 +2045,14 @@ func (r *PhysRestore) setBcpFiles() (err error) {
 // always in the dbpath root and doesn't contain subdirs, only files. Having
 // a leading `/` indicates that restore was affected by PBM-1058 but only
 // with journal files we may detect the exact prefix.
-func findDBpath(fname string) (is bool, prefix string) {
+func findDBpath(fname string) (bool, string) {
 	if !strings.HasPrefix(fname, "/") {
 		return false, ""
 	}
 
-	is = true
+	is := true
 	d, _ := path.Split(fname)
+	prefix := ""
 	if strings.HasSuffix(d, "/journal/") {
 		prefix = path.Dir(d[0 : len(d)-1])
 	}
@@ -2032,7 +2072,8 @@ func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
 	return nil
 }
 
-func (r *PhysRestore) prepareBackup(backupName string) (err error) {
+func (r *PhysRestore) prepareBackup(backupName string) error {
+	var err error
 	r.bcp, err = r.cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		r.bcp, err = GetMetaFromStore(r.stg, backupName)
@@ -2055,7 +2096,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if !version.CompatibleWith(r.bcp.PBMVersion, pbm.BreakingChangesMap[r.bcp.Type]) {
-		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s", r.bcp.PBMVersion, version.DefaultInfo.Version)
+		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s",
+			r.bcp.PBMVersion, version.Current().Version)
 	}
 
 	mgoV, err := r.node.GetMongoVersion()
@@ -2064,7 +2106,8 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 	}
 
 	if semver.Compare(majmin(r.bcp.MongoVersion), majmin(mgoV.VersionString)) != 0 {
-		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s", r.bcp.MongoVersion, mgoV.VersionString)
+		return errors.Errorf("backup's Mongo version (%s) is not compatible with Mongo %s",
+			r.bcp.MongoVersion, mgoV.VersionString)
 	}
 
 	mv, err := r.checkMongod(r.bcp.MongoVersion)
@@ -2120,11 +2163,13 @@ func (r *PhysRestore) prepareBackup(backupName string) (err error) {
 
 // ensure mongod for internal restarts is available and matches
 // the backup's version
+//
+//nolint:nonamedreturns
 func (r *PhysRestore) checkMongod(needVersion string) (version string, err error) {
 	cmd := exec.Command(r.mongod, "--version")
 
-	stderr := new(bytes.Buffer)
-	stdout := new(bytes.Buffer)
+	stderr := &bytes.Buffer{}
+	stdout := &bytes.Buffer{}
 
 	cmd.Stderr = stderr
 	cmd.Stdout = stdout
@@ -2148,7 +2193,7 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
-	var nerr nodeErr
+	var nerr nodeError
 	if errors.As(e, &nerr) {
 		e = nerr
 		meta.Replsets = []pbm.RestoreReplset{{

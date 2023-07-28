@@ -41,6 +41,7 @@ const (
 	defaultS3Region = "us-east-1"
 )
 
+//nolint:lll
 type Conf struct {
 	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
@@ -287,11 +288,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			} else if sse.SseCustomerAlgorithm != "" {
 				uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-				uplInput.SSECustomerKey = aws.String(string(decodedKey[:]))
+				uplInput.SSECustomerKey = aws.String(string(decodedKey))
 				if err != nil {
 					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 				}
-				keyMD5 := md5.Sum(decodedKey[:])
+				keyMD5 := md5.Sum(decodedKey)
 				uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 			}
 		}
@@ -337,7 +338,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	case S3ProviderGCS:
 		// using minio client with GCS because it
 		// allows to disable chuncks muiltipertition for upload
-		mc, err := minio.NewWithRegion(GCSEndpointURL, s.opts.Credentials.AccessKeyID, s.opts.Credentials.SecretAccessKey, true, s.opts.Region)
+		mc, err := minio.NewWithRegion(GCSEndpointURL,
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			true,
+			s.opts.Region)
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
@@ -377,7 +382,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	prfx := path.Join(s.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
-		prfx = prfx + "/"
+		prfx += "/"
 	}
 
 	lparams := &s3.ListObjectsInput{
@@ -432,11 +437,11 @@ func (s *S3) Copy(src, dst string) error {
 		} else if sse.SseCustomerAlgorithm != "" {
 			copyOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-			copyOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+			copyOpts.SSECustomerKey = aws.String(string(decodedKey))
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			keyMD5 := md5.Sum(decodedKey[:])
+			keyMD5 := md5.Sum(decodedKey)
 			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 
 			copyOpts.CopySourceSSECustomerAlgorithm = copyOpts.SSECustomerAlgorithm
@@ -450,7 +455,9 @@ func (s *S3) Copy(src, dst string) error {
 	return err
 }
 
-func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
+func (s *S3) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
+
 	headOpts := &s3.HeadObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
@@ -460,17 +467,18 @@ func (s *S3) FileStat(name string) (inf storage.FileInfo, err error) {
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		headOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+		headOpts.SSECustomerKey = aws.String(string(decodedKey))
 		if err != nil {
 			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
-		keyMD5 := md5.Sum(decodedKey[:])
+		keyMD5 := md5.Sum(decodedKey)
 		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
 	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
+		var aerr awserr.Error
+		if errors.As(err, &aerr) && aerr.Code() == "NotFound" {
 			return inf, storage.ErrNotExist
 		}
 
@@ -497,11 +505,9 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case s3.ErrCodeNoSuchKey:
-				return storage.ErrNotExist
-			}
+		var aerr awserr.Error
+		if errors.As(err, &aerr) && aerr.Code() == s3.ErrCodeNoSuchKey {
+			return storage.ErrNotExist
 		}
 		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
 	}
@@ -561,7 +567,7 @@ func (s *S3) session() (*session.Session, error) {
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 			},
 		}
 	}

@@ -5,8 +5,9 @@ import (
 	"math/rand"
 	"time"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 	"golang.org/x/mod/semver"
+
+	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func (c *Cluster) IncrementalBackup(mongoVersion string) {

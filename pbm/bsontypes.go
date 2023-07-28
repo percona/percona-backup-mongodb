@@ -167,7 +167,7 @@ type ReplsetStatus struct {
 	MyState                 NodeState            `bson:"myState" json:"myState"`
 	Members                 []NodeStatus         `bson:"members" json:"members"`
 	Term                    int64                `bson:"term,omitempty" json:"term,omitempty"`
-	HeartbeatIntervalMillis int64                `bson:"heartbeatIntervalMillis,omitempty" json:"heartbeatIntervalMillis,omitempty"`
+	HeartbeatIntervalMillis int64                `bson:"heartbeatIntervalMillis,omitempty" json:"heartbeatIntervalMillis,omitempty"` //nolint:lll
 	Optimes                 *StatusOpTimes       `bson:"optimes,omitempty" json:"optimes,omitempty"`
 	Errmsg                  string               `bson:"errmsg,omitempty" json:"errmsg,omitempty"`
 	Ok                      int                  `bson:"ok" json:"ok"`
@@ -234,7 +234,7 @@ func (b *BalancerStatus) IsOn() bool {
 
 type MongodOpts struct {
 	Net struct {
-		BindIp string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
+		BindIP string `bson:"bindIp" json:"bindIp" yaml:"bindIp"`
 		Port   int    `bson:"port" json:"port" yaml:"port"`
 	} `bson:"net" json:"net"`
 	Sharding struct {
@@ -244,6 +244,7 @@ type MongodOpts struct {
 	Security *MongodOptsSec    `bson:"security,omitempty" json:"security,omitempty" yaml:"security,omitempty"`
 }
 
+//nolint:lll
 type MongodOptsSec struct {
 	EnableEncryption     *bool   `bson:"enableEncryption,omitempty" json:"enableEncryption,omitempty" yaml:"enableEncryption,omitempty"`
 	EncryptionCipherMode *string `bson:"encryptionCipherMode,omitempty" json:"encryptionCipherMode,omitempty" yaml:"encryptionCipherMode,omitempty"`
@@ -308,6 +309,7 @@ func (stg *MongodOptsStorage) UnmarshalYAML(unmarshal func(interface{}) error) e
 	return unmarshal((*rawStg)(stg))
 }
 
+//nolint:lll
 type RSConfig struct {
 	ID                      string     `bson:"_id" json:"_id"`
 	CSRS                    bool       `bson:"configsvr,omitempty" json:"configsvr"`

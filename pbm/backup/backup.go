@@ -7,7 +7,6 @@ import (
 	"io"
 	"time"
 
-	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -18,14 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
-
-func init() {
-	// set date format for mongo tools (mongodump/mongorestore) logger
-	//
-	// duplicated in backup/restore packages just
-	// in the sake of clarity
-	mlog.SetDateFormat(plog.LogTimeFormat)
-}
 
 type Backup struct {
 	cn       *pbm.PBM
@@ -72,29 +63,45 @@ func (b *Backup) SetTimeouts(t *pbm.BackupTimeouts) {
 	b.timeouts = t
 }
 
-func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, store pbm.StorageConf, balancer pbm.BalancerMode) error {
+func (b *Backup) Init(
+	bcp *pbm.BackupCmd,
+	opid pbm.OPID,
+	inf *pbm.NodeInfo,
+	store pbm.StorageConf,
+	balancer pbm.BalancerMode,
+) error {
 	ts, err := b.cn.ClusterTime()
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}
 
 	meta := &pbm.BackupMeta{
-		Type:           b.typ,
-		OPID:           opid.String(),
-		Name:           bcp.Name,
-		Namespaces:     bcp.Namespaces,
-		Compression:    bcp.Compression,
-		Store:          store,
-		StartTS:        time.Now().Unix(),
-		Status:         pbm.StatusStarting,
-		Replsets:       []pbm.BackupReplset{},
-		LastWriteTS:    primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1}, // the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		PBMVersion:     version.DefaultInfo.Version,
+		Type:        b.typ,
+		OPID:        opid.String(),
+		Name:        bcp.Name,
+		Namespaces:  bcp.Namespaces,
+		Compression: bcp.Compression,
+		Store:       store,
+		StartTS:     time.Now().Unix(),
+		Status:      pbm.StatusStarting,
+		Replsets:    []pbm.BackupReplset{},
+		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
+		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
+		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
+		PBMVersion:     version.Current().Version,
 		Nomination:     []pbm.BackupRsNomination{},
 		BalancerStatus: balancer,
 		Hb:             ts,
 	}
+
+	cfg, err := b.cn.GetConfig()
+	if errors.Is(err, pbm.ErrStorageUndefined) {
+		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
+	} else if err != nil {
+		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+	meta.Store = cfg.Storage
 
 	ver, err := b.node.GetMongoVersion()
 	if err != nil {
@@ -131,6 +138,8 @@ func (b *Backup) Init(bcp *pbm.BackupCmd, opid pbm.OPID, inf *pbm.NodeInfo, stor
 
 // Run runs backup.
 // TODO: describe flow
+//
+//nolint:nonamedreturns
 func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
 	inf, err := b.node.GetInfo()
 	if err != nil {
@@ -197,13 +206,16 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	if inf.IsLeader() {
 		hbstop := make(chan struct{})
 		defer close(hbstop)
+
 		err := b.cn.BackupHB(bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
+
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()
+
 			for {
 				select {
 				case <-tk.C:
@@ -222,6 +234,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
+
 			l.Debug("waiting for balancer off")
 			bs := waitForBalancerOff(b.cn, time.Second*30, l)
 			l.Debug("balancer status: %s", bs)
@@ -294,11 +307,13 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
+
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
 
 	var bs *pbm.BalancerStatus
 	var err error
+
 Loop:
 	for {
 		select {
@@ -315,6 +330,7 @@ Loop:
 			break Loop
 		}
 	}
+
 	if bs != nil {
 		return pbm.BalancerMode("")
 	}
@@ -341,14 +357,14 @@ func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
 		nil
 }
 
-// rwErr multierror for the read/compress/write-to-store operations set
-type rwErr struct {
+// rwError multierror for the read/compress/write-to-store operations set
+type rwError struct {
 	read     error
 	compress error
 	write    error
 }
 
-func (rwe rwErr) Error() string {
+func (rwe rwError) Error() string {
 	var r string
 	if rwe.read != nil {
 		r += "read data: " + rwe.read.Error() + "."
@@ -363,7 +379,7 @@ func (rwe rwErr) Error() string {
 	return r
 }
 
-func (rwe rwErr) nil() bool {
+func (rwe rwError) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
 
@@ -379,7 +395,15 @@ type Canceller interface {
 var ErrCancelled = errors.New("backup canceled")
 
 // Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(ctx context.Context, src Source, dst storage.Storage, compression compress.CompressionType, compressLevel *int, fname string, sizeb int64) (int64, error) {
+func Upload(
+	ctx context.Context,
+	src Source,
+	dst storage.Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	fname string,
+	sizeb int64,
+) (int64, error) {
 	r, pw := io.Pipe()
 
 	w, err := compress.Compress(pw, compression, compressLevel)
@@ -387,7 +411,7 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression co
 		return 0, err
 	}
 
-	var rwErr rwErr
+	var rwErr rwError
 	var n int64
 	go func() {
 		n, rwErr.read = src.WriteTo(w)
@@ -424,8 +448,8 @@ func Upload(ctx context.Context, src Source, dst storage.Storage, compression co
 	return n, nil
 }
 
-func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) (err error) {
-	err = b.cn.ChangeRSState(bcp, inf.SetName, status, "")
+func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) error {
+	err := b.cn.ChangeRSState(bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -433,7 +457,7 @@ func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo,
 	if inf.IsLeader() {
 		err = b.reconcileStatus(bcp, opid, status, wait)
 		if err != nil {
-			if errors.Cause(err) == errConvergeTimeOut {
+			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
 			}
 			return errors.Wrapf(err, "check cluster for backup `%s`", status)
@@ -455,7 +479,8 @@ func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeou
 	}
 
 	if timeout != nil {
-		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout), "convergeClusterWithTimeout")
+		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout),
+			"convergeClusterWithTimeout")
 	}
 	return errors.Wrap(b.convergeCluster(bcpName, opid, shards, status), "convergeCluster")
 }
@@ -464,6 +489,7 @@ func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeou
 func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, status pbm.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -482,12 +508,21 @@ func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, statu
 
 var errConvergeTimeOut = errors.New("reached converge timeout")
 
-// convergeClusterWithTimeout waits up to the geiven timeout until all given shards reached `status` and then updates the cluster status
-func (b *Backup) convergeClusterWithTimeout(bcpName, opid string, shards []pbm.Shard, status pbm.Status, t time.Duration) error {
+// convergeClusterWithTimeout waits up to the geiven timeout until
+// all given shards reached `status` and then updates the cluster status
+func (b *Backup) convergeClusterWithTimeout(
+	bcpName,
+	opid string,
+	shards []pbm.Shard,
+	status pbm.Status,
+	t time.Duration,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	tout := time.NewTicker(t)
 	defer tout.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -530,7 +565,7 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and no need to ckech the heartbeats
-				if status != pbm.StatusDone && err != mongo.ErrNoDocuments {
+				if status != pbm.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}
@@ -568,10 +603,13 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	if waitFor != nil {
 		tmr := time.NewTimer(*waitFor)
 		defer tmr.Stop()
+
 		tout = tmr.C
 	}
+
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:
@@ -608,9 +646,11 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	}
 }
 
+//nolint:nonamedreturns
 func (b *Backup) waitForFirstLastWrite(bcpName string) (first, last primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+
 	for {
 		select {
 		case <-tk.C:

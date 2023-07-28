@@ -96,14 +96,14 @@ func (p *PBM) pitrChunk(rs string, sort int) (*OplogChunk, error) {
 		bson.D{{"rs", rs}},
 		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
-			return nil, nil
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
-	chnk := new(OplogChunk)
+	chnk := &OplogChunk{}
 	err := res.Decode(chnk)
 	return chnk, errors.Wrap(err, "decode")
 }
@@ -144,7 +144,7 @@ func (p *PBM) PITRGetChunksSlice(rs string, from, to primitive.Timestamp) ([]Opl
 		}...)
 	}
 
-	return p.pitrGetChunksSlice(rs, q)
+	return p.pitrGetChunksSlice(q)
 }
 
 // PITRGetChunksSliceUntil returns slice of PITR oplog chunks that starts up until timestamp (exclusively)
@@ -156,10 +156,10 @@ func (p *PBM) PITRGetChunksSliceUntil(rs string, t primitive.Timestamp) ([]Oplog
 
 	q = append(q, bson.E{"start_ts", bson.M{"$lt": t}})
 
-	return p.pitrGetChunksSlice(rs, q)
+	return p.pitrGetChunksSlice(q)
 }
 
-func (p *PBM) pitrGetChunksSlice(rs string, q bson.D) ([]OplogChunk, error) {
+func (p *PBM) pitrGetChunksSlice(q bson.D) ([]OplogChunk, error) {
 	cur, err := p.Conn.Database(DB).Collection(PITRChunksCollection).Find(
 		p.ctx,
 		q,
@@ -198,7 +198,7 @@ func (p *PBM) PITRGetChunkStarts(rs string, ts primitive.Timestamp) (*OplogChunk
 		return nil, errors.Wrap(res.Err(), "get")
 	}
 
-	chnk := new(OplogChunk)
+	chnk := &OplogChunk{}
 	err := res.Decode(chnk)
 	return chnk, errors.Wrap(err, "decode")
 }
@@ -230,9 +230,9 @@ func (t Timeline) String() string {
 // any saved chunk already belongs to some valid timeline,
 // the slice wouldn't be done otherwise.
 // `flist` is a cache of chunk sizes.
-func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tlines []Timeline, err error) {
+func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) ([]Timeline, error) {
 	fch, err := p.PITRFirstChunkMeta(rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, errors.Wrap(err, "get the oldest chunk")
 	}
 	if fch == nil {
@@ -248,7 +248,7 @@ func (p *PBM) PITRGetValidTimelines(rs string, until primitive.Timestamp) (tline
 }
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
-func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
+func (p *PBM) PITRTimelines() ([]Timeline, error) {
 	shards, err := p.ClusterMembers()
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -273,9 +273,11 @@ func (p *PBM) PITRTimelines() (tlines []Timeline, err error) {
 	return MergeTimelines(tlns...), nil
 }
 
-func gettimelines(slices []OplogChunk) (tlines []Timeline) {
+func gettimelines(slices []OplogChunk) []Timeline {
 	var tl Timeline
 	var prevEnd primitive.Timestamp
+	tlines := []Timeline{}
+
 	for _, s := range slices {
 		if prevEnd.T != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
 			tlines = append(tlines, tl)

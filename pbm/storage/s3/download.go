@@ -106,6 +106,8 @@ const lowCPU = 8
 
 // Adjust download options. We go from spanSize. But if bufMaxMb is
 // set, it will be a hard limit on total memory.
+//
+//nolint:nonamedreturns
 func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
@@ -158,7 +160,26 @@ func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
 	return s.d.SourceReader(name)
 }
 
-type errGetObj error
+type getObjError struct {
+	Err error
+}
+
+func (e getObjError) Error() string {
+	return e.Err.Error()
+}
+
+func (e getObjError) Unwap() error {
+	return e.Err
+}
+
+func (getObjError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(getObjError) //nolint:errorlint
+	return ok
+}
 
 // requests an object in chunks and retries if download has failed
 type partReader struct {
@@ -264,7 +285,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 					continue
 				}
 
-				err := pr.writeChunk(&rs, w, downloadRetries)
+				err := pr.writeChunk(&rs, w)
 				if err != nil {
 					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse", rs.meta.start, rs.meta.end)
 					return
@@ -273,7 +294,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 				// check if we can send something from the buffer
 				for len(*cqueue) > 0 && []*chunk(*cqueue)[0].meta.start == pr.written {
 					r := heap.Pop(cqueue).(*chunk)
-					err := pr.writeChunk(r, w, downloadRetries)
+					err := pr.writeChunk(r, w)
 					if err != nil {
 						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse buffer", r.meta.start, r.meta.end)
 						return
@@ -322,7 +343,7 @@ func (pr *partReader) Reset() {
 	close(pr.close)
 }
 
-func (pr *partReader) writeChunk(r *chunk, to io.Writer, retry int) error {
+func (pr *partReader) writeChunk(r *chunk, to io.Writer) error {
 	if r == nil || r.r == nil {
 		return nil
 	}
@@ -358,7 +379,10 @@ func (pr *partReader) worker(buf *arena) {
 	}
 }
 
-func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (r io.ReadCloser, err error) {
+func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (io.ReadCloser, error) {
+	var r io.ReadCloser
+	var err error
+
 	for i := 0; i < retries; i++ {
 		r, err = pr.tryChunk(buf, s, start, end)
 		if err == nil {
@@ -378,18 +402,20 @@ func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries
 	return nil, err
 }
 
-func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (r io.ReadCloser, err error) {
+func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
 	// just quickly retry w/o new session in case of fail.
 	// more sophisticated retry on a caller side.
 	const retry = 2
+	var err error
 	for i := 0; i < retry; i++ {
+		var r io.ReadCloser
 		r, err = pr.getChunk(buf, s, start, end)
 
-		if err == nil || err == io.EOF {
+		if err == nil || errors.Is(err, io.EOF) {
 			return r, nil
 		}
-		switch err.(type) {
-		case errGetObj:
+
+		if errors.Is(err, &getObjError{}) {
 			return r, err
 		}
 
@@ -410,11 +436,11 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		getObjOpts.SSECustomerKey = aws.String(string(decodedKey[:]))
+		getObjOpts.SSECustomerKey = aws.String(string(decodedKey))
 		if err != nil {
 			return nil, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
-		keyMD5 := md5.Sum(decodedKey[:])
+		keyMD5 := md5.Sum(decodedKey)
 		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
@@ -427,7 +453,7 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			return nil, io.EOF
 		}
 		pr.l.Warning("errGetObj Err: %v", err)
-		return nil, errGetObj(err)
+		return nil, getObjError{err}
 	}
 	defer s3obj.Body.Close()
 
@@ -440,8 +466,8 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
 			// We don't pass in the key in this case, just the MD5 hash of the key
 			// for verification
-			// s3obj.SSECustomerKey = aws.String(string(decodedKey[:]))
-			keyMD5 := md5.Sum(decodedKey[:])
+			// s3obj.SSECustomerKey = aws.String(string(decodedKey))
+			keyMD5 := md5.Sum(decodedKey)
 			s3obj.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}
@@ -559,15 +585,15 @@ type dspan struct {
 	arena *arena // link to the arena
 }
 
-func (s *dspan) Write(p []byte) (n int, err error) {
-	n = copy(s.arena.buf[s.wp:s.high], p)
+func (s *dspan) Write(p []byte) (int, error) {
+	n := copy(s.arena.buf[s.wp:s.high], p)
 
 	s.wp += n
 	return n, nil
 }
 
-func (s *dspan) Read(p []byte) (n int, err error) {
-	n = copy(p, s.arena.buf[s.rp:s.wp])
+func (s *dspan) Read(p []byte) (int, error) {
+	n := copy(p, s.arena.buf[s.rp:s.wp])
 	s.rp += n
 
 	if s.rp == s.wp {

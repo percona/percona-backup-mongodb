@@ -46,7 +46,7 @@ func (p *PBM) BcpNodesPriority(c map[string]float64) (*NodesPriority, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}
-	agents, err := p.AgentsStatus()
+	agents, err := p.ListAgentStatuses()
 	if err != nil {
 		return nil, errors.Wrap(err, "get agents list")
 	}
@@ -117,13 +117,14 @@ func (s nodeScores) list() [][]string {
 
 func (p *PBM) SetRSNomination(bcpName, rs string) error {
 	n := BackupRsNomination{RS: rs, Nodes: []string{}}
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", bcpName}},
-		bson.D{{"$addToSet", bson.M{"n": n}}},
-	)
+	_, err := p.Conn.Database(DB).Collection(BcpCollection).
+		UpdateOne(
+			p.ctx,
+			bson.D{{"name", bcpName}},
+			bson.D{{"$addToSet", bson.M{"n": n}}},
+		)
 
-	return err
+	return errors.WithMessage(err, "query")
 }
 
 func (p *PBM) GetRSNominees(bcpName, rsName string) (*BackupRsNomination, error) {

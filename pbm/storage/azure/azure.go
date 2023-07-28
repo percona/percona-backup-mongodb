@@ -49,12 +49,13 @@ type Blob struct {
 	c *azblob.Client
 }
 
-func New(opts Conf, l *log.Event) (b *Blob, err error) {
-	b = &Blob{
+func New(opts Conf, l *log.Event) (*Blob, error) {
+	b := &Blob{
 		opts: opts,
 		log:  l,
 	}
 
+	var err error
 	b.c, err = b.client()
 	if err != nil {
 		return nil, errors.Wrap(err, "init container")
@@ -85,10 +86,14 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
 	}
 
-	_, err := b.c.UploadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), data, &azblob.UploadStreamOptions{
-		BlockSize:   int64(bufsz),
-		Concurrency: cc,
-	})
+	_, err := b.c.UploadStream(context.TODO(),
+		b.opts.Container,
+		path.Join(b.opts.Prefix, name),
+		data,
+		&azblob.UploadStreamOptions{
+			BlockSize:   int64(bufsz),
+			Concurrency: cc,
+		})
 
 	return err
 }
@@ -97,7 +102,7 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	prfx := path.Join(b.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
-		prfx = prfx + "/"
+		prfx += "/"
 	}
 
 	pager := b.c.NewListBlobsFlatPager(b.opts.Container, &azblob.ListBlobsFlatOptions{
@@ -140,8 +145,13 @@ func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, nil
 }
 
-func (b *Blob) FileStat(name string) (inf storage.FileInfo, err error) {
-	p, err := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, name)).GetProperties(context.TODO(), nil)
+func (b *Blob) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
+
+	p, err := b.c.ServiceClient().
+		NewContainerClient(b.opts.Container).
+		NewBlockBlobClient(path.Join(b.opts.Prefix, name)).
+		GetProperties(context.TODO(), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return inf, storage.ErrNotExist
@@ -228,15 +238,16 @@ func (b *Blob) ensureContainer() error {
 	if err == nil {
 		return nil
 	}
-	if stgErr, ok := err.(*azcore.ResponseError); ok {
-		if stgErr.StatusCode != http.StatusNotFound {
-			return errors.Wrap(err, "check container")
-		}
+
+	var stgErr *azcore.ResponseError
+	if errors.As(err, &stgErr) && stgErr.StatusCode != http.StatusNotFound {
+		return errors.Wrap(err, "check container")
 	}
 
 	_, err = b.c.CreateContainer(context.TODO(), b.opts.Container, nil)
 	return err
 }
+
 func (b *Blob) client() (*azblob.Client, error) {
 	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
 	if err != nil {
@@ -251,7 +262,8 @@ func (b *Blob) client() (*azblob.Client, error) {
 }
 
 func isNotFound(err error) bool {
-	if stgErr, ok := err.(*azcore.ResponseError); ok {
+	var stgErr *azcore.ResponseError
+	if errors.As(err, &stgErr) {
 		return stgErr.StatusCode == http.StatusNotFound
 	}
 

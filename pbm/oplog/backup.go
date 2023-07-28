@@ -33,12 +33,15 @@ func (ot *OplogBackup) SetTailingSpan(start, end primitive.Timestamp) {
 	ot.end = end
 }
 
-type ErrInsuffRange struct {
+type InsuffRangeError struct {
 	primitive.Timestamp
 }
 
-func (e ErrInsuffRange) Error() string {
-	return fmt.Sprintf("oplog has insufficient range, some records since the last saved ts %v are missing. Run `pbm backup` to create a valid starting point for the PITR", e.Timestamp)
+func (e InsuffRangeError) Error() string {
+	return fmt.Sprintf(
+		"oplog has insufficient range, some records since the last saved ts %v are missing. "+
+			"Run `pbm backup` to create a valid starting point for the PITR",
+		e.Timestamp)
 }
 
 // WriteTo writes an oplog slice between start and end timestamps into the given io.Writer
@@ -103,7 +106,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 				return 0, errors.Wrap(err, "check oplog sufficiency")
 			}
 			if !ok {
-				return 0, ErrInsuffRange{ot.start}
+				return 0, InsuffRangeError{ot.start}
 			}
 			rcheck = true
 		}

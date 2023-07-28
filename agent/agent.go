@@ -41,7 +41,8 @@ func New(pbm *pbm.PBM) *Agent {
 	}
 }
 
-func (a *Agent) AddNode(ctx context.Context, curi string, dumpConns int) (err error) {
+func (a *Agent) AddNode(ctx context.Context, curi string, dumpConns int) error {
+	var err error
 	a.node, err = pbm.NewNode(ctx, curi, dumpConns)
 	return err
 }
@@ -72,7 +73,7 @@ func (a *Agent) CanStart() error {
 
 // Start starts listening the commands stream.
 func (a *Agent) Start() error {
-	a.log.Printf("pbm-agent:\n%s", version.DefaultInfo.All(""))
+	a.log.Printf("pbm-agent:\n%s", version.Current().All(""))
 	a.log.Printf("node: %s", a.node.ID())
 
 	c, cerr := a.pbm.ListenCmd(a.closeCMD)
@@ -122,14 +123,12 @@ func (a *Agent) Start() error {
 				return nil
 			}
 
-			switch err.(type) {
-			case pbm.ErrorCursor:
-				return errors.Wrap(err, "stop listening")
-			default:
-				ep, _ := a.pbm.GetEpoch()
-
-				a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
+			if errors.Is(err, pbm.CursorClosedError{}) {
+				return errors.WithMessage(err, "stop listening")
 			}
+
+			ep, _ := a.pbm.GetEpoch()
+			a.log.Error("", "", "", ep.TS(), "listening commands: %v", err)
 		}
 	}
 }
@@ -174,8 +173,7 @@ func (a *Agent) Delete(d *pbm.DeleteBackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	defer func() {
-		err := lock.Release()
-		if err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -247,8 +245,7 @@ func (a *Agent) DeletePITR(d *pbm.DeletePITRCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	defer func() {
-		err := lock.Release()
-		if err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -397,8 +394,7 @@ func (a *Agent) Resync(opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	defer func() {
-		err = lock.Release()
-		if err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("reslase lock %v: %v", lock, err)
 		}
 	}()
@@ -424,40 +420,43 @@ type lockAquireFn func() (bool, error)
 
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (got bool, err error) {
+func (a *Agent) acquireLock(l *pbm.Lock, lg *log.Event, acquireFn lockAquireFn) (bool, error) {
 	if acquireFn == nil {
 		acquireFn = l.Acquire
 	}
 
-	got, err = acquireFn()
+	got, err := acquireFn()
 	if err == nil {
 		return got, nil
 	}
 
-	switch err := err.(type) {
-	case pbm.ErrDuplicateOp, pbm.ErrConcurrentOp:
+	if errors.Is(err, pbm.DuplicatedOpError{}) || errors.Is(err, pbm.ConcurrentOpError{}) {
 		lg.Debug("get lock: %v", err)
 		return false, nil
-	case pbm.ErrWasStaleLock:
-		lk := err.Lock
-		lg.Debug("stale lock: %v", lk)
-		var fn func(opid string) error
-		switch lk.Type {
-		case pbm.CmdBackup:
-			fn = a.pbm.MarkBcpStale
-		case pbm.CmdRestore:
-			fn = a.pbm.MarkRestoreStale
-		default:
-			return acquireFn()
-		}
-		merr := fn(lk.OPID)
-		if merr != nil {
-			lg.Warning("failed to mark stale op '%s' as failed: %v", lk.OPID, merr)
-		}
-		return acquireFn()
-	default:
+	}
+
+	var er pbm.StaleLockError
+	if !errors.As(err, &er) {
 		return false, err
 	}
+
+	lock := er.Lock
+	lg.Debug("stale lock: %v", lock)
+	var fn func(opid string) error
+	switch lock.Type {
+	case pbm.CmdBackup:
+		fn = a.pbm.MarkBcpStale
+	case pbm.CmdRestore:
+		fn = a.pbm.MarkRestoreStale
+	default:
+		return acquireFn()
+	}
+
+	if err := fn(lock.OPID); err != nil {
+		lg.Warning("failed to mark stale op '%s' as failed: %v", lock.OPID, err)
+	}
+
+	return acquireFn()
 }
 
 func (a *Agent) HbPause() {
@@ -476,10 +475,10 @@ func (a *Agent) HbStatus() {
 	hb := pbm.AgentStat{
 		Node: a.node.Name(),
 		RS:   a.node.RS(),
-		Ver:  version.DefaultInfo.Version,
+		Ver:  version.Current().Version,
 	}
 	defer func() {
-		if err := a.pbm.RmAgentStatus(hb); err != nil {
+		if err := a.pbm.RemoveAgentStatus(hb); err != nil {
 			logger := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 			logger.Error("remove agent heartbeat: %v", err)
 		}
@@ -492,8 +491,7 @@ func (a *Agent) HbStatus() {
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	const checkStoreIn = int(60 / (pbm.AgentsStatCheckRange / time.Second))
-	var cc int
-
+	cc := 0
 	for range tk.C {
 		// don't check if on pause (e.g. physical restore)
 		if !a.HbIsRun() {
@@ -545,33 +543,25 @@ func (a *Agent) HbStatus() {
 	}
 }
 
-func (a *Agent) pbmStatus() (sts pbm.SubsysStatus) {
+func (a *Agent) pbmStatus() pbm.SubsysStatus {
 	err := a.pbm.Conn.Ping(a.pbm.Context(), nil)
 	if err != nil {
-		sts.OK = false
-		sts.Err = err.Error()
-		return
+		return pbm.SubsysStatus{Err: err.Error()}
 	}
 
-	sts.OK = true
-	return
+	return pbm.SubsysStatus{OK: true}
 }
 
-func (a *Agent) nodeStatus() (sts pbm.SubsysStatus) {
+func (a *Agent) nodeStatus() pbm.SubsysStatus {
 	err := a.node.Session().Ping(a.pbm.Context(), nil)
 	if err != nil {
-		sts.OK = false
-		sts.Err = err.Error()
-		return
+		return pbm.SubsysStatus{Err: err.Error()}
 	}
 
-	sts.OK = true
-	return
+	return pbm.SubsysStatus{OK: true}
 }
 
-func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.SubsysStatus) {
-	sts.OK = false
-
+func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) pbm.SubsysStatus {
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	// but if storage was(is) failed, check it always
 	stat, err := a.pbm.GetAgentStatus(a.node.RS(), a.node.Name())
@@ -579,31 +569,27 @@ func (a *Agent) storStatus(log *log.Event, forceCheckStorage bool) (sts pbm.Subs
 		log.Warning("get current storage status: %v", err)
 	}
 	if !forceCheckStorage && stat.StorageStatus.OK {
-
-		sts.OK = true
-		return sts
+		return pbm.SubsysStatus{OK: true}
 	}
 
 	stg, err := a.pbm.GetStorage(log)
 	if err != nil {
-		sts.Err = fmt.Sprintf("unable to get storage: %v", err)
-		return sts
+		return pbm.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
 	_, err = stg.FileStat(pbm.StorInitFile)
 	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+		err := stg.Save(pbm.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
 		if err != nil {
-			sts.Err = fmt.Sprintf("storage: no init file, attempt to create failed: %v", err)
-			return sts
+			return pbm.SubsysStatus{
+				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),
+			}
 		}
 	} else if err != nil {
-		sts.Err = fmt.Sprintf("storage check failed with: %v", err)
-		return sts
+		return pbm.SubsysStatus{Err: fmt.Sprintf("storage check failed with: %v", err)}
 	}
 
-	sts.OK = true
-	return sts
+	return pbm.SubsysStatus{OK: true}
 }
 
 func logHbStatus(name string, st pbm.SubsysStatus, l *log.Event) {

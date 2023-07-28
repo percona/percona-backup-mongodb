@@ -18,10 +18,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 type Mongo struct {
 	cn  *mongo.Client
 	ctx context.Context

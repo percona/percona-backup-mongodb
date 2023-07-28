@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 const ExternalRsMetaFile = "pbm.rsmeta.%s.json"
@@ -156,7 +157,7 @@ func (t RestoreTxn) String() string {
 	return fmt.Sprintf("<%s> [%s] %v", t.ID, t.State, t.Ctime)
 }
 
-func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) error {
+func (p *PBM) RestoreSetRSTxn(name, rsName string, txn []RestoreTxn) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -166,7 +167,7 @@ func (p *PBM) RestoreSetRSTxn(name string, rsName string, txn []RestoreTxn) erro
 	return err
 }
 
-func (p *PBM) RestoreSetRSStat(name string, rsName string, stat RestoreShardStat) error {
+func (p *PBM) RestoreSetRSStat(name, rsName string, stat RestoreShardStat) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -186,7 +187,7 @@ func (p *PBM) RestoreSetStat(name string, stat RestoreStat) error {
 	return err
 }
 
-func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) error {
+func (p *PBM) RestoreSetRSPartTxn(name, rsName string, txn []db.Oplog) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -196,7 +197,7 @@ func (p *PBM) RestoreSetRSPartTxn(name string, rsName string, txn []db.Oplog) er
 	return err
 }
 
-func (p *PBM) SetCurrentOp(name string, rsName string, ts primitive.Timestamp) error {
+func (p *PBM) SetCurrentOp(name, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -228,11 +229,11 @@ func (p *PBM) GetRestoreMeta(name string) (*RestoreMeta, error) {
 
 func (p *PBM) getRestoreMeta(clause bson.D) (*RestoreMeta, error) {
 	res := p.Conn.Database(DB).Collection(RestoresCollection).FindOne(p.ctx, clause)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 	r := &RestoreMeta{}
 	err := res.Decode(r)
@@ -242,18 +243,18 @@ func (p *PBM) getRestoreMeta(clause bson.D) (*RestoreMeta, error) {
 // GetLastRestore returns last successfully finished restore
 // and nil if there is no such restore yet.
 func (p *PBM) GetLastRestore() (*RestoreMeta, error) {
-	r := new(RestoreMeta)
+	r := &RestoreMeta{}
 
 	res := p.Conn.Database(DB).Collection(RestoresCollection).FindOne(
 		p.ctx,
 		bson.D{{"status", StatusDone}},
 		options.FindOne().SetSort(bson.D{{"start_ts", -1}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
-			return nil, nil
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 	err := res.Decode(r)
 	return r, errors.Wrap(err, "decode")
@@ -340,7 +341,7 @@ func (p *PBM) SetOplogTimestamps(name string, start, end int64) error {
 	return err
 }
 
-func (p *PBM) ChangeRestoreRSState(name string, rsName string, s Status, msg string) error {
+func (p *PBM) ChangeRestoreRSState(name, rsName string, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(RestoresCollection).UpdateOne(
 		p.ctx,
@@ -365,7 +366,6 @@ func (p *PBM) RestoresList(limit int64) ([]RestoreMeta, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	restores := []RestoreMeta{}

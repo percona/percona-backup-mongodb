@@ -164,7 +164,7 @@ func TestBcpMatchCluster(t *testing.T) {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			m := []pbm.BackupMeta{}
 			for _, b := range c.bcps {
-				b.meta.PBMVersion = string(version.DefaultInfo.Version)
+				b.meta.PBMVersion = string(version.Current().Version)
 				b.meta.Status = pbm.StatusDone
 				m = append(m, b.meta)
 			}
@@ -230,7 +230,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				},
 			},
 			rsMap: map[string]string{},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs2"},
 			},
 		},
@@ -244,7 +244,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			rsMap: map[string]string{
 				"rs1": "rs0",
 			},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs0"},
 			},
 		},
@@ -275,13 +275,13 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				"rs2": "rs1",
 				"rs4": "rs3",
 			},
-			expected: errMissedReplsets{
+			expected: missedReplsetsError{
 				names: []string{"rs3", "rs5"},
 			},
 		},
 		{
 			bcp:      pbm.BackupMeta{},
-			expected: errMissedReplsets{configsrv: true},
+			expected: missedReplsetsError{configsrv: true},
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	for _, tt := range types {
 		t.Logf("backup type: %s", tt)
 		for i, c := range cases {
-			c.bcp.PBMVersion = string(version.DefaultInfo.Version)
+			c.bcp.PBMVersion = string(version.Current().Version)
 			topology := defaultTopology
 			if c.topology != nil {
 				topology = c.topology
@@ -313,43 +313,40 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	}
 }
 
-func checkBcpMatchClusterError(err error, target error) string {
-	if errors.Is(err, target) {
+func checkBcpMatchClusterError(err, target error) string {
+	if err == nil && target == nil {
 		return ""
 	}
-
 	if !errors.Is(err, errIncompatible) {
 		return fmt.Sprintf("unknown error: %T", err)
 	}
 
-	switch err := err.(type) {
-	case errMissedReplsets:
-		target, ok := target.(errMissedReplsets)
-		if !ok {
-			return fmt.Sprintf("expect errMissedReplsets, got %T", err)
-		}
-
-		var msg string
-
-		if err.configsrv != target.configsrv {
-			msg = fmt.Sprintf("expect replsets to be %v, got %v",
-				target.configsrv, err.configsrv)
-		}
-
-		sort.Strings(err.names)
-		sort.Strings(target.names)
-
-		a := strings.Join(err.names, ", ")
-		b := strings.Join(target.names, ", ")
-
-		if a != b {
-			msg = fmt.Sprintf("expect replsets to be %v, got %v", a, b)
-		}
-
-		return msg
+	var err1 missedReplsetsError
+	if !errors.As(err, &err1) {
+		return fmt.Sprintf("unknown errIncompatible error: %T", err)
+	}
+	var err2 missedReplsetsError
+	if !errors.As(err, &err2) {
+		return fmt.Sprintf("expect errMissedReplsets, got %T", err)
 	}
 
-	return fmt.Sprintf("unknown errIncompatible error: %T", err)
+	var msg string
+	if err1.configsrv != err2.configsrv {
+		msg = fmt.Sprintf("expect replsets to be %v, got %v",
+			err2.configsrv, err1.configsrv)
+	}
+
+	sort.Strings(err1.names)
+	sort.Strings(err2.names)
+
+	a := strings.Join(err1.names, ", ")
+	b := strings.Join(err2.names, ", ")
+
+	if a != b {
+		msg = fmt.Sprintf("expect replsets to be %v, got %v", a, b)
+	}
+
+	return msg
 }
 
 func BenchmarkBcpMatchCluster3x10(b *testing.B) {

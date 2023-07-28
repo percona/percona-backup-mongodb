@@ -67,7 +67,7 @@ func TestPITRTimelines(t *testing.T) {
 }
 
 func TestPITRMergeTimelines(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		name   string
 		tl     [][]Timeline
 		expect []Timeline
@@ -322,11 +322,13 @@ func TestPITRMergeTimelines(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			got := MergeTimelines(test.tl...)
 			if len(test.expect) != len(got) {
-				t.Fatalf("wrong timelines, exepct <%d> %v, got <%d> %v", len(test.expect), printttl(test.expect...), len(got), printttl(got...))
+				t.Fatalf("wrong timelines, exepct <%d> %v, got <%d> %v",
+					len(test.expect), printttl(test.expect...), len(got), printttl(got...))
 			}
 			for i, gl := range got {
 				if test.expect[i] != gl {
-					t.Errorf("wrong timeline %d, exepct %v, got %v", i, printttl(test.expect[i]), printttl(gl))
+					t.Errorf("wrong timeline %d, exepct %v, got %v",
+						i, printttl(test.expect[i]), printttl(gl))
 				}
 			}
 		})

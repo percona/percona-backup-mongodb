@@ -47,7 +47,7 @@ func NewSlicer(rs string, cn *pbm.PBM, node *pbm.Node, to storage.Storage, ep pb
 	}
 }
 
-// SetSpan sets span duration. Streaming will recognise the change and adjust on the next iteration.
+// SetSpan sets span duration. Streaming will recognize the change and adjust on the next iteration.
 func (s *Slicer) SetSpan(d time.Duration) {
 	atomic.StoreInt64(&s.span, int64(d))
 }
@@ -77,7 +77,7 @@ func (s *Slicer) Catchup() error {
 	}()
 
 	rstr, err := s.pbm.GetLastRestore()
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last restore")
 	}
 	if rstr != nil && rstr.StartTS > baseBcp.StartTS {
@@ -85,7 +85,7 @@ func (s *Slicer) Catchup() error {
 	}
 
 	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last slice")
 	}
 
@@ -157,6 +157,7 @@ func (s *Slicer) Catchup() error {
 	return nil
 }
 
+//nolint:nonamedreturns
 func (s *Slicer) OplogOnlyCatchup() (err error) {
 	s.l.Debug("start_catchup [oplog only]")
 
@@ -167,7 +168,7 @@ func (s *Slicer) OplogOnlyCatchup() (err error) {
 	}()
 
 	chnk, err := s.pbm.PITRLastChunkMeta(s.rs)
-	if err != nil {
+	if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 		return errors.Wrap(err, "get last slice")
 	}
 
@@ -233,21 +234,35 @@ func (s *Slicer) copyFromBcp(bcp *pbm.BackupMeta) error {
 	return nil
 }
 
-// ErrOpMoved is the error signaling that slicing op
+// OpMovedError is the error signaling that slicing op
 // now being run by the other node
-type ErrOpMoved struct {
+type OpMovedError struct {
 	to string
 }
 
-func (e ErrOpMoved) Error() string {
+func (e OpMovedError) Error() string {
 	return fmt.Sprintf("pitr slicing resumed on node %s", e.to)
+}
+
+func (e OpMovedError) Is(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	_, ok := err.(OpMovedError) //nolint:errorlint
+	return ok
 }
 
 // LogStartMsg message to log on successful streaming start
 const LogStartMsg = "start_ok"
 
 // Stream streaming (saving) chunks of the oplog to the given storage
-func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compression compress.CompressionType, level *int, timeouts *pbm.BackupTimeouts) error {
+func (s *Slicer) Stream(
+	ctx context.Context,
+	backupSig <-chan *pbm.OPID,
+	compression compress.CompressionType,
+	level *int, timeouts *pbm.BackupTimeouts,
+) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
 	}
@@ -269,7 +284,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		return errors.Wrap(err, "check oplog sufficiency")
 	}
 	if !ok {
-		return oplog.ErrInsuffRange{s.lastTS}
+		return oplog.InsuffRangeError{s.lastTS}
 	}
 	s.l.Debug(LogStartMsg)
 
@@ -330,7 +345,7 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		//   (snapshot cmd can delete pitr lock but might not yet acquire the own one);
 		// - if there is another lock and it is for pitr - return, probably split happened
 		//   and a new worker was elected;
-		// - any other case (including no lock) is the undefined behaviour - return.
+		// - any other case (including no lock) is the undefined behavior - return.
 		//
 		ld, err := s.getOpLock(llock, timeouts.StartingStatus())
 		if err != nil {
@@ -350,14 +365,14 @@ func (s *Slicer) Stream(ctx context.Context, backupSig <-chan *pbm.OPID, compres
 		switch ld.Type {
 		case pbm.CmdPITR:
 			if ld.Node != nodeInfo.Me {
-				return ErrOpMoved{ld.Node}
+				return OpMovedError{ld.Node}
 			}
 			sliceTo, err = s.oplog.LastWrite()
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
 		case pbm.CmdUndefined:
-			return errors.New("undefined behaviour operation is running")
+			return errors.New("undefined behavior operation is running")
 		case pbm.CmdBackup:
 			// continue only if we had `backupSig`
 			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
@@ -441,29 +456,34 @@ func formatts(t primitive.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
-func (s *Slicer) getOpLock(l *pbm.LockHeader, t time.Duration) (ld pbm.LockData, err error) {
+func (s *Slicer) getOpLock(l *pbm.LockHeader, t time.Duration) (pbm.LockData, error) {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
+	var lock pbm.LockData
 	for j := 0; j < int(t.Seconds()); j++ {
-		ld, err = s.pbm.GetLockData(l)
+		var err error
+		lock, err = s.pbm.GetLockData(l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-			return ld, errors.Wrap(err, "get")
+			return lock, errors.Wrap(err, "get")
 		}
-		if ld.Type != pbm.CmdUndefined {
-			return ld, nil
+		if lock.Type != pbm.CmdUndefined {
+			return lock, nil
 		}
 		<-tk.C
 	}
 
-	return ld, nil
+	return lock, nil
 }
 
-func (s *Slicer) backupStartTS(opid string, t time.Duration) (ts primitive.Timestamp, err error) {
+func (s *Slicer) backupStartTS(opid string, t time.Duration) (primitive.Timestamp, error) {
+	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+
 	for j := 0; j < int(t.Seconds()); j++ {
 		b, err := s.pbm.GetBackupByOPID(opid)
-		if err != nil && err != pbm.ErrNotFound {
+		if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
 		if b != nil && b.FirstWriteTS.T > 1 {

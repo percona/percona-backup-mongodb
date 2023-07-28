@@ -17,7 +17,7 @@ type currentBackup struct {
 	cancel context.CancelFunc
 }
 
-func (a *Agent) setBcp(b *currentBackup) (changed bool) {
+func (a *Agent) setBcp(b *currentBackup) bool {
 	a.mx.Lock()
 	defer a.mx.Unlock()
 	if a.bcp != nil {
@@ -61,7 +61,9 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 	if nodeInfo.IsStandalone() {
-		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. Please restart it as a primary in a single-node replicaset to make it compatible with PBM's backup method using the oplog")
+		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. " +
+			"Please restart it as a primary in a single-node replicaset " +
+			"to make it compatible with PBM's backup method using the oplog")
 		return
 	}
 
@@ -83,7 +85,6 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 
 	var bcp *backup.Backup
-
 	switch cmd.Type {
 	case pbm.PhysicalBackup:
 		bcp = backup.NewPhysical(a.pbm, a.node)
@@ -240,7 +241,7 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 
 	for _, n := range nodes {
 		nms, err := a.pbm.GetRSNominees(bcp, rs)
-		if err != nil && err != pbm.ErrNotFound {
+		if err != nil && !errors.Is(err, pbm.ErrNotFound) {
 			return errors.Wrap(err, "get nomination meta")
 		}
 		if nms != nil && len(nms.Ack) > 0 {
@@ -265,9 +266,10 @@ func (a *Agent) nominateRS(bcp, rs string, nodes [][]string, l *log.Event) error
 	return nil
 }
 
-func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (got bool, err error) {
+func (a *Agent) waitNomination(bcp, rs, node string, l *log.Event) (bool, error) {
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
+
 	stop := time.NewTimer(pbm.WaitActionStart)
 	defer stop.Stop()
 

@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
@@ -40,7 +39,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 		log.Fatalf("Error: wrong backup status, expect %s, got %v", pbm.StatusCancelled, m.Status)
 	}
 
-	needToWait := pbmt.WaitBackupStart + time.Second - time.Since(ts)
+	needToWait := pbm.WaitBackupStart + time.Second - time.Since(ts)
 	if needToWait > 0 {
 		log.Printf("waiting for the lock to be released for %s", needToWait)
 		time.Sleep(needToWait)
@@ -71,7 +70,8 @@ func checkNoBackupFiles(backupName, conf string) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL, stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	mc, err := minio.NewWithRegion(endopintURL,
+		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
 	if err != nil {
 		log.Fatalln("Error: NewWithRegion:", err)
 	}

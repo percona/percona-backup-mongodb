@@ -58,7 +58,7 @@ db.getSiblingDB("admin").createUser(
 
 EOF
 
-if [ $SINGLE_NODE == "true" ] ; then
+if [ $SINGLE_NODE == "true" ]; then
     exit 0
 fi
 
@@ -80,4 +80,3 @@ rs.reconfig(
     }
 )
 EOF
-

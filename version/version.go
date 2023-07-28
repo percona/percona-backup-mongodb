@@ -16,10 +16,9 @@ var (
 	gitCommit string
 	gitBranch string
 	buildTime string
-	goVersion string
 )
 
-type Info struct {
+type Info struct { //nolint:musttag
 	Version   string
 	Platform  string
 	GitCommit string
@@ -35,24 +34,18 @@ GitBranch: %s
 BuildTime: %s
 GoVersion: %s`
 
-var DefaultInfo Info
-
-func init() {
-	DefaultInfo = Current()
-}
-
-func Current() (v Info) {
-	v.Version = version
-	v.Platform = platform
-	v.GitCommit = gitCommit
-	v.GitBranch = gitBranch
-	v.BuildTime = buildTime
-	v.GoVersion = goVersion
-
+func Current() Info {
+	v := Info{
+		Version:   version,
+		Platform:  platform,
+		GitCommit: gitCommit,
+		GitBranch: gitBranch,
+		BuildTime: buildTime,
+		GoVersion: runtime.Version(),
+	}
 	if v.Platform == "" {
 		v.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	v.GoVersion = runtime.Version()
 
 	return v
 }
@@ -84,7 +77,7 @@ func (i Info) All(format string) string {
 			i.GoVersion,
 		)
 	case "json":
-		v, _ := json.MarshalIndent(i, "", " ")
+		v, _ := json.MarshalIndent(i, "", " ") //nolint:errchkjson
 		return string(v)
 	default:
 		return fmt.Sprintf("%#v", i)

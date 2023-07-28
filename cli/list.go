@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 )
 
 type listOpts struct {
@@ -49,23 +50,23 @@ func (r restoreListOut) String() string {
 	for _, v := range r.list {
 		var rprint, name string
 
-		if v.Type == restoreSnapshot {
-			n := ""
-			if len(v.Namespaces) != 0 {
-				n = ", selective"
+		switch v.Type {
+		case restoreSnapshot:
+			t := string(v.Type)
+			if sel.IsSelective(v.Namespaces) {
+				t += ", selective"
 			}
-			name = fmt.Sprintf("%s [backup: %s%s]", v.Name, v.Snapshot, n)
-		} else if v.Type == restoreReplay {
+			name = fmt.Sprintf("%s [backup: %s]", v.Name, t)
+		case restoreReplay:
 			name = fmt.Sprintf("Oplog Replay: %v - %v",
 				time.Unix(v.StartPointInTime, 0).UTC().Format(time.RFC3339),
 				time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339))
-		} else {
-			n := ""
-			if len(v.Namespaces) != 0 {
+		default:
+			n := time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339)
+			if sel.IsSelective(v.Namespaces) {
 				n = ", selective"
 			}
-			name = fmt.Sprintf("PITR: %s [restore time: %s%s]",
-				v.Name, time.Unix(v.PointInTime, 0).UTC().Format(time.RFC3339), n)
+			name = fmt.Sprintf("PITR: %s [restore time: %s]", v.Name, n)
 		}
 
 		switch v.Status {
@@ -74,7 +75,8 @@ func (r restoreListOut) String() string {
 		case pbm.StatusError:
 			rprint = fmt.Sprintf("%s\tFailed with \"%s\"", name, v.Error)
 		default:
-			rprint = fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)", name, v.Status, time.Unix(v.StartTS, 0).Format(time.RFC3339))
+			rprint = fmt.Sprintf("%s\tIn progress [%s] (Launched at %s)",
+				name, v.Status, time.Unix(v.StartTS, 0).Format(time.RFC3339))
 		}
 		s += fmt.Sprintln(" ", rprint)
 	}
@@ -154,16 +156,15 @@ func (bl backupListOut) String() string {
 	sort.Slice(bl.Snapshots, func(i, j int) bool {
 		return bl.Snapshots[i].RestoreTS < bl.Snapshots[j].RestoreTS
 	})
-	for _, b := range bl.Snapshots {
-		kind := string(b.Type)
-		if len(b.Namespaces) != 0 {
-			kind += ", selective"
+	for i := range bl.Snapshots {
+		b := &bl.Snapshots[i]
+		t := string(b.Type)
+		if sel.IsSelective(b.Namespaces) {
+			t += ", selective"
+		} else if b.Type == pbm.IncrementalBackup && b.SrcBackup == "" {
+			t += ", base"
 		}
-		if b.Type == pbm.IncrementalBackup && b.SrcBackup == "" {
-			kind += ", base"
-		}
-
-		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, kind, fmtTS(int64(b.RestoreTS)))
+		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, t, fmtTS(int64(b.RestoreTS)))
 	}
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
@@ -191,7 +192,10 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (list backupListOut, err error) {
+func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (backupListOut, error) {
+	var list backupListOut
+	var err error
+
 	list.Snapshots, err = getSnapshotList(cn, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
@@ -209,7 +213,7 @@ func backupList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]str
 	return list, nil
 }
 
-func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapshotStat, err error) {
+func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) ([]snapshotStat, error) {
 	bcps, err := cn.BackupsList(int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
@@ -238,6 +242,7 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
+	var s []snapshotStat
 	for i := len(bcps) - 1; i >= 0; i-- {
 		b := bcps[i]
 
@@ -260,7 +265,13 @@ func getSnapshotList(cn *pbm.PBM, size int, rsMap map[string]string) (s []snapsh
 }
 
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
-func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (ranges []pitrRange, rsRanges map[string][]pitrRange, err error) {
+func getPitrList(
+	cn *pbm.PBM,
+	size int,
+	full,
+	unbacked bool,
+	rsMap map[string]string,
+) ([]pitrRange, map[string][]pitrRange, error) {
 	inf, err := cn.GetNodeInfo()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
@@ -277,7 +288,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	}
 
 	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
-	rsRanges = make(map[string][]pitrRange)
+	rsRanges := make(map[string][]pitrRange)
 	var rstlines [][]pbm.Timeline
 	for _, s := range shards {
 		tlns, err := cn.PITRGetValidTimelines(mapRevRS(s.RS), now)
@@ -308,6 +319,7 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 		sh[s.RS] = s.RS == inf.SetName
 	}
 
+	ranges := []pitrRange{}
 	for _, tl := range pbm.MergeTimelines(rstlines...) {
 		lastWrite, err := getBaseSnapshotLastWrite(cn, sh, rsMap, tl)
 		if err != nil {
@@ -327,39 +339,44 @@ func getPitrList(cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]st
 	return ranges, rsRanges, nil
 }
 
-func getBaseSnapshotLastWrite(cn *pbm.PBM, sh map[string]bool, rsMap map[string]string, tl pbm.Timeline) (*primitive.Timestamp, error) {
+func getBaseSnapshotLastWrite(
+	cn *pbm.PBM,
+	sh map[string]bool,
+	rsMap map[string]string,
+	tl pbm.Timeline,
+) (primitive.Timestamp, error) {
 	bcp, err := cn.GetFirstBackup(&primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, pbm.ErrNotFound) {
-			return nil, errors.Wrapf(err, "get backup for timeline: %s", tl)
+			return primitive.Timestamp{}, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 	if bcp == nil {
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 
 	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
 	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
+		return primitive.Timestamp{}, errors.WithMessage(err, "get mongo version")
 	}
 	fcv, err := cn.GetFeatureCompatibilityVersion()
 	if err != nil {
-		return nil, errors.WithMessage(err, "get featureCompatibilityVersion")
+		return primitive.Timestamp{}, errors.WithMessage(err, "get featureCompatibilityVersion")
 	}
 
 	bcpMatchCluster(bcp, ver.VersionString, fcv, sh, pbm.MakeRSMapFunc(rsMap), pbm.MakeReverseRSMapFunc(rsMap))
 
 	if bcp.Status != pbm.StatusDone {
-		return nil, nil
+		return primitive.Timestamp{}, nil
 	}
 
-	return &bcp.LastWriteTS, nil
+	return bcp.LastWriteTS, nil
 }
 
-func splitByBaseSnapshot(lastWrite *primitive.Timestamp, tl pbm.Timeline) []pitrRange {
-	if lastWrite == nil || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
+func splitByBaseSnapshot(lastWrite primitive.Timestamp, tl pbm.Timeline) []pitrRange {
+	if lastWrite.IsZero() || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
 		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
 	}
 

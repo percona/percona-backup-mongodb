@@ -36,7 +36,7 @@ func (p *PBM) ResyncStorage(l *log.Event) error {
 
 	_, err = stg.FileStat(StorInitFile)
 	if errors.Is(err, storage.ErrNotExist) {
-		err = stg.Save(StorInitFile, bytes.NewBufferString(version.DefaultInfo.Version), 0)
+		err = stg.Save(StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
 	}
 	if err != nil {
 		return errors.Wrap(err, "init storage")
@@ -214,19 +214,20 @@ func checkFile(stg storage.Storage, filename string) error {
 	return nil
 }
 
-func GetPhysRestoreMeta(restore string, stg storage.Storage, l *log.Event) (rmeta *RestoreMeta, err error) {
+func GetPhysRestoreMeta(restore string, stg storage.Storage, l *log.Event) (*RestoreMeta, error) {
 	mjson := filepath.Join(PhysRestoresDir, restore) + ".json"
-	_, err = stg.FileStat(mjson)
+	_, err := stg.FileStat(mjson)
 	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return nil, errors.Wrapf(err, "get file %s", mjson)
 	}
+
+	var rmeta *RestoreMeta
 	if err == nil {
 		src, err := stg.SourceReader(mjson)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get file %s", mjson)
 		}
 
-		rmeta = new(RestoreMeta)
 		err = json.NewDecoder(src).Decode(rmeta)
 		if err != nil {
 			return nil, errors.Wrapf(err, "decode meta %s", mjson)

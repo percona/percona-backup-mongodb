@@ -67,6 +67,8 @@ func (c Config) String() string {
 }
 
 // PITRConf is a Point-In-Time Recovery options
+//
+//nolint:lll
 type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
@@ -93,6 +95,8 @@ func (s *StorageConf) Typ() string {
 		return "FS"
 	case storage.BlackHole:
 		return "BlackHole"
+	case storage.Undef:
+		fallthrough
 	default:
 		return "Unknown"
 	}
@@ -125,6 +129,8 @@ func (s *StorageConf) Path() string {
 }
 
 // RestoreConf is config options for the restore
+//
+//nolint:lll
 type RestoreConf struct {
 	// Logical restore
 	//
@@ -146,6 +152,7 @@ type RestoreConf struct {
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
+//nolint:lll
 type BackupConf struct {
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
@@ -173,6 +180,7 @@ type confMap map[string]reflect.Kind
 // _confmap is a list of config's valid keys and its types
 var _confmap confMap
 
+//nolint:gochecknoinits
 func init() {
 	_confmap = keys(reflect.TypeOf(Config{}))
 }
@@ -186,12 +194,11 @@ func keys(t reflect.Type) confMap {
 		if typ.Kind() == reflect.Ptr {
 			typ = typ.Elem()
 		}
-		switch typ.Kind() {
-		case reflect.Struct:
+		if typ.Kind() == reflect.Struct {
 			for n, t := range keys(typ) {
 				v[name+"."+n] = t
 			}
-		default:
+		} else {
 			v[name] = typ.Kind()
 		}
 	}
@@ -238,7 +245,7 @@ func (p *PBM) SetConfig(cfg Config) error {
 
 	// TODO: if store or pitr changed - need to bump epoch
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
-	p.GetConfig()
+	_, _ = p.GetConfig()
 
 	_, err = p.Conn.Database(DB).Collection(ConfigCollection).UpdateOne(
 		p.ctx,
@@ -361,6 +368,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "lookup in document")
 	}
+
 	switch v.Type {
 	case bson.TypeBoolean:
 		return v.Boolean(), nil

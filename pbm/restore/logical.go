@@ -91,8 +91,10 @@ func (r *Restore) exit(err error, l *log.Event) {
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
+//
+//nolint:nonamedreturns
 func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+	defer func() { r.exit(err, l) }()
 
 	bcp, err := SnapshotMeta(r.cn, cmd.BackupName, r.stg)
 	if err != nil {
@@ -201,8 +203,10 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 }
 
 // PITR do the Point-in-Time Recovery
+//
+//nolint:nonamedreturns
 func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+	defer func() { r.exit(err, l) }()
 
 	err = r.init(cmd.Name, opid, l)
 	if err != nil {
@@ -311,8 +315,9 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err er
 	return r.Done()
 }
 
+//nolint:nonamedreturns
 func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(err, l) }() // !!! has to be in a closure
+	defer func() { r.exit(err, l) }()
 
 	if err = r.init(cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
@@ -339,7 +344,7 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 		return err
 	}
 
-	err = r.checkTopologyForOplog(r.cn.Context(), r.shards, oplogShards)
+	err = r.checkTopologyForOplog(r.shards, oplogShards)
 	if err != nil {
 		return errors.WithMessage(err, "topology")
 	}
@@ -370,9 +375,10 @@ func (r *Restore) ReplayOplog(cmd *pbm.ReplayCmd, opid pbm.OPID, l *log.Event) (
 	return r.Done()
 }
 
-func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
+func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) error {
 	r.log = l
 
+	var err error
 	r.nodeInfo, err = r.node.GetInfo()
 	if err != nil {
 		return errors.Wrap(err, "get node data")
@@ -407,6 +413,7 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 		go func() {
 			tk := time.NewTicker(time.Second * 5)
 			defer tk.Stop()
+
 			for {
 				select {
 				case <-tk.C:
@@ -448,7 +455,7 @@ func (r *Restore) init(name string, opid pbm.OPID, l *log.Event) (err error) {
 	return nil
 }
 
-func (r *Restore) checkTopologyForOplog(ctx context.Context, currShards []pbm.Shard, oplogShards []string) error {
+func (r *Restore) checkTopologyForOplog(currShards []pbm.Shard, oplogShards []string) error {
 	mapRS, mapRevRS := pbm.MakeRSMapFunc(r.rsMap), pbm.MakeReverseRSMapFunc(r.rsMap)
 
 	shards := make(map[string]struct{}, len(currShards))
@@ -480,8 +487,8 @@ func (r *Restore) chunks(from, to primitive.Timestamp) ([]pbm.OplogChunk, error)
 	return chunks(r.cn, r.stg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
-func SnapshotMeta(cn *pbm.PBM, backupName string, stg storage.Storage) (bcp *pbm.BackupMeta, err error) {
-	bcp, err = cn.GetBackupMeta(backupName)
+func SnapshotMeta(cn *pbm.PBM, backupName string, stg storage.Storage) (*pbm.BackupMeta, error) {
+	bcp, err := cn.GetBackupMeta(backupName)
 	if errors.Is(err, pbm.ErrNotFound) {
 		bcp, err = GetMetaFromStore(stg, backupName)
 	}
@@ -532,6 +539,7 @@ func (r *Restore) setShards(bcp *pbm.BackupMeta) error {
 
 var ErrNoDataForShard = errors.New("no data for shard")
 
+//nolint:nonamedreturns
 func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err error) {
 	mapRS := pbm.MakeRSMapFunc(r.rsMap)
 
@@ -568,11 +576,13 @@ func (r *Restore) snapshotObjects(bcp *pbm.BackupMeta) (dump, oplog string, err 
 
 func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 	if bcp.Status != pbm.StatusDone {
-		return errors.Errorf("backup wasn't successful: status: %s, error: %s", bcp.Status, bcp.Error())
+		return errors.Errorf("backup wasn't successful: status: %s, error: %s",
+			bcp.Status, bcp.Error())
 	}
 
-	if !version.CompatibleWith(version.DefaultInfo.Version, pbm.BreakingChangesMap[bcp.Type]) {
-		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s", bcp.PBMVersion, version.DefaultInfo.Version)
+	if !version.CompatibleWith(version.Current().Version, pbm.BreakingChangesMap[bcp.Type]) {
+		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s",
+			bcp.PBMVersion, version.Current().Version)
 	}
 
 	if bcp.FCV != "" {
@@ -593,7 +603,8 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 		}
 
 		if majmin(bcp.MongoVersion) != majmin(ver.VersionString) {
-			r.log.Warning("backup mongo version %q is incompatible with the running mongo version %q",
+			r.log.Warning(
+				"backup mongo version %q is incompatible with the running mongo version %q",
 				bcp.MongoVersion, ver.VersionString)
 			return nil
 		}
@@ -604,13 +615,13 @@ func (r *Restore) checkSnapshot(bcp *pbm.BackupMeta) error {
 
 func (r *Restore) toState(status pbm.Status, wait *time.Duration) error {
 	r.log.Info("moving to state %s", status)
-	_, err := toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
-	return err
+	return toState(r.cn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) (err error) {
+func (r *Restore) RunSnapshot(dump string, bcp *pbm.BackupMeta, nss []string) error {
 	var rdr io.ReadCloser
 
+	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		sr, err := r.stg.SourceReader(dump)
 		if err != nil {
@@ -951,7 +962,7 @@ func (r *Restore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
 
 			// nodes are cleaning its locks moving to the done status
 			// so no lock is ok, and no need to check the heartbeats
-			if err != mongo.ErrNoDocuments {
+			if !errors.Is(err, mongo.ErrNoDocuments) {
 				if err != nil {
 					return nil, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 				}
@@ -988,7 +999,6 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	partial, err := applyOplog(r.node.Session(), chunks, options, r.nodeInfo.IsSharded(),
 		r.indexCatalog, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
 		mgoV, r.stg, r.log)
-
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}
@@ -1013,7 +1023,7 @@ func (r *Restore) applyOplog(chunks []pbm.OplogChunk, options *applyOplogOption)
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader) (err error) {
+func (r *Restore) snapshot(input io.Reader) error {
 	cfg, err := r.cn.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
@@ -1037,7 +1047,7 @@ func (r *Restore) Done() error {
 	}
 
 	if r.nodeInfo.IsLeader() {
-		_, err = r.reconcileStatus(pbm.StatusDone, nil)
+		err = r.reconcileStatus(pbm.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for the restore done")
 		}
@@ -1060,7 +1070,6 @@ func (r *Restore) Done() error {
 					LeftUncommitted:  rs.Stat.Txn.LeftUncommitted,
 				}},
 			}
-
 		}
 
 		err = r.cn.RestoreSetStat(r.name, pbm.RestoreStat{RS: stat})
@@ -1080,19 +1089,21 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 		eroles = append(eroles, r.DB+"."+r.Role)
 	}
 
-	curr, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpRolesCollection).Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	curr, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpRolesCollection).
+		Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpRoles")
 	}
 	defer curr.Close(ctx)
+
 	_, err = rolesC.DeleteMany(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
 	if err != nil {
 		return errors.Wrap(err, "delete current roles")
 	}
 
 	for curr.Next(ctx) {
-		rl := new(interface{})
-		err := curr.Decode(rl)
+		var rl any
+		err := curr.Decode(&rl)
 		if err != nil {
 			return errors.Wrap(err, "decode role")
 		}
@@ -1106,7 +1117,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	if len(exclude.Users) > 0 {
 		user = exclude.Users[0].DB + "." + exclude.Users[0].User
 	}
-	cur, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpUsersCollection).Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	cur, err := r.node.Session().Database(pbm.DB).Collection(pbm.TmpUsersCollection).
+		Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpUsers")
 	}
@@ -1119,8 +1131,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	}
 
 	for cur.Next(ctx) {
-		u := new(interface{})
-		err := cur.Decode(u)
+		var u any
+		err := cur.Decode(&u)
 		if err != nil {
 			return errors.Wrap(err, "decode user")
 		}
@@ -1133,13 +1145,13 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *pbm.AuthInfo) error {
 	return nil
 }
 
-func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) (*pbm.RestoreMeta, error) {
+func (r *Restore) reconcileStatus(status pbm.Status, timeout *time.Duration) error {
 	if timeout != nil {
-		m, err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
-		return m, errors.Wrap(err, "convergeClusterWithTimeout")
+		err := convergeClusterWithTimeout(r.cn, r.name, r.opid, r.shards, status, *timeout)
+		return errors.Wrap(err, "convergeClusterWithTimeout")
 	}
-	m, err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
-	return m, errors.Wrap(err, "convergeCluster")
+	err := convergeCluster(r.cn, r.name, r.opid, r.shards, status)
+	return errors.Wrap(err, "convergeCluster")
 }
 
 func (r *Restore) waitForStatus(status pbm.Status) error {

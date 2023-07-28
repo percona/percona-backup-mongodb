@@ -254,8 +254,10 @@ type PBM struct {
 }
 
 // New creates a new PBM object.
-// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set in order to communicate via PBM collections.
-// If agent's or ctl's local node is not a member of ConfigServer, after discovering current topology connection will be established to ConfigServer.
+// In the sharded cluster both agents and ctls should have a connection to ConfigServer replica set
+// in order to communicate via PBM collections.
+// If agent's or ctl's local node is not a member of ConfigServer,
+// after discovering current topology connection will be established to ConfigServer.
 func New(ctx context.Context, uri, appName string) (*PBM, error) {
 	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
 
@@ -297,7 +299,8 @@ func New(ctx context.Context, uri, appName string) (*PBM, error) {
 		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
 	}
 
-	// Preserving the `replicaSet` parameter will cause an error while connecting to the ConfigServer (mismatched replicaset names)
+	// Preserving the `replicaSet` parameter will cause an error
+	// while connecting to the ConfigServer (mismatched replicaset names)
 	query := curi.Query()
 	query.Del("replicaSet")
 	curi.RawQuery = query.Encode()
@@ -534,8 +537,9 @@ type Condition struct {
 }
 
 type BackupReplset struct {
-	Name             string              `bson:"name" json:"name"`
-	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"` // not used. left for backward compatibility
+	Name string `bson:"name" json:"name"`
+	// Journal is not used. left for backward compatibility
+	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
 	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
 	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
@@ -725,7 +729,7 @@ func (p *PBM) AddRSMeta(bcpName string, rs BackupReplset) error {
 	return err
 }
 
-func (p *PBM) ChangeRSState(bcpName string, rsName string, s Status, msg string) error {
+func (p *PBM) ChangeRSState(bcpName, rsName string, s Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
@@ -749,7 +753,7 @@ func (p *PBM) IncBackupSize(ctx context.Context, bcpName string, size int64) err
 	return err
 }
 
-func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) error {
+func (p *PBM) RSSetPhyFiles(bcpName, rsName string, rs *BackupReplset) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -762,7 +766,7 @@ func (p *PBM) RSSetPhyFiles(bcpName string, rsName string, rs *BackupReplset) er
 	return err
 }
 
-func (p *PBM) SetRSLastWrite(bcpName string, rsName string, ts primitive.Timestamp) error {
+func (p *PBM) SetRSLastWrite(bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
 		p.ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -784,11 +788,11 @@ func (p *PBM) GetBackupByOPID(opid string) (*BackupMeta, error) {
 
 func (p *PBM) getBackupMeta(clause bson.D) (*BackupMeta, error) {
 	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, clause)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
 	b := &BackupMeta{}
@@ -812,7 +816,8 @@ func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
 }
 
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts bson.D) (*BackupMeta, error) {
-	q := append(opts, bson.E{"status", StatusDone})
+	q := append(bson.D{}, opts...)
+	q = append(q, bson.E{"status", StatusDone})
 	if after != nil {
 		q = append(q, bson.E{"last_write_ts", bson.M{"$gte": after}})
 	}
@@ -825,37 +830,33 @@ func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts
 		q,
 		options.FindOne().SetSort(bson.D{{"start_ts", sort}}),
 	)
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
-	b := new(BackupMeta)
+	b := &BackupMeta{}
 	err := res.Decode(b)
 	return b, errors.Wrap(err, "decode")
 }
 
-func (p *PBM) BackupGetNext(backup *BackupMeta) (*BackupMeta, error) {
-	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(
-		p.ctx,
-		bson.D{
-			{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
-			{"status", StatusDone},
-		},
-	)
-
-	if res.Err() != nil {
-		if res.Err() == mongo.ErrNoDocuments {
-			return nil, nil
+func (p *PBM) BackupHasNext(backup *BackupMeta) (bool, error) {
+	f := bson.D{
+		{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+		{"status", StatusDone},
+	}
+	o := options.FindOne().SetProjection(bson.D{{"_id", 1}})
+	res := p.Conn.Database(DB).Collection(BcpCollection).FindOne(p.ctx, f, o)
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
 		}
-		return nil, errors.Wrap(res.Err(), "get")
+		return false, errors.WithMessage(err, "query")
 	}
 
-	b := new(BackupMeta)
-	err := res.Decode(b)
-	return b, errors.Wrap(err, "decode")
+	return true, nil
 }
 
 func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
@@ -867,7 +868,6 @@ func (p *PBM) BackupsList(limit int64) ([]BackupMeta, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	backups := []BackupMeta{}
@@ -900,7 +900,6 @@ func (p *PBM) BackupsDoneList(after *primitive.Timestamp, limit int64, order int
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	backups := []BackupMeta{}
@@ -947,7 +946,6 @@ func (p *PBM) GetShards() ([]Shard, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "query mongo")
 	}
-
 	defer cur.Close(p.ctx)
 
 	shards := []Shard{}
@@ -1002,9 +1000,10 @@ func (p *PBM) GetFeatureCompatibilityVersion() (string, error) {
 // ClusterTime returns mongo's current cluster time
 func (p *PBM) ClusterTime() (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
-	// Otherwise, cluster timestamp could remain the same between node info reads, while in fact time has been moved forward.
+	// Otherwise, cluster timestamp could remain the same between node info reads,
+	// while in fact time has been moved forward.
 	err := p.Conn.Database(DB).Collection(LockCollection).FindOne(p.ctx, bson.D{}).Err()
-	if err != nil && err != mongo.ErrNoDocuments {
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
@@ -1088,13 +1087,14 @@ func (e Epoch) TS() primitive.Timestamp {
 }
 
 // CopyColl copy documents matching the given filter and return number of copied documents
-func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{}) (n int, err error) {
+func CopyColl(ctx context.Context, from, to *mongo.Collection, filter interface{}) (int, error) {
 	cur, err := from.Find(ctx, filter)
 	if err != nil {
 		return 0, errors.Wrap(err, "create cursor")
 	}
 	defer cur.Close(ctx)
 
+	n := 0
 	for cur.Next(ctx) {
 		_, err = to.InsertOne(ctx, cur.Current)
 		if err != nil {

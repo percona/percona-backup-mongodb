@@ -1,5 +1,6 @@
 package speedt
 
+//nolint:lll,misspell
 var dataset = [...]string{
 	`{"URL":"http://www.just-eat.co.uk/restaurants-cn-chinese-cardiff/menu","_id":{"$oid":"55f14312c7447c3da7051b26"},"address":"228 City Road","address line 2":"Cardiff","name":".CN Chinese","outcode":"CF24","postcode":"3JH","rating":5,"type_of_food":"Chinese"}`,
 	`{"URL":"http://www.just-eat.co.uk/restaurants-atthai-ss9/menu","_id":{"$oid":"55f14312c7447c3da7051b27"},"address":"376 Rayleigh Road","address line 2":"Essex","name":"@ Thai","outcode":"SS9","postcode":"5PT","rating":5.5,"type_of_food":"Thai"}`,

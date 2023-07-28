@@ -70,7 +70,11 @@ func (m *MongoPBM) WaitConcurentOp(lock *pbm.LockHeader, waitFor time.Duration) 
 }
 
 // WaitOp waits up to waitFor duration until operations which acquires a given lock are finished
-func (m *MongoPBM) waitOp(lock *pbm.LockHeader, waitFor time.Duration, f func(*pbm.LockHeader) (pbm.LockData, error)) error {
+func (m *MongoPBM) waitOp(
+	lock *pbm.LockHeader,
+	waitFor time.Duration,
+	f func(*pbm.LockHeader) (pbm.LockData, error),
+) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)
 
@@ -84,7 +88,7 @@ func (m *MongoPBM) waitOp(lock *pbm.LockHeader, waitFor time.Duration, f func(*p
 			lock, err := f(lock)
 			if err != nil {
 				// No lock, so operation has finished
-				if err == mongo.ErrNoDocuments {
+				if errors.Is(err, mongo.ErrNoDocuments) {
 					return nil
 				}
 				return errors.Wrap(err, "get lock data")

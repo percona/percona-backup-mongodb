@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"time"
 
@@ -60,6 +61,8 @@ func main() {
 		*sampleSizeF = 1
 	}
 
+	rand.Seed(time.Now().UnixNano())
+
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
@@ -70,11 +73,11 @@ func main() {
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
-			fmt.Println(version.DefaultInfo.GitCommit)
+			fmt.Println(version.Current().GitCommit)
 		case *versionShort:
-			fmt.Println(version.DefaultInfo.Short())
+			fmt.Println(version.Current().Short())
 		default:
-			fmt.Println(version.DefaultInfo.All(*versionFormat))
+			fmt.Println(version.Current().All(*versionFormat))
 		}
 	}
 }
@@ -89,9 +92,9 @@ func compression(mURL string, compression compress.CompressionType, level *int, 
 		if err != nil {
 			log.Fatalln("Error: connect to mongodb-node:", err)
 		}
-		defer func() { node.Session().Disconnect(ctx) }()
-
 		cn = node.Session()
+
+		defer cn.Disconnect(ctx) //nolint:errcheck
 	}
 
 	stg := blackhole.New()
@@ -115,13 +118,15 @@ func storage(mURL string, compression compress.CompressionType, level *int, size
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-node:", err)
 	}
-	defer func() { node.Session().Disconnect(ctx) }()
+	sess := node.Session()
+
+	defer sess.Disconnect(ctx) //nolint:errcheck
 
 	pbmClient, err := pbm.New(ctx, mURL, "pbm-speed-test")
 	if err != nil {
 		log.Fatalln("Error: connect to mongodb-pbm:", err)
 	}
-	defer func() { pbmClient.Conn.Disconnect(ctx) }()
+	defer pbmClient.Conn.Disconnect(ctx) //nolint:errcheck
 
 	stg, err := pbmClient.GetStorage(nil)
 	if err != nil {
@@ -129,7 +134,7 @@ func storage(mURL string, compression compress.CompressionType, level *int, size
 	}
 	done := make(chan struct{})
 	go printw(done)
-	r, err := speedt.Run(node.Session(), stg, compression, level, sizeGb, collection)
+	r, err := speedt.Run(sess, stg, compression, level, sizeGb, collection)
 	if err != nil {
 		log.Fatalln("Error:", err)
 	}

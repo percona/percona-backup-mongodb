@@ -13,7 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
 const trxdb = "trx"
@@ -106,7 +106,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 	// distributed transaction that commits before the backup ends
 	// should be visible after restore
 	log.Println("Run trx1")
-	sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+	_, _ = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		c.trxSet(sc, 30, col)
 		c.trxSet(sc, 530, col)
 
@@ -124,20 +124,20 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 		c.trxSet(sc, 3000, col)
 		c.trxSet(sc, 3001, col)
 
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	})
 
 	log.Println("Run trx2")
 	// distributed transaction that commits after the backup ends
 	// should NOT be visible after the restore
-	mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+	_ = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
 		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
 		}
 		defer func() {
 			if err != nil {
-				sess.AbortTransaction(sc)
+				_ = sess.AbortTransaction(sc)
 				log.Fatalln("ERROR: transaction:", err)
 			}
 		}()
@@ -158,7 +158,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 		c.trxSet(sc, 199, col)
 		c.trxSet(sc, 2001, col)
 
-		log.Println("Commiting the transaction")
+		log.Println("Committing the transaction")
 		err = sess.CommitTransaction(sc)
 		if err != nil {
 			log.Fatalln("ERROR: commit in transaction:", err)
@@ -183,7 +183,7 @@ func (c *Cluster) trxSet(ctx mongo.SessionContext, id int, col string) {
 
 // updateTrxRetry tries to run an update operation and in case of the StaleConfig error
 // it run flushRouterConfig and tries again
-func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, col string, filter interface{}, update interface{}) error {
+func (c *Cluster) updateTrxRetry(ctx mongo.SessionContext, col string, filter, update interface{}) error {
 	var err error
 	conn := c.mongos.Conn()
 	for i := 0; i < 3; i++ {
@@ -299,14 +299,24 @@ func (c *Cluster) setupTrxCollection(ctx context.Context, col string) {
 
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 0}}, {"max", bson.M{"idx": 151}}, {"zone", "R1"}},
+		bson.D{
+			{"updateZoneKeyRange", trxdb + "." + col},
+			{"min", bson.M{"idx": 0}},
+			{"max", bson.M{"idx": 151}},
+			{"zone", "R1"},
+		},
 	).Err()
 	if err != nil {
 		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R1: %v", trxdb, col, err)
 	}
 	err = conn.Database("admin").RunCommand(
 		ctx,
-		bson.D{{"updateZoneKeyRange", trxdb + "." + col}, {"min", bson.M{"idx": 151}}, {"max", bson.M{"idx": 1000}}, {"zone", "R2"}},
+		bson.D{
+			{"updateZoneKeyRange", trxdb + "." + col},
+			{"min", bson.M{"idx": 151}},
+			{"max", bson.M{"idx": 1000}},
+			{"zone", "R2"},
+		},
 	).Err()
 	if err != nil {
 		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R2: %v", trxdb, col, err)
@@ -380,7 +390,8 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backup
 }
 
 func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
-	_, err := c.mongos.Conn().Database(trxdb).Collection(col).UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
+	_, err := c.mongos.Conn().Database(trxdb).Collection(col).
+		UpdateOne(ctx, bson.M{"idx": id}, bson.D{{"$set", bson.M{"changed": 0}}})
 	if err != nil {
 		log.Fatalf("ERROR: update idx %v: %v", id, err)
 	}
@@ -388,8 +399,10 @@ func (c *Cluster) zeroTrxDoc(ctx context.Context, col string, id int) {
 
 func (c *Cluster) checkTrxDoc(ctx context.Context, col string, id, expect int) {
 	log.Println("\tcheck", id, expect)
-	r1 := pbm.TestData{}
-	err := c.mongos.Conn().Database(trxdb).Collection(col).FindOne(ctx, bson.M{"idx": id}).Decode(&r1)
+	r1 := pbmt.TestData{}
+	err := c.mongos.Conn().Database(trxdb).Collection(col).
+		FindOne(ctx, bson.M{"idx": id}).
+		Decode(&r1)
 	if err != nil {
 		log.Fatalf("ERROR: get %s.%s record `idx %v`: %v", trxdb, col, id, err)
 	}

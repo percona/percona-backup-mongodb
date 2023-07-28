@@ -31,8 +31,9 @@ type SubsysStatus struct {
 	Err string `bson:"e"`
 }
 
-func (s *AgentStat) OK() (ok bool, errs []string) {
-	ok = true
+func (s *AgentStat) OK() (bool, []string) {
+	var errs []string
+	ok := true
 	if !s.PBMStatus.OK {
 		ok = false
 		errs = append(errs, fmt.Sprintf("PBM connection: %s", s.PBMStatus.Err))
@@ -65,27 +66,25 @@ func (p *PBM) SetAgentStatus(stat AgentStat) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func (p *PBM) RmAgentStatus(stat AgentStat) error {
-	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).DeleteOne(
-		p.ctx,
-		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
-	)
-
-	return err
+func (p *PBM) RemoveAgentStatus(stat AgentStat) error {
+	_, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).
+		DeleteOne(p.ctx, bson.D{{"n", stat.Node}, {"rs", stat.RS}})
+	return errors.WithMessage(err, "query")
 }
 
 // GetAgentStatus returns agent status by given node and rs
 // it's up to user how to handle ErrNoDocuments
-func (p *PBM) GetAgentStatus(rs, node string) (s AgentStat, err error) {
+func (p *PBM) GetAgentStatus(rs, node string) (AgentStat, error) {
 	res := p.Conn.Database(DB).Collection(AgentsStatusCollection).FindOne(
 		p.ctx,
 		bson.D{{"n", node}, {"rs", rs}},
 	)
 	if res.Err() != nil {
-		return s, errors.Wrap(res.Err(), "query mongo")
+		return AgentStat{}, errors.Wrap(res.Err(), "query mongo")
 	}
 
-	err = res.Decode(&s)
+	var s AgentStat
+	err := res.Decode(&s)
 	return s, errors.Wrap(err, "decode")
 }
 
@@ -112,29 +111,20 @@ func (p *PBM) AgentStatusGC() error {
 	return errors.Wrap(err, "delete")
 }
 
-// AgentsStatus returns list of registered agents
-func (p *PBM) AgentsStatus() (agents []AgentStat, err error) {
-	err = p.AgentStatusGC()
-	if err != nil {
-		return nil, errors.Wrap(err, "remove stale statuses")
+// ListAgentStatuses returns list of registered agents
+func (p *PBM) ListAgentStatuses() ([]AgentStat, error) {
+	if err := p.AgentStatusGC(); err != nil {
+		return nil, errors.WithMessage(err, "remove stale statuses")
 	}
 
 	cur, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).Find(p.ctx, bson.M{})
 	if err != nil {
-		return nil, errors.Wrap(err, "query mongo")
-	}
-	defer cur.Close(p.ctx)
-
-	for cur.Next(p.ctx) {
-		var a AgentStat
-		err := cur.Decode(&a)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		agents = append(agents, a)
+		return nil, errors.WithMessage(err, "query")
 	}
 
-	return agents, cur.Err()
+	var agents []AgentStat
+	err = cur.All(p.ctx, &agents)
+	return agents, errors.WithMessage(err, "decode")
 }
 
 // GetReplsetStatus returns `replSetGetStatus` for the replset
@@ -148,7 +138,8 @@ func GetReplsetStatus(ctx context.Context, cn *mongo.Client) (*ReplsetStatus, er
 	status := &ReplsetStatus{}
 	err := cn.Database("admin").RunCommand(ctx, bson.D{{"replSetGetStatus", 1}}).Decode(status)
 	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command replSetGetStatus")
+		return nil, errors.WithMessage(err, "query adminCommand: replSetGetStatus")
 	}
-	return status, err
+
+	return status, nil
 }

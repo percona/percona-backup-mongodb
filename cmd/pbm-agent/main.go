@@ -10,10 +10,13 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kingpin"
+	mlog "github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/pkg/errors"
 
 	"github.com/percona/percona-backup-mongodb/agent"
 	"github.com/percona/percona-backup-mongodb/pbm"
+	plog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -22,15 +25,29 @@ const mongoConnFlag = "mongodb-uri"
 func main() {
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
-		pbmAgentCmd = pbmCmd.Command("run", "Run agent").Default().Hidden()
+		pbmAgentCmd = pbmCmd.Command("run", "Run agent").
+				Default().
+				Hidden()
 
-		mURI      = pbmAgentCmd.Flag(mongoConnFlag, "MongoDB connection string").Envar("PBM_MONGODB_URI").Required().String()
-		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").Envar("PBM_DUMP_PARALLEL_COLLECTIONS").Default(strconv.Itoa(runtime.NumCPU() / 2)).Int()
+		mURI = pbmAgentCmd.Flag(mongoConnFlag, "MongoDB connection string").
+			Envar("PBM_MONGODB_URI").
+			Required().
+			String()
+		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").
+				Envar("PBM_DUMP_PARALLEL_COLLECTIONS").
+				Default(strconv.Itoa(runtime.NumCPU() / 2)).
+				Int()
 
-		versionCmd    = pbmCmd.Command("version", "PBM version info")
-		versionShort  = versionCmd.Flag("short", "Only version info").Default("false").Bool()
-		versionCommit = versionCmd.Flag("commit", "Only git commit info").Default("false").Bool()
-		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").Default("").String()
+		versionCmd   = pbmCmd.Command("version", "PBM version info")
+		versionShort = versionCmd.Flag("short", "Only version info").
+				Default("false").
+				Bool()
+		versionCommit = versionCmd.Flag("commit", "Only git commit info").
+				Default("false").
+				Bool()
+		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").
+				Default("").
+				String()
 	)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -42,11 +59,11 @@ func main() {
 	if cmd == versionCmd.FullCommand() {
 		switch {
 		case *versionCommit:
-			fmt.Println(version.DefaultInfo.GitCommit)
+			fmt.Println(version.Current().GitCommit)
 		case *versionShort:
-			fmt.Println(version.DefaultInfo.Short())
+			fmt.Println(version.Current().Short())
 		default:
-			fmt.Println(version.DefaultInfo.All(*versionFormat))
+			fmt.Println(version.Current().All(*versionFormat))
 		}
 		return
 	}
@@ -64,6 +81,9 @@ func main() {
 }
 
 func runAgent(mongoURI string, dumpConns int) error {
+	mlog.SetDateFormat(plog.LogTimeFormat)
+	mlog.SetVerbosity(&options.Verbosity{VLevel: mlog.DebugLow})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
