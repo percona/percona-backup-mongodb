@@ -296,7 +296,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, execConf)
+	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, types.ExecStartCheck{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}

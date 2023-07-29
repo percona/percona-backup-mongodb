@@ -1,11 +1,36 @@
-package container
+package container // import "github.com/docker/docker/api/types/container"
 
 import (
+	"io"
 	"time"
 
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/go-connections/nat"
 )
+
+// MinimumDuration puts a minimum on user configured duration.
+// This is to prevent API error on time unit. For example, API may
+// set 3 as healthcheck interval with intention of 3 seconds, but
+// Docker interprets it as 3 nanoseconds.
+const MinimumDuration = 1 * time.Millisecond
+
+// StopOptions holds the options to stop or restart a container.
+type StopOptions struct {
+	// Signal (optional) is the signal to send to the container to (gracefully)
+	// stop it before forcibly terminating the container with SIGKILL after the
+	// timeout expires. If not value is set, the default (SIGTERM) is used.
+	Signal string `json:",omitempty"`
+
+	// Timeout (optional) is the timeout (in seconds) to wait for the container
+	// to stop gracefully before forcibly terminating it with SIGKILL.
+	//
+	// - Use nil to use the default timeout (10 seconds).
+	// - Use '-1' to wait indefinitely.
+	// - Use '0' to not wait for the container to exit gracefully, and
+	//   immediately proceeds to forcibly terminating the container.
+	// - Other positive values are used as timeout (in seconds).
+	Timeout *int `json:",omitempty"`
+}
 
 // HealthConfig holds configuration settings for the HEALTHCHECK feature.
 type HealthConfig struct {
@@ -19,12 +44,21 @@ type HealthConfig struct {
 	Test []string `json:",omitempty"`
 
 	// Zero means to inherit. Durations are expressed as integer nanoseconds.
-	Interval time.Duration `json:",omitempty"` // Interval is the time to wait between checks.
-	Timeout  time.Duration `json:",omitempty"` // Timeout is the time to wait before considering the check to have hung.
+	Interval    time.Duration `json:",omitempty"` // Interval is the time to wait between checks.
+	Timeout     time.Duration `json:",omitempty"` // Timeout is the time to wait before considering the check to have hung.
+	StartPeriod time.Duration `json:",omitempty"` // The start period for the container to initialize before the retries starts to count down.
 
 	// Retries is the number of consecutive failures needed to consider a container as unhealthy.
 	// Zero means inherit.
 	Retries int `json:",omitempty"`
+}
+
+// ExecStartOptions holds the options to start container's exec.
+type ExecStartOptions struct {
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+	ConsoleSize *[2]uint `json:",omitempty"`
 }
 
 // Config contains the configuration data about a container.
@@ -47,7 +81,7 @@ type Config struct {
 	Env             []string            // List of environment variable to set in the container
 	Cmd             strslice.StrSlice   // Command to run when starting the container
 	Healthcheck     *HealthConfig       `json:",omitempty"` // Healthcheck describes how to check the container is healthy
-	ArgsEscaped     bool                `json:",omitempty"` // True if command is already escaped (Windows specific)
+	ArgsEscaped     bool                `json:",omitempty"` // True if command is already escaped (meaning treat as a command line) (Windows specific).
 	Image           string              // Name of the image as it was passed by the operator (e.g. could be symbolic)
 	Volumes         map[string]struct{} // List of volumes (mounts) used for the container
 	WorkingDir      string              // Current directory (PWD) in the command will be launched
