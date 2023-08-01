@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
 	"github.com/pkg/errors"
@@ -46,7 +47,7 @@ func (d *Docker) StopContainers(labels []string) error {
 
 	for _, c := range containers {
 		log.Println("stopping container", c.ID)
-		err = d.cn.ContainerStop(d.ctx, c.ID, nil)
+		err = d.cn.ContainerStop(d.ctx, c.ID, container.StopOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "stop container %s", c.ID)
 		}
@@ -163,7 +164,7 @@ func (d *Docker) RestartContainers(labels []string) error {
 
 	for _, c := range containers {
 		log.Println("restarting container", c.ID)
-		err = d.cn.ContainerRestart(d.ctx, c.ID, nil)
+		err = d.cn.ContainerRestart(d.ctx, c.ID, container.StopOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "restart container %s", c.ID)
 		}
@@ -218,7 +219,7 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, execConf)
+	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, types.ExecStartCheck{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}
@@ -274,56 +275,56 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 
 	for _, c := range containers {
 		wg.Add(1)
-		go func(container types.Container) {
+		go func(cont types.Container) {
 			defer wg.Done()
 
 			var buf strings.Builder
 			var started bool
 			for i := 1; i <= 5; i++ {
-				err := d.cn.ContainerStart(d.ctx, container.ID, types.ContainerStartOptions{})
+				err := d.cn.ContainerStart(d.ctx, cont.ID, types.ContainerStartOptions{})
 				if err != nil {
-					errCh <- errors.Wrapf(err, "start container %s", container.ID)
+					errCh <- errors.Wrapf(err, "start container %s", cont.ID)
 					return
 				}
 
 				since := time.Now().Format(time.RFC3339Nano)
 				time.Sleep(5 * time.Second)
-				out, err := d.cn.ContainerLogs(d.ctx, container.ID, types.ContainerLogsOptions{
+				out, err := d.cn.ContainerLogs(d.ctx, cont.ID, types.ContainerLogsOptions{
 					ShowStdout: true,
 					ShowStderr: true,
 					Follow:     false,
 					Since:      since,
 				})
 				if err != nil {
-					errCh <- errors.Wrapf(err, "get logs for container %s", container.ID)
+					errCh <- errors.Wrapf(err, "get logs for container %s", cont.ID)
 					return
 				}
 
 				buf.Reset()
 				_, err = io.Copy(&buf, out)
 				if err != nil {
-					errCh <- errors.Wrapf(err, "read logs for container %s", container.ID)
+					errCh <- errors.Wrapf(err, "read logs for container %s", cont.ID)
 					return
 				}
 
 				if strings.Contains(buf.String(), "listening for the commands") {
-					log.Printf("PBM agent %s started properly \n", container.ID)
+					log.Printf("PBM agent %s started properly \n", cont.ID)
 					started = true
 					break
 				}
 
-				err = d.cn.ContainerStop(d.ctx, container.ID, nil)
+				err = d.cn.ContainerStop(d.ctx, cont.ID, container.StopOptions{})
 				if err != nil {
-					errCh <- errors.Wrapf(err, "stop container %s", container.ID)
+					errCh <- errors.Wrapf(err, "stop container %s", cont.ID)
 					return
 				}
 
-				log.Printf("PBM agent %s wasn't started, retrying in %d seconds\n", container.ID, i*5)
+				log.Printf("PBM agent %s wasn't started, retrying in %d seconds\n", cont.ID, i*5)
 				time.Sleep(time.Duration(i*5) * time.Second)
 			}
 
 			if !started {
-				errCh <- errors.Errorf("Can't start container %s, last logs: %s", container.ID, buf.String())
+				errCh <- errors.Errorf("Can't start container %s, last logs: %s", cont.ID, buf.String())
 			}
 		}(c)
 	}

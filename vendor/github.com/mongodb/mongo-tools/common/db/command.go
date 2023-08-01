@@ -127,6 +127,21 @@ func (sp *SessionProvider) DatabaseNames() ([]string, error) {
 // 	return session.DB(dbName).CollectionNames()
 // }
 
+// IsAtlasProxy checks if the connected SessionProvider is an atlas proxy.
+func (sp *SessionProvider) IsAtlasProxy() bool {
+	session, err := sp.GetSession()
+	if err != nil {
+		return false
+	}
+
+	// Only the atlas proxy will respond to this command without an error.
+	result := session.Database("admin").RunCommand(
+		context.Background(),
+		&bson.M{"atlasVersion": 1},
+	)
+	return result.Err() == nil
+}
+
 // GetNodeType checks if the connected SessionProvider is a mongos, standalone, or replset,
 // by looking at the result of calling isMaster.
 func (sp *SessionProvider) GetNodeType() (NodeType, error) {
@@ -178,28 +193,6 @@ func (sp *SessionProvider) IsMongos() (bool, error) {
 	}
 	return nodeType == Mongos, nil
 }
-
-//
-// // SupportsCollectionUUID returns true if the connected server identifies
-// // collections with UUIDs
-// func (sp *SessionProvider) SupportsCollectionUUID() (bool, error) {
-// 	session, err := sp.GetSession()
-// 	if err != nil {
-// 		return false, err
-// 	}
-//
-// 	collInfo, err := GetCollectionInfo(session.Database("admin").Collection("system.version"))
-// 	if err != nil {
-// 		return false, err
-// 	}
-//
-// 	// On FCV 3.6+, admin.system.version will have a UUID
-// 	if collInfo != nil && collInfo.GetUUID() != "" {
-// 		return true, nil
-// 	}
-//
-// 	return false, nil
-// }
 
 //
 // // SupportsWriteCommands returns true if the connected server supports write

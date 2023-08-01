@@ -64,6 +64,7 @@ type MongoRestore struct {
 	objCheck         bool
 	oplogLimit       primitive.Timestamp
 	isMongos         bool
+	isAtlasProxy     bool
 	useWriteCommands bool
 	authVersions     authVersionPair
 
@@ -123,27 +124,20 @@ func New(opts Options) (*MongoRestore, error) {
 		terminate:       false,
 		indexCatalog:    idx.NewIndexCatalog(),
 	}
+
+	restore.isMongos, err = restore.SessionProvider.IsMongos()
+	if err != nil {
+		return nil, err
+	}
+	if restore.isMongos {
+		log.Logv(log.DebugLow, "restoring to a sharded system")
+	}
+	restore.isAtlasProxy = restore.SessionProvider.IsAtlasProxy()
+	if restore.isAtlasProxy {
+		log.Logv(log.DebugLow, "restoring to a MongoDB Atlas free or shared cluster")
+	}
+
 	return restore, nil
-}
-
-// SupportsCollectionUUID was removed from common/db/command.go, so copied to here
-func SupportsCollectionUUID(sp *db.SessionProvider) (bool, error) {
-	session, err := sp.GetSession()
-	if err != nil {
-		return false, err
-	}
-
-	collInfo, err := db.GetCollectionInfo(session.Database("admin").Collection("system.version"))
-	if err != nil {
-		return false, err
-	}
-
-	// On FCV 3.6+, admin.system.version will have a UUID
-	if collInfo != nil && collInfo.GetUUID() != "" {
-		return true, nil
-	}
-
-	return false, nil
 }
 
 // Close ends any connections and cleans up other internal state.
@@ -189,15 +183,14 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		return fmt.Errorf("cannot use --restoreDbUsersAndRoles with the admin database")
 	}
 
-	var err error
-	restore.isMongos, err = restore.SessionProvider.IsMongos()
-	if err != nil {
-		return err
-	}
-	if restore.isMongos {
-		log.Logv(log.DebugLow, "restoring to a sharded system")
+	if restore.isAtlasProxy {
+		if restore.InputOptions.RestoreDBUsersAndRoles || restore.ToolOptions.Namespace.DB == "admin" {
+			return fmt.Errorf("cannot restore to the admin database when connected to a MongoDB Atlas free or shared cluster")
+		}
+		log.Logv(log.DebugLow, "restoring to a MongoDB Atlas free or shared cluster")
 	}
 
+	var err error
 	if restore.InputOptions.OplogLimit != "" {
 		if !restore.InputOptions.OplogReplay {
 			return fmt.Errorf("cannot use --oplogLimit without --oplogReplay enabled")
@@ -299,18 +292,8 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		restore.OutputOptions.NumInsertionWorkers = 1
 	}
 
-	if restore.OutputOptions.PreserveUUID {
-		if !restore.OutputOptions.Drop {
-			return fmt.Errorf("cannot specify --preserveUUID without --drop")
-		}
-
-		ok, err := SupportsCollectionUUID(restore.SessionProvider)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("target host does not support --preserveUUID")
-		}
+	if restore.OutputOptions.PreserveUUID && !restore.OutputOptions.Drop {
+		return fmt.Errorf("cannot specify --preserveUUID without --drop")
 	}
 
 	// a single dash signals reading from stdin
@@ -417,7 +400,7 @@ func (restore *MongoRestore) Restore() Result {
 	// Create the demux before intent creation, because muted archive intents need
 	// to register themselves with the demux directly
 	if restore.InputOptions.Archive != "" {
-		restore.archive.Demux = archive.CreateDemux(restore.archive.Prelude.NamespaceMetadatas, restore.archive.In)
+		restore.archive.Demux = archive.CreateDemux(restore.archive.Prelude.NamespaceMetadatas, restore.archive.In, restore.isAtlasProxy)
 	}
 
 	switch {
