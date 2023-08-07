@@ -21,6 +21,10 @@ func IsSelective(ids []string) bool {
 }
 
 func MakeSelectedPred(nss []string) archive.NSFilterFn {
+	if len(nss) == 0 {
+		return func(string) bool { return true }
+	}
+
 	m := make(map[string]map[string]bool)
 
 	for _, ns := range nss {
