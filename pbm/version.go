@@ -101,6 +101,11 @@ func (f FeatureSupport) BackupType(t BackupType) error {
 			return errors.New("incremental physical backup works since " +
 				"Percona Server for MongoDB 4.2.24, 4.4.18, 5.0.14, 6.0.3")
 		}
+	case ExternalBackup:
+		if !f.FullPhysicalBackup() {
+			return errors.New("external backup works since " +
+				"Percona Server for MongoDB 4.2.15, 4.4.6")
+		}
 	}
 
 	return nil

@@ -80,12 +80,8 @@ func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error)
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
 
-	ver, err := pbm.GetMongoVersion(cn.Context(), cn.Conn)
-	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
-	}
-	if err = pbm.FeatureSupport(ver).BackupType(pbm.BackupType(b.typ)); err != nil {
-		return nil, errors.WithMessage(err, "unsupported backup type")
+	if err := pbm.CheckTopoForBackup(cn, pbm.BackupType(b.typ)); err != nil {
+		return nil, errors.WithMessage(err, "backup pre-check")
 	}
 
 	if err := checkConcurrentOp(cn); err != nil {

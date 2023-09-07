@@ -925,16 +925,36 @@ func (p *PBM) ClusterMembers() ([]Shard, error) {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
+	if inf.IsMongos() || inf.IsSharded() {
+		return getClusterMembersImpl(p.ctx, p.Conn)
+	}
+
 	shards := []Shard{{
 		RS:   inf.SetName,
 		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
 	}}
-	if inf.IsSharded() {
-		s, err := p.GetShards()
-		if err != nil {
-			return nil, errors.Wrap(err, "get shards")
-		}
-		shards = append(shards, s...)
+	return shards, nil
+}
+
+func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "query")
+	}
+
+	var shardMap struct{ Map map[string]string }
+	if err := res.Decode(&shardMap); err != nil {
+		return nil, errors.WithMessage(err, "decode")
+	}
+
+	shards := make([]Shard, 0, len(shardMap.Map))
+	for id, host := range shardMap.Map {
+		rs, _, _ := strings.Cut(host, "/")
+		shards = append(shards, Shard{
+			ID:   id,
+			RS:   rs,
+			Host: host,
+		})
 	}
 
 	return shards, nil
@@ -978,6 +998,9 @@ func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
 	inf, err := GetNodeInfo(p.ctx, p.Conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
+	}
+	if inf.IsMongos() {
+		return inf, nil
 	}
 
 	opts := struct {

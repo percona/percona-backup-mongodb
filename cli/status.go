@@ -276,7 +276,7 @@ func clusterStatus(cn *pbm.PBM, uri string) (fmt.Stringer, error) {
 					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
 					continue
 				}
-				nd.Ver = "v" + stat.Ver
+				nd.Ver = "v" + stat.AgentVer
 				nd.OK, nd.Errs = stat.OK()
 			}
 
