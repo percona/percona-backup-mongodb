@@ -1169,15 +1169,15 @@ func (r *PhysRestore) prepareData() error {
 
 	ctx := context.Background()
 
-	err = c.Database("local").Collection("replset.minvalid").Drop(ctx)
+	_, err = c.Database("local").Collection("replset.minvalid").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "drop replset.minvalid")
 	}
-	err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").Drop(ctx)
+	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "drop replset.oplogTruncateAfterPoint")
 	}
-	err = c.Database("local").Collection("replset.election").Drop(ctx)
+	_, err = c.Database("local").Collection("replset.election").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "drop replset.election")
 	}
@@ -1360,11 +1360,11 @@ func (r *PhysRestore) resetRS() error {
 	ctx := context.Background()
 
 	if r.nodeInfo.IsConfigSrv() {
-		err = c.Database("config").Collection("mongos").Drop(ctx)
+		_, err = c.Database("config").Collection("mongos").DeleteMany(ctx, bson.D{})
 		if err != nil {
 			return errors.Wrap(err, "drop config.mongos")
 		}
-		err = c.Database("config").Collection("lockpings").Drop(ctx)
+		_, err = c.Database("config").Collection("lockpings").DeleteMany(ctx, bson.D{})
 		if err != nil {
 			return errors.Wrap(err, "drop config.lockpings")
 		}
@@ -1431,14 +1431,15 @@ func (r *PhysRestore) resetRS() error {
 		return errors.WithMessage(err, "list cache collections")
 	}
 	for _, coll := range colls {
-		if err := c.Database("config").Collection(coll).Drop(ctx); err != nil {
+		_, err := c.Database("config").Collection(coll).DeleteMany(ctx, bson.D{})
+		if err != nil {
 			return errors.Wrapf(err, "drop %q", coll)
 		}
 	}
 
 	const retry = 5
 	for i := 0; i < retry; i++ {
-		err = c.Database("config").Collection("system.sessions").Drop(ctx)
+		_, err = c.Database("config").Collection("system.sessions").DeleteMany(ctx, bson.D{})
 		if err == nil || !strings.Contains(err.Error(), "(BackgroundOperationInProgressForNamespace)") {
 			break
 		}
