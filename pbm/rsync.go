@@ -228,7 +228,7 @@ func GetPhysRestoreMeta(restore string, stg storage.Storage, l *log.Event) (*Res
 			return nil, errors.Wrapf(err, "get file %s", mjson)
 		}
 
-		err = json.NewDecoder(src).Decode(rmeta)
+		err = json.NewDecoder(src).Decode(&rmeta)
 		if err != nil {
 			return nil, errors.Wrapf(err, "decode meta %s", mjson)
 		}
