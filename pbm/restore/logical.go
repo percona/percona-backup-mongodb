@@ -167,7 +167,7 @@ func (r *Restore) Snapshot(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (er
 		return err
 	}
 
-	err = r.restoreIndexes()
+	err = r.restoreIndexes(oplogOption.nss)
 	if err != nil {
 		return errors.WithMessage(err, "restore indexes")
 	}
@@ -303,7 +303,7 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err er
 		return err
 	}
 
-	err = r.restoreIndexes()
+	err = r.restoreIndexes(oplogOption.nss)
 	if err != nil {
 		return errors.WithMessage(err, "restore indexes")
 	}
@@ -758,10 +758,16 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 	return nil
 }
 
-func (r *Restore) restoreIndexes() error {
+func (r *Restore) restoreIndexes(nss []string) error {
 	r.log.Debug("building indexes up")
 
+	isSelected := sel.MakeSelectedPred(nss)
 	for _, ns := range r.indexCatalog.Namespaces() {
+		if ns := archive.NSify(ns.DB, ns.Collection); !isSelected(ns) {
+			r.log.Debug("skip restore indexes for %q", ns)
+			continue
+		}
+
 		indexes := r.indexCatalog.GetIndexes(ns.DB, ns.Collection)
 		for i, index := range indexes {
 			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
