@@ -213,10 +213,13 @@ func (r *Restore) PITR(cmd *pbm.RestoreCmd, opid pbm.OPID, l *log.Event) (err er
 		return err
 	}
 
-	// tsTo := primitive.Timestamp{T: uint32(cmd.TS), I: uint32(cmd.I)}
-	bcp, err := GetBaseBackup(r.cn, cmd.BackupName, cmd.OplogTS, r.stg)
+	bcp, err := SnapshotMeta(r.cn, cmd.BackupName, r.stg)
 	if err != nil {
 		return errors.Wrap(err, "get base backup")
+	}
+	if bcp.LastWriteTS.Compare(cmd.OplogTS) >= 0 {
+		return errors.New("snapshot's last write is later than the target time. " +
+			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
 	nss := cmd.Namespaces

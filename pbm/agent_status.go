@@ -98,6 +98,7 @@ func (p *PBM) AgentStatusGC() error {
 	// may stuck for 30 sec on ping (trying to connect), it's HB became stale and it would be collected.
 	// Which would lead to the false clamin "not found" in the status output. So stale range should at least 30 sec
 	// (+5 just in case).
+	// XXX: stalesec is const 15 secs which resolves to 35 secs
 	stalesec := AgentsStatCheckRange.Seconds() * 3
 	if stalesec < 35 {
 		stalesec = 35

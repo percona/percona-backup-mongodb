@@ -3,7 +3,7 @@
 !.vscode/settings.json
 .idea/
 /bin/
-/dev/
+/.dev
 e2e-tests/docker/keyFile
 e2e-tests/docker/backups/pbm
 e2e-tests/docker/pbm.conf.yaml

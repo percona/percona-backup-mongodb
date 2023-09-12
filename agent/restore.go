@@ -322,13 +322,15 @@ func (a *Agent) Restore(r *pbm.RestoreCmd, opid pbm.OPID, ep pbm.Epoch) {
 		bcpType = pbm.ExternalBackup
 	} else {
 		l.Info("backup: %s", r.BackupName)
-		if !r.OplogTS.IsZero() {
-			bcp, err = restore.GetBaseBackup(a.pbm, r.BackupName, r.OplogTS, stg)
-		} else {
-			bcp, err = restore.SnapshotMeta(a.pbm, r.BackupName, stg)
-		}
+		bcp, err = restore.SnapshotMeta(a.pbm, r.BackupName, stg)
 		if err != nil {
 			l.Error("define base backup: %v", err)
+			return
+		}
+
+		if !r.OplogTS.IsZero() && bcp.LastWriteTS.Compare(r.OplogTS) >= 0 {
+			l.Error("snapshot's last write is later than the target time. " +
+				"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 			return
 		}
 		bcpType = bcp.Type

@@ -110,7 +110,7 @@ func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Ti
 	f := bson.D{
 		{"last_write_ts", bson.M{"$gte": lw}},
 		{"nss", nil},
-		{"type", LogicalBackup},
+		{"type", bson.M{"$ne": ExternalBackup}},
 		{"status", StatusDone},
 	}
 	o := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
@@ -205,7 +205,7 @@ func isBaseSnapshot(bcp *BackupMeta) bool {
 	if bcp.Status != StatusDone {
 		return false
 	}
-	if bcp.Type != LogicalBackup || sel.IsSelective(bcp.Namespaces) {
+	if bcp.Type == ExternalBackup || sel.IsSelective(bcp.Namespaces) {
 		return false
 	}
 
