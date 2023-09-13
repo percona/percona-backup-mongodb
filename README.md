@@ -4,7 +4,7 @@
 ![PBM logo](doc/source/images/backup-mongo.jpeg)
 
 Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achieving
-consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v3.6 and higher.
+consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v4.4 and higher.
 
 For more information about PBM components and how to use it, see
 [Percona Backup for MongoDB documentation](https://docs.percona.com/percona-backup-mongodb/)
@@ -80,7 +80,7 @@ When submitting a bug report or a feature, please attach the following informati
 
 ## Licensing
 
-Percona is dedicated to **keeping open source open**. Wherever possible, we strive to include permissive licensing for both our software and documentation. For this project, we are using the Apache License 2.0 license. 
+Percona is dedicated to **keeping open source open**. Wherever possible, we strive to include permissive licensing for both our software and documentation. For this project, we are using the Apache License 2.0 license.
 
 ## How to get involved
 

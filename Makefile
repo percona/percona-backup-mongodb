@@ -6,7 +6,7 @@ CGO_ENABLED?=0
 GITCOMMIT?=$(shell git rev-parse HEAD 2>/dev/null)
 GITBRANCH?=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 BUILDTIME?=$(shell TZ=UTC date "+%Y-%m-%d_%H:%M_UTC")
-MONGO_TEST_VERSION?=4.2
+MONGO_TEST_VERSION?=4.4
 
 define ENVS
 	GO111MODULE=$(GOMOD) \
