@@ -25,13 +25,39 @@ func (c *Conf) Cast() error {
 }
 
 type FS struct {
-	opts Conf
+	root string
 }
 
-func New(opts Conf) *FS {
-	return &FS{
-		opts: opts,
+func New(opts Conf) (*FS, error) {
+	info, err := os.Lstat(opts.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(opts.Path, os.ModeDir|0o755); err != nil {
+				return nil, errors.WithMessagef(err, "mkdir %s", opts.Path)
+			}
+
+			return &FS{opts.Path}, nil
+		}
+
+		return nil, errors.WithMessagef(err, "stat %s", opts.Path)
 	}
+
+	root := opts.Path
+	if info.Mode()&os.ModeSymlink != 0 {
+		root, err = filepath.EvalSymlinks(opts.Path)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "resolve link: %s", opts.Path)
+		}
+		info, err = os.Lstat(root)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "stat %s", root)
+		}
+	}
+	if !info.Mode().IsDir() {
+		return nil, errors.Errorf("%s is not directory", root)
+	}
+
+	return &FS{root}, nil
 }
 
 func (*FS) Type() storage.Type {
@@ -39,7 +65,7 @@ func (*FS) Type() storage.Type {
 }
 
 func (fs *FS) Save(name string, data io.Reader, _ int64) error {
-	filepath := path.Join(fs.opts.Path, name)
+	filepath := path.Join(fs.root, name)
 
 	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
@@ -66,7 +92,7 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
-	filepath := path.Join(fs.opts.Path, name)
+	filepath := path.Join(fs.root, name)
 	fr, err := os.Open(filepath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, storage.ErrNotExist
@@ -77,7 +103,7 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
-	f, err := os.Stat(path.Join(fs.opts.Path, name))
+	f, err := os.Stat(path.Join(fs.root, name))
 	if errors.Is(err, os.ErrNotExist) {
 		return inf, storage.ErrNotExist
 	}
@@ -97,29 +123,30 @@ func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
 func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	var files []storage.FileInfo
 
-	prefix = filepath.Join(fs.opts.Path, prefix)
-
-	err := filepath.Walk(prefix, func(path string, info os.FileInfo, err error) error {
+	base := filepath.Join(fs.root, prefix)
+	err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil
 			}
 			return errors.Wrap(err, "walking the path")
 		}
-		if !info.IsDir() {
-			f := strings.TrimPrefix(path, prefix)
-			f = filepath.ToSlash(f)
-			if len(f) == 0 {
-				return nil
-			}
-			if f[0] == '/' {
-				f = f[1:]
-			}
-			if strings.HasSuffix(f, suffix) {
-				files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
-			}
+
+		info, _ := entry.Info()
+		if info.IsDir() {
+			return nil
 		}
 
+		f := filepath.ToSlash(strings.TrimPrefix(path, base))
+		if len(f) == 0 {
+			return nil
+		}
+		if f[0] == '/' {
+			f = f[1:]
+		}
+		if strings.HasSuffix(f, suffix) {
+			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
+		}
 		return nil
 	})
 
@@ -127,11 +154,11 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (fs *FS) Copy(src, dst string) error {
-	from, err := os.Open(path.Join(fs.opts.Path, src))
+	from, err := os.Open(path.Join(fs.root, src))
 	if err != nil {
 		return errors.Wrap(err, "open src")
 	}
-	to, err := os.Create(path.Join(fs.opts.Path, dst))
+	to, err := os.Create(path.Join(fs.root, dst))
 	if err != nil {
 		return errors.Wrap(err, "create dst")
 	}
@@ -142,7 +169,7 @@ func (fs *FS) Copy(src, dst string) error {
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
 func (fs *FS) Delete(name string) error {
-	err := os.RemoveAll(path.Join(fs.opts.Path, name))
+	err := os.RemoveAll(path.Join(fs.root, name))
 	if os.IsNotExist(err) {
 		return storage.ErrNotExist
 	}
