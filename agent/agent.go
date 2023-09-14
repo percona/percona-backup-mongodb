@@ -68,7 +68,12 @@ func (a *Agent) CanStart() error {
 		return errors.New("mongos is not supported")
 	}
 
-	return nil
+	ver, err := pbm.GetMongoVersion(context.Background(), a.pbm.Conn)
+	if err != nil {
+		return errors.WithMessage(err, "get mongo version")
+	}
+
+	return pbm.FeatureSupport(ver).PBMSupport()
 }
 
 // Start starts listening the commands stream.
