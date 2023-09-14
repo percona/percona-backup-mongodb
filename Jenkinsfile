@@ -83,21 +83,6 @@ pipeline {
                 }
             }
             parallel {
-                stage('New cluster 4.2 logical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        script {
-                            if ( AUTHOR_NAME == 'null' )  {
-                                 AUTHOR_NAME = sh(script: "git show -s --pretty=%ae | awk -F'@' '{print \$1}'", , returnStdout: true).trim()
-                            }
-                        }
-
-                        prepareCluster('sharded', '42-newc-logic', '4.2')
-                        runTest('New cluster', 'run-new-cluster', '4.2', 'logical')
-                    }
-                }
                 stage('New cluster 4.4 logical') {
                     agent {
                         label 'docker'
@@ -126,15 +111,6 @@ pipeline {
                     }
                 }
 
-                stage('Sharded 4.2 logical') {
-                    agent {
-                        label 'docker-32gb'
-                    }
-                    steps {
-                        prepareCluster('sharded', '42-shrd-logic', '4.2')
-                        runTest('Sharded', 'run-sharded', '4.2', 'logical')
-                    }
-                }
                 stage('Sharded 4.4 logical') {
                     agent {
                         label 'docker-32gb'
@@ -163,15 +139,6 @@ pipeline {
                     }
                 }
 
-                stage('Non-sharded 4.2 logical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('rs', '42-rs-logic', '4.2')
-                        runTest('Non-sharded', 'run-rs', '4.2', 'logical')
-                    }
-                }
                 stage('Non-sharded 4.4 logical') {
                     agent {
                         label 'docker'
@@ -200,15 +167,6 @@ pipeline {
                     }
                 }
 
-                stage('Single-node 4.2 logical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('single', '42-single-logic', '4.2')
-                        runTest('Single-node', 'run-single', '4.2', 'logical')
-                    }
-                }
                 stage('Single-node 4.4 logical') {
                     agent {
                         label 'docker'
@@ -237,15 +195,6 @@ pipeline {
                     }
                 }
 
-                stage('Sharded 4.2 physical') {
-                    agent {
-                        label 'docker-32gb'
-                    }
-                    steps {
-                        prepareCluster('sharded', '42-shrd-phys', '4.2')
-                        runTest('Sharded', 'run-sharded', '4.2', 'physical')
-                    }
-                }
                 stage('Sharded 4.4 physical') {
                     agent {
                         label 'docker-32gb'
@@ -274,15 +223,6 @@ pipeline {
                     }
                 }
 
-                stage('Non-sharded 4.2 physical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('rs', '42-rs-phys', '4.2')
-                        runTest('Non-sharded', 'run-rs', '4.2', 'physical')
-                    }
-                }
                 stage('Non-sharded 4.4 physical') {
                     agent {
                         label 'docker'
@@ -311,15 +251,6 @@ pipeline {
                     }
                 }
 
-                stage('Single-node 4.2 physical') {
-                    agent {
-                        label 'docker'
-                    }
-                    steps {
-                        prepareCluster('single', '42-single-phys', '4.2')
-                        runTest('Single-node', 'run-single', '4.2', 'physical')
-                    }
-                }
                 stage('Single-node 4.4 physical') {
                     agent {
                         label 'docker'
