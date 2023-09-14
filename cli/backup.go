@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
 
@@ -66,6 +69,7 @@ func (b externBcpOut) String() string {
 
 type descBcp struct {
 	name string
+	coll bool
 }
 
 func runBackup(cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
@@ -307,6 +311,7 @@ type bcpReplDesc struct {
 	IsConfigSvr        *bool              `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
 	SecurityOpts       *pbm.MongodOptsSec `json:"security,omitempty" yaml:"security,omitempty"`
 	Error              *string            `json:"error,omitempty" yaml:"error,omitempty"`
+	Collections        []string           `json:"collections,omitempty" yaml:"collections,omitempty"`
 }
 
 func (b *bcpDesc) String() string {
@@ -338,6 +343,19 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 	bcp, err := cn.GetBackupMeta(b.name)
 	if err != nil {
 		return nil, err
+	}
+
+	var stg storage.Storage
+	if b.coll {
+		stg, err = cn.GetStorage(nil)
+		if err != nil {
+			return nil, errors.WithMessage(err, "get storage")
+		}
+
+		_, err := stg.FileStat(pbm.StorInitFile)
+		if err != nil {
+			return nil, errors.WithMessage(err, "check storage access")
+		}
 	}
 
 	rv := &bcpDesc{
@@ -398,6 +416,22 @@ func describeBackup(cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
 		if bcp.Type == pbm.ExternalBackup {
 			rv.Replsets[i].Files = r.Files
 		}
+
+		if !b.coll || bcp.Type != pbm.LogicalBackup {
+			continue
+		}
+
+		nss, err := pbm.ReadArchiveNamespaces(stg, r.DumpName)
+		if err != nil {
+			return nil, errors.WithMessage(err, "read archive metadata")
+		}
+
+		rv.Replsets[i].Collections = make([]string, len(nss))
+		for j, ns := range nss {
+			rv.Replsets[i].Collections[j] = archive.NSify(ns.Database, ns.Collection)
+		}
+
+		sort.Strings(rv.Replsets[i].Collections)
 	}
 
 	return rv, err
