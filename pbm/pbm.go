@@ -942,6 +942,10 @@ func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error
 		return nil, errors.WithMessage(err, "query")
 	}
 
+	// the map field is mapping of shard names to replset uri
+	// if shard name is not set, mongodb will provide unique name for it
+	// (e.g. the replset name of the shard)
+	// for configsvr, key name is "config"
 	var shardMap struct{ Map map[string]string }
 	if err := res.Decode(&shardMap); err != nil {
 		return nil, errors.WithMessage(err, "decode")
@@ -949,6 +953,13 @@ func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error
 
 	shards := make([]Shard, 0, len(shardMap.Map))
 	for id, host := range shardMap.Map {
+		if id == "<local>" || strings.ContainsAny(id, "/:") {
+			// till 4.2, map field is like connStrings (added in 4.4)
+			// and <local> key is uri of the directly (w/o mongos) connected replset
+			// skip not shard name
+			continue
+		}
+
 		rs, _, _ := strings.Cut(host, "/")
 		shards = append(shards, Shard{
 			ID:   id,
