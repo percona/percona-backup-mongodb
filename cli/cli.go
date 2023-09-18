@@ -359,7 +359,7 @@ func Main() {
 			stdlog.Fatalf("get mongo version: %v", err)
 		}
 		if err := pbm.FeatureSupport(ver).PBMSupport(); err != nil {
-			stdlog.Fatal(err.Error())
+			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
 		}
 	}
 

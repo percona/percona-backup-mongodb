@@ -72,8 +72,11 @@ func (a *Agent) CanStart() error {
 	if err != nil {
 		return errors.WithMessage(err, "get mongo version")
 	}
+	if err := pbm.FeatureSupport(ver).PBMSupport(); err != nil {
+		a.log.Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
+	}
 
-	return pbm.FeatureSupport(ver).PBMSupport()
+	return nil
 }
 
 // Start starts listening the commands stream.
