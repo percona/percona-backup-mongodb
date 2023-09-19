@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	stdlog "log"
 	"os"
 	"strings"
 	"time"
@@ -352,6 +353,14 @@ func Main() {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
 		pbmClient.InitLogger("", "")
+
+		ver, err := pbm.GetMongoVersion(ctx, pbmClient.Conn)
+		if err != nil {
+			stdlog.Fatalf("get mongo version: %v", err)
+		}
+		if err := pbm.FeatureSupport(ver).PBMSupport(); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
+		}
 	}
 
 	switch cmd {
