@@ -41,14 +41,10 @@ type agentScore func(AgentStat) float64
 // in descended order. First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func (p *PBM) BcpNodesPriority(c map[string]float64) (*NodesPriority, error) {
+func (p *PBM) BcpNodesPriority(c map[string]float64, agents []AgentStat) (*NodesPriority, error) {
 	cfg, err := p.GetConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
-	}
-	agents, err := p.ListAgentStatuses()
-	if err != nil {
-		return nil, errors.Wrap(err, "get agents list")
 	}
 
 	// if cfg.Backup.Priority doesn't set apply defaults

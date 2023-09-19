@@ -925,16 +925,47 @@ func (p *PBM) ClusterMembers() ([]Shard, error) {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
+	if inf.IsMongos() || inf.IsSharded() {
+		return getClusterMembersImpl(p.ctx, p.Conn)
+	}
+
 	shards := []Shard{{
 		RS:   inf.SetName,
 		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
 	}}
-	if inf.IsSharded() {
-		s, err := p.GetShards()
-		if err != nil {
-			return nil, errors.Wrap(err, "get shards")
+	return shards, nil
+}
+
+func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error) {
+	res := m.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.WithMessage(err, "query")
+	}
+
+	// the map field is mapping of shard names to replset uri
+	// if shard name is not set, mongodb will provide unique name for it
+	// (e.g. the replset name of the shard)
+	// for configsvr, key name is "config"
+	var shardMap struct{ Map map[string]string }
+	if err := res.Decode(&shardMap); err != nil {
+		return nil, errors.WithMessage(err, "decode")
+	}
+
+	shards := make([]Shard, 0, len(shardMap.Map))
+	for id, host := range shardMap.Map {
+		if id == "<local>" || strings.ContainsAny(id, "/:") {
+			// till 4.2, map field is like connStrings (added in 4.4)
+			// and <local> key is uri of the directly (w/o mongos) connected replset
+			// skip not shard name
+			continue
 		}
-		shards = append(shards, s...)
+
+		rs, _, _ := strings.Cut(host, "/")
+		shards = append(shards, Shard{
+			ID:   id,
+			RS:   rs,
+			Host: host,
+		})
 	}
 
 	return shards, nil
@@ -978,6 +1009,9 @@ func (p *PBM) GetNodeInfo() (*NodeInfo, error) {
 	inf, err := GetNodeInfo(p.ctx, p.Conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
+	}
+	if inf.IsMongos() {
+		return inf, nil
 	}
 
 	opts := struct {

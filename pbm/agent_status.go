@@ -3,12 +3,15 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/mod/semver"
 )
 
 type AgentStat struct {
@@ -18,7 +21,10 @@ type AgentStat struct {
 	StateStr      string              `bson:"str"`
 	Hidden        bool                `bson:"hdn"`
 	Passive       bool                `bson:"psv"`
-	Ver           string              `bson:"v"`
+	Arbiter       bool                `bson:"arb"`
+	AgentVer      string              `bson:"v"`
+	MongoVer      string              `bson:"mv"`
+	PerconaVer    string              `bson:"pv,omitempty"`
 	PBMStatus     SubsysStatus        `bson:"pbms"`
 	NodeStatus    SubsysStatus        `bson:"nodes"`
 	StorageStatus SubsysStatus        `bson:"stors"`
@@ -48,6 +54,22 @@ func (s *AgentStat) OK() (bool, []string) {
 	}
 
 	return ok, errs
+}
+
+func (s *AgentStat) MongoVersion() MongoVersion {
+	v := MongoVersion{
+		PSMDBVersion:  s.PerconaVer,
+		VersionString: s.MongoVer,
+	}
+
+	vs := semver.Canonical("v" + s.MongoVer)[1:]
+	vs = strings.SplitN(vs, "-", 2)[0]
+	for _, a := range strings.Split(vs, ".")[:3] {
+		n, _ := strconv.Atoi(a)
+		v.Version = append(v.Version, n)
+	}
+
+	return v
 }
 
 func (p *PBM) SetAgentStatus(stat AgentStat) error {
@@ -117,6 +139,10 @@ func (p *PBM) ListAgentStatuses() ([]AgentStat, error) {
 		return nil, errors.WithMessage(err, "remove stale statuses")
 	}
 
+	return p.ListAgents()
+}
+
+func (p *PBM) ListAgents() ([]AgentStat, error) {
 	cur, err := p.Conn.Database(DB).Collection(AgentsStatusCollection).Find(p.ctx, bson.M{})
 	if err != nil {
 		return nil, errors.WithMessage(err, "query")

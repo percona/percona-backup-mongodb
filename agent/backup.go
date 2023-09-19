@@ -67,16 +67,19 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		return
 	}
 
-	q, err := backup.NodeSuits(a.node, nodeInfo)
+	isClusterLeader := nodeInfo.IsClusterLeader()
+	canRunBackup, err := backup.NodeSuitsExt(a.node, nodeInfo, cmd.Type)
 	if err != nil {
 		l.Error("node check: %v", err)
-		return
+		if !isClusterLeader {
+			return
+		}
 	}
-
-	// node is not suitable for doing backup
-	if !q {
+	if !canRunBackup {
 		l.Info("node is not suitable for backup")
-		return
+		if !isClusterLeader {
+			return
+		}
 	}
 
 	// wakeup the slicer not to wait for the tick
@@ -109,7 +112,7 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 	}
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
-	if nodeInfo.IsClusterLeader() {
+	if isClusterLeader {
 		balancer := pbm.BalancerModeOff
 		if nodeInfo.IsSharded() {
 			bs, err := a.pbm.GetBalancerStatus()
@@ -128,6 +131,12 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 		}
 		l.Debug("init backup meta")
 
+		if err = pbm.CheckTopoForBackup(a.pbm, cmd.Type); err != nil {
+			ferr := a.pbm.ChangeBackupState(cmd.Name, pbm.StatusError, err.Error())
+			l.Info("mark backup as %s `%v`: %v", pbm.StatusError, err, ferr)
+			return
+		}
+
 		// Incremental backup history is stored by WiredTiger on the node
 		// not replset. So an `incremental && not_base` backup should land on
 		// the agent that made a previous (src) backup.
@@ -145,7 +154,23 @@ func (a *Agent) Backup(cmd *pbm.BackupCmd, opid pbm.OPID, ep pbm.Epoch) {
 				}
 			}
 		}
-		nodes, err := a.pbm.BcpNodesPriority(c)
+
+		agents, err := a.pbm.ListAgentStatuses()
+		if err != nil {
+			l.Error("get agents list: %v", err)
+			return
+		}
+
+		validCandidates := make([]pbm.AgentStat, 0, len(agents))
+		for _, s := range agents {
+			if pbm.FeatureSupport(s.MongoVersion()).BackupType(cmd.Type) != nil {
+				continue
+			}
+
+			validCandidates = append(validCandidates, s)
+		}
+
+		nodes, err := a.pbm.BcpNodesPriority(c, validCandidates)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return

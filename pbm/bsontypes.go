@@ -51,6 +51,11 @@ type NodeInfo struct {
 }
 
 // IsSharded returns true is replset is part sharded cluster
+func (i *NodeInfo) IsMongos() bool {
+	return i.Msg == "isdbgrid"
+}
+
+// IsSharded returns true is replset is part sharded cluster
 func (i *NodeInfo) IsSharded() bool {
 	return i.SetName != "" && (i.ConfigServerState != nil || i.opts.Sharding.ClusterRole != "" || i.ConfigSvr == 2)
 }

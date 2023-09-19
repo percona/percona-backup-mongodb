@@ -480,10 +480,19 @@ func (a *Agent) HbIsRun() bool {
 }
 
 func (a *Agent) HbStatus() {
+	l := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
+
+	nodeVersion, err := a.node.GetMongoVersion()
+	if err != nil {
+		l.Error("get mongo version: %v", err)
+	}
+
 	hb := pbm.AgentStat{
-		Node: a.node.Name(),
-		RS:   a.node.RS(),
-		Ver:  version.Current().Version,
+		Node:       a.node.Name(),
+		RS:         a.node.RS(),
+		AgentVer:   version.Current().Version,
+		MongoVer:   nodeVersion.VersionString,
+		PerconaVer: nodeVersion.PSMDBVersion,
 	}
 	defer func() {
 		if err := a.pbm.RemoveAgentStatus(hb); err != nil {
@@ -494,8 +503,6 @@ func (a *Agent) HbStatus() {
 
 	tk := time.NewTicker(pbm.AgentsStatCheckRange)
 	defer tk.Stop()
-
-	l := a.log.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	const checkStoreIn = int(60 / (pbm.AgentsStatCheckRange / time.Second))
@@ -543,6 +550,7 @@ func (a *Agent) HbStatus() {
 			hb.Hidden = inf.Hidden
 			hb.Passive = inf.Passive
 		}
+		hb.Arbiter = inf.ArbiterOnly
 
 		err = a.pbm.SetAgentStatus(hb)
 		if err != nil {

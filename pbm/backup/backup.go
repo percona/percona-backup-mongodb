@@ -357,6 +357,20 @@ func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
 		nil
 }
 
+func NodeSuitsExt(node *pbm.Node, inf *pbm.NodeInfo, t pbm.BackupType) (bool, error) {
+	if ok, err := NodeSuits(node, inf); err != nil || !ok {
+		return false, err
+	}
+
+	ver, err := node.GetMongoVersion()
+	if err != nil {
+		return false, errors.Wrap(err, "get mongo version")
+	}
+
+	err = pbm.FeatureSupport(*ver).BackupType(t)
+	return err == nil, err
+}
+
 // rwError multierror for the read/compress/write-to-store operations set
 type rwError struct {
 	read     error
