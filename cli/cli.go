@@ -132,6 +132,8 @@ func Main() {
 
 	descBcpCmd := pbmCmd.Command("describe-backup", "Describe backup")
 	descBcp := descBcp{}
+	descBcpCmd.Flag("with-collections", "Show collections in backup").
+		BoolVar(&descBcp.coll)
 	descBcpCmd.Arg("backup_name", "Backup name").
 		StringVar(&descBcp.name)
 
