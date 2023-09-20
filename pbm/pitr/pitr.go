@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -145,6 +146,13 @@ func (s *Slicer) Catchup() error {
 		} else {
 			s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
 		}
+	}
+
+	if baseBcp.Type != pbm.LogicalBackup || sel.IsSelective(baseBcp.Namespaces) {
+		// the backup does not contain complete oplog to copy from
+		// NOTE: the chunk' last op can be later than backup' first write ts
+		s.lastTS = chnk.EndTS
+		return nil
 	}
 
 	err = s.copyFromBcp(baseBcp)
