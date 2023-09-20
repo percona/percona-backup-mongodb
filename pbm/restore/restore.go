@@ -214,37 +214,6 @@ func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 	}
 }
 
-func GetBaseBackup(
-	cn *pbm.PBM,
-	bcpName string,
-	tsTo primitive.Timestamp,
-	stg storage.Storage,
-) (*pbm.BackupMeta, error) {
-	var bcp *pbm.BackupMeta
-	var err error
-	if bcpName == "" {
-		bcp, err = cn.GetLastBackup(&tsTo)
-		if errors.Is(err, pbm.ErrNotFound) {
-			return nil, errors.Errorf("no backup found before ts %v", tsTo)
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "define last backup")
-		}
-		return bcp, nil
-	}
-
-	bcp, err = SnapshotMeta(cn, bcpName, stg)
-	if err != nil {
-		return nil, err
-	}
-	if primitive.CompareTimestamp(bcp.LastWriteTS, tsTo) >= 0 {
-		return nil, errors.New("snapshot's last write is later than the target time. " +
-			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
-	}
-
-	return bcp, nil
-}
-
 // chunks defines chunks of oplog slice in given range, ensures its integrity (timeline
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed

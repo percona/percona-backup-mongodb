@@ -237,21 +237,32 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (string, pbm.BackupT
 		return "", pbm.ExternalBackup, nil
 	}
 
-	if o.pitr != "" && o.pitrBase == "" {
-		return "", pbm.LogicalBackup, nil
-	}
-
 	b := o.bcp
-	if o.pitrBase != "" {
+	if o.pitr != "" && o.pitrBase != "" {
 		b = o.pitrBase
 	}
 
-	bcp, err := cn.GetBackupMeta(b)
-	if errors.Is(err, pbm.ErrNotFound) {
-		return "", "", errors.Errorf("backup '%s' not found", b)
+	var err error
+	var bcp *pbm.BackupMeta
+	if b != "" {
+		bcp, err = cn.GetBackupMeta(b)
+		if errors.Is(err, pbm.ErrNotFound) {
+			return "", "", errors.Errorf("backup '%s' not found", b)
+		}
+	} else {
+		var ts primitive.Timestamp
+		ts, err = parseTS(o.pitr)
+		if err != nil {
+			return "", "", errors.WithMessage(err, "parse pitr")
+		}
+
+		bcp, err = cn.GetLastBackup(&primitive.Timestamp{T: ts.T + 1, I: 0})
+		if errors.Is(err, pbm.ErrNotFound) {
+			return "", "", errors.New("no base snapshot found")
+		}
 	}
 	if err != nil {
-		return "", "", errors.Wrap(err, "get backup data")
+		return "", "", errors.WithMessage(err, "get backup data")
 	}
 	if len(nss) != 0 && bcp.Type != pbm.LogicalBackup {
 		return "", "", errors.New("--ns flag is only allowed for logical restore")
@@ -260,7 +271,7 @@ func checkBackup(cn *pbm.PBM, o *restoreOpts, nss []string) (string, pbm.BackupT
 		return "", "", errors.Errorf("backup '%s' didn't finish successfully", b)
 	}
 
-	return b, bcp.Type, nil
+	return bcp.Name, bcp.Type, nil
 }
 
 func restore(

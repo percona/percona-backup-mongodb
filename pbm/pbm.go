@@ -804,15 +804,17 @@ func (p *PBM) LastIncrementalBackup() (*BackupMeta, error) {
 	return p.getRecentBackup(nil, nil, -1, bson.D{{"type", string(IncrementalBackup)}})
 }
 
-// GetLastBackup returns last successfully finished backup
+// GetLastBackup returns last successfully finished backup (non-selective and non-external)
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func (p *PBM) GetLastBackup(before *primitive.Timestamp) (*BackupMeta, error) {
-	return p.getRecentBackup(nil, before, -1, bson.D{{"nss", nil}, {"type", string(LogicalBackup)}})
+	return p.getRecentBackup(nil, before, -1,
+		bson.D{{"nss", nil}, {"type", bson.M{"$ne": ExternalBackup}}})
 }
 
 func (p *PBM) GetFirstBackup(after *primitive.Timestamp) (*BackupMeta, error) {
-	return p.getRecentBackup(after, nil, 1, bson.D{{"nss", nil}, {"type", string(LogicalBackup)}})
+	return p.getRecentBackup(after, nil, 1,
+		bson.D{{"nss", nil}, {"type", bson.M{"$ne": ExternalBackup}}})
 }
 
 func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts bson.D) (*BackupMeta, error) {
@@ -844,6 +846,8 @@ func (p *PBM) getRecentBackup(after, before *primitive.Timestamp, sort int, opts
 
 func (p *PBM) BackupHasNext(backup *BackupMeta) (bool, error) {
 	f := bson.D{
+		{"nss", nil},
+		{"type", bson.M{"$ne": ExternalBackup}},
 		{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
 		{"status", StatusDone},
 	}

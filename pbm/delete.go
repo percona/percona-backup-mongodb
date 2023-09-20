@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/sel"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/version"
 )
@@ -56,6 +57,10 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 	case StatusDone, StatusCancelled, StatusError:
 	default:
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
+	}
+
+	if backup.Type == ExternalBackup || sel.IsSelective(backup.Namespaces) {
+		return nil
 	}
 
 	// if backup isn't a base for any PITR timeline

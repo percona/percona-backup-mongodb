@@ -335,7 +335,7 @@ func askConfirmation(question string) error {
 	if err != nil {
 		return errors.WithMessage(err, "stat stdin")
 	}
-	if (fi.Mode() & os.ModeCharDevice) != 0 {
+	if (fi.Mode() & os.ModeCharDevice) == 0 {
 		return errors.New("no tty")
 	}
 
