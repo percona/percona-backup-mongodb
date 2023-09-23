@@ -5,14 +5,15 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/pkg/errors"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm/archive"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/internal/archive"
+	"github.com/percona/percona-backup-mongodb/internal/compress"
 )
 
 type UploadDumpOptions struct {
-	Compression      compress.CompressionType
+	Compression      defs.CompressionType
 	CompressionLevel *int
 
 	// NSFilter checks whether a namespace is selected for backup.
@@ -34,7 +35,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 	go func() {
 		_, err := wt.WriteTo(pw)
-		pw.CloseWithError(errors.WithMessage(err, "write to"))
+		pw.CloseWithError(errors.Wrap(err, "write to"))
 	}()
 
 	newWriter := func(ns string) (io.WriteCloser, error) {
@@ -52,7 +53,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 			rc := &readCounter{r: pr}
 			err := upload(ns, ext, rc)
 			if err != nil {
-				pr.CloseWithError(errors.WithMessagef(err, "upload: %q", ns))
+				pr.CloseWithError(errors.Wrapf(err, "upload: %q", ns))
 			}
 
 			atomic.AddInt64(&size, rc.n)
@@ -64,19 +65,19 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
 		dwc := io.WriteCloser(&delegatedWriteCloser{w, pw})
-		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
+		return dwc, errors.Wrapf(err, "create compressor: %q", ns)
 	}
 
 	err := archive.Decompose(pr, newWriter, opts.NSFilter, opts.DocFilter)
 	wg.Wait()
-	return size, errors.WithMessage(err, "decompose")
+	return size, errors.Wrap(err, "decompose")
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
 
 func DownloadDump(
 	download DownloadFunc,
-	compression compress.CompressionType,
+	compression defs.CompressionType,
 	match archive.NSFilterFn,
 ) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
@@ -89,7 +90,7 @@ func DownloadDump(
 
 			r, err := download(ns)
 			if err != nil {
-				return nil, errors.WithMessagef(err, "download: %q", ns)
+				return nil, errors.Wrapf(err, "download: %q", ns)
 			}
 
 			if ns == archive.MetaFile {
@@ -97,11 +98,11 @@ func DownloadDump(
 			}
 
 			r, err = compress.Decompress(r, compression)
-			return r, errors.WithMessagef(err, "create decompressor: %q", ns)
+			return r, errors.Wrapf(err, "create decompressor: %q", ns)
 		}
 
 		err := archive.Compose(pw, match, newReader)
-		pw.CloseWithError(errors.WithMessage(err, "compose"))
+		pw.CloseWithError(errors.Wrap(err, "compose"))
 	}()
 
 	return pr, nil

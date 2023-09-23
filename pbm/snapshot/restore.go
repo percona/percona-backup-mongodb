@@ -5,10 +5,11 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 const (
@@ -19,16 +20,16 @@ const (
 )
 
 var ExcludeFromRestore = []string{
-	pbm.DB + "." + pbm.CmdStreamCollection,
-	pbm.DB + "." + pbm.LogCollection,
-	pbm.DB + "." + pbm.ConfigCollection,
-	pbm.DB + "." + pbm.BcpCollection,
-	pbm.DB + "." + pbm.RestoresCollection,
-	pbm.DB + "." + pbm.LockCollection,
-	pbm.DB + "." + pbm.LockOpCollection,
-	pbm.DB + "." + pbm.PITRChunksCollection,
-	pbm.DB + "." + pbm.AgentsStatusCollection,
-	pbm.DB + "." + pbm.PBMOpLogCollection,
+	defs.DB + "." + defs.CmdStreamCollection,
+	defs.DB + "." + defs.LogCollection,
+	defs.DB + "." + defs.ConfigCollection,
+	defs.DB + "." + defs.BcpCollection,
+	defs.DB + "." + defs.RestoresCollection,
+	defs.DB + "." + defs.LockCollection,
+	defs.DB + "." + defs.LockOpCollection,
+	defs.DB + "." + defs.PITRChunksCollection,
+	defs.DB + "." + defs.AgentsStatusCollection,
+	defs.DB + "." + defs.PBMOpLogCollection,
 	"config.version",
 	"config.mongos",
 	"config.lockpings",
@@ -44,13 +45,13 @@ var ExcludeFromRestore = []string{
 	"config.system.indexBuilds",
 
 	// deprecated PBM collections, keep it here not to bring back from old backups
-	pbm.DB + ".pbmBackups.old",
-	pbm.DB + ".pbmPITRChunks.old",
+	defs.DB + ".pbmBackups.old",
+	defs.DB + ".pbmPITRChunks.old",
 }
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
+func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
@@ -74,7 +75,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 	}
 
 	topts.Direct = true
-	topts.WriteConcern = writeconcern.New(writeconcern.WMajority())
+	topts.WriteConcern = writeconcern.Majority()
 
 	batchSize := batchSizeDefault
 	if cfg.Restore.BatchSize > 0 {

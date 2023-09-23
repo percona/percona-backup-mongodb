@@ -1,15 +1,17 @@
 package tests
 
 import (
-	"context"
 	"math/rand"
 	"runtime"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 // GenDBSpec describes a database to create
@@ -36,7 +38,7 @@ type ShardingOptions struct {
 func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	ok, err := isMongos(ctx, m)
 	if err != nil {
-		return errors.WithMessage(err, "ismongos")
+		return errors.Wrap(err, "ismongos")
 	}
 	if !ok {
 		return errors.New("mongos connection required")
@@ -48,7 +50,7 @@ func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 		sharded := false
 
 		if err := m.Database(db.Name).Drop(ctx); err != nil {
-			return errors.WithMessagef(err, "drop database: %q", db.Name)
+			return errors.Wrapf(err, "drop database: %q", db.Name)
 		}
 
 		for _, coll := range db.Collections {
@@ -84,7 +86,7 @@ func Deploy(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 func GenerateData(ctx context.Context, m *mongo.Client, dbs []GenDBSpec) error {
 	ok, err := isMongos(ctx, m)
 	if err != nil {
-		return errors.WithMessage(err, "ismongos")
+		return errors.Wrap(err, "ismongos")
 	}
 	if !ok {
 		return errors.New("mongos connection required")

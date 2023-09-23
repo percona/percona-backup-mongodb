@@ -1,18 +1,20 @@
 package pbm
 
 import (
-	"context"
 	"io"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 type Docker struct {

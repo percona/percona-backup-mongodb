@@ -1,7 +1,6 @@
 package sharded
 
 import (
-	"context"
 	"log"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
 )
 
 const trxdb = "trx"
@@ -27,7 +27,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 	conn := c.mongos.Conn()
 
 	log.Println("Updating transactionLifetimeLimitSeconds to", trxLimitT)
-	err := c.mongopbm.Conn().Database("admin").RunCommand(
+	err := c.mongopbm.Conn().AdminCommand(
 		ctx,
 		bson.D{{"setParameter", 1}, {"transactionLifetimeLimitSeconds", trxLimitT}},
 	).Err()

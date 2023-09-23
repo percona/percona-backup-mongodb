@@ -3,8 +3,11 @@ package pbm
 import (
 	"sort"
 
-	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
 const defaultScore = 1.0
@@ -35,23 +38,27 @@ func (n *NodesPriority) RS(rs string) [][]string {
 	return n.m[rs].list()
 }
 
-type agentScore func(AgentStat) float64
+type agentScore func(topo.AgentStat) float64
 
 // BcpNodesPriority returns list nodes grouped by backup preferences
 // in descended order. First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func (p *PBM) BcpNodesPriority(c map[string]float64, agents []AgentStat) (*NodesPriority, error) {
-	cfg, err := p.GetConfig()
+func (p *PBM) BcpNodesPriority(
+	ctx context.Context,
+	c map[string]float64,
+	agents []topo.AgentStat,
+) (*NodesPriority, error) {
+	cfg, err := config.GetConfig(ctx, p.Conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}
 
 	// if cfg.Backup.Priority doesn't set apply defaults
-	f := func(a AgentStat) float64 {
+	f := func(a topo.AgentStat) float64 {
 		if coeff, ok := c[a.Node]; ok && c != nil {
 			return defaultScore * coeff
-		} else if a.State == NodeStatePrimary {
+		} else if a.State == defs.NodeStatePrimary {
 			return defaultScore / 2
 		} else if a.Hidden {
 			return defaultScore * 2
@@ -60,7 +67,7 @@ func (p *PBM) BcpNodesPriority(c map[string]float64, agents []AgentStat) (*Nodes
 	}
 
 	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
-		f = func(a AgentStat) float64 {
+		f = func(a topo.AgentStat) float64 {
 			sc, ok := cfg.Backup.Priority[a.Node]
 			if !ok || sc < 0 {
 				return defaultScore
@@ -73,7 +80,7 @@ func (p *PBM) BcpNodesPriority(c map[string]float64, agents []AgentStat) (*Nodes
 	return bcpNodesPriority(agents, f), nil
 }
 
-func bcpNodesPriority(agents []AgentStat, f agentScore) *NodesPriority {
+func bcpNodesPriority(agents []topo.AgentStat, f agentScore) *NodesPriority {
 	scores := NewNodesPriority()
 
 	for _, a := range agents {
@@ -109,55 +116,4 @@ func (s nodeScores) list() [][]string {
 	}
 
 	return ret
-}
-
-func (p *PBM) SetRSNomination(bcpName, rs string) error {
-	n := BackupRsNomination{RS: rs, Nodes: []string{}}
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).
-		UpdateOne(
-			p.ctx,
-			bson.D{{"name", bcpName}},
-			bson.D{{"$addToSet", bson.M{"n": n}}},
-		)
-
-	return errors.WithMessage(err, "query")
-}
-
-func (p *PBM) GetRSNominees(bcpName, rsName string) (*BackupRsNomination, error) {
-	bcp, err := p.GetBackupMeta(bcpName)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, n := range bcp.Nomination {
-		if n.RS == rsName {
-			return &n, nil
-		}
-	}
-
-	return nil, ErrNotFound
-}
-
-func (p *PBM) SetRSNominees(bcpName, rsName string, nodes []string) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", bcpName}, {"n.rs", rsName}},
-		bson.D{
-			{"$set", bson.M{"n.$.n": nodes}},
-		},
-	)
-
-	return err
-}
-
-func (p *PBM) SetRSNomineeACK(bcpName, rsName, node string) error {
-	_, err := p.Conn.Database(DB).Collection(BcpCollection).UpdateOne(
-		p.ctx,
-		bson.D{{"name", bcpName}, {"n.rs", rsName}},
-		bson.D{
-			{"$set", bson.M{"n.$.ack": node}},
-		},
-	)
-
-	return err
 }

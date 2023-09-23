@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -11,15 +10,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pkg/errors"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/util"
+
+	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
 type (
@@ -123,7 +125,7 @@ func ExtractCredentionals(s string) *Credentials {
 func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials) (*clusterState, error) {
 	ok, err := isMongos(ctx, mongos)
 	if err != nil {
-		return nil, errors.WithMessage(err, "ismongos")
+		return nil, errors.Wrap(err, "ismongos")
 	}
 	if !ok {
 		return nil, errors.New("mongos connection required")
@@ -132,12 +134,12 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 	// get list of shards and configsvr URIs
 	res := mongos.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}})
 	if err := res.Err(); err != nil {
-		return nil, errors.WithMessage(err, "getShardMap: query")
+		return nil, errors.Wrap(err, "getShardMap: query")
 	}
 
 	var shardMap struct{ Map map[ShardName]string }
 	if err := res.Decode(&shardMap); err != nil {
-		return nil, errors.WithMessage(err, "getShardMap: decode")
+		return nil, errors.Wrap(err, "getShardMap: decode")
 	}
 
 	rv := &clusterState{
@@ -149,7 +151,7 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 	eg.Go(func() error {
 		var err error
 		rv.Counts, err = countDocuments(egc, mongos)
-		return errors.WithMessage(err, "count documents")
+		return errors.Wrap(err, "count documents")
 	})
 
 	mu := sync.Mutex{}
@@ -164,17 +166,17 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 		eg.Go(func() error {
 			m, err := mongo.Connect(egc, options.Client().ApplyURI(uri))
 			if err != nil {
-				return errors.WithMessagef(err, "connect: %q", uri)
+				return errors.Wrapf(err, "connect: %q", uri)
 			}
 
 			if rs == "config" {
 				rv.Config, err = getConfigState(egc, m)
-				return errors.WithMessagef(err, "config state: %q", uri)
+				return errors.Wrapf(err, "config state: %q", uri)
 			}
 
 			state, err := getShardState(egc, m)
 			if err != nil {
-				return errors.WithMessagef(err, "shard state: %q", uri)
+				return errors.Wrapf(err, "shard state: %q", uri)
 			}
 
 			mu.Lock()
@@ -199,7 +201,7 @@ func Compare(before, after *clusterState, nss []string) bool {
 		}
 		allowedDBs[db] = true
 	}
-	selected := sel.MakeSelectedPred(nss)
+	selected := util.MakeSelectedPred(nss)
 
 	for db, beforeDBState := range before.Config {
 		if !allowedDBs[""] && !allowedDBs[db] {
@@ -262,19 +264,19 @@ func Compare(before, after *clusterState, nss []string) bool {
 func isMongos(ctx context.Context, m *mongo.Client) (bool, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"hello", 1}})
 	if err := res.Err(); err != nil {
-		return false, errors.WithMessage(err, "query")
+		return false, errors.Wrap(err, "query")
 	}
 
 	var r struct{ Msg string }
 	err := res.Decode(&r)
-	return r.Msg == "isdbgrid", errors.WithMessage(err, "decode")
+	return r.Msg == "isdbgrid", errors.Wrap(err, "decode")
 }
 
 func countDocuments(ctx context.Context, mongos *mongo.Client) (map[string]int64, error) {
 	f := bson.D{{"name", bson.M{"$nin": bson.A{"admin", "config", "local"}}}}
 	dbs, err := mongos.ListDatabaseNames(ctx, f)
 	if err != nil {
-		return nil, errors.WithMessage(err, "list databases")
+		return nil, errors.Wrap(err, "list databases")
 	}
 
 	rv := make(map[NSName]int64)
@@ -284,13 +286,13 @@ func countDocuments(ctx context.Context, mongos *mongo.Client) (map[string]int64
 
 		colls, err := db.ListCollectionNames(ctx, bson.D{})
 		if err != nil {
-			return nil, errors.WithMessagef(err, "list collections: %q", d)
+			return nil, errors.Wrapf(err, "list collections: %q", d)
 		}
 
 		for _, c := range colls {
 			count, err := db.Collection(c).CountDocuments(ctx, bson.D{})
 			if err != nil {
-				return nil, errors.WithMessagef(err, "count: %q", d+"."+c)
+				return nil, errors.Wrapf(err, "count: %q", d+"."+c)
 			}
 
 			rv[d+"."+c] = count
@@ -303,24 +305,24 @@ func countDocuments(ctx context.Context, mongos *mongo.Client) (map[string]int64
 func getConfigDatabases(ctx context.Context, m *mongo.Client) ([]*dbSpec, error) {
 	cur, err := m.Database("config").Collection("databases").Find(ctx, bson.D{})
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 
 	rv := []*dbSpec{}
 	err = cur.All(ctx, &rv)
-	return rv, errors.WithMessage(err, "cursor: all")
+	return rv, errors.Wrap(err, "cursor: all")
 }
 
 func getConfigCollections(ctx context.Context, m *mongo.Client) ([]*collSpec, error) {
 	f := bson.D{{"_id", bson.M{"$regex": `^(?!(config|system)\.)`}}}
 	cur, err := m.Database("config").Collection("collections").Find(ctx, f)
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 
 	rv := []*collSpec{}
 	err = cur.All(ctx, &rv)
-	return rv, errors.WithMessage(err, "cursor: all")
+	return rv, errors.Wrap(err, "cursor: all")
 }
 
 func getConfigChunkHashes(
@@ -356,7 +358,7 @@ func getConfigChunkHashes(
 
 	cur, err := m.Database("config").Collection("chunks").Find(ctx, f)
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 	defer cur.Close(ctx)
 
@@ -372,7 +374,7 @@ func getConfigChunkHashes(
 		counts[id][cur.Current.Lookup("shard").StringValue()]++
 	}
 	if err := cur.Err(); err != nil {
-		return nil, errors.WithMessage(err, "cursor")
+		return nil, errors.Wrap(err, "cursor")
 	}
 
 	rv := make(map[NSName]chunksState, len(hashes))
@@ -387,20 +389,20 @@ func getConfigChunkHashes(
 }
 
 func getConfigState(ctx context.Context, m *mongo.Client) (map[DBName]configDBState, error) {
-	ver, err := pbm.GetMongoVersion(ctx, m)
+	ver, err := version.GetMongoVersion(ctx, m)
 	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
+		return nil, errors.Wrap(err, "get mongo version")
 	}
 	useUUID := ver.Major() >= 5 // since v5.0
 
 	dbs, err := getConfigDatabases(ctx, m)
 	if err != nil {
-		return nil, errors.WithMessage(err, "databases")
+		return nil, errors.Wrap(err, "databases")
 	}
 
 	colls, err := getConfigCollections(ctx, m)
 	if err != nil {
-		return nil, errors.WithMessage(err, "collections")
+		return nil, errors.Wrap(err, "collections")
 	}
 
 	u2c := make(map[string]CollName, len(colls))
@@ -416,7 +418,7 @@ func getConfigState(ctx context.Context, m *mongo.Client) (map[DBName]configDBSt
 
 	chunks, err := getConfigChunkHashes(ctx, m, u2c, useUUID)
 	if err != nil {
-		return nil, errors.WithMessage(err, "config chunk hashes")
+		return nil, errors.Wrap(err, "config chunk hashes")
 	}
 
 	rv := make(map[string]configDBState, len(dbs))
@@ -441,7 +443,7 @@ func getShardState(ctx context.Context, m *mongo.Client) (shardState, error) {
 	f := bson.D{{"name", bson.M{"$nin": bson.A{"admin", "config", "local"}}}}
 	res, err := m.ListDatabases(ctx, f)
 	if err != nil {
-		return nil, errors.WithMessage(err, "list databases")
+		return nil, errors.Wrap(err, "list databases")
 	}
 
 	rv := make(map[NSName]*shardCollState, len(res.Databases))
@@ -451,17 +453,17 @@ func getShardState(ctx context.Context, m *mongo.Client) (shardState, error) {
 
 		colls, err := db.ListCollectionSpecifications(ctx, bson.D{})
 		if err != nil {
-			return nil, errors.WithMessagef(err, "list collections: %q", name)
+			return nil, errors.Wrapf(err, "list collections: %q", name)
 		}
 
 		res := db.RunCommand(ctx, bson.D{{"dbHash", 1}})
 		if err := res.Err(); err != nil {
-			return nil, errors.WithMessagef(err, "dbHash: %q: query", name)
+			return nil, errors.Wrapf(err, "dbHash: %q: query", name)
 		}
 
 		dbHash := struct{ Collections map[CollName]string }{}
 		if err := res.Decode(&dbHash); err != nil {
-			return nil, errors.WithMessagef(err, "dbHash: %q: decode", name)
+			return nil, errors.Wrapf(err, "dbHash: %q: decode", name)
 		}
 
 		for _, coll := range colls {

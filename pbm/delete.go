@@ -4,36 +4,42 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/internal/version"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 // DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
-func (p *PBM) DeleteBackup(name string, l *log.Event) error {
-	meta, err := p.GetBackupMeta(name)
+func (p *PBM) DeleteBackup(ctx context.Context, name string, l *log.Event) error {
+	meta, err := query.GetBackupMeta(ctx, p.Conn, name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
 
-	tlns, err := p.PITRTimelines()
+	tlns, err := oplog.PITRTimelines(ctx, p.Conn)
 	if err != nil {
 		return errors.Wrap(err, "get PITR chunks")
 	}
 
-	err = p.probeDelete(meta, tlns)
+	err = p.probeDelete(ctx, meta, tlns)
 	if err != nil {
 		return err
 	}
 
-	stg, err := p.GetStorage(l)
+	stg, err := util.GetStorage(ctx, p.Conn, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -43,7 +49,7 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 		return errors.Wrap(err, "delete files from storage")
 	}
 
-	_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": meta.Name})
+	_, err = p.Conn.BcpCollection().DeleteOne(ctx, bson.M{"name": meta.Name})
 	if err != nil {
 		return errors.Wrap(err, "delete metadata from db")
 	}
@@ -51,15 +57,15 @@ func (p *PBM) DeleteBackup(name string, l *log.Event) error {
 	return nil
 }
 
-func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
+func (p *PBM) probeDelete(ctx context.Context, backup *types.BackupMeta, tlns []oplog.Timeline) error {
 	// check if backup isn't running
 	switch backup.Status {
-	case StatusDone, StatusCancelled, StatusError:
+	case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
 	default:
 		return errors.Errorf("unable to delete backup in %s state", backup.Status)
 	}
 
-	if backup.Type == ExternalBackup || sel.IsSelective(backup.Namespaces) {
+	if backup.Type == defs.ExternalBackup || util.IsSelective(backup.Namespaces) {
 		return nil
 	}
 
@@ -70,7 +76,7 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 		}
 	}
 
-	ispitr, err := p.IsPITR()
+	ispitr, _, err := config.IsPITREnabled(ctx, p.Conn)
 	if err != nil {
 		return errors.Wrap(err, "unable check pitr state")
 	}
@@ -80,7 +86,7 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 		return nil
 	}
 
-	has, err := p.BackupHasNext(backup)
+	has, err := query.BackupHasNext(ctx, p.Conn, backup)
 	if err != nil {
 		return errors.Wrap(err, "check next backup")
 	}
@@ -92,11 +98,11 @@ func (p *PBM) probeDelete(backup *BackupMeta, tlns []Timeline) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+func (p *PBM) DeleteBackupFiles(meta *types.BackupMeta, stg storage.Storage) error {
 	switch meta.Type {
-	case PhysicalBackup, IncrementalBackup:
+	case defs.PhysicalBackup, defs.IncrementalBackup:
 		return p.deletePhysicalBackupFiles(meta, stg)
-	case LogicalBackup:
+	case defs.LogicalBackup:
 		fallthrough
 	default:
 		var err error
@@ -111,7 +117,7 @@ func (p *PBM) DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+func (p *PBM) deletePhysicalBackupFiles(meta *types.BackupMeta, stg storage.Storage) error {
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
 			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
@@ -135,7 +141,7 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) e
 		}
 	}
 
-	err := stg.Delete(meta.Name + MetadataFileSuffix)
+	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
 	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
@@ -144,7 +150,7 @@ func (p *PBM) deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) e
 }
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
-func (p *PBM) deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+func (p *PBM) deleteLogicalBackupFiles(meta *types.BackupMeta, stg storage.Storage) error {
 	if stg.Type() == storage.Filesystem {
 		return p.deleteLogicalBackupFilesFromFS(stg, meta.Name)
 	}
@@ -152,36 +158,36 @@ func (p *PBM) deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) er
 	prefix := meta.Name + "/"
 	files, err := stg.List(prefix, "")
 	if err != nil {
-		return errors.WithMessagef(err, "get file list: %q", prefix)
+		return errors.Wrapf(err, "get file list: %q", prefix)
 	}
 
 	eg := errgroup.Group{}
 	for _, f := range files {
 		ns := prefix + f.Name
 		eg.Go(func() error {
-			return errors.WithMessagef(stg.Delete(ns), "delete %q", ns)
+			return errors.Wrapf(stg.Delete(ns), "delete %q", ns)
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return err
 	}
 
-	bcpMF := meta.Name + MetadataFileSuffix
-	return errors.WithMessagef(stg.Delete(bcpMF), "delete %q", bcpMF)
+	bcpMF := meta.Name + defs.MetadataFileSuffix
+	return errors.Wrapf(stg.Delete(bcpMF), "delete %q", bcpMF)
 }
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
 func (p *PBM) deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string) error {
 	if err := stg.Delete(bcpName); err != nil {
-		return errors.WithMessagef(err, "delete %q", bcpName)
+		return errors.Wrapf(err, "delete %q", bcpName)
 	}
 
-	bcpMetafile := bcpName + MetadataFileSuffix
-	return errors.WithMessagef(stg.Delete(bcpMetafile), "delete %q", bcpMetafile)
+	bcpMetafile := bcpName + defs.MetadataFileSuffix
+	return errors.Wrapf(stg.Delete(bcpMetafile), "delete %q", bcpMetafile)
 }
 
 // deleteLegacyLogicalBackupFiles removes backup's artifacts from storage
-func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+func (p *PBM) deleteLegacyLogicalBackupFiles(meta *types.BackupMeta, stg storage.Storage) error {
 	for _, r := range meta.Replsets {
 		err := stg.Delete(r.OplogName)
 		if err != nil && !errors.Is(err, storage.ErrNotExist) {
@@ -193,7 +199,7 @@ func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Stora
 		}
 	}
 
-	err := stg.Delete(meta.Name + MetadataFileSuffix)
+	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
 	if errors.Is(err, storage.ErrNotExist) {
 		return nil
 	}
@@ -202,19 +208,19 @@ func (p *PBM) deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Stora
 }
 
 // DeleteOlderThan deletes backups which older than given Time
-func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
-	stg, err := p.GetStorage(l)
+func (p *PBM) DeleteOlderThan(ctx context.Context, t time.Time, l *log.Event) error {
+	stg, err := util.GetStorage(ctx, p.Conn, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	tlns, err := p.PITRTimelines()
+	tlns, err := oplog.PITRTimelines(ctx, p.Conn)
 	if err != nil {
 		return errors.Wrap(err, "get PITR chunks")
 	}
 
-	cur, err := p.Conn.Database(DB).Collection(BcpCollection).Find(
-		p.ctx,
+	cur, err := p.Conn.BcpCollection().Find(
+		ctx,
 		bson.M{
 			"start_ts": bson.M{"$lt": t.Unix()},
 		},
@@ -222,16 +228,16 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 	if err != nil {
 		return errors.Wrap(err, "get backups list")
 	}
-	defer cur.Close(p.ctx)
+	defer cur.Close(ctx)
 
-	for cur.Next(p.ctx) {
-		m := &BackupMeta{}
+	for cur.Next(ctx) {
+		m := &types.BackupMeta{}
 		err := cur.Decode(m)
 		if err != nil {
 			return errors.Wrap(err, "decode backup meta")
 		}
 
-		err = p.probeDelete(m, tlns)
+		err = p.probeDelete(ctx, m, tlns)
 		if err != nil {
 			l.Info("deleting %s: %v", m.Name, err)
 			continue
@@ -242,7 +248,7 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 			return errors.Wrap(err, "delete backup files from storage")
 		}
 
-		_, err = p.Conn.Database(DB).Collection(BcpCollection).DeleteOne(p.ctx, bson.M{"name": m.Name})
+		_, err = p.Conn.BcpCollection().DeleteOne(ctx, bson.M{"name": m.Name})
 		if err != nil {
 			return errors.Wrap(err, "delete backup meta from db")
 		}
@@ -261,38 +267,38 @@ func (p *PBM) DeleteOlderThan(t time.Time, l *log.Event) error {
 // backup is `10` it will leave `11` and `12` chunks as well since `13` won't be restorable
 // without `11` and `12` (contiguous timeline from the backup).
 // It deletes all chunks if `until` is nil.
-func (p *PBM) DeletePITR(until *time.Time, l *log.Event) error {
-	stg, err := p.GetStorage(l)
+func (p *PBM) DeletePITR(ctx context.Context, until *time.Time, l *log.Event) error {
+	stg, err := util.GetStorage(ctx, p.Conn, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
 	var zerots primitive.Timestamp
 	if until == nil {
-		return p.deleteChunks(zerots, zerots, stg, l)
+		return p.deleteChunks(ctx, zerots, zerots, stg, l)
 	}
 
 	t := primitive.Timestamp{T: uint32(until.Unix()), I: 0}
-	bcp, err := p.GetLastBackup(&t)
-	if errors.Is(err, ErrNotFound) {
-		return p.deleteChunks(zerots, t, stg, l)
+	bcp, err := query.GetLastBackup(ctx, p.Conn, &t)
+	if errors.Is(err, errors.ErrNotFound) {
+		return p.deleteChunks(ctx, zerots, t, stg, l)
 	}
 
 	if err != nil {
 		return errors.Wrap(err, "get recent backup")
 	}
 
-	return p.deleteChunks(zerots, bcp.LastWriteTS, stg, l)
+	return p.deleteChunks(ctx, zerots, bcp.LastWriteTS, stg, l)
 }
 
-func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage, l *log.Event) error {
-	var chunks []OplogChunk
+func (p *PBM) deleteChunks(ctx context.Context, start, until primitive.Timestamp, stg storage.Storage, l *log.Event) error {
+	var chunks []oplog.OplogChunk
 
 	var err error
 	if until.T > 0 {
-		chunks, err = p.PITRGetChunksSliceUntil("", until)
+		chunks, err = oplog.PITRGetChunksSliceUntil(ctx, p.Conn, "", until)
 	} else {
-		chunks, err = p.PITRGetChunksSlice("", start, until)
+		chunks, err = oplog.PITRGetChunksSlice(ctx, p.Conn, "", start, until)
 	}
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
@@ -307,8 +313,8 @@ func (p *PBM) deleteChunks(start, until primitive.Timestamp, stg storage.Storage
 			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
 		}
 
-		_, err = p.Conn.Database(DB).Collection(PITRChunksCollection).DeleteOne(
-			p.ctx,
+		_, err = p.Conn.PITRChunksCollection().DeleteOne(
+			ctx,
 			bson.D{
 				{"rs", chnk.RS},
 				{"start_ts", chnk.StartTS},

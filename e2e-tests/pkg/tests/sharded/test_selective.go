@@ -4,8 +4,10 @@ import (
 	"log"
 	"strings"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 var clusterSpec = []tests.GenDBSpec{
@@ -78,8 +80,8 @@ func (c *Cluster) SelectiveRestoreSharded() {
 		return
 	}
 
-	backupName := c.backup(pbm.LogicalBackup)
-	c.BackupWaitDone(backupName)
+	backupName := c.backup(defs.LogicalBackup)
+	c.BackupWaitDone(context.TODO(), backupName)
 
 	// regenerate new data
 	err = tests.GenerateData(ctx, mongos, clusterSpec)
@@ -89,7 +91,7 @@ func (c *Cluster) SelectiveRestoreSharded() {
 	}
 
 	selected := []string{"db0.c00", "db0.c01", "db1.*"}
-	c.LogicalRestoreWithParams(backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
+	c.LogicalRestoreWithParams(context.TODO(), backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
 
 	afterState, err := tests.ClusterState(ctx, mongos, creds)
 	if err != nil {
@@ -103,7 +105,7 @@ func (c *Cluster) SelectiveRestoreSharded() {
 	}
 
 	log.Printf("Deleting backup %v", backupName)
-	err = c.mongopbm.DeleteBackup(backupName)
+	err = c.mongopbm.DeleteBackup(context.TODO(), backupName)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", backupName, err)
 	}
@@ -139,8 +141,8 @@ func (c *Cluster) SelectiveBackupSharded() {
 		return
 	}
 
-	backupName := c.backup(pbm.LogicalBackup, "--ns", "db0.*")
-	c.BackupWaitDone(backupName)
+	backupName := c.backup(defs.LogicalBackup, "--ns", "db0.*")
+	c.BackupWaitDone(context.TODO(), backupName)
 
 	// regenerate new data
 	err = tests.GenerateData(ctx, mongos, clusterSpec)
@@ -150,7 +152,7 @@ func (c *Cluster) SelectiveBackupSharded() {
 	}
 
 	selected := []string{"db0.c00", "db0.c01"}
-	c.LogicalRestoreWithParams(backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
+	c.LogicalRestoreWithParams(context.TODO(), backupName, []string{"--ns", strings.Join(selected, ","), "--wait"})
 
 	afterState, err := tests.ClusterState(ctx, mongos, creds)
 	if err != nil {
@@ -164,7 +166,7 @@ func (c *Cluster) SelectiveBackupSharded() {
 	}
 
 	log.Printf("Deleting backup %v", backupName)
-	err = c.mongopbm.DeleteBackup(backupName)
+	err = c.mongopbm.DeleteBackup(context.TODO(), backupName)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", backupName, err)
 	}

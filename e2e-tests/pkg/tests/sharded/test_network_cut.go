@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 func (c *Cluster) NetworkCut() {
@@ -29,21 +31,21 @@ func (c *Cluster) NetworkCut() {
 		log.Fatalf("ERROR: run tc netem on %s: %v", rs, err)
 	}
 
-	waitfor := time.Duration(pbm.StaleFrameSec+10) * time.Second
+	waitfor := time.Duration(defs.StaleFrameSec+10) * time.Second
 	log.Println("Sleeping for", waitfor)
 	time.Sleep(waitfor)
 
-	meta, err := c.mongopbm.GetBackupMeta(bcpName)
+	meta, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
 	if err != nil {
 		log.Fatalf("ERROR: get metadata for the backup %s: %v", bcpName, err)
 	}
 
-	if meta.Status != pbm.StatusError ||
+	if meta.Status != defs.StatusError ||
 		meta.Error() == nil ||
 		meta.Error().Error() != pbmLostAgentsErr &&
 			!strings.Contains(meta.Error().Error(), pbmLostShardErr) {
 		log.Fatalf("ERROR: wrong state of the backup %s. Expect: %s/%s|...%s... Got: %s/%s",
-			bcpName, pbm.StatusError, pbmLostAgentsErr, pbmLostShardErr, meta.Status, meta.Error())
+			bcpName, defs.StatusError, pbmLostAgentsErr, pbmLostShardErr, meta.Status, meta.Error())
 	}
 	log.Printf("Backup status %s/%s\n", meta.Status, meta.Error())
 

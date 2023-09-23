@@ -7,11 +7,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
@@ -49,13 +51,13 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 		storage = stg.conf
 
-		t.ApplyConfig(storage)
+		t.ApplyConfig(context.TODO(), storage)
 		flush(t)
 
 		t.SetBallastData(1e5)
 
 		runTest("Logical Backup & Restore "+stg.name,
-			func() { t.BackupAndRestore(pbm.LogicalBackup) })
+			func() { t.BackupAndRestore(defs.LogicalBackup) })
 
 		runTest("Logical PITR & Restore "+stg.name,
 			t.PITRbasic)
@@ -85,7 +87,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.LeaderLag)
 
 	runTest("Logical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.LogicalBackup, cVersion) })
+		func() { t.BackupBoundsCheck(defs.LogicalBackup, cVersion) })
 
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
@@ -122,11 +124,11 @@ func run(t *sharded.Cluster, typ testTyp) {
 				tsTo = primitive.Timestamp{1644243375, 7}
 			}
 
-			t.ApplyConfig(disttxnconf)
+			t.ApplyConfig(context.TODO(), disttxnconf)
 			runTest("Distributed Transactions PITR",
 				func() { t.DistributedCommit(tsTo) })
 
-			t.ApplyConfig(storage)
+			t.ApplyConfig(context.TODO(), storage)
 		}
 	}
 
@@ -143,7 +145,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.SetBallastData(1e5)
 
 	runTest("Clock Skew Tests",
-		func() { t.ClockSkew(pbm.LogicalBackup, cVersion) })
+		func() { t.ClockSkew(defs.LogicalBackup, cVersion) })
 
 	flushStore(t)
 }
@@ -175,7 +177,7 @@ func flushPbm(t *sharded.Cluster) {
 }
 
 func flushStore(t *sharded.Cluster) {
-	err := t.FlushStorage()
+	err := t.FlushStorage(context.TODO())
 	if err != nil {
 		log.Fatalln("Error: unable flush storage:", err)
 	}

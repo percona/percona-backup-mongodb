@@ -8,10 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"github.com/minio/minio-go"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/lock"
 )
 
 type backupDelete struct {
@@ -35,7 +39,7 @@ func (c *Cluster) BackupDelete(storage string) {
 			name: bcpName,
 			ts:   ts,
 		}
-		c.BackupWaitDone(bcpName)
+		c.BackupWaitDone(context.TODO(), bcpName)
 
 		time.Sleep(time.Minute)
 	}
@@ -48,7 +52,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete backup %s: %v", backups[4].name, err)
 	}
 	log.Println("wait for delete")
-	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
+	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: defs.CmdDeleteBackup}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
@@ -61,7 +65,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete backups older than %s: %v", backups[3].name, err)
 	}
 	log.Println("wait for delete")
-	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeleteBackup}, time.Minute*5)
+	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: defs.CmdDeleteBackup}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
@@ -77,7 +81,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	log.Println("should be only backups", left)
 	checkArtefacts(storage, left)
 
-	blist, err := c.mongopbm.BackupsList(0)
+	blist, err := c.mongopbm.BackupsList(context.TODO(), 0)
 	if err != nil {
 		log.Fatalln("ERROR: get backups list", err)
 	}
@@ -110,7 +114,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete pitr older than %s: %v", tsp.Format("2006-01-02T15:04:05"), err)
 	}
 	log.Println("wait for delete-pitr")
-	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeletePITR}, time.Minute*5)
+	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: defs.CmdDeletePITR}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
 	}
@@ -140,7 +144,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete all pitr: %v", err)
 	}
 	log.Println("wait for delete-pitr all")
-	err = c.mongopbm.WaitConcurentOp(&pbm.LockHeader{Type: pbm.CmdDeletePITR}, time.Minute*5)
+	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: defs.CmdDeletePITR}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
 	}
@@ -158,7 +162,7 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	log.Println("trying to restore from", backups[3])
 	c.DeleteBallast()
-	c.LogicalRestore(backups[3].name)
+	c.LogicalRestore(context.TODO(), backups[3].name)
 	checkData()
 }
 
@@ -173,7 +177,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 		log.Fatalln("ERROR: unable to read config file:", err)
 	}
 
-	var cfg pbm.Config
+	var cfg config.Config
 	err = yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
 		log.Fatalln("ERROR: unmarshal yaml:", err)
@@ -197,7 +201,7 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	}
 
 	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if strings.Contains(object.Key, pbm.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
+		if strings.Contains(object.Key, defs.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
 			continue
 		}
 		if object.Err != nil {
@@ -229,7 +233,7 @@ func (c *Cluster) BackupNotDeleteRunning() {
 			"Output: %s\nStderr:%v\nBackups list:\n%v\n%v",
 			bcpName, o, err, list, lerr)
 	}
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 	time.Sleep(time.Second * 2)
 }
 

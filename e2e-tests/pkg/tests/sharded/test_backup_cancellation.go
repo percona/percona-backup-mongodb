@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"github.com/minio/minio-go"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
@@ -30,16 +33,16 @@ func (c *Cluster) BackupCancellation(storage string) {
 	checkNoBackupFiles(bcpName, storage)
 
 	log.Println("check backup state")
-	m, err := c.mongopbm.GetBackupMeta(bcpName)
+	m, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
 	if err != nil {
 		log.Fatalf("Error: get metadata for backup %s: %v", bcpName, err)
 	}
 
-	if m.Status != pbm.StatusCancelled {
-		log.Fatalf("Error: wrong backup status, expect %s, got %v", pbm.StatusCancelled, m.Status)
+	if m.Status != defs.StatusCancelled {
+		log.Fatalf("Error: wrong backup status, expect %s, got %v", defs.StatusCancelled, m.Status)
 	}
 
-	needToWait := pbm.WaitBackupStart + time.Second - time.Since(ts)
+	needToWait := defs.WaitBackupStart + time.Second - time.Since(ts)
 	if needToWait > 0 {
 		log.Printf("waiting for the lock to be released for %s", needToWait)
 		time.Sleep(needToWait)
@@ -53,7 +56,7 @@ func checkNoBackupFiles(backupName, conf string) {
 		log.Fatalln("Error: unable to read config file:", err)
 	}
 
-	var cfg pbm.Config
+	var cfg config.Config
 	err = yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
 		log.Fatalln("Error: unmarshal yaml:", err)

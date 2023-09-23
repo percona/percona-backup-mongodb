@@ -5,9 +5,11 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"golang.org/x/mod/semver"
 
-	pbmt "github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 func (c *Cluster) IncrementalBackup(mongoVersion string) {
@@ -31,13 +33,13 @@ func (c *Cluster) IncrementalBackup(mongoVersion string) {
 		}
 	}
 
-	bcpName := c.backup(pbmt.IncrementalBackup, "--base")
-	c.BackupWaitDone(bcpName)
+	bcpName := c.backup(defs.IncrementalBackup, "--base")
+	c.BackupWaitDone(context.TODO(), bcpName)
 	time.Sleep(time.Second * 1)
 
 	for i := 0; i < 3; i++ {
-		bcpName = c.backup(pbmt.IncrementalBackup)
-		c.BackupWaitDone(bcpName)
+		bcpName = c.backup(defs.IncrementalBackup)
+		c.BackupWaitDone(context.TODO(), bcpName)
 		time.Sleep(time.Second * 1)
 	}
 
@@ -48,7 +50,7 @@ func (c *Cluster) IncrementalBackup(mongoVersion string) {
 		c.cancel()
 	}
 
-	bcpMeta, err := c.mongopbm.GetBackupMeta(bcpName)
+	bcpMeta, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
 	if err != nil {
 		log.Fatalf("ERROR: get backup '%s' metadata: %v\n", bcpName, err)
 	}
@@ -59,7 +61,7 @@ func (c *Cluster) IncrementalBackup(mongoVersion string) {
 		c.bcheckClear(name, shard)
 	}
 
-	c.PhysicalRestore(bcpName)
+	c.PhysicalRestore(context.TODO(), bcpName)
 
 	for name, shard := range c.shards {
 		c.bcheckCheck(name, shard, <-counters[name].data, bcpMeta.LastWriteTS, inRange)
