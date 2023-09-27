@@ -82,7 +82,12 @@ func AllOplogRSNames(ctx context.Context, m connect.MetaClient, from, to primiti
 
 // PITRGetChunksSlice returns slice of PITR oplog chunks which Start TS
 // lies in a given time frame. Returns all chunks if `to` is 0.
-func PITRGetChunksSlice(ctx context.Context, m connect.MetaClient, rs string, from, to primitive.Timestamp) ([]OplogChunk, error) {
+func PITRGetChunksSlice(
+	ctx context.Context,
+	m connect.MetaClient,
+	rs string,
+	from, to primitive.Timestamp,
+) ([]OplogChunk, error) {
 	q := bson.D{}
 	if rs != "" {
 		q = bson.D{{"rs", rs}}
@@ -245,7 +250,7 @@ func gettimelines(slices []OplogChunk) []Timeline {
 	tlines := []Timeline{}
 
 	for _, s := range slices {
-		if prevEnd.T != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
+		if prevEnd.T != 0 && prevEnd.Compare(s.StartTS) == -1 {
 			tlines = append(tlines, tl)
 			tl = Timeline{}
 		}

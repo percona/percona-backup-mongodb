@@ -206,7 +206,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctx)
 
 		w := make(chan *types.OPID, 1)
 		a.setPitr(&currentPitr{

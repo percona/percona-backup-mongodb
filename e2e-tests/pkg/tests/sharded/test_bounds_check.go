@@ -19,11 +19,11 @@ type scounter struct {
 }
 
 func lte(t1, t2 primitive.Timestamp) bool {
-	return primitive.CompareTimestamp(t1, t2) <= 0
+	return t1.Compare(t2) <= 0
 }
 
 func lt(t1, t2 primitive.Timestamp) bool {
-	return primitive.CompareTimestamp(t1, t2) < 0
+	return t1.Compare(t2) < 0
 }
 
 func (c *Cluster) BackupBoundsCheck(typ defs.BackupType, mongoVersion string) {

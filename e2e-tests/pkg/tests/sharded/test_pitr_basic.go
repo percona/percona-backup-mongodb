@@ -173,7 +173,7 @@ func (c *Cluster) pitrcCheck(name string, shard *pbmt.Mongo, data *[]pbmt.Counte
 	log.Println(name, "checking restored counters")
 	var lastc pbmt.Counter
 	for i, d := range *data {
-		// if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
+		// if d.WriteTime.Compare(bcpLastWrite) <= 0 {
 		if d.WriteTime.T <= bcpLastWrite.T {
 			if len(restored) <= i {
 				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n",

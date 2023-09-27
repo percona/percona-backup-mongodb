@@ -85,7 +85,12 @@ func ChangeRestoreRSState(
 	return err
 }
 
-func RestoreSetRSTxn(ctx context.Context, m connect.MetaClient, name, rsName string, txn []types.RestoreTxn) error {
+func RestoreSetRSTxn(
+	ctx context.Context,
+	m connect.MetaClient,
+	name, rsName string,
+	txn []types.RestoreTxn,
+) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -95,7 +100,12 @@ func RestoreSetRSTxn(ctx context.Context, m connect.MetaClient, name, rsName str
 	return err
 }
 
-func RestoreSetRSStat(ctx context.Context, m connect.MetaClient, name, rsName string, stat types.RestoreShardStat) error {
+func RestoreSetRSStat(
+	ctx context.Context,
+	m connect.MetaClient,
+	name, rsName string,
+	stat types.RestoreShardStat,
+) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},

@@ -143,7 +143,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 	}
 
 	fmt.Printf("Starting backup '%s'", b.name)
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Backup.Timeouts.StartingStatus())
+	ctx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
 	err = waitForBcpStatus(ctx, cn, b.name)
 	if err != nil {
@@ -151,7 +151,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
-		s, err := waitBackup(context.Background(), cn, b.name, defs.StatusCopyReady)
+		s, err := waitBackup(ctx, cn, b.name, defs.StatusCopyReady)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -180,7 +180,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 
 	if b.wait {
 		fmt.Printf("\nWaiting for '%s' backup...", b.name)
-		s, err := waitBackup(context.Background(), cn, b.name, defs.StatusDone)
+		s, err := waitBackup(ctx, cn, b.name, defs.StatusDone)
 		if s != nil {
 			fmt.Printf(" %s\n", *s)
 		}

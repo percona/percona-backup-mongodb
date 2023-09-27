@@ -39,7 +39,14 @@ type Slicer struct {
 }
 
 // NewSlicer creates an incremental backup object
-func NewSlicer(rs string, cn connect.MetaClient, node *mongo.Client, to storage.Storage, ep config.Epoch, logger *log.Logger) *Slicer {
+func NewSlicer(
+	rs string,
+	cn connect.MetaClient,
+	node *mongo.Client,
+	to storage.Storage,
+	ep config.Epoch,
+	logger *log.Logger,
+) *Slicer {
 	return &Slicer{
 		leadClient: cn,
 		node:       node,
@@ -101,7 +108,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 	}
 
 	// PITR chunk after the recent backup is the most recent oplog slice
-	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.LastWriteTS) >= 0 {
+	if chnk.EndTS.Compare(baseBcp.LastWriteTS) >= 0 {
 		s.lastTS = chnk.EndTS
 		return nil
 	}
@@ -387,7 +394,7 @@ func (s *Slicer) Stream(
 			return errors.New("undefined behavior operation is running")
 		case defs.CmdBackup:
 			// continue only if we had `backupSig`
-			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
+			if !lastSlice || s.lastTS.Compare(sliceTo) == 0 {
 				return errors.Errorf("another operation is running: %#v", ld)
 			}
 		default:
@@ -400,7 +407,7 @@ func (s *Slicer) Stream(
 			if err != nil {
 				return errors.Wrap(err, "get epoch")
 			}
-			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
+			if s.ep.TS().Compare(cep.TS()) != 0 {
 				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
 			}
 		}
@@ -430,11 +437,16 @@ func (s *Slicer) Stream(
 	}
 }
 
-func (s *Slicer) upload(ctx context.Context, from, to primitive.Timestamp, compression defs.CompressionType, level *int) error {
+func (s *Slicer) upload(
+	ctx context.Context,
+	from, to primitive.Timestamp,
+	compression defs.CompressionType,
+	level *int,
+) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := s.chunkPath(from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	size, err := storage.Upload(context.Background(), s.oplog, s.storage, compression, level, fname, -1)
+	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname, -1)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although

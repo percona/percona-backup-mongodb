@@ -73,7 +73,13 @@ func toState(
 type reconcileStatus func(ctx context.Context, status defs.Status, timeout *time.Duration) error
 
 // convergeCluster waits until all participating shards reached `status` and updates a cluster status
-func convergeCluster(ctx context.Context, cn *pbm.PBM, name, opid string, shards []topo.Shard, status defs.Status) error {
+func convergeCluster(
+	ctx context.Context,
+	cn *pbm.PBM,
+	name, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
@@ -131,7 +137,13 @@ func convergeClusterWithTimeout(
 	}
 }
 
-func converged(ctx context.Context, cn *pbm.PBM, name, opid string, shards []topo.Shard, status defs.Status) (bool, error) {
+func converged(
+	ctx context.Context,
+	cn *pbm.PBM,
+	name, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) (bool, error) {
 	shardsToFinish := len(shards)
 	bmeta, err := query.GetRestoreMeta(ctx, cn.Conn, name)
 	if err != nil {
@@ -246,7 +258,7 @@ func chunks(
 		return nil, errors.New("no chunks found")
 	}
 
-	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, to) == -1 {
+	if chunks[len(chunks)-1].EndTS.Compare(to) == -1 {
 		return nil, errors.Errorf(
 			"no chunk with the target time, the last chunk ends on %v",
 			chunks[len(chunks)-1].EndTS)
@@ -254,7 +266,7 @@ func chunks(
 
 	last := from
 	for _, c := range chunks {
-		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
+		if last.Compare(c.StartTS) == -1 {
 			return nil, errors.Errorf(
 				"integrity vilolated, expect chunk with start_ts %v, but got %v",
 				last, c.StartTS)

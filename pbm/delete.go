@@ -291,7 +291,12 @@ func (p *PBM) DeletePITR(ctx context.Context, until *time.Time, l *log.Event) er
 	return p.deleteChunks(ctx, zerots, bcp.LastWriteTS, stg, l)
 }
 
-func (p *PBM) deleteChunks(ctx context.Context, start, until primitive.Timestamp, stg storage.Storage, l *log.Event) error {
+func (p *PBM) deleteChunks(
+	ctx context.Context,
+	start, until primitive.Timestamp,
+	stg storage.Storage,
+	l *log.Event,
+) error {
 	var chunks []oplog.OplogChunk
 
 	var err error

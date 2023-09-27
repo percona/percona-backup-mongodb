@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"net/url"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -12,14 +13,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
 type ConnectOptions struct {
 	AppName string
 }
 
-func connect(ctx context.Context, uri string, appName string) (*mongo.Client, error) {
+func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	client, err := mongo.Connect(ctx,
 		options.Client().ApplyURI(uri).
 			SetAppName(appName).
@@ -59,45 +59,45 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (MetaClient,
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
 
-	// inf, err := GetNodeInfo(ctx, client)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "get topology")
-	// }
+	inf, err := getNodeInfoExt(ctx, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "get topology")
+	}
 
-	// if !inf.IsSharded() || inf.ReplsetRole() == RoleConfigSrv {
-	// 	return &leadClient{client: client}, nil
-	// }
+	if !inf.isSharded() || inf.isConfigsvr() {
+		return &leadClient{client: client}, nil
+	}
 
-	// csvr, err := ConfSvrConn(ctx, client)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "get config server connection URI")
-	// }
+	csvr, err := getConfigsvrURI(ctx, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "get config server connection URI")
+	}
 	// no need in this connection anymore, we need a new one with the ConfigServer
-	// err = client.Disconnect(ctx)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "disconnect old client")
-	// }
+	err = client.Disconnect(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "disconnect old client")
+	}
 
-	// chost := strings.Split(csvr, "/")
-	// if len(chost) < 2 {
-	// 	return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr)
-	// }
+	chost := strings.Split(csvr, "/")
+	if len(chost) < 2 {
+		return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr)
+	}
 
-	// curi, err := url.Parse(uri)
-	// if err != nil {
-	// 	return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
-	// }
+	curi, err := url.Parse(uri)
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
+	}
 
-	// // Preserving the `replicaSet` parameter will cause an error
-	// // while connecting to the ConfigServer (mismatched replicaset names)
-	// query := curi.Query()
-	// query.Del("replicaSet")
-	// curi.RawQuery = query.Encode()
-	// curi.Host = chost[1]
-	// client, err = connect(ctx, curi.String(), opts.AppName)
-	// if err != nil {
-	// 	return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
-	// }
+	// Preserving the `replicaSet` parameter will cause an error
+	// while connecting to the ConfigServer (mismatched replicaset names)
+	query := curi.Query()
+	query.Del("replicaSet")
+	curi.RawQuery = query.Encode()
+	curi.Host = chost[1]
+	client, err = connect(ctx, curi.String(), opts.AppName)
+	if err != nil {
+		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
+	}
 
 	return &leadClient{client: client}, nil
 }
@@ -108,14 +108,6 @@ func (l *leadClient) Disconnect(ctx context.Context) error {
 
 func (l *leadClient) UnsafeClient() *mongo.Client {
 	return l.client
-}
-
-// func (l *leadClient) ClusterMembers(ctx context.Context) ([]Shard, error) {
-// 	return ClusterMembers(ctx, l.client)
-// }
-
-func (l *leadClient) GetMongoVersion(ctx context.Context) (version.MongoVersion, error) {
-	return version.GetMongoVersion(ctx, l.client)
 }
 
 func (l *leadClient) ConfigDatabase() *mongo.Database {
@@ -170,8 +162,6 @@ type MetaClient interface {
 	Disconnect(ctx context.Context) error
 
 	UnsafeClient() *mongo.Client
-	// ClusterMembers(ctx context.Context) ([]Shard, error)
-	GetMongoVersion(ctx context.Context) (version.MongoVersion, error)
 
 	ConfigDatabase() *mongo.Database
 	AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult

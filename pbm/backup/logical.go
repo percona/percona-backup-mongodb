@@ -22,6 +22,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
@@ -220,7 +221,7 @@ func (b *Backup) doLogical(
 }
 
 func createBackupChunkSelector(ctx context.Context, m connect.MetaClient, nss []string) (util.ChunkSelector, error) {
-	ver, err := m.GetMongoVersion(ctx)
+	ver, err := version.GetMongoVersion(ctx, m.UnsafeClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}

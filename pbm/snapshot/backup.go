@@ -5,16 +5,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"github.com/mongodb/mongo-tools/common/archive"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 

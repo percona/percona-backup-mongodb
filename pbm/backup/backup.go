@@ -573,7 +573,10 @@ func (b *Backup) waitForStatus(
 }
 
 //nolint:nonamedreturns
-func (b *Backup) waitForFirstLastWrite(ctx context.Context, bcpName string) (first, last primitive.Timestamp, err error) {
+func (b *Backup) waitForFirstLastWrite(
+	ctx context.Context,
+	bcpName string,
+) (first, last primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 

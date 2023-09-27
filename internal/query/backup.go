@@ -335,7 +335,11 @@ func SetRSNomination(ctx context.Context, m connect.MetaClient, bcpName, rs stri
 	return errors.Wrap(err, "query")
 }
 
-func GetRSNominees(ctx context.Context, m connect.MetaClient, bcpName, rsName string) (*types.BackupRsNomination, error) {
+func GetRSNominees(
+	ctx context.Context,
+	m connect.MetaClient,
+	bcpName, rsName string,
+) (*types.BackupRsNomination, error) {
 	bcp, err := GetBackupMeta(ctx, m, bcpName)
 	if err != nil {
 		return nil, err

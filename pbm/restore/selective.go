@@ -117,7 +117,12 @@ func (r *Restore) getShardMapping(bcp *types.BackupMeta) map[string]string {
 
 // configsvrRestoreDatabases upserts config.databases documents
 // for selected databases
-func (r *Restore) configsvrRestoreDatabases(ctx context.Context, bcp *types.BackupMeta, nss []string, mapRS, mapS util.RSMapFunc) error {
+func (r *Restore) configsvrRestoreDatabases(
+	ctx context.Context,
+	bcp *types.BackupMeta,
+	nss []string,
+	mapRS, mapS util.RSMapFunc,
+) error {
 	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.databases"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {

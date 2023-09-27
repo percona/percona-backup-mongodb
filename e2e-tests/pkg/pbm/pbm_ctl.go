@@ -9,11 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	dtypes "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -29,7 +28,10 @@ type Ctl struct {
 var backupNameRE = regexp.MustCompile(`Starting backup '([0-9\-\:TZ]+)'`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
-	cn, err := docker.NewClient(host, "1.39", nil, nil)
+	cn, err := docker.NewClientWithOpts(
+		docker.WithHost(host),
+		docker.WithVersion("1.39"),
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}

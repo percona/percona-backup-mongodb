@@ -224,7 +224,7 @@ func (n *Node) CopyUsersNRolles(ctx context.Context) (lastWrite primitive.Timest
 		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
 	}
 
-	_, err = copyColl(ctx,
+	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.roles"),
 		cn.Database(defs.DB).Collection(defs.TmpRolesCollection),
 		bson.M{},
@@ -232,7 +232,7 @@ func (n *Node) CopyUsersNRolles(ctx context.Context) (lastWrite primitive.Timest
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
 	}
-	_, err = copyColl(ctx,
+	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.users"),
 		cn.Database(defs.DB).Collection(defs.TmpUsersCollection),
 		bson.M{},
@@ -245,10 +245,10 @@ func (n *Node) CopyUsersNRolles(ctx context.Context) (lastWrite primitive.Timest
 }
 
 // copyColl copy documents matching the given filter and return number of copied documents
-func copyColl(ctx context.Context, from, to *mongo.Collection, filter any) (int, error) {
+func copyColl(ctx context.Context, from, to *mongo.Collection, filter any) error {
 	cur, err := from.Find(ctx, filter)
 	if err != nil {
-		return 0, errors.Wrap(err, "create cursor")
+		return errors.Wrap(err, "create cursor")
 	}
 	defer cur.Close(ctx)
 
@@ -256,12 +256,12 @@ func copyColl(ctx context.Context, from, to *mongo.Collection, filter any) (int,
 	for cur.Next(ctx) {
 		_, err = to.InsertOne(ctx, cur.Current)
 		if err != nil {
-			return 0, errors.Wrap(err, "insert document")
+			return errors.Wrap(err, "insert document")
 		}
 		n++
 	}
 
-	return n, nil
+	return nil
 }
 
 func (n *Node) Shutdown(ctx context.Context) error {

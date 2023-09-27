@@ -79,7 +79,7 @@ func MakeCleanupInfo(ctx context.Context, m connect.MetaClient, ts primitive.Tim
 	origin := chunks
 	chunks = []oplog.OplogChunk{}
 	for i := range origin {
-		if primitive.CompareTimestamp(backups[baseIndex].LastWriteTS, origin[i].EndTS) != -1 {
+		if backups[baseIndex].LastWriteTS.Compare(origin[i].EndTS) != -1 {
 			chunks = append(chunks, origin[i])
 		} else {
 			excluded = true

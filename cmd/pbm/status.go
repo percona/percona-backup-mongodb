@@ -618,7 +618,7 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 	if err != nil {
 		return s, errors.Wrap(err, "define cluster state")
 	}
-	ver, err := cn.Conn.GetMongoVersion(ctx)
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
@@ -700,7 +700,12 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 	return s, nil
 }
 
-func getPITRranges(ctx context.Context, cn *pbm.PBM, bcps []types.BackupMeta, rsMap map[string]string) (*pitrRanges, error) {
+func getPITRranges(
+	ctx context.Context,
+	cn *pbm.PBM,
+	bcps []types.BackupMeta,
+	rsMap map[string]string,
+) (*pitrRanges, error) {
 	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")

@@ -236,7 +236,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 		l.Warning("set nominee ack: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	a.setBcp(&currentBackup{
 		header: cmd,
 		cancel: cancel,

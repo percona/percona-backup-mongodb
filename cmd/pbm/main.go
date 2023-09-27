@@ -361,7 +361,7 @@ func main() {
 		}
 		pbmClient.InitLogger("", "")
 
-		ver, err := pbmClient.Conn.GetMongoVersion(ctx)
+		ver, err := version.GetMongoVersion(ctx, pbmClient.Conn.UnsafeClient())
 		if err != nil {
 			stdlog.Fatalf("get mongo version: %v", err)
 		}

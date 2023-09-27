@@ -17,7 +17,10 @@ import (
 func ClockSkew(rsName, ts, dockerHost string) error {
 	log.Printf("== Skew the clock for %s on the replicaset %s ", ts, rsName)
 
-	cn, err := docker.NewClient(dockerHost, "1.39", nil, nil)
+	cn, err := docker.NewClientWithOpts(
+		docker.WithHost(dockerHost),
+		docker.WithVersion("1.39"),
+	)
 	if err != nil {
 		return errors.Wrap(err, "docker client")
 	}

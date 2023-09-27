@@ -377,7 +377,7 @@ func findChunkRanges(rs []oplog.OplogChunk, from, till primitive.Timestamp) []ti
 		endTS = c.EndTS
 	}
 
-	if primitive.CompareTimestamp(endTS, till) == -1 {
+	if endTS.Compare(till) == -1 {
 		rv = append(rv, timerange{endTS, till})
 	}
 

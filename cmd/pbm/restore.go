@@ -375,7 +375,7 @@ func restore(
 	const waitPhysRestoreStart = time.Second * 120
 	if bcpType == defs.LogicalBackup {
 		fn = query.GetRestoreMeta
-		ctx, cancel = context.WithTimeout(context.Background(), defs.WaitActionStart)
+		ctx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
 		ep, _ := config.GetEpoch(ctx, cn.Conn)
 		l := cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS())
@@ -387,7 +387,7 @@ func restore(
 		fn = func(_ context.Context, _ connect.MetaClient, name string) (*types.RestoreMeta, error) {
 			return resync.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS()))
 		}
-		ctx, cancel = context.WithTimeout(context.Background(), waitPhysRestoreStart)
+		ctx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
 	defer cancel()
 

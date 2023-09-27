@@ -109,7 +109,13 @@ type PhysRestore struct {
 	rsMap map[string]string
 }
 
-func NewPhysical(ctx context.Context, cn *pbm.PBM, node *pbm.Node, inf *topo.NodeInfo, rsMap map[string]string) (*PhysRestore, error) {
+func NewPhysical(
+	ctx context.Context,
+	cn *pbm.PBM,
+	node *pbm.Node,
+	inf *topo.NodeInfo,
+	rsMap map[string]string,
+) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node.Session(), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo options")
@@ -1137,7 +1143,7 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	res := c.Database("local").Collection("oplog.rs").FindOne(
 		ctx,
@@ -1221,7 +1227,7 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func shutdown(c *mongo.Client, dbpath string) error {
-	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
+	err := c.Database("admin").RunCommand(context.TODO(), bson.D{{"shutdown", 1}}).Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
 	}
@@ -1368,7 +1374,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	if r.nodeInfo.IsConfigSrv() {
 		_, err = c.Database("config").Collection("mongos").DeleteMany(ctx, bson.D{})
@@ -1564,7 +1570,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 				return ts, errors.Wrapf(err, "get timestamp for RS %s", sh)
 			}
 
-			if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
+			if mints.IsZero() || ts.Compare(mints) == -1 {
 				mints = ts
 			}
 		}

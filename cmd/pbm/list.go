@@ -200,7 +200,13 @@ func (bl backupListOut) String() string {
 	return s
 }
 
-func backupList(ctx context.Context, cn *pbm.PBM, size int, full, unbacked bool, rsMap map[string]string) (backupListOut, error) {
+func backupList(
+	ctx context.Context,
+	cn *pbm.PBM,
+	size int,
+	full, unbacked bool,
+	rsMap map[string]string,
+) (backupListOut, error) {
 	var list backupListOut
 	var err error
 
@@ -237,7 +243,7 @@ func getSnapshotList(ctx context.Context, cn *pbm.PBM, size int, rsMap map[strin
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
-	ver, err := cn.Conn.GetMongoVersion(ctx)
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
@@ -367,7 +373,7 @@ func getBaseSnapshotLastWrite(
 		return primitive.Timestamp{}, nil
 	}
 
-	ver, err := cn.Conn.GetMongoVersion(ctx)
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get mongo version")
 	}

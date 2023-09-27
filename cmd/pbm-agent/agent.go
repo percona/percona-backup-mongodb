@@ -77,7 +77,7 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		return errors.New("mongos is not supported")
 	}
 
-	ver, err := a.pbm.Conn.GetMongoVersion(context.Background())
+	ver, err := version.GetMongoVersion(ctx, a.pbm.Conn.UnsafeClient())
 	if err != nil {
 		return errors.Wrap(err, "get mongo version")
 	}

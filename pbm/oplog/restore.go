@@ -16,8 +16,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
@@ -27,10 +25,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/types"
-
 	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
@@ -209,12 +207,12 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 		}
 
 		// skip if operation happened before the desired time frame
-		if primitive.CompareTimestamp(o.startTS, oe.Timestamp) == 1 {
+		if o.startTS.Compare(oe.Timestamp) == 1 {
 			continue
 		}
 
 		// finish if operation happened after the desired time frame (oe.Timestamp > to)
-		if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+		if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -290,7 +288,7 @@ func (o *OplogRestore) LastOpTS() uint32 {
 
 func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+	if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 		return nil
 	}
 
