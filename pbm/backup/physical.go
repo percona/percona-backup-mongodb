@@ -195,6 +195,10 @@ func (bc *BackupCursor) Close() {
 	}
 }
 
+func backupCursorName(s string) string {
+	return strings.NewReplacer("-", "", ":", "").Replace(s)
+}
+
 func (b *Backup) doPhysical(
 	ctx context.Context,
 	bcp *types.BackupCmd,
@@ -208,7 +212,7 @@ func (b *Backup) doPhysical(
 	if b.typ == defs.IncrementalBackup {
 		currOpts = bson.D{
 			// thisBackupName can be customized on retry
-			{"thisBackupName", pbm.BackupCursorName(bcp.Name)},
+			{"thisBackupName", backupCursorName(bcp.Name)},
 			{"incrementalBackup", true},
 		}
 		if !b.incrBase {
@@ -238,7 +242,7 @@ func (b *Backup) doPhysical(
 			}
 			if realSrcID == "" {
 				// no custom thisBackupName was used. fallback to default
-				realSrcID = pbm.BackupCursorName(src.Name)
+				realSrcID = backupCursorName(src.Name)
 			}
 
 			currOpts = append(currOpts, bson.E{"srcBackupName", realSrcID})

@@ -75,7 +75,7 @@ func (s *AgentStat) MongoVersion() version.MongoVersion {
 	return v
 }
 
-func SetAgentStatus(ctx context.Context, m connect.MetaClient, stat AgentStat) error {
+func SetAgentStatus(ctx context.Context, m connect.Client, stat AgentStat) error {
 	ct, err := GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
@@ -91,7 +91,7 @@ func SetAgentStatus(ctx context.Context, m connect.MetaClient, stat AgentStat) e
 	return errors.Wrap(err, "write into db")
 }
 
-func RemoveAgentStatus(ctx context.Context, m connect.MetaClient, stat AgentStat) error {
+func RemoveAgentStatus(ctx context.Context, m connect.Client, stat AgentStat) error {
 	_, err := m.AgentsStatusCollection().
 		DeleteOne(ctx, bson.D{{"n", stat.Node}, {"rs", stat.RS}})
 	return errors.Wrap(err, "query")
@@ -99,7 +99,7 @@ func RemoveAgentStatus(ctx context.Context, m connect.MetaClient, stat AgentStat
 
 // GetAgentStatus returns agent status by given node and rs
 // it's up to user how to handle ErrNoDocuments
-func GetAgentStatus(ctx context.Context, m connect.MetaClient, rs, node string) (AgentStat, error) {
+func GetAgentStatus(ctx context.Context, m connect.Client, rs, node string) (AgentStat, error) {
 	res := m.AgentsStatusCollection().FindOne(
 		ctx,
 		bson.D{{"n", node}, {"rs", rs}},
@@ -114,7 +114,7 @@ func GetAgentStatus(ctx context.Context, m connect.MetaClient, rs, node string) 
 }
 
 // AgentStatusGC cleans up stale agent statuses
-func AgentStatusGC(ctx context.Context, m connect.MetaClient) error {
+func AgentStatusGC(ctx context.Context, m connect.Client) error {
 	ct, err := GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
@@ -138,7 +138,7 @@ func AgentStatusGC(ctx context.Context, m connect.MetaClient) error {
 }
 
 // ListAgentStatuses returns list of registered agents
-func ListAgentStatuses(ctx context.Context, m connect.MetaClient) ([]AgentStat, error) {
+func ListAgentStatuses(ctx context.Context, m connect.Client) ([]AgentStat, error) {
 	if err := AgentStatusGC(ctx, m); err != nil {
 		return nil, errors.Wrap(err, "remove stale statuses")
 	}
@@ -146,7 +146,7 @@ func ListAgentStatuses(ctx context.Context, m connect.MetaClient) ([]AgentStat, 
 	return ListAgents(ctx, m)
 }
 
-func ListAgents(ctx context.Context, m connect.MetaClient) ([]AgentStat, error) {
+func ListAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
 	cur, err := m.AgentsStatusCollection().Find(ctx, bson.M{})
 	if err != nil {
 		return nil, errors.Wrap(err, "query")

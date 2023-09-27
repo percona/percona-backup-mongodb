@@ -20,7 +20,7 @@ const (
 )
 
 // setup a new DB for PBM
-func SetupNewDB(ctx context.Context, m connect.MetaClient) error {
+func SetupNewDB(ctx context.Context, m connect.Client) error {
 	err := m.AdminCommand(
 		ctx,
 		bson.D{{"create", defs.CmdStreamCollection}, {"capped", true}, {"size", cmdCollectionSizeBytes}},

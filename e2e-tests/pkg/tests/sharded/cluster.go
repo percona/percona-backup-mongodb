@@ -405,7 +405,7 @@ func (c *Cluster) Flush() error {
 		defs.RestoresCollection,
 	}
 	for _, cl := range cols {
-		_, err := c.mongopbm.Conn().UnsafeClient().Database(defs.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
+		_, err := c.mongopbm.Conn().MongoClient().Database(defs.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
 		if err != nil {
 			return errors.Wrapf(err, "delete many from %s", cl)
 		}

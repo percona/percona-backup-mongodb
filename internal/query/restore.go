@@ -17,15 +17,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/types"
 )
 
-func GetRestoreMetaByOPID(ctx context.Context, m connect.MetaClient, opid string) (*types.RestoreMeta, error) {
+func GetRestoreMetaByOPID(ctx context.Context, m connect.Client, opid string) (*types.RestoreMeta, error) {
 	return getRestoreMeta(ctx, m, bson.D{{"opid", opid}})
 }
 
-func GetRestoreMeta(ctx context.Context, m connect.MetaClient, name string) (*types.RestoreMeta, error) {
+func GetRestoreMeta(ctx context.Context, m connect.Client, name string) (*types.RestoreMeta, error) {
 	return getRestoreMeta(ctx, m, bson.D{{"name", name}})
 }
 
-func getRestoreMeta(ctx context.Context, m connect.MetaClient, clause bson.D) (*types.RestoreMeta, error) {
+func getRestoreMeta(ctx context.Context, m connect.Client, clause bson.D) (*types.RestoreMeta, error) {
 	res := m.RestoresCollection().FindOne(ctx, clause)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -38,15 +38,15 @@ func getRestoreMeta(ctx context.Context, m connect.MetaClient, clause bson.D) (*
 	return r, errors.Wrap(err, "decode")
 }
 
-func ChangeRestoreStateOPID(ctx context.Context, m connect.MetaClient, opid string, s defs.Status, msg string) error {
+func ChangeRestoreStateOPID(ctx context.Context, m connect.Client, opid string, s defs.Status, msg string) error {
 	return changeRestoreState(ctx, m, bson.D{{"name", opid}}, s, msg)
 }
 
-func ChangeRestoreState(ctx context.Context, m connect.MetaClient, name string, s defs.Status, msg string) error {
+func ChangeRestoreState(ctx context.Context, m connect.Client, name string, s defs.Status, msg string) error {
 	return changeRestoreState(ctx, m, bson.D{{"name", name}}, s, msg)
 }
 
-func changeRestoreState(ctx context.Context, m connect.MetaClient, clause bson.D, s defs.Status, msg string) error {
+func changeRestoreState(ctx context.Context, m connect.Client, clause bson.D, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
@@ -64,7 +64,7 @@ func changeRestoreState(ctx context.Context, m connect.MetaClient, clause bson.D
 
 func ChangeRestoreRSState(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	name,
 	rsName string,
 	s defs.Status,
@@ -87,7 +87,7 @@ func ChangeRestoreRSState(
 
 func RestoreSetRSTxn(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	name, rsName string,
 	txn []types.RestoreTxn,
 ) error {
@@ -102,7 +102,7 @@ func RestoreSetRSTxn(
 
 func RestoreSetRSStat(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	name, rsName string,
 	stat types.RestoreShardStat,
 ) error {
@@ -115,7 +115,7 @@ func RestoreSetRSStat(
 	return err
 }
 
-func RestoreSetStat(ctx context.Context, m connect.MetaClient, name string, stat types.RestoreStat) error {
+func RestoreSetStat(ctx context.Context, m connect.Client, name string, stat types.RestoreStat) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}},
@@ -125,7 +125,7 @@ func RestoreSetStat(ctx context.Context, m connect.MetaClient, name string, stat
 	return err
 }
 
-func RestoreSetRSPartTxn(ctx context.Context, m connect.MetaClient, name, rsName string, txn []db.Oplog) error {
+func RestoreSetRSPartTxn(ctx context.Context, m connect.Client, name, rsName string, txn []db.Oplog) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -135,7 +135,7 @@ func RestoreSetRSPartTxn(ctx context.Context, m connect.MetaClient, name, rsName
 	return err
 }
 
-func SetCurrentOp(ctx context.Context, m connect.MetaClient, name, rsName string, ts primitive.Timestamp) error {
+func SetCurrentOp(ctx context.Context, m connect.Client, name, rsName string, ts primitive.Timestamp) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -145,21 +145,21 @@ func SetCurrentOp(ctx context.Context, m connect.MetaClient, name, rsName string
 	return err
 }
 
-func SetRestoreMeta(ctx context.Context, m connect.MetaClient, meta *types.RestoreMeta) error {
+func SetRestoreMeta(ctx context.Context, m connect.Client, meta *types.RestoreMeta) error {
 	meta.LastTransitionTS = meta.StartTS
 	meta.Conditions = append(meta.Conditions, &types.Condition{
 		Timestamp: meta.StartTS,
 		Status:    meta.Status,
 	})
 
-	_, err := m.RestoresCollection().InsertOne(ctx, m)
+	_, err := m.RestoresCollection().InsertOne(ctx, meta)
 
 	return err
 }
 
 // GetLastRestore returns last successfully finished restore
 // and nil if there is no such restore yet.
-func GetLastRestore(ctx context.Context, m connect.MetaClient) (*types.RestoreMeta, error) {
+func GetLastRestore(ctx context.Context, m connect.Client) (*types.RestoreMeta, error) {
 	r := &types.RestoreMeta{}
 
 	res := m.RestoresCollection().FindOne(
@@ -177,7 +177,7 @@ func GetLastRestore(ctx context.Context, m connect.MetaClient) (*types.RestoreMe
 	return r, errors.Wrap(err, "decode")
 }
 
-func AddRestoreRSMeta(ctx context.Context, m connect.MetaClient, name string, rs types.RestoreReplset) error {
+func AddRestoreRSMeta(ctx context.Context, m connect.Client, name string, rs types.RestoreReplset) error {
 	rs.LastTransitionTS = rs.StartTS
 	rs.Conditions = append(rs.Conditions, &types.Condition{
 		Timestamp: rs.StartTS,
@@ -192,7 +192,7 @@ func AddRestoreRSMeta(ctx context.Context, m connect.MetaClient, name string, rs
 	return err
 }
 
-func RestoreHB(ctx context.Context, m connect.MetaClient, name string) error {
+func RestoreHB(ctx context.Context, m connect.Client, name string) error {
 	ts, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -209,7 +209,7 @@ func RestoreHB(ctx context.Context, m connect.MetaClient, name string) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func SetRestoreBackup(ctx context.Context, m connect.MetaClient, name, backupName string, nss []string) error {
+func SetRestoreBackup(ctx context.Context, m connect.Client, name, backupName string, nss []string) error {
 	d := bson.M{"backup": backupName}
 	if nss != nil {
 		d["nss"] = nss
@@ -224,7 +224,7 @@ func SetRestoreBackup(ctx context.Context, m connect.MetaClient, name, backupNam
 	return err
 }
 
-func SetOplogTimestamps(ctx context.Context, m connect.MetaClient, name string, start, end int64) error {
+func SetOplogTimestamps(ctx context.Context, m connect.Client, name string, start, end int64) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.M{"name": name},
@@ -234,7 +234,7 @@ func SetOplogTimestamps(ctx context.Context, m connect.MetaClient, name string, 
 	return err
 }
 
-func RestoresList(ctx context.Context, m connect.MetaClient, limit int64) ([]types.RestoreMeta, error) {
+func RestoresList(ctx context.Context, m connect.Client, limit int64) ([]types.RestoreMeta, error) {
 	cur, err := m.RestoresCollection().Find(
 		ctx,
 		bson.M{},

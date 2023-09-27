@@ -337,7 +337,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *types.ReplayCmd, opid ty
 		return errors.Errorf("%q is not primary", r.nodeInfo.SetName)
 	}
 
-	r.shards, err = topo.ClusterMembers(ctx, r.cn.Conn.UnsafeClient())
+	r.shards, err = topo.ClusterMembers(ctx, r.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
@@ -513,7 +513,7 @@ func SnapshotMeta(ctx context.Context, cn *pbm.PBM, backupName string, stg stora
 // cluster migth have more shards then the backup and it's ok. But all
 // backup's shards must have respective destination on the target cluster.
 func (r *Restore) setShards(ctx context.Context, bcp *types.BackupMeta) error {
-	s, err := topo.ClusterMembers(ctx, r.cn.Conn.UnsafeClient())
+	s, err := topo.ClusterMembers(ctx, r.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
@@ -833,7 +833,7 @@ func (r *Restore) updateRouterConfig(ctx context.Context) error {
 	return errors.Wrap(res.Err(), "flushRouterConfig")
 }
 
-func updateRouterTables(ctx context.Context, m connect.MetaClient, sMap map[string]string) error {
+func updateRouterTables(ctx context.Context, m connect.Client, sMap map[string]string) error {
 	if err := updateDatabasesRouterTable(ctx, m, sMap); err != nil {
 		return errors.Wrap(err, "databases")
 	}
@@ -845,7 +845,7 @@ func updateRouterTables(ctx context.Context, m connect.MetaClient, sMap map[stri
 	return nil
 }
 
-func updateDatabasesRouterTable(ctx context.Context, m connect.MetaClient, sMap map[string]string) error {
+func updateDatabasesRouterTable(ctx context.Context, m connect.Client, sMap map[string]string) error {
 	coll := m.ConfigDatabase().Collection("databases")
 
 	oldNames := make(primitive.A, 0, len(sMap))
@@ -886,7 +886,7 @@ func updateDatabasesRouterTable(ctx context.Context, m connect.MetaClient, sMap 
 	return errors.Wrap(err, "bulk write")
 }
 
-func updateChunksRouterTable(ctx context.Context, m connect.MetaClient, sMap map[string]string) error {
+func updateChunksRouterTable(ctx context.Context, m connect.Client, sMap map[string]string) error {
 	coll := m.ConfigDatabase().Collection("chunks")
 
 	oldNames := make(primitive.A, 0, len(sMap))

@@ -36,7 +36,7 @@ type LockData struct {
 // Lock is a lock for the PBM operation (e.g. backup, restore)
 type Lock struct {
 	LockData
-	m        connect.MetaClient
+	m        connect.Client
 	coll     *mongo.Collection
 	cancel   context.CancelFunc
 	hbRate   time.Duration
@@ -45,17 +45,17 @@ type Lock struct {
 
 // NewLock creates a new Lock object from geven header. Returned lock has no state.
 // So Acquire() and Release() methods should be called.
-func NewLock(m connect.MetaClient, h LockHeader) *Lock {
+func NewLock(m connect.Client, h LockHeader) *Lock {
 	return newLock(m, m.LockCollection(), h)
 }
 
 // NewOpLock creates a new Lock object from geven header in given op.
 // Returned lock has no state. So Acquire() and Release() methods should be called.
-func NewOpLock(m connect.MetaClient, h LockHeader) *Lock {
+func NewOpLock(m connect.Client, h LockHeader) *Lock {
 	return newLock(m, m.LockOpCollection(), h)
 }
 
-func newLock(m connect.MetaClient, coll *mongo.Collection, h LockHeader) *Lock {
+func newLock(m connect.Client, coll *mongo.Collection, h LockHeader) *Lock {
 	return &Lock{
 		LockData: LockData{
 			LockHeader: h,
@@ -290,11 +290,11 @@ func (l *Lock) beat(ctx context.Context) error {
 	return errors.Wrap(err, "set timestamp")
 }
 
-func GetLockData(ctx context.Context, m connect.MetaClient, lh *LockHeader) (LockData, error) {
+func GetLockData(ctx context.Context, m connect.Client, lh *LockHeader) (LockData, error) {
 	return getLockData(ctx, lh, m.LockCollection())
 }
 
-func GetOpLockData(ctx context.Context, m connect.MetaClient, lh *LockHeader) (LockData, error) {
+func GetOpLockData(ctx context.Context, m connect.Client, lh *LockHeader) (LockData, error) {
 	return getLockData(ctx, lh, m.LockOpCollection())
 }
 
@@ -308,11 +308,11 @@ func getLockData(ctx context.Context, lh *LockHeader, cl *mongo.Collection) (Loc
 	return l, err
 }
 
-func GetLocks(ctx context.Context, m connect.MetaClient, lh *LockHeader) ([]LockData, error) {
+func GetLocks(ctx context.Context, m connect.Client, lh *LockHeader) ([]LockData, error) {
 	return getLocks(ctx, lh, m.LockCollection())
 }
 
-func GetOpLocks(ctx context.Context, m connect.MetaClient, lh *LockHeader) ([]LockData, error) {
+func GetOpLocks(ctx context.Context, m connect.Client, lh *LockHeader) ([]LockData, error) {
 	return getLocks(ctx, lh, m.LockOpCollection())
 }
 

@@ -1416,7 +1416,7 @@ func (r *PhysRestore) resetRS() error {
 
 		if len(sMap) != 0 {
 			r.log.Debug("updating router config")
-			if err := updateRouterTables(ctx, connect.UnsafeLeadClient(c), sMap); err != nil {
+			if err := updateRouterTables(ctx, connect.UnsafeClient(c), sMap); err != nil {
 				return errors.Wrap(err, "update router tables")
 			}
 		}
@@ -1796,7 +1796,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid types.OPID, l 
 		}
 	}
 
-	dsh, err := topo.ClusterMembers(ctx, r.cn.Conn.UnsafeClient())
+	dsh, err := topo.ClusterMembers(ctx, r.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get  shards")
 	}
@@ -2134,7 +2134,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get data for restore")
 	}
 
-	s, err := topo.ClusterMembers(ctx, r.cn.Conn.UnsafeClient())
+	s, err := topo.ClusterMembers(ctx, r.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}

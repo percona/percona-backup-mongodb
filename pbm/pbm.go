@@ -4,21 +4,17 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/context"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/query"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 )
 
 type PBM struct {
-	Conn connect.MetaClient
+	Conn connect.Client
 	log  *log.Logger
 }
 
@@ -71,64 +67,4 @@ func (p *PBM) GetShards(ctx context.Context) ([]topo.Shard, error) {
 	}
 
 	return shards, cur.Err()
-}
-
-// SetBalancerStatus sets balancer status
-func (p *PBM) SetBalancerStatus(ctx context.Context, m defs.BalancerMode) error {
-	var cmd string
-
-	switch m {
-	case defs.BalancerModeOn:
-		cmd = "_configsvrBalancerStart"
-	case defs.BalancerModeOff:
-		cmd = "_configsvrBalancerStop"
-	default:
-		return errors.Errorf("unknown mode %s", m)
-	}
-
-	err := p.Conn.AdminCommand(ctx, bson.D{{cmd, 1}}).Err()
-	if err != nil {
-		return errors.Wrap(err, "run mongo command")
-	}
-	return nil
-}
-
-// GetBalancerStatus returns balancer status
-func (p *PBM) GetBalancerStatus(ctx context.Context) (*types.BalancerStatus, error) {
-	inf := &types.BalancerStatus{}
-	err := p.Conn.AdminCommand(ctx, bson.D{{"_configsvrBalancerStatus", 1}}).Decode(inf)
-	if err != nil {
-		return nil, errors.Wrap(err, "run mongo command")
-	}
-	return inf, nil
-}
-
-func BackupCursorName(s string) string {
-	return strings.NewReplacer("-", "", ":", "").Replace(s)
-}
-
-// PITRrun checks if PITR slicing is running. It looks for PITR locks
-// and returns true if there is at least one not stale.
-func (p *PBM) PITRrun(ctx context.Context) (bool, error) {
-	l, err := lock.GetLocks(ctx, p.Conn, &lock.LockHeader{Type: defs.CmdPITR})
-	if errors.Is(err, mongo.ErrNoDocuments) || len(l) == 0 {
-		return false, nil
-	}
-
-	if err != nil {
-		return false, errors.Wrap(err, "get locks")
-	}
-
-	ct, err := topo.GetClusterTime(ctx, p.Conn)
-	if err != nil {
-		return false, errors.Wrap(err, "get cluster time")
-	}
-
-	for _, lk := range l {
-		if lk.Heartbeat.T+defs.StaleFrameSec >= ct.T {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }

@@ -12,6 +12,7 @@ import (
 
 // nodeInfo represents the mongo's node info
 type nodeInfo struct {
+	Msg               string `bson:"msg"`
 	SetName           string `bson:"setName,omitempty"`
 	ConfigSvr         int    `bson:"configsvr,omitempty"`
 	ConfigServerState *struct {
@@ -20,7 +21,7 @@ type nodeInfo struct {
 			Term int64               `bson:"t" json:"t"`
 		} `bson:"opTime"`
 	} `bson:"$configServerState,omitempty"`
-	Opts mongodOpts `bson:"-"`
+	Opts *mongodOpts `bson:"-"`
 }
 
 // isSharded returns true is replset is part sharded cluster
@@ -33,26 +34,15 @@ func (i *nodeInfo) isConfigsvr() bool {
 	return i.ConfigSvr == 2
 }
 
+// IsSharded returns true is replset is part sharded cluster
+func (i *nodeInfo) isMongos() bool {
+	return i.Msg == "isdbgrid"
+}
+
 type mongodOpts struct {
 	Sharding struct {
 		ClusterRole string `bson:"clusterRole" json:"clusterRole" yaml:"-"`
 	} `bson:"sharding" json:"sharding" yaml:"-"`
-}
-
-// getNodeInfoExt returns mongo node info with mongod options
-func getNodeInfoExt(ctx context.Context, m *mongo.Client) (*nodeInfo, error) {
-	i, err := getNodeInfo(ctx, m)
-	if err != nil {
-		return nil, errors.Wrap(err, "get NodeInfo")
-	}
-	opts, err := getMongodOpts(ctx, m, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "get mongod options")
-	}
-	if opts != nil {
-		i.Opts = *opts
-	}
-	return i, nil
 }
 
 func getNodeInfo(ctx context.Context, m *mongo.Client) (*nodeInfo, error) {

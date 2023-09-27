@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
@@ -221,7 +222,7 @@ func (c cluster) String() string {
 }
 
 func clusterStatus(ctx context.Context, cn *pbm.PBM, uri string) (fmt.Stringer, error) {
-	clstr, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	clstr, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
@@ -351,6 +352,32 @@ func (p pitrStat) String() string {
 	return s
 }
 
+// isOplogSlicing checks if PITR slicing is running. It looks for PITR locks
+// and returns true if there is at least one not stale.
+func isOplogSlicing(ctx context.Context, m connect.Client) (bool, error) {
+	l, err := lock.GetLocks(ctx, m, &lock.LockHeader{Type: defs.CmdPITR})
+	if errors.Is(err, mongo.ErrNoDocuments) || len(l) == 0 {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, errors.Wrap(err, "get locks")
+	}
+
+	ct, err := topo.GetClusterTime(ctx, m)
+	if err != nil {
+		return false, errors.Wrap(err, "get cluster time")
+	}
+
+	for _, lk := range l {
+		if lk.Heartbeat.T+defs.StaleFrameSec >= ct.T {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func getPitrStatus(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
 	var p pitrStat
 	var err error
@@ -359,7 +386,7 @@ func getPitrStatus(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
 		return p, errors.Wrap(err, "unable check PITR config status")
 	}
 
-	p.Running, err = cn.PITRrun(ctx)
+	p.Running, err = isOplogSlicing(ctx, cn.Conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
 	}
@@ -375,7 +402,7 @@ func getPitrErr(ctx context.Context, cn *pbm.PBM) (string, error) {
 		return "", errors.Wrap(err, "get current epoch")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		stdlog.Fatalf("Error: get cluster members: %v", err)
 	}
@@ -614,20 +641,20 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 		return s, errors.Wrap(err, "get backups list")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.UnsafeClient())
+	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return s, errors.Wrap(err, "define cluster state")
 	}
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.UnsafeClient())
+	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return s, errors.Wrap(err, "get cluster members")
 	}
@@ -706,7 +733,7 @@ func getPITRranges(
 	bcps []types.BackupMeta,
 	rsMap map[string]string,
 ) (*pitrRanges, error) {
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}

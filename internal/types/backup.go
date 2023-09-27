@@ -46,7 +46,7 @@ type BackupMeta struct {
 	Nomination       []BackupRsNomination `bson:"n" json:"n"`
 	Err              string               `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string               `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
-	BalancerStatus   defs.BalancerMode    `bson:"balancer" json:"balancer"`
+	BalancerStatus   topo.BalancerMode    `bson:"balancer" json:"balancer"`
 	runtimeError     error
 }
 

@@ -16,15 +16,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/types"
 )
 
-func GetBackupMeta(ctx context.Context, m connect.MetaClient, name string) (*types.BackupMeta, error) {
+func GetBackupMeta(ctx context.Context, m connect.Client, name string) (*types.BackupMeta, error) {
 	return getBackupMeta(ctx, m, bson.D{{"name", name}})
 }
 
-func GetBackupByOPID(ctx context.Context, m connect.MetaClient, opid string) (*types.BackupMeta, error) {
+func GetBackupByOPID(ctx context.Context, m connect.Client, opid string) (*types.BackupMeta, error) {
 	return getBackupMeta(ctx, m, bson.D{{"opid", opid}})
 }
 
-func getBackupMeta(ctx context.Context, m connect.MetaClient, clause bson.D) (*types.BackupMeta, error) {
+func getBackupMeta(ctx context.Context, m connect.Client, clause bson.D) (*types.BackupMeta, error) {
 	res := m.BcpCollection().FindOne(ctx, clause)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -38,15 +38,15 @@ func getBackupMeta(ctx context.Context, m connect.MetaClient, clause bson.D) (*t
 	return b, errors.Wrap(err, "decode")
 }
 
-func ChangeBackupStateOPID(ctx context.Context, m connect.MetaClient, opid string, s defs.Status, msg string) error {
+func ChangeBackupStateOPID(ctx context.Context, m connect.Client, opid string, s defs.Status, msg string) error {
 	return changeBackupState(ctx, m, bson.D{{"opid", opid}}, s, msg)
 }
 
-func ChangeBackupState(ctx context.Context, m connect.MetaClient, bcpName string, s defs.Status, msg string) error {
+func ChangeBackupState(ctx context.Context, m connect.Client, bcpName string, s defs.Status, msg string) error {
 	return changeBackupState(ctx, m, bson.D{{"name", bcpName}}, s, msg)
 }
 
-func changeBackupState(ctx context.Context, m connect.MetaClient, clause bson.D, s defs.Status, msg string) error {
+func changeBackupState(ctx context.Context, m connect.Client, clause bson.D, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
@@ -62,19 +62,19 @@ func changeBackupState(ctx context.Context, m connect.MetaClient, clause bson.D,
 	return err
 }
 
-func SetBackupMeta(ctx context.Context, m connect.MetaClient, meta *types.BackupMeta) error {
+func SetBackupMeta(ctx context.Context, m connect.Client, meta *types.BackupMeta) error {
 	meta.LastTransitionTS = meta.StartTS
 	meta.Conditions = append(meta.Conditions, types.Condition{
 		Timestamp: meta.StartTS,
 		Status:    meta.Status,
 	})
 
-	_, err := m.BcpCollection().InsertOne(ctx, m)
+	_, err := m.BcpCollection().InsertOne(ctx, meta)
 
 	return err
 }
 
-func BackupHB(ctx context.Context, m connect.MetaClient, bcpName string) error {
+func BackupHB(ctx context.Context, m connect.Client, bcpName string) error {
 	ts, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
@@ -91,7 +91,7 @@ func BackupHB(ctx context.Context, m connect.MetaClient, bcpName string) error {
 	return errors.Wrap(err, "write into db")
 }
 
-func SetSrcBackup(ctx context.Context, m connect.MetaClient, bcpName, srcName string) error {
+func SetSrcBackup(ctx context.Context, m connect.Client, bcpName, srcName string) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
@@ -103,7 +103,7 @@ func SetSrcBackup(ctx context.Context, m connect.MetaClient, bcpName, srcName st
 	return err
 }
 
-func SetFirstWrite(ctx context.Context, m connect.MetaClient, bcpName string, first primitive.Timestamp) error {
+func SetFirstWrite(ctx context.Context, m connect.Client, bcpName string, first primitive.Timestamp) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
@@ -115,7 +115,7 @@ func SetFirstWrite(ctx context.Context, m connect.MetaClient, bcpName string, fi
 	return err
 }
 
-func SetLastWrite(ctx context.Context, m connect.MetaClient, bcpName string, last primitive.Timestamp) error {
+func SetLastWrite(ctx context.Context, m connect.Client, bcpName string, last primitive.Timestamp) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
@@ -127,7 +127,7 @@ func SetLastWrite(ctx context.Context, m connect.MetaClient, bcpName string, las
 	return err
 }
 
-func AddRSMeta(ctx context.Context, m connect.MetaClient, bcpName string, rs types.BackupReplset) error {
+func AddRSMeta(ctx context.Context, m connect.Client, bcpName string, rs types.BackupReplset) error {
 	rs.LastTransitionTS = rs.StartTS
 	rs.Conditions = append(rs.Conditions, types.Condition{
 		Timestamp: rs.StartTS,
@@ -142,7 +142,7 @@ func AddRSMeta(ctx context.Context, m connect.MetaClient, bcpName string, rs typ
 	return err
 }
 
-func ChangeRSState(ctx context.Context, m connect.MetaClient, bcpName, rsName string, s defs.Status, msg string) error {
+func ChangeRSState(ctx context.Context, m connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
@@ -158,7 +158,7 @@ func ChangeRSState(ctx context.Context, m connect.MetaClient, bcpName, rsName st
 	return err
 }
 
-func IncBackupSize(ctx context.Context, m connect.MetaClient, bcpName string, size int64) error {
+func IncBackupSize(ctx context.Context, m connect.Client, bcpName string, size int64) error {
 	_, err := m.BcpCollection().UpdateOne(ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{{"$inc", bson.M{"size": size}}})
@@ -166,7 +166,7 @@ func IncBackupSize(ctx context.Context, m connect.MetaClient, bcpName string, si
 	return err
 }
 
-func RSSetPhyFiles(ctx context.Context, m connect.MetaClient, bcpName, rsName string, rs *types.BackupReplset) error {
+func RSSetPhyFiles(ctx context.Context, m connect.Client, bcpName, rsName string, rs *types.BackupReplset) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -179,7 +179,7 @@ func RSSetPhyFiles(ctx context.Context, m connect.MetaClient, bcpName, rsName st
 	return err
 }
 
-func SetRSLastWrite(ctx context.Context, m connect.MetaClient, bcpName, rsName string, ts primitive.Timestamp) error {
+func SetRSLastWrite(ctx context.Context, m connect.Client, bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -191,26 +191,26 @@ func SetRSLastWrite(ctx context.Context, m connect.MetaClient, bcpName, rsName s
 	return err
 }
 
-func LastIncrementalBackup(ctx context.Context, m connect.MetaClient) (*types.BackupMeta, error) {
+func LastIncrementalBackup(ctx context.Context, m connect.Client) (*types.BackupMeta, error) {
 	return getRecentBackup(ctx, m, nil, nil, -1, bson.D{{"type", string(defs.IncrementalBackup)}})
 }
 
 // GetLastBackup returns last successfully finished backup (non-selective and non-external)
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
-func GetLastBackup(ctx context.Context, m connect.MetaClient, before *primitive.Timestamp) (*types.BackupMeta, error) {
+func GetLastBackup(ctx context.Context, m connect.Client, before *primitive.Timestamp) (*types.BackupMeta, error) {
 	return getRecentBackup(ctx, m, nil, before, -1,
 		bson.D{{"nss", nil}, {"type", bson.M{"$ne": defs.ExternalBackup}}})
 }
 
-func GetFirstBackup(ctx context.Context, m connect.MetaClient, after *primitive.Timestamp) (*types.BackupMeta, error) {
+func GetFirstBackup(ctx context.Context, m connect.Client, after *primitive.Timestamp) (*types.BackupMeta, error) {
 	return getRecentBackup(ctx, m, after, nil, 1,
 		bson.D{{"nss", nil}, {"type", bson.M{"$ne": defs.ExternalBackup}}})
 }
 
 func getRecentBackup(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	after,
 	before *primitive.Timestamp,
 	sort int,
@@ -242,7 +242,7 @@ func getRecentBackup(
 	return b, errors.Wrap(err, "decode")
 }
 
-func BackupHasNext(ctx context.Context, m connect.MetaClient, backup *types.BackupMeta) (bool, error) {
+func BackupHasNext(ctx context.Context, m connect.Client, backup *types.BackupMeta) (bool, error) {
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
@@ -261,7 +261,7 @@ func BackupHasNext(ctx context.Context, m connect.MetaClient, backup *types.Back
 	return true, nil
 }
 
-func BackupsList(ctx context.Context, m connect.MetaClient, limit int64) ([]types.BackupMeta, error) {
+func BackupsList(ctx context.Context, m connect.Client, limit int64) ([]types.BackupMeta, error) {
 	cur, err := m.BcpCollection().Find(
 		ctx,
 		bson.M{},
@@ -290,7 +290,7 @@ func BackupsList(ctx context.Context, m connect.MetaClient, limit int64) ([]type
 
 func BackupsDoneList(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	after *primitive.Timestamp,
 	limit int64,
 	order int,
@@ -323,7 +323,7 @@ func BackupsDoneList(
 	return backups, cur.Err()
 }
 
-func SetRSNomination(ctx context.Context, m connect.MetaClient, bcpName, rs string) error {
+func SetRSNomination(ctx context.Context, m connect.Client, bcpName, rs string) error {
 	n := types.BackupRsNomination{RS: rs, Nodes: []string{}}
 	_, err := m.BcpCollection().
 		UpdateOne(
@@ -337,7 +337,7 @@ func SetRSNomination(ctx context.Context, m connect.MetaClient, bcpName, rs stri
 
 func GetRSNominees(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	bcpName, rsName string,
 ) (*types.BackupRsNomination, error) {
 	bcp, err := GetBackupMeta(ctx, m, bcpName)
@@ -354,7 +354,7 @@ func GetRSNominees(
 	return nil, errors.ErrNotFound
 }
 
-func SetRSNominees(ctx context.Context, m connect.MetaClient, bcpName, rsName string, nodes []string) error {
+func SetRSNominees(ctx context.Context, m connect.Client, bcpName, rsName string, nodes []string) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}, {"n.rs", rsName}},
@@ -366,7 +366,7 @@ func SetRSNominees(ctx context.Context, m connect.MetaClient, bcpName, rsName st
 	return err
 }
 
-func SetRSNomineeACK(ctx context.Context, m connect.MetaClient, bcpName, rsName, node string) error {
+func SetRSNomineeACK(ctx context.Context, m connect.Client, bcpName, rsName, node string) error {
 	_, err := m.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}, {"n.rs", rsName}},

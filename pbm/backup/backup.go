@@ -74,7 +74,7 @@ func (b *Backup) Init(
 	opid types.OPID,
 	inf *topo.NodeInfo,
 	store config.StorageConf,
-	balancer defs.BalancerMode,
+	balancer topo.BalancerMode,
 	l *log.Event,
 ) error {
 	ts, err := topo.GetClusterTime(ctx, b.cn.Conn)
@@ -200,11 +200,11 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 		// And will try to turn it on again if so. So if the leader node went down after turning off
 		// the balancer some other node will bring it back.
 		// TODO: what if all agents went down.
-		if bcpm.BalancerStatus != defs.BalancerModeOn {
+		if bcpm.BalancerStatus != topo.BalancerModeOn {
 			return
 		}
 
-		errd := b.cn.SetBalancerStatus(ctx, defs.BalancerModeOn)
+		errd := topo.SetBalancerStatus(ctx, b.cn.Conn, topo.BalancerModeOn)
 		if errd != nil {
 			l.Error("set balancer ON: %v", errd)
 			return
@@ -238,8 +238,8 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 			}
 		}()
 
-		if bcpm.BalancerStatus == defs.BalancerModeOn {
-			err = b.cn.SetBalancerStatus(ctx, defs.BalancerModeOff)
+		if bcpm.BalancerStatus == topo.BalancerModeOn {
+			err = topo.SetBalancerStatus(ctx, b.cn.Conn, topo.BalancerModeOff)
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
@@ -313,27 +313,27 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 	return errors.Wrap(err, "waiting for done")
 }
 
-func waitForBalancerOff(ctx context.Context, cn *pbm.PBM, t time.Duration, l *log.Event) defs.BalancerMode {
+func waitForBalancerOff(ctx context.Context, cn *pbm.PBM, t time.Duration, l *log.Event) topo.BalancerMode {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
 
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
 
-	var bs *types.BalancerStatus
+	var bs *topo.BalancerStatus
 	var err error
 
 Loop:
 	for {
 		select {
 		case <-tk.C:
-			bs, err = cn.GetBalancerStatus(ctx)
+			bs, err = topo.GetBalancerStatus(ctx, cn.Conn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
 				continue
 			}
-			if bs.Mode == defs.BalancerModeOff {
-				return defs.BalancerModeOff
+			if bs.Mode == topo.BalancerModeOff {
+				return topo.BalancerModeOff
 			}
 		case <-dn.C:
 			break Loop
@@ -341,7 +341,7 @@ Loop:
 	}
 
 	if bs != nil {
-		return defs.BalancerMode("")
+		return topo.BalancerMode("")
 	}
 
 	return bs.Mode
@@ -383,7 +383,7 @@ func (b *Backup) reconcileStatus(
 	status defs.Status,
 	timeout *time.Duration,
 ) error {
-	shards, err := topo.ClusterMembers(ctx, b.cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, b.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}

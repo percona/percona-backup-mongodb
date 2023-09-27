@@ -39,15 +39,15 @@ func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
 	return client, nil
 }
 
-type leadClient struct {
+type clientImpl struct {
 	client *mongo.Client
 }
 
-func UnsafeLeadClient(m *mongo.Client) MetaClient {
-	return &leadClient{m}
+func UnsafeClient(m *mongo.Client) Client {
+	return &clientImpl{m}
 }
 
-func Connect(ctx context.Context, uri string, opts *ConnectOptions) (MetaClient, error) {
+func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, error) {
 	if opts == nil {
 		opts = &ConnectOptions{}
 	}
@@ -59,13 +59,21 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (MetaClient,
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
 
-	inf, err := getNodeInfoExt(ctx, client)
+	inf, err := getNodeInfo(ctx, client)
 	if err != nil {
-		return nil, errors.Wrap(err, "get topology")
+		return nil, errors.Wrap(err, "get NodeInfo")
+	}
+	if inf.isMongos() || inf.isConfigsvr() {
+		return &clientImpl{client: client}, nil
 	}
 
-	if !inf.isSharded() || inf.isConfigsvr() {
-		return &leadClient{client: client}, nil
+	inf.Opts, err = getMongodOpts(ctx, client, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "get mongod options")
+	}
+
+	if !inf.isSharded() {
+		return &clientImpl{client: client}, nil
 	}
 
 	csvr, err := getConfigsvrURI(ctx, client)
@@ -99,69 +107,69 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (MetaClient,
 		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
 
-	return &leadClient{client: client}, nil
+	return &clientImpl{client: client}, nil
 }
 
-func (l *leadClient) Disconnect(ctx context.Context) error {
+func (l *clientImpl) Disconnect(ctx context.Context) error {
 	return l.client.Disconnect(ctx)
 }
 
-func (l *leadClient) UnsafeClient() *mongo.Client {
+func (l *clientImpl) MongoClient() *mongo.Client {
 	return l.client
 }
 
-func (l *leadClient) ConfigDatabase() *mongo.Database {
+func (l *clientImpl) ConfigDatabase() *mongo.Database {
 	return l.client.Database("config")
 }
 
-func (l *leadClient) AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult {
+func (l *clientImpl) AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult {
 	return l.client.Database(defs.DB).RunCommand(ctx, cmd, opts...)
 }
 
-func (l *leadClient) LogCollection() *mongo.Collection {
+func (l *clientImpl) LogCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.LogCollection)
 }
 
-func (l *leadClient) ConfigCollection() *mongo.Collection {
+func (l *clientImpl) ConfigCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.ConfigCollection)
 }
 
-func (l *leadClient) LockCollection() *mongo.Collection {
+func (l *clientImpl) LockCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.LockCollection)
 }
 
-func (l *leadClient) LockOpCollection() *mongo.Collection {
+func (l *clientImpl) LockOpCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.LockOpCollection)
 }
 
-func (l *leadClient) BcpCollection() *mongo.Collection {
+func (l *clientImpl) BcpCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.BcpCollection)
 }
 
-func (l *leadClient) RestoresCollection() *mongo.Collection {
+func (l *clientImpl) RestoresCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.RestoresCollection)
 }
 
-func (l *leadClient) CmdStreamCollection() *mongo.Collection {
+func (l *clientImpl) CmdStreamCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.CmdStreamCollection)
 }
 
-func (l *leadClient) PITRChunksCollection() *mongo.Collection {
+func (l *clientImpl) PITRChunksCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PITRChunksCollection)
 }
 
-func (l *leadClient) PBMOpLogCollection() *mongo.Collection {
+func (l *clientImpl) PBMOpLogCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PBMOpLogCollection)
 }
 
-func (l *leadClient) AgentsStatusCollection() *mongo.Collection {
+func (l *clientImpl) AgentsStatusCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.AgentsStatusCollection)
 }
 
-type MetaClient interface {
+type Client interface {
 	Disconnect(ctx context.Context) error
 
-	UnsafeClient() *mongo.Client
+	MongoClient() *mongo.Client
 
 	ConfigDatabase() *mongo.Database
 	AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult

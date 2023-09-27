@@ -21,7 +21,7 @@ type CleanupInfo struct {
 	Chunks  []oplog.OplogChunk `json:"chunks"`
 }
 
-func MakeCleanupInfo(ctx context.Context, m connect.MetaClient, ts primitive.Timestamp) (CleanupInfo, error) {
+func MakeCleanupInfo(ctx context.Context, m connect.Client, ts primitive.Timestamp) (CleanupInfo, error) {
 	backups, err := listBackupsBefore(ctx, m, primitive.Timestamp{T: ts.T + 1})
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
@@ -97,7 +97,7 @@ func MakeCleanupInfo(ctx context.Context, m connect.MetaClient, ts primitive.Tim
 }
 
 // listBackupsBefore returns backups with restore cluster time less than or equals to ts
-func listBackupsBefore(ctx context.Context, m connect.MetaClient, ts primitive.Timestamp) ([]types.BackupMeta, error) {
+func listBackupsBefore(ctx context.Context, m connect.Client, ts primitive.Timestamp) ([]types.BackupMeta, error) {
 	f := bson.D{{"last_write_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := m.BcpCollection().Find(ctx, f, o)
@@ -110,7 +110,7 @@ func listBackupsBefore(ctx context.Context, m connect.MetaClient, ts primitive.T
 	return rv, errors.Wrap(err, "cursor: all")
 }
 
-func canDeleteBaseSnapshot(ctx context.Context, m connect.MetaClient, lw primitive.Timestamp) (bool, error) {
+func canDeleteBaseSnapshot(ctx context.Context, m connect.Client, lw primitive.Timestamp) (bool, error) {
 	f := bson.D{
 		{"last_write_ts", bson.M{"$gte": lw}},
 		{"nss", nil},
@@ -139,7 +139,7 @@ func canDeleteBaseSnapshot(ctx context.Context, m connect.MetaClient, lw primiti
 }
 
 // listChunksBefore returns oplog chunks that contain an op at the ts
-func listChunksBefore(ctx context.Context, m connect.MetaClient, ts primitive.Timestamp) ([]oplog.OplogChunk, error) {
+func listChunksBefore(ctx context.Context, m connect.Client, ts primitive.Timestamp) ([]oplog.OplogChunk, error) {
 	f := bson.D{{"start_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"start_ts", 1}})
 	cur, err := m.PITRChunksCollection().Find(ctx, f, o)
@@ -154,7 +154,7 @@ func listChunksBefore(ctx context.Context, m connect.MetaClient, ts primitive.Ti
 
 func extractLastIncrementalChain(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	bcps []types.BackupMeta,
 ) ([]types.BackupMeta, error) {
 	// lookup for the last incremental

@@ -8,7 +8,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/types"
 )
 
-func sendCmd(ctx context.Context, m connect.MetaClient, cmd types.Cmd) error {
+func sendCmd(ctx context.Context, m connect.Client, cmd types.Cmd) error {
 	cmd.TS = time.Now().UTC().Unix()
 	_, err := m.CmdStreamCollection().InsertOne(ctx, cmd)
 	return err

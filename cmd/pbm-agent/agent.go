@@ -77,7 +77,7 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		return errors.New("mongos is not supported")
 	}
 
-	ver, err := version.GetMongoVersion(ctx, a.pbm.Conn.UnsafeClient())
+	ver, err := version.GetMongoVersion(ctx, a.pbm.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get mongo version")
 	}
@@ -150,7 +150,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 }
 
-func ListenCmd(ctx context.Context, m connect.MetaClient, cl <-chan struct{}) (<-chan types.Cmd, <-chan error) {
+func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-chan types.Cmd, <-chan error) {
 	cmd := make(chan types.Cmd)
 	errc := make(chan error)
 
@@ -660,7 +660,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 }
 
 func (a *Agent) pbmStatus(ctx context.Context) topo.SubsysStatus {
-	err := a.pbm.Conn.UnsafeClient().Ping(ctx, nil)
+	err := a.pbm.Conn.MongoClient().Ping(ctx, nil)
 	if err != nil {
 		return topo.SubsysStatus{Err: err.Error()}
 	}

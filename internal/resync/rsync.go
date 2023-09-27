@@ -28,7 +28,7 @@ import (
 )
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
-func ResyncStorage(ctx context.Context, m connect.MetaClient, l *log.Event) error {
+func ResyncStorage(ctx context.Context, m connect.Client, l *log.Event) error {
 	stg, err := util.GetStorage(ctx, m, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")

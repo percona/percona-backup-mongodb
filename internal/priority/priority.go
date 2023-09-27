@@ -1,9 +1,10 @@
-package pbm
+package priority
 
 import (
 	"sort"
 
 	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
@@ -44,12 +45,13 @@ type agentScore func(topo.AgentStat) float64
 // in descended order. First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func (p *PBM) BcpNodesPriority(
+func BcpNodesPriority(
 	ctx context.Context,
+	m connect.Client,
 	c map[string]float64,
 	agents []topo.AgentStat,
 ) (*NodesPriority, error) {
-	cfg, err := config.GetConfig(ctx, p.Conn)
+	cfg, err := config.GetConfig(ctx, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}

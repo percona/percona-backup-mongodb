@@ -68,7 +68,7 @@ func (m *MongoPBM) StoreResync(ctx context.Context) error {
 	return resync.ResyncStorage(ctx, m.p.Conn, l)
 }
 
-func (m *MongoPBM) Conn() connect.MetaClient {
+func (m *MongoPBM) Conn() connect.Client {
 	return m.p.Conn
 }
 
@@ -87,7 +87,7 @@ func (m *MongoPBM) waitOp(
 	ctx context.Context,
 	lck *lock.LockHeader,
 	waitFor time.Duration,
-	f func(ctx context.Context, m connect.MetaClient, lh *lock.LockHeader) (lock.LockData, error),
+	f func(ctx context.Context, m connect.Client, lh *lock.LockHeader) (lock.LockData, error),
 ) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)

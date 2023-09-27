@@ -9,6 +9,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/priority"
 	"github.com/percona/percona-backup-mongodb/internal/query"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
@@ -119,15 +120,15 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
 	if isClusterLeader {
-		balancer := defs.BalancerModeOff
+		balancer := topo.BalancerModeOff
 		if nodeInfo.IsSharded() {
-			bs, err := a.pbm.GetBalancerStatus(ctx)
+			bs, err := topo.GetBalancerStatus(ctx, a.pbm.Conn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
 				return
 			}
 			if bs.IsOn() {
-				balancer = defs.BalancerModeOn
+				balancer = topo.BalancerModeOn
 			}
 		}
 		err = bcp.Init(ctx, cmd, opid, nodeInfo, cfg.Storage, balancer, l)
@@ -176,12 +177,12 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 			validCandidates = append(validCandidates, s)
 		}
 
-		nodes, err := a.pbm.BcpNodesPriority(ctx, c, validCandidates)
+		nodes, err := priority.BcpNodesPriority(ctx, a.pbm.Conn, c, validCandidates)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return
 		}
-		shards, err := topo.ClusterMembers(ctx, a.pbm.Conn.UnsafeClient())
+		shards, err := topo.ClusterMembers(ctx, a.pbm.Conn.MongoClient())
 		if err != nil {
 			l.Error("get cluster members: %v", err)
 			return

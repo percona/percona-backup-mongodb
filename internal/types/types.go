@@ -1,7 +1,5 @@
 package types
 
-import "github.com/percona/percona-backup-mongodb/internal/defs"
-
 type ConnectionStatus struct {
 	AuthInfo AuthInfo `bson:"authInfo" json:"authInfo"`
 }
@@ -19,15 +17,4 @@ type AuthUser struct {
 type AuthUserRoles struct {
 	Role string `bson:"role" json:"role"`
 	DB   string `bson:"db" json:"db"`
-}
-
-type BalancerStatus struct {
-	Mode              defs.BalancerMode `bson:"mode" json:"mode"`
-	InBalancerRound   bool              `bson:"inBalancerRound" json:"inBalancerRound"`
-	NumBalancerRounds int64             `bson:"numBalancerRounds" json:"numBalancerRounds"`
-	Ok                int               `bson:"ok" json:"ok"`
-}
-
-func (b *BalancerStatus) IsOn() bool {
-	return b.Mode == defs.BalancerModeOn
 }

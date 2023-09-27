@@ -233,21 +233,21 @@ func getSnapshotList(ctx context.Context, cn *pbm.PBM, size int, rsMap map[strin
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.UnsafeClient())
+	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.UnsafeClient())
+	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
@@ -287,12 +287,12 @@ func getPitrList(
 	unbacked bool,
 	rsMap map[string]string,
 ) ([]pitrRange, map[string][]pitrRange, error) {
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.UnsafeClient())
+	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.UnsafeClient())
+	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster members")
 	}
@@ -373,11 +373,11 @@ func getBaseSnapshotLastWrite(
 		return primitive.Timestamp{}, nil
 	}
 
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.UnsafeClient())
+	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.UnsafeClient())
+	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get featureCompatibilityVersion")
 	}

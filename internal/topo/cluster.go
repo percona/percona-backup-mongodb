@@ -22,7 +22,7 @@ type Shard struct {
 }
 
 // ClusterTime returns mongo's current cluster time
-func GetClusterTime(ctx context.Context, m connect.MetaClient) (primitive.Timestamp, error) {
+func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between node info reads,
 	// while in fact time has been moved forward.
@@ -31,7 +31,7 @@ func GetClusterTime(ctx context.Context, m connect.MetaClient) (primitive.Timest
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
-	inf, err := GetNodeInfoExt(ctx, m.UnsafeClient())
+	inf, err := GetNodeInfoExt(ctx, m.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}
@@ -112,4 +112,63 @@ func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error
 	}
 
 	return shards, nil
+}
+
+type BalancerMode string
+
+const (
+	BalancerModeOn  BalancerMode = "full"
+	BalancerModeOff BalancerMode = "off"
+)
+
+func (m BalancerMode) String() string {
+	switch m {
+	case BalancerModeOn:
+		return "on"
+	case BalancerModeOff:
+		return "off"
+	default:
+		return "unknown"
+	}
+}
+
+type BalancerStatus struct {
+	Mode              BalancerMode `bson:"mode" json:"mode"`
+	InBalancerRound   bool         `bson:"inBalancerRound" json:"inBalancerRound"`
+	NumBalancerRounds int64        `bson:"numBalancerRounds" json:"numBalancerRounds"`
+	Ok                int          `bson:"ok" json:"ok"`
+}
+
+func (b *BalancerStatus) IsOn() bool {
+	return b.Mode == BalancerModeOn
+}
+
+// SetBalancerStatus sets balancer status
+func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode) error {
+	var cmd string
+
+	switch mode {
+	case BalancerModeOn:
+		cmd = "_configsvrBalancerStart"
+	case BalancerModeOff:
+		cmd = "_configsvrBalancerStop"
+	default:
+		return errors.Errorf("unknown mode %s", mode)
+	}
+
+	err := m.AdminCommand(ctx, bson.D{{cmd, 1}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "run mongo command")
+	}
+	return nil
+}
+
+// GetBalancerStatus returns balancer status
+func GetBalancerStatus(ctx context.Context, m connect.Client) (*BalancerStatus, error) {
+	inf := &BalancerStatus{}
+	err := m.AdminCommand(ctx, bson.D{{"_configsvrBalancerStatus", 1}}).Decode(inf)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command")
+	}
+	return inf, nil
 }

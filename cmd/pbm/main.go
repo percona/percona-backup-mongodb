@@ -361,7 +361,7 @@ func main() {
 		}
 		pbmClient.InitLogger("", "")
 
-		ver, err := version.GetMongoVersion(ctx, pbmClient.Conn.UnsafeClient())
+		ver, err := version.GetMongoVersion(ctx, pbmClient.Conn.MongoClient())
 		if err != nil {
 			stdlog.Fatalf("get mongo version: %v", err)
 		}
@@ -631,7 +631,7 @@ func parseDateT(v string) (time.Time, error) {
 	return time.Time{}, errInvalidFormat
 }
 
-type findLockFn = func(ctx context.Context, m connect.MetaClient, lh *lock.LockHeader) ([]lock.LockData, error)
+type findLockFn = func(ctx context.Context, m connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
 
 func findLock(ctx context.Context, cn *pbm.PBM, fn findLockFn) (*lock.LockData, error) {
 	locks, err := fn(ctx, cn.Conn, &lock.LockHeader{})

@@ -15,8 +15,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
-func CheckTopoForBackup(ctx context.Context, m connect.MetaClient, type_ defs.BackupType) error {
-	members, err := ClusterMembers(ctx, m.UnsafeClient())
+func CheckTopoForBackup(ctx context.Context, m connect.Client, type_ defs.BackupType) error {
+	members, err := ClusterMembers(ctx, m.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}

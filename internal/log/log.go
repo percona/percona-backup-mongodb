@@ -376,7 +376,7 @@ func buildLogFilter(r *LogRequest, exactSeverity bool) bson.D {
 
 func fetch(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	r *LogRequest,
 	limit int64,
 	exactSeverity bool,
@@ -445,10 +445,10 @@ func Follow(
 	return outC, errC
 }
 
-func LogGet(ctx context.Context, m connect.MetaClient, r *LogRequest, limit int64) (*Entries, error) {
+func LogGet(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
 	return fetch(ctx, m, r, limit, false)
 }
 
-func LogGetExactSeverity(ctx context.Context, m connect.MetaClient, r *LogRequest, limit int64) (*Entries, error) {
+func LogGetExactSeverity(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
 	return fetch(ctx, m, r, limit, true)
 }

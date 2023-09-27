@@ -220,8 +220,8 @@ func (b *Backup) doLogical(
 	return nil
 }
 
-func createBackupChunkSelector(ctx context.Context, m connect.MetaClient, nss []string) (util.ChunkSelector, error) {
-	ver, err := version.GetMongoVersion(ctx, m.UnsafeClient())
+func createBackupChunkSelector(ctx context.Context, m connect.Client, nss []string) (util.ChunkSelector, error) {
+	ver, err := version.GetMongoVersion(ctx, m.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}

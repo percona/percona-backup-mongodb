@@ -212,7 +212,7 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	return time.Duration(*t.Starting) * time.Second
 }
 
-func GetConfig(ctx context.Context, m connect.MetaClient) (Config, error) {
+func GetConfig(ctx context.Context, m connect.Client) (Config, error) {
 	res := m.ConfigCollection().FindOne(ctx, bson.D{})
 	if err := res.Err(); err != nil {
 		return Config{}, errors.Wrap(err, "get")
@@ -236,7 +236,7 @@ func GetConfig(ctx context.Context, m connect.MetaClient) (Config, error) {
 	return c, nil
 }
 
-func SetConfigByte(ctx context.Context, m connect.MetaClient, buf []byte) error {
+func SetConfigByte(ctx context.Context, m connect.Client, buf []byte) error {
 	var cfg Config
 	err := yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
@@ -245,7 +245,7 @@ func SetConfigByte(ctx context.Context, m connect.MetaClient, buf []byte) error 
 	return errors.Wrap(SetConfig(ctx, m, cfg), "write to db")
 }
 
-func SetConfig(ctx context.Context, m connect.MetaClient, cfg Config) error {
+func SetConfig(ctx context.Context, m connect.Client, cfg Config) error {
 	switch cfg.Storage.Type {
 	case storage.S3:
 		err := cfg.Storage.S3.Cast()
@@ -287,7 +287,7 @@ func SetConfig(ctx context.Context, m connect.MetaClient, cfg Config) error {
 	return errors.Wrap(err, "mongo defs.ConfigCollection UpdateOne")
 }
 
-func SetConfigVar(ctx context.Context, m connect.MetaClient, key, val string) error {
+func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error {
 	if !ValidateConfigKey(key) {
 		return errors.New("invalid config key")
 	}
@@ -349,7 +349,7 @@ func SetConfigVar(ctx context.Context, m connect.MetaClient, key, val string) er
 	return errors.Wrap(err, "write to db")
 }
 
-func confSetPITR(ctx context.Context, m connect.MetaClient, k string, v bool) error {
+func confSetPITR(ctx context.Context, m connect.Client, k string, v bool) error {
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
@@ -363,7 +363,7 @@ func confSetPITR(ctx context.Context, m connect.MetaClient, k string, v bool) er
 	return err
 }
 
-func DeleteConfigVar(ctx context.Context, m connect.MetaClient, key string) error {
+func DeleteConfigVar(ctx context.Context, m connect.Client, key string) error {
 	if !ValidateConfigKey(key) {
 		return errors.New("invalid config key")
 	}
@@ -386,7 +386,7 @@ func DeleteConfigVar(ctx context.Context, m connect.MetaClient, key string) erro
 }
 
 // GetConfigVar returns value of given config vaiable
-func GetConfigVar(ctx context.Context, m connect.MetaClient, key string) (interface{}, error) {
+func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{}, error) {
 	if !ValidateConfigKey(key) {
 		return nil, errors.New("invalid config key")
 	}
@@ -416,7 +416,7 @@ func GetConfigVar(ctx context.Context, m connect.MetaClient, key string) (interf
 	}
 }
 
-func IsPITREnabled(ctx context.Context, m connect.MetaClient) (bool, bool, error) {
+func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 	cfg, err := GetConfig(ctx, m)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -431,7 +431,7 @@ func IsPITREnabled(ctx context.Context, m connect.MetaClient) (bool, bool, error
 
 type Epoch primitive.Timestamp
 
-func GetEpoch(ctx context.Context, m connect.MetaClient) (Epoch, error) {
+func GetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	c, err := GetConfig(ctx, m)
 	if err != nil {
 		return Epoch{}, errors.Wrap(err, "get config")
@@ -440,7 +440,7 @@ func GetEpoch(ctx context.Context, m connect.MetaClient) (Epoch, error) {
 	return Epoch(c.Epoch), nil
 }
 
-func ResetEpoch(ctx context.Context, m connect.MetaClient) (Epoch, error) {
+func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return Epoch{}, errors.Wrap(err, "get cluster time")

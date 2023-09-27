@@ -32,16 +32,16 @@ type OplogChunk struct {
 }
 
 // PITRLastChunkMeta returns the most recent PITR chunk for the given Replset
-func PITRLastChunkMeta(ctx context.Context, m connect.MetaClient, rs string) (*OplogChunk, error) {
+func PITRLastChunkMeta(ctx context.Context, m connect.Client, rs string) (*OplogChunk, error) {
 	return pitrChunk(ctx, m, rs, -1)
 }
 
 // PITRFirstChunkMeta returns the oldest PITR chunk for the given Replset
-func PITRFirstChunkMeta(ctx context.Context, m connect.MetaClient, rs string) (*OplogChunk, error) {
+func PITRFirstChunkMeta(ctx context.Context, m connect.Client, rs string) (*OplogChunk, error) {
 	return pitrChunk(ctx, m, rs, 1)
 }
 
-func pitrChunk(ctx context.Context, m connect.MetaClient, rs string, sort int) (*OplogChunk, error) {
+func pitrChunk(ctx context.Context, m connect.Client, rs string, sort int) (*OplogChunk, error) {
 	res := m.PITRChunksCollection().FindOne(
 		ctx,
 		bson.D{{"rs", rs}},
@@ -59,7 +59,7 @@ func pitrChunk(ctx context.Context, m connect.MetaClient, rs string, sort int) (
 	return chnk, errors.Wrap(err, "decode")
 }
 
-func AllOplogRSNames(ctx context.Context, m connect.MetaClient, from, to primitive.Timestamp) ([]string, error) {
+func AllOplogRSNames(ctx context.Context, m connect.Client, from, to primitive.Timestamp) ([]string, error) {
 	q := bson.M{
 		"start_ts": bson.M{"$lte": to},
 	}
@@ -84,7 +84,7 @@ func AllOplogRSNames(ctx context.Context, m connect.MetaClient, from, to primiti
 // lies in a given time frame. Returns all chunks if `to` is 0.
 func PITRGetChunksSlice(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	rs string,
 	from, to primitive.Timestamp,
 ) ([]OplogChunk, error) {
@@ -106,7 +106,7 @@ func PITRGetChunksSlice(
 // PITRGetChunksSliceUntil returns slice of PITR oplog chunks that starts up until timestamp (exclusively)
 func PITRGetChunksSliceUntil(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	rs string,
 	t primitive.Timestamp,
 ) ([]OplogChunk, error) {
@@ -120,7 +120,7 @@ func PITRGetChunksSliceUntil(
 	return pitrGetChunksSlice(ctx, m, q)
 }
 
-func pitrGetChunksSlice(ctx context.Context, m connect.MetaClient, q bson.D) ([]OplogChunk, error) {
+func pitrGetChunksSlice(ctx context.Context, m connect.Client, q bson.D) ([]OplogChunk, error) {
 	cur, err := m.PITRChunksCollection().Find(
 		ctx,
 		q,
@@ -149,7 +149,7 @@ func pitrGetChunksSlice(ctx context.Context, m connect.MetaClient, q bson.D) ([]
 // given replica set and start from the given timestamp
 func PITRGetChunkStarts(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	rs string,
 	ts primitive.Timestamp,
 ) (*OplogChunk, error) {
@@ -170,7 +170,7 @@ func PITRGetChunkStarts(
 }
 
 // PITRAddChunk stores PITR chunk metadata
-func PITRAddChunk(ctx context.Context, m connect.MetaClient, c OplogChunk) error {
+func PITRAddChunk(ctx context.Context, m connect.Client, c OplogChunk) error {
 	_, err := m.PITRChunksCollection().InsertOne(ctx, c)
 
 	return err
@@ -198,7 +198,7 @@ func (t Timeline) String() string {
 // `flist` is a cache of chunk sizes.
 func PITRGetValidTimelines(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	rs string,
 	until primitive.Timestamp,
 ) ([]Timeline, error) {
@@ -219,8 +219,8 @@ func PITRGetValidTimelines(
 }
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
-func PITRTimelines(ctx context.Context, m connect.MetaClient) ([]Timeline, error) {
-	shards, err := topo.ClusterMembers(ctx, m.UnsafeClient())
+func PITRTimelines(ctx context.Context, m connect.Client) ([]Timeline, error) {
+	shards, err := topo.ClusterMembers(ctx, m.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}

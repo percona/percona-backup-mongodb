@@ -145,24 +145,6 @@ const (
 	OperationCommand Operation = "c"
 )
 
-type BalancerMode string
-
-const (
-	BalancerModeOn  BalancerMode = "full"
-	BalancerModeOff BalancerMode = "off"
-)
-
-func (m BalancerMode) String() string {
-	switch m {
-	case BalancerModeOn:
-		return "on"
-	case BalancerModeOff:
-		return "off"
-	default:
-		return "unknown"
-	}
-}
-
 const StaleFrameSec uint32 = 30
 
 const (

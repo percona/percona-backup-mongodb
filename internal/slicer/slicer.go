@@ -27,7 +27,7 @@ import (
 
 // Slicer is an incremental backup object
 type Slicer struct {
-	leadClient connect.MetaClient
+	leadClient connect.Client
 	node       *mongo.Client
 	rs         string
 	span       int64
@@ -41,7 +41,7 @@ type Slicer struct {
 // NewSlicer creates an incremental backup object
 func NewSlicer(
 	rs string,
-	cn connect.MetaClient,
+	cn connect.Client,
 	node *mongo.Client,
 	to storage.Storage,
 	ep config.Epoch,

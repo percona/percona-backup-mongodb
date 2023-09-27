@@ -178,7 +178,7 @@ func waitRestore(ctx context.Context, cn *pbm.PBM, m *types.RestoreMeta, status 
 
 	getMeta := query.GetRestoreMeta
 	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
-		getMeta = func(_ context.Context, _ connect.MetaClient, name string) (*types.RestoreMeta, error) {
+		getMeta = func(_ context.Context, _ connect.Client, name string) (*types.RestoreMeta, error) {
 			return resync.GetPhysRestoreMeta(name, stg, l)
 		}
 	}
@@ -384,7 +384,7 @@ func restore(
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		fn = func(_ context.Context, _ connect.MetaClient, name string) (*types.RestoreMeta, error) {
+		fn = func(_ context.Context, _ connect.Client, name string) (*types.RestoreMeta, error) {
 			return resync.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS()))
 		}
 		ctx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
@@ -431,11 +431,11 @@ func parseTS(t string) (primitive.Timestamp, error) {
 	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
-type getRestoreMetaFn func(ctx context.Context, m connect.MetaClient, name string) (*types.RestoreMeta, error)
+type getRestoreMetaFn func(ctx context.Context, m connect.Client, name string) (*types.RestoreMeta, error)
 
 func waitForRestoreStatus(
 	ctx context.Context,
-	m connect.MetaClient,
+	m connect.Client,
 	name string,
 	getfn getRestoreMetaFn,
 ) (*types.RestoreMeta, error) {
