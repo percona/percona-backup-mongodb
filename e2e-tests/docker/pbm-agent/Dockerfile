@@ -1,36 +1,20 @@
 ARG MONGODB_VERSION=4.4
 ARG MONGODB_IMAGE=percona/percona-server-mongodb
 
-FROM golang:1.19-bullseye as goimg
+FROM ${MONGODB_IMAGE}:${MONGODB_VERSION} as mongo_image
 
-FROM ${MONGODB_IMAGE}:${MONGODB_VERSION}
+FROM oraclelinux:8 AS base-build
+WORKDIR /build
+RUN dnf update && dnf install git make golang
 
-USER 0
-
-RUN dnf config-manager --enable ol8_u4_security_validation; \
-	dnf config-manager --enable ol8_codeready_builder; \
-	dnf -y install epel-release; \
-	dnf -y update; \
-	dnf -y install \
-	libfaketime \
-	iproute \
-	krb5-devel \
-	vim \
-	make \
-	gcc \
-	nload \
-	htop; \
-	dnf -y install tc
-
-COPY --from=goimg /usr/local/go /usr/local/go
-ENV PATH=$PATH:/usr/local/go/bin
-ENV GOPATH /go
-ENV PATH $GOPATH/bin:$PATH
-RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
-RUN mkdir /opt/backups
-
-WORKDIR /opt/pbm
+FROM pbm:build-base AS pbm-build
 COPY . .
-RUN make install-tests
+RUN make build-tests
 
-USER 1001
+FROM oraclelinux:8
+ARG MONGODB_VERSION=4.4
+ARG MONGODB_IMAGE=percona/percona-server-mongodb
+
+RUN mkdir -p /data/db
+COPY --from=mongo_image /bin/mongod /bin/
+COPY --from=pbm-build /build/bin/pbm* /bin/
