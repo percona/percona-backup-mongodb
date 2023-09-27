@@ -373,9 +373,10 @@ func restore(
 
 	// physical restore may take more time to start
 	const waitPhysRestoreStart = time.Second * 120
+	var startCtx context.Context
 	if bcpType == defs.LogicalBackup {
 		fn = query.GetRestoreMeta
-		ctx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
+		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
 		ep, _ := config.GetEpoch(ctx, cn.Conn)
 		l := cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS())
@@ -387,11 +388,11 @@ func restore(
 		fn = func(_ context.Context, _ connect.Client, name string) (*types.RestoreMeta, error) {
 			return resync.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS()))
 		}
-		ctx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
+		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(ctx, cn.Conn, name, fn)
+	return waitForRestoreStatus(startCtx, cn.Conn, name, fn)
 }
 
 func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {

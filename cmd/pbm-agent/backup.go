@@ -237,13 +237,13 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 		l.Warning("set nominee ack: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	bcpCtx, cancel := context.WithCancel(ctx)
 	a.setBcp(&currentBackup{
 		header: cmd,
 		cancel: cancel,
 	})
 	l.Info("backup started")
-	err = bcp.Run(ctx, cmd, opid, l)
+	err = bcp.Run(bcpCtx, cmd, opid, l)
 	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) {

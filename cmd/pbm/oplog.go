@@ -79,10 +79,10 @@ func replayOplog(ctx context.Context, cn *pbm.PBM, o replayOptions, outf outForm
 
 	fmt.Printf("Starting oplog replay '%s - %s'", o.start, o.end)
 
-	ctx, cancel := context.WithTimeout(ctx, defs.WaitActionStart)
+	startCtx, cancel := context.WithTimeout(ctx, defs.WaitActionStart)
 	defer cancel()
 
-	m, err := waitForRestoreStatus(ctx, cn.Conn, name, query.GetRestoreMeta)
+	m, err := waitForRestoreStatus(startCtx, cn.Conn, name, query.GetRestoreMeta)
 	if err != nil {
 		return nil, err
 	}

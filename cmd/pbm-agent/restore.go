@@ -206,7 +206,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	go func() {
-		ctx, cancel := context.WithCancel(ctx)
+		slicerCtx, cancel := context.WithCancel(ctx)
 
 		w := make(chan *types.OPID, 1)
 		a.setPitr(&currentPitr{
@@ -215,7 +215,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			w:      w,
 		})
 
-		streamErr := ibcp.Stream(ctx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
+		streamErr := ibcp.Stream(slicerCtx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error
 			if errors.Is(streamErr, slicer.OpMovedError{}) {
