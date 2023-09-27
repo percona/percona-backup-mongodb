@@ -18,10 +18,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 )
 
 const (
-	BlobURL = "https://%s.blob.core.windows.net"
+	BlobURL = azure.BlobURL
 
 	defaultUploadBuff    = 10 << 20 // 10Mb
 	defaultUploadMaxBuff = 5
