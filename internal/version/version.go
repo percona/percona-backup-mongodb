@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/mod/semver"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
