@@ -7,12 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 

@@ -58,7 +58,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *types.ReplayCmd, opID types.
 	}
 
 	defer func() {
-		if err := lck.Release(ctx); err != nil {
+		if err := lck.Release(); err != nil {
 			l.Error("release lock: %s", err.Error())
 		}
 	}()
@@ -74,7 +74,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *types.ReplayCmd, opID types.
 	}
 	l.Info("oplog replay successfully finished")
 
-	resetEpoch, err := config.ResetEpoch(ctx, a.pbm.Conn)
+	resetEpoch, err := config.ResetEpoch(a.pbm.Conn)
 	if err != nil {
 		l.Error("reset epoch: %s", err.Error())
 		return

@@ -199,7 +199,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		err = ibcp.Catchup(ctx)
 	}
 	if err != nil {
-		if err := lck.Release(ctx); err != nil {
+		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 		return errors.Wrap(err, "catchup")
@@ -224,7 +224,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			out("streaming oplog: %v", streamErr)
 		}
 
-		if err := lck.Release(ctx); err != nil {
+		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 
@@ -307,7 +307,7 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 				return
 			}
 
-			if err := lck.Release(ctx); err != nil {
+			if err := lck.Release(); err != nil {
 				l.Error("release lock: %v", err)
 			}
 		}()
@@ -359,7 +359,7 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 			// restore. And the commands stream is down as well.
 			// The lock also updates its heartbeats but Restore waits only for one state
 			// with the timeout twice as short defs.StaleFrameSec.
-			_ = lck.Release(ctx)
+			_ = lck.Release()
 			lck = nil
 		}
 
@@ -383,7 +383,7 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 	}
 
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
-		epch, err := config.ResetEpoch(ctx, a.pbm.Conn)
+		epch, err := config.ResetEpoch(a.pbm.Conn)
 		if err != nil {
 			l.Error("reset epoch: %v", err)
 		}

@@ -276,7 +276,7 @@ func (a *Agent) Delete(ctx context.Context, d *types.DeleteBackupCmd, opid types
 		return
 	}
 	defer func() {
-		if err := lock.Release(ctx); err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -349,7 +349,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *types.DeletePITRCmd, opid typ
 		return
 	}
 	defer func() {
-		if err := lock.Release(ctx); err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -412,7 +412,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *types.CleanupCmd, opid types.OPI
 		return
 	}
 	defer func() {
-		if err := lock.Release(ctx); err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
 	}()
@@ -500,7 +500,7 @@ func (a *Agent) Resync(ctx context.Context, opid types.OPID, ep config.Epoch) {
 	}
 
 	defer func() {
-		if err := lock.Release(ctx); err != nil {
+		if err := lock.Release(); err != nil {
 			l.Error("reslase lock %v: %v", lock, err)
 		}
 	}()
@@ -513,7 +513,7 @@ func (a *Agent) Resync(ctx context.Context, opid types.OPID, ep config.Epoch) {
 	}
 	l.Info("succeed")
 
-	epch, err := config.ResetEpoch(ctx, a.pbm.Conn)
+	epch, err := config.ResetEpoch(a.pbm.Conn)
 	if err != nil {
 		l.Error("reset epoch: %v", err)
 		return

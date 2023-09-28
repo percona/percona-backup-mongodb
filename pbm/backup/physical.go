@@ -121,7 +121,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	}
 	defer func() {
 		if err != nil {
-			cur.Close(ctx)
+			cur.Close(context.Background())
 		}
 	}()
 

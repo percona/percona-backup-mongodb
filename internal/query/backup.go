@@ -38,12 +38,12 @@ func getBackupMeta(ctx context.Context, m connect.Client, clause bson.D) (*types
 	return b, errors.Wrap(err, "decode")
 }
 
-func ChangeBackupStateOPID(ctx context.Context, m connect.Client, opid string, s defs.Status, msg string) error {
-	return changeBackupState(ctx, m, bson.D{{"opid", opid}}, s, msg)
+func ChangeBackupStateOPID(m connect.Client, opid string, s defs.Status, msg string) error {
+	return changeBackupState(context.Background(), m, bson.D{{"opid", opid}}, s, msg)
 }
 
-func ChangeBackupState(ctx context.Context, m connect.Client, bcpName string, s defs.Status, msg string) error {
-	return changeBackupState(ctx, m, bson.D{{"name", bcpName}}, s, msg)
+func ChangeBackupState(m connect.Client, bcpName string, s defs.Status, msg string) error {
+	return changeBackupState(context.Background(), m, bson.D{{"name", bcpName}}, s, msg)
 }
 
 func changeBackupState(ctx context.Context, m connect.Client, clause bson.D, s defs.Status, msg string) error {
@@ -142,10 +142,10 @@ func AddRSMeta(ctx context.Context, m connect.Client, bcpName string, rs types.B
 	return err
 }
 
-func ChangeRSState(ctx context.Context, m connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
+func ChangeRSState(m connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
 	_, err := m.BcpCollection().UpdateOne(
-		ctx,
+		context.Background(),
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
 			{"$set", bson.M{"replsets.$.status": s}},
@@ -179,9 +179,9 @@ func RSSetPhyFiles(ctx context.Context, m connect.Client, bcpName, rsName string
 	return err
 }
 
-func SetRSLastWrite(ctx context.Context, m connect.Client, bcpName, rsName string, ts primitive.Timestamp) error {
+func SetRSLastWrite(m connect.Client, bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := m.BcpCollection().UpdateOne(
-		ctx,
+		context.Background(),
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
 			{"$set", bson.M{"replsets.$.last_write_ts": ts}},

@@ -203,7 +203,7 @@ func runFinishBcp(ctx context.Context, cn *pbm.PBM, bcp string) (fmt.Stringer, e
 	}
 
 	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
-		query.ChangeBackupState(ctx, cn.Conn, bcp, defs.StatusCopyDone, "")
+		query.ChangeBackupState(cn.Conn, bcp, defs.StatusCopyDone, "")
 }
 
 func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status defs.Status) (*defs.Status, error) {

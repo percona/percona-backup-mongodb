@@ -139,7 +139,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 		l.Debug("init backup meta")
 
 		if err = topo.CheckTopoForBackup(ctx, a.pbm.Conn, cmd.Type); err != nil {
-			ferr := query.ChangeBackupState(ctx, a.pbm.Conn, cmd.Name, defs.StatusError, err.Error())
+			ferr := query.ChangeBackupState(a.pbm.Conn, cmd.Name, defs.StatusError, err.Error())
 			l.Info("mark backup as %s `%v`: %v", defs.StatusError, err, ferr)
 			return
 		}
@@ -256,7 +256,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 	}
 
 	l.Debug("releasing lock")
-	err = lck.Release(ctx)
+	err = lck.Release()
 	if err != nil {
 		l.Error("unable to release backup lock %v: %v", lck, err)
 	}

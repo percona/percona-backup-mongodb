@@ -3,13 +3,12 @@ package lock
 import (
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
@@ -105,7 +104,7 @@ func (l *Lock) try(ctx context.Context, old *LockHeader) (bool, error) {
 		// log the operation. duplicate means error
 		err := l.log(ctx)
 		if err != nil {
-			rerr := l.Release(ctx)
+			rerr := l.Release()
 			if rerr != nil {
 				err = errors.Errorf("%v. Also failed to release the lock: %v", err, rerr)
 			}
@@ -174,7 +173,7 @@ func MarkBcpStale(ctx context.Context, l *Lock, opid string) error {
 	if logger := log.GetLoggerFromContextOr(ctx, nil); logger != nil {
 		logger.Debug(string(defs.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
 	}
-	return query.ChangeBackupStateOPID(ctx, l.m, opid, defs.StatusError,
+	return query.ChangeBackupStateOPID(l.m, opid, defs.StatusError,
 		"some of pbm-agents were lost during the backup")
 }
 
@@ -197,12 +196,12 @@ func MarkRestoreStale(ctx context.Context, l *Lock, opid string) error {
 }
 
 // Release the lock
-func (l *Lock) Release(ctx context.Context) error {
+func (l *Lock) Release() error {
 	if l.cancel != nil {
 		l.cancel()
 	}
 
-	_, err := l.coll.DeleteOne(ctx, l.LockHeader)
+	_, err := l.coll.DeleteOne(context.Background(), l.LockHeader)
 	return errors.Wrap(err, "deleteOne")
 }
 

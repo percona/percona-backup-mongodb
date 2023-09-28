@@ -104,7 +104,7 @@ func (b *Backup) doLogical(
 
 		defer func() {
 			l.Info("dropping tmp collections")
-			if err := b.node.DropTMPcoll(ctx); err != nil {
+			if err := b.node.DropTMPcoll(context.Background()); err != nil {
 				l.Warning("drop tmp users and roles: %v", err)
 			}
 		}()
@@ -167,7 +167,7 @@ func (b *Backup) doLogical(
 	}
 	l.Info("mongodump finished, waiting for the oplog")
 
-	err = query.ChangeRSState(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
+	err = query.ChangeRSState(b.cn.Conn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
@@ -177,7 +177,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "get shard's last write ts")
 	}
 
-	err = query.SetRSLastWrite(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, lwts)
+	err = query.SetRSLastWrite(b.cn.Conn, bcp.Name, rsMeta.Name, lwts)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}

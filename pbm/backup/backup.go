@@ -185,11 +185,11 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 				status = defs.StatusCancelled
 			}
 
-			ferr := query.ChangeRSState(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, status, err.Error())
+			ferr := query.ChangeRSState(b.cn.Conn, bcp.Name, rsMeta.Name, status, err.Error())
 			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
-				ferr := query.ChangeBackupState(ctx, b.cn.Conn, bcp.Name, status, err.Error())
+				ferr := query.ChangeBackupState(b.cn.Conn, bcp.Name, status, err.Error())
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
@@ -204,7 +204,7 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 			return
 		}
 
-		errd := topo.SetBalancerStatus(ctx, b.cn.Conn, topo.BalancerModeOn)
+		errd := topo.SetBalancerStatus(context.Background(), b.cn.Conn, topo.BalancerModeOn)
 		if errd != nil {
 			l.Error("set balancer ON: %v", errd)
 			return
@@ -228,7 +228,7 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 			for {
 				select {
 				case <-tk.C:
-					err := query.BackupHB(ctx, b.cn.Conn, bcp.Name)
+					err := query.BackupHB(context.Background(), b.cn.Conn, bcp.Name)
 					if err != nil {
 						l.Error("send pbm heartbeat: %v", err)
 					}
@@ -279,13 +279,13 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 		return err
 	}
 
-	err = query.ChangeRSState(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
+	err = query.ChangeRSState(b.cn.Conn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
 
 	if inf.IsLeader() {
-		epch, err := config.ResetEpoch(ctx, b.cn.Conn)
+		epch, err := config.ResetEpochWithContext(ctx, b.cn.Conn)
 		if err != nil {
 			l.Error("reset epoch")
 		} else {
@@ -354,7 +354,7 @@ func (b *Backup) toState(
 	inf *topo.NodeInfo,
 	wait *time.Duration,
 ) error {
-	err := query.ChangeRSState(ctx, b.cn.Conn, bcp, inf.SetName, status, "")
+	err := query.ChangeRSState(b.cn.Conn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -509,7 +509,7 @@ func (b *Backup) converged(
 	}
 
 	if shardsToFinish == 0 {
-		err := query.ChangeBackupState(ctx, b.cn.Conn, bcpName, status, "")
+		err := query.ChangeBackupState(b.cn.Conn, bcpName, status, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "update backup meta with %s", status)
 		}

@@ -101,7 +101,7 @@ func (r *Restore) exit(ctx context.Context, err error, l *log.Event) {
 //
 //nolint:nonamedreturns
 func (r *Restore) Snapshot(ctx context.Context, cmd *types.RestoreCmd, opid types.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(ctx, err, l) }()
+	defer func() { r.exit(context.Background(), err, l) }()
 
 	bcp, err := SnapshotMeta(ctx, r.cn, cmd.BackupName, r.stg)
 	if err != nil {
@@ -213,7 +213,7 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 //
 //nolint:nonamedreturns
 func (r *Restore) PITR(ctx context.Context, cmd *types.RestoreCmd, opid types.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(ctx, err, l) }()
+	defer func() { r.exit(context.Background(), err, l) }()
 
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
@@ -327,7 +327,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *types.RestoreCmd, opid types.OP
 
 //nolint:nonamedreturns
 func (r *Restore) ReplayOplog(ctx context.Context, cmd *types.ReplayCmd, opid types.OPID, l *log.Event) (err error) {
-	defer func() { r.exit(ctx, err, l) }()
+	defer func() { r.exit(context.Background(), err, l) }()
 
 	if err = r.init(ctx, cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
