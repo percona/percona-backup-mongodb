@@ -181,7 +181,7 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 	defer func() {
 		if err != nil {
 			status := defs.StatusError
-			if errors.Is(err, storage.ErrCancelled) {
+			if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
 				status = defs.StatusCancelled
 			}
 
@@ -228,7 +228,7 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 			for {
 				select {
 				case <-tk.C:
-					err := query.BackupHB(context.Background(), b.cn.Conn, bcp.Name)
+					err := query.BackupHB(ctx, b.cn.Conn, bcp.Name)
 					if err != nil {
 						l.Error("send pbm heartbeat: %v", err)
 					}
@@ -258,7 +258,10 @@ func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID,
 	}
 
 	defer func() {
-		if !errors.Is(err, storage.ErrCancelled) || !inf.IsLeader() {
+		if !inf.IsLeader() {
+			return
+		}
+		if !errors.Is(err, storage.ErrCancelled) || !errors.Is(err, context.Canceled) {
 			return
 		}
 

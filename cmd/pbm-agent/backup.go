@@ -246,7 +246,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *types.BackupCmd, opid types.OPI
 	err = bcp.Run(bcpCtx, cmd, opid, l)
 	a.unsetBcp()
 	if err != nil {
-		if errors.Is(err, storage.ErrCancelled) {
+		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
 			l.Info("backup was canceled")
 		} else {
 			l.Error("backup: %v", err)
