@@ -4,11 +4,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
-	"golang.org/x/mod/semver"
-
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
+	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
@@ -59,10 +56,8 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 		func() { t.IncrementalBackup(cVersion) })
 
 	if typ == testsSharded {
-		if semver.Compare(cVersion, "v4.2") >= 0 {
-			runTest("Physical Distributed Transactions backup",
-				t.DistributedTrxPhysical)
-		}
+		runTest("Physical Distributed Transactions backup",
+			t.DistributedTrxPhysical)
 	}
 
 	runTest("Clock Skew Tests",

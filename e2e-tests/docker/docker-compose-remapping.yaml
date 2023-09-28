@@ -2,7 +2,7 @@ version: "3.4"
 services:
   tests:
     build:
-      dockerfile: ./e2e-tests/Dockerfile
+      dockerfile: ./e2e-tests/docker/tests.dockerfile
       context: ../..
       args:
         - TESTS_BCP_TYPE=logical
@@ -22,7 +22,7 @@ services:
 
   rs101:
     build:
-      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
@@ -52,7 +52,7 @@ services:
     build:
       labels:
         - "com.percona.pbm.app=agent"
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
@@ -67,7 +67,7 @@ services:
 
   rs201:
     build:
-      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
@@ -97,7 +97,7 @@ services:
     build:
       labels:
         - "com.percona.pbm.app=agent"
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
         - MONGODB_VERSION=${MONGODB_VERSION:-4.4}

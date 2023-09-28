@@ -1,6 +1,6 @@
 FROM oraclelinux:8 AS base-build
 WORKDIR /build
-RUN dnf update && dnf install git make golang
+RUN dnf update && dnf install golang
 
 FROM pbm:build-base AS pbm-build
 ARG TESTS_BCP_TYPE
