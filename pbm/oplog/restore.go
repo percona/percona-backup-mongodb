@@ -8,7 +8,6 @@
 package oplog
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -22,12 +21,15 @@ import (
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
@@ -41,8 +43,8 @@ func DefaultOpFilter(*Record) bool { return true }
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
-	pbm.DB + "." + pbm.TmpUsersCollection,
-	pbm.DB + "." + pbm.TmpRolesCollection,
+	defs.DB + "." + defs.TmpUsersCollection,
+	defs.DB + "." + defs.TmpRolesCollection,
 }
 
 var knownCommands = map[string]struct{}{
@@ -104,7 +106,7 @@ type OplogRestore struct {
 	// the queue of last N committed transactions
 	txnCommit *cqueue
 
-	txn        chan pbm.RestoreTxn
+	txn        chan types.RestoreTxn
 	txnSyncErr chan error
 	// The `T` part of the last applied op's Timestamp.
 	// Keeping just `T` allows atomic use as we only care
@@ -126,10 +128,10 @@ const saveLastDistTxns = 100
 func NewOplogRestore(
 	dst *mongo.Client,
 	ic *idx.IndexCatalog,
-	sv *pbm.MongoVersion,
+	sv *version.MongoVersion,
 	unsafe,
 	preserveUUID bool,
-	ctxn chan pbm.RestoreTxn,
+	ctxn chan types.RestoreTxn,
 	txnErr chan error,
 ) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
@@ -205,12 +207,12 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 		}
 
 		// skip if operation happened before the desired time frame
-		if primitive.CompareTimestamp(o.startTS, oe.Timestamp) == 1 {
+		if o.startTS.Compare(oe.Timestamp) == 1 {
 			continue
 		}
 
 		// finish if operation happened after the desired time frame (oe.Timestamp > to)
-		if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+		if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -286,7 +288,7 @@ func (o *OplogRestore) LastOpTS() uint32 {
 
 func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+	if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 		return nil
 	}
 
@@ -449,10 +451,10 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 			}
 		}
 
-		o.txnCommit.push(pbm.RestoreTxn{
+		o.txnCommit.push(types.RestoreTxn{
 			ID:    txnID,
 			Ctime: cts,
-			State: pbm.TxnCommit,
+			State: types.TxnCommit,
 		})
 	}
 
@@ -581,7 +583,7 @@ func (o *OplogRestore) applyTxn(id string) error {
 }
 
 //nolint:nonamedreturns
-func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []pbm.RestoreTxn) {
+func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []types.RestoreTxn) {
 	return o.txnData, o.txnCommit.s
 }
 
@@ -756,7 +758,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			op2 := op
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {
-				return errors.WithMessage(err, "oplog: drop collection before create")
+				return errors.Wrap(err, "oplog: drop collection before create")
 			}
 		}
 	}
@@ -778,15 +780,15 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 }
 
 type cqueue struct {
-	s []pbm.RestoreTxn
+	s []types.RestoreTxn
 	c int
 }
 
 func newCQueue(capacity int) *cqueue {
-	return &cqueue{s: make([]pbm.RestoreTxn, 0, capacity), c: capacity}
+	return &cqueue{s: make([]types.RestoreTxn, 0, capacity), c: capacity}
 }
 
-func (c *cqueue) push(v pbm.RestoreTxn) {
+func (c *cqueue) push(v types.RestoreTxn) {
 	if len(c.s) == c.c {
 		c.s = c.s[1:]
 	}
@@ -794,7 +796,7 @@ func (c *cqueue) push(v pbm.RestoreTxn) {
 	c.s = append(c.s, v)
 }
 
-func (c *cqueue) last() *pbm.RestoreTxn {
+func (c *cqueue) last() *types.RestoreTxn {
 	if len(c.s) == 0 {
 		return nil
 	}

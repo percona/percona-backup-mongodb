@@ -1,7 +1,6 @@
 package pbm
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	dtypes "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
-	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type Ctl struct {
@@ -27,7 +28,10 @@ type Ctl struct {
 var backupNameRE = regexp.MustCompile(`Starting backup '([0-9\-\:TZ]+)'`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
-	cn, err := docker.NewClient(host, "1.39", nil, nil)
+	cn, err := docker.NewClientWithOpts(
+		docker.WithHost(host),
+		docker.WithVersion("1.39"),
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}
@@ -84,7 +88,7 @@ func (c *Ctl) Resync() error {
 	return nil
 }
 
-func (c *Ctl) Backup(typ pbm.BackupType, opts ...string) (string, error) {
+func (c *Ctl) Backup(typ defs.BackupType, opts ...string) (string, error) {
 	cmd := append([]string{"pbm", "backup", "--type", string(typ), "--compression", "s2"}, opts...)
 	out, err := c.RunCmd(cmd...)
 	if err != nil {
@@ -109,17 +113,17 @@ type ListOut struct {
 }
 
 type SnapshotStat struct {
-	Name       string     `json:"name"`
-	Size       int64      `json:"size,omitempty"`
-	Status     pbm.Status `json:"status"`
-	Err        string     `json:"error,omitempty"`
-	RestoreTS  int64      `json:"restoreTo"`
-	PBMVersion string     `json:"pbmVersion"`
+	Name       string      `json:"name"`
+	Size       int64       `json:"size,omitempty"`
+	Status     defs.Status `json:"status"`
+	Err        string      `json:"error,omitempty"`
+	RestoreTS  int64       `json:"restoreTo"`
+	PBMVersion string      `json:"pbmVersion"`
 }
 
 type PitrRange struct {
-	Err   string       `json:"error,omitempty"`
-	Range pbm.Timeline `json:"range"`
+	Err   string         `json:"error,omitempty"`
+	Range oplog.Timeline `json:"range"`
 }
 
 func (c *Ctl) List() (*ListOut, error) {
@@ -149,7 +153,7 @@ func skipCtl(str string) []byte {
 func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 	type rlist struct {
 		Start    int
-		Status   pbm.Status
+		Status   defs.Status
 		Type     string
 		Name     string
 		Snapshot string
@@ -190,9 +194,9 @@ func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 				}
 
 				switch r.Status {
-				case pbm.StatusDone:
+				case defs.StatusDone:
 					return nil
-				case pbm.StatusError:
+				case defs.StatusError:
 					return errors.Errorf("failed with %s", r.Error)
 				}
 			}
@@ -285,7 +289,7 @@ func (c *Ctl) PITRestoreClusterTime(t, i uint32) error {
 }
 
 func (c *Ctl) RunCmd(cmds ...string) (string, error) {
-	execConf := types.ExecConfig{
+	execConf := dtypes.ExecConfig{
 		Env:          c.env,
 		Cmd:          cmds,
 		AttachStderr: true,
@@ -296,13 +300,13 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, types.ExecStartCheck{})
+	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, dtypes.ExecStartCheck{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}
 	defer container.Close()
 
-	tmr := time.NewTimer(time.Duration(float64(pbm.WaitBackupStart) * 1.5))
+	tmr := time.NewTimer(time.Duration(float64(defs.WaitBackupStart) * 1.5))
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
@@ -333,7 +337,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 func (c *Ctl) ContainerLogs() (string, error) {
 	r, err := c.cn.ContainerLogs(
 		c.ctx, c.container,
-		types.ContainerLogsOptions{
+		dtypes.ContainerLogsOptions{
 			ShowStderr: true,
 		})
 	if err != nil {

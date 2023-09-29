@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 const (
@@ -34,20 +36,20 @@ func (c *Cluster) RestartAgents() {
 		log.Println("Agents has stopped", rs)
 	}
 
-	waitfor := time.Duration(pbm.StaleFrameSec+10) * time.Second
+	waitfor := time.Duration(defs.StaleFrameSec+10) * time.Second
 	log.Println("Sleeping for", waitfor)
 	time.Sleep(waitfor)
-	meta, err := c.mongopbm.GetBackupMeta(bcpName)
+	meta, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
 	if err != nil {
 		log.Fatalf("ERROR: get metadata for the backup %s: %v", bcpName, err)
 	}
 
-	if meta.Status != pbm.StatusError ||
+	if meta.Status != defs.StatusError ||
 		meta.Error() == nil ||
 		meta.Error().Error() != pbmLostAgentsErr &&
 			!strings.Contains(meta.Error().Error(), pbmLostShardErr) {
 		log.Fatalf("ERROR: wrong state of the backup %s. Expect: %s/%s|...%s... Got: %s/%s",
-			bcpName, pbm.StatusError, pbmLostAgentsErr, pbmLostShardErr, meta.Status, meta.Error())
+			bcpName, defs.StatusError, pbmLostAgentsErr, pbmLostShardErr, meta.Status, meta.Error())
 	}
 
 	for rs := range c.shards {
@@ -62,5 +64,5 @@ func (c *Cluster) RestartAgents() {
 	log.Printf("Sleeping for %v for agents to report status", time.Second*7)
 	time.Sleep(time.Second * 7)
 	log.Println("Trying a new backup")
-	c.BackupAndRestore(pbm.LogicalBackup)
+	c.BackupAndRestore(defs.LogicalBackup)
 }

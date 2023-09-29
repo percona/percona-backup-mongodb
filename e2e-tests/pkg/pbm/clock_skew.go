@@ -1,21 +1,26 @@
 package pbm
 
 import (
-	"context"
 	"log"
+
+	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {
 	log.Printf("== Skew the clock for %s on the replicaset %s ", ts, rsName)
 
-	cn, err := docker.NewClient(dockerHost, "1.39", nil, nil)
+	cn, err := docker.NewClientWithOpts(
+		docker.WithHost(dockerHost),
+		docker.WithVersion("1.39"),
+	)
 	if err != nil {
 		return errors.Wrap(err, "docker client")
 	}

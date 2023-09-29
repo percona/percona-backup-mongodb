@@ -4,6 +4,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
 
@@ -20,7 +22,7 @@ func (c *Cluster) Timeseries() {
 	c.pitrOn()
 	defer c.pitrOff()
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 
 	time.Sleep(time.Second)
 

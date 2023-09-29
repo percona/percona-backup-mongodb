@@ -2,7 +2,7 @@ version: "3.4"
 services:
   tests:
     build:
-      dockerfile: ./e2e-tests/Dockerfile
+      dockerfile: ./e2e-tests/docker/tests.dockerfile
       context: ../..
       args:
         - TESTS_BCP_TYPE=${TESTS_BCP_TYPE}
@@ -26,10 +26,10 @@ services:
     environment:
       - "PBM_MONGODB_URI=mongodb://${BACKUP_USER:-bcp}:${MONGO_PASS:-test1234}@rs101:27017"
     build:
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
@@ -39,10 +39,10 @@ services:
 
   rs101:
     build:
-      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
     labels:
@@ -52,17 +52,17 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-      - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+      - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
     command: mongod --replSet rs1 --directoryperdb --port 27017 --dbpath=/data/db/ --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
       - ./scripts/start.sh:/opt/start.sh
   rs102:
     build:
-      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs102
     labels:
@@ -72,10 +72,10 @@ services:
       - data-rs102:/data/db
   rs103:
     build:
-      dockerfile: ./e2e-tests/docker/mongodb-rs/Dockerfile
+      dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs103
     labels:
@@ -96,10 +96,10 @@ services:
     build:
       labels:
         - "com.percona.pbm.app=agent"
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
@@ -121,10 +121,10 @@ services:
     build:
       labels:
         - "com.percona.pbm.app=agent"
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:
@@ -145,10 +145,10 @@ services:
     build:
       labels:
         - "com.percona.pbm.app=agent"
-      dockerfile: ./e2e-tests/docker/pbm-agent/Dockerfile
+      dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.2}
+        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     command: pbm-agent
     cap_add:

@@ -1,7 +1,6 @@
 package sharded
 
 import (
-	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -10,7 +9,8 @@ import (
 	"golang.org/x/mod/semver"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 type scounter struct {
@@ -19,18 +19,18 @@ type scounter struct {
 }
 
 func lte(t1, t2 primitive.Timestamp) bool {
-	return primitive.CompareTimestamp(t1, t2) <= 0
+	return t1.Compare(t2) <= 0
 }
 
 func lt(t1, t2 primitive.Timestamp) bool {
-	return primitive.CompareTimestamp(t1, t2) < 0
+	return t1.Compare(t2) < 0
 }
 
-func (c *Cluster) BackupBoundsCheck(typ pbm.BackupType, mongoVersion string) {
+func (c *Cluster) BackupBoundsCheck(typ defs.BackupType, mongoVersion string) {
 	inRange := lte
 	backup := c.LogicalBackup
 	restore := c.LogicalRestore
-	if typ == pbm.PhysicalBackup {
+	if typ == defs.PhysicalBackup {
 		backup = c.PhysicalBackup
 		restore = c.PhysicalRestore
 
@@ -56,14 +56,14 @@ func (c *Cluster) BackupBoundsCheck(typ pbm.BackupType, mongoVersion string) {
 
 	bcpName := backup()
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 	time.Sleep(time.Second * 1)
 
 	for _, c := range counters {
 		c.cancel()
 	}
 
-	bcpMeta, err := c.mongopbm.GetBackupMeta(bcpName)
+	bcpMeta, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
 	if err != nil {
 		log.Fatalf("ERROR: get backup '%s' metadata: %v\n", bcpName, err)
 	}
@@ -74,7 +74,7 @@ func (c *Cluster) BackupBoundsCheck(typ pbm.BackupType, mongoVersion string) {
 		c.bcheckClear(name, shard)
 	}
 
-	restore(bcpName)
+	restore(context.TODO(), bcpName)
 
 	for name, shard := range c.shards {
 		c.bcheckCheck(name, shard, <-counters[name].data, bcpMeta.LastWriteTS, inRange)

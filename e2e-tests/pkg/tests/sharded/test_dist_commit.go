@@ -1,8 +1,9 @@
 package sharded
 
 import (
-	"context"
 	"log"
+
+	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

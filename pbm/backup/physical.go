@@ -2,7 +2,6 @@ package backup
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,17 +11,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsontype"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	plog "github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
+	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 const cursorCreateRetries = 10
@@ -43,7 +46,7 @@ type BCoplogTS struct {
 // see https://www.percona.com/blog/2021/06/07/experimental-feature-backupcursorextend-in-percona-server-for-mongodb/
 type BackupCursorData struct {
 	Meta *Meta
-	Data []pbm.File
+	Data []types.File
 }
 
 type BackupCursor struct {
@@ -118,12 +121,12 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	}
 	defer func() {
 		if err != nil {
-			cur.Close(ctx)
+			cur.Close(context.Background())
 		}
 	}()
 
 	var m *Meta
-	var files []pbm.File
+	var files []types.File
 	for cur.TryNext(ctx) {
 		// metadata is the first
 		if m == nil {
@@ -138,7 +141,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 			continue
 		}
 
-		var d pbm.File
+		var d types.File
 		err = cur.Decode(&d)
 		if err != nil {
 			return nil, errors.Wrap(err, "decode filename")
@@ -169,7 +172,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.File, error) {
+func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]types.File, error) {
 	ctx := context.Background()
 	cur, err := bc.n.Session().Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
@@ -180,7 +183,7 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]pbm.File, error) {
 	}
 	defer cur.Close(ctx)
 
-	var j []pbm.File
+	var j []types.File
 
 	err = cur.All(ctx, &j)
 	return j, err
@@ -192,24 +195,28 @@ func (bc *BackupCursor) Close() {
 	}
 }
 
+func backupCursorName(s string) string {
+	return strings.NewReplacer("-", "", ":", "").Replace(s)
+}
+
 func (b *Backup) doPhysical(
 	ctx context.Context,
-	bcp *pbm.BackupCmd,
-	opid pbm.OPID,
-	rsMeta *pbm.BackupReplset,
-	inf *pbm.NodeInfo,
+	bcp *types.BackupCmd,
+	opid types.OPID,
+	rsMeta *types.BackupReplset,
+	inf *topo.NodeInfo,
 	stg storage.Storage,
 	l *plog.Event,
 ) error {
 	currOpts := bson.D{}
-	if b.typ == pbm.IncrementalBackup {
+	if b.typ == defs.IncrementalBackup {
 		currOpts = bson.D{
 			// thisBackupName can be customized on retry
-			{"thisBackupName", pbm.BackupCursorName(bcp.Name)},
+			{"thisBackupName", backupCursorName(bcp.Name)},
 			{"incrementalBackup", true},
 		}
 		if !b.incrBase {
-			src, err := b.cn.LastIncrementalBackup()
+			src, err := query.LastIncrementalBackup(ctx, b.cn.Conn)
 			if err != nil {
 				return errors.Wrap(err, "define source backup")
 			}
@@ -219,7 +226,7 @@ func (b *Backup) doPhysical(
 
 			// ? should be done during Init()?
 			if inf.IsLeader() {
-				err := b.cn.SetSrcBackup(bcp.Name, src.Name)
+				err := query.SetSrcBackup(ctx, b.cn.Conn, bcp.Name, src.Name)
 				if err != nil {
 					return errors.Wrap(err, "set source backup in meta")
 				}
@@ -235,7 +242,7 @@ func (b *Backup) doPhysical(
 			}
 			if realSrcID == "" {
 				// no custom thisBackupName was used. fallback to default
-				realSrcID = pbm.BackupCursorName(src.Name)
+				realSrcID = backupCursorName(src.Name)
 			}
 
 			currOpts = append(currOpts, bson.E{"srcBackupName", realSrcID})
@@ -261,7 +268,7 @@ func (b *Backup) doPhysical(
 
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
-		if b.typ == pbm.IncrementalBackup && strings.Contains(err.Error(), "(UnknownError) 2: No such file or directory") {
+		if b.typ == defs.IncrementalBackup && strings.Contains(err.Error(), "(UnknownError) 2: No such file or directory") {
 			return errors.New("can't find incremental backup history." +
 				" Previous backup was made on another node." +
 				" You can make a new base incremental backup to start a new history.")
@@ -271,36 +278,36 @@ func (b *Backup) doPhysical(
 
 	l.Debug("backup cursor id: %s", bcur.Meta.ID)
 
-	lwts, err := pbm.LastWrite(b.node.Session(), true)
+	lwts, err := topo.GetLastWrite(ctx, b.node.Session(), true)
 	if err != nil {
 		return errors.Wrap(err, "get shard's last write ts")
 	}
 
-	defOpts := &pbm.MongodOpts{}
+	defOpts := &topo.MongodOpts{}
 	defOpts.Storage.WiredTiger.EngineConfig.JournalCompressor = "snappy"
 	defOpts.Storage.WiredTiger.CollectionConfig.BlockCompressor = "snappy"
 	defOpts.Storage.WiredTiger.IndexConfig.PrefixCompression = true
 
-	mopts, err := b.node.GetOpts(defOpts)
+	mopts, err := topo.GetMongodOpts(ctx, b.node.Session(), defOpts)
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
 	}
 
 	rsMeta.MongodOpts = mopts
-	rsMeta.Status = pbm.StatusRunning
+	rsMeta.Status = defs.StatusRunning
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
 	if cursor.CustomThisID != "" {
 		// custom thisBackupName was used
 		rsMeta.CustomThisID = cursor.CustomThisID
 	}
-	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
+	err = query.AddRSMeta(ctx, b.cn.Conn, bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
+		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -308,24 +315,24 @@ func (b *Backup) doPhysical(
 			return errors.Wrap(err, "check cluster for backup started")
 		}
 
-		err = b.setClusterFirstWrite(bcp.Name)
+		err = b.setClusterFirstWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster first write ts")
 		}
 
-		err = b.setClusterLastWrite(bcp.Name)
+		err = b.setClusterLastWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}
 	}
 
 	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(bcp.Name, pbm.StatusRunning, nil)
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
 	if err != nil {
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	_, lwTS, err := b.waitForFirstLastWrite(bcp.Name)
+	_, lwTS, err := b.waitForFirstLastWrite(ctx, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "get cluster first & last write ts")
 	}
@@ -347,21 +354,22 @@ func (b *Backup) doPhysical(
 		data = append(data, *stgb)
 	}
 
-	if b.typ == pbm.ExternalBackup {
-		return b.handleExternal(bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, l)
+	if b.typ == defs.ExternalBackup {
+		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, l)
 	}
 
 	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
 }
 
 func (b *Backup) handleExternal(
-	bcp *pbm.BackupCmd,
-	rsMeta *pbm.BackupReplset,
+	ctx context.Context,
+	bcp *types.BackupCmd,
+	rsMeta *types.BackupReplset,
 	data,
-	jrnls []pbm.File,
+	jrnls []types.File,
 	dbpath string,
-	opid pbm.OPID,
-	inf *pbm.NodeInfo,
+	opid types.OPID,
+	inf *topo.NodeInfo,
 	l *plog.Event,
 ) error {
 	for _, f := range append(data, jrnls...) {
@@ -374,15 +382,15 @@ func (b *Backup) handleExternal(
 	// original LastWriteTS in the meta stored on PBM storage. As rsMeta might
 	// be used outside of this method.
 	fsMeta := *rsMeta
-	bmeta, err := b.cn.GetBackupMeta(bcp.Name)
+	bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcp.Name)
 	if err == nil {
 		fsMeta.LastWriteTS = bmeta.LastWriteTS
 	} else {
 		l.Warning("define LastWriteTS: get backup meta: %v", err)
 	}
 	// save rs meta along with the data files so it can be used during the restore
-	metaf := fmt.Sprintf(pbm.ExternalRsMetaFile, fsMeta.Name)
-	fsMeta.Files = append(fsMeta.Files, pbm.File{
+	metaf := fmt.Sprintf(defs.ExternalRsMetaFile, fsMeta.Name)
+	fsMeta.Files = append(fsMeta.Files, types.File{
 		Name: metaf,
 	})
 	metadst := filepath.Join(dbpath, metaf)
@@ -392,20 +400,20 @@ func (b *Backup) handleExternal(
 		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
 	}
 
-	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
+	err = query.RSSetPhyFiles(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
 
-	err = b.toState(pbm.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
+	err = b.toState(ctx, defs.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
 	if err != nil {
-		return errors.Wrapf(err, "converge to %s", pbm.StatusCopyReady)
+		return errors.Wrapf(err, "converge to %s", defs.StatusCopyReady)
 	}
 
 	l.Info("waiting for the datadir to be copied")
-	err = b.waitForStatus(bcp.Name, pbm.StatusCopyDone, nil)
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusCopyDone, nil)
 	if err != nil {
-		return errors.Wrapf(err, "waiting for %s", pbm.StatusCopyDone)
+		return errors.Wrapf(err, "waiting for %s", defs.StatusCopyDone)
 	}
 
 	err = os.Remove(metadst)
@@ -416,7 +424,7 @@ func (b *Backup) handleExternal(
 	return nil
 }
 
-func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
+func writeRSmetaToDisk(fname string, rsMeta *types.BackupReplset) error {
 	fw, err := os.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return errors.Wrapf(err, "create/open")
@@ -439,10 +447,10 @@ func writeRSmetaToDisk(fname string, rsMeta *pbm.BackupReplset) error {
 
 func (b *Backup) uploadPhysical(
 	ctx context.Context,
-	bcp *pbm.BackupCmd,
-	rsMeta *pbm.BackupReplset,
+	bcp *types.BackupCmd,
+	rsMeta *types.BackupReplset,
 	data,
-	jrnls []pbm.File,
+	jrnls []types.File,
 	dbpath string,
 	stg storage.Storage,
 	l *plog.Event,
@@ -450,7 +458,7 @@ func (b *Backup) uploadPhysical(
 	var err error
 	l.Info("uploading data")
 	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
-		b.typ == pbm.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+		b.typ == defs.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
 		return err
 	}
@@ -465,7 +473,7 @@ func (b *Backup) uploadPhysical(
 	l.Info("uploading journals done")
 	rsMeta.Files = append(rsMeta.Files, ju...)
 
-	err = b.cn.RSSetPhyFiles(bcp.Name, rsMeta.Name, rsMeta)
+	err = query.RSSetPhyFiles(ctx, b.cn.Conn, bcp.Name, rsMeta.Name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "set shard's files list")
 	}
@@ -475,7 +483,7 @@ func (b *Backup) uploadPhysical(
 		size += f.StgSize
 	}
 
-	err = b.cn.IncBackupSize(ctx, bcp.Name, size)
+	err = query.IncBackupSize(ctx, b.cn.Conn, bcp.Name, size)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}
@@ -485,7 +493,7 @@ func (b *Backup) uploadPhysical(
 
 const storagebson = "storage.bson"
 
-func getStorageBSON(dbpath string) (*pbm.File, error) {
+func getStorageBSON(dbpath string) (*types.File, error) {
 	f, err := os.Stat(path.Join(dbpath, storagebson))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -494,7 +502,7 @@ func getStorageBSON(dbpath string) (*pbm.File, error) {
 		return nil, err
 	}
 
-	return &pbm.File{
+	return &types.File{
 		Name:  path.Join(dbpath, storagebson),
 		Len:   f.Size(),
 		Size:  f.Size(),
@@ -507,12 +515,12 @@ type UUID struct{ uuid.UUID }
 
 // MarshalBSONValue implements the bson.ValueMarshaler interface.
 func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
-	return bsontype.Binary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
+	return bson.TypeBinary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
 }
 
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
 func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
-	if t != bsontype.Binary {
+	if t != bson.TypeBinary {
 		return errors.New("invalid format on unmarshal bson value")
 	}
 
@@ -539,15 +547,15 @@ func (id *UUID) IsZero() bool {
 // what files shouldn't be restored (those which isn't in the target backup).
 func uploadFiles(
 	ctx context.Context,
-	files []pbm.File,
+	files []types.File,
 	subdir string,
 	trimPrefix string,
 	incr bool,
 	stg storage.Storage,
-	comprT compress.CompressionType,
+	comprT defs.CompressionType,
 	comprL *int,
 	l *plog.Event,
-) ([]pbm.File, error) {
+) ([]types.File, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -559,11 +567,11 @@ func uploadFiles(
 	}
 
 	wfile := files[0]
-	data := []pbm.File{}
+	data := []types.File{}
 	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():
-			return nil, ErrCancelled
+			return nil, storage.ErrCancelled
 		default:
 		}
 
@@ -616,13 +624,13 @@ func uploadFiles(
 
 func writeFile(
 	ctx context.Context,
-	src pbm.File,
+	src types.File,
 	dst string,
 	stg storage.Storage,
-	compression compress.CompressionType,
+	compression defs.CompressionType,
 	compressLevel *int,
 	l *plog.Event,
-) (*pbm.File, error) {
+) (*types.File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
@@ -641,7 +649,7 @@ func writeFile(
 	}
 	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
-	_, err = Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
+	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
@@ -651,7 +659,7 @@ func writeFile(
 		return nil, errors.Wrapf(err, "get storage file stat %s", dst)
 	}
 
-	return &pbm.File{
+	return &types.File{
 		Name:    src.Name,
 		Size:    fstat.Size(),
 		Fmode:   fstat.Mode(),

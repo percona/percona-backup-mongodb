@@ -1,32 +1,36 @@
 package pbm
 
 import (
-	"context"
-
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type CleanupInfo struct {
-	Backups []BackupMeta `json:"backups"`
-	Chunks  []OplogChunk `json:"chunks"`
+	Backups []types.BackupMeta `json:"backups"`
+	Chunks  []oplog.OplogChunk `json:"chunks"`
 }
 
-func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) (CleanupInfo, error) {
+func MakeCleanupInfo(ctx context.Context, m connect.Client, ts primitive.Timestamp) (CleanupInfo, error) {
 	backups, err := listBackupsBefore(ctx, m, primitive.Timestamp{T: ts.T + 1})
 	if err != nil {
-		return CleanupInfo{}, errors.WithMessage(err, "list backups before")
+		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
 
 	exclude := true
 	if l := len(backups) - 1; l != -1 && backups[l].LastWriteTS.T == ts.T {
 		// there is a backup at the `ts`
-		if backups[l].Status == StatusDone && !sel.IsSelective(backups[l].Namespaces) {
+		if backups[l].Status == defs.StatusDone && !util.IsSelective(backups[l].Namespaces) {
 			// it can be used to fully restore data to the `ts` state.
 			// no need to exclude any base snapshot and chunks before the `ts`
 			exclude = false
@@ -39,12 +43,12 @@ func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 	// exclude the last incremental backups if it is required for following (after the `ts`)
 	backups, err = extractLastIncrementalChain(ctx, m, backups)
 	if err != nil {
-		return CleanupInfo{}, errors.WithMessage(err, "extract last incremental chain")
+		return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
 	}
 
 	chunks, err := listChunksBefore(ctx, m, ts)
 	if err != nil {
-		return CleanupInfo{}, errors.WithMessage(err, "list chunks before")
+		return CleanupInfo{}, errors.Wrap(err, "list chunks before")
 	}
 	if !exclude {
 		// all chunks can be deleted. there is a backup to fully restore data
@@ -73,9 +77,9 @@ func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 
 	excluded := false
 	origin := chunks
-	chunks = []OplogChunk{}
+	chunks = []oplog.OplogChunk{}
 	for i := range origin {
-		if primitive.CompareTimestamp(backups[baseIndex].LastWriteTS, origin[i].EndTS) != -1 {
+		if backups[baseIndex].LastWriteTS.Compare(origin[i].EndTS) != -1 {
 			chunks = append(chunks, origin[i])
 		} else {
 			excluded = true
@@ -93,28 +97,28 @@ func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 }
 
 // listBackupsBefore returns backups with restore cluster time less than or equals to ts
-func listBackupsBefore(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) ([]BackupMeta, error) {
+func listBackupsBefore(ctx context.Context, m connect.Client, ts primitive.Timestamp) ([]types.BackupMeta, error) {
 	f := bson.D{{"last_write_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
-	cur, err := m.Database(DB).Collection(BcpCollection).Find(ctx, f, o)
+	cur, err := m.BcpCollection().Find(ctx, f, o)
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 
-	rv := []BackupMeta{}
+	rv := []types.BackupMeta{}
 	err = cur.All(ctx, &rv)
-	return rv, errors.WithMessage(err, "cursor: all")
+	return rv, errors.Wrap(err, "cursor: all")
 }
 
-func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Timestamp) (bool, error) {
+func canDeleteBaseSnapshot(ctx context.Context, m connect.Client, lw primitive.Timestamp) (bool, error) {
 	f := bson.D{
 		{"last_write_ts", bson.M{"$gte": lw}},
 		{"nss", nil},
-		{"type", bson.M{"$ne": ExternalBackup}},
-		{"status", StatusDone},
+		{"type", bson.M{"$ne": defs.ExternalBackup}},
+		{"status", defs.StatusDone},
 	}
 	o := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
-	err := m.Database(DB).Collection(BcpCollection).FindOne(ctx, f, o).Err()
+	err := m.BcpCollection().FindOne(ctx, f, o).Err()
 	if err == nil {
 		// there is a base snapshot after `lw`
 		return true, nil
@@ -124,7 +128,7 @@ func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Ti
 		return false, err
 	}
 
-	enabled, oplogOnly, err := isPITREnabled(ctx, m)
+	enabled, oplogOnly, err := config.IsPITREnabled(ctx, m)
 	if err != nil {
 		return false, err
 	}
@@ -135,24 +139,28 @@ func canDeleteBaseSnapshot(ctx context.Context, m *mongo.Client, lw primitive.Ti
 }
 
 // listChunksBefore returns oplog chunks that contain an op at the ts
-func listChunksBefore(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) ([]OplogChunk, error) {
+func listChunksBefore(ctx context.Context, m connect.Client, ts primitive.Timestamp) ([]oplog.OplogChunk, error) {
 	f := bson.D{{"start_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"start_ts", 1}})
-	cur, err := m.Database(DB).Collection(PITRChunksCollection).Find(ctx, f, o)
+	cur, err := m.PITRChunksCollection().Find(ctx, f, o)
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 
-	rv := []OplogChunk{}
+	rv := []oplog.OplogChunk{}
 	err = cur.All(ctx, &rv)
-	return rv, errors.WithMessage(err, "cursor: all")
+	return rv, errors.Wrap(err, "cursor: all")
 }
 
-func extractLastIncrementalChain(ctx context.Context, m *mongo.Client, bcps []BackupMeta) ([]BackupMeta, error) {
+func extractLastIncrementalChain(
+	ctx context.Context,
+	m connect.Client,
+	bcps []types.BackupMeta,
+) ([]types.BackupMeta, error) {
 	// lookup for the last incremental
 	i := len(bcps) - 1
 	for ; i != -1; i-- {
-		if bcps[i].Type == IncrementalBackup {
+		if bcps[i].Type == defs.IncrementalBackup {
 			break
 		}
 	}
@@ -163,13 +171,13 @@ func extractLastIncrementalChain(ctx context.Context, m *mongo.Client, bcps []Ba
 
 	// check if there is an increment based on the backup
 	f := bson.D{{"src_backup", bcps[i].Name}}
-	res := m.Database(DB).Collection(BcpCollection).FindOne(ctx, f)
+	res := m.BcpCollection().FindOne(ctx, f)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// the backup is the last increment in the chain
 			err = nil
 		}
-		return bcps, errors.WithMessage(err, "query")
+		return bcps, errors.Wrap(err, "query")
 	}
 
 	for base := bcps[i].Name; i != -1; i-- {
@@ -191,7 +199,7 @@ func extractLastIncrementalChain(ctx context.Context, m *mongo.Client, bcps []Ba
 	return bcps, nil
 }
 
-func findLastBaseSnapshotIndex(bcps []BackupMeta) int {
+func findLastBaseSnapshotIndex(bcps []types.BackupMeta) int {
 	for i := len(bcps) - 1; i != -1; i-- {
 		if isBaseSnapshot(&bcps[i]) {
 			return i
@@ -201,11 +209,11 @@ func findLastBaseSnapshotIndex(bcps []BackupMeta) int {
 	return -1
 }
 
-func isBaseSnapshot(bcp *BackupMeta) bool {
-	if bcp.Status != StatusDone {
+func isBaseSnapshot(bcp *types.BackupMeta) bool {
+	if bcp.Status != defs.StatusDone {
 		return false
 	}
-	if bcp.Type == ExternalBackup || sel.IsSelective(bcp.Namespaces) {
+	if bcp.Type == defs.ExternalBackup || util.IsSelective(bcp.Namespaces) {
 		return false
 	}
 

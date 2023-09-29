@@ -6,7 +6,7 @@ set -o xtrace
 test_dir=$(realpath $(dirname $0))
 . ${test_dir}/functions
 
-MONGO_VERSION=${MONGODB_VERSION:-"4.2"}
+MONGO_VERSION=${MONGODB_VERSION:-"4.4"}
 
 desc 'Start replicaset'
 start_replset $MONGO_VERSION "$COMPOSE_RS_PATH"

@@ -1,12 +1,10 @@
 package pbm
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -15,7 +13,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
 type Mongo struct {
@@ -24,7 +24,7 @@ type Mongo struct {
 }
 
 func NewMongo(ctx context.Context, connectionURI string) (*Mongo, error) {
-	cn, err := connect(ctx, connectionURI, "e2e-tests")
+	cn, err := directConnect(ctx, connectionURI, "e2e-tests")
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
@@ -35,18 +35,13 @@ func NewMongo(ctx context.Context, connectionURI string) (*Mongo, error) {
 	}, nil
 }
 
-func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
-	client, err := mongo.NewClient(
-		options.Client().ApplyURI(uri).
-			SetAppName(appName).
-			SetReadPreference(readpref.Primary()).
-			SetReadConcern(readconcern.Majority()).
-			SetWriteConcern(writeconcern.New(writeconcern.WMajority())),
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "create mongo client")
-	}
-	err = client.Connect(ctx)
+func directConnect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
+	opts := options.Client().ApplyURI(uri).
+		SetAppName(appName).
+		SetReadPreference(readpref.Primary()).
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.Majority())
+	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "mongo connect")
 	}
@@ -284,8 +279,8 @@ func (m *Mongo) GetCounters() ([]Counter, error) {
 	return data, nil
 }
 
-func (m *Mongo) GetNodeInfo() (*pbm.NodeInfo, error) {
-	inf := &pbm.NodeInfo{}
+func (m *Mongo) GetNodeInfo() (*topo.NodeInfo, error) {
+	inf := &topo.NodeInfo{}
 	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"isMaster": 1}).Decode(inf)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")

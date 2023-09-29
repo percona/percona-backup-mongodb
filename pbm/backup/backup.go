@@ -2,35 +2,40 @@ package backup
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/lock"
+	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
+	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 type Backup struct {
 	cn       *pbm.PBM
 	node     *pbm.Node
-	typ      pbm.BackupType
+	typ      defs.BackupType
 	incrBase bool
-	timeouts *pbm.BackupTimeouts
+	timeouts *config.BackupTimeouts
 }
 
 func New(cn *pbm.PBM, node *pbm.Node) *Backup {
 	return &Backup{
 		cn:   cn,
 		node: node,
-		typ:  pbm.LogicalBackup,
+		typ:  defs.LogicalBackup,
 	}
 }
 
@@ -38,7 +43,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node) *Backup {
 	return &Backup{
 		cn:   cn,
 		node: node,
-		typ:  pbm.PhysicalBackup,
+		typ:  defs.PhysicalBackup,
 	}
 }
 
@@ -46,7 +51,7 @@ func NewExternal(cn *pbm.PBM, node *pbm.Node) *Backup {
 	return &Backup{
 		cn:   cn,
 		node: node,
-		typ:  pbm.ExternalBackup,
+		typ:  defs.ExternalBackup,
 	}
 }
 
@@ -54,28 +59,30 @@ func NewIncremental(cn *pbm.PBM, node *pbm.Node, base bool) *Backup {
 	return &Backup{
 		cn:       cn,
 		node:     node,
-		typ:      pbm.IncrementalBackup,
+		typ:      defs.IncrementalBackup,
 		incrBase: base,
 	}
 }
 
-func (b *Backup) SetTimeouts(t *pbm.BackupTimeouts) {
+func (b *Backup) SetTimeouts(t *config.BackupTimeouts) {
 	b.timeouts = t
 }
 
 func (b *Backup) Init(
-	bcp *pbm.BackupCmd,
-	opid pbm.OPID,
-	inf *pbm.NodeInfo,
-	store pbm.StorageConf,
-	balancer pbm.BalancerMode,
+	ctx context.Context,
+	bcp *types.BackupCmd,
+	opid types.OPID,
+	inf *topo.NodeInfo,
+	store config.StorageConf,
+	balancer topo.BalancerMode,
+	l *log.Event,
 ) error {
-	ts, err := b.cn.ClusterTime()
+	ts, err := topo.GetClusterTime(ctx, b.cn.Conn)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}
 
-	meta := &pbm.BackupMeta{
+	meta := &types.BackupMeta{
 		Type:        b.typ,
 		OPID:        opid.String(),
 		Name:        bcp.Name,
@@ -83,42 +90,44 @@ func (b *Backup) Init(
 		Compression: bcp.Compression,
 		Store:       store,
 		StartTS:     time.Now().Unix(),
-		Status:      pbm.StatusStarting,
-		Replsets:    []pbm.BackupReplset{},
+		Status:      defs.StatusStarting,
+		Replsets:    []types.BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
 		PBMVersion:     version.Current().Version,
-		Nomination:     []pbm.BackupRsNomination{},
+		Nomination:     []types.BackupRsNomination{},
 		BalancerStatus: balancer,
 		Hb:             ts,
 	}
 
-	cfg, err := b.cn.GetConfig()
-	if errors.Is(err, pbm.ErrStorageUndefined) {
-		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
-	} else if err != nil {
+	cfg, err := config.GetConfig(ctx, b.cn.Conn)
+	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
+	}
+	_, err = util.StorageFromConfig(cfg, l)
+	if errors.Is(err, util.ErrStorageUndefined) {
+		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
 	}
 	meta.Store = cfg.Storage
 
-	ver, err := b.node.GetMongoVersion()
+	ver, err := version.GetMongoVersion(ctx, b.node.Session())
 	if err != nil {
-		return errors.WithMessage(err, "get mongo version")
+		return errors.Wrap(err, "get mongo version")
 	}
 	meta.MongoVersion = ver.VersionString
 
-	fcv, err := b.node.GetFeatureCompatibilityVersion()
+	fcv, err := version.GetFCV(ctx, b.node.Session())
 	if err != nil {
-		return errors.WithMessage(err, "get featureCompatibilityVersion")
+		return errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 	meta.FCV = fcv
 
 	if inf.IsSharded() {
-		ss, err := b.cn.GetShards()
+		ss, err := b.cn.GetShards(ctx)
 		if err != nil {
-			return errors.WithMessage(err, "get shards")
+			return errors.Wrap(err, "get shards")
 		}
 
 		shards := make(map[string]string)
@@ -133,37 +142,37 @@ func (b *Backup) Init(
 		}
 	}
 
-	return b.cn.SetBackupMeta(meta)
+	return query.SetBackupMeta(ctx, b.cn.Conn, meta)
 }
 
 // Run runs backup.
 // TODO: describe flow
 //
 //nolint:nonamedreturns
-func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *plog.Event) (err error) {
-	inf, err := b.node.GetInfo()
+func (b *Backup) Run(ctx context.Context, bcp *types.BackupCmd, opid types.OPID, l *log.Event) (err error) {
+	inf, err := topo.GetNodeInfoExt(ctx, b.node.Session())
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
 	}
 
-	rsMeta := pbm.BackupReplset{
+	rsMeta := types.BackupReplset{
 		Name:         inf.SetName,
 		Node:         inf.Me,
 		StartTS:      time.Now().UTC().Unix(),
-		Status:       pbm.StatusRunning,
-		Conditions:   []pbm.Condition{},
+		Status:       defs.StatusRunning,
+		Conditions:   []types.Condition{},
 		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
 	}
 	if v := inf.IsConfigSrv(); v {
 		rsMeta.IsConfigSvr = &v
 	}
 
-	stg, err := b.cn.GetStorage(l)
+	stg, err := util.GetStorage(ctx, b.cn.Conn, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
 
-	bcpm, err := b.cn.GetBackupMeta(bcp.Name)
+	bcpm, err := query.GetBackupMeta(ctx, b.cn.Conn, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "balancer status, get backup meta")
 	}
@@ -171,16 +180,16 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	// on any error the RS' and the backup' (in case this is the backup leader) meta will be marked appropriately
 	defer func() {
 		if err != nil {
-			status := pbm.StatusError
-			if errors.Is(err, ErrCancelled) {
-				status = pbm.StatusCancelled
+			status := defs.StatusError
+			if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
+				status = defs.StatusCancelled
 			}
 
-			ferr := b.cn.ChangeRSState(bcp.Name, rsMeta.Name, status, err.Error())
+			ferr := query.ChangeRSState(b.cn.Conn, bcp.Name, rsMeta.Name, status, err.Error())
 			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
-				ferr := b.cn.ChangeBackupState(bcp.Name, status, err.Error())
+				ferr := query.ChangeBackupState(b.cn.Conn, bcp.Name, status, err.Error())
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
@@ -191,11 +200,11 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 		// And will try to turn it on again if so. So if the leader node went down after turning off
 		// the balancer some other node will bring it back.
 		// TODO: what if all agents went down.
-		if bcpm.BalancerStatus != pbm.BalancerModeOn {
+		if bcpm.BalancerStatus != topo.BalancerModeOn {
 			return
 		}
 
-		errd := b.cn.SetBalancerStatus(pbm.BalancerModeOn)
+		errd := topo.SetBalancerStatus(context.Background(), b.cn.Conn, topo.BalancerModeOn)
 		if errd != nil {
 			l.Error("set balancer ON: %v", errd)
 			return
@@ -207,7 +216,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 
-		err := b.cn.BackupHB(bcp.Name)
+		err := query.BackupHB(ctx, b.cn.Conn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
@@ -219,7 +228,7 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			for {
 				select {
 				case <-tk.C:
-					err := b.cn.BackupHB(bcp.Name)
+					err := query.BackupHB(ctx, b.cn.Conn, bcp.Name)
 					if err != nil {
 						l.Error("send pbm heartbeat: %v", err)
 					}
@@ -229,27 +238,30 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 			}
 		}()
 
-		if bcpm.BalancerStatus == pbm.BalancerModeOn {
-			err = b.cn.SetBalancerStatus(pbm.BalancerModeOff)
+		if bcpm.BalancerStatus == topo.BalancerModeOn {
+			err = topo.SetBalancerStatus(ctx, b.cn.Conn, topo.BalancerModeOff)
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
 
 			l.Debug("waiting for balancer off")
-			bs := waitForBalancerOff(b.cn, time.Second*30, l)
+			bs := waitForBalancerOff(ctx, b.cn, time.Second*30, l)
 			l.Debug("balancer status: %s", bs)
 		}
 	}
 
 	// Waiting for StatusStarting to move further.
 	// In case some preparations has to be done before backup.
-	err = b.waitForStatus(bcp.Name, pbm.StatusStarting, ref(b.timeouts.StartingStatus()))
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusStarting, ref(b.timeouts.StartingStatus()))
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
 
 	defer func() {
-		if !errors.Is(err, ErrCancelled) || !inf.IsLeader() {
+		if !inf.IsLeader() {
+			return
+		}
+		if !errors.Is(err, storage.ErrCancelled) || !errors.Is(err, context.Canceled) {
 			return
 		}
 
@@ -259,9 +271,9 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	}()
 
 	switch b.typ {
-	case pbm.LogicalBackup:
+	case defs.LogicalBackup:
 		err = b.doLogical(ctx, bcp, opid, &rsMeta, inf, stg, l)
-	case pbm.PhysicalBackup, pbm.IncrementalBackup, pbm.ExternalBackup:
+	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
 		err = b.doPhysical(ctx, bcp, opid, &rsMeta, inf, stg, l)
 	default:
 		return errors.New("undefined backup type")
@@ -270,25 +282,25 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 		return err
 	}
 
-	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDone, "")
+	err = query.ChangeRSState(b.cn.Conn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
 
 	if inf.IsLeader() {
-		epch, err := b.cn.ResetEpoch()
+		epch, err := config.ResetEpochWithContext(ctx, b.cn.Conn)
 		if err != nil {
 			l.Error("reset epoch")
 		} else {
 			l.Debug("epoch set to %v", epch)
 		}
 
-		err = b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDone, nil)
+		err = b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")
 		}
 
-		bcpm, err = b.cn.GetBackupMeta(bcp.Name)
+		bcpm, err = query.GetBackupMeta(ctx, b.cn.Conn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "get backup metadata")
 		}
@@ -300,31 +312,31 @@ func (b *Backup) Run(ctx context.Context, bcp *pbm.BackupCmd, opid pbm.OPID, l *
 	}
 
 	// to be sure the locks released only after the "done" status had written
-	err = b.waitForStatus(bcp.Name, pbm.StatusDone, nil)
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
 	return errors.Wrap(err, "waiting for done")
 }
 
-func waitForBalancerOff(cn *pbm.PBM, t time.Duration, l *plog.Event) pbm.BalancerMode {
+func waitForBalancerOff(ctx context.Context, cn *pbm.PBM, t time.Duration, l *log.Event) topo.BalancerMode {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
 
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
 
-	var bs *pbm.BalancerStatus
+	var bs *topo.BalancerStatus
 	var err error
 
 Loop:
 	for {
 		select {
 		case <-tk.C:
-			bs, err = cn.GetBalancerStatus()
+			bs, err = topo.GetBalancerStatus(ctx, cn.Conn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
 				continue
 			}
-			if bs.Mode == pbm.BalancerModeOff {
-				return pbm.BalancerModeOff
+			if bs.Mode == topo.BalancerModeOff {
+				return topo.BalancerModeOff
 			}
 		case <-dn.C:
 			break Loop
@@ -332,144 +344,26 @@ Loop:
 	}
 
 	if bs != nil {
-		return pbm.BalancerMode("")
+		return topo.BalancerMode("")
 	}
 
 	return bs.Mode
 }
 
-const maxReplicationLagTimeSec = 21
-
-// NodeSuits checks if node can perform backup
-func NodeSuits(node *pbm.Node, inf *pbm.NodeInfo) (bool, error) {
-	status, err := node.Status()
-	if err != nil {
-		return false, errors.Wrap(err, "get node status")
-	}
-
-	replLag, err := node.ReplicationLag()
-	if err != nil {
-		return false, errors.Wrap(err, "get node replication lag")
-	}
-
-	return replLag < maxReplicationLagTimeSec && status.Health == pbm.NodeHealthUp &&
-			(status.State == pbm.NodeStatePrimary || status.State == pbm.NodeStateSecondary),
-		nil
-}
-
-func NodeSuitsExt(node *pbm.Node, inf *pbm.NodeInfo, t pbm.BackupType) (bool, error) {
-	if ok, err := NodeSuits(node, inf); err != nil || !ok {
-		return false, err
-	}
-
-	ver, err := node.GetMongoVersion()
-	if err != nil {
-		return false, errors.Wrap(err, "get mongo version")
-	}
-
-	err = pbm.FeatureSupport(*ver).BackupType(t)
-	return err == nil, err
-}
-
-// rwError multierror for the read/compress/write-to-store operations set
-type rwError struct {
-	read     error
-	compress error
-	write    error
-}
-
-func (rwe rwError) Error() string {
-	var r string
-	if rwe.read != nil {
-		r += "read data: " + rwe.read.Error() + "."
-	}
-	if rwe.compress != nil {
-		r += "compress data: " + rwe.compress.Error() + "."
-	}
-	if rwe.write != nil {
-		r += "write data: " + rwe.write.Error() + "."
-	}
-
-	return r
-}
-
-func (rwe rwError) nil() bool {
-	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
-}
-
-type Source interface {
-	io.WriterTo
-}
-
-type Canceller interface {
-	Cancel()
-}
-
-// ErrCancelled means backup was canceled
-var ErrCancelled = errors.New("backup canceled")
-
-// Upload writes data to dst from given src and returns an amount of written bytes
-func Upload(
+func (b *Backup) toState(
 	ctx context.Context,
-	src Source,
-	dst storage.Storage,
-	compression compress.CompressionType,
-	compressLevel *int,
-	fname string,
-	sizeb int64,
-) (int64, error) {
-	r, pw := io.Pipe()
-
-	w, err := compress.Compress(pw, compression, compressLevel)
-	if err != nil {
-		return 0, err
-	}
-
-	var rwErr rwError
-	var n int64
-	go func() {
-		n, rwErr.read = src.WriteTo(w)
-		rwErr.compress = w.Close()
-		pw.Close()
-	}()
-
-	saveDone := make(chan struct{})
-	go func() {
-		rwErr.write = dst.Save(fname, r, sizeb)
-		saveDone <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-		if c, ok := src.(Canceller); ok {
-			c.Cancel()
-		}
-
-		err := r.Close()
-		if err != nil {
-			return 0, errors.Wrap(err, "cancel backup: close reader")
-		}
-		return 0, ErrCancelled
-	case <-saveDone:
-	}
-
-	r.Close()
-
-	if !rwErr.nil() {
-		return 0, rwErr
-	}
-
-	return n, nil
-}
-
-func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo, wait *time.Duration) error {
-	err := b.cn.ChangeRSState(bcp, inf.SetName, status, "")
+	status defs.Status,
+	bcp, opid string,
+	inf *topo.NodeInfo,
+	wait *time.Duration,
+) error {
+	err := query.ChangeRSState(b.cn.Conn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
 
 	if inf.IsLeader() {
-		err = b.reconcileStatus(bcp, opid, status, wait)
+		err = b.reconcileStatus(ctx, bcp, opid, status, wait)
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -478,7 +372,7 @@ func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo,
 		}
 	}
 
-	err = b.waitForStatus(bcp, status, wait)
+	err = b.waitForStatus(ctx, bcp, status, wait)
 	if err != nil {
 		return errors.Wrapf(err, "waiting for %s", status)
 	}
@@ -486,35 +380,45 @@ func (b *Backup) toState(status pbm.Status, bcp, opid string, inf *pbm.NodeInfo,
 	return nil
 }
 
-func (b *Backup) reconcileStatus(bcpName, opid string, status pbm.Status, timeout *time.Duration) error {
-	shards, err := b.cn.ClusterMembers()
+func (b *Backup) reconcileStatus(
+	ctx context.Context,
+	bcpName, opid string,
+	status defs.Status,
+	timeout *time.Duration,
+) error {
+	shards, err := topo.ClusterMembers(ctx, b.cn.Conn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
 
 	if timeout != nil {
-		return errors.Wrap(b.convergeClusterWithTimeout(bcpName, opid, shards, status, *timeout),
+		return errors.Wrap(b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout),
 			"convergeClusterWithTimeout")
 	}
-	return errors.Wrap(b.convergeCluster(bcpName, opid, shards, status), "convergeCluster")
+	return errors.Wrap(b.convergeCluster(ctx, bcpName, opid, shards, status), "convergeCluster")
 }
 
 // convergeCluster waits until all given shards reached `status` and updates a cluster status
-func (b *Backup) convergeCluster(bcpName, opid string, shards []pbm.Shard, status pbm.Status) error {
+func (b *Backup) convergeCluster(
+	ctx context.Context,
+	bcpName, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
 	for {
 		select {
 		case <-tk.C:
-			ok, err := b.converged(bcpName, opid, shards, status)
+			ok, err := b.converged(ctx, bcpName, opid, shards, status)
 			if err != nil {
 				return err
 			}
 			if ok {
 				return nil
 			}
-		case <-b.cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -525,10 +429,11 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 // convergeClusterWithTimeout waits up to the geiven timeout until
 // all given shards reached `status` and then updates the cluster status
 func (b *Backup) convergeClusterWithTimeout(
+	ctx context.Context,
 	bcpName,
 	opid string,
-	shards []pbm.Shard,
-	status pbm.Status,
+	shards []topo.Shard,
+	status defs.Status,
 	t time.Duration,
 ) error {
 	tk := time.NewTicker(time.Second * 1)
@@ -540,7 +445,7 @@ func (b *Backup) convergeClusterWithTimeout(
 	for {
 		select {
 		case <-tk.C:
-			ok, err := b.converged(bcpName, opid, shards, status)
+			ok, err := b.converged(ctx, bcpName, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -549,20 +454,25 @@ func (b *Backup) convergeClusterWithTimeout(
 			}
 		case <-tout.C:
 			return errConvergeTimeOut
-		case <-b.cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.Status) (bool, error) {
+func (b *Backup) converged(
+	ctx context.Context,
+	bcpName, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) (bool, error) {
 	shardsToFinish := len(shards)
-	bmeta, err := b.cn.GetBackupMeta(bcpName)
+	bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcpName)
 	if err != nil {
 		return false, errors.Wrap(err, "get backup metadata")
 	}
 
-	clusterTime, err := b.cn.ClusterTime()
+	clusterTime, err := topo.GetClusterTime(ctx, b.cn.Conn)
 	if err != nil {
 		return false, errors.Wrap(err, "read cluster time")
 	}
@@ -571,20 +481,20 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
 				// check if node alive
-				lock, err := b.cn.GetLockData(&pbm.LockHeader{
-					Type:    pbm.CmdBackup,
+				lck, err := lock.GetLockData(ctx, b.cn.Conn, &lock.LockHeader{
+					Type:    defs.CmdBackup,
 					OPID:    opid,
 					Replset: shard.Name,
 				})
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and no need to ckech the heartbeats
-				if status != pbm.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
+				if status != defs.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}
-					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+					if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
 					}
 				}
 
@@ -592,9 +502,9 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 				switch shard.Status {
 				case status:
 					shardsToFinish--
-				case pbm.StatusCancelled:
-					return false, ErrCancelled
-				case pbm.StatusError:
+				case defs.StatusCancelled:
+					return false, storage.ErrCancelled
+				case defs.StatusError:
 					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error())
 				}
 			}
@@ -602,7 +512,7 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 	}
 
 	if shardsToFinish == 0 {
-		err := b.cn.ChangeBackupState(bcpName, status, "")
+		err := query.ChangeBackupState(b.cn.Conn, bcpName, status, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "update backup meta with %s", status)
 		}
@@ -612,7 +522,12 @@ func (b *Backup) converged(bcpName, opid string, shards []pbm.Shard, status pbm.
 	return false, nil
 }
 
-func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.Duration) error {
+func (b *Backup) waitForStatus(
+	ctx context.Context,
+	bcpName string,
+	status defs.Status,
+	waitFor *time.Duration,
+) error {
 	var tout <-chan time.Time
 	if waitFor != nil {
 		tmr := time.NewTimer(*waitFor)
@@ -627,111 +542,114 @@ func (b *Backup) waitForStatus(bcpName string, status pbm.Status, waitFor *time.
 	for {
 		select {
 		case <-tk.C:
-			bmeta, err := b.cn.GetBackupMeta(bcpName)
-			if errors.Is(err, pbm.ErrNotFound) {
+			bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcpName)
+			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
 
-			clusterTime, err := b.cn.ClusterTime()
+			clusterTime, err := topo.GetClusterTime(ctx, b.cn.Conn)
 			if err != nil {
 				return errors.Wrap(err, "read cluster time")
 			}
 
-			if bmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+			if bmeta.Hb.T+defs.StaleFrameSec < clusterTime.T {
 				return errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
 			}
 
 			switch bmeta.Status {
 			case status:
 				return nil
-			case pbm.StatusCancelled:
-				return ErrCancelled
-			case pbm.StatusError:
+			case defs.StatusCancelled:
+				return storage.ErrCancelled
+			case defs.StatusError:
 				return errors.Errorf("cluster failed: %v", err)
 			}
 		case <-tout:
 			return errors.New("no backup meta, looks like a leader failed to start")
-		case <-b.cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
 //nolint:nonamedreturns
-func (b *Backup) waitForFirstLastWrite(bcpName string) (first, last primitive.Timestamp, err error) {
+func (b *Backup) waitForFirstLastWrite(
+	ctx context.Context,
+	bcpName string,
+) (first, last primitive.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
 	for {
 		select {
 		case <-tk.C:
-			bmeta, err := b.cn.GetBackupMeta(bcpName)
+			bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcpName)
 			if err != nil {
 				return first, last, errors.Wrap(err, "get backup metadata")
 			}
 
-			clusterTime, err := b.cn.ClusterTime()
+			clusterTime, err := topo.GetClusterTime(ctx, b.cn.Conn)
 			if err != nil {
 				return first, last, errors.Wrap(err, "read cluster time")
 			}
 
-			if bmeta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+			if bmeta.Hb.T+defs.StaleFrameSec < clusterTime.T {
 				return first, last, errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
 			}
 
 			if bmeta.FirstWriteTS.T > 0 && bmeta.LastWriteTS.T > 0 {
 				return bmeta.FirstWriteTS, bmeta.LastWriteTS, nil
 			}
-		case <-b.cn.Context().Done():
+		case <-ctx.Done():
 			return first, last, nil
 		}
 	}
 }
 
-func writeMeta(stg storage.Storage, meta *pbm.BackupMeta) error {
+func writeMeta(stg storage.Storage, meta *types.BackupMeta) error {
 	b, err := json.MarshalIndent(meta, "", "\t")
 	if err != nil {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = stg.Save(meta.Name+pbm.MetadataFileSuffix, bytes.NewReader(b), -1)
+	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), -1)
 	return errors.Wrap(err, "write to store")
 }
 
-func (b *Backup) setClusterFirstWrite(bcpName string) error {
-	bmeta, err := b.cn.GetBackupMeta(bcpName)
+func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error {
+	bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
 
 	var fw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
-		if fw.T == 0 || primitive.CompareTimestamp(fw, rs.FirstWriteTS) == 1 {
+		if fw.T == 0 || fw.Compare(rs.FirstWriteTS) == 1 {
 			fw = rs.FirstWriteTS
 		}
 	}
 
-	err = b.cn.SetFirstWrite(bcpName, fw)
+	err = query.SetFirstWrite(ctx, b.cn.Conn, bcpName, fw)
 	return errors.Wrap(err, "set timestamp")
 }
 
-func (b *Backup) setClusterLastWrite(bcpName string) error {
-	bmeta, err := b.cn.GetBackupMeta(bcpName)
+func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
+	bmeta, err := query.GetBackupMeta(ctx, b.cn.Conn, bcpName)
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
 	}
 
 	var lw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
-		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
+		if lw.Compare(rs.LastWriteTS) == -1 {
 			lw = rs.LastWriteTS
 		}
 	}
 
-	err = b.cn.SetLastWrite(bcpName, lw)
+	err = query.SetLastWrite(ctx, b.cn.Conn, bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
 }
 

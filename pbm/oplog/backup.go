@@ -1,17 +1,19 @@
 package oplog
 
 import (
-	"context"
 	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
 // OplogBackup is used for reading the Mongodb oplog
@@ -111,12 +113,12 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 			rcheck = true
 		}
 
-		if primitive.CompareTimestamp(ot.end, opts) == -1 {
+		if ot.end.Compare(opts) == -1 {
 			return written, nil
 		}
 
 		// skip noop operations
-		if cur.Current.Lookup("op").String() == string(pbm.OperationNoop) {
+		if cur.Current.Lookup("op").String() == string(defs.OperationNoop) {
 			continue
 		}
 
@@ -156,6 +158,6 @@ func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 }
 
 // LastWrite returns a timestamp of the last write operation readable by majority reads
-func (ot *OplogBackup) LastWrite() (primitive.Timestamp, error) {
-	return pbm.LastWrite(ot.cl, true)
+func (ot *OplogBackup) LastWrite(ctx context.Context) (primitive.Timestamp, error) {
+	return topo.GetLastWrite(ctx, ot.cl, true)
 }
