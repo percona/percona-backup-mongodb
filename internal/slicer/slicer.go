@@ -278,6 +278,7 @@ const LogStartMsg = "start_ok"
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (s *Slicer) Stream(
 	ctx context.Context,
+	stopC <-chan struct{},
 	backupSig <-chan *types.OPID,
 	compression defs.CompressionType,
 	level *int, timeouts *config.BackupTimeouts,
@@ -316,7 +317,7 @@ func (s *Slicer) Stream(
 		select {
 		// wrapping up at the current point-in-time
 		// upload the chunks up to the current time and return
-		case <-ctx.Done():
+		case <-stopC:
 			s.l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job

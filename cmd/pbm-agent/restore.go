@@ -206,16 +206,23 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	go func() {
-		slicerCtx, cancel := context.WithCancel(ctx)
+		stopSlicingCtx, stopSlicing := context.WithCancel(ctx)
+		defer stopSlicing()
+		stopC := make(chan struct{})
 
 		w := make(chan *types.OPID, 1)
 		a.setPitr(&currentPitr{
 			slicer: ibcp,
-			cancel: cancel,
+			cancel: stopSlicing,
 			w:      w,
 		})
 
-		streamErr := ibcp.Stream(slicerCtx, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
+		go func() {
+			<-stopSlicingCtx.Done()
+			close(stopC)
+		}()
+
+		streamErr := ibcp.Stream(ctx, stopC, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error
 			if errors.Is(streamErr, slicer.OpMovedError{}) {
