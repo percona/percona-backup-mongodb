@@ -1,7 +1,6 @@
 package snapshot
 
 import (
-	"context"
 	"io"
 	"log"
 	"time"
@@ -11,9 +10,10 @@ import (
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongodump"
-	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
 type backuper struct {

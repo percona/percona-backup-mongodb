@@ -6,45 +6,54 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/mongodb/mongo-tools/common/idx"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/compress"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/lock"
+	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
+	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func GetMetaFromStore(stg storage.Storage, bcpName string) (*pbm.BackupMeta, error) {
-	rd, err := stg.SourceReader(bcpName + pbm.MetadataFileSuffix)
+func GetMetaFromStore(stg storage.Storage, bcpName string) (*types.BackupMeta, error) {
+	rd, err := stg.SourceReader(bcpName + defs.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get from store")
 	}
 	defer rd.Close()
 
-	b := &pbm.BackupMeta{}
+	b := &types.BackupMeta{}
 	err = json.NewDecoder(rd).Decode(b)
 
 	return b, errors.Wrap(err, "decode")
 }
 
 func toState(
+	ctx context.Context,
 	cn *pbm.PBM,
-	status pbm.Status,
+	status defs.Status,
 	bcp string,
-	inf *pbm.NodeInfo,
+	inf *topo.NodeInfo,
 	reconcileFn reconcileStatus,
 	wait *time.Duration,
 ) error {
-	err := cn.ChangeRestoreRSState(bcp, inf.SetName, status, "")
+	err := query.ChangeRestoreRSState(ctx, cn.Conn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
 
 	if inf.IsLeader() {
-		err = reconcileFn(status, wait)
+		err = reconcileFn(ctx, status, wait)
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -53,7 +62,7 @@ func toState(
 		}
 	}
 
-	err = waitForStatus(cn, bcp, status)
+	err = waitForStatus(ctx, cn, bcp, status)
 	if err != nil {
 		return errors.Wrapf(err, "waiting for %s", status)
 	}
@@ -61,24 +70,30 @@ func toState(
 	return nil
 }
 
-type reconcileStatus func(status pbm.Status, timeout *time.Duration) error
+type reconcileStatus func(ctx context.Context, status defs.Status, timeout *time.Duration) error
 
 // convergeCluster waits until all participating shards reached `status` and updates a cluster status
-func convergeCluster(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) error {
+func convergeCluster(
+	ctx context.Context,
+	cn *pbm.PBM,
+	name, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
 	for {
 		select {
 		case <-tk.C:
-			ok, err := converged(cn, name, opid, shards, status)
+			ok, err := converged(ctx, cn, name, opid, shards, status)
 			if err != nil {
 				return err
 			}
 			if ok {
 				return nil
 			}
-		case <-cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -89,11 +104,12 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 // convergeClusterWithTimeout waits up to the geiven timeout until all participating shards reached
 // `status` and then updates the cluster status
 func convergeClusterWithTimeout(
+	ctx context.Context,
 	cn *pbm.PBM,
 	name,
 	opid string,
-	shards []pbm.Shard,
-	status pbm.Status,
+	shards []topo.Shard,
+	status defs.Status,
 	t time.Duration,
 ) error {
 	tk := time.NewTicker(time.Second * 1)
@@ -106,7 +122,7 @@ func convergeClusterWithTimeout(
 		select {
 		case <-tk.C:
 			var ok bool
-			ok, err := converged(cn, name, opid, shards, status)
+			ok, err := converged(ctx, cn, name, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -115,20 +131,26 @@ func convergeClusterWithTimeout(
 			}
 		case <-tout.C:
 			return errConvergeTimeOut
-		case <-cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.Status) (bool, error) {
+func converged(
+	ctx context.Context,
+	cn *pbm.PBM,
+	name, opid string,
+	shards []topo.Shard,
+	status defs.Status,
+) (bool, error) {
 	shardsToFinish := len(shards)
-	bmeta, err := cn.GetRestoreMeta(name)
+	bmeta, err := query.GetRestoreMeta(ctx, cn.Conn, name)
 	if err != nil {
 		return false, errors.Wrap(err, "get backup metadata")
 	}
 
-	clusterTime, err := cn.ClusterTime()
+	clusterTime, err := topo.GetClusterTime(ctx, cn.Conn)
 	if err != nil {
 		return false, errors.Wrap(err, "read cluster time")
 	}
@@ -137,20 +159,20 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
 				// check if node alive
-				lock, err := cn.GetLockData(&pbm.LockHeader{
-					Type:    pbm.CmdRestore,
+				lck, err := lock.GetLockData(ctx, cn.Conn, &lock.LockHeader{
+					Type:    defs.CmdRestore,
 					OPID:    opid,
 					Replset: shard.Name,
 				})
 
 				// nodes are cleaning its locks moving to the done status
 				// so no lock is ok and not need to ckech the heartbeats
-				if status != pbm.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
+				if status != defs.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}
-					if lock.Heartbeat.T+pbm.StaleFrameSec < clusterTime.T {
-						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lock.Heartbeat.T)
+					if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
 					}
 				}
 
@@ -158,8 +180,8 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 				switch shard.Status {
 				case status:
 					shardsToFinish--
-				case pbm.StatusError:
-					bmeta.Status = pbm.StatusError
+				case defs.StatusError:
+					bmeta.Status = defs.StatusError
 					bmeta.Error = shard.Error
 					return false, errors.Errorf("restore on the shard %s failed with: %s", shard.Name, shard.Error)
 				}
@@ -168,7 +190,7 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 	}
 
 	if shardsToFinish == 0 {
-		err := cn.ChangeRestoreState(name, status, "")
+		err := query.ChangeRestoreState(ctx, cn.Conn, name, status, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "update backup meta with %s", status)
 		}
@@ -178,37 +200,37 @@ func converged(cn *pbm.PBM, name, opid string, shards []pbm.Shard, status pbm.St
 	return false, nil
 }
 
-func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
+func waitForStatus(ctx context.Context, cn *pbm.PBM, name string, status defs.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
 	for {
 		select {
 		case <-tk.C:
-			meta, err := cn.GetRestoreMeta(name)
-			if errors.Is(err, pbm.ErrNotFound) {
+			meta, err := query.GetRestoreMeta(ctx, cn.Conn, name)
+			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
 			if err != nil {
 				return errors.Wrap(err, "get restore metadata")
 			}
 
-			clusterTime, err := cn.ClusterTime()
+			clusterTime, err := topo.GetClusterTime(ctx, cn.Conn)
 			if err != nil {
 				return errors.Wrap(err, "read cluster time")
 			}
 
-			if meta.Hb.T+pbm.StaleFrameSec < clusterTime.T {
+			if meta.Hb.T+defs.StaleFrameSec < clusterTime.T {
 				return errors.Errorf("restore stuck, last beat ts: %d", meta.Hb.T)
 			}
 
 			switch meta.Status {
 			case status:
 				return nil
-			case pbm.StatusError:
+			case defs.StatusError:
 				return errors.Errorf("cluster failed: %s", meta.Error)
 			}
-		case <-cn.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -218,15 +240,16 @@ func waitForStatus(cn *pbm.PBM, name string, status pbm.Status) error {
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func chunks(
+	ctx context.Context,
 	cn *pbm.PBM,
 	stg storage.Storage,
 	from,
 	to primitive.Timestamp,
 	rsName string,
 	rsMap map[string]string,
-) ([]pbm.OplogChunk, error) {
-	mapRevRS := pbm.MakeReverseRSMapFunc(rsMap)
-	chunks, err := cn.PITRGetChunksSlice(mapRevRS(rsName), from, to)
+) ([]oplog.OplogChunk, error) {
+	mapRevRS := util.MakeReverseRSMapFunc(rsMap)
+	chunks, err := oplog.PITRGetChunksSlice(ctx, cn.Conn, mapRevRS(rsName), from, to)
 	if err != nil {
 		return nil, errors.Wrap(err, "get chunks index")
 	}
@@ -270,8 +293,8 @@ type applyOplogOption struct {
 }
 
 type (
-	setcommittedTxnFn func(txn []pbm.RestoreTxn) error
-	getcommittedTxnFn func() (map[string]primitive.Timestamp, error)
+	setcommittedTxnFn func(ctx context.Context, txn []types.RestoreTxn) error
+	getcommittedTxnFn func(ctx context.Context) (map[string]primitive.Timestamp, error)
 )
 
 // By looking at just transactions in the oplog we can't tell which shards
@@ -297,14 +320,24 @@ type (
 // should report it in logs and describe-restore.
 //
 //nolint:nonamedreturns
-func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplogOption, sharded bool,
-	ic *idx.IndexCatalog, setTxn setcommittedTxnFn, getTxn getcommittedTxnFn, stat *pbm.DistTxnStat,
-	mgoV *pbm.MongoVersion, stg storage.Storage, log *log.Event,
+func applyOplog(
+	ctx context.Context,
+	node *mongo.Client,
+	chunks []oplog.OplogChunk,
+	options *applyOplogOption,
+	sharded bool,
+	ic *idx.IndexCatalog,
+	setTxn setcommittedTxnFn,
+	getTxn getcommittedTxnFn,
+	stat *types.DistTxnStat,
+	mgoV *version.MongoVersion,
+	stg storage.Storage,
+	log *log.Event,
 ) (partial []oplog.Txn, err error) {
 	log.Info("starting oplog replay")
 
 	var (
-		ctxn       chan pbm.RestoreTxn
+		ctxn       chan types.RestoreTxn
 		txnSyncErr chan error
 	)
 
@@ -341,7 +374,7 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
 		lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression)
 		if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-			lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
+			lts, err = replayChunk(chnk.FName, oplogRestore, stg, defs.CompressionTypeS2)
 		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -353,13 +386,13 @@ func applyOplog(node *mongo.Client, chunks []pbm.OplogChunk, options *applyOplog
 		uc, c := oplogRestore.TxnLeftovers()
 		stat.ShardUncommitted = len(uc)
 		go func() {
-			err := setTxn(c)
+			err := setTxn(ctx, c)
 			if err != nil {
 				log.Error("write last committed txns %v", err)
 			}
 		}()
 		if len(uc) > 0 {
-			commits, err := getTxn()
+			commits, err := getTxn(ctx)
 			if err != nil {
 				return nil, errors.Wrap(err, "get committed txns on other shards")
 			}
@@ -384,7 +417,7 @@ func replayChunk(
 	file string,
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
-	c compress.CompressionType,
+	c defs.CompressionType,
 ) (primitive.Timestamp, error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {

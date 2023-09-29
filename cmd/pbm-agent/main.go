@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,12 +11,12 @@ import (
 	"github.com/alecthomas/kingpin"
 	mlog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
-	"github.com/pkg/errors"
 
-	"github.com/percona/percona-backup-mongodb/agent"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	plog "github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/version"
 	"github.com/percona/percona-backup-mongodb/pbm"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/version"
 )
 
 const mongoConnFlag = "mongodb-uri"
@@ -92,20 +91,20 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "connect to PBM")
 	}
 
-	agnt := agent.New(pbmClient)
+	agnt := newAgent(pbmClient)
 	defer agnt.Close()
 	err = agnt.AddNode(ctx, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
-	agnt.InitLogger(pbmClient)
+	agnt.InitLogger()
 
-	if err := agnt.CanStart(); err != nil {
-		return errors.WithMessage(err, "pre-start check")
+	if err := agnt.CanStart(ctx); err != nil {
+		return errors.Wrap(err, "pre-start check")
 	}
 
-	go agnt.PITR()
-	go agnt.HbStatus()
+	go agnt.PITR(ctx)
+	go agnt.HbStatus(ctx)
 
-	return errors.Wrap(agnt.Start(), "listen the commands stream")
+	return errors.Wrap(agnt.Start(ctx), "listen the commands stream")
 }

@@ -1,7 +1,6 @@
 package sharded
 
 import (
-	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	tpbm "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
 )
 
 func (c *Cluster) OplogReplay() {
@@ -32,7 +32,7 @@ func (c *Cluster) OplogReplay() {
 		}
 	}
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 
 	c.printBcpList()
 
@@ -43,7 +43,7 @@ func (c *Cluster) OplogReplay() {
 	firstt := getLastWriteTime(counters)
 
 	bcp2 := c.LogicalBackup()
-	c.BackupWaitDone(bcp2)
+	c.BackupWaitDone(context.TODO(), bcp2)
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
 	log.Printf("Generating data for %v", ds)
@@ -71,7 +71,7 @@ func (c *Cluster) OplogReplay() {
 	c.printBcpList()
 
 	// +1 sec since we are PITR restore done up to < time (not <=)
-	c.LogicalRestore(bcp2)
+	c.LogicalRestore(context.TODO(), bcp2)
 	c.ReplayOplog(
 		time.Unix(int64(firstt.T), 0),
 		time.Unix(int64(lastt.T), 0).Add(time.Second*1))

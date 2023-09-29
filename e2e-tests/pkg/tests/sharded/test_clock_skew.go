@@ -4,10 +4,10 @@ import (
 	"log"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
-func (c *Cluster) ClockSkew(typ pbm.BackupType, mongoVersion string) {
+func (c *Cluster) ClockSkew(typ defs.BackupType, mongoVersion string) {
 	timeShifts := []string{
 		"+90m", "-195m", "+2d", "-7h", "+11m", "+42d", "-13h",
 	}

@@ -5,7 +5,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/context"
+
+	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 
 type RemappingEnvironment struct {
@@ -14,9 +16,9 @@ type RemappingEnvironment struct {
 	Remapping map[string]string
 }
 
-func (re *RemappingEnvironment) prepareRestoreOptions(typ pbm.BackupType) []string {
+func (re *RemappingEnvironment) prepareRestoreOptions(typ defs.BackupType) []string {
 	var remappings []string
-	if typ == pbm.PhysicalBackup || len(re.Remapping) == 0 {
+	if typ == defs.PhysicalBackup || len(re.Remapping) == 0 {
 		return []string{}
 	}
 
@@ -26,10 +28,10 @@ func (re *RemappingEnvironment) prepareRestoreOptions(typ pbm.BackupType) []stri
 	return []string{"--replset-remapping", strings.Join(remappings, ",")}
 }
 
-func (re *RemappingEnvironment) BackupAndRestore(typ pbm.BackupType) {
+func (re *RemappingEnvironment) BackupAndRestore(typ defs.BackupType) {
 	backup := re.Donor.LogicalBackup
 	restore := re.Recipient.LogicalRestoreWithParams
-	if typ == pbm.PhysicalBackup {
+	if typ == defs.PhysicalBackup {
 		backup = re.Donor.PhysicalBackup
 		restore = re.Recipient.PhysicalRestoreWithParams
 	}
@@ -37,17 +39,17 @@ func (re *RemappingEnvironment) BackupAndRestore(typ pbm.BackupType) {
 	checkData := re.DataChecker()
 
 	bcpName := backup()
-	re.Donor.BackupWaitDone(bcpName)
+	re.Donor.BackupWaitDone(context.TODO(), bcpName)
 
 	// to be sure the backup didn't vanish after the resync
 	// i.e. resync finished correctly
 	log.Println("resync backup list")
-	err := re.Recipient.mongopbm.StoreResync()
+	err := re.Recipient.mongopbm.StoreResync(context.TODO())
 	if err != nil {
 		log.Fatalln("Error: resync backup lists:", err)
 	}
 
-	restore(bcpName, re.prepareRestoreOptions(typ))
+	restore(context.TODO(), bcpName, re.prepareRestoreOptions(typ))
 	checkData()
 }
 
