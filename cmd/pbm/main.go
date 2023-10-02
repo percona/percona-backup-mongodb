@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	stdlog "log"
@@ -12,17 +13,17 @@ import (
 	"github.com/alecthomas/kingpin"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/compress"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/version"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 const (
@@ -100,13 +101,13 @@ func main() {
 	backup := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
 		EnumVar(&backup.compression,
-			string(defs.CompressionTypeNone),
-			string(defs.CompressionTypeGZIP),
-			string(defs.CompressionTypeSNAPPY),
-			string(defs.CompressionTypeLZ4),
-			string(defs.CompressionTypeS2),
-			string(defs.CompressionTypePGZIP),
-			string(defs.CompressionTypeZstandard))
+			string(compress.CompressionTypeNone),
+			string(compress.CompressionTypeGZIP),
+			string(compress.CompressionTypeSNAPPY),
+			string(compress.CompressionTypeLZ4),
+			string(compress.CompressionTypeS2),
+			string(compress.CompressionTypePGZIP),
+			string(compress.CompressionTypeZstandard))
 	backupCmd.Flag("type",
 		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>",
 			defs.PhysicalBackup,
@@ -351,57 +352,64 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var pbmClient *pbm.PBM
+	var conn connect.Client
+	var pbmSDK sdk.Client
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
-		pbmClient, err = pbm.New(ctx, *mURL, "pbm-ctl")
+		conn, err = connect.Connect(ctx, *mURL, &connect.ConnectOptions{AppName: "pbm-ctl"})
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
-		pbmClient.InitLogger("", "")
+		ctx = log.SetLoggerToContext(ctx, log.New(conn.LogCollection(), "", ""))
 
-		ver, err := version.GetMongoVersion(ctx, pbmClient.Conn.MongoClient())
+		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 		if err != nil {
 			stdlog.Fatalf("get mongo version: %v", err)
 		}
 		if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
 		}
+
+		pbmSDK, err = sdk.NewClient(ctx, *mURL)
+		if err != nil {
+			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
+		}
+		defer pbmSDK.Close(context.Background())
 	}
 
 	switch cmd {
 	case configCmd.FullCommand():
-		out, err = runConfig(ctx, pbmClient, &cfg)
+		out, err = runConfig(ctx, conn, pbmSDK, &cfg)
 	case backupCmd.FullCommand():
 		backup.name = time.Now().UTC().Format(time.RFC3339)
-		out, err = runBackup(ctx, pbmClient, &backup, pbmOutF)
+		out, err = runBackup(ctx, conn, pbmSDK, &backup, pbmOutF)
 	case cancelBcpCmd.FullCommand():
-		out, err = cancelBcp(ctx, pbmClient)
+		out, err = cancelBcp(ctx, pbmSDK)
 	case backupFinishCmd.FullCommand():
-		out, err = runFinishBcp(ctx, pbmClient, finishBackupName)
+		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
 		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, pbmClient, &descBcp)
+		out, err = describeBackup(ctx, conn, pbmSDK, &descBcp)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, pbmClient, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, &restore, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, pbmClient, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
-		out, err = runList(ctx, pbmClient, &list)
+		out, err = runList(ctx, conn, &list)
 	case deleteBcpCmd.FullCommand():
-		out, err = deleteBackup(ctx, pbmClient, &deleteBcp, pbmOutF)
+		out, err = deleteBackup(ctx, conn, &deleteBcp, pbmOutF)
 	case deletePitrCmd.FullCommand():
-		out, err = deletePITR(ctx, pbmClient, &deletePitr, pbmOutF)
+		out, err = deletePITR(ctx, conn, &deletePitr, pbmOutF)
 	case cleanupCmd.FullCommand():
-		out, err = retentionCleanup(ctx, pbmClient, &cleanupOpts)
+		out, err = retentionCleanup(ctx, conn, &cleanupOpts)
 	case logsCmd.FullCommand():
-		out, err = runLogs(ctx, pbmClient, &logs)
+		out, err = runLogs(ctx, conn, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(ctx, pbmClient, *mURL, statusOpts, pbmOutF == outJSONpretty)
+		out, err = status(ctx, conn, pbmSDK, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
-		out, err = describeRestore(ctx, pbmClient, describeRestoreOpts)
+		out, err = describeRestore(ctx, conn, describeRestoreOpts)
 	}
 
 	if err != nil {
@@ -462,7 +470,7 @@ func exitErr(e error, f outFormat) {
 	os.Exit(1)
 }
 
-func runLogs(ctx context.Context, cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error) {
+func runLogs(ctx context.Context, conn connect.Client, l *logsOpts) (fmt.Stringer, error) {
 	r := &log.LogRequest{}
 
 	if l.node != "" {
@@ -501,11 +509,11 @@ func runLogs(ctx context.Context, cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error
 	}
 
 	if l.follow {
-		err := followLogs(ctx, cn, r, r.Node == "", l.extr)
+		err := followLogs(ctx, conn, r, r.Node == "", l.extr)
 		return nil, err
 	}
 
-	o, err := log.LogGet(ctx, cn.Conn, r, l.tail)
+	o, err := log.LogGet(ctx, conn, r, l.tail)
 	if err != nil {
 		return nil, errors.Wrap(err, "get logs")
 	}
@@ -527,8 +535,8 @@ func runLogs(ctx context.Context, cn *pbm.PBM, l *logsOpts) (fmt.Stringer, error
 	return o, nil
 }
 
-func followLogs(ctx context.Context, cn *pbm.PBM, r *log.LogRequest, showNode, expr bool) error {
-	outC, errC := log.Follow(ctx, cn.Conn.LogCollection(), r, false)
+func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, showNode, expr bool) error {
+	outC, errC := log.Follow(ctx, conn.LogCollection(), r, false)
 
 	for {
 		select {
@@ -608,11 +616,8 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func cancelBcp(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
-	err := sendCmd(ctx, cn.Conn, types.Cmd{
-		Cmd: defs.CmdCancelBackup,
-	})
-	if err != nil {
+func cancelBcp(ctx context.Context, pbmSDK sdk.Client) (fmt.Stringer, error) {
+	if _, err := pbmSDK.CancelBackup(ctx); err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}
 	return outMsg{"Backup cancellation has started"}, nil
@@ -631,15 +636,15 @@ func parseDateT(v string) (time.Time, error) {
 	return time.Time{}, errInvalidFormat
 }
 
-type findLockFn = func(ctx context.Context, m connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
+type findLockFn = func(ctx context.Context, conn connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
 
-func findLock(ctx context.Context, cn *pbm.PBM, fn findLockFn) (*lock.LockData, error) {
-	locks, err := fn(ctx, cn.Conn, &lock.LockHeader{})
+func findLock(ctx context.Context, conn connect.Client, fn findLockFn) (*lock.LockData, error) {
+	locks, err := fn(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
 	}
 
-	ct, err := topo.GetClusterTime(ctx, cn.Conn)
+	ct, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
@@ -647,7 +652,7 @@ func findLock(ctx context.Context, cn *pbm.PBM, fn findLockFn) (*lock.LockData, 
 	var lck *lock.LockData
 	for _, l := range locks {
 		// We don't care about the PITR slicing here. It is a subject of other status sections
-		if l.Type == defs.CmdPITR || l.Heartbeat.T+defs.StaleFrameSec < ct.T {
+		if l.Type == ctrl.CmdPITR || l.Heartbeat.T+defs.StaleFrameSec < ct.T {
 			continue
 		}
 
@@ -678,7 +683,7 @@ func findLock(ctx context.Context, cn *pbm.PBM, fn findLockFn) (*lock.LockData, 
 var errTout = errors.Errorf("timeout reached")
 
 // waitOp waits up to waitFor duration until operations which acquires a given lock are finished
-func waitOp(ctx context.Context, pbmClient *pbm.PBM, lck *lock.LockHeader, waitFor time.Duration) error {
+func waitOp(ctx context.Context, conn connect.Client, lck *lock.LockHeader, waitFor time.Duration) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)
 	fmt.Print(".")
@@ -693,7 +698,7 @@ func waitOp(ctx context.Context, pbmClient *pbm.PBM, lck *lock.LockHeader, waitF
 			return errTout
 		case <-tkr.C:
 			fmt.Print(".")
-			lock, err := lock.GetLockData(ctx, pbmClient.Conn, lck)
+			lock, err := lock.GetLockData(ctx, conn, lck)
 			if err != nil {
 				// No lock, so operation has finished
 				if errors.Is(err, mongo.ErrNoDocuments) {
@@ -701,7 +706,7 @@ func waitOp(ctx context.Context, pbmClient *pbm.PBM, lck *lock.LockHeader, waitF
 				}
 				return errors.Wrap(err, "get lock data")
 			}
-			clusterTime, err := topo.GetClusterTime(ctx, pbmClient.Conn)
+			clusterTime, err := topo.GetClusterTime(ctx, conn)
 			if err != nil {
 				return errors.Wrap(err, "read cluster time")
 			}
@@ -712,9 +717,9 @@ func waitOp(ctx context.Context, pbmClient *pbm.PBM, lck *lock.LockHeader, waitF
 	}
 }
 
-func lastLogErr(ctx context.Context, cn *pbm.PBM, op defs.Command, after int64) (string, error) {
+func lastLogErr(ctx context.Context, conn connect.Client, op ctrl.Command, after int64) (string, error) {
 	l, err := log.LogGet(ctx,
-		cn.Conn,
+		conn,
 		&log.LogRequest{
 			LogKeys: log.LogKeys{
 				Severity: log.Error,
@@ -764,13 +769,13 @@ func (e concurentOpError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s)
 }
 
-func checkConcurrentOp(ctx context.Context, cn *pbm.PBM) error {
-	locks, err := lock.GetLocks(ctx, cn.Conn, &lock.LockHeader{})
+func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
+	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return errors.Wrap(err, "get locks")
 	}
 
-	ts, err := topo.GetClusterTime(ctx, cn.Conn)
+	ts, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}

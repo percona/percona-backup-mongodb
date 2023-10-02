@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"context"
 	"net/url"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
@@ -19,24 +19,37 @@ type ConnectOptions struct {
 	AppName string
 }
 
-func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
-	client, err := mongo.Connect(ctx,
-		options.Client().ApplyURI(uri).
-			SetAppName(appName).
-			SetReadPreference(readpref.Primary()).
-			SetReadConcern(readconcern.Majority()).
-			SetWriteConcern(writeconcern.Majority()),
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "mongo connect")
+type MongoConnectOptions struct {
+	AppName string
+	Direct  bool
+}
+
+func MongoConnect(ctx context.Context, uri string, opts *MongoConnectOptions) (*mongo.Client, error) {
+	if !strings.HasPrefix(uri, "mongodb://") {
+		uri = "mongodb://" + uri
 	}
 
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "mongo ping")
+	if opts == nil {
+		opts = &MongoConnectOptions{}
 	}
 
-	return client, nil
+	mopts := options.Client().ApplyURI(uri).
+		SetAppName(opts.AppName).
+		SetReadPreference(readpref.Primary()).
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.Majority()).
+		SetDirect(opts.Direct)
+	conn, err := mongo.Connect(ctx, mopts)
+	if err != nil {
+		return nil, errors.Wrap(err, "connect")
+	}
+
+	err = conn.Ping(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "ping")
+	}
+
+	return conn, nil
 }
 
 type clientImpl struct {
@@ -52,9 +65,8 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, err
 		opts = &ConnectOptions{}
 	}
 
-	uri = "mongodb://" + strings.Replace(uri, "mongodb://", "", 1)
-
-	client, err := connect(ctx, uri, opts.AppName)
+	mopts := &MongoConnectOptions{AppName: opts.AppName}
+	client, err := MongoConnect(ctx, uri, mopts)
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -63,7 +75,7 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, err
 	if err != nil {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
-	if inf.isMongos() || inf.isConfigsvr() {
+	if inf.isMongos() {
 		return &clientImpl{client: client}, nil
 	}
 
@@ -72,7 +84,7 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, err
 		return nil, errors.Wrap(err, "get mongod options")
 	}
 
-	if !inf.isSharded() {
+	if inf.isClusterLeader() {
 		return &clientImpl{client: client}, nil
 	}
 
@@ -102,12 +114,30 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, err
 	query.Del("replicaSet")
 	curi.RawQuery = query.Encode()
 	curi.Host = chost[1]
-	client, err = connect(ctx, curi.String(), opts.AppName)
+	client, err = MongoConnect(ctx, curi.String(), mopts)
 	if err != nil {
 		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
 
 	return &clientImpl{client: client}, nil
+}
+
+func (l *clientImpl) HasValidConnection(ctx context.Context) error {
+	err := l.client.Ping(ctx, readpref.Primary())
+	if err != nil {
+		return err
+	}
+
+	info, err := getNodeInfo(ctx, l.client)
+	if err != nil {
+		return errors.Wrap(err, "get node info ext")
+	}
+
+	if !info.isMongos() && !info.isClusterLeader() {
+		return ErrInvalidConnection
+	}
+
+	return nil
 }
 
 func (l *clientImpl) Disconnect(ctx context.Context) error {
@@ -165,6 +195,8 @@ func (l *clientImpl) PBMOpLogCollection() *mongo.Collection {
 func (l *clientImpl) AgentsStatusCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.AgentsStatusCollection)
 }
+
+var ErrInvalidConnection = errors.New("invalid mongo connection")
 
 type Client interface {
 	Disconnect(ctx context.Context) error

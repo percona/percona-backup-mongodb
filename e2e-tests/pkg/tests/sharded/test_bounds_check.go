@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"golang.org/x/mod/semver"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 )
 

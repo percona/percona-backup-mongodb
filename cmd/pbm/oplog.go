@@ -1,15 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/query"
-	"github.com/percona/percona-backup-mongodb/internal/types"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 )
 
 type replayOptions struct {
@@ -39,7 +39,7 @@ func (r oplogReplayResult) String() string {
 	return fmt.Sprintf("Oplog replay %q has started", r.Name)
 }
 
-func replayOplog(ctx context.Context, cn *pbm.PBM, o replayOptions, outf outFormat) (fmt.Stringer, error) {
+func replayOplog(ctx context.Context, conn connect.Client, o replayOptions, outf outFormat) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
@@ -54,22 +54,22 @@ func replayOplog(ctx context.Context, cn *pbm.PBM, o replayOptions, outf outForm
 		return nil, errors.Wrap(err, "parse end time")
 	}
 
-	err = checkConcurrentOp(ctx, cn)
+	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
-	cmd := types.Cmd{
-		Cmd: defs.CmdReplay,
-		Replay: &types.ReplayCmd{
+	cmd := ctrl.Cmd{
+		Cmd: ctrl.CmdReplay,
+		Replay: &ctrl.ReplayCmd{
 			Name:  name,
 			Start: startTS,
 			End:   endTS,
 			RSMap: rsMap,
 		},
 	}
-	if err := sendCmd(ctx, cn.Conn, cmd); err != nil {
+	if err := sendCmd(ctx, conn, cmd); err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
 
@@ -82,7 +82,7 @@ func replayOplog(ctx context.Context, cn *pbm.PBM, o replayOptions, outf outForm
 	startCtx, cancel := context.WithTimeout(ctx, defs.WaitActionStart)
 	defer cancel()
 
-	m, err := waitForRestoreStatus(startCtx, cn.Conn, name, query.GetRestoreMeta)
+	m, err := waitForRestoreStatus(startCtx, conn, name, restore.GetRestoreMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func replayOplog(ctx context.Context, cn *pbm.PBM, o replayOptions, outf outForm
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(ctx, cn, m, defs.StatusDone, 0)
+	err = waitRestore(ctx, conn, m, defs.StatusDone, 0)
 	if err != nil {
 		return oplogReplayResult{err: err.Error()}, nil //nolint:nilerr
 	}

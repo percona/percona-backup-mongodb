@@ -1,11 +1,9 @@
 package storage
 
 import (
+	"context"
 	"io"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
-	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 
 	"github.com/percona/percona-backup-mongodb/internal/compress"
@@ -107,7 +105,7 @@ func Upload(
 	ctx context.Context,
 	src Source,
 	dst Storage,
-	compression defs.CompressionType,
+	compression compress.CompressionType,
 	compressLevel *int,
 	fname string,
 	sizeb int64,

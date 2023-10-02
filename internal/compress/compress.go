@@ -12,20 +12,50 @@ import (
 	"github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4"
 
-	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
+type CompressionType string
+
+const (
+	CompressionTypeNone      CompressionType = "none"
+	CompressionTypeGZIP      CompressionType = "gzip"
+	CompressionTypePGZIP     CompressionType = "pgzip"
+	CompressionTypeSNAPPY    CompressionType = "snappy"
+	CompressionTypeLZ4       CompressionType = "lz4"
+	CompressionTypeS2        CompressionType = "s2"
+	CompressionTypeZstandard CompressionType = "zstd"
+)
+
+func (c CompressionType) Suffix() string {
+	switch c {
+	case CompressionTypeGZIP, CompressionTypePGZIP:
+		return ".gz"
+	case CompressionTypeLZ4:
+		return ".lz4"
+	case CompressionTypeSNAPPY:
+		return ".snappy"
+	case CompressionTypeS2:
+		return ".s2"
+	case CompressionTypeZstandard:
+		return ".zst"
+	case CompressionTypeNone:
+		fallthrough
+	default:
+		return ""
+	}
+}
+
 func IsValidCompressionType(s string) bool {
-	switch defs.CompressionType(s) {
+	switch CompressionType(s) {
 	case
-		defs.CompressionTypeNone,
-		defs.CompressionTypeGZIP,
-		defs.CompressionTypePGZIP,
-		defs.CompressionTypeSNAPPY,
-		defs.CompressionTypeLZ4,
-		defs.CompressionTypeS2,
-		defs.CompressionTypeZstandard:
+		CompressionTypeNone,
+		CompressionTypeGZIP,
+		CompressionTypePGZIP,
+		CompressionTypeSNAPPY,
+		CompressionTypeLZ4,
+		CompressionTypeS2,
+		CompressionTypeZstandard:
 		return true
 	}
 
@@ -33,27 +63,27 @@ func IsValidCompressionType(s string) bool {
 }
 
 // FileCompression return compression alg based on given file extension
-func FileCompression(ext string) defs.CompressionType {
+func FileCompression(ext string) CompressionType {
 	switch ext {
 	default:
-		return defs.CompressionTypeNone
+		return CompressionTypeNone
 	case "gz":
-		return defs.CompressionTypePGZIP
+		return CompressionTypePGZIP
 	case "lz4":
-		return defs.CompressionTypeLZ4
+		return CompressionTypeLZ4
 	case "snappy":
-		return defs.CompressionTypeSNAPPY
+		return CompressionTypeSNAPPY
 	case "s2":
-		return defs.CompressionTypeS2
+		return CompressionTypeS2
 	case "zst":
-		return defs.CompressionTypeZstandard
+		return CompressionTypeZstandard
 	}
 }
 
 // Compress makes a compressed writer from the given one
-func Compress(w io.Writer, compression defs.CompressionType, level *int) (io.WriteCloser, error) {
+func Compress(w io.Writer, compression CompressionType, level *int) (io.WriteCloser, error) {
 	switch compression {
-	case defs.CompressionTypeGZIP:
+	case CompressionTypeGZIP:
 		if level == nil {
 			level = aws.Int(gzip.DefaultCompression)
 		}
@@ -62,7 +92,7 @@ func Compress(w io.Writer, compression defs.CompressionType, level *int) (io.Wri
 			return nil, err
 		}
 		return gw, nil
-	case defs.CompressionTypePGZIP:
+	case CompressionTypePGZIP:
 		if level == nil {
 			level = aws.Int(pgzip.DefaultCompression)
 		}
@@ -79,15 +109,15 @@ func Compress(w io.Writer, compression defs.CompressionType, level *int) (io.Wri
 			return nil, err
 		}
 		return pgw, nil
-	case defs.CompressionTypeLZ4:
+	case CompressionTypeLZ4:
 		lz4w := lz4.NewWriter(w)
 		if level != nil {
 			lz4w.Header.CompressionLevel = *level
 		}
 		return lz4w, nil
-	case defs.CompressionTypeSNAPPY:
+	case CompressionTypeSNAPPY:
 		return snappy.NewBufferedWriter(w), nil
-	case defs.CompressionTypeS2:
+	case CompressionTypeS2:
 		cc := runtime.NumCPU() / 3
 		if cc == 0 {
 			cc = 1
@@ -104,13 +134,13 @@ func Compress(w io.Writer, compression defs.CompressionType, level *int) (io.Wri
 			}
 		}
 		return s2.NewWriter(w, writerOptions...), nil
-	case defs.CompressionTypeZstandard:
+	case CompressionTypeZstandard:
 		encLevel := zstd.SpeedDefault
 		if level != nil {
 			encLevel = zstd.EncoderLevelFromZstd(*level)
 		}
 		return zstd.NewWriter(w, zstd.WithEncoderLevel(encLevel))
-	case defs.CompressionTypeNone:
+	case CompressionTypeNone:
 		fallthrough
 	default:
 		return nopWriteCloser{w}, nil
@@ -118,21 +148,21 @@ func Compress(w io.Writer, compression defs.CompressionType, level *int) (io.Wri
 }
 
 // Decompress wraps given reader by the decompressing io.ReadCloser
-func Decompress(r io.Reader, c defs.CompressionType) (io.ReadCloser, error) {
+func Decompress(r io.Reader, c CompressionType) (io.ReadCloser, error) {
 	switch c {
-	case defs.CompressionTypeGZIP, defs.CompressionTypePGZIP:
+	case CompressionTypeGZIP, CompressionTypePGZIP:
 		rr, err := gzip.NewReader(r)
 		return rr, errors.Wrap(err, "gzip reader")
-	case defs.CompressionTypeLZ4:
+	case CompressionTypeLZ4:
 		return io.NopCloser(lz4.NewReader(r)), nil
-	case defs.CompressionTypeSNAPPY:
+	case CompressionTypeSNAPPY:
 		return io.NopCloser(snappy.NewReader(r)), nil
-	case defs.CompressionTypeS2:
+	case CompressionTypeS2:
 		return io.NopCloser(s2.NewReader(r)), nil
-	case defs.CompressionTypeZstandard:
+	case CompressionTypeZstandard:
 		rr, err := zstd.NewReader(r)
 		return io.NopCloser(rr), errors.Wrap(err, "zstandard reader")
-	case defs.CompressionTypeNone:
+	case CompressionTypeNone:
 		fallthrough
 	default:
 		return io.NopCloser(r), nil

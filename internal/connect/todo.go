@@ -1,11 +1,12 @@
 package connect
 
 import (
+	"context"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
@@ -13,7 +14,10 @@ import (
 // nodeInfo represents the mongo's node info
 type nodeInfo struct {
 	Msg               string `bson:"msg"`
+	Me                string `bson:"me"`
 	SetName           string `bson:"setName,omitempty"`
+	Primary           string `bson:"primary,omitempty"`
+	IsPrimary         bool   `bson:"ismaster"`
 	ConfigSvr         int    `bson:"configsvr,omitempty"`
 	ConfigServerState *struct {
 		OpTime *struct {
@@ -37,6 +41,15 @@ func (i *nodeInfo) isConfigsvr() bool {
 // IsSharded returns true is replset is part sharded cluster
 func (i *nodeInfo) isMongos() bool {
 	return i.Msg == "isdbgrid"
+}
+
+// IsLeader returns true if node can act as backup leader (it's configsrv or non shareded rs)
+func (i *nodeInfo) isLeader() bool {
+	return !i.isSharded() || i.isConfigsvr()
+}
+
+func (i *nodeInfo) isClusterLeader() bool {
+	return i.IsPrimary && i.Me == i.Primary && i.isLeader()
 }
 
 type mongodOpts struct {

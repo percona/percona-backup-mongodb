@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"context"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -8,17 +9,16 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/query"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
 // LockHeader describes the lock. This data will be serialased into the mongo document.
 type LockHeader struct {
-	Type    defs.Command `bson:"type,omitempty" json:"type,omitempty"`
+	Type    ctrl.Command `bson:"type,omitempty" json:"type,omitempty"`
 	Replset string       `bson:"replset,omitempty" json:"replset,omitempty"`
 	Node    string       `bson:"node,omitempty" json:"node,omitempty"`
 	OPID    string       `bson:"opid,omitempty" json:"opid,omitempty"`
@@ -64,6 +64,10 @@ func newLock(m connect.Client, coll *mongo.Collection, h LockHeader) *Lock {
 		hbRate:   time.Second * 5,
 		staleSec: defs.StaleFrameSec,
 	}
+}
+
+func (l *Lock) Connect() connect.Client {
+	return l.m
 }
 
 // Rewrite tries to acquire the lock instead the `old` one.
@@ -144,7 +148,7 @@ func (l *Lock) log(ctx context.Context) error {
 	// PITR slicing technically speaking is not an OP but
 	// long standing process. It souldn't be logged. Moreover
 	// having no opid it would block all subsequent PITR events.
-	if l.LockHeader.Type == defs.CmdPITR {
+	if l.LockHeader.Type == ctrl.CmdPITR {
 		return nil
 	}
 
@@ -157,42 +161,6 @@ func (l *Lock) log(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func MarkBcpStale(ctx context.Context, l *Lock, opid string) error {
-	bcp, err := query.GetBackupByOPID(ctx, l.m, opid)
-	if err != nil {
-		return errors.Wrap(err, "get backup meta")
-	}
-
-	// not to rewrite an error emitted by the agent
-	if bcp.Status == defs.StatusError || bcp.Status == defs.StatusDone {
-		return nil
-	}
-
-	if logger := log.GetLoggerFromContextOr(ctx, nil); logger != nil {
-		logger.Debug(string(defs.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
-	}
-	return query.ChangeBackupStateOPID(l.m, opid, defs.StatusError,
-		"some of pbm-agents were lost during the backup")
-}
-
-func MarkRestoreStale(ctx context.Context, l *Lock, opid string) error {
-	r, err := query.GetRestoreMetaByOPID(ctx, l.m, opid)
-	if err != nil {
-		return errors.Wrap(err, "get retore meta")
-	}
-
-	// not to rewrite an error emitted by the agent
-	if r.Status == defs.StatusError || r.Status == defs.StatusDone {
-		return nil
-	}
-
-	if logger := log.GetLoggerFromContextOr(ctx, nil); logger != nil {
-		logger.Debug(string(defs.CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
-	}
-	return query.ChangeRestoreStateOPID(ctx, l.m, opid, defs.StatusError,
-		"some of pbm-agents were lost during the restore")
 }
 
 // Release the lock
@@ -254,7 +222,7 @@ func (l *Lock) rewrite(ctx context.Context, old *LockHeader) (bool, error) {
 
 // heartbeats for the lock
 func (l *Lock) hb(ctx context.Context) {
-	logger := log.GetLoggerFromContextOr(ctx, nil)
+	logger := log.FromContext(ctx)
 	ctx, l.cancel = context.WithCancel(ctx)
 
 	go func() {

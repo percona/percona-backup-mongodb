@@ -1,10 +1,9 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"strings"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests"
 	"github.com/percona/percona-backup-mongodb/internal/defs"

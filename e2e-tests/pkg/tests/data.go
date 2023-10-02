@@ -1,11 +1,10 @@
 package tests
 
 import (
+	"context"
 	"math/rand"
 	"runtime"
 	"time"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"

@@ -1,11 +1,10 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"time"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )

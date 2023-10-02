@@ -1,30 +1,30 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
+	stdlog "log"
 	"sort"
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/internal/archive"
-	"github.com/percona/percona-backup-mongodb/internal/config"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/backup"
+	"github.com/percona/percona-backup-mongodb/internal/compress"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/query"
-	"github.com/percona/percona-backup-mongodb/internal/resync"
+	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type backupOpts struct {
@@ -78,7 +78,7 @@ type descBcp struct {
 	coll bool
 }
 
-func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
+func runBackup(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
 	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -90,22 +90,22 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
 
-	if err := topo.CheckTopoForBackup(ctx, cn.Conn, defs.BackupType(b.typ)); err != nil {
+	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")
 	}
 
-	if err := checkConcurrentOp(ctx, cn); err != nil {
+	if err := checkConcurrentOp(ctx, conn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
 		var e concurentOpError
 		if !errors.As(err, &e) {
 			return nil, err
 		}
-		if e.op.Type != defs.CmdPITR {
+		if e.op.Type != ctrl.CmdPITR {
 			return nil, err
 		}
 	}
 
-	cfg, err := config.GetConfig(ctx, cn.Conn)
+	cfg, err := pbmSDK.GetConfig(ctx)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("no store set. Set remote store with <pbm store set>")
@@ -115,7 +115,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 
 	compression := cfg.Backup.Compression
 	if b.compression != "" {
-		compression = defs.CompressionType(b.compression)
+		compression = compress.CompressionType(b.compression)
 	}
 
 	level := cfg.Backup.CompressionLevel
@@ -123,9 +123,9 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 		level = &b.compressionLevel[0]
 	}
 
-	err = sendCmd(ctx, cn.Conn, types.Cmd{
-		Cmd: defs.CmdBackup,
-		Backup: &types.BackupCmd{
+	err = sendCmd(ctx, conn, ctrl.Cmd{
+		Cmd: ctrl.CmdBackup,
+		Backup: &ctrl.BackupCmd{
 			Type:             defs.BackupType(b.typ),
 			IncrBase:         b.base,
 			Name:             b.name,
@@ -145,13 +145,13 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 	fmt.Printf("Starting backup '%s'", b.name)
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
-	err = waitForBcpStatus(startCtx, cn, b.name)
+	err = waitForBcpStatus(startCtx, conn, b.name)
 	if err != nil {
 		return nil, err
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
-		s, err := waitBackup(ctx, cn, b.name, defs.StatusCopyReady)
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -163,7 +163,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 			return nil, errors.Errorf("unexpected backup status %v", str)
 		}
 
-		bcp, err := query.GetBackupMeta(ctx, cn.Conn, b.name)
+		bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, b.name)
 		if err != nil {
 			return nil, errors.Wrap(err, "get backup meta")
 		}
@@ -180,7 +180,7 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 
 	if b.wait {
 		fmt.Printf("\nWaiting for '%s' backup...", b.name)
-		s, err := waitBackup(ctx, cn, b.name, defs.StatusDone)
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone)
 		if s != nil {
 			fmt.Printf(" %s\n", *s)
 		}
@@ -190,8 +190,8 @@ func runBackup(ctx context.Context, cn *pbm.PBM, b *backupOpts, outf outFormat) 
 	return backupOut{b.name, cfg.Storage.Path()}, nil
 }
 
-func runFinishBcp(ctx context.Context, cn *pbm.PBM, bcp string) (fmt.Stringer, error) {
-	meta, err := query.GetBackupMeta(ctx, cn.Conn, bcp)
+func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Stringer, error) {
+	meta, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcp)
 	if err != nil {
 		if errors.Is(err, errors.ErrNotFound) {
 			return nil, errors.Errorf("backup %q not found", bcp)
@@ -203,10 +203,10 @@ func runFinishBcp(ctx context.Context, cn *pbm.PBM, bcp string) (fmt.Stringer, e
 	}
 
 	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
-		query.ChangeBackupState(cn.Conn, bcp, defs.StatusCopyDone, "")
+		backup.ChangeBackupState(conn, bcp, defs.StatusCopyDone, "")
 }
 
-func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status defs.Status) (*defs.Status, error) {
+func waitBackup(ctx context.Context, conn connect.Client, name string, status defs.Status) (*defs.Status, error) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
@@ -215,7 +215,7 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status defs.Statu
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-t.C:
-			bcp, err := query.GetBackupMeta(ctx, cn.Conn, name)
+			bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, name)
 			if err != nil {
 				return nil, err
 			}
@@ -232,17 +232,17 @@ func waitBackup(ctx context.Context, cn *pbm.PBM, name string, status defs.Statu
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, cn *pbm.PBM, bcpName string) error {
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	var bmeta *types.BackupMeta
+	var bmeta *backup.BackupMeta
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
 			var err error
-			bmeta, err = query.GetBackupMeta(ctx, cn.Conn, bcpName)
+			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
@@ -305,7 +305,7 @@ type bcpReplDesc struct {
 	Name               string              `json:"name" yaml:"name"`
 	Status             defs.Status         `json:"status" yaml:"status"`
 	Node               string              `json:"node" yaml:"node"`
-	Files              []types.File        `json:"files,omitempty" yaml:"-"`
+	Files              []backup.File       `json:"files,omitempty" yaml:"-"`
 	LastWriteTS        int64               `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64               `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string              `json:"last_write_time" yaml:"last_write_time"`
@@ -319,7 +319,7 @@ type bcpReplDesc struct {
 func (b *bcpDesc) String() string {
 	data, err := yaml.Marshal(b)
 	if err != nil {
-		log.Fatal(err)
+		stdlog.Fatal(err)
 	}
 
 	return string(data)
@@ -341,21 +341,21 @@ func byteCountIEC(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func describeBackup(ctx context.Context, cn *pbm.PBM, b *descBcp) (fmt.Stringer, error) {
-	bcp, err := query.GetBackupMeta(ctx, cn.Conn, b.name)
+func describeBackup(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, b *descBcp) (fmt.Stringer, error) {
+	bcp, err := pbmSDK.GetBackupByName(ctx, b.name)
 	if err != nil {
 		return nil, err
 	}
 
 	var stg storage.Storage
 	if b.coll {
-		l := cn.Logger().NewEvent("", "", "", primitive.Timestamp{})
-		stg, err = util.GetStorage(ctx, cn.Conn, l)
+		l := log.FromContext(ctx).NewDefaultEvent()
+		stg, err := util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		_, err := stg.FileStat(defs.StorInitFile)
+		_, err = stg.FileStat(defs.StorInitFile)
 		if err != nil {
 			return nil, errors.Wrap(err, "check storage access")
 		}
@@ -384,8 +384,8 @@ func describeBackup(ctx context.Context, cn *pbm.PBM, b *descBcp) (fmt.Stringer,
 	if bcp.Size == 0 {
 		switch bcp.Status {
 		case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
-			l := cn.Logger().NewEvent("", "", "", primitive.Timestamp{})
-			stg, err := util.GetStorage(ctx, cn.Conn, l)
+			l := log.FromContext(ctx).NewDefaultEvent()
+			stg, err := util.GetStorage(ctx, conn, l)
 			if err != nil {
 				return nil, errors.Wrap(err, "get storage")
 			}
@@ -425,7 +425,7 @@ func describeBackup(ctx context.Context, cn *pbm.PBM, b *descBcp) (fmt.Stringer,
 			continue
 		}
 
-		nss, err := resync.ReadArchiveNamespaces(stg, r.DumpName)
+		nss, err := backup.ReadArchiveNamespaces(stg, r.DumpName)
 		if err != nil {
 			return nil, errors.Wrap(err, "read archive metadata")
 		}
@@ -438,7 +438,7 @@ func describeBackup(ctx context.Context, cn *pbm.PBM, b *descBcp) (fmt.Stringer,
 		sort.Strings(rv.Replsets[i].Collections)
 	}
 
-	return rv, err
+	return rv, nil
 }
 
 // bcpsMatchCluster checks if given backups match shards in the cluster. Match means that
@@ -451,7 +451,7 @@ func describeBackup(ctx context.Context, cn *pbm.PBM, b *descBcp) (fmt.Stringer,
 // storage nor in DB (backup is ok, it just doesn't cluster), it is just "in-flight" changes
 // in given `bcps`.
 func bcpsMatchCluster(
-	bcps []types.BackupMeta,
+	bcps []backup.BackupMeta,
 	ver,
 	fcv string,
 	shards []topo.Shard,
@@ -469,7 +469,7 @@ func bcpsMatchCluster(
 	}
 }
 
-func bcpMatchCluster(bcp *types.BackupMeta, ver, fcv string, shards map[string]bool, mapRS, mapRevRS util.RSMapFunc) {
+func bcpMatchCluster(bcp *backup.BackupMeta, ver, fcv string, shards map[string]bool, mapRS, mapRevRS util.RSMapFunc) {
 	if bcp.Status != defs.StatusDone {
 		return
 	}

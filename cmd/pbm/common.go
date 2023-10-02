@@ -1,15 +1,15 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
-	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 )
 
-func sendCmd(ctx context.Context, m connect.Client, cmd types.Cmd) error {
+func sendCmd(ctx context.Context, conn connect.Client, cmd ctrl.Cmd) error {
 	cmd.TS = time.Now().UTC().Unix()
-	_, err := m.CmdStreamCollection().InsertOne(ctx, cmd)
+	_, err := conn.CmdStreamCollection().InsertOne(ctx, cmd)
 	return err
 }

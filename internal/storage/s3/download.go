@@ -190,7 +190,7 @@ type partReader struct {
 	chunkSize int64
 
 	getSess func() (*s3.S3, error)
-	l       *log.Event
+	l       log.LogEvent
 	opts    *Conf
 	buf     []byte // preallocated buf for io.Copy
 

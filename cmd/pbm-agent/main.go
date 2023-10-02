@@ -1,22 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
+	stdlog "log"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/alecthomas/kingpin"
-	mlog "github.com/mongodb/mongo-tools/common/log"
+	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	plog "github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/version"
-	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 const mongoConnFlag = "mongodb-uri"
@@ -51,7 +51,7 @@ func main() {
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil && cmd != versionCmd.FullCommand() {
-		log.Println("Error: Parse command line parameters:", err)
+		stdlog.Println("Error: Parse command line parameters:", err)
 		return
 	}
 
@@ -73,38 +73,45 @@ func main() {
 	hidecreds()
 
 	err = runAgent(url, *dumpConns)
-	log.Println("Exit:", err)
+	stdlog.Println("Exit:", err)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
 func runAgent(mongoURI string, dumpConns int) error {
-	mlog.SetDateFormat(plog.LogTimeFormat)
-	mlog.SetVerbosity(&options.Verbosity{VLevel: mlog.DebugLow})
+	mtLog.SetDateFormat(log.LogTimeFormat)
+	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pbmClient, err := pbm.New(ctx, mongoURI, "pbm-agent")
+	leadConn, err := connect.Connect(ctx, mongoURI, &connect.ConnectOptions{AppName: "pbm-agent"})
 	if err != nil {
 		return errors.Wrap(err, "connect to PBM")
 	}
 
-	agnt := newAgent(pbmClient)
-	defer agnt.Close()
-	err = agnt.AddNode(ctx, mongoURI, dumpConns)
+	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
-	agnt.InitLogger()
 
-	if err := agnt.CanStart(ctx); err != nil {
+	logger := log.New(agent.leadConn.LogCollection(), agent.brief.SetName, agent.brief.Me)
+	defer logger.Close()
+
+	ctx = log.SetLoggerToContext(ctx, logger)
+
+	if err := agent.CanStart(ctx); err != nil {
 		return errors.Wrap(err, "pre-start check")
 	}
 
-	go agnt.PITR(ctx)
-	go agnt.HbStatus(ctx)
+	err = setupNewDB(ctx, agent.leadConn)
+	if err != nil {
+		return errors.Wrap(err, "setup pbm collections")
+	}
 
-	return errors.Wrap(agnt.Start(ctx), "listen the commands stream")
+	go agent.PITR(ctx)
+	go agent.HbStatus(ctx)
+
+	return errors.Wrap(agent.Start(ctx), "listen the commands stream")
 }

@@ -1,6 +1,7 @@
 package topo
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,11 +10,29 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
+
+type ConnectionStatus struct {
+	AuthInfo AuthInfo `bson:"authInfo" json:"authInfo"`
+}
+
+type AuthInfo struct {
+	Users     []AuthUser      `bson:"authenticatedUsers" json:"authenticatedUsers"`
+	UserRoles []AuthUserRoles `bson:"authenticatedUserRoles" json:"authenticatedUserRoles"`
+}
+
+type AuthUser struct {
+	User string `bson:"user" json:"user"`
+	DB   string `bson:"db" json:"db"`
+}
+
+type AuthUserRoles struct {
+	Role string `bson:"role" json:"role"`
+	DB   string `bson:"db" json:"db"`
+}
 
 func CheckTopoForBackup(ctx context.Context, m connect.Client, type_ defs.BackupType) error {
 	members, err := ClusterMembers(ctx, m.MongoClient())
@@ -44,6 +63,7 @@ func CheckTopoForBackup(ctx context.Context, m connect.Client, type_ defs.Backup
 
 type (
 	ReplsetName = string
+	ShardName   = string
 	NodeURI     = string
 )
 
@@ -134,7 +154,7 @@ const maxReplicationLagTimeSec = 21
 
 // NodeSuits checks if node can perform backup
 func NodeSuits(ctx context.Context, m *mongo.Client, inf *NodeInfo) (bool, error) {
-	status, err := Status(ctx, m, inf.Me)
+	status, err := GetNodeStatus(ctx, m, inf.Me)
 	if err != nil {
 		return false, errors.Wrap(err, "get node status")
 	}
@@ -163,21 +183,6 @@ func NodeSuitsExt(ctx context.Context, m *mongo.Client, inf *NodeInfo, t defs.Ba
 	return err == nil, err
 }
 
-func Status(ctx context.Context, m *mongo.Client, self string) (*NodeStatus, error) {
-	s, err := GetReplsetStatus(ctx, m)
-	if err != nil {
-		return nil, errors.Wrap(err, "get replset status")
-	}
-
-	for _, m := range s.Members {
-		if m.Name == self {
-			return &m, nil
-		}
-	}
-
-	return nil, errors.ErrNotFound
-}
-
 // GetReplsetStatus returns `replSetGetStatus` for the given connection
 func GetReplsetStatus(ctx context.Context, m *mongo.Client) (*ReplsetStatus, error) {
 	status := &ReplsetStatus{}
@@ -187,6 +192,21 @@ func GetReplsetStatus(ctx context.Context, m *mongo.Client) (*ReplsetStatus, err
 	}
 
 	return status, nil
+}
+
+func GetNodeStatus(ctx context.Context, m *mongo.Client, name string) (*NodeStatus, error) {
+	s, err := GetReplsetStatus(ctx, m)
+	if err != nil {
+		return nil, errors.Wrap(err, "get replset status")
+	}
+
+	for _, m := range s.Members {
+		if m.Name == name {
+			return &m, nil
+		}
+	}
+
+	return nil, errors.ErrNotFound
 }
 
 // ReplicationLag returns node replication lag in seconds

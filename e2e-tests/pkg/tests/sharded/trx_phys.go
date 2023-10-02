@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -9,8 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 )
 
 func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {

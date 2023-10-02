@@ -1,44 +1,52 @@
 package log
 
-import "github.com/percona/percona-backup-mongodb/internal/context"
+import "context"
+
+type logTag string
 
 const (
-	logEventTag = "pbm:log:event"
-	loggerTag   = "pbm:logger"
+	loggerTag   logTag = "pbm:logger"
+	logEventTag logTag = "pbm:log:event"
 )
 
-func GetLogEventFromContextOr(ctx context.Context, fallback *Event) *Event {
-	val := ctx.Value(logEventTag)
-	if val == nil {
-		return fallback
-	}
-
-	ev, ok := val.(*Event)
-	if !ok {
-		return fallback
-	}
-
-	return ev
-}
-
-func SetLogEventToContext(ctx context.Context, ev *Event) context.Context {
-	return context.WithValue(ctx, logEventTag, ev)
-}
-
-func GetLoggerFromContextOr(ctx context.Context, fallback *Logger) *Logger {
+func FromContext(ctx context.Context) Logger {
 	val := ctx.Value(loggerTag)
 	if val == nil {
-		return fallback
+		return DiscardLogger
 	}
 
-	ev, ok := val.(*Logger)
+	ev, ok := val.(Logger)
 	if !ok {
-		return fallback
+		return DiscardLogger
 	}
 
 	return ev
 }
 
-func SetLoggerToContext(ctx context.Context, ev *Logger) context.Context {
+func SetLoggerToContext(ctx context.Context, ev Logger) context.Context {
+	return context.WithValue(ctx, loggerTag, ev)
+}
+
+func LogEventFromContext(ctx context.Context) LogEvent {
+	val := ctx.Value(logEventTag)
+	if val == nil {
+		return FromContext(ctx).NewDefaultEvent()
+	}
+
+	ev, ok := val.(LogEvent)
+	if !ok {
+		return FromContext(ctx).NewDefaultEvent()
+	}
+
+	return ev
+}
+
+func SetLogEventToContext(ctx context.Context, ev LogEvent) context.Context {
 	return context.WithValue(ctx, logEventTag, ev)
+}
+
+func Copy(to, from context.Context) context.Context {
+	to = SetLoggerToContext(to, FromContext(from))
+	to = SetLogEventToContext(to, LogEventFromContext(from))
+	return to
 }

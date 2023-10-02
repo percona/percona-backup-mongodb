@@ -224,13 +224,13 @@ const (
 
 type S3 struct {
 	opts Conf
-	log  *log.Event
+	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts Conf, l *log.Event) (*S3, error) {
+func New(opts Conf, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -584,7 +584,7 @@ func (s *S3) session() (*session.Session, error) {
 	})
 }
 
-func awsLogger(l *log.Event) aws.Logger {
+func awsLogger(l log.LogEvent) aws.Logger {
 	if l == nil {
 		return aws.NewDefaultLogger()
 	}

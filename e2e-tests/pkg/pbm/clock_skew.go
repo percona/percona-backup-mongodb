@@ -1,9 +1,8 @@
 package pbm
 
 import (
+	"context"
 	"log"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"

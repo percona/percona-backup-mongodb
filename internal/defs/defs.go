@@ -104,37 +104,6 @@ const (
 	StatusExtTS Status = "lastTS"
 )
 
-type CompressionType string
-
-const (
-	CompressionTypeNone      CompressionType = "none"
-	CompressionTypeGZIP      CompressionType = "gzip"
-	CompressionTypePGZIP     CompressionType = "pgzip"
-	CompressionTypeSNAPPY    CompressionType = "snappy"
-	CompressionTypeLZ4       CompressionType = "lz4"
-	CompressionTypeS2        CompressionType = "s2"
-	CompressionTypeZstandard CompressionType = "zstd"
-)
-
-func (c CompressionType) Suffix() string {
-	switch c {
-	case CompressionTypeGZIP, CompressionTypePGZIP:
-		return ".gz"
-	case CompressionTypeLZ4:
-		return ".lz4"
-	case CompressionTypeSNAPPY:
-		return ".snappy"
-	case CompressionTypeS2:
-		return ".s2"
-	case CompressionTypeZstandard:
-		return ".zst"
-	case CompressionTypeNone:
-		fallthrough
-	default:
-		return ""
-	}
-}
-
 type Operation string
 
 const (

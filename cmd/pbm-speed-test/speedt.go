@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"reflect"
@@ -8,12 +9,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/compress"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 
 	"github.com/percona/percona-backup-mongodb/internal/storage"
@@ -122,7 +122,7 @@ const fileName = "pbmSpeedTest"
 func doTest(
 	nodeCN *mongo.Client,
 	stg storage.Storage,
-	compression defs.CompressionType,
+	compression compress.CompressionType,
 	level *int,
 	sizeGb float64,
 	collection string,
