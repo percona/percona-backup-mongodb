@@ -585,8 +585,8 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		} else {
 			hb.Hidden = inf.Hidden
 			hb.Passive = inf.Passive
+			hb.Arbiter = inf.ArbiterOnly
 		}
-		hb.Arbiter = inf.ArbiterOnly
 
 		err = topo.SetAgentStatus(ctx, a.leadConn, hb)
 		if err != nil {
