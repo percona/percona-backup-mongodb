@@ -78,7 +78,13 @@ type descBcp struct {
 	coll bool
 }
 
-func runBackup(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, b *backupOpts, outf outFormat) (fmt.Stringer, error) {
+func runBackup(
+	ctx context.Context,
+	conn connect.Client,
+	pbmSDK sdk.Client,
+	b *backupOpts,
+	outf outFormat,
+) (fmt.Stringer, error) {
 	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")

@@ -14,19 +14,6 @@ import (
 
 var ErrNotImplemented = errors.New("not implemented")
 
-type resultImpl struct {
-	opid CommandID
-	err  error
-}
-
-func (r resultImpl) ID() CommandID {
-	return r.opid
-}
-
-func (r resultImpl) Err() error {
-	return r.err
-}
-
 type clientImpl struct {
 	conn connect.Client
 }
@@ -121,8 +108,4 @@ func (c *clientImpl) CurrentOperations(ctx context.Context) ([]Lock, error) {
 	}
 
 	return rv, nil
-}
-
-func wrapResult(opid ctrl.OPID, err error) resultImpl {
-	return resultImpl{opid: CommandID(opid.String()), err: err}
 }

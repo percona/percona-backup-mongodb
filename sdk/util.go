@@ -11,6 +11,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
+var errMissedClusterTime = errors.New("missed cluster time")
+
 func IsHeartbeatStale(clusterTime, other Timestamp) bool {
 	return clusterTime.T >= other.T+defs.StaleFrameSec
 }
@@ -21,7 +23,7 @@ func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
 		return primitive.Timestamp{}, err
 	}
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.New("missed cluster time")
+		return primitive.Timestamp{}, errMissedClusterTime
 	}
 
 	return info.ClusterTime.ClusterTime, nil

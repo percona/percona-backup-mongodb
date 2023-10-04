@@ -1,4 +1,4 @@
-package oplog_tmp
+package oplogtmp
 
 import (
 	"context"

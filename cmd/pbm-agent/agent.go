@@ -22,7 +22,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/oplog/oplog_tmp"
+	"github.com/percona/percona-backup-mongodb/internal/oplog/oplogtmp"
 	"github.com/percona/percona-backup-mongodb/internal/resync"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
@@ -286,11 +286,11 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 		obj := t.Format("2006-01-02T15:04:05Z")
 		l = logger.NewEvent(string(ctrl.CmdDeletePITR), obj, opid.String(), ep.TS())
 		l.Info("deleting pitr chunks older than %v", t)
-		err = oplog_tmp.DeletePITR(ctx, a.leadConn, &t, l)
+		err = oplogtmp.DeletePITR(ctx, a.leadConn, &t, l)
 	} else {
 		l = logger.NewEvent(string(ctrl.CmdDeletePITR), "_all_", opid.String(), ep.TS())
 		l.Info("deleting all pitr chunks")
-		err = oplog_tmp.DeletePITR(ctx, a.leadConn, nil, l)
+		err = oplogtmp.DeletePITR(ctx, a.leadConn, nil, l)
 	}
 	if err != nil {
 		l.Error("deleting: %v", err)

@@ -760,7 +760,14 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 
 		simple := true
 		if md.Options != nil {
-			collation, ok := md.Options.Map()["collation"].(bson.D)
+			collation, ok := bson.D{}, false
+			for _, item := range md.Options {
+				if item.Key == "collation" {
+					collation = item.Value.(bson.D)
+					ok = true
+					break
+				}
+			}
 			if ok {
 				locale, _ := bsonutil.FindValueByKey("locale", &collation)
 				if locale != "" && locale != "simple" {

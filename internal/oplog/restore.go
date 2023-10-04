@@ -271,7 +271,10 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 		return false
 	}
 
-	m := oe.Object.Map()
+	m := make(map[string]any, len(oe.Object))
+	for _, e := range oe.Object {
+		m[e.Key] = e.Value
+	}
 	for _, cmd := range selectedNSSupportedCommands {
 		if ns, ok := m[cmd]; ok {
 			s, _ := ns.(string)
