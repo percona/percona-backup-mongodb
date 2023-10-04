@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"gopkg.in/yaml.v2"
@@ -17,8 +18,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
+const resyncWaitDuration = 30 * time.Second
+
 type configOpts struct {
 	rsync bool
+	wait  bool
 	list  bool
 	file  string
 	set   map[string]string
@@ -75,11 +79,27 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-
-		if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
+		cid, err := pbmSDK.SyncFromStorage(ctx)
+		if err != nil {
 			return nil, errors.Wrap(err, "resync")
 		}
-		return outMsg{"Storage resync started"}, nil
+
+		if !c.wait {
+			return outMsg{"Storage resync started"}, nil
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, resyncWaitDuration)
+		defer cancel()
+
+		err = sdk.WaitForResync(ctx, pbmSDK, cid)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = errors.New("timeout")
+			}
+			return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
+		}
+
+		return outMsg{"Storage resync finished"}, nil
 	case len(c.file) > 0:
 		var buf []byte
 		var err error
