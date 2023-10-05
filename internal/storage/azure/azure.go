@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
@@ -46,12 +46,12 @@ type Credentials struct {
 
 type Blob struct {
 	opts Conf
-	log  *log.Event
+	log  log.LogEvent
 	// url  *url.URL
 	c *azblob.Client
 }
 
-func New(opts Conf, l *log.Event) (*Blob, error) {
+func New(opts Conf, l log.LogEvent) (*Blob, error) {
 	b := &Blob{
 		opts: opts,
 		log:  l,

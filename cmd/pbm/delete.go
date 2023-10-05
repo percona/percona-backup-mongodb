@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,14 +11,15 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal"
+	"github.com/percona/percona-backup-mongodb/internal/backup"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
-	"github.com/percona/percona-backup-mongodb/internal/types"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type deleteBcpOpts struct {
@@ -26,7 +28,7 @@ type deleteBcpOpts struct {
 	force     bool
 }
 
-func deleteBackup(ctx context.Context, pbmClient *pbm.PBM, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
+func deleteBackup(ctx context.Context, conn connect.Client, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
 	if !d.force {
 		if err := askConfirmation("Are you sure you want to delete backup(s)?"); err != nil {
 			if errors.Is(err, errUserCanceled) {
@@ -36,9 +38,9 @@ func deleteBackup(ctx context.Context, pbmClient *pbm.PBM, d *deleteBcpOpts, out
 		}
 	}
 
-	cmd := types.Cmd{
-		Cmd:    defs.CmdDeleteBackup,
-		Delete: &types.DeleteBackupCmd{},
+	cmd := ctrl.Cmd{
+		Cmd:    ctrl.CmdDeleteBackup,
+		Delete: &ctrl.DeleteBackupCmd{},
 	}
 	if len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
@@ -53,7 +55,7 @@ func deleteBackup(ctx context.Context, pbmClient *pbm.PBM, d *deleteBcpOpts, out
 		cmd.Delete.Backup = d.name
 	}
 	tsop := time.Now().UTC().Unix()
-	err := sendCmd(ctx, pbmClient.Conn, cmd)
+	err := sendCmd(ctx, conn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "schedule delete")
 	}
@@ -63,14 +65,14 @@ func deleteBackup(ctx context.Context, pbmClient *pbm.PBM, d *deleteBcpOpts, out
 
 	fmt.Print("Waiting for delete to be done ")
 	err = waitOp(ctx,
-		pbmClient,
-		&lock.LockHeader{Type: defs.CmdDeleteBackup},
+		conn,
+		&lock.LockHeader{Type: ctrl.CmdDeleteBackup},
 		time.Second*60)
 	if err != nil && !errors.Is(err, errTout) {
 		return nil, err
 	}
 
-	errl, err := lastLogErr(ctx, pbmClient, defs.CmdDeleteBackup, tsop)
+	errl, err := lastLogErr(ctx, conn, ctrl.CmdDeleteBackup, tsop)
 	if err != nil {
 		return nil, errors.Wrap(err, "read agents log")
 	}
@@ -88,7 +90,7 @@ func deleteBackup(ctx context.Context, pbmClient *pbm.PBM, d *deleteBcpOpts, out
 		fmt.Println("[done]")
 	}
 
-	return runList(ctx, pbmClient, &listOpts{})
+	return runList(ctx, conn, &listOpts{})
 }
 
 type deletePitrOpts struct {
@@ -97,7 +99,7 @@ type deletePitrOpts struct {
 	all       bool
 }
 
-func deletePITR(ctx context.Context, pbmClient *pbm.PBM, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
+func deletePITR(ctx context.Context, conn connect.Client, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
 	if !d.all && len(d.olderThan) == 0 {
 		return nil, errors.New("either --older-than or --all should be set")
 	}
@@ -115,9 +117,9 @@ func deletePITR(ctx context.Context, pbmClient *pbm.PBM, d *deletePitrOpts, outf
 		}
 	}
 
-	cmd := types.Cmd{
-		Cmd:        defs.CmdDeletePITR,
-		DeletePITR: &types.DeletePITRCmd{},
+	cmd := ctrl.Cmd{
+		Cmd:        ctrl.CmdDeletePITR,
+		DeletePITR: &ctrl.DeletePITRCmd{},
 	}
 	if !d.all && len(d.olderThan) > 0 {
 		t, err := parseDateT(d.olderThan)
@@ -127,7 +129,7 @@ func deletePITR(ctx context.Context, pbmClient *pbm.PBM, d *deletePitrOpts, outf
 		cmd.DeletePITR.OlderThan = t.UTC().Unix()
 	}
 	tsop := time.Now().UTC().Unix()
-	err := sendCmd(ctx, pbmClient.Conn, cmd)
+	err := sendCmd(ctx, conn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "schedule pitr delete")
 	}
@@ -137,14 +139,14 @@ func deletePITR(ctx context.Context, pbmClient *pbm.PBM, d *deletePitrOpts, outf
 
 	fmt.Print("Waiting for delete to be done ")
 	err = waitOp(ctx,
-		pbmClient,
-		&lock.LockHeader{Type: defs.CmdDeletePITR},
+		conn,
+		&lock.LockHeader{Type: ctrl.CmdDeletePITR},
 		time.Second*60)
 	if err != nil && !errors.Is(err, errTout) {
 		return nil, err
 	}
 
-	errl, err := lastLogErr(ctx, pbmClient, defs.CmdDeletePITR, tsop)
+	errl, err := lastLogErr(ctx, conn, ctrl.CmdDeletePITR, tsop)
 	if err != nil {
 		return nil, errors.Wrap(err, "read agents log")
 	}
@@ -162,7 +164,7 @@ func deletePITR(ctx context.Context, pbmClient *pbm.PBM, d *deletePitrOpts, outf
 		fmt.Println("[done]")
 	}
 
-	return runList(ctx, pbmClient, &listOpts{})
+	return runList(ctx, conn, &listOpts{})
 }
 
 type cleanupOptions struct {
@@ -172,12 +174,12 @@ type cleanupOptions struct {
 	dryRun    bool
 }
 
-func retentionCleanup(ctx context.Context, pbmClient *pbm.PBM, d *cleanupOptions) (fmt.Stringer, error) {
+func retentionCleanup(ctx context.Context, conn connect.Client, d *cleanupOptions) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
 	}
-	info, err := pbm.MakeCleanupInfo(ctx, pbmClient.Conn, ts)
+	info, err := internal.MakeCleanupInfo(ctx, conn, ts)
 	if err != nil {
 		return nil, errors.Wrap(err, "make cleanup report")
 	}
@@ -201,9 +203,9 @@ func retentionCleanup(ctx context.Context, pbmClient *pbm.PBM, d *cleanupOptions
 	}
 
 	tsop := time.Now().Unix()
-	err = sendCmd(ctx, pbmClient.Conn, types.Cmd{
-		Cmd:     defs.CmdCleanup,
-		Cleanup: &types.CleanupCmd{OlderThan: ts},
+	err = sendCmd(ctx, conn, ctrl.Cmd{
+		Cmd:     ctrl.CmdCleanup,
+		Cleanup: &ctrl.CleanupCmd{OlderThan: ts},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
@@ -214,8 +216,8 @@ func retentionCleanup(ctx context.Context, pbmClient *pbm.PBM, d *cleanupOptions
 
 	fmt.Print("Waiting")
 	err = waitOp(ctx,
-		pbmClient,
-		&lock.LockHeader{Type: defs.CmdCleanup},
+		conn,
+		&lock.LockHeader{Type: ctrl.CmdCleanup},
 		10*time.Minute)
 	fmt.Println()
 	if err != nil {
@@ -225,7 +227,7 @@ func retentionCleanup(ctx context.Context, pbmClient *pbm.PBM, d *cleanupOptions
 		return nil, err
 	}
 
-	errl, err := lastLogErr(ctx, pbmClient, defs.CmdCleanup, tsop)
+	errl, err := lastLogErr(ctx, conn, ctrl.CmdCleanup, tsop)
 	if err != nil {
 		return nil, errors.Wrap(err, "read agents log")
 	}
@@ -277,7 +279,7 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.Duration(d * 24 * int64(time.Hour)), nil
 }
 
-func printCleanupInfoTo(w io.Writer, backups []types.BackupMeta, chunks []oplog.OplogChunk) {
+func printCleanupInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.OplogChunk) {
 	if len(backups) != 0 {
 		fmt.Fprintln(w, "Snapshots:")
 		for i := range backups {
@@ -329,7 +331,7 @@ func printCleanupInfoTo(w io.Writer, backups []types.BackupMeta, chunks []oplog.
 	}
 }
 
-func askCleanupConfirmation(info pbm.CleanupInfo) error {
+func askCleanupConfirmation(info internal.CleanupInfo) error {
 	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
 	return askConfirmation("Are you sure you want to delete?")
 }

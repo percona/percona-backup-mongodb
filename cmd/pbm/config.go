@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,9 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/internal/config"
-	"github.com/percona/percona-backup-mongodb/internal/context"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/types"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type configOpts struct {
@@ -46,13 +45,13 @@ func (c confVals) String() string {
 	return s
 }
 
-func runConfig(ctx context.Context, cn *pbm.PBM, c *configOpts) (fmt.Stringer, error) {
+func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *configOpts) (fmt.Stringer, error) {
 	switch {
 	case len(c.set) > 0:
 		var o confVals
 		rsnc := false
 		for k, v := range c.set {
-			err := config.SetConfigVar(ctx, cn.Conn, k, v)
+			err := config.SetConfigVar(ctx, conn, k, v)
 			if err != nil {
 				return nil, errors.Wrapf(err, "set %s", k)
 			}
@@ -64,19 +63,20 @@ func runConfig(ctx context.Context, cn *pbm.PBM, c *configOpts) (fmt.Stringer, e
 			}
 		}
 		if rsnc {
-			if err := rsync(ctx, cn); err != nil {
+			if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
 		return o, nil
 	case len(c.key) > 0:
-		k, err := config.GetConfigVar(ctx, cn.Conn, c.key)
+		k, err := config.GetConfigVar(ctx, conn, c.key)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to get config key")
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-		if err := rsync(ctx, cn); err != nil {
+
+		if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
 			return nil, errors.Wrap(err, "resync")
 		}
 		return outMsg{"Storage resync started"}, nil
@@ -93,39 +93,35 @@ func runConfig(ctx context.Context, cn *pbm.PBM, c *configOpts) (fmt.Stringer, e
 			return nil, errors.Wrap(err, "unable to read config file")
 		}
 
-		var cfg config.Config
-		err = yaml.UnmarshalStrict(buf, &cfg)
+		var newCfg config.Config
+		err = yaml.UnmarshalStrict(buf, &newCfg)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to  unmarshal config file")
 		}
 
-		cCfg, err := config.GetConfig(ctx, cn.Conn)
-		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.Wrap(err, "unable to get current config")
+		oldCfg, err := pbmSDK.GetConfig(ctx)
+		if err != nil {
+			if !errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, errors.Wrap(err, "unable to get current config")
+			}
+			oldCfg = &config.Config{}
 		}
 
-		err = config.SetConfigByte(ctx, cn.Conn, buf)
-		if err != nil {
-			return nil, errors.Wrap(err, "unable to set config")
+		if err := config.SetConfig(ctx, conn, newCfg); err != nil {
+			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 
 		// provider value may differ as it set automatically after config parsing
-		cCfg.Storage.S3.Provider = cfg.Storage.S3.Provider
+		oldCfg.Storage.S3.Provider = newCfg.Storage.S3.Provider
 		// resync storage only if Storage options have changed
-		if !reflect.DeepEqual(cfg.Storage, cCfg.Storage) {
-			if err := rsync(ctx, cn); err != nil {
+		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
+			if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
 
-		return config.GetConfig(ctx, cn.Conn)
-	default:
-		return config.GetConfig(ctx, cn.Conn)
+		return newCfg, nil
 	}
-}
 
-func rsync(ctx context.Context, cn *pbm.PBM) error {
-	return sendCmd(ctx, cn.Conn, types.Cmd{
-		Cmd: defs.CmdResync,
-	})
+	return pbmSDK.GetConfig(ctx)
 }

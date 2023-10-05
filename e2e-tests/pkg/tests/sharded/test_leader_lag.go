@@ -1,13 +1,13 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
+	"github.com/percona/percona-backup-mongodb/internal/compress"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 )
 
 // LeaderLag checks if cluster deals with leader lag during backup start
@@ -25,12 +25,12 @@ func (c *Cluster) LeaderLag() {
 	bcpName := time.Now().UTC().Format(time.RFC3339)
 
 	log.Println("Starting backup", bcpName)
-	err = c.mongopbm.SendCmd(types.Cmd{
-		Cmd: defs.CmdBackup,
-		Backup: &types.BackupCmd{
+	err = c.mongopbm.SendCmd(context.Background(), ctrl.Cmd{
+		Cmd: ctrl.CmdBackup,
+		Backup: &ctrl.BackupCmd{
 			Type:        defs.LogicalBackup,
 			Name:        bcpName,
-			Compression: defs.CompressionTypeS2,
+			Compression: compress.CompressionTypeS2,
 		},
 	})
 	if err != nil {

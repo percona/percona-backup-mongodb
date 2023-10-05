@@ -1,11 +1,15 @@
 package topo
 
 import (
+	"context"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 type NodeStatus struct {
@@ -50,4 +54,14 @@ type ReplsetStatus struct {
 	ClusterTime             *ClusterTime         `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
 	ConfigServerState       *ConfigServerState   `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
 	OperationTime           *primitive.Timestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
+}
+
+func CurrentUser(ctx context.Context, m *mongo.Client) (*AuthInfo, error) {
+	c := &ConnectionStatus{}
+	err := m.Database(defs.DB).RunCommand(ctx, bson.D{{"connectionStatus", 1}}).Decode(c)
+	if err != nil {
+		return nil, errors.Wrap(err, "run mongo command connectionStatus")
+	}
+
+	return &c.AuthInfo, nil
 }

@@ -9,8 +9,7 @@ WORKDIR /build
 RUN mkdir -p /data/db
 
 COPY --from=mongo_image /bin/mongod /bin/
-
-RUN dnf update && dnf install make golang tc
+RUN dnf install epel-release && dnf update && dnf install make golang tc libfaketime
 
 FROM base-build
 COPY . .

@@ -1,75 +1,72 @@
 package pbm
 
 import (
+	"context"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
-	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/resync"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type MongoPBM struct {
-	p   *pbm.PBM
-	ctx context.Context
+	conn connect.Client
 }
 
 func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
-	cn, err := pbm.New(ctx, connectionURI, "e2e-tests-pbm")
+	conn, err := connect.Connect(ctx, connectionURI, &connect.ConnectOptions{AppName: "e2e-tests-pbm"})
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
 
-	cn.InitLogger("", "")
-
-	return &MongoPBM{
-		p:   cn,
-		ctx: ctx,
-	}, nil
+	return &MongoPBM{conn: conn}, nil
 }
 
-func (m *MongoPBM) SendCmd(cmd types.Cmd) error {
+func (m *MongoPBM) SendCmd(ctx context.Context, cmd ctrl.Cmd) error {
 	cmd.TS = time.Now().UTC().Unix()
-	_, err := m.p.Conn.CmdStreamCollection().InsertOne(m.ctx, cmd)
+	_, err := m.conn.CmdStreamCollection().InsertOne(ctx, cmd)
 	return err
 }
 
-func (m *MongoPBM) BackupsList(ctx context.Context, limit int64) ([]types.BackupMeta, error) {
-	return query.BackupsList(ctx, m.p.Conn, limit)
+func (m *MongoPBM) BackupsList(ctx context.Context, limit int64) ([]backup.BackupMeta, error) {
+	return backup.BackupsList(ctx, m.conn, limit)
 }
 
-func (m *MongoPBM) GetBackupMeta(ctx context.Context, bcpName string) (*types.BackupMeta, error) {
-	return query.GetBackupMeta(ctx, m.p.Conn, bcpName)
+func (m *MongoPBM) GetBackupMeta(ctx context.Context, bcpName string) (*backup.BackupMeta, error) {
+	return backup.NewDBManager(m.conn).GetBackupByName(ctx, bcpName)
 }
 
 func (m *MongoPBM) DeleteBackup(ctx context.Context, bcpName string) error {
-	l := m.p.Logger().NewEvent(string(defs.CmdDeleteBackup), "", "", primitive.Timestamp{})
-	return m.p.DeleteBackup(ctx, bcpName, l)
+	l := log.FromContext(ctx).
+		NewEvent(string(ctrl.CmdDeleteBackup), "", "", primitive.Timestamp{})
+	return backup.DeleteBackup(ctx, m.conn, bcpName, l)
 }
 
 func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
-	l := m.p.Logger().NewEvent("", "", "", primitive.Timestamp{})
-	return util.GetStorage(ctx, m.p.Conn, l)
+	l := log.FromContext(ctx).
+		NewEvent("", "", "", primitive.Timestamp{})
+	return util.GetStorage(ctx, m.conn, l)
 }
 
 func (m *MongoPBM) StoreResync(ctx context.Context) error {
-	l := m.p.Logger().NewEvent(string(defs.CmdResync), "", "", primitive.Timestamp{})
-	return resync.ResyncStorage(ctx, m.p.Conn, l)
+	l := log.FromContext(ctx).
+		NewEvent(string(ctrl.CmdResync), "", "", primitive.Timestamp{})
+	return resync.ResyncStorage(ctx, m.conn, l)
 }
 
 func (m *MongoPBM) Conn() connect.Client {
-	return m.p.Conn
+	return m.conn
 }
 
 // WaitOp waits up to waitFor duration until operations which acquires a given lock are finished
@@ -87,7 +84,7 @@ func (m *MongoPBM) waitOp(
 	ctx context.Context,
 	lck *lock.LockHeader,
 	waitFor time.Duration,
-	f func(ctx context.Context, m connect.Client, lh *lock.LockHeader) (lock.LockData, error),
+	f func(ctx context.Context, conn connect.Client, lh *lock.LockHeader) (lock.LockData, error),
 ) error {
 	// just to be sure the check hasn't started before the lock were created
 	time.Sleep(1 * time.Second)
@@ -99,7 +96,7 @@ func (m *MongoPBM) waitOp(
 		case <-tmr.C:
 			return errors.Errorf("timeout reached")
 		case <-tkr.C:
-			lock, err := f(ctx, m.p.Conn, lck)
+			lock, err := f(ctx, m.conn, lck)
 			if err != nil {
 				// No lock, so operation has finished
 				if errors.Is(err, mongo.ErrNoDocuments) {
@@ -107,7 +104,7 @@ func (m *MongoPBM) waitOp(
 				}
 				return errors.Wrap(err, "get lock data")
 			}
-			clusterTime, err := topo.GetClusterTime(ctx, m.p.Conn)
+			clusterTime, err := topo.GetClusterTime(ctx, m.conn)
 			if err != nil {
 				return errors.Wrap(err, "read cluster time")
 			}

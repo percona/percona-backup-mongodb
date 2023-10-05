@@ -1,6 +1,7 @@
 package topo
 
 import (
+	"context"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -8,7 +9,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
@@ -68,18 +68,30 @@ func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
+	var shards []Shard
 	if inf.IsMongos() || inf.IsSharded() {
-		return getClusterMembersImpl(ctx, m)
+		members, err := getShardMapImpl(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+
+		shards = make([]Shard, 0, len(members))
+		for _, v := range members {
+			shards = append(shards, v)
+		}
+
+		return shards, nil
 	}
 
-	shards := []Shard{{
+	shards = []Shard{{
+		ID:   inf.SetName,
 		RS:   inf.SetName,
 		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
 	}}
 	return shards, nil
 }
 
-func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error) {
+func getShardMapImpl(ctx context.Context, m *mongo.Client) (map[ReplsetName]Shard, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}})
 	if err := res.Err(); err != nil {
 		return nil, errors.Wrap(err, "query")
@@ -94,21 +106,14 @@ func getClusterMembersImpl(ctx context.Context, m *mongo.Client) ([]Shard, error
 		return nil, errors.Wrap(err, "decode")
 	}
 
-	shards := make([]Shard, 0, len(shardMap.Map))
+	shards := make(map[string]Shard, len(shardMap.Map))
 	for id, host := range shardMap.Map {
-		if id == "<local>" || strings.ContainsAny(id, "/:") {
-			// till 4.2, map field is like connStrings (added in 4.4)
-			// and <local> key is uri of the directly (w/o mongos) connected replset
-			// skip not shard name
-			continue
-		}
-
 		rs, _, _ := strings.Cut(host, "/")
-		shards = append(shards, Shard{
+		shards[rs] = Shard{
 			ID:   id,
 			RS:   rs,
 			Host: host,
-		})
+		}
 	}
 
 	return shards, nil

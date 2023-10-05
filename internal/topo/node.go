@@ -1,13 +1,13 @@
 package topo
 
 import (
+	"context"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
@@ -44,6 +44,12 @@ type ClusterTime struct {
 
 type ConfigServerState struct {
 	OpTime *OpTime `bson:"opTime"`
+}
+
+type NodeBrief struct {
+	URI     string
+	SetName string
+	Me      string
 }
 
 // NodeInfo represents the mongo's node info

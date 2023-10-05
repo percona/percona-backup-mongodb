@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"time"
@@ -9,11 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
@@ -24,34 +22,12 @@ type Mongo struct {
 }
 
 func NewMongo(ctx context.Context, connectionURI string) (*Mongo, error) {
-	cn, err := directConnect(ctx, connectionURI, "e2e-tests")
+	cn, err := connect.MongoConnect(ctx, connectionURI, &connect.MongoConnectOptions{AppName: "e2e-tests"})
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
 
-	return &Mongo{
-		cn:  cn,
-		ctx: ctx,
-	}, nil
-}
-
-func directConnect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
-	opts := options.Client().ApplyURI(uri).
-		SetAppName(appName).
-		SetReadPreference(readpref.Primary()).
-		SetReadConcern(readconcern.Majority()).
-		SetWriteConcern(writeconcern.Majority())
-	client, err := mongo.Connect(ctx, opts)
-	if err != nil {
-		return nil, errors.Wrap(err, "mongo connect")
-	}
-
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "mongo ping")
-	}
-
-	return client, nil
+	return &Mongo{cn: cn, ctx: ctx}, nil
 }
 
 const (

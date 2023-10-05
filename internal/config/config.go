@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/internal/compress"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
@@ -56,8 +56,8 @@ func keys(t reflect.Type) confMap {
 	return v
 }
 
-// ValidateConfigKey checks if a config key valid
-func ValidateConfigKey(k string) bool {
+// validateConfigKey checks if a config key valid
+func validateConfigKey(k string) bool {
 	_, ok := _confmap[k]
 	return ok
 }
@@ -107,11 +107,11 @@ func (c Config) String() string {
 //
 //nolint:lll
 type PITRConf struct {
-	Enabled          bool                 `bson:"enabled" json:"enabled" yaml:"enabled"`
-	OplogSpanMin     float64              `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	OplogOnly        bool                 `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
-	Compression      defs.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
-	CompressionLevel *int                 `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
+	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
+	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
 // StorageConf is a configuration of the backup storage
@@ -195,10 +195,10 @@ type RestoreConf struct {
 
 //nolint:lll
 type BackupConf struct {
-	Priority         map[string]float64   `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
-	Timeouts         *BackupTimeouts      `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
-	Compression      defs.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
-	CompressionLevel *int                 `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
+	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
 type BackupTimeouts struct {
@@ -216,37 +216,28 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	return time.Duration(*t.Starting) * time.Second
 }
 
-func GetConfig(ctx context.Context, m connect.Client) (Config, error) {
+func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	res := m.ConfigCollection().FindOne(ctx, bson.D{})
 	if err := res.Err(); err != nil {
-		return Config{}, errors.Wrap(err, "get")
+		return nil, errors.Wrap(err, "get")
 	}
 
-	var c Config
-	if err := res.Decode(&c); err != nil {
-		return Config{}, errors.Wrap(err, "decode")
+	cfg := &Config{}
+	if err := res.Decode(&cfg); err != nil {
+		return nil, errors.Wrap(err, "decode")
 	}
 
-	if c.Backup.Compression == "" {
-		c.Backup.Compression = defs.CompressionTypeS2
+	if cfg.Backup.Compression == "" {
+		cfg.Backup.Compression = compress.CompressionTypeS2
 	}
-	if c.PITR.Compression == "" {
-		c.PITR.Compression = c.Backup.Compression
+	if cfg.PITR.Compression == "" {
+		cfg.PITR.Compression = cfg.Backup.Compression
 	}
-	if c.PITR.CompressionLevel == nil {
-		c.PITR.CompressionLevel = c.Backup.CompressionLevel
+	if cfg.PITR.CompressionLevel == nil {
+		cfg.PITR.CompressionLevel = cfg.Backup.CompressionLevel
 	}
 
-	return c, nil
-}
-
-func SetConfigByte(ctx context.Context, m connect.Client, buf []byte) error {
-	var cfg Config
-	err := yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		return errors.Wrap(err, "unmarshal yaml")
-	}
-	return errors.Wrap(SetConfig(ctx, m, cfg), "write to db")
+	return cfg, nil
 }
 
 func SetConfig(ctx context.Context, m connect.Client, cfg Config) error {
@@ -292,7 +283,7 @@ func SetConfig(ctx context.Context, m connect.Client, cfg Config) error {
 }
 
 func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error {
-	if !ValidateConfigKey(key) {
+	if !validateConfigKey(key) {
 		return errors.New("invalid config key")
 	}
 
@@ -368,7 +359,7 @@ func confSetPITR(ctx context.Context, m connect.Client, k string, v bool) error 
 }
 
 func DeleteConfigVar(ctx context.Context, m connect.Client, key string) error {
-	if !ValidateConfigKey(key) {
+	if !validateConfigKey(key) {
 		return errors.New("invalid config key")
 	}
 
@@ -391,7 +382,7 @@ func DeleteConfigVar(ctx context.Context, m connect.Client, key string) error {
 
 // GetConfigVar returns value of given config vaiable
 func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{}, error) {
-	if !ValidateConfigKey(key) {
+	if !validateConfigKey(key) {
 		return nil, errors.New("invalid config key")
 	}
 

@@ -1,14 +1,13 @@
 package sharded
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"github.com/minio/minio-go"
 	"gopkg.in/yaml.v2"

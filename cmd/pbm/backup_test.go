@@ -6,18 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/types"
-	"github.com/percona/percona-backup-mongodb/internal/util"
-
 	"github.com/percona/percona-backup-mongodb/internal/topo"
+	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
 func TestBcpMatchCluster(t *testing.T) {
 	type bcase struct {
-		meta   types.BackupMeta
+		meta   backup.BackupMeta
 		expect defs.Status
 	}
 	cases := []struct {
@@ -34,27 +33,27 @@ func TestBcpMatchCluster(t *testing.T) {
 			},
 			bcps: []bcase{
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp1",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "rs3"},
 						},
 					},
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp2",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 						},
 					},
 					defs.StatusDone,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp2",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "rs1"},
 							{Name: "rs2"},
 						},
@@ -62,18 +61,18 @@ func TestBcpMatchCluster(t *testing.T) {
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp2",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "rs1"},
 						},
 					},
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp3",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 							{Name: "rs3"},
@@ -82,9 +81,9 @@ func TestBcpMatchCluster(t *testing.T) {
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp4",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 						},
@@ -92,9 +91,9 @@ func TestBcpMatchCluster(t *testing.T) {
 					defs.StatusDone,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp5",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 							{Name: "rs2"},
@@ -111,27 +110,27 @@ func TestBcpMatchCluster(t *testing.T) {
 			},
 			bcps: []bcase{
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp1",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "rs3"},
 						},
 					},
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp2",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "rs1"},
 						},
 					},
 					defs.StatusDone,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp3",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 							{Name: "rs3"},
@@ -140,9 +139,9 @@ func TestBcpMatchCluster(t *testing.T) {
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp4",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 						},
@@ -150,9 +149,9 @@ func TestBcpMatchCluster(t *testing.T) {
 					defs.StatusError,
 				},
 				{
-					types.BackupMeta{
+					backup.BackupMeta{
 						Name: "bcp5",
-						Replsets: []types.BackupReplset{
+						Replsets: []backup.BackupReplset{
 							{Name: "config"},
 							{Name: "rs1"},
 							{Name: "rs2"},
@@ -166,7 +165,7 @@ func TestBcpMatchCluster(t *testing.T) {
 
 	for i, c := range cases {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			m := []types.BackupMeta{}
+			m := []backup.BackupMeta{}
 			for _, b := range c.bcps {
 				b.meta.PBMVersion = string(version.Current().Version)
 				b.meta.Status = defs.StatusDone
@@ -190,13 +189,13 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 
 	cases := []struct {
 		topology map[string]bool
-		bcp      types.BackupMeta
+		bcp      backup.BackupMeta
 		rsMap    map[string]string
 		expected error
 	}{
 		{
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "rs0"},
 					{Name: "rs1"},
 				},
@@ -205,16 +204,16 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			expected: nil,
 		},
 		{
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "rs0"},
 				},
 			},
 			expected: nil,
 		},
 		{
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "rs0"},
 					{Name: "rs1"},
 				},
@@ -226,8 +225,8 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			expected: nil,
 		},
 		{
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "rs0"},
 					{Name: "rs1"},
 					{Name: "rs2"},
@@ -239,8 +238,8 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			},
 		},
 		{
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "rs0"},
 					{Name: "rs1"},
 				},
@@ -262,8 +261,8 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 				"rs4": false,
 				"rs6": false,
 			},
-			bcp: types.BackupMeta{
-				Replsets: []types.BackupReplset{
+			bcp: backup.BackupMeta{
+				Replsets: []backup.BackupReplset{
 					{Name: "cfg"},
 					{Name: "rs0"},
 					{Name: "rs1"},
@@ -284,7 +283,7 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 			},
 		},
 		{
-			bcp:      types.BackupMeta{},
+			bcp:      backup.BackupMeta{},
 			expected: missedReplsetsError{configsrv: true},
 		},
 	}
@@ -360,12 +359,12 @@ func BenchmarkBcpMatchCluster3x10(b *testing.B) {
 		{RS: "rs2"},
 	}
 
-	bcps := []types.BackupMeta{}
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 10; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Name: "bcp",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs2"},
@@ -386,12 +385,12 @@ func BenchmarkBcpMatchCluster3x100(b *testing.B) {
 		{RS: "rs2"},
 	}
 
-	bcps := []types.BackupMeta{}
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 100; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Name: "bcp",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs2"},
@@ -426,12 +425,12 @@ func BenchmarkBcpMatchCluster17x100(b *testing.B) {
 		{RS: "rs333333333332"},
 	}
 
-	bcps := []types.BackupMeta{}
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 100; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Name: "bcp3",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs12"},
@@ -466,12 +465,12 @@ func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 		{RS: "rs2"},
 	}
 
-	bcps := []types.BackupMeta{}
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 1000; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Name: "bcp3",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs2"},
@@ -487,17 +486,17 @@ func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 
 func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
 	shards := []topo.Shard{{RS: "config"}}
-	rss := []types.BackupReplset{{Name: "config"}}
+	rss := []backup.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
 		shards = append(shards, topo.Shard{RS: fmt.Sprint(i)})
-		rss = append(rss, types.BackupReplset{Name: fmt.Sprint(i)})
+		rss = append(rss, backup.BackupReplset{Name: fmt.Sprint(i)})
 	}
 
-	bcps := []types.BackupMeta{}
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 1000; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Replsets: rss,
 			Status:   defs.StatusDone,
 		})
@@ -514,10 +513,10 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		{RS: "rs2"},
 	}
 
-	bcps := []types.BackupMeta{
+	bcps := []backup.BackupMeta{
 		{
 			Name: "bcp1",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs3"},
@@ -526,7 +525,7 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		},
 		{
 			Name: "bcp2",
-			Replsets: []types.BackupReplset{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 			},
@@ -534,8 +533,8 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		},
 	}
 	for i := 0; i < 8; i++ {
-		bcps = append(bcps, types.BackupMeta{
-			Replsets: []types.BackupReplset{
+		bcps = append(bcps, backup.BackupMeta{
+			Replsets: []backup.BackupReplset{
 				{Name: "config"},
 				{Name: "rs1"},
 				{Name: "rs3"},
@@ -550,18 +549,18 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 
 func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
 	shards := []topo.Shard{{RS: "config"}}
-	rss := []types.BackupReplset{{Name: "config"}}
+	rss := []backup.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
 		shards = append(shards, topo.Shard{RS: fmt.Sprint(i)})
-		rss = append(rss, types.BackupReplset{Name: fmt.Sprint(i)})
+		rss = append(rss, backup.BackupReplset{Name: fmt.Sprint(i)})
 	}
 
-	rss = append(rss, types.BackupReplset{Name: "newrs"})
-	bcps := []types.BackupMeta{}
+	rss = append(rss, backup.BackupReplset{Name: "newrs"})
+	bcps := []backup.BackupMeta{}
 
 	for i := 0; i < 1000; i++ {
-		bcps = append(bcps, types.BackupMeta{
+		bcps = append(bcps, backup.BackupMeta{
 			Replsets: rss,
 			Status:   defs.StatusDone,
 		})

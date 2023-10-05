@@ -1,9 +1,8 @@
 package pbm
 
 import (
+	"context"
 	"log"
-
-	"github.com/percona/percona-backup-mongodb/internal/context"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -46,7 +45,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 
 		envs := append([]string{}, containerOld.Config.Env...)
 		envs = append(envs,
-			`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1`,
+			`LD_PRELOAD=/lib64/faketime/libfaketime.so.1`,
 			`FAKETIME=`+ts,
 		)
 

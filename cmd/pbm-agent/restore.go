@@ -1,25 +1,27 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
+	"github.com/percona/percona-backup-mongodb/internal/log"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/slicer"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
 type currentPitr struct {
 	slicer *slicer.Slicer
-	w      chan *types.OPID // to wake up a slicer on demand (not to wait for the tick)
+	w      chan *ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
 }
 
@@ -50,7 +52,8 @@ const pitrCheckPeriod = time.Second * 15
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
-	a.log.Printf("starting PITR routine")
+	l := log.FromContext(ctx)
+	l.Printf("starting PITR routine")
 
 	for {
 		wait := pitrCheckPeriod
@@ -59,8 +62,8 @@ func (a *Agent) PITR(ctx context.Context) {
 		if err != nil {
 			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
-			ep, _ := config.GetEpoch(ctx, a.pbm.Conn)
-			a.log.Error(string(defs.CmdPITR), "", "", ep.TS(), "init: %v", err)
+			ep, _ := config.GetEpoch(ctx, a.leadConn)
+			l.Error(string(ctrl.CmdPITR), "", "", ep.TS(), "init: %v", err)
 
 			// penalty to the failed node so healthy nodes would have priority on next try
 			wait *= 2
@@ -94,9 +97,12 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	cfg, err := config.GetConfig(ctx, a.pbm.Conn)
-	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-		return errors.Wrap(err, "get conf")
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		if !errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.Wrap(err, "get conf")
+		}
+		cfg = &config.Config{}
 	}
 
 	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
@@ -109,12 +115,12 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	ep, err := config.GetEpoch(ctx, a.pbm.Conn)
+	ep, err := config.GetEpoch(ctx, a.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "get epoch")
 	}
 
-	l := a.log.NewEvent(string(defs.CmdPITR), "", "", ep.TS())
+	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
 
 	spant := time.Duration(cfg.PITR.OplogSpanMin * float64(time.Minute))
 	if spant == 0 {
@@ -154,11 +160,11 @@ func (a *Agent) pitr(ctx context.Context) error {
 	// if node failing, then some other agent with healthy node will hopefully catch up
 	// so this code won't be reached and will not pollute log with "pitr" errors while
 	// the other node does successfully slice
-	ninf, err := topo.GetNodeInfoExt(ctx, a.node.Session())
+	ninf, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get node info")
 	}
-	q, err := topo.NodeSuits(ctx, a.node.Session(), ninf)
+	q, err := topo.NodeSuits(ctx, a.nodeConn, ninf)
 	if err != nil {
 		return errors.Wrap(err, "node check")
 	}
@@ -168,16 +174,16 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, a.pbm.Conn, l)
+	stg, err := util.GetStorage(ctx, a.leadConn, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
 	epts := ep.TS()
-	lck := lock.NewLock(a.pbm.Conn, lock.LockHeader{
-		Replset: a.node.RS(),
-		Node:    a.node.Name(),
-		Type:    defs.CmdPITR,
+	lck := lock.NewLock(a.leadConn, lock.LockHeader{
+		Replset: a.brief.SetName,
+		Node:    a.brief.Me,
+		Type:    ctrl.CmdPITR,
 		Epoch:   &epts,
 	})
 
@@ -190,7 +196,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	ibcp := slicer.NewSlicer(a.node.RS(), a.pbm.Conn, a.node.Session(), stg, ep, a.pbm.Logger())
+	ibcp := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, ep,
+		log.FromContext(ctx))
 	ibcp.SetSpan(spant)
 
 	if cfg.PITR.OplogOnly {
@@ -210,7 +217,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		defer stopSlicing()
 		stopC := make(chan struct{})
 
-		w := make(chan *types.OPID, 1)
+		w := make(chan *ctrl.OPID, 1)
 		a.setPitr(&currentPitr{
 			slicer: ibcp,
 			cancel: stopSlicing,
@@ -249,12 +256,12 @@ func (a *Agent) pitr(ctx context.Context) error {
 }
 
 func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
-	ts, err := topo.GetClusterTime(ctx, a.pbm.Conn)
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
 	if err != nil {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	tl, err := lock.GetLockData(ctx, a.pbm.Conn, &lock.LockHeader{Replset: a.node.RS()})
+	tl, err := lock.GetLockData(ctx, a.leadConn, &lock.LockHeader{Replset: a.brief.SetName})
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// no lock. good to move on
@@ -268,20 +275,21 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 	return tl.Heartbeat.T+defs.StaleFrameSec < ts.T, nil
 }
 
-func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPID, ep config.Epoch) {
+func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
+	logger := log.FromContext(ctx)
 	if r == nil {
-		l := a.log.NewEvent(string(defs.CmdRestore), "", opid.String(), ep.TS())
+		l := logger.NewEvent(string(ctrl.CmdRestore), "", opid.String(), ep.TS())
 		l.Error("missed command")
 		return
 	}
 
-	l := a.log.NewEvent(string(defs.CmdRestore), r.Name, opid.String(), ep.TS())
+	l := logger.NewEvent(string(ctrl.CmdRestore), r.Name, opid.String(), ep.TS())
 
 	if !r.OplogTS.IsZero() {
 		l.Info("to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
 	}
 
-	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.node.Session())
+	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		l.Error("get node info: %v", err)
 		return
@@ -290,8 +298,8 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 	var lck *lock.Lock
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
-		lck = lock.NewLock(a.pbm.Conn, lock.LockHeader{
-			Type:    defs.CmdRestore,
+		lck = lock.NewLock(a.leadConn, lock.LockHeader{
+			Type:    ctrl.CmdRestore,
 			Replset: nodeInfo.SetName,
 			Node:    nodeInfo.Me,
 			OPID:    opid.String(),
@@ -320,20 +328,20 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 		}()
 	}
 
-	stg, err := util.GetStorage(ctx, a.pbm.Conn, l)
+	stg, err := util.GetStorage(ctx, a.leadConn, l)
 	if err != nil {
 		l.Error("get storage: %v", err)
 		return
 	}
 
 	var bcpType defs.BackupType
-	bcp := &types.BackupMeta{}
+	bcp := &backup.BackupMeta{}
 
 	if r.External && r.BackupName == "" {
 		bcpType = defs.ExternalBackup
 	} else {
 		l.Info("backup: %s", r.BackupName)
-		bcp, err = restore.SnapshotMeta(ctx, a.pbm, r.BackupName, stg)
+		bcp, err = restore.SnapshotMeta(ctx, a.leadConn, r.BackupName, stg)
 		if err != nil {
 			l.Error("define base backup: %v", err)
 			return
@@ -356,9 +364,9 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 			return
 		}
 		if r.OplogTS.IsZero() {
-			err = restore.New(a.pbm, a.node, r.RSMap).Snapshot(ctx, r, opid, l)
+			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).Snapshot(ctx, r, opid, l)
 		} else {
-			err = restore.New(a.pbm, a.node, r.RSMap).PITR(ctx, r, opid, l)
+			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, l)
 		}
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
 		if lck != nil {
@@ -371,7 +379,7 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 		}
 
 		var rstr *restore.PhysRestore
-		rstr, err = restore.NewPhysical(ctx, a.pbm, a.node, nodeInfo, r.RSMap)
+		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
 			return
@@ -390,7 +398,7 @@ func (a *Agent) Restore(ctx context.Context, r *types.RestoreCmd, opid types.OPI
 	}
 
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
-		epch, err := config.ResetEpoch(a.pbm.Conn)
+		epch, err := config.ResetEpoch(a.leadConn)
 		if err != nil {
 			l.Error("reset epoch: %v", err)
 		}

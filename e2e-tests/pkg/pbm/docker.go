@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"io"
 	"log"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
