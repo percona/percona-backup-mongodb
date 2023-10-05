@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -10,17 +11,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
@@ -164,17 +162,17 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 		uri = "mongodb://" + uri
 
 		eg.Go(func() error {
-			m, err := mongo.Connect(egc, options.Client().ApplyURI(uri))
+			m, err := connect.Connect(ctx, uri, nil)
 			if err != nil {
 				return errors.Wrapf(err, "connect: %q", uri)
 			}
 
 			if rs == "config" {
-				rv.Config, err = getConfigState(egc, m)
+				rv.Config, err = getConfigState(egc, m.MongoClient())
 				return errors.Wrapf(err, "config state: %q", uri)
 			}
 
-			state, err := getShardState(egc, m)
+			state, err := getShardState(egc, m.MongoClient())
 			if err != nil {
 				return errors.Wrapf(err, "shard state: %q", uri)
 			}

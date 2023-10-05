@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -8,7 +9,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	tpbm "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 )
 
 func (c *Cluster) OplogReplay() {

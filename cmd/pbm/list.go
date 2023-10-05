@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -8,17 +9,18 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
-	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type listOpts struct {
@@ -95,26 +97,26 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.list)
 }
 
-func runList(ctx context.Context, cn *pbm.PBM, l *listOpts) (fmt.Stringer, error) {
+func runList(ctx context.Context, conn connect.Client, l *listOpts) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
 	if l.restore {
-		return restoreList(ctx, cn, int64(l.size))
+		return restoreList(ctx, conn, int64(l.size))
 	}
 	// show message and skip when resync is running
-	lk, err := findLock(ctx, cn, lock.GetLocks)
-	if err == nil && lk != nil && lk.Type == defs.CmdResync {
+	lk, err := findLock(ctx, conn, lock.GetLocks)
+	if err == nil && lk != nil && lk.Type == ctrl.CmdResync {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(ctx, cn, l.size, l.full, l.unbacked, rsMap)
+	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
 }
 
-func restoreList(ctx context.Context, cn *pbm.PBM, size int64) (*restoreListOut, error) {
-	rlist, err := query.RestoresList(ctx, cn.Conn, size)
+func restoreList(ctx context.Context, conn connect.Client, size int64) (*restoreListOut, error) {
+	rlist, err := restore.RestoresList(ctx, conn, size)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get restore list")
 	}
@@ -202,7 +204,7 @@ func (bl backupListOut) String() string {
 
 func backupList(
 	ctx context.Context,
-	cn *pbm.PBM,
+	conn connect.Client,
 	size int,
 	full, unbacked bool,
 	rsMap map[string]string,
@@ -210,16 +212,16 @@ func backupList(
 	var list backupListOut
 	var err error
 
-	list.Snapshots, err = getSnapshotList(ctx, cn, size, rsMap)
+	list.Snapshots, err = getSnapshotList(ctx, conn, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, cn, size, full, unbacked, rsMap)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
 
-	list.PITR.On, _, err = config.IsPITREnabled(ctx, cn.Conn)
+	list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
 	if err != nil {
 		return list, errors.Wrap(err, "check if PITR is on")
 	}
@@ -227,27 +229,32 @@ func backupList(
 	return list, nil
 }
 
-func getSnapshotList(ctx context.Context, cn *pbm.PBM, size int, rsMap map[string]string) ([]snapshotStat, error) {
-	bcps, err := query.BackupsList(ctx, cn.Conn, int64(size))
+func getSnapshotList(
+	ctx context.Context,
+	conn connect.Client,
+	size int,
+	rsMap map[string]string,
+) ([]snapshotStat, error) {
+	bcps, err := backup.BackupsList(ctx, conn, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
+	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
+	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
+	fcv, err := version.GetFCV(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
@@ -281,23 +288,23 @@ func getSnapshotList(ctx context.Context, cn *pbm.PBM, size int, rsMap map[strin
 // getPitrList shows only chunks derived from `Done` and compatible version's backups
 func getPitrList(
 	ctx context.Context,
-	cn *pbm.PBM,
+	conn connect.Client,
 	size int,
 	full,
 	unbacked bool,
 	rsMap map[string]string,
 ) ([]pitrRange, map[string][]pitrRange, error) {
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
+	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "define cluster state")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster members")
 	}
 
-	now, err := topo.GetClusterTime(ctx, cn.Conn)
+	now, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster time")
 	}
@@ -306,7 +313,7 @@ func getPitrList(
 	rsRanges := make(map[string][]pitrRange)
 	var rstlines [][]oplog.Timeline
 	for _, s := range shards {
-		tlns, err := oplog.PITRGetValidTimelines(ctx, cn.Conn, mapRevRS(s.RS), now)
+		tlns, err := oplog.PITRGetValidTimelines(ctx, conn, mapRevRS(s.RS), now)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}
@@ -336,7 +343,7 @@ func getPitrList(
 
 	ranges := []pitrRange{}
 	for _, tl := range oplog.MergeTimelines(rstlines...) {
-		lastWrite, err := getBaseSnapshotLastWrite(ctx, cn, sh, rsMap, tl)
+		lastWrite, err := getBaseSnapshotLastWrite(ctx, conn, sh, rsMap, tl)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -356,12 +363,12 @@ func getPitrList(
 
 func getBaseSnapshotLastWrite(
 	ctx context.Context,
-	cn *pbm.PBM,
+	conn connect.Client,
 	sh map[string]bool,
 	rsMap map[string]string,
 	tl oplog.Timeline,
 ) (primitive.Timestamp, error) {
-	bcp, err := query.GetFirstBackup(ctx, cn.Conn, &primitive.Timestamp{T: tl.Start, I: 0})
+	bcp, err := backup.GetFirstBackup(ctx, conn, &primitive.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
 			return primitive.Timestamp{}, errors.Wrapf(err, "get backup for timeline: %s", tl)
@@ -373,11 +380,11 @@ func getBaseSnapshotLastWrite(
 		return primitive.Timestamp{}, nil
 	}
 
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
+	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
+	fcv, err := version.GetFCV(ctx, conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get featureCompatibilityVersion")
 	}

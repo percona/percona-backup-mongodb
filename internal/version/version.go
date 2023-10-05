@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"runtime"
@@ -9,7 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/mod/semver"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 )

@@ -1,6 +1,7 @@
 package pbm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,10 +13,9 @@ import (
 	dtypes "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
 )
 
 type Ctl struct {

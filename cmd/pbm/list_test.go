@@ -6,7 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
 )
 
 func Test_splitByBaseSnapshot(t *testing.T) {

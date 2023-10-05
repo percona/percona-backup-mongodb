@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"context"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/internal/defs"

@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"sync"
@@ -9,8 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/internal/context"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 )
 
@@ -108,7 +108,7 @@ func (c *Cluster) pitrOff() {
 	log.Println("Turning pitr off")
 	log.Println("waiting for the pitr to stop")
 	err = c.mongopbm.WaitOp(context.TODO(),
-		&lock.LockHeader{Type: defs.CmdPITR},
+		&lock.LockHeader{Type: ctrl.CmdPITR},
 		time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the pitr to stop: %v", err)

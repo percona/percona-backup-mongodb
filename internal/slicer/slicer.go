@@ -1,6 +1,7 @@
 package slicer
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,19 +11,20 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
+	"github.com/percona/percona-backup-mongodb/internal/compress"
 	"github.com/percona/percona-backup-mongodb/internal/config"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 // Slicer is an incremental backup object
@@ -34,7 +36,7 @@ type Slicer struct {
 	lastTS     primitive.Timestamp
 	storage    storage.Storage
 	oplog      *oplog.OplogBackup
-	l          *log.Event
+	l          log.LogEvent
 	ep         config.Epoch
 }
 
@@ -45,7 +47,7 @@ func NewSlicer(
 	node *mongo.Client,
 	to storage.Storage,
 	ep config.Epoch,
-	logger *log.Logger,
+	logger log.Logger,
 ) *Slicer {
 	return &Slicer{
 		leadClient: cn,
@@ -54,7 +56,7 @@ func NewSlicer(
 		span:       int64(defs.PITRdefaultSpan),
 		storage:    to,
 		oplog:      oplog.NewOplogBackup(node),
-		l:          logger.NewEvent(string(defs.CmdPITR), "", "", ep.TS()),
+		l:          logger.NewEvent(string(ctrl.CmdPITR), "", "", ep.TS()),
 		ep:         ep,
 	}
 }
@@ -76,7 +78,7 @@ func (s *Slicer) GetSpan() time.Duration {
 // the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup(ctx context.Context) error {
 	s.l.Debug("start_catchup")
-	baseBcp, err := query.GetLastBackup(ctx, s.leadClient, nil)
+	baseBcp, err := backup.GetLastBackup(ctx, s.leadClient, nil)
 	if errors.Is(err, errors.ErrNotFound) {
 		return errors.New("no backup found. full backup is required to start PITR")
 	}
@@ -88,7 +90,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
 	}()
 
-	rstr, err := query.GetLastRestore(ctx, s.leadClient)
+	rstr, err := restore.GetLastRestore(ctx, s.leadClient)
 	if err != nil && !errors.Is(err, errors.ErrNotFound) {
 		return errors.Wrap(err, "get last restore")
 	}
@@ -118,7 +120,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	bl, err := query.BackupsDoneList(ctx, s.leadClient, &chnk.EndTS, 0, -1)
+	bl, err := backup.BackupsDoneList(ctx, s.leadClient, &chnk.EndTS, 0, -1)
 	if err != nil {
 		return errors.Wrapf(err, "get backups list from %v", chnk.EndTS)
 	}
@@ -215,7 +217,7 @@ func (s *Slicer) OplogOnlyCatchup(ctx context.Context) (err error) {
 	return nil
 }
 
-func (s *Slicer) copyFromBcp(ctx context.Context, bcp *types.BackupMeta) error {
+func (s *Slicer) copyFromBcp(ctx context.Context, bcp *backup.BackupMeta) error {
 	var oplogName string
 	for _, r := range bcp.Replsets {
 		if r.Name == s.rs {
@@ -279,8 +281,8 @@ const LogStartMsg = "start_ok"
 func (s *Slicer) Stream(
 	ctx context.Context,
 	stopC <-chan struct{},
-	backupSig <-chan *types.OPID,
-	compression defs.CompressionType,
+	backupSig <-chan *ctrl.OPID,
+	compression compress.CompressionType,
 	level *int, timeouts *config.BackupTimeouts,
 ) error {
 	if s.lastTS.T == 0 {
@@ -383,7 +385,7 @@ func (s *Slicer) Stream(
 		}
 
 		switch ld.Type {
-		case defs.CmdPITR:
+		case ctrl.CmdPITR:
 			if ld.Node != nodeInfo.Me {
 				return OpMovedError{ld.Node}
 			}
@@ -391,9 +393,9 @@ func (s *Slicer) Stream(
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
-		case defs.CmdUndefined:
+		case ctrl.CmdUndefined:
 			return errors.New("undefined behavior operation is running")
-		case defs.CmdBackup:
+		case ctrl.CmdBackup:
 			// continue only if we had `backupSig`
 			if !lastSlice || s.lastTS.Compare(sliceTo) == 0 {
 				return errors.Errorf("another operation is running: %#v", ld)
@@ -441,7 +443,7 @@ func (s *Slicer) Stream(
 func (s *Slicer) upload(
 	ctx context.Context,
 	from, to primitive.Timestamp,
-	compression defs.CompressionType,
+	compression compress.CompressionType,
 	level *int,
 ) error {
 	s.oplog.SetTailingSpan(from, to)
@@ -492,7 +494,7 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 			return lck, errors.Wrap(err, "get")
 		}
-		if lck.Type != defs.CmdUndefined {
+		if lck.Type != ctrl.CmdUndefined {
 			return lck, nil
 		}
 		<-tk.C
@@ -507,7 +509,7 @@ func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration
 	defer tk.Stop()
 
 	for j := 0; j < int(t.Seconds()); j++ {
-		b, err := query.GetBackupByOPID(ctx, s.leadClient, opid)
+		b, err := backup.GetBackupByOPID(ctx, s.leadClient, opid)
 		if err != nil && !errors.Is(err, errors.ErrNotFound) {
 			return ts, errors.Wrap(err, "get backup meta")
 		}
@@ -521,11 +523,11 @@ func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration
 }
 
 // !!! should be agreed with pbm.PITRmetaFromFName()
-func (s *Slicer) chunkPath(first, last primitive.Timestamp, c defs.CompressionType) string {
+func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.CompressionType) string {
 	return ChunkName(s.rs, first, last, c)
 }
 
-func ChunkName(rs string, first, last primitive.Timestamp, c defs.CompressionType) string {
+func ChunkName(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 

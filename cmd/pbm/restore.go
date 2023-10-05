@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,19 +15,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/yaml.v2"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/query"
-	"github.com/percona/percona-backup-mongodb/internal/resync"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/pbm"
 )
 
 type restoreOpts struct {
@@ -97,7 +96,7 @@ func (r externRestoreRet) String() string {
 		r.Name, r.Name)
 }
 
-func runRestore(ctx context.Context, cn *pbm.PBM, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
+func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -112,18 +111,18 @@ func runRestore(ctx context.Context, cn *pbm.PBM, o *restoreOpts, outf outFormat
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
-	clusterTime, err := topo.GetClusterTime(ctx, cn.Conn)
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := restore(ctx, cn, o, nss, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, nss, rsMap, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, cn, m, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, m, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -143,7 +142,7 @@ func runRestore(ctx context.Context, cn *pbm.PBM, o *restoreOpts, outf outFormat
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, cn, m, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, m, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -163,10 +162,17 @@ func runRestore(ctx context.Context, cn *pbm.PBM, o *restoreOpts, outf outFormat
 // But for physical ones, the cluster by this time is down. So we compare with
 // the wall time taking into account a time skew (wallTime - clusterTime) taken
 // when the cluster time was still available.
-func waitRestore(ctx context.Context, cn *pbm.PBM, m *types.RestoreMeta, status defs.Status, tskew int64) error {
-	ep, _ := config.GetEpoch(ctx, cn.Conn)
-	l := cn.Logger().NewEvent(string(defs.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, cn.Conn, l)
+func waitRestore(
+	ctx context.Context,
+	conn connect.Client,
+	m *restore.RestoreMeta,
+	status defs.Status,
+	tskew int64,
+) error {
+	ep, _ := config.GetEpoch(ctx, conn)
+	l := log.FromContext(ctx).
+		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
+	stg, err := util.GetStorage(ctx, conn, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -174,12 +180,12 @@ func waitRestore(ctx context.Context, cn *pbm.PBM, m *types.RestoreMeta, status 
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	var rmeta *types.RestoreMeta
+	var rmeta *restore.RestoreMeta
 
-	getMeta := query.GetRestoreMeta
+	getMeta := restore.GetRestoreMeta
 	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
-		getMeta = func(_ context.Context, _ connect.Client, name string) (*types.RestoreMeta, error) {
-			return resync.GetPhysRestoreMeta(name, stg, l)
+		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
+			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 	}
 
@@ -190,7 +196,7 @@ func waitRestore(ctx context.Context, cn *pbm.PBM, m *types.RestoreMeta, status 
 	}
 	for range tk.C {
 		fmt.Print(".")
-		rmeta, err = getMeta(ctx, cn.Conn, m.Name)
+		rmeta, err = getMeta(ctx, conn, m.Name)
 		if errors.Is(err, errors.ErrNotFound) {
 			continue
 		}
@@ -206,7 +212,7 @@ func waitRestore(ctx context.Context, cn *pbm.PBM, m *types.RestoreMeta, status 
 		}
 
 		if m.Type == defs.LogicalBackup {
-			clusterTime, err := topo.GetClusterTime(ctx, cn.Conn)
+			clusterTime, err := topo.GetClusterTime(ctx, conn)
 			if err != nil {
 				return errors.Wrap(err, "read cluster time")
 			}
@@ -240,7 +246,12 @@ func (e restoreFailedError) Is(err error) bool {
 	return ok
 }
 
-func checkBackup(ctx context.Context, cn *pbm.PBM, o *restoreOpts, nss []string) (string, defs.BackupType, error) {
+func checkBackup(
+	ctx context.Context,
+	conn connect.Client,
+	o *restoreOpts,
+	nss []string,
+) (string, defs.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", defs.ExternalBackup, nil
 	}
@@ -251,9 +262,9 @@ func checkBackup(ctx context.Context, cn *pbm.PBM, o *restoreOpts, nss []string)
 	}
 
 	var err error
-	var bcp *types.BackupMeta
+	var bcp *backup.BackupMeta
 	if b != "" {
-		bcp, err = query.GetBackupMeta(ctx, cn.Conn, b)
+		bcp, err = backup.NewDBManager(conn).GetBackupByName(ctx, b)
 		if errors.Is(err, errors.ErrNotFound) {
 			return "", "", errors.Errorf("backup '%s' not found", b)
 		}
@@ -264,7 +275,7 @@ func checkBackup(ctx context.Context, cn *pbm.PBM, o *restoreOpts, nss []string)
 			return "", "", errors.Wrap(err, "parse pitr")
 		}
 
-		bcp, err = query.GetLastBackup(ctx, cn.Conn, &primitive.Timestamp{T: ts.T + 1, I: 0})
+		bcp, err = backup.GetLastBackup(ctx, conn, &primitive.Timestamp{T: ts.T + 1, I: 0})
 		if errors.Is(err, errors.ErrNotFound) {
 			return "", "", errors.New("no base snapshot found")
 		}
@@ -282,28 +293,28 @@ func checkBackup(ctx context.Context, cn *pbm.PBM, o *restoreOpts, nss []string)
 	return bcp.Name, bcp.Type, nil
 }
 
-func restore(
+func doRestore(
 	ctx context.Context,
-	cn *pbm.PBM,
+	conn connect.Client,
 	o *restoreOpts,
 	nss []string,
 	rsMapping map[string]string,
 	outf outFormat,
-) (*types.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, cn, o, nss)
+) (*restore.RestoreMeta, error) {
+	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
 	if err != nil {
 		return nil, err
 	}
-	err = checkConcurrentOp(ctx, cn)
+	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 
-	cmd := types.Cmd{
-		Cmd: defs.CmdRestore,
-		Restore: &types.RestoreCmd{
+	cmd := ctrl.Cmd{
+		Cmd: ctrl.CmdRestore,
+		Restore: &ctrl.RestoreCmd{
 			Name:       name,
 			BackupName: bcp,
 			Namespaces: nss,
@@ -340,13 +351,13 @@ func restore(
 		}
 	}
 
-	err = sendCmd(ctx, cn.Conn, cmd)
+	err = sendCmd(ctx, conn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
 
 	if outf != outText {
-		return &types.RestoreMeta{
+		return &restore.RestoreMeta{
 			Name:   name,
 			Backup: bcp,
 			Type:   bcpType,
@@ -375,24 +386,26 @@ func restore(
 	const waitPhysRestoreStart = time.Second * 120
 	var startCtx context.Context
 	if bcpType == defs.LogicalBackup {
-		fn = query.GetRestoreMeta
+		fn = restore.GetRestoreMeta
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
-		ep, _ := config.GetEpoch(ctx, cn.Conn)
-		l := cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS())
-		stg, err := util.GetStorage(ctx, cn.Conn, l)
+		ep, _ := config.GetEpoch(ctx, conn)
+		logger := log.FromContext(ctx)
+		l := logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+		stg, err := util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		fn = func(_ context.Context, _ connect.Client, name string) (*types.RestoreMeta, error) {
-			return resync.GetPhysRestoreMeta(name, stg, cn.Logger().NewEvent(string(defs.CmdRestore), bcp, "", ep.TS()))
+		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
+			return restore.GetPhysRestoreMeta(name, stg,
+				logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS()))
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(startCtx, cn.Conn, name, fn)
+	return waitForRestoreStatus(startCtx, conn, name, fn)
 }
 
 func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
@@ -432,25 +445,25 @@ func parseTS(t string) (primitive.Timestamp, error) {
 	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
-type getRestoreMetaFn func(ctx context.Context, m connect.Client, name string) (*types.RestoreMeta, error)
+type getRestoreMetaFn func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error)
 
 func waitForRestoreStatus(
 	ctx context.Context,
-	m connect.Client,
+	conn connect.Client,
 	name string,
 	getfn getRestoreMetaFn,
-) (*types.RestoreMeta, error) {
+) (*restore.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	meta := new(types.RestoreMeta) // TODO
+	meta := new(restore.RestoreMeta) // TODO
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
 
 			var err error
-			meta, err = getfn(ctx, m, name)
+			meta, err = getfn(ctx, conn, name)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
@@ -555,12 +568,12 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(cfg, l)
+	return util.StorageFromConfig(cfg.Storage, l)
 }
 
-func describeRestore(ctx context.Context, cn *pbm.PBM, o descrRestoreOpts) (fmt.Stringer, error) {
+func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {
 	var (
-		meta *types.RestoreMeta
+		meta *restore.RestoreMeta
 		err  error
 		res  describeRestoreResult
 	)
@@ -569,13 +582,13 @@ func describeRestore(ctx context.Context, cn *pbm.PBM, o descrRestoreOpts) (fmt.
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-		meta, err = resync.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
+		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
 			NewEvent("", "", "", primitive.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
 	} else {
-		meta, err = query.GetRestoreMeta(ctx, cn.Conn, o.restore)
+		meta, err = restore.GetRestoreMeta(ctx, conn, o.restore)
 		if err != nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}

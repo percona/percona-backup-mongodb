@@ -1,6 +1,7 @@
 package topo
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/version"
@@ -147,7 +147,7 @@ func ListAgentStatuses(ctx context.Context, m connect.Client) ([]AgentStat, erro
 }
 
 func ListAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
-	cur, err := m.AgentsStatusCollection().Find(ctx, bson.M{})
+	cur, err := m.AgentsStatusCollection().Find(ctx, bson.D{})
 	if err != nil {
 		return nil, errors.Wrap(err, "query")
 	}

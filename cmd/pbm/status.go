@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	stdlog "log"
@@ -15,22 +16,22 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/context"
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/query"
+	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/slicer"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/types"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type statusOptions struct {
@@ -72,14 +73,14 @@ type statusSect struct {
 	Name     string
 	longName string
 	Obj      fmt.Stringer
-	f        func(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error)
+	f        func(ctx context.Context, conn connect.Client) (fmt.Stringer, error)
 }
 
 func (f statusSect) String() string {
 	return fmt.Sprintf("%s\n%s\n", sprinth(f.longName), f.Obj)
 }
 
-func (o statusOut) set(ctx context.Context, cn *pbm.PBM, sfilter map[string]bool) error {
+func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[string]bool) error {
 	for _, se := range o.data {
 		if sfilter != nil && !sfilter[se.Name] {
 			se.Obj = nil
@@ -87,7 +88,7 @@ func (o statusOut) set(ctx context.Context, cn *pbm.PBM, sfilter map[string]bool
 		}
 
 		var err error
-		se.Obj, err = se.f(ctx, cn)
+		se.Obj, err = se.f(ctx, conn)
 		if err != nil {
 			return errors.Wrapf(err, "get status of %s", se.Name)
 		}
@@ -96,22 +97,29 @@ func (o statusOut) set(ctx context.Context, cn *pbm.PBM, sfilter map[string]bool
 	return nil
 }
 
-func status(ctx context.Context, cn *pbm.PBM, curi string, opts statusOptions, pretty bool) (fmt.Stringer, error) {
+func status(
+	ctx context.Context,
+	conn connect.Client,
+	pbmSDK sdk.Client,
+	curi string,
+	opts statusOptions,
+	pretty bool,
+) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(opts.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
-	storageStatFn := func(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
-		return getStorageStat(ctx, cn, rsMap)
+	storageStatFn := func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
+		return getStorageStat(ctx, conn, pbmSDK, rsMap)
 	}
 
 	out := statusOut{
 		data: []*statusSect{
 			{
 				"cluster", "Cluster", nil,
-				func(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
-					return clusterStatus(ctx, cn, curi)
+				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
+					return clusterStatus(ctx, conn, curi)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -129,7 +137,7 @@ func status(ctx context.Context, cn *pbm.PBM, curi string, opts statusOptions, p
 		}
 	}
 
-	err = out.set(ctx, cn, sfilter)
+	err = out.set(ctx, conn, sfilter)
 
 	return out, err
 }
@@ -221,13 +229,13 @@ func (c cluster) String() string {
 	return s
 }
 
-func clusterStatus(ctx context.Context, cn *pbm.PBM, uri string) (fmt.Stringer, error) {
-	clstr, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.Stringer, error) {
+	clstr, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	clusterTime, err := topo.GetClusterTime(ctx, cn.Conn)
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
 	}
@@ -273,7 +281,7 @@ func clusterStatus(ctx context.Context, cn *pbm.PBM, uri string) (fmt.Stringer, 
 					nd.Role = RoleHidden
 				}
 
-				stat, err := topo.GetAgentStatus(ctx, cn.Conn, c.RS, n.Host)
+				stat, err := topo.GetAgentStatus(ctx, conn, c.RS, n.Host)
 				if errors.Is(err, mongo.ErrNoDocuments) {
 					nd.Ver = "NOT FOUND"
 					continue
@@ -354,8 +362,8 @@ func (p pitrStat) String() string {
 
 // isOplogSlicing checks if PITR slicing is running. It looks for PITR locks
 // and returns true if there is at least one not stale.
-func isOplogSlicing(ctx context.Context, m connect.Client) (bool, error) {
-	l, err := lock.GetLocks(ctx, m, &lock.LockHeader{Type: defs.CmdPITR})
+func isOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
+	l, err := lock.GetLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
 	if errors.Is(err, mongo.ErrNoDocuments) || len(l) == 0 {
 		return false, nil
 	}
@@ -364,7 +372,7 @@ func isOplogSlicing(ctx context.Context, m connect.Client) (bool, error) {
 		return false, errors.Wrap(err, "get locks")
 	}
 
-	ct, err := topo.GetClusterTime(ctx, m)
+	ct, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return false, errors.Wrap(err, "get cluster time")
 	}
@@ -378,31 +386,31 @@ func isOplogSlicing(ctx context.Context, m connect.Client) (bool, error) {
 	return false, nil
 }
 
-func getPitrStatus(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
+func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
 	var p pitrStat
 	var err error
-	p.InConf, _, err = config.IsPITREnabled(ctx, cn.Conn)
+	p.InConf, _, err = config.IsPITREnabled(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR config status")
 	}
 
-	p.Running, err = isOplogSlicing(ctx, cn.Conn)
+	p.Running, err = isOplogSlicing(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
 	}
 
-	p.Err, err = getPitrErr(ctx, cn)
+	p.Err, err = getPitrErr(ctx, conn)
 
 	return p, errors.Wrap(err, "check for errors")
 }
 
-func getPitrErr(ctx context.Context, cn *pbm.PBM) (string, error) {
-	epch, err := config.GetEpoch(ctx, cn.Conn)
+func getPitrErr(ctx context.Context, conn connect.Client) (string, error) {
+	epch, err := config.GetEpoch(ctx, conn)
 	if err != nil {
 		return "", errors.Wrap(err, "get current epoch")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		stdlog.Fatalf("Error: get cluster members: %v", err)
 	}
@@ -411,11 +419,11 @@ func getPitrErr(ctx context.Context, cn *pbm.PBM) (string, error) {
 LOOP:
 	for _, s := range shards {
 		l, err := log.LogGetExactSeverity(ctx,
-			cn.Conn,
+			conn,
 			&log.LogRequest{
 				LogKeys: log.LogKeys{
 					Severity: log.Error,
-					Event:    string(defs.CmdPITR),
+					Event:    string(ctrl.CmdPITR),
 					Epoch:    epch.TS(),
 					RS:       s.RS,
 				},
@@ -431,11 +439,11 @@ LOOP:
 
 		// check if some node in the RS had successfully restarted slicing
 		nl, err := log.LogGetExactSeverity(ctx,
-			cn.Conn,
+			conn,
 			&log.LogRequest{
 				LogKeys: log.LogKeys{
 					Severity: log.Debug,
-					Event:    string(defs.CmdPITR),
+					Event:    string(ctrl.CmdPITR),
 					Epoch:    epch.TS(),
 					RS:       s.RS,
 				},
@@ -457,7 +465,7 @@ LOOP:
 }
 
 type currOp struct {
-	Type    defs.Command `json:"type,omitempty"`
+	Type    ctrl.Command `json:"type,omitempty"`
 	Name    string       `json:"name,omitempty"`
 	StartTS int64        `json:"startTS,omitempty"`
 	Status  string       `json:"status,omitempty"`
@@ -465,14 +473,14 @@ type currOp struct {
 }
 
 func (c currOp) String() string {
-	if c.Type == defs.CmdUndefined {
+	if c.Type == ctrl.CmdUndefined {
 		return "(none)"
 	}
 
 	switch c.Type {
 	default:
 		return fmt.Sprintf("%s [op id: %s]", c.Type, c.OPID)
-	case defs.CmdBackup, defs.CmdRestore:
+	case ctrl.CmdBackup, ctrl.CmdRestore:
 		return fmt.Sprintf("%s \"%s\", started at %s. Status: %s. [op id: %s]",
 			c.Type, c.Name, time.Unix((c.StartTS), 0).UTC().Format("2006-01-02T15:04:05Z"),
 			c.Status, c.OPID,
@@ -480,18 +488,18 @@ func (c currOp) String() string {
 	}
 }
 
-func getCurrOps(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
+func getCurrOps(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
 	var r currOp
 
 	// check for ops
-	lk, err := findLock(ctx, cn, lock.GetLocks)
+	lk, err := findLock(ctx, conn, lock.GetLocks)
 	if err != nil {
 		return r, errors.Wrap(err, "get ops")
 	}
 
 	if lk == nil {
 		// check for delete ops
-		lk, err = findLock(ctx, cn, lock.GetOpLocks)
+		lk, err = findLock(ctx, conn, lock.GetOpLocks)
 		if err != nil {
 			return r, errors.Wrap(err, "get delete ops")
 		}
@@ -509,8 +517,8 @@ func getCurrOps(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
 	// reaching here means no conflict operation, hence all locks are the same,
 	// hence any lock in `lk` contains info on the current op
 	switch r.Type {
-	case defs.CmdBackup:
-		bcp, err := query.GetBackupByOPID(ctx, cn.Conn, r.OPID)
+	case ctrl.CmdBackup:
+		bcp, err := backup.GetBackupByOPID(ctx, conn, r.OPID)
 		if err != nil {
 			return r, errors.Wrap(err, "get backup info")
 		}
@@ -523,8 +531,8 @@ func getCurrOps(ctx context.Context, cn *pbm.PBM) (fmt.Stringer, error) {
 		case defs.StatusDumpDone:
 			r.Status = "oplog backup"
 		}
-	case defs.CmdRestore:
-		rst, err := query.GetRestoreMetaByOPID(ctx, cn.Conn, r.OPID)
+	case ctrl.CmdRestore:
+		rst, err := restore.GetRestoreMetaByOPID(ctx, conn, r.OPID)
 		if err != nil {
 			return r, errors.Wrap(err, "get restore info")
 		}
@@ -621,10 +629,15 @@ func (s storageStat) String() string {
 	return ret
 }
 
-func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (fmt.Stringer, error) {
+func getStorageStat(
+	ctx context.Context,
+	conn connect.Client,
+	pbmSDK sdk.Client,
+	rsMap map[string]string,
+) (fmt.Stringer, error) {
 	var s storageStat
 
-	cfg, err := config.GetConfig(ctx, cn.Conn)
+	cfg, err := config.GetConfig(ctx, conn)
 	if err != nil {
 		return s, errors.Wrap(err, "get config")
 	}
@@ -636,25 +649,25 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 	}
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := query.BackupsList(ctx, cn.Conn, 0)
+	bcps, err := pbmSDK.GetAllBackups(ctx)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, cn.Conn.MongoClient())
+	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
 		return s, errors.Wrap(err, "define cluster state")
 	}
-	ver, err := version.GetMongoVersion(ctx, cn.Conn.MongoClient())
+	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, cn.Conn.MongoClient())
+	fcv, err := version.GetFCV(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return s, errors.Wrap(err, "get cluster members")
 	}
@@ -663,13 +676,14 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
-	stg, err := util.GetStorage(ctx, cn.Conn,
-		cn.Logger().NewEvent("", "", "", primitive.Timestamp{}))
+	stg, err := util.GetStorage(ctx, conn,
+		log.FromContext(ctx).
+			NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}
 
-	now, err := topo.GetClusterTime(ctx, cn.Conn)
+	now, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
@@ -719,7 +733,7 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(ctx, cn, bcps, rsMap)
+	s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 	if err != nil {
 		return s, errors.Wrap(err, "get PITR chunks")
 	}
@@ -729,16 +743,16 @@ func getStorageStat(ctx context.Context, cn *pbm.PBM, rsMap map[string]string) (
 
 func getPITRranges(
 	ctx context.Context,
-	cn *pbm.PBM,
-	bcps []types.BackupMeta,
+	conn connect.Client,
+	bcps []backup.BackupMeta,
 	rsMap map[string]string,
 ) (*pitrRanges, error) {
-	shards, err := topo.ClusterMembers(ctx, cn.Conn.MongoClient())
+	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	now, err := topo.GetClusterTime(ctx, cn.Conn)
+	now, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
@@ -747,7 +761,7 @@ func getPITRranges(
 	var size int64
 	var rstlines [][]oplog.Timeline
 	for _, s := range shards {
-		tlns, err := oplog.PITRGetValidTimelines(ctx, cn.Conn, mapRevRS(s.RS), now)
+		tlns, err := oplog.PITRGetValidTimelines(ctx, conn, mapRevRS(s.RS), now)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS, err)
 		}
@@ -790,7 +804,7 @@ func getPITRranges(
 	return &pitrRanges{Ranges: pr, Size: size}, nil
 }
 
-func isValidBaseSnapshot(bcp *types.BackupMeta) bool {
+func isValidBaseSnapshot(bcp *backup.BackupMeta) bool {
 	if bcp.Status != defs.StatusDone || util.IsSelective(bcp.Namespaces) {
 		return false
 	}
@@ -812,7 +826,7 @@ func isValidBaseSnapshot(bcp *types.BackupMeta) bool {
 	return false
 }
 
-func getBackupSize(bcp *types.BackupMeta, stg storage.Storage) (int64, error) {
+func getBackupSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
 	if bcp.Size > 0 {
 		return bcp.Size, nil
 	}
@@ -831,7 +845,7 @@ func getBackupSize(bcp *types.BackupMeta, stg storage.Storage) (int64, error) {
 	return s, err
 }
 
-func getLegacySnapshotSize(bcp *types.BackupMeta, stg storage.Storage) (int64, error) {
+func getLegacySnapshotSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
 	switch bcp.Type {
 	case defs.LogicalBackup:
 		return getLegacyLogicalSize(bcp, stg)
@@ -844,7 +858,7 @@ func getLegacySnapshotSize(bcp *types.BackupMeta, stg storage.Storage) (int64, e
 	}
 }
 
-func getLegacyPhysSize(rsets []types.BackupReplset) (int64, error) {
+func getLegacyPhysSize(rsets []backup.BackupReplset) (int64, error) {
 	var s int64
 	for _, rs := range rsets {
 		for _, f := range rs.Files {
@@ -857,7 +871,7 @@ func getLegacyPhysSize(rsets []types.BackupReplset) (int64, error) {
 
 var errMissedFile = errors.New("missed file")
 
-func getLegacyLogicalSize(bcp *types.BackupMeta, stg storage.Storage) (int64, error) {
+func getLegacyLogicalSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
 	var s int64
 	var err error
 	for _, rs := range bcp.Replsets {
