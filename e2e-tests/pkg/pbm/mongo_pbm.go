@@ -50,7 +50,8 @@ func (m *MongoPBM) GetBackupMeta(ctx context.Context, bcpName string) (*backup.B
 func (m *MongoPBM) DeleteBackup(ctx context.Context, bcpName string) error {
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdDeleteBackup), "", "", primitive.Timestamp{})
-	return backup.DeleteBackup(ctx, m.conn, bcpName, l)
+	ctx = log.SetLogEventToContext(ctx, l)
+	return backup.DeleteBackup(ctx, m.conn, bcpName)
 }
 
 func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {

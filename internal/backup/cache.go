@@ -284,17 +284,18 @@ func getRecentBackup(
 	return b, errors.Wrap(err, "decode")
 }
 
-func BackupHasNext(ctx context.Context, conn connect.Client, backup *BackupMeta) (bool, error) {
+func IsBaseSnapshotAfter(ctx context.Context, conn connect.Client, lw primitive.Timestamp) (bool, error) {
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
-		{"start_ts", bson.M{"$gt": backup.LastWriteTS.T}},
+		{"last_write_ts", bson.M{"$gt": lw}},
 		{"status", defs.StatusDone},
 	}
 	o := options.FindOne().SetProjection(bson.D{{"_id", 1}})
 	res := conn.BcpCollection().FindOne(ctx, f, o)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
+			// no base snapshot after `lw`
 			return false, nil
 		}
 		return false, errors.Wrap(err, "query")

@@ -81,7 +81,7 @@ type descBcp struct {
 func runBackup(
 	ctx context.Context,
 	conn connect.Client,
-	pbmSDK sdk.Client,
+	pbm sdk.Client,
 	b *backupOpts,
 	outf outFormat,
 ) (fmt.Stringer, error) {
@@ -111,7 +111,7 @@ func runBackup(
 		}
 	}
 
-	cfg, err := pbmSDK.GetConfig(ctx)
+	cfg, err := pbm.GetConfig(ctx)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("no store set. Set remote store with <pbm store set>")
@@ -347,8 +347,8 @@ func byteCountIEC(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func describeBackup(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, b *descBcp) (fmt.Stringer, error) {
-	bcp, err := pbmSDK.GetBackupByName(ctx, b.name)
+func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b *descBcp) (fmt.Stringer, error) {
+	bcp, err := pbm.GetBackupByName(ctx, b.name)
 	if err != nil {
 		return nil, err
 	}

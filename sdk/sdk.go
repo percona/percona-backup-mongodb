@@ -13,9 +13,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/restore"
+	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
-var ErrUnsupported = errors.New("unsupported")
+var (
+	ErrUnsupported      = errors.New("unsupported")
+	ErrInvalidCommandID = errors.New("invalid command id")
+	ErrNotFound         = errors.New("not found")
+)
 
 type (
 	CommandID string
@@ -26,17 +31,12 @@ var NoOpID = CommandID(ctrl.NilOPID().String())
 
 type BackupType = defs.BackupType
 
-type (
-	Config          = config.Config
-	BackupMetadata  = backup.BackupMeta
-	RestoreMetadata = restore.RestoreMeta
-)
-
 const (
 	LogicalBackup     = defs.LogicalBackup
 	PhysicalBackup    = defs.PhysicalBackup
 	IncrementalBackup = defs.IncrementalBackup
 	ExternalBackup    = defs.ExternalBackup
+	SelectiveBackup   = backup.SelectiveBackup
 )
 
 type (
@@ -54,11 +54,12 @@ const (
 	CompressionTypeZstandard = compress.CompressionTypeZstandard
 )
 
-type CommandStatus interface {
-	Ok() bool
-	Done() bool
-	Err() error
-}
+type (
+	Config          = config.Config
+	BackupMetadata  = backup.BackupMeta
+	RestoreMetadata = restore.RestoreMeta
+	CleanupReport   = backup.CleanupInfo
+)
 
 type Lock interface {
 	Type() string
@@ -82,8 +83,13 @@ type IncrementalBackupOptions struct {
 	CompressionLevel CompressionLevel
 }
 
+type Command = ctrl.Cmd
+
 type Client interface {
 	Close(ctx context.Context) error
+	ClusterMembers(ctx context.Context) ([]topo.Shard, error)
+
+	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
 
 	GetConfig(ctx context.Context) (*Config, error)
 
@@ -95,6 +101,14 @@ type Client interface {
 	CancelBackup(ctx context.Context) (CommandID, error)
 
 	SyncFromStorage(ctx context.Context) (CommandID, error)
+
+	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
+	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp) (CommandID, error)
+
+	DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error)
+
+	CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error)
+	RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error)
 }
 
 func NewClient(ctx context.Context, uri string) (Client, error) {

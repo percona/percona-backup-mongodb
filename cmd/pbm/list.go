@@ -21,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type listOpts struct {
@@ -97,26 +98,26 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.list)
 }
 
-func runList(ctx context.Context, conn connect.Client, l *listOpts) (fmt.Stringer, error) {
+func runList(ctx context.Context, pbm sdk.Client, l *listOpts) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
 	if l.restore {
-		return restoreList(ctx, conn, int64(l.size))
+		return restoreList(ctx, pbm, int64(l.size))
 	}
 	// show message and skip when resync is running
-	lk, err := findLock(ctx, conn, lock.GetLocks)
+	lk, err := findLock(ctx, pbm, lock.GetLocks)
 	if err == nil && lk != nil && lk.Type == ctrl.CmdResync {
 		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
-	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
+	return backupList(ctx, pbm, l.size, l.full, l.unbacked, rsMap)
 }
 
-func restoreList(ctx context.Context, conn connect.Client, size int64) (*restoreListOut, error) {
-	rlist, err := restore.RestoresList(ctx, conn, size)
+func restoreList(ctx context.Context, pbm sdk.Client, size int64) (*restoreListOut, error) {
+	rlist, err := restore.RestoreList(ctx, pbm, size)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get restore list")
 	}
@@ -204,7 +205,7 @@ func (bl backupListOut) String() string {
 
 func backupList(
 	ctx context.Context,
-	conn connect.Client,
+	pbm sdk.Client,
 	size int,
 	full, unbacked bool,
 	rsMap map[string]string,
@@ -212,16 +213,16 @@ func backupList(
 	var list backupListOut
 	var err error
 
-	list.Snapshots, err = getSnapshotList(ctx, conn, size, rsMap)
+	list.Snapshots, err = getSnapshotList(ctx, pbm, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
+	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, pbm, size, full, unbacked, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
 	}
 
-	list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
+	list.PITR.On, _, err = config.IsPITREnabled(ctx, pbm)
 	if err != nil {
 		return list, errors.Wrap(err, "check if PITR is on")
 	}
@@ -231,30 +232,30 @@ func backupList(
 
 func getSnapshotList(
 	ctx context.Context,
-	conn connect.Client,
+	pbm sdk.Client,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {
-	bcps, err := backup.BackupsList(ctx, conn, int64(size))
+	bcps, err := backup.BackupsList(ctx, pbm, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
 
-	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
+	shards, err := pbm.ClusterMembers(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
+	inf, err := topo.GetNodeInfoExt(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
-	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
+	ver, err := version.GetMongoVersion(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, conn.MongoClient())
+	fcv, err := version.GetFCV(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}

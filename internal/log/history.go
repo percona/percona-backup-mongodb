@@ -9,7 +9,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/internal/connect"
@@ -184,7 +183,7 @@ func fetch(
 
 func Follow(
 	ctx context.Context,
-	coll *mongo.Collection,
+	cc connect.Client,
 	r *LogRequest,
 	exactSeverity bool,
 ) (<-chan *Entry, <-chan error) {
@@ -197,7 +196,7 @@ func Follow(
 
 		opt := options.Find().SetCursorType(options.TailableAwait)
 
-		cur, err := coll.Find(ctx, filter, opt)
+		cur, err := cc.LogCollection().Find(ctx, filter, opt)
 		if err != nil {
 			errC <- errors.Wrap(err, "query")
 			return

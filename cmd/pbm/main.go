@@ -13,6 +13,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/compress"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/ctrl"
@@ -98,9 +99,9 @@ func main() {
 		StringVar(&cfg.key)
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
-	backup := backupOpts{}
+	backupOptions := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
-		EnumVar(&backup.compression,
+		EnumVar(&backupOptions.compression,
 			string(compress.CompressionTypeNone),
 			string(compress.CompressionTypeGZIP),
 			string(compress.CompressionTypeSNAPPY),
@@ -116,23 +117,23 @@ func main() {
 			defs.ExternalBackup)).
 		Default(string(defs.LogicalBackup)).
 		Short('t').
-		EnumVar(&backup.typ,
+		EnumVar(&backupOptions.typ,
 			string(defs.PhysicalBackup),
 			string(defs.LogicalBackup),
 			string(defs.IncrementalBackup),
 			string(defs.ExternalBackup))
 	backupCmd.Flag("base", "Is this a base for incremental backups").
-		BoolVar(&backup.base)
+		BoolVar(&backupOptions.base)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
-		IntsVar(&backup.compressionLevel)
+		IntsVar(&backupOptions.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
-		StringVar(&backup.ns)
+		StringVar(&backupOptions.ns)
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
-		BoolVar(&backup.wait)
+		BoolVar(&backupOptions.wait)
 	backupCmd.Flag("list-files", "Wait for the backup to finish").
 		Short('l').
-		BoolVar(&backup.externList)
+		BoolVar(&backupOptions.externList)
 
 	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
 
@@ -229,6 +230,22 @@ func main() {
 			datetimeFormat,
 			dateFormat)).
 		StringVar(&deleteBcp.olderThan)
+	deleteBcpCmd.Flag("type",
+		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>/<%s>",
+			defs.LogicalBackup,
+			defs.PhysicalBackup,
+			defs.IncrementalBackup,
+			defs.ExternalBackup,
+			backup.SelectiveBackup,
+		)).
+		Short('t').
+		EnumVar(&deleteBcp.bcpType,
+			string(defs.LogicalBackup),
+			string(defs.PhysicalBackup),
+			string(defs.IncrementalBackup),
+			string(defs.ExternalBackup),
+			string(backup.SelectiveBackup),
+		)
 	deleteBcpCmd.Flag("yes", "Don't ask confirmation").
 		Short('y').
 		BoolVar(&deleteBcp.force)
@@ -353,7 +370,7 @@ func main() {
 	defer cancel()
 
 	var conn connect.Client
-	var pbmSDK sdk.Client
+	var pbm sdk.Client
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -371,43 +388,43 @@ func main() {
 			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
 		}
 
-		pbmSDK, err = sdk.NewClient(ctx, *mURL)
+		pbm, err = sdk.NewClient(ctx, *mURL)
 		if err != nil {
 			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
 		}
-		defer pbmSDK.Close(context.Background())
+		defer pbm.Close(context.Background())
 	}
 
 	switch cmd {
 	case configCmd.FullCommand():
-		out, err = runConfig(ctx, conn, pbmSDK, &cfg)
+		out, err = runConfig(ctx, conn, pbm, &cfg)
 	case backupCmd.FullCommand():
-		backup.name = time.Now().UTC().Format(time.RFC3339)
-		out, err = runBackup(ctx, conn, pbmSDK, &backup, pbmOutF)
+		backupOptions.name = time.Now().UTC().Format(time.RFC3339)
+		out, err = runBackup(ctx, conn, pbm, &backupOptions, pbmOutF)
 	case cancelBcpCmd.FullCommand():
-		out, err = cancelBcp(ctx, pbmSDK)
+		out, err = cancelBcp(ctx, pbm)
 	case backupFinishCmd.FullCommand():
 		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
 		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, conn, pbmSDK, &descBcp)
+		out, err = describeBackup(ctx, conn, pbm, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(ctx, conn, &restore, pbmOutF)
 	case replayCmd.FullCommand():
 		out, err = replayOplog(ctx, conn, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
-		out, err = runList(ctx, conn, &list)
+		out, err = runList(ctx, pbm, &list)
 	case deleteBcpCmd.FullCommand():
-		out, err = deleteBackup(ctx, conn, &deleteBcp, pbmOutF)
+		out, err = deleteBackup(ctx, pbm, &deleteBcp, pbmOutF)
 	case deletePitrCmd.FullCommand():
-		out, err = deletePITR(ctx, conn, &deletePitr, pbmOutF)
+		out, err = deletePITR(ctx, pbm, &deletePitr, pbmOutF)
 	case cleanupCmd.FullCommand():
-		out, err = retentionCleanup(ctx, conn, &cleanupOpts)
+		out, err = retentionCleanup(ctx, pbm, &cleanupOpts)
 	case logsCmd.FullCommand():
 		out, err = runLogs(ctx, conn, &logs)
 	case statusCmd.FullCommand():
-		out, err = status(ctx, conn, pbmSDK, *mURL, statusOpts, pbmOutF == outJSONpretty)
+		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
 		out, err = describeRestore(ctx, conn, describeRestoreOpts)
 	}
@@ -536,7 +553,7 @@ func runLogs(ctx context.Context, conn connect.Client, l *logsOpts) (fmt.Stringe
 }
 
 func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, showNode, expr bool) error {
-	outC, errC := log.Follow(ctx, conn.LogCollection(), r, false)
+	outC, errC := log.Follow(ctx, conn, r, false)
 
 	for {
 		select {
@@ -616,8 +633,8 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func cancelBcp(ctx context.Context, pbmSDK sdk.Client) (fmt.Stringer, error) {
-	if _, err := pbmSDK.CancelBackup(ctx); err != nil {
+func cancelBcp(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+	if _, err := pbm.CancelBackup(ctx); err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}
 	return outMsg{"Backup cancellation has started"}, nil

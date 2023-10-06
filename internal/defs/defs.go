@@ -104,6 +104,18 @@ const (
 	StatusExtTS Status = "lastTS"
 )
 
+func (s Status) IsRunning() bool {
+	switch s {
+	case
+		StatusDone,
+		StatusCancelled,
+		StatusError:
+		return true
+	}
+
+	return false
+}
+
 type Operation string
 
 const (
