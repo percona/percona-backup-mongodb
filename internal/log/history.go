@@ -214,6 +214,10 @@ func Follow(
 			e.ObjID, _ = cur.Current.Lookup("_id").ObjectIDOK()
 			outC <- e
 		}
+
+		if err := cur.Err(); err != nil {
+			errC <- err
+		}
 	}()
 
 	return outC, errC

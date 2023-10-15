@@ -96,6 +96,9 @@ func main() {
 		StringMapVar(&cfg.set)
 	configCmd.Arg("key", "Show the value of a specified key").
 		StringVar(&cfg.key)
+	configCmd.Flag("wait", "Wait for finish").
+		Short('w').
+		BoolVar(&cfg.wait)
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backup := backupOpts{}

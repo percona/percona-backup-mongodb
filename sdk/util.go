@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
-	"errors"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
@@ -27,4 +29,30 @@ func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
 	}
 
 	return info.ClusterTime.ClusterTime, nil
+}
+
+func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	r := &log.LogRequest{
+		LogKeys: log.LogKeys{
+			Event:    string(ctrl.CmdResync),
+			OPID:     string(cid),
+			Severity: log.Info,
+		},
+	}
+
+	outC, errC := log.Follow(ctx, c.(*clientImpl).conn.LogCollection(), r, false)
+
+	for {
+		select {
+		case entry := <-outC:
+			if entry != nil && entry.Msg == "succeed" {
+				return nil
+			}
+		case err := <-errC:
+			return err
+		}
+	}
 }
