@@ -35,6 +35,7 @@ const (
 type Conf struct {
 	Account     string      `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
 	Container   string      `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
+	EndpointURL string      `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
 	Prefix      string      `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 }
@@ -259,7 +260,11 @@ func (b *Blob) client() (*azblob.Client, error) {
 	opts.Retry = policy.RetryOptions{
 		MaxRetries: defaultRetries,
 	}
-	return azblob.NewClientWithSharedKeyCredential(fmt.Sprintf(BlobURL, b.opts.Account), cred, opts)
+	epURL := b.opts.EndpointURL
+	if epURL == "" {
+		epURL = fmt.Sprintf(azure.BlobURL, b.opts.Account)
+	}
+	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 
 func isNotFound(err error) bool {
