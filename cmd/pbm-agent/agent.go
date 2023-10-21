@@ -588,6 +588,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			hb.Arbiter = inf.ArbiterOnly
 		}
 
+		hb.Tags = inf.Tags
 		err = topo.SetAgentStatus(ctx, a.leadConn, hb)
 		if err != nil {
 			l.Error("set status: %v", err)

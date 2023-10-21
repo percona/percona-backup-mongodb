@@ -33,6 +33,7 @@ type AgentStat struct {
 	StorageStatus SubsysStatus        `bson:"stors"`
 	Heartbeat     primitive.Timestamp `bson:"hb"`
 	Err           string              `bson:"e"`
+	Tags          map[string]string   `bson:"tags"`
 }
 
 type SubsysStatus struct {
