@@ -183,7 +183,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	opLock := lock.NewOpLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdDeleteBackup,
@@ -191,18 +191,18 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, opLock, l, nil)
 	if err != nil {
-		l.Error("acquire lock: %v", err)
+		l.Error("acquire opLock: %v", err)
 		return
 	}
 	if !got {
-		l.Debug("skip: lock not acquired")
+		l.Debug("skip: opLock not acquired")
 		return
 	}
 	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("release lock: %v", err)
+		if err := opLock.Release(); err != nil {
+			l.Error("release opLock: %v", err)
 		}
 	}()
 
@@ -258,7 +258,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	opLock := lock.NewOpLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdDeletePITR,
@@ -266,18 +266,18 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, opLock, l, nil)
 	if err != nil {
-		l.Error("acquire lock: %v", err)
+		l.Error("acquire opLock: %v", err)
 		return
 	}
 	if !got {
-		l.Debug("skip: lock not acquired")
+		l.Debug("skip: opLock not acquired")
 		return
 	}
 	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("release lock: %v", err)
+		if err := opLock.Release(); err != nil {
+			l.Error("release opLock: %v", err)
 		}
 	}()
 
@@ -329,7 +329,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	opLock := lock.NewOpLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdCleanup,
@@ -337,18 +337,18 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, opLock, l, nil)
 	if err != nil {
-		l.Error("acquire lock: %v", err)
+		l.Error("acquire opLock: %v", err)
 		return
 	}
 	if !got {
-		l.Debug("skip: lock not acquired")
+		l.Debug("skip: opLock not acquired")
 		return
 	}
 	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("release lock: %v", err)
+		if err := opLock.Release(); err != nil {
+			l.Error("release opLock: %v", err)
 		}
 	}()
 
@@ -417,7 +417,7 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 	}
 
 	epts := ep.TS()
-	lock := lock.NewLock(a.leadConn, lock.LockHeader{
+	syncLock := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdResync,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
@@ -425,19 +425,19 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, syncLock, l, nil)
 	if err != nil {
-		l.Error("acquiring lock: %v", err)
+		l.Error("acquiring syncLock: %v", err)
 		return
 	}
 	if !got {
-		l.Debug("lock not acquired")
+		l.Debug("syncLock not acquired")
 		return
 	}
 
 	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("reslase lock %v: %v", lock, err)
+		if err := syncLock.Release(); err != nil {
+			l.Error("reslase syncLock %v: %v", syncLock, err)
 		}
 	}()
 
