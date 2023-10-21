@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/percona/percona-backup-mongodb/internal/config"
@@ -11,7 +12,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
-const defaultScore = 1.0
+const (
+	defaultScore = 1.0
+	tagPrefix    = "tag"
+)
 
 // NodesPriority groups nodes by priority according to
 // provided scores. Basically nodes are grouped and sorted by
@@ -69,17 +73,31 @@ func BcpNodesPriority(
 	}
 
 	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
-		f = func(a topo.AgentStat) float64 {
-			sc, ok := cfg.Backup.Priority[a.Node]
-			if !ok || sc < 0 {
-				return defaultScore
-			}
-
-			return sc
-		}
+		f = customPriorityCalculator(cfg)
 	}
 
 	return bcpNodesPriority(agents, f), nil
+}
+
+func customPriorityCalculator(cfg *config.Config) func(a topo.AgentStat) float64 {
+	return func(a topo.AgentStat) float64 {
+		sc, ok := cfg.Backup.Priority[a.Node]
+		if !ok {
+			sc = -1
+		}
+
+		for k, v := range a.Tags {
+			tagSc, ok := (cfg.Backup.Priority[fmt.Sprintf("%s:%s=%s", tagPrefix, k, v)])
+			if ok && tagSc > sc {
+				sc = tagSc
+			}
+		}
+		if sc > 0 {
+			return sc
+		} else {
+			return defaultScore
+		}
+	}
 }
 
 func bcpNodesPriority(agents []topo.AgentStat, f agentScore) *NodesPriority {
