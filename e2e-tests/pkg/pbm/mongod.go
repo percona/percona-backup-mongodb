@@ -36,17 +36,13 @@ func NewMongo(ctx context.Context, connectionURI string) (*Mongo, error) {
 }
 
 func connect(ctx context.Context, uri, appName string) (*mongo.Client, error) {
-	client, err := mongo.NewClient(
+	client, err := mongo.Connect(ctx,
 		options.Client().ApplyURI(uri).
 			SetAppName(appName).
 			SetReadPreference(readpref.Primary()).
 			SetReadConcern(readconcern.Majority()).
-			SetWriteConcern(writeconcern.New(writeconcern.WMajority())),
+			SetWriteConcern(writeconcern.Majority()),
 	)
-	if err != nil {
-		return nil, errors.Wrap(err, "create mongo client")
-	}
-	err = client.Connect(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "mongo connect")
 	}

@@ -65,18 +65,18 @@ var knownCommands = map[string]struct{}{
 	"commitIndexBuild": {},
 }
 
-var selectedNSSupportedCommands = []string{
-	"create",
-	"drop",
-	"createIndexes",
-	"deleteIndex",
-	"deleteIndexes",
-	"dropIndex",
-	"dropIndexes",
-	"collMod",
-	"startIndexBuild",
-	"abortIndexBuild",
-	"commitIndexBuild",
+var selectedNSSupportedCommands = map[string]struct{}{
+	"create":           {},
+	"drop":             {},
+	"createIndexes":    {},
+	"deleteIndex":      {},
+	"deleteIndexes":    {},
+	"dropIndex":        {},
+	"dropIndexes":      {},
+	"collMod":          {},
+	"startIndexBuild":  {},
+	"abortIndexBuild":  {},
+	"commitIndexBuild": {},
 }
 
 var dontPreserveUUID = []string{
@@ -205,12 +205,12 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 		}
 
 		// skip if operation happened before the desired time frame
-		if primitive.CompareTimestamp(o.startTS, oe.Timestamp) == 1 {
+		if o.startTS.Compare(oe.Timestamp) == 1 {
 			continue
 		}
 
 		// finish if operation happened after the desired time frame (oe.Timestamp > to)
-		if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+		if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -269,10 +269,9 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 		return false
 	}
 
-	m := oe.Object.Map()
-	for _, cmd := range selectedNSSupportedCommands {
-		if ns, ok := m[cmd]; ok {
-			s, _ := ns.(string)
+	for _, el := range oe.Object {
+		if _, ok := selectedNSSupportedCommands[el.Key]; ok {
+			s, _ := el.Value.(string)
 			return colls[s]
 		}
 	}
@@ -286,7 +285,7 @@ func (o *OplogRestore) LastOpTS() uint32 {
 
 func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.endTS.T > 0 && primitive.CompareTimestamp(oe.Timestamp, o.endTS) == 1 {
+	if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
 		return nil
 	}
 

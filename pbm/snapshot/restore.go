@@ -74,7 +74,7 @@ func NewRestore(uri string, cfg *pbm.Config) (io.ReaderFrom, error) {
 	}
 
 	topts.Direct = true
-	topts.WriteConcern = writeconcern.New(writeconcern.WMajority())
+	topts.WriteConcern = writeconcern.Majority()
 
 	batchSize := batchSizeDefault
 	if cfg.Restore.BatchSize > 0 {

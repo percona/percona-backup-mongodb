@@ -312,11 +312,7 @@ func connect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
 	curi.RawQuery = query.Encode()
 	curi.Host = host
 
-	conn, err := mongo.NewClient(options.Client().ApplyURI(curi.String()).SetAppName("pbm-status"))
-	if err != nil {
-		return nil, errors.Wrap(err, "create mongo client")
-	}
-	err = conn.Connect(ctx)
+	conn, err := mongo.Connect(ctx, options.Client().ApplyURI(curi.String()).SetAppName("pbm-status"))
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
@@ -724,7 +720,7 @@ func getPITRranges(cn *pbm.PBM, bcps []pbm.BackupMeta, rsMap map[string]string) 
 	}
 
 	sort.Slice(bcps, func(i, j int) bool {
-		return primitive.CompareTimestamp(bcps[i].LastWriteTS, bcps[j].LastWriteTS) == -1
+		return bcps[i].LastWriteTS.Compare(bcps[j].LastWriteTS) == -1
 	})
 
 	var pr []pitrRange

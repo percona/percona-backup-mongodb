@@ -507,12 +507,12 @@ type UUID struct{ uuid.UUID }
 
 // MarshalBSONValue implements the bson.ValueMarshaler interface.
 func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
-	return bsontype.Binary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
+	return bson.TypeBinary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
 }
 
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
 func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
-	if t != bsontype.Binary {
+	if t != bson.TypeBinary {
 		return errors.New("invalid format on unmarshal bson value")
 	}
 

@@ -111,7 +111,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 			rcheck = true
 		}
 
-		if primitive.CompareTimestamp(ot.end, opts) == -1 {
+		if ot.end.Compare(opts) == -1 {
 			return written, nil
 		}
 

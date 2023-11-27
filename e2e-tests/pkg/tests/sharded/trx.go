@@ -79,7 +79,7 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 			SetDefaultReadPreference(readpref.Primary()).
 			SetCausalConsistency(true).
 			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.New(writeconcern.WMajority())),
+			SetDefaultWriteConcern(writeconcern.Majority()),
 	)
 	if err != nil {
 		log.Fatalln("ERROR: start session:", err)
@@ -205,7 +205,7 @@ func (c *Cluster) printBalancerStatus(ctx context.Context) {
 		bson.D{{"balancerStatus", 1}},
 	)
 
-	state, err := br.DecodeBytes()
+	state, err := br.Raw()
 	if err != nil {
 		log.Fatalln("ERROR: balancerStatus:", err)
 	}
