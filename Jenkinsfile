@@ -110,6 +110,15 @@ pipeline {
                         runTest('New cluster', 'run-new-cluster', '6.0', 'logical')
                     }
                 }
+                stage('New cluster 7.0 logical') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('sharded', '70-newc-logic', '7.0')
+                        runTest('New cluster', 'run-new-cluster', '7.0', 'logical')
+                    }
+                }
 
                 stage('Sharded 4.4 logical') {
                     agent {
@@ -136,6 +145,15 @@ pipeline {
                     steps {
                         prepareCluster('sharded', '60-shrd-logic', '6.0')
                         runTest('Sharded', 'run-sharded', '6.0', 'logical')
+                    }
+                }
+                stage('Sharded 7.0 logical') {
+                    agent {
+                        label 'docker-32gb'
+                    }
+                    steps {
+                        prepareCluster('sharded', '70-shrd-logic', '7.0')
+                        runTest('Sharded', 'run-sharded', '7.0', 'logical')
                     }
                 }
 
@@ -166,6 +184,15 @@ pipeline {
                         runTest('Non-sharded', 'run-rs', '6.0', 'logical')
                     }
                 }
+                stage('Non-sharded 7.0 logical') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '70-rs-logic', '7.0')
+                        runTest('Non-sharded', 'run-rs', '7.0', 'logical')
+                    }
+                }
 
                 stage('Single-node 4.4 logical') {
                     agent {
@@ -192,6 +219,15 @@ pipeline {
                     steps {
                         prepareCluster('single', '60-single-logic', '6.0')
                         runTest('Single-node', 'run-single', '6.0', 'logical')
+                    }
+                }
+                stage('Single-node 7.0 logical') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '70-single-logic', '7.0')
+                        runTest('Single-node', 'run-single', '7.0', 'logical')
                     }
                 }
 
@@ -222,6 +258,15 @@ pipeline {
                         runTest('Sharded', 'run-sharded', '6.0', 'physical')
                     }
                 }
+                stage('Sharded 7.0 physical') {
+                    agent {
+                        label 'docker-32gb'
+                    }
+                    steps {
+                        prepareCluster('sharded', '70-shrd-phys', '7.0')
+                        runTest('Sharded', 'run-sharded', '7.0', 'physical')
+                    }
+                }
 
                 stage('Non-sharded 4.4 physical') {
                     agent {
@@ -250,6 +295,15 @@ pipeline {
                         runTest('Non-sharded', 'run-rs', '6.0', 'physical')
                     }
                 }
+                stage('Non-sharded 7.0 physical') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('rs', '70-rs-phys', '7.0')
+                        runTest('Non-sharded', 'run-rs', '7.0', 'physical')
+                    }
+                }
 
                 stage('Single-node 4.4 physical') {
                     agent {
@@ -276,6 +330,15 @@ pipeline {
                     steps {
                         prepareCluster('single', '60-single-phys', '6.0')
                         runTest('Single-node', 'run-single', '6.0', 'physical')
+                    }
+                }
+                stage('Single-node 7.0 physical') {
+                    agent {
+                        label 'docker'
+                    }
+                    steps {
+                        prepareCluster('single', '70-single-phys', '7.0')
+                        runTest('Single-node', 'run-single', '7.0', 'physical')
                     }
                 }
             }
