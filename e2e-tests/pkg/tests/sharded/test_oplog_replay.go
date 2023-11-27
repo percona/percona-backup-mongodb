@@ -89,7 +89,7 @@ func getLastWrittenCounter(counters map[string]shardCounter) tpbm.Counter {
 		log.Printf("\tshard %s: %d [%v] | %v",
 			name, cc.WriteTime.T, time.Unix(int64(cc.WriteTime.T), 0), cc)
 
-		if primitive.CompareTimestamp(rv.WriteTime, cc.WriteTime) == -1 {
+		if rv.WriteTime.Compare(cc.WriteTime) == -1 {
 			rv = cc
 		}
 	}

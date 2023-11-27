@@ -97,7 +97,7 @@ func (s *Slicer) Catchup() error {
 	}
 
 	// PITR chunk after the recent backup is the most recent oplog slice
-	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.LastWriteTS) >= 0 {
+	if chnk.EndTS.Compare(baseBcp.LastWriteTS) >= 0 {
 		s.lastTS = chnk.EndTS
 		return nil
 	}
@@ -119,7 +119,7 @@ func (s *Slicer) Catchup() error {
 
 	// if there is a gap between chunk and the backup - fill it
 	// failed gap shouldn't prevent further chunk creation
-	if primitive.CompareTimestamp(chnk.EndTS, baseBcp.FirstWriteTS) < 0 {
+	if chnk.EndTS.Compare(baseBcp.FirstWriteTS) < 0 {
 		ok, err := s.oplog.IsSufficient(chnk.EndTS)
 		if err != nil {
 			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
@@ -320,7 +320,7 @@ func (s *Slicer) Stream(
 
 				// it can happen that prevoius slice >= backup's fisrt_write
 				// in that case we have to just back off.
-				if primitive.CompareTimestamp(s.lastTS, sliceTo) >= 0 {
+				if s.lastTS.Compare(sliceTo) >= 0 {
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
 					return nil
 				}
@@ -383,7 +383,7 @@ func (s *Slicer) Stream(
 			return errors.New("undefined behavior operation is running")
 		case pbm.CmdBackup:
 			// continue only if we had `backupSig`
-			if !lastSlice || primitive.CompareTimestamp(s.lastTS, sliceTo) == 0 {
+			if !lastSlice || s.lastTS.Compare(sliceTo) == 0 {
 				return errors.Errorf("another operation is running: %#v", ld)
 			}
 		default:
@@ -396,7 +396,7 @@ func (s *Slicer) Stream(
 			if err != nil {
 				return errors.Wrap(err, "get epoch")
 			}
-			if primitive.CompareTimestamp(s.ep.TS(), cep.TS()) != 0 {
+			if s.ep.TS().Compare(cep.TS()) != 0 {
 				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
 			}
 		}

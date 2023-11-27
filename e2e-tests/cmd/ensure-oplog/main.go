@@ -358,23 +358,23 @@ func findChunkRanges(rs []pbm.OplogChunk, from, till primitive.Timestamp) []time
 	rv := []timerange{}
 
 	c := rs[0]
-	if primitive.CompareTimestamp(from, c.StartTS) == -1 {
+	if from.Compare(c.StartTS) == -1 {
 		rv = append(rv, timerange{from, c.StartTS})
 	}
 
 	endTS := c.EndTS
 	for _, c = range rs[1:] {
-		if primitive.CompareTimestamp(endTS, c.StartTS) == -1 {
+		if endTS.Compare(c.StartTS) == -1 {
 			rv = append(rv, timerange{endTS, c.StartTS})
 		}
-		if primitive.CompareTimestamp(till, c.EndTS) != 1 {
+		if till.Compare(c.EndTS) != 1 {
 			return rv
 		}
 
 		endTS = c.EndTS
 	}
 
-	if primitive.CompareTimestamp(endTS, till) == -1 {
+	if endTS.Compare(till) == -1 {
 		rv = append(rv, timerange{endTS, till})
 	}
 

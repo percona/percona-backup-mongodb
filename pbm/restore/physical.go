@@ -1136,7 +1136,7 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 	if res.Err() != nil {
 		return primitive.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
 	}
-	rb, err := res.DecodeBytes()
+	rb, err := res.Raw()
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "decode oplog entry")
 	}
@@ -1553,7 +1553,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 				return ts, errors.Wrapf(err, "get timestamp for RS %s", sh)
 			}
 
-			if mints.IsZero() || primitive.CompareTimestamp(ts, mints) == -1 {
+			if mints.IsZero() || ts.Compare(mints) == -1 {
 				mints = ts
 			}
 		}
@@ -1685,12 +1685,7 @@ func conn(port int, tout time.Duration) (*mongo.Client, error) {
 		SetConnectTimeout(time.Second * 120).
 		SetServerSelectionTimeout(tout)
 
-	conn, err := mongo.NewClient(opts)
-	if err != nil {
-		return nil, errors.Wrap(err, "create mongo client")
-	}
-
-	err = conn.Connect(ctx)
+	conn, err := mongo.Connect(ctx, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}

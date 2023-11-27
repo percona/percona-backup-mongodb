@@ -709,7 +709,7 @@ func (b *Backup) setClusterFirstWrite(bcpName string) error {
 
 	var fw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
-		if fw.T == 0 || primitive.CompareTimestamp(fw, rs.FirstWriteTS) == 1 {
+		if fw.T == 0 || fw.Compare(rs.FirstWriteTS) == 1 {
 			fw = rs.FirstWriteTS
 		}
 	}
@@ -726,7 +726,7 @@ func (b *Backup) setClusterLastWrite(bcpName string) error {
 
 	var lw primitive.Timestamp
 	for _, rs := range bmeta.Replsets {
-		if primitive.CompareTimestamp(lw, rs.LastWriteTS) == -1 {
+		if lw.Compare(rs.LastWriteTS) == -1 {
 			lw = rs.LastWriteTS
 		}
 	}

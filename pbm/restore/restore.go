@@ -235,7 +235,7 @@ func chunks(
 		return nil, errors.New("no chunks found")
 	}
 
-	if primitive.CompareTimestamp(chunks[len(chunks)-1].EndTS, to) == -1 {
+	if chunks[len(chunks)-1].EndTS.Compare(to) == -1 {
 		return nil, errors.Errorf(
 			"no chunk with the target time, the last chunk ends on %v",
 			chunks[len(chunks)-1].EndTS)
@@ -243,7 +243,7 @@ func chunks(
 
 	last := from
 	for _, c := range chunks {
-		if primitive.CompareTimestamp(last, c.StartTS) == -1 {
+		if last.Compare(c.StartTS) == -1 {
 			return nil, errors.Errorf(
 				"integrity vilolated, expect chunk with start_ts %v, but got %v",
 				last, c.StartTS)

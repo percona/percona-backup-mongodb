@@ -360,7 +360,7 @@ func (p *PBM) GetConfigVar(key string) (interface{}, error) {
 		return nil, errors.New("invalid config key")
 	}
 
-	bts, err := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{}).DecodeBytes()
+	bts, err := p.Conn.Database(DB).Collection(ConfigCollection).FindOne(p.ctx, bson.D{}).Raw()
 	if err != nil {
 		return nil, errors.Wrap(err, "get from db")
 	}
