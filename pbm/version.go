@@ -58,7 +58,7 @@ func (f FeatureSupport) PBMSupport() error {
 		return nil
 	}
 
-	return errors.New("Unsupported MongoDB version. PBM works with v4.4, v5.0, v6.0")
+	return errors.New("Unsupported MongoDB version. PBM works with v4.4, v5.0, v6.0, v7.0")
 }
 
 func (f FeatureSupport) FullPhysicalBackup() bool {
