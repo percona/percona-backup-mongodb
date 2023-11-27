@@ -14,7 +14,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsoncodec"
-	"go.mongodb.org/mongo-driver/internal"
+	"go.mongodb.org/mongo-driver/internal/csfle"
 	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -177,6 +177,9 @@ func (db *Database) processRunCommand(ctx context.Context, cmd interface{},
 	switch cursorCommand {
 	case true:
 		cursorOpts := db.client.createBaseCursorOptions()
+
+		cursorOpts.MarshalValueEncoderFn = newEncoderFn(db.bsonOpts, db.registry)
+
 		op = operation.NewCursorCommand(runCmdDoc, cursorOpts)
 	default:
 		op = operation.NewCommand(runCmdDoc)
@@ -254,6 +257,10 @@ func (db *Database) RunCommandCursor(ctx context.Context, runCommand interface{}
 
 	if err = op.Execute(ctx); err != nil {
 		closeImplicitSession(sess)
+		if errors.Is(err, driver.ErrNoCursor) {
+			return nil, errors.New(
+				"database response does not contain a cursor; try using RunCommand instead")
+		}
 		return nil, replaceErrors(err)
 	}
 
@@ -395,6 +402,9 @@ func (db *Database) ListCollections(ctx context.Context, filter interface{}, opt
 		ServerAPI(db.client.serverAPI).Timeout(db.client.timeout)
 
 	cursorOpts := db.client.createBaseCursorOptions()
+
+	cursorOpts.MarshalValueEncoderFn = newEncoderFn(db.bsonOpts, db.registry)
+
 	if lco.NameOnly != nil {
 		op = op.NameOnly(*lco.NameOnly)
 	}
@@ -617,7 +627,7 @@ func (db *Database) createCollectionWithEncryptedFields(ctx context.Context, nam
 	stateCollectionOpts := options.CreateCollection().
 		SetClusteredIndex(bson.D{{"key", bson.D{{"_id", 1}}}, {"unique", true}})
 	// Create ESCCollection.
-	escCollection, err := internal.GetEncryptedStateCollectionName(efBSON, name, internal.EncryptedStateCollection)
+	escCollection, err := csfle.GetEncryptedStateCollectionName(efBSON, name, csfle.EncryptedStateCollection)
 	if err != nil {
 		return err
 	}
@@ -627,7 +637,7 @@ func (db *Database) createCollectionWithEncryptedFields(ctx context.Context, nam
 	}
 
 	// Create ECOCCollection.
-	ecocCollection, err := internal.GetEncryptedStateCollectionName(efBSON, name, internal.EncryptedCompactionCollection)
+	ecocCollection, err := csfle.GetEncryptedStateCollectionName(efBSON, name, csfle.EncryptedCompactionCollection)
 	if err != nil {
 		return err
 	}
