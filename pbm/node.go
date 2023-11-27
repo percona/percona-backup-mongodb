@@ -91,11 +91,8 @@ func (n *Node) Connect() error {
 }
 
 func (n *Node) connect(direct bool) (*mongo.Client, error) {
-	conn, err := mongo.NewClient(options.Client().ApplyURI(n.curi).SetAppName("pbm-agent-exec").SetDirect(direct))
-	if err != nil {
-		return nil, errors.Wrap(err, "create mongo client")
-	}
-	err = conn.Connect(n.ctx)
+	conn, err := mongo.Connect(n.ctx,
+		options.Client().ApplyURI(n.curi).SetAppName("pbm-agent-exec").SetDirect(direct))
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
@@ -275,7 +272,7 @@ func (n *Node) WaitForWrite(ts primitive.Timestamp) error {
 
 	for i := 0; i < 21; i++ {
 		lw, err = LastWrite(n.cn, false)
-		if err == nil && primitive.CompareTimestamp(lw, ts) >= 0 {
+		if err == nil && lw.Compare(ts) >= 0 {
 			return nil
 		}
 		time.Sleep(time.Second * 1)

@@ -304,11 +304,11 @@ func printCleanupInfoTo(w io.Writer, backups []pbm.BackupMeta, chunks []pbm.Oplo
 		}
 
 		lastWrite := &rs[len(rs)-1].End
-		if primitive.CompareTimestamp(*lastWrite, c.StartTS) == -1 {
+		if lastWrite.Compare(c.StartTS) == -1 {
 			oplogRanges[c.RS] = append(rs, oplogRange{c.StartTS, c.EndTS})
 			continue
 		}
-		if primitive.CompareTimestamp(*lastWrite, c.EndTS) == -1 {
+		if lastWrite.Compare(c.EndTS) == -1 {
 			*lastWrite = c.EndTS
 		}
 	}

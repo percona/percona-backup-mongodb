@@ -75,7 +75,7 @@ func MakeCleanupInfo(ctx context.Context, m *mongo.Client, ts primitive.Timestam
 	origin := chunks
 	chunks = []OplogChunk{}
 	for i := range origin {
-		if primitive.CompareTimestamp(backups[baseIndex].LastWriteTS, origin[i].EndTS) != -1 {
+		if backups[baseIndex].LastWriteTS.Compare(origin[i].EndTS) != -1 {
 			chunks = append(chunks, origin[i])
 		} else {
 			excluded = true

@@ -21,7 +21,7 @@ type Docker struct {
 }
 
 func NewDocker(ctx context.Context, host string) (*Docker, error) {
-	cn, err := docker.NewClient(host, "1.39", nil, nil)
+	cn, err := docker.NewClientWithOpts(docker.WithHost(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}

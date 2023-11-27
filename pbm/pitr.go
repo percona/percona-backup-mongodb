@@ -279,7 +279,7 @@ func gettimelines(slices []OplogChunk) []Timeline {
 	tlines := []Timeline{}
 
 	for _, s := range slices {
-		if prevEnd.T != 0 && primitive.CompareTimestamp(prevEnd, s.StartTS) == -1 {
+		if prevEnd.T != 0 && prevEnd.Compare(s.StartTS) == -1 {
 			tlines = append(tlines, tl)
 			tl = Timeline{}
 		}
