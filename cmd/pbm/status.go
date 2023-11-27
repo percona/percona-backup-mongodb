@@ -100,7 +100,7 @@ func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[str
 func status(
 	ctx context.Context,
 	conn connect.Client,
-	pbmSDK sdk.Client,
+	pbm sdk.Client,
 	curi string,
 	opts statusOptions,
 	pretty bool,
@@ -111,7 +111,7 @@ func status(
 	}
 
 	storageStatFn := func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-		return getStorageStat(ctx, conn, pbmSDK, rsMap)
+		return getStorageStat(ctx, conn, pbm, rsMap)
 	}
 
 	out := statusOut{
@@ -632,7 +632,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbmSDK sdk.Client,
+	pbm sdk.Client,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -649,7 +649,7 @@ func getStorageStat(
 	}
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := pbmSDK.GetAllBackups(ctx)
+	bcps, err := pbm.GetAllBackups(ctx)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
@@ -805,7 +805,13 @@ func getPITRranges(
 }
 
 func isValidBaseSnapshot(bcp *backup.BackupMeta) bool {
-	if bcp.Status != defs.StatusDone || util.IsSelective(bcp.Namespaces) {
+	if bcp.Status != defs.StatusDone {
+		return false
+	}
+	if bcp.Type == defs.ExternalBackup {
+		return false
+	}
+	if util.IsSelective(bcp.Namespaces) {
 		return false
 	}
 
