@@ -54,7 +54,7 @@ func (f FeatureSupport) PBMSupport() error {
 		return nil
 	}
 
-	if (v.Version[0] == 5 || v.Version[0] == 6) && v.Version[1] == 0 {
+	if (v.Version[0] >= 5 && v.Version[0] <= 7) && v.Version[1] == 0 {
 		return nil
 	}
 
