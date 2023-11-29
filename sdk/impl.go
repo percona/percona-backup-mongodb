@@ -102,11 +102,7 @@ func (c *clientImpl) GetBackupByName(
 		return nil, err
 	}
 
-	if options.FetchIncrements {
-		return nil, errors.Wrap(ErrNonIncrementalBackup, "FetchIncrements option")
-	}
-
-	if bcp.Type == IncrementalBackup {
+	if options.FetchIncrements && bcp.Type == IncrementalBackup {
 		if bcp.SrcBackup != "" {
 			return nil, errors.New("cannot fetch increments for non-base increment")
 		}
