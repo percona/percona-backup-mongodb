@@ -47,7 +47,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Println("delete backup", backups[4].name)
-	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", backups[4].name)
+	_, err := c.pbm.RunCmd("pbm", "delete-backup", "-y", backups[4].name)
 	if err != nil {
 		log.Fatalf("ERROR: delete backup %s: %v", backups[4].name, err)
 	}
@@ -60,7 +60,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[3].ts.Format("2006-01-02T15:04:05"))
-	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-f", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
+	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-y", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
 	if err != nil {
 		log.Fatalf("ERROR: delete backups older than %s: %v", backups[3].name, err)
 	}
@@ -75,8 +75,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	c.printBcpList()
 
 	left := map[string]struct{}{
-		backups[0].name: {}, // is a base for the pitr timeline, shouldn't be deleted
-		backups[3].name: {},
+		backups[3].name: {}, // is a base for the pitr timeline, shouldn't be deleted
 	}
 	log.Println("should be only backups", left)
 	checkArtefacts(storage, left)
@@ -109,7 +108,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	tsp := time.Unix(list.Snapshots[len(list.Snapshots)-1].RestoreTS, 0).Add(time.Second * 10)
 
 	log.Printf("delete pitr older than %s \n", tsp.Format("2006-01-02T15:04:05"))
-	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--older-than", tsp.Format("2006-01-02T15:04:05"))
+	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-y", "--older-than", tsp.Format("2006-01-02T15:04:05"))
 	if err != nil {
 		log.Fatalf("ERROR: delete pitr older than %s: %v", tsp.Format("2006-01-02T15:04:05"), err)
 	}
@@ -139,7 +138,7 @@ func (c *Cluster) BackupDelete(storage string) {
 	}
 
 	log.Println("delete pitr all")
-	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-f", "--all")
+	_, err = c.pbm.RunCmd("pbm", "delete-pitr", "-y", "--all")
 	if err != nil {
 		log.Fatalf("ERROR: delete all pitr: %v", err)
 	}
@@ -226,8 +225,8 @@ func (c *Cluster) BackupNotDeleteRunning() {
 	bcpName := c.LogicalBackup()
 	c.printBcpList()
 	log.Println("deleting backup", bcpName)
-	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-f", bcpName)
-	if err == nil || !strings.Contains(err.Error(), "unable to delete backup in running state") {
+	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-y", bcpName)
+	if err == nil || !strings.Contains(err.Error(), "backup is in progress") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
 		log.Fatalf("ERROR: running backup '%s' shouldn't be deleted.\n"+
 			"Output: %s\nStderr:%v\nBackups list:\n%v\n%v",
