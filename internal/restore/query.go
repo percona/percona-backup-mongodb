@@ -234,26 +234,14 @@ func SetOplogTimestamps(ctx context.Context, m connect.Client, name string, star
 	return err
 }
 
-func RestoresList(ctx context.Context, m connect.Client, limit int64) ([]RestoreMeta, error) {
-	cur, err := m.RestoresCollection().Find(
-		ctx,
-		bson.M{},
-		options.Find().SetLimit(limit).SetSort(bson.D{{"start_ts", -1}}),
-	)
+func RestoreList(ctx context.Context, m connect.Client, limit int64) ([]RestoreMeta, error) {
+	opt := options.Find().SetLimit(limit).SetSort(bson.D{{"start_ts", -1}})
+	cur, err := m.RestoresCollection().Find(ctx, bson.M{}, opt)
 	if err != nil {
-		return nil, errors.Wrap(err, "query mongo")
+		return nil, errors.Wrap(err, "query")
 	}
-	defer cur.Close(ctx)
 
 	restores := []RestoreMeta{}
-	for cur.Next(ctx) {
-		r := RestoreMeta{}
-		err := cur.Decode(&r)
-		if err != nil {
-			return nil, errors.Wrap(err, "message decode")
-		}
-		restores = append(restores, r)
-	}
-
-	return restores, cur.Err()
+	err = cur.All(ctx, &restores)
+	return restores, err
 }

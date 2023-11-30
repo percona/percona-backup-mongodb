@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path"
 
 	"golang.org/x/sync/errgroup"
@@ -27,8 +28,8 @@ type storageManagerImpl struct {
 	stg storage.Storage
 }
 
-func NewStorageManager(cfg config.StorageConf) (*storageManagerImpl, error) {
-	stg, err := util.StorageFromConfig(cfg, nil)
+func NewStorageManager(ctx context.Context, cfg config.StorageConf) (*storageManagerImpl, error) {
+	stg, err := util.StorageFromConfig(cfg, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backup store")
 	}
@@ -165,4 +166,114 @@ func checkFile(stg storage.Storage, filename string) error {
 	}
 
 	return nil
+}
+
+// DeleteBackupFiles removes backup's artifacts from storage
+func DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+	switch meta.Type {
+	case defs.PhysicalBackup, defs.IncrementalBackup:
+		return deletePhysicalBackupFiles(meta, stg)
+	case defs.LogicalBackup:
+		fallthrough
+	default:
+		var err error
+		if version.IsLegacyArchive(meta.PBMVersion) {
+			err = deleteLegacyLogicalBackupFiles(meta, stg)
+		} else {
+			err = deleteLogicalBackupFiles(meta, stg)
+		}
+
+		return err
+	}
+}
+
+// DeleteBackupFiles removes backup's artifacts from storage
+func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+	for _, r := range meta.Replsets {
+		for _, f := range r.Files {
+			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
+			if f.Len != 0 {
+				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
+			err := stg.Delete(fname)
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return errors.Wrapf(err, "delete %s", fname)
+			}
+		}
+		for _, f := range r.Journal {
+			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
+			if f.Len != 0 {
+				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
+			}
+			err := stg.Delete(fname)
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return errors.Wrapf(err, "delete %s", fname)
+			}
+		}
+	}
+
+	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
+	if errors.Is(err, storage.ErrNotExist) {
+		return nil
+	}
+
+	return errors.Wrap(err, "delete metadata file from storage")
+}
+
+// deleteLogicalBackupFiles removes backup's artifacts from storage
+func deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+	if stg.Type() == storage.Filesystem {
+		return deleteLogicalBackupFilesFromFS(stg, meta.Name)
+	}
+
+	prefix := meta.Name + "/"
+	files, err := stg.List(prefix, "")
+	if err != nil {
+		return errors.Wrapf(err, "get file list: %q", prefix)
+	}
+
+	eg := errgroup.Group{}
+	for _, f := range files {
+		ns := prefix + f.Name
+		eg.Go(func() error {
+			return errors.Wrapf(stg.Delete(ns), "delete %q", ns)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	bcpMF := meta.Name + defs.MetadataFileSuffix
+	return errors.Wrapf(stg.Delete(bcpMF), "delete %q", bcpMF)
+}
+
+// deleteLogicalBackupFiles removes backup's artifacts from storage
+func deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string) error {
+	if err := stg.Delete(bcpName); err != nil {
+		return errors.Wrapf(err, "delete %q", bcpName)
+	}
+
+	bcpMetafile := bcpName + defs.MetadataFileSuffix
+	return errors.Wrapf(stg.Delete(bcpMetafile), "delete %q", bcpMetafile)
+}
+
+// deleteLegacyLogicalBackupFiles removes backup's artifacts from storage
+func deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+	for _, r := range meta.Replsets {
+		err := stg.Delete(r.OplogName)
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
+			return errors.Wrapf(err, "delete oplog %s", r.OplogName)
+		}
+		err = stg.Delete(r.DumpName)
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
+			return errors.Wrapf(err, "delete dump %s", r.DumpName)
+		}
+	}
+
+	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
+	if errors.Is(err, storage.ErrNotExist) {
+		return nil
+	}
+
+	return errors.Wrap(err, "delete metadata file from storage")
 }

@@ -25,6 +25,12 @@ type BackupMeta struct {
 	// Empty means this is a full backup (and a base for further incremental bcps).
 	SrcBackup string `bson:"src_backup,omitempty" json:"src_backup,omitempty"`
 
+	// Increments is a list of all increments, including failed or canceled.
+	// Each top-level slice cell contains the list of the next incremental backup attempts.
+	// If the value is nil, increments have not been fetched.
+	// If the value is an empty non-nil slice, no increment exists.
+	Increments [][]*BackupMeta `bson:"-" json:"-"`
+
 	// ShardRemap is map of replset to shard names.
 	// If shard name is different from replset name, it will be stored in the map.
 	// If all shard names are the same as their replset names, the map is nil.

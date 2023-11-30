@@ -49,7 +49,7 @@ func (c confVals) String() string {
 	return s
 }
 
-func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *configOpts) (fmt.Stringer, error) {
+func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *configOpts) (fmt.Stringer, error) {
 	switch {
 	case len(c.set) > 0:
 		var o confVals
@@ -67,7 +67,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 			}
 		}
 		if rsnc {
-			if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
+			if _, err := pbm.SyncFromStorage(ctx); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
@@ -79,7 +79,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-		cid, err := pbmSDK.SyncFromStorage(ctx)
+		cid, err := pbm.SyncFromStorage(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "resync")
 		}
@@ -91,7 +91,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 		ctx, cancel := context.WithTimeout(ctx, resyncWaitDuration)
 		defer cancel()
 
-		err = sdk.WaitForResync(ctx, pbmSDK, cid)
+		err = sdk.WaitForResync(ctx, pbm, cid)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				err = errors.New("timeout")
@@ -119,7 +119,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 			return nil, errors.Wrap(err, "unable to  unmarshal config file")
 		}
 
-		oldCfg, err := pbmSDK.GetConfig(ctx)
+		oldCfg, err := pbm.GetConfig(ctx)
 		if err != nil {
 			if !errors.Is(err, mongo.ErrNoDocuments) {
 				return nil, errors.Wrap(err, "unable to get current config")
@@ -135,7 +135,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 		oldCfg.Storage.S3.Provider = newCfg.Storage.S3.Provider
 		// resync storage only if Storage options have changed
 		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
-			if _, err := pbmSDK.SyncFromStorage(ctx); err != nil {
+			if _, err := pbm.SyncFromStorage(ctx); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
@@ -143,5 +143,5 @@ func runConfig(ctx context.Context, conn connect.Client, pbmSDK sdk.Client, c *c
 		return newCfg, nil
 	}
 
-	return pbmSDK.GetConfig(ctx)
+	return pbm.GetConfig(ctx)
 }

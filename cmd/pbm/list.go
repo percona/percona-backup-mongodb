@@ -17,10 +17,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
-	"github.com/percona/percona-backup-mongodb/internal/restore"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type listOpts struct {
@@ -97,14 +97,14 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.list)
 }
 
-func runList(ctx context.Context, conn connect.Client, l *listOpts) (fmt.Stringer, error) {
+func runList(ctx context.Context, conn connect.Client, pbm sdk.Client, l *listOpts) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
 	if l.restore {
-		return restoreList(ctx, conn, int64(l.size))
+		return restoreList(ctx, conn, pbm, int64(l.size))
 	}
 	// show message and skip when resync is running
 	lk, err := findLock(ctx, conn, lock.GetLocks)
@@ -115,8 +115,9 @@ func runList(ctx context.Context, conn connect.Client, l *listOpts) (fmt.Stringe
 	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
 }
 
-func restoreList(ctx context.Context, conn connect.Client, size int64) (*restoreListOut, error) {
-	rlist, err := restore.RestoresList(ctx, conn, size)
+func restoreList(ctx context.Context, conn connect.Client, pbm sdk.Client, limit int64) (*restoreListOut, error) {
+	opts := sdk.GetAllRestoresOptions{Limit: limit}
+	rlist, err := pbm.GetAllRestores(ctx, conn, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get restore list")
 	}
@@ -259,7 +260,7 @@ func getSnapshotList(
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 
-	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
+	// PBM agent is always connected either to config server or to the sole (hence main) RS
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 

@@ -6,6 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
@@ -14,6 +15,20 @@ import (
 )
 
 var errMissedClusterTime = errors.New("missed cluster time")
+
+func ParseBackupType(s string) BackupType {
+	switch s {
+	case
+		string(PhysicalBackup),
+		string(ExternalBackup),
+		string(IncrementalBackup),
+		string(LogicalBackup),
+		string(SelectiveBackup):
+		return BackupType(s)
+	}
+
+	return ""
+}
 
 func IsHeartbeatStale(clusterTime, other Timestamp) bool {
 	return clusterTime.T >= other.T+defs.StaleFrameSec
@@ -43,7 +58,7 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 		},
 	}
 
-	outC, errC := log.Follow(ctx, c.(*clientImpl).conn.LogCollection(), r, false)
+	outC, errC := log.Follow(ctx, c.(*clientImpl).conn, r, false)
 
 	for {
 		select {
@@ -55,4 +70,26 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 			return err
 		}
 	}
+}
+
+func CanDeleteBackup(ctx context.Context, sc Client, bcp *BackupMetadata) error {
+	return backup.CanDeleteBackup(ctx, sc.(*clientImpl).conn, bcp)
+}
+
+func CanDeleteIncrementalBackup(
+	ctx context.Context,
+	sc Client,
+	bcp *BackupMetadata,
+	increments [][]*BackupMetadata,
+) error {
+	return backup.CanDeleteIncrementalChain(ctx, sc.(*clientImpl).conn, bcp, increments)
+}
+
+func ListDeleteBackupBefore(
+	ctx context.Context,
+	sc Client,
+	ts primitive.Timestamp,
+	bcpType BackupType,
+) ([]BackupMetadata, error) {
+	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
 }

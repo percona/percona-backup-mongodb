@@ -60,7 +60,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	l := logger.NewEvent(string(ctrl.CmdBackup), cmd.Name, opid.String(), ep.TS())
-	ctx = log.SetLoggerToContext(ctx, logger)
+	ctx = log.SetLogEventToContext(ctx, l)
 
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {

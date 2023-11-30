@@ -11,100 +11,165 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/internal"
 	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/lock"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/util"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type deleteBcpOpts struct {
 	name      string
 	olderThan string
-	force     bool
+	bcpType   string
+	dryRun    bool
+	yes       bool
 }
 
-func deleteBackup(ctx context.Context, conn connect.Client, d *deleteBcpOpts, outf outFormat) (fmt.Stringer, error) {
-	if !d.force {
-		if err := askConfirmation("Are you sure you want to delete backup(s)?"); err != nil {
-			if errors.Is(err, errUserCanceled) {
-				return outMsg{err.Error()}, nil
-			}
-			return nil, err
-		}
+func deleteBackup(
+	ctx context.Context,
+	conn connect.Client,
+	pbm sdk.Client,
+	d *deleteBcpOpts,
+	outf outFormat,
+) (fmt.Stringer, error) {
+	if d.name == "" && d.olderThan == "" {
+		return nil, errors.New("either --name or --older-than should be set")
+	}
+	if d.name != "" && d.olderThan != "" {
+		return nil, errors.New("cannot use --name and --older-then at the same command")
+	}
+	if d.bcpType != "" && d.olderThan == "" {
+		return nil, errors.New("cannot use --type without --older-then")
 	}
 
-	cmd := ctrl.Cmd{
-		Cmd:    ctrl.CmdDeleteBackup,
-		Delete: &ctrl.DeleteBackupCmd{},
-	}
-	if len(d.olderThan) > 0 {
-		t, err := parseDateT(d.olderThan)
-		if err != nil {
-			return nil, errors.Wrap(err, "parse date")
-		}
-		cmd.Delete.OlderThan = t.UTC().Unix()
+	var cid sdk.CommandID
+	var err error
+	if d.name != "" {
+		cid, err = deleteBackupByName(ctx, pbm, d)
 	} else {
-		if len(d.name) == 0 {
-			return nil, errors.New("backup name should be specified")
-		}
-		cmd.Delete.Backup = d.name
+		cid, err = deleteManyBackup(ctx, pbm, d)
 	}
-	tsop := time.Now().UTC().Unix()
-	err := sendCmd(ctx, conn, cmd)
 	if err != nil {
-		return nil, errors.Wrap(err, "schedule delete")
-	}
-	if outf != outText {
-		return nil, nil
-	}
-
-	fmt.Print("Waiting for delete to be done ")
-	err = waitOp(ctx,
-		conn,
-		&lock.LockHeader{Type: ctrl.CmdDeleteBackup},
-		time.Second*60)
-	if err != nil && !errors.Is(err, errTout) {
+		if errors.Is(err, errUserCanceled) {
+			return outMsg{err.Error()}, nil
+		}
 		return nil, err
 	}
 
-	errl, err := lastLogErr(ctx, conn, ctrl.CmdDeleteBackup, tsop)
+	if outf != outText || d.dryRun {
+		return nil, nil
+	}
+
+	return waitForDelete(ctx, conn, pbm, cid)
+}
+
+func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+	opts := sdk.GetBackupByNameOptions{FetchIncrements: true}
+	bcp, err := pbm.GetBackupByName(ctx, d.name, opts)
 	if err != nil {
-		return nil, errors.Wrap(err, "read agents log")
+		return sdk.NoOpID, errors.Wrap(err, "get backup metadata")
 	}
-
-	if errl != "" {
-		return nil, errors.New(errl)
-	}
-
-	if errors.Is(err, errTout) {
-		fmt.Println("\nOperation is still in progress, please check status in a while")
+	if bcp.Type == defs.IncrementalBackup {
+		err = sdk.CanDeleteIncrementalBackup(ctx, pbm, bcp, bcp.Increments)
 	} else {
-		time.Sleep(time.Second)
-		fmt.Print(".")
-		time.Sleep(time.Second)
-		fmt.Println("[done]")
+		err = sdk.CanDeleteBackup(ctx, pbm, bcp)
+	}
+	if err != nil {
+		return sdk.NoOpID, errors.Wrap(err, "backup cannot be deleted")
 	}
 
-	return runList(ctx, conn, &listOpts{})
+	fmt.Println(shortBcpInfo(bcp))
+	if bcp.Type == sdk.IncrementalBackup {
+		for _, increments := range bcp.Increments {
+			for _, inc := range increments {
+				fmt.Println(shortBcpInfo(inc))
+			}
+		}
+	}
+
+	if d.dryRun {
+		return sdk.NoOpID, nil
+	}
+	if !d.yes {
+		err := askConfirmation("Are you sure you want to delete backup?")
+		if err != nil {
+			return sdk.NoOpID, err
+		}
+	}
+
+	cid, err := pbm.DeleteBackupByName(ctx, d.name)
+	return cid, errors.Wrap(err, "schedule delete")
+}
+
+func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+	var ts primitive.Timestamp
+	ts, err := parseOlderThan(d.olderThan)
+	if err != nil {
+		return sdk.NoOpID, errors.Wrap(err, "parse --older-than")
+	}
+
+	bcpType := sdk.ParseBackupType(d.bcpType)
+	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType)
+	if err != nil {
+		return sdk.NoOpID, errors.Wrap(err, "fetch backup list")
+	}
+
+	for i := range backups {
+		fmt.Println(shortBcpInfo(&backups[i]))
+	}
+
+	if d.dryRun {
+		return sdk.NoOpID, nil
+	}
+	if !d.yes {
+		if err := askConfirmation("Are you sure you want to delete backups?"); err != nil {
+			return sdk.NoOpID, err
+		}
+	}
+
+	cid, err := pbm.DeleteBackupBefore(ctx, ts)
+	return cid, errors.Wrap(err, "schedule delete")
+}
+
+func shortBcpInfo(bcp *sdk.BackupMetadata) string {
+	size := fmtSize(bcp.Size)
+
+	t := string(bcp.Type)
+	if bcp.Type == sdk.LogicalBackup && len(bcp.Namespaces) != 0 {
+		t += ", selective"
+	} else if bcp.Type == defs.IncrementalBackup && bcp.SrcBackup == "" {
+		t += ", base"
+	}
+
+	restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
+	return fmt.Sprintf("%q [size: %s type: <%s>, restore time: %s]", bcp.Name, size, t, restoreTime)
 }
 
 type deletePitrOpts struct {
 	olderThan string
-	force     bool
+	yes       bool
 	all       bool
 }
 
-func deletePITR(ctx context.Context, conn connect.Client, d *deletePitrOpts, outf outFormat) (fmt.Stringer, error) {
-	if !d.all && len(d.olderThan) == 0 {
+func deletePITR(
+	ctx context.Context,
+	conn connect.Client,
+	pbm sdk.Client,
+	d *deletePitrOpts,
+	outf outFormat,
+) (fmt.Stringer, error) {
+	if d.olderThan != "" && d.all {
+		return nil, errors.New("cannot use --older-then and --all at the same command")
+	}
+	if !d.all && d.olderThan == "" {
 		return nil, errors.New("either --older-than or --all should be set")
 	}
 
-	if !d.force {
+	if !d.yes {
 		q := "Are you sure you want to delete chunks?"
 		if d.all {
 			q = "Are you sure you want to delete ALL chunks?"
@@ -117,54 +182,24 @@ func deletePITR(ctx context.Context, conn connect.Client, d *deletePitrOpts, out
 		}
 	}
 
-	cmd := ctrl.Cmd{
-		Cmd:        ctrl.CmdDeletePITR,
-		DeletePITR: &ctrl.DeletePITRCmd{},
-	}
-	if !d.all && len(d.olderThan) > 0 {
-		t, err := parseDateT(d.olderThan)
+	var ts primitive.Timestamp
+	if d.olderThan != "" {
+		var err error
+		ts, err = parseOlderThan(d.olderThan)
 		if err != nil {
-			return nil, errors.Wrap(err, "parse date")
+			return nil, errors.Wrap(err, "parse --older-then")
 		}
-		cmd.DeletePITR.OlderThan = t.UTC().Unix()
 	}
-	tsop := time.Now().UTC().Unix()
-	err := sendCmd(ctx, conn, cmd)
+	cid, err := pbm.DeleteOplogRange(ctx, ts)
 	if err != nil {
 		return nil, errors.Wrap(err, "schedule pitr delete")
 	}
+
 	if outf != outText {
 		return nil, nil
 	}
 
-	fmt.Print("Waiting for delete to be done ")
-	err = waitOp(ctx,
-		conn,
-		&lock.LockHeader{Type: ctrl.CmdDeletePITR},
-		time.Second*60)
-	if err != nil && !errors.Is(err, errTout) {
-		return nil, err
-	}
-
-	errl, err := lastLogErr(ctx, conn, ctrl.CmdDeletePITR, tsop)
-	if err != nil {
-		return nil, errors.Wrap(err, "read agents log")
-	}
-
-	if errl != "" {
-		return nil, errors.New(errl)
-	}
-
-	if errors.Is(err, errTout) {
-		fmt.Println("\nOperation is still in progress, please check status in a while")
-	} else {
-		time.Sleep(time.Second)
-		fmt.Print(".")
-		time.Sleep(time.Second)
-		fmt.Println("[done]")
-	}
-
-	return runList(ctx, conn, &listOpts{})
+	return waitForDelete(ctx, conn, pbm, cid)
 }
 
 type cleanupOptions struct {
@@ -174,12 +209,12 @@ type cleanupOptions struct {
 	dryRun    bool
 }
 
-func retentionCleanup(ctx context.Context, conn connect.Client, d *cleanupOptions) (fmt.Stringer, error) {
+func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
 	}
-	info, err := internal.MakeCleanupInfo(ctx, conn, ts)
+	info, err := pbm.CleanupReport(ctx, ts)
 	if err != nil {
 		return nil, errors.Wrap(err, "make cleanup report")
 	}
@@ -202,40 +237,16 @@ func retentionCleanup(ctx context.Context, conn connect.Client, d *cleanupOption
 		}
 	}
 
-	tsop := time.Now().Unix()
-	err = sendCmd(ctx, conn, ctrl.Cmd{
-		Cmd:     ctrl.CmdCleanup,
-		Cleanup: &ctrl.CleanupCmd{OlderThan: ts},
-	})
+	cid, err := pbm.RunCleanup(ctx, ts)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
+
 	if !d.wait {
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	fmt.Print("Waiting")
-	err = waitOp(ctx,
-		conn,
-		&lock.LockHeader{Type: ctrl.CmdCleanup},
-		10*time.Minute)
-	fmt.Println()
-	if err != nil {
-		if errors.Is(err, errTout) {
-			return outMsg{"Operation is still in progress, please check status later"}, nil
-		}
-		return nil, err
-	}
-
-	errl, err := lastLogErr(ctx, conn, ctrl.CmdCleanup, tsop)
-	if err != nil {
-		return nil, errors.Wrap(err, "read agents log")
-	}
-	if errl != "" {
-		return nil, errors.New(errl)
-	}
-
-	return outMsg{"Done"}, nil
+	return waitForDelete(ctx, conn, pbm, cid)
 }
 
 func parseOlderThan(s string) (primitive.Timestamp, error) {
@@ -331,7 +342,7 @@ func printCleanupInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog
 	}
 }
 
-func askCleanupConfirmation(info internal.CleanupInfo) error {
+func askCleanupConfirmation(info backup.CleanupInfo) error {
 	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
 	return askConfirmation("Are you sure you want to delete?")
 }
@@ -361,4 +372,62 @@ func askConfirmation(question string) error {
 	}
 
 	return errUserCanceled
+}
+
+func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
+	progressCtx, stopProgress := context.WithCancel(ctx)
+	defer stopProgress()
+
+	go func() {
+		fmt.Print("Waiting for delete to be done ")
+
+		for tick := time.NewTicker(time.Second); ; {
+			select {
+			case <-tick.C:
+				fmt.Print(".")
+			case <-progressCtx.Done():
+				return
+			}
+		}
+	}()
+
+	cmd, err := pbm.CommandInfo(progressCtx, cid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get command info")
+	}
+
+	var waitFn func(ctx context.Context, client sdk.Client) error
+	switch cmd.Cmd {
+	case ctrl.CmdDeleteBackup:
+		waitFn = sdk.WaitForDeleteBackup
+	case ctrl.CmdDeletePITR:
+		waitFn = sdk.WaitForDeleteOplogRange
+	default:
+		return nil, errors.New("wrong command")
+	}
+
+	waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
+	err = waitFn(waitCtx, pbm)
+	stopWaiting()
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+
+		waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
+		msg, err := sdk.WaitForErrorLog(waitCtx, pbm, cmd)
+		stopWaiting()
+		if err != nil {
+			return nil, errors.Wrap(err, "read agents log")
+		}
+		if msg != "" {
+			return nil, errors.New(msg)
+		}
+
+		return outMsg{"Operation is still in progress, please check status in a while"}, nil
+	}
+
+	stopProgress()
+	fmt.Println("[done]")
+	return runList(ctx, conn, pbm, &listOpts{})
 }

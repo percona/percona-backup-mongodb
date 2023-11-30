@@ -30,7 +30,6 @@ import (
 	"github.com/minio/minio-go/pkg/encrypt"
 
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 )

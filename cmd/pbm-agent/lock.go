@@ -25,9 +25,8 @@ func markBcpStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	if logger := log.FromContext(ctx); logger != nil {
-		logger.Debug(string(ctrl.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
-	}
+	log.FromContext(ctx).Debug(string(ctrl.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
+
 	return backup.ChangeBackupStateOPID(l.Connect(), opid, defs.StatusError,
 		"some of pbm-agents were lost during the backup")
 }
@@ -43,9 +42,8 @@ func markRestoreStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	if logger := log.FromContext(ctx); logger != nil {
-		logger.Debug(string(ctrl.CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
-	}
+	log.FromContext(ctx).Debug(string(ctrl.CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
+
 	return restore.ChangeRestoreStateOPID(ctx, l.Connect(), opid, defs.StatusError,
 		"some of pbm-agents were lost during the restore")
 }

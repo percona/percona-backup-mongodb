@@ -167,8 +167,9 @@ func (c ReplayCmd) String() string {
 }
 
 type DeleteBackupCmd struct {
-	Backup    string `bson:"backup"`
-	OlderThan int64  `bson:"olderthan"`
+	Backup    string          `bson:"backup"`
+	OlderThan int64           `bson:"olderthan"`
+	Type      defs.BackupType `bson:"type"`
 }
 
 type DeletePITRCmd struct {

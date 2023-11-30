@@ -58,12 +58,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 		runTest("Logical Backup & Restore "+stg.name,
 			func() { t.BackupAndRestore(defs.LogicalBackup) })
 
-		runTest("Logical PITR & Restore "+stg.name,
-			t.PITRbasic)
+		runTest("Logical PITR & Restore "+stg.name, t.PITRbasic)
 
-		printStart("Oplog Replay " + stg.name)
-		t.OplogReplay()
-		printDone("Oplog Replay " + stg.name)
+		runTest("Oplog Replay "+stg.name, t.OplogReplay)
 
 		t.SetBallastData(1e3)
 		flush(t)

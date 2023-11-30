@@ -26,6 +26,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
+var errMissedConfig = errors.New("missed config")
+
 type confMap map[string]reflect.Kind
 
 // _confmap is a list of config's valid keys and its types
@@ -415,7 +417,7 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 	cfg, err := GetConfig(ctx, m)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return false, false, nil
+			err = errMissedConfig
 		}
 
 		return false, false, errors.Wrap(err, "get config")
