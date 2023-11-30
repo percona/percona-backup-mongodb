@@ -91,12 +91,11 @@ func PITRGetChunksSlice(
 	if rs != "" {
 		q = bson.D{{"rs", rs}}
 	}
-	if to.T > 0 {
-		// q = append(q, bson.E{"start_ts", bson.M{"$gte": from, "$lte": to}})
-		q = append(q, bson.D{
-			{"start_ts", bson.M{"$lte": to}},
-			{"end_ts", bson.M{"$gte": from}},
-		}...)
+	if !from.IsZero() {
+		q = append(q, bson.E{"end_ts", bson.M{"$gte": from}})
+	}
+	if !to.IsZero() {
+		q = append(q, bson.E{"start_ts", bson.M{"$lte": to}})
 	}
 
 	return pitrGetChunksSlice(ctx, m, q)
@@ -195,7 +194,17 @@ func PITRGetValidTimelines(
 		return nil, nil
 	}
 
-	slices, err := PITRGetChunksSlice(ctx, m, rs, fch.StartTS, until)
+	return PITRGetValidTimelinesBetween(ctx, m, rs, fch.StartTS, until)
+}
+
+func PITRGetValidTimelinesBetween(
+	ctx context.Context,
+	m connect.Client,
+	rs string,
+	from primitive.Timestamp,
+	until primitive.Timestamp,
+) ([]Timeline, error) {
+	slices, err := PITRGetChunksSlice(ctx, m, rs, from, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "get slice")
 	}
@@ -205,19 +214,23 @@ func PITRGetValidTimelines(
 
 // PITRTimelines returns cluster-wide time ranges valid for PITR restore
 func PITRTimelines(ctx context.Context, m connect.Client) ([]Timeline, error) {
-	shards, err := topo.ClusterMembers(ctx, m.MongoClient())
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster members")
-	}
-
 	now, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
 
+	return PITRTimelinesBetween(ctx, m, primitive.Timestamp{}, now)
+}
+
+func PITRTimelinesBetween(ctx context.Context, m connect.Client, from, until primitive.Timestamp) ([]Timeline, error) {
+	shards, err := topo.ClusterMembers(ctx, m.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster members")
+	}
+
 	var tlns [][]Timeline
 	for _, s := range shards {
-		t, err := PITRGetValidTimelines(ctx, m, s.RS, now)
+		t, err := PITRGetValidTimelinesBetween(ctx, m, s.RS, from, until)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset", s.RS)
 		}

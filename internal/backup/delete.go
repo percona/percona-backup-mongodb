@@ -122,7 +122,7 @@ func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) er
 		return ErrIncrementalBackup
 	}
 
-	required, err := isRequiredForPITR(ctx, cc, bcp.LastWriteTS)
+	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS)
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -158,7 +158,7 @@ func CanDeleteIncrementalChain(
 		}
 	}
 
-	required, err := isRequiredForPITR(ctx, cc, lastWrite)
+	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite)
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -242,22 +242,38 @@ func isValidBaseSnapshot(bcp *BackupMeta) bool {
 	return true
 }
 
-func isRequiredForPITR(ctx context.Context, cc connect.Client, lw primitive.Timestamp) (bool, error) {
+func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primitive.Timestamp) (bool, error) {
 	enabled, oplogOnly, err := config.IsPITREnabled(ctx, cc)
 	if err != nil {
 		return false, err
 	}
-
 	if !enabled || oplogOnly {
 		return false, nil
 	}
 
-	has, err := HasBaseSnapshotAfter(ctx, cc, lw)
+	nextRestoreTime, err := FindBaseSnapshotLWAfter(ctx, cc, lw)
 	if err != nil {
-		return false, errors.Wrap(err, "check next base snapshot")
+		return false, errors.Wrap(err, "find next snapshot")
+	}
+	if !nextRestoreTime.IsZero() {
+		// there is another valid base snapshot for oplog slicing
+		return false, nil
 	}
 
-	return !has, nil
+	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw)
+	if err != nil {
+		return false, errors.Wrap(err, "find previous snapshot")
+	}
+
+	timelines, err := oplog.PITRTimelinesBetween(ctx, cc, prevRestoreTime, lw)
+	if err != nil {
+		return false, errors.Wrap(err, "get oplog range from previous backup")
+	}
+	if len(timelines) == 1 && timelines[0].Start <= prevRestoreTime.T {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // DeleteBackupBefore deletes backups which are older than given time
@@ -362,7 +378,7 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	// if there is no base snapshot after `ts` and PITR is running,
 	// the last base snapshot before `ts` should be excluded.
 	// otherwise, it is allowed to delete everything before `ts`
-	required, err := isRequiredForPITR(ctx, conn, ts)
+	required, err := isRequiredForOplogSlicing(ctx, conn, ts)
 	if err != nil {
 		return CleanupInfo{}, err
 	}

@@ -60,7 +60,7 @@ func deleteBackup(
 		return nil, err
 	}
 
-	if outf != outText {
+	if outf != outText || d.dryRun {
 		return nil, nil
 	}
 

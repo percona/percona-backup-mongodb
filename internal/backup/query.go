@@ -284,24 +284,41 @@ func getRecentBackup(
 	return b, errors.Wrap(err, "decode")
 }
 
-func HasBaseSnapshotAfter(ctx context.Context, conn connect.Client, lw primitive.Timestamp) (bool, error) {
+func FindBaseSnapshotLWAfter(
+	ctx context.Context,
+	cc connect.Client,
+	lw primitive.Timestamp,
+) (primitive.Timestamp, error) {
+	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$gt": lw})
+}
+
+func FindBaseSnapshotLWBefore(
+	ctx context.Context,
+	cc connect.Client,
+	lw primitive.Timestamp,
+) (primitive.Timestamp, error) {
+	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw})
+}
+
+func findBaseSnapshotLWImpl(ctx context.Context, conn connect.Client, lwCond bson.M) (primitive.Timestamp, error) {
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
-		{"last_write_ts", bson.M{"$gt": lw}},
+		{"last_write_ts", lwCond},
 		{"status", defs.StatusDone},
 	}
-	o := options.FindOne().SetProjection(bson.D{{"_id", 1}})
+	o := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
 	res := conn.BcpCollection().FindOne(ctx, f, o)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			// no base snapshot after `lw`
-			return false, nil
+			err = nil
 		}
-		return false, errors.Wrap(err, "query")
+		return primitive.Timestamp{}, errors.Wrap(err, "query")
 	}
 
-	return true, nil
+	bcp := &BackupMeta{}
+	err := res.Decode(&bcp)
+	return bcp.LastWriteTS, errors.Wrap(err, "decode")
 }
 
 func BackupsList(ctx context.Context, conn connect.Client, limit int64) ([]BackupMeta, error) {
