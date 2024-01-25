@@ -547,9 +547,10 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	var ok bool
 	var rsMeta *backup.BackupReplset
 	revRSName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-	for _, v := range bcp.Replsets {
-		if v.Name == revRSName {
-			rsMeta = &v
+	for i := range bcp.Replsets {
+		r := &bcp.Replsets[i]
+		if r.Name == revRSName {
+			rsMeta = r
 			ok = true
 			break
 		}

@@ -215,8 +215,6 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 	l.Debug("epoch set to %v", epch)
 }
 
-type lockAquireFn func(context.Context) (bool, error)
-
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
 func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent) (bool, error) {

@@ -96,7 +96,7 @@ func (b *Backup) doLogical(
 			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, -1)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
-	defer stopOplogSlicer()
+	defer stopOplogSlicer() //nolint:errcheck
 
 	if !util.IsSelective(bcp.Namespaces) {
 		// Save users and roles to the tmp collections so the restore would copy that data

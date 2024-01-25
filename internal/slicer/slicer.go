@@ -342,7 +342,6 @@ func (s *Slicer) Stream(
 		Type:    ctrl.CmdPITR,
 	}
 
-	bcp := ctrl.NilOPID
 	for {
 		sliceTo := primitive.Timestamp{}
 		// waiting for a trigger
@@ -353,13 +352,13 @@ func (s *Slicer) Stream(
 			s.l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
-		case bcp = <-backupSig:
+		case bcp := <-backupSig:
 			s.l.Info("got wake_up signal")
 			if bcp != ctrl.NilOPID {
 				opid := bcp.String()
 				s.l.Info("wake_up for bcp %s", opid)
 
-				sliceTo, err = s.backupStartTS(ctx, opid, s.rs, timeouts.StartingStatus())
+				sliceTo, err = s.backupStartTS(ctx, opid, timeouts.StartingStatus())
 				if err != nil {
 					return errors.Wrap(err, "get backup start TS")
 				}
@@ -531,7 +530,7 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 	return lck, nil
 }
 
-func (s *Slicer) backupStartTS(ctx context.Context, opid, rs string, t time.Duration) (primitive.Timestamp, error) {
+func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration) (primitive.Timestamp, error) {
 	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
