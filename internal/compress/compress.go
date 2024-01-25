@@ -68,7 +68,7 @@ func FileCompression(ext string) CompressionType {
 	default:
 		return CompressionTypeNone
 	case "gz":
-		return CompressionTypePGZIP
+		return CompressionTypeGZIP
 	case "lz4":
 		return CompressionTypeLZ4
 	case "snappy":

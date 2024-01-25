@@ -70,16 +70,6 @@ func (l *Lock) Connect() connect.Client {
 	return l.m
 }
 
-// Rewrite tries to acquire the lock instead the `old` one.
-// It returns true in case of success and false if
-// a lock already acquired by another process or some error happened.
-// In case of concurrent lock exists is stale it will be deleted and
-// ErrWasStaleLock gonna be returned. A client shell mark respective operation
-// as stale and retry if it needs to
-func (l *Lock) Rewrite(ctx context.Context, old *LockHeader) (bool, error) {
-	return l.try(ctx, old)
-}
-
 // Acquire tries to acquire the lock.
 // It returns true in case of success and false if
 // a lock already acquired by another process or some error happened.
@@ -87,19 +77,7 @@ func (l *Lock) Rewrite(ctx context.Context, old *LockHeader) (bool, error) {
 // ErrWasStaleLock gonna be returned. A client shell mark respective operation
 // as stale and retry if it needs to
 func (l *Lock) Acquire(ctx context.Context) (bool, error) {
-	return l.try(ctx, nil)
-}
-
-func (l *Lock) try(ctx context.Context, old *LockHeader) (bool, error) {
-	var got bool
-	var err error
-
-	if old != nil {
-		got, err = l.rewrite(ctx, old)
-	} else {
-		got, err = l.acquire(ctx)
-	}
-
+	got, err := l.acquireImpl(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -173,7 +151,7 @@ func (l *Lock) Release() error {
 	return errors.Wrap(err, "deleteOne")
 }
 
-func (l *Lock) acquire(ctx context.Context) (bool, error) {
+func (l *Lock) acquireImpl(ctx context.Context) (bool, error) {
 	var err error
 	l.Heartbeat, err = topo.GetClusterTime(ctx, l.m)
 	if err != nil {
@@ -181,34 +159,6 @@ func (l *Lock) acquire(ctx context.Context) (bool, error) {
 	}
 
 	_, err = l.coll.InsertOne(ctx, l.LockData)
-	if err != nil {
-		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
-			return false, nil
-		}
-		return false, errors.Wrap(err, "acquire lock")
-	}
-
-	l.hb(ctx)
-	return true, nil
-}
-
-// rewrite tries to rewrite the given lock with itself
-// it will transactionally delete the `old` lock
-// and acquire an istance of itself
-func (l *Lock) rewrite(ctx context.Context, old *LockHeader) (bool, error) {
-	var err error
-	l.Heartbeat, err = topo.GetClusterTime(ctx, l.m)
-	if err != nil {
-		return false, errors.Wrap(err, "read cluster time")
-	}
-
-	_, err = l.coll.DeleteOne(ctx, old)
-	if err != nil {
-		return false, errors.Wrap(err, "rewrite: delete old")
-	}
-
-	_, err = l.coll.InsertOne(ctx, l.LockData)
-
 	if err != nil {
 		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
 			return false, nil

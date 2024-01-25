@@ -48,6 +48,10 @@ func GetLastWrite(ctx context.Context, m *mongo.Client, majority bool) (primitiv
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
+	return OpTimeFromNodeInfo(inf, majority)
+}
+
+func OpTimeFromNodeInfo(inf *NodeInfo, majority bool) (primitive.Timestamp, error) {
 	lw := inf.LastWrite.MajorityOpTime.TS
 	if !majority {
 		lw = inf.LastWrite.OpTime.TS

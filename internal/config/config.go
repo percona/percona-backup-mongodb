@@ -105,6 +105,26 @@ func (c Config) String() string {
 	return string(b)
 }
 
+// OplogSlicerInterval returns interval for general oplog slicer routine.
+// If it is not configured, the function returns default (hardcoded) value 10 mins.
+func (c Config) OplogSlicerInterval() time.Duration {
+	if c.PITR.OplogSpanMin == 0 {
+		return defs.PITRdefaultSpan
+	}
+
+	return time.Duration(c.PITR.OplogSpanMin * float64(time.Minute))
+}
+
+// BackupSlicerInterval returns interval for backup slicer routine.
+// If it is not confugured, the function returns general oplog slicer interval.
+func (c Config) BackupSlicerInterval() time.Duration {
+	if c.Backup.OplogSpanMin == 0 {
+		return c.OplogSlicerInterval()
+	}
+
+	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
+}
+
 // PITRConf is a Point-In-Time Recovery options
 //
 //nolint:lll
@@ -197,6 +217,7 @@ type RestoreConf struct {
 
 //nolint:lll
 type BackupConf struct {
+	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`

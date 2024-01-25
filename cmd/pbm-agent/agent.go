@@ -182,7 +182,7 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, lock, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -194,7 +194,7 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 
 	defer func() {
 		if err := lock.Release(); err != nil {
-			l.Error("reslase lock %v: %v", lock, err)
+			l.Error("release lock %v: %v", lock, err)
 		}
 	}()
 
@@ -219,12 +219,8 @@ type lockAquireFn func(context.Context) (bool, error)
 
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent, acquireFn lockAquireFn) (bool, error) {
-	if acquireFn == nil {
-		acquireFn = l.Acquire
-	}
-
-	got, err := acquireFn(ctx)
+func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent) (bool, error) {
+	got, err := l.Acquire(ctx)
 	if err == nil {
 		return got, nil
 	}
@@ -248,14 +244,14 @@ func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent, 
 	case ctrl.CmdRestore:
 		fn = markRestoreStale
 	default:
-		return acquireFn(ctx)
+		return l.Acquire(ctx)
 	}
 
 	if err := fn(ctx, l, lck.OPID); err != nil {
 		lg.Warning("failed to mark stale op '%s' as failed: %v", lck.OPID, err)
 	}
 
-	return acquireFn(ctx)
+	return l.Acquire(ctx)
 }
 
 func (a *Agent) HbPause() {

@@ -385,12 +385,42 @@ func MergeTimelines(tlns ...[]Timeline) []Timeline {
 	return ret
 }
 
-// PITRmetaFromFName parses given file name and returns PITRChunk metadata
-// it returns nil if file wasn't parse successfully (e.g. wrong format)
-// current fromat is 20200715155939-0.20200715160029-1.oplog.snappy
+// FormatChunkFilepath returns filepath for a oplog chunk.
+// Current format is 20200715155939-0.20200715160029-1.oplog.snappy
 //
-// !!! should be agreed with pbm/pitr.chunkPath()
-func PITRmetaFromFName(f string) *OplogChunk {
+// !!! should be agreed with oplog.MakeChunkMetaFromFilepath()
+func FormatChunkFilepath(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
+	ft := time.Unix(int64(first.T), 0).UTC()
+	lt := time.Unix(int64(last.T), 0).UTC()
+
+	name := strings.Builder{}
+	if len(defs.PITRfsPrefix) > 0 {
+		name.WriteString(defs.PITRfsPrefix)
+		name.WriteString("/")
+	}
+	name.WriteString(rs)
+	name.WriteString("/")
+	name.WriteString(ft.Format("20060102"))
+	name.WriteString("/")
+	name.WriteString(ft.Format("20060102150405"))
+	name.WriteString("-")
+	name.WriteString(strconv.Itoa(int(first.I)))
+	name.WriteString(".")
+	name.WriteString(lt.Format("20060102150405"))
+	name.WriteString("-")
+	name.WriteString(strconv.Itoa(int(last.I)))
+	name.WriteString(".oplog")
+	name.WriteString(c.Suffix())
+
+	return name.String()
+}
+
+// MakeChunkMetaFromFilepath parses given file name and returns PITRChunk metadata
+// it returns nil if file wasn't parse successfully (e.g. wrong format)
+// current format is 20200715155939-0.20200715160029-1.oplog.snappy
+//
+// !!! should be agreed with oplog.FormatChunkFilepath()
+func MakeChunkMetaFromFilepath(f string) *OplogChunk {
 	ppath := strings.Split(f, "/")
 	if len(ppath) < 2 {
 		return nil

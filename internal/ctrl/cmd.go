@@ -63,7 +63,7 @@ func OPIDfromStr(s string) (OPID, error) {
 	return OPID(o), nil
 }
 
-func NilOPID() OPID { return OPID(primitive.NilObjectID) }
+var NilOPID = OPID(primitive.NilObjectID)
 
 func (o OPID) String() string {
 	return primitive.ObjectID(o).Hex()

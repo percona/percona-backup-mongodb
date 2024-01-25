@@ -23,13 +23,14 @@ import (
 )
 
 type Backup struct {
-	leadConn  connect.Client
-	nodeConn  *mongo.Client
-	brief     topo.NodeBrief
-	typ       defs.BackupType
-	incrBase  bool
-	timeouts  *config.BackupTimeouts
-	dumpConns int
+	leadConn            connect.Client
+	nodeConn            *mongo.Client
+	brief               topo.NodeBrief
+	typ                 defs.BackupType
+	incrBase            bool
+	timeouts            *config.BackupTimeouts
+	dumpConns           int
+	oplogSlicerInterval time.Duration
 }
 
 func New(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
@@ -72,6 +73,18 @@ func NewIncremental(leadConn connect.Client, conn *mongo.Client, brief topo.Node
 
 func (b *Backup) SetTimeouts(t *config.BackupTimeouts) {
 	b.timeouts = t
+}
+
+func (b *Backup) SetSlicerInterval(d time.Duration) {
+	b.oplogSlicerInterval = d
+}
+
+func (b *Backup) SlicerInterval() time.Duration {
+	if b.oplogSlicerInterval == 0 {
+		return defs.PITRdefaultSpan
+	}
+
+	return b.oplogSlicerInterval
 }
 
 func (b *Backup) Init(
@@ -161,13 +174,17 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		return errors.Wrap(err, "get cluster info")
 	}
 
+	oplogTS, err := topo.OpTimeFromNodeInfo(inf, true)
+	if err != nil {
+		return errors.Wrap(err, "define oplog start position")
+	}
 	rsMeta := BackupReplset{
 		Name:         inf.SetName,
 		Node:         inf.Me,
 		StartTS:      time.Now().UTC().Unix(),
 		Status:       defs.StatusRunning,
 		Conditions:   []Condition{},
-		FirstWriteTS: primitive.Timestamp{T: 1, I: 1},
+		FirstWriteTS: oplogTS,
 	}
 	if v := inf.IsConfigSrv(); v {
 		rsMeta.IsConfigSvr = &v
@@ -222,7 +239,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 
-		err := BackupHB(ctx, b.leadConn, bcp.Name)
+		err = BackupHB(ctx, b.leadConn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
@@ -233,8 +250,11 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 
 			for {
 				select {
+				case <-ctx.Done():
+					err = ctx.Err()
+					return
 				case <-tk.C:
-					err := BackupHB(ctx, b.leadConn, bcp.Name)
+					err = BackupHB(ctx, b.leadConn, bcp.Name)
 					if err != nil {
 						l.Error("send pbm heartbeat: %v", err)
 					}
@@ -267,7 +287,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		if !inf.IsLeader() {
 			return
 		}
-		if !errors.Is(err, storage.ErrCancelled) || !errors.Is(err, context.Canceled) {
+		if !errors.Is(err, storage.ErrCancelled) && !errors.Is(err, context.Canceled) {
 			return
 		}
 
@@ -294,7 +314,8 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	if inf.IsLeader() {
-		epch, err := config.ResetEpochWithContext(ctx, b.leadConn)
+		var epch config.Epoch
+		epch, err = config.ResetEpochWithContext(ctx, b.leadConn)
 		if err != nil {
 			l.Error("reset epoch")
 		} else {
@@ -398,10 +419,14 @@ func (b *Backup) reconcileStatus(
 	}
 
 	if timeout != nil {
-		return errors.Wrap(b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout),
+		return errors.Wrap(
+			b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout),
 			"convergeClusterWithTimeout")
 	}
-	return errors.Wrap(b.convergeCluster(ctx, bcpName, opid, shards, status), "convergeCluster")
+
+	return errors.Wrap(
+		b.convergeCluster(ctx, bcpName, opid, shards, status),
+		"convergeCluster")
 }
 
 // convergeCluster waits until all given shards reached `status` and updates a cluster status
@@ -425,7 +450,7 @@ func (b *Backup) convergeCluster(
 				return nil
 			}
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 	}
 }
@@ -461,7 +486,7 @@ func (b *Backup) convergeClusterWithTimeout(
 		case <-tout.C:
 			return errConvergeTimeOut
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 	}
 }
@@ -626,14 +651,30 @@ func writeMeta(stg storage.Storage, meta *BackupMeta) error {
 }
 
 func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error {
-	bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcpName)
-	if err != nil {
-		return errors.Wrap(err, "get backup metadata")
+	var err error
+	var bcp *BackupMeta
+	dbManager := NewDBManager(b.leadConn)
+
+	// make sure all replset has the first write ts
+	for {
+		bcp, err = dbManager.GetBackupByName(ctx, bcpName)
+		if err != nil {
+			return errors.Wrap(err, "get backup metadata")
+		}
+		if len(bcp.Replsets) == 0 {
+			return errors.New("no replset metadata")
+		}
+
+		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return !br.FirstWriteTS.IsZero() }) {
+			break
+		}
+
+		time.Sleep(time.Second)
 	}
 
-	var fw primitive.Timestamp
-	for _, rs := range bmeta.Replsets {
-		if fw.T == 0 || fw.Compare(rs.FirstWriteTS) == 1 {
+	fw := bcp.Replsets[0].FirstWriteTS
+	for i := 1; i != len(bcp.Replsets); i++ {
+		if rs := &bcp.Replsets[i]; rs.FirstWriteTS.After(fw) {
 			fw = rs.FirstWriteTS
 		}
 	}
@@ -643,20 +684,46 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 }
 
 func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
-	bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcpName)
-	if err != nil {
-		return errors.Wrap(err, "get backup metadata")
+	var err error
+	var bcp *BackupMeta
+	dbManager := NewDBManager(b.leadConn)
+
+	// make sure all replset has the last write ts
+	for {
+		bcp, err = dbManager.GetBackupByName(ctx, bcpName)
+		if err != nil {
+			return errors.Wrap(err, "get backup metadata")
+		}
+		if len(bcp.Replsets) == 0 {
+			return errors.New("no replset metadata")
+		}
+
+		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return !br.LastWriteTS.IsZero() }) {
+			break
+		}
+
+		time.Sleep(time.Second)
 	}
 
-	var lw primitive.Timestamp
-	for _, rs := range bmeta.Replsets {
-		if lw.Compare(rs.LastWriteTS) == -1 {
+	lw := bcp.Replsets[0].LastWriteTS
+	for i := 1; i != len(bcp.Replsets); i++ {
+		if rs := &bcp.Replsets[i]; rs.LastWriteTS.Before(lw) {
 			lw = rs.LastWriteTS
 		}
 	}
 
 	err = SetLastWrite(ctx, b.leadConn, bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
+}
+
+func condAll[T any, Cond func(*T) bool](ts []T, ok Cond) bool {
+	for i := range ts {
+		if !ok(&ts[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func ref[T any](v T) *T {

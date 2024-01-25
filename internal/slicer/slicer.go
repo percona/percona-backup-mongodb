@@ -3,8 +3,6 @@ package slicer
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -37,7 +35,7 @@ type Slicer struct {
 	storage    storage.Storage
 	oplog      *oplog.OplogBackup
 	l          log.LogEvent
-	ep         config.Epoch
+	cfg        *config.Config
 }
 
 // NewSlicer creates an incremental backup object
@@ -46,7 +44,7 @@ func NewSlicer(
 	cn connect.Client,
 	node *mongo.Client,
 	to storage.Storage,
-	ep config.Epoch,
+	cfg *config.Config,
 	logger log.Logger,
 ) *Slicer {
 	return &Slicer{
@@ -56,8 +54,8 @@ func NewSlicer(
 		span:       int64(defs.PITRdefaultSpan),
 		storage:    to,
 		oplog:      oplog.NewOplogBackup(node),
-		l:          logger.NewEvent(string(ctrl.CmdPITR), "", "", ep.TS()),
-		ep:         ep,
+		cfg:        cfg,
+		l:          logger.NewEvent(string(ctrl.CmdPITR), "", "", cfg.Epoch),
 	}
 }
 
@@ -168,88 +166,115 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	err = s.copyFromBcp(ctx, baseBcp)
+	ts, err := s.copyReplsetOplog(ctx, baseBcp)
 	if err != nil {
+		if errors.Is(err, ErrNoFullBackupOplog) {
+			return err
+		}
 		s.l.Warning("copy snapshot [%s] oplog: %v", baseBcp.Name, err)
-	} else {
-		s.l.Info("copied chunk %s - %s", formatts(baseBcp.FirstWriteTS), formatts(baseBcp.LastWriteTS))
-	}
-
-	return nil
-}
-
-//nolint:nonamedreturns
-func (s *Slicer) OplogOnlyCatchup(ctx context.Context) (err error) {
-	s.l.Debug("start_catchup [oplog only]")
-
-	defer func() {
-		if err == nil {
-			s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
-		}
-	}()
-
-	chnk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
-	if err != nil && !errors.Is(err, errors.ErrNotFound) {
-		return errors.Wrap(err, "get last slice")
-	}
-
-	if chnk != nil {
-		ok, err := s.oplog.IsSufficient(chnk.EndTS)
-		if err != nil {
-			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
-			return nil
-		}
-
-		if ok {
-			s.lastTS = chnk.EndTS
-			return nil
-		}
-
-		s.l.Info("insufficient range since %v", chnk.EndTS)
-	}
-
-	ts, err := topo.GetClusterTime(ctx, s.leadClient)
-	if err != nil {
-		return err
 	}
 
 	s.lastTS = ts
 	return nil
 }
 
-func (s *Slicer) copyFromBcp(ctx context.Context, bcp *backup.BackupMeta) error {
-	var oplogName string
-	for _, r := range bcp.Replsets {
-		if r.Name == s.rs {
-			oplogName = r.OplogName
+func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
+	s.l.Debug("start_catchup [oplog only]")
+
+	chunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
+	if err != nil {
+		if !errors.Is(err, errors.ErrNotFound) {
+			return errors.Wrap(err, "get last slice")
+		}
+
+		ts, err := topo.GetClusterTime(ctx, s.leadClient)
+		if err != nil {
+			return err
+		}
+
+		s.lastTS = ts
+		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
+		return nil
+	}
+
+	ok, err := s.oplog.IsSufficient(chunk.EndTS)
+	if err != nil {
+		return errors.Wrapf(err, "check oplog sufficiency for %v", chunk)
+	}
+	if !ok {
+		return errors.Errorf("insufficient range since %v", chunk)
+	}
+
+	s.lastTS = chunk.EndTS
+	s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
+	return nil
+}
+
+var ErrNoFullBackupOplog = errors.New("backup does not contain full oplog")
+
+func (s *Slicer) copyReplsetOplog(ctx context.Context, bcp *backup.BackupMeta) (primitive.Timestamp, error) {
+	if bcp.Type != defs.LogicalBackup || util.IsSelective(bcp.Namespaces) {
+		// the backup does not contain complete oplog to copy from
+		return primitive.Timestamp{}, ErrNoFullBackupOplog
+	}
+
+	var rs *backup.BackupReplset
+	for i := range bcp.Replsets {
+		if r := &bcp.Replsets[i]; r.Name == s.rs {
+			rs = r
 			break
 		}
 	}
-	if oplogName == "" {
-		return errors.New("no data for shard")
+	if rs == nil {
+		err := errors.Errorf("oplog for %q replset is not found in the %q backup", s.rs, bcp.Name)
+		return primitive.Timestamp{}, err
 	}
 
-	n := s.chunkPath(bcp.FirstWriteTS, bcp.LastWriteTS, bcp.Compression)
-	err := s.storage.Copy(oplogName, n)
-	if err != nil {
-		return errors.Wrap(err, "storage copy")
-	}
-	stat, err := s.storage.FileStat(n)
-	if err != nil {
-		return errors.Wrap(err, "file stat")
+	if err := s.copyReplsetOplogImpl(ctx, rs.OplogName); err != nil {
+		return primitive.Timestamp{}, errors.Wrapf(err, "copy snapshot [%s] oplog", bcp.Name)
 	}
 
-	meta := oplog.OplogChunk{
-		RS:          s.rs,
-		FName:       n,
-		Compression: bcp.Compression,
-		StartTS:     bcp.FirstWriteTS,
-		EndTS:       bcp.LastWriteTS,
-		Size:        stat.Size,
-	}
-	err = oplog.PITRAddChunk(ctx, s.leadClient, meta)
+	s.l.Info("copied chunk %s - %s", formatts(rs.FirstWriteTS), formatts(rs.LastWriteTS))
+	return rs.LastWriteTS, nil
+}
+
+func (s *Slicer) copyReplsetOplogImpl(ctx context.Context, backupOplogPath string) error {
+	files, err := s.storage.List(backupOplogPath, "")
 	if err != nil {
-		return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+		return errors.Wrap(err, "failed to list oplog files")
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	for _, file := range files {
+		fw, lw, cmp, err := backup.ParseChunkName(file.Name)
+		if err != nil {
+			return errors.Wrapf(err, "parse chunk name %q", file.Name)
+		}
+
+		n := oplog.FormatChunkFilepath(s.rs, fw, lw, cmp)
+		err = s.storage.Copy(backupOplogPath+"/"+file.Name, n)
+		if err != nil {
+			return errors.Wrap(err, "storage copy")
+		}
+		stat, err := s.storage.FileStat(n)
+		if err != nil {
+			return errors.Wrap(err, "file stat")
+		}
+
+		meta := oplog.OplogChunk{
+			RS:          s.rs,
+			FName:       stat.Name,
+			Compression: cmp,
+			StartTS:     fw,
+			EndTS:       lw,
+			Size:        stat.Size,
+		}
+		err = oplog.PITRAddChunk(ctx, s.leadClient, meta)
+		if err != nil {
+			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+		}
 	}
 
 	return nil
@@ -281,9 +306,10 @@ const LogStartMsg = "start_ok"
 func (s *Slicer) Stream(
 	ctx context.Context,
 	stopC <-chan struct{},
-	backupSig <-chan *ctrl.OPID,
+	backupSig <-chan ctrl.OPID,
 	compression compress.CompressionType,
-	level *int, timeouts *config.BackupTimeouts,
+	level *int,
+	timeouts *config.BackupTimeouts,
 ) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
@@ -311,10 +337,14 @@ func (s *Slicer) Stream(
 	s.l.Debug(LogStartMsg)
 
 	lastSlice := false
-	llock := &lock.LockHeader{Replset: s.rs}
+	llock := &lock.LockHeader{
+		Replset: s.rs,
+		Type:    ctrl.CmdPITR,
+	}
 
-	var sliceTo primitive.Timestamp
+	bcp := ctrl.NilOPID
 	for {
+		sliceTo := primitive.Timestamp{}
 		// waiting for a trigger
 		select {
 		// wrapping up at the current point-in-time
@@ -323,27 +353,28 @@ func (s *Slicer) Stream(
 			s.l.Info("got done signal, stopping")
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
-		case bcp := <-backupSig:
+		case bcp = <-backupSig:
 			s.l.Info("got wake_up signal")
-			if bcp != nil {
-				s.l.Info("wake_up for bcp %s", bcp.String())
-				sliceTo, err = s.backupStartTS(ctx, bcp.String(), timeouts.StartingStatus())
+			if bcp != ctrl.NilOPID {
+				opid := bcp.String()
+				s.l.Info("wake_up for bcp %s", opid)
+
+				sliceTo, err = s.backupStartTS(ctx, opid, s.rs, timeouts.StartingStatus())
 				if err != nil {
 					return errors.Wrap(err, "get backup start TS")
 				}
 
 				// it can happen that prevoius slice >= backup's fisrt_write
 				// in that case we have to just back off.
-				if s.lastTS.Compare(sliceTo) >= 0 {
+				if s.lastTS.After(sliceTo) {
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
 					return nil
 				}
+
 				lastSlice = true
 			}
 		case <-tk.C:
 		}
-
-		nextChunkT := time.Now().Add(cspan)
 
 		// check if the node is still any good to make backups
 		ninf, err := topo.GetNodeInfoExt(ctx, s.node)
@@ -383,25 +414,17 @@ func (s *Slicer) Stream(
 		if ld.Heartbeat.T+defs.StaleFrameSec < ts.T {
 			return errors.Errorf("stale lock %#v, last beat ts: %d", ld.LockHeader, ld.Heartbeat.T)
 		}
-
-		switch ld.Type {
-		case ctrl.CmdPITR:
-			if ld.Node != nodeInfo.Me {
-				return OpMovedError{ld.Node}
-			}
-			sliceTo, err = s.oplog.LastWrite(ctx)
+		if ld.Type != ctrl.CmdPITR {
+			return errors.Errorf("another operation is running: %v", ld)
+		}
+		if ld.Node != nodeInfo.Me {
+			return OpMovedError{ld.Node}
+		}
+		if sliceTo.IsZero() {
+			sliceTo, err = topo.GetLastWrite(ctx, s.node, true)
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
-		case ctrl.CmdUndefined:
-			return errors.New("undefined behavior operation is running")
-		case ctrl.CmdBackup:
-			// continue only if we had `backupSig`
-			if !lastSlice || s.lastTS.Compare(sliceTo) == 0 {
-				return errors.Errorf("another operation is running: %#v", ld)
-			}
-		default:
-			return errors.Errorf("another operation is running: %#v", ld)
 		}
 
 		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
@@ -410,8 +433,12 @@ func (s *Slicer) Stream(
 			if err != nil {
 				return errors.Wrap(err, "get epoch")
 			}
-			if s.ep.TS().Compare(cep.TS()) != 0 {
-				return errors.Errorf("epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.", s.ep.TS(), cep.TS())
+
+			if !s.cfg.Epoch.Equal(cep.TS()) {
+				return errors.Errorf(
+					"epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.",
+					s.cfg.Epoch, cep.TS(),
+				)
 			}
 		}
 
@@ -422,7 +449,8 @@ func (s *Slicer) Stream(
 
 		logm := fmt.Sprintf("created chunk %s - %s", formatts(s.lastTS), formatts(sliceTo))
 		if !lastSlice {
-			logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT.Format("2006-01-02T15:04:05"))
+			nextChunkT := time.Now().Add(cspan)
+			logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT)
 		}
 		s.l.Info(logm)
 
@@ -447,7 +475,7 @@ func (s *Slicer) upload(
 	level *int,
 ) error {
 	s.oplog.SetTailingSpan(from, to)
-	fname := s.chunkPath(from, to, compression)
+	fname := oplog.FormatChunkFilepath(s.rs, from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
 	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname, -1)
 	if err != nil {
@@ -490,7 +518,7 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 	var lck lock.LockData
 	for j := 0; j < int(t.Seconds()); j++ {
 		var err error
-		lck, err = lock.GetLockData(ctx, s.leadClient, l)
+		lck, err = lock.GetOpLockData(ctx, s.leadClient, l)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 			return lck, errors.Wrap(err, "get")
 		}
@@ -503,52 +531,30 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 	return lck, nil
 }
 
-func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration) (primitive.Timestamp, error) {
+func (s *Slicer) backupStartTS(ctx context.Context, opid, rs string, t time.Duration) (primitive.Timestamp, error) {
 	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
 	for j := 0; j < int(t.Seconds()); j++ {
+		<-tk.C
+
 		b, err := backup.GetBackupByOPID(ctx, s.leadClient, opid)
-		if err != nil && !errors.Is(err, errors.ErrNotFound) {
+		if err != nil {
+			if errors.Is(err, errors.ErrNotFound) {
+				continue
+			}
+
 			return ts, errors.Wrap(err, "get backup meta")
 		}
-		if b != nil && b.FirstWriteTS.T > 1 {
-			return b.FirstWriteTS, nil
+
+		for i := range b.Replsets {
+			ts := b.Replsets[i].FirstWriteTS
+			if !ts.IsZero() {
+				return ts, nil
+			}
 		}
-		<-tk.C
 	}
 
 	return ts, errors.New("run out of tries")
-}
-
-// !!! should be agreed with pbm.PITRmetaFromFName()
-func (s *Slicer) chunkPath(first, last primitive.Timestamp, c compress.CompressionType) string {
-	return ChunkName(s.rs, first, last, c)
-}
-
-func ChunkName(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
-	ft := time.Unix(int64(first.T), 0).UTC()
-	lt := time.Unix(int64(last.T), 0).UTC()
-
-	name := strings.Builder{}
-	if len(defs.PITRfsPrefix) > 0 {
-		name.WriteString(defs.PITRfsPrefix)
-		name.WriteString("/")
-	}
-	name.WriteString(rs)
-	name.WriteString("/")
-	name.WriteString(ft.Format("20060102"))
-	name.WriteString("/")
-	name.WriteString(ft.Format("20060102150405"))
-	name.WriteString("-")
-	name.WriteString(strconv.Itoa(int(first.I)))
-	name.WriteString(".")
-	name.WriteString(lt.Format("20060102150405"))
-	name.WriteString("-")
-	name.WriteString(strconv.Itoa(int(last.I)))
-	name.WriteString(".oplog")
-	name.WriteString(c.Suffix())
-
-	return name.String()
 }

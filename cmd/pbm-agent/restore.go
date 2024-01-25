@@ -8,6 +8,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
+	"github.com/percona/percona-backup-mongodb/internal/connect"
 	"github.com/percona/percona-backup-mongodb/internal/ctrl"
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
@@ -21,31 +22,41 @@ import (
 
 type currentPitr struct {
 	slicer *slicer.Slicer
-	w      chan *ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
+	w      chan ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
 	cancel context.CancelFunc
 }
 
-func (a *Agent) setPitr(p *currentPitr) bool {
+func (a *Agent) setPitr(p *currentPitr) {
 	a.mx.Lock()
 	defer a.mx.Unlock()
+
 	if a.pitrjob != nil {
-		return false
+		a.pitrjob.cancel()
 	}
 
 	a.pitrjob = p
-	return true
 }
 
-func (a *Agent) unsetPitr() {
-	a.mx.Lock()
-	a.pitrjob = nil
-	a.mx.Unlock()
+func (a *Agent) removePitr() {
+	a.setPitr(nil)
 }
 
 func (a *Agent) getPitr() *currentPitr {
 	a.mx.Lock()
 	defer a.mx.Unlock()
+
 	return a.pitrjob
+}
+
+func (a *Agent) sliceNow(opid ctrl.OPID) {
+	a.mx.Lock()
+	defer a.mx.Unlock()
+
+	if a.pitrjob == nil {
+		return
+	}
+
+	a.pitrjob.w <- opid
 }
 
 const pitrCheckPeriod = time.Second * 15
@@ -84,19 +95,36 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 	}
 
 	a.prevOO = &currOO
+	a.removePitr()
+}
 
-	if p := a.getPitr(); p != nil {
-		p.cancel()
-		a.unsetPitr()
+func canSlicingNow(ctx context.Context, conn connect.Client) error {
+	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
+	if err != nil {
+		return errors.Wrap(err, "get locks data")
 	}
+
+	for i := range locks {
+		l := &locks[i]
+
+		if l.Type != ctrl.CmdBackup {
+			return lock.ConcurrentOpError{l.LockHeader}
+		}
+
+		bcp, err := backup.GetBackupByOPID(ctx, conn, l.OPID)
+		if err != nil {
+			return errors.Wrap(err, "get backup metadata")
+		}
+
+		if bcp.Type == defs.LogicalBackup {
+			return lock.ConcurrentOpError{l.LockHeader}
+		}
+	}
+
+	return nil
 }
 
 func (a *Agent) pitr(ctx context.Context) error {
-	// pausing for physical restore
-	if !a.HbIsRun() {
-		return nil
-	}
-
 	cfg, err := config.GetConfig(ctx, a.leadConn)
 	if err != nil {
 		if !errors.Is(err, mongo.ErrNoDocuments) {
@@ -106,38 +134,37 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
-	p := a.getPitr()
 
 	if !cfg.PITR.Enabled {
-		if p != nil {
-			p.cancel()
-		}
+		a.removePitr()
 		return nil
 	}
 
-	ep, err := config.GetEpoch(ctx, a.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "get epoch")
-	}
-
+	ep := config.Epoch(cfg.Epoch)
 	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
 
-	spant := time.Duration(cfg.PITR.OplogSpanMin * float64(time.Minute))
-	if spant == 0 {
-		spant = defs.PITRdefaultSpan
+	if err := canSlicingNow(ctx, a.leadConn); err != nil {
+		e := lock.ConcurrentOpError{}
+		if errors.As(err, &e) {
+			l.Info("oplog slicer is paused for lock [%s, opid: %s]", e.Lock.Type, e.Lock.OPID)
+			return nil
+		}
+
+		return err
 	}
 
-	// already do the job
-	if p != nil {
-		// update slicer span
-		cspan := p.slicer.GetSpan()
-		if p.slicer != nil && cspan != spant {
-			l.Debug("set pitr span to %v", spant)
-			p.slicer.SetSpan(spant)
+	slicerInterval := cfg.OplogSlicerInterval()
 
-			// wake up slicer only if span became smaller
-			if spant < cspan {
-				a.pitrjob.w <- nil
+	if p := a.getPitr(); p != nil {
+		// already do the job
+		currInterval := p.slicer.GetSpan()
+		if currInterval != slicerInterval {
+			p.slicer.SetSpan(slicerInterval)
+
+			// wake up slicer only if a new interval is smaller
+			if currInterval > slicerInterval {
+				a.sliceNow(ctrl.NilOPID)
 			}
 		}
 
@@ -174,20 +201,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, l)
-	if err != nil {
-		return errors.Wrap(err, "unable to get storage configuration")
-	}
-
 	epts := ep.TS()
-	lck := lock.NewLock(a.leadConn, lock.LockHeader{
+	lck := lock.NewOpLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdPITR,
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lck, l, nil)
+	got, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
@@ -196,9 +218,13 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	ibcp := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, ep,
-		log.FromContext(ctx))
-	ibcp.SetSpan(spant)
+	stg, err := util.StorageFromConfig(cfg.Storage, l)
+	if err != nil {
+		return errors.Wrap(err, "unable to get storage configuration")
+	}
+
+	ibcp := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
+	ibcp.SetSpan(slicerInterval)
 
 	if cfg.PITR.OplogOnly {
 		err = ibcp.OplogOnlyCatchup(ctx)
@@ -217,7 +243,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		defer stopSlicing()
 		stopC := make(chan struct{})
 
-		w := make(chan *ctrl.OPID, 1)
+		w := make(chan ctrl.OPID)
 		a.setPitr(&currentPitr{
 			slicer: ibcp,
 			cancel: stopSlicing,
@@ -227,9 +253,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 		go func() {
 			<-stopSlicingCtx.Done()
 			close(stopC)
+			a.removePitr()
 		}()
 
-		streamErr := ibcp.Stream(ctx, stopC, w, cfg.PITR.Compression, cfg.PITR.CompressionLevel, cfg.Backup.Timeouts)
+		streamErr := ibcp.Stream(ctx,
+			stopC,
+			w,
+			cfg.PITR.Compression,
+			cfg.PITR.CompressionLevel,
+			cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error
 			if errors.Is(streamErr, slicer.OpMovedError{}) {
@@ -248,8 +280,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if streamErr != nil {
 			time.Sleep(pitrCheckPeriod * 2)
 		}
-
-		a.unsetPitr()
 	}()
 
 	return nil
@@ -261,7 +291,10 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
-	tl, err := lock.GetLockData(ctx, a.leadConn, &lock.LockHeader{Replset: a.brief.SetName})
+	tl, err := lock.GetOpLockData(ctx, a.leadConn, &lock.LockHeader{
+		Replset: a.brief.SetName,
+		Type:    ctrl.CmdPITR,
+	})
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// no lock. good to move on
@@ -284,6 +317,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	l := logger.NewEvent(string(ctrl.CmdRestore), r.Name, opid.String(), ep.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
 
 	if !r.OplogTS.IsZero() {
 		l.Info("to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
@@ -306,7 +340,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			Epoch:   &epts,
 		})
 
-		got, err := a.acquireLock(ctx, lck, l, nil)
+		got, err := a.acquireLock(ctx, lck, l)
 		if err != nil {
 			l.Error("acquiring lock: %v", err)
 			return
