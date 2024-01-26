@@ -265,7 +265,7 @@ func (s *Slicer) copyReplsetOplogImpl(ctx context.Context, backupOplogPath strin
 
 		meta := oplog.OplogChunk{
 			RS:          s.rs,
-			FName:       stat.Name,
+			FName:       n,
 			Compression: cmp,
 			StartTS:     fw,
 			EndTS:       lw,
