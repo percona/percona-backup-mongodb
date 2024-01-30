@@ -132,7 +132,7 @@ func (l *Lock) log(ctx context.Context) error {
 
 	_, err := l.m.PBMOpLogCollection().InsertOne(ctx, l.LockHeader)
 	if err != nil {
-		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+		if mongo.IsDuplicateKeyError(err) {
 			return DuplicatedOpError{l.LockHeader}
 		}
 		return err
@@ -160,7 +160,7 @@ func (l *Lock) acquireImpl(ctx context.Context) (bool, error) {
 
 	_, err = l.coll.InsertOne(ctx, l.LockData)
 	if err != nil {
-		if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+		if mongo.IsDuplicateKeyError(err) {
 			return false, nil
 		}
 		return false, errors.Wrap(err, "acquire lock")
