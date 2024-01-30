@@ -394,10 +394,8 @@ func FormatChunkFilepath(rs string, first, last primitive.Timestamp, c compress.
 	lt := time.Unix(int64(last.T), 0).UTC()
 
 	name := strings.Builder{}
-	if len(defs.PITRfsPrefix) > 0 {
-		name.WriteString(defs.PITRfsPrefix)
-		name.WriteString("/")
-	}
+	name.WriteString(defs.PITRfsPrefix)
+	name.WriteString("/")
 	name.WriteString(rs)
 	name.WriteString("/")
 	name.WriteString(ft.Format("20060102"))
