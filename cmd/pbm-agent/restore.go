@@ -98,6 +98,8 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 	a.removePitr()
 }
 
+// canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
+// Only physical backups (full, incremental, external) is allowed.
 func canSlicingNow(ctx context.Context, conn connect.Client) error {
 	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
@@ -116,7 +118,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client) error {
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type == defs.LogicalBackup {
+		if bcp.Type != defs.PhysicalBackup && bcp.Type != defs.ExternalBackup {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}

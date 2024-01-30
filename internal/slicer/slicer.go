@@ -68,128 +68,102 @@ func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
-// Catchup seeks for the last saved (backed up) TS - the starting point. It should be run only
-// if the timeline was lost (e.g. on (re)start, restart after backup, node's fail).
-// The starting point sets to the last backup's or last PITR chunk's TS whichever is the most recent.
-// If there is a chunk behind the last backup it will try to fill the gaps from the chunk to the starting point.
-// While filling gaps it checks the oplog for sufficiency. It also checks if there is no restore intercepted
-// the timeline (hence there are no restores after the most recent backup)
 func (s *Slicer) Catchup(ctx context.Context) error {
 	s.l.Debug("start_catchup")
-	baseBcp, err := backup.GetLastBackup(ctx, s.leadClient, nil)
-	if errors.Is(err, errors.ErrNotFound) {
-		return errors.New("no backup found. full backup is required to start PITR")
-	}
+
+	lastBackup, err := backup.GetLastBackup(ctx, s.leadClient, nil)
 	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			err = errors.New("no backup found. full backup is required to start PITR")
+		}
 		return errors.Wrap(err, "get last backup")
 	}
 
-	defer func() {
-		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
-	}()
+	var rs *backup.BackupReplset
+	for i := range lastBackup.Replsets {
+		r := &lastBackup.Replsets[i]
+		if r.Name == s.rs {
+			rs = r
+			break
+		}
+	}
+	if rs == nil {
+		return errors.Errorf("no replset %q in the last backup %q. "+
+			"full backup is required to start PITR",
+			s.rs, lastBackup.Name)
+	}
 
-	rstr, err := restore.GetLastRestore(ctx, s.leadClient)
+	lastRestore, err := restore.GetLastRestore(ctx, s.leadClient)
 	if err != nil && !errors.Is(err, errors.ErrNotFound) {
 		return errors.Wrap(err, "get last restore")
 	}
-	if rstr != nil && rstr.StartTS > baseBcp.StartTS {
-		return errors.Errorf("no backup found after the restored %s, a new backup is required to resume PITR", rstr.Backup)
+	if lastRestore != nil && lastBackup.StartTS < lastRestore.StartTS {
+		return errors.Errorf("no backup found after the restored %s, "+
+			"a new backup is required to resume PITR",
+			lastRestore.Backup)
 	}
 
-	chnk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
-	if err != nil && !errors.Is(err, errors.ErrNotFound) {
-		return errors.Wrap(err, "get last slice")
-	}
-
-	s.lastTS = baseBcp.LastWriteTS
-
-	if chnk == nil {
-		return nil
-	}
-
-	// PITR chunk after the recent backup is the most recent oplog slice
-	if chnk.EndTS.Compare(baseBcp.LastWriteTS) >= 0 {
-		s.lastTS = chnk.EndTS
-		return nil
-	}
-
-	if rstr != nil && rstr.StartTS > int64(chnk.StartTS.T) {
-		s.l.Info("restore `%s` is after the chunk `%s`, skip", rstr.Backup, chnk.FName)
-		return nil
-	}
-
-	bl, err := backup.BackupsDoneList(ctx, s.leadClient, &chnk.EndTS, 0, -1)
+	lastChunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
 	if err != nil {
-		return errors.Wrapf(err, "get backups list from %v", chnk.EndTS)
+		if errors.Is(err, errors.ErrNotFound) {
+			s.lastTS = lastBackup.LastWriteTS
+			return nil
+		}
+
+		return errors.Wrap(err, "get last chunk")
 	}
 
-	if len(bl) > 1 {
-		s.l.Debug("chunk too far (more than a one snapshot)")
+	if lastBackup.Type != defs.LogicalBackup || util.IsSelective(lastBackup.Namespaces) {
+		// the backup does not contain complete oplog to copy from
+		// NOTE: the chunk' last op can be later than backup' first write ts
+		s.lastTS = lastChunk.EndTS
 		return nil
 	}
+
+	fmt.Printf("lastChunk.EndTS [%d.%d] < rs.FirstWriteTS [%d.%d] => %v",
+		lastChunk.EndTS.T, lastChunk.EndTS.I,
+		rs.FirstWriteTS.T, rs.FirstWriteTS.I,
+		lastChunk.EndTS.Before(rs.FirstWriteTS))
 
 	// if there is a gap between chunk and the backup - fill it
 	// failed gap shouldn't prevent further chunk creation
-	if chnk.EndTS.Compare(baseBcp.FirstWriteTS) < 0 {
-		ok, err := s.oplog.IsSufficient(chnk.EndTS)
-		if err != nil {
-			s.l.Warning("check oplog sufficiency for %s: %v", chnk, err)
-			return nil
-		}
-		if !ok {
-			s.l.Info("insufficient range since %v", chnk.EndTS)
-			return nil
-		}
-
+	if lastChunk.EndTS.Before(rs.FirstWriteTS) {
 		cfg, err := config.GetConfig(ctx, s.leadClient)
 		if err != nil {
 			return errors.Wrap(err, "get config")
 		}
 
-		err = s.upload(ctx, chnk.EndTS, baseBcp.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
+		err = s.upload(ctx, lastChunk.EndTS, rs.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
 		if err != nil {
-			s.l.Warning("create last_chunk<->sanpshot slice: %v", err)
-			// duplicate key means chunk is already created by probably another routine
-			// so we're safe to continue
-			if !mongo.IsDuplicateKeyError(err) {
-				return nil
-			}
-		} else {
-			s.l.Info("created chunk %s - %s", formatts(chnk.EndTS), formatts(baseBcp.FirstWriteTS))
-		}
-	}
-
-	if baseBcp.Type != defs.LogicalBackup || util.IsSelective(baseBcp.Namespaces) {
-		// the backup does not contain complete oplog to copy from
-		// NOTE: the chunk' last op can be later than backup' first write ts
-		s.lastTS = chnk.EndTS
-		return nil
-	}
-
-	ts, err := s.copyReplsetOplog(ctx, baseBcp)
-	if err != nil {
-		if errors.Is(err, ErrNoFullBackupOplog) {
 			return err
 		}
-		s.l.Warning("copy snapshot [%s] oplog: %v", baseBcp.Name, err)
+		s.lastTS = rs.FirstWriteTS
 	}
 
-	s.lastTS = ts
+	err = s.copyReplsetOplog(ctx, rs)
+	if err != nil {
+		s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
+		return nil
+	}
+	s.lastTS = lastBackup.LastWriteTS
+	s.l.Info("copy snapshot [%s] oplog: %v", lastBackup.Name, err)
+
 	return nil
 }
 
 func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
 	s.l.Debug("start_catchup [oplog only]")
 
-	chunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
+	lastChunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
 			return errors.Wrap(err, "get last slice")
 		}
 
+		// no chunk before. start oplog slicing from now
 		ts, err := topo.GetClusterTime(ctx, s.leadClient)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "get cluster time")
 		}
 
 		s.lastTS = ts
@@ -197,51 +171,38 @@ func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
 		return nil
 	}
 
-	ok, err := s.oplog.IsSufficient(chunk.EndTS)
-	if err != nil {
-		return errors.Wrapf(err, "check oplog sufficiency for %v", chunk)
+	lastRestore, err := restore.GetLastRestore(ctx, s.leadClient)
+	if err != nil && !errors.Is(err, errors.ErrNotFound) {
+		return errors.Wrap(err, "get last restore")
 	}
-	if !ok {
-		return errors.Errorf("insufficient range since %v", chunk)
+	if lastRestore != nil && lastRestore.StartTS > int64(lastChunk.EndTS.T) {
+		// start a new oplog slicing after recent restore
+		ts, err := topo.GetClusterTime(ctx, s.leadClient)
+		if err != nil {
+			return errors.Wrap(err, "get cluster time")
+		}
+
+		s.lastTS = ts
+		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
 	}
 
-	s.lastTS = chunk.EndTS
+	ok, err := s.oplog.IsSufficient(lastChunk.EndTS)
+	if err != nil {
+		return errors.Wrapf(err, "check oplog sufficiency for %v", lastChunk)
+	}
+	if !ok {
+		return oplog.InsuffRangeError{lastChunk.EndTS}
+	}
+
+	s.lastTS = lastChunk.EndTS
 	s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
 	return nil
 }
 
-var ErrNoFullBackupOplog = errors.New("backup does not contain full oplog")
-
-func (s *Slicer) copyReplsetOplog(ctx context.Context, bcp *backup.BackupMeta) (primitive.Timestamp, error) {
-	if bcp.Type != defs.LogicalBackup || util.IsSelective(bcp.Namespaces) {
-		// the backup does not contain complete oplog to copy from
-		return primitive.Timestamp{}, ErrNoFullBackupOplog
-	}
-
-	var rs *backup.BackupReplset
-	for i := range bcp.Replsets {
-		if r := &bcp.Replsets[i]; r.Name == s.rs {
-			rs = r
-			break
-		}
-	}
-	if rs == nil {
-		err := errors.Errorf("oplog for %q replset is not found in the %q backup", s.rs, bcp.Name)
-		return primitive.Timestamp{}, err
-	}
-
-	if err := s.copyReplsetOplogImpl(ctx, rs.OplogName); err != nil {
-		return primitive.Timestamp{}, errors.Wrapf(err, "copy snapshot [%s] oplog", bcp.Name)
-	}
-
-	s.l.Info("copied chunk %s - %s", formatts(rs.FirstWriteTS), formatts(rs.LastWriteTS))
-	return rs.LastWriteTS, nil
-}
-
-func (s *Slicer) copyReplsetOplogImpl(ctx context.Context, backupOplogPath string) error {
-	files, err := s.storage.List(backupOplogPath, "")
+func (s *Slicer) copyReplsetOplog(ctx context.Context, rs *backup.BackupReplset) error {
+	files, err := s.storage.List(rs.OplogName, "")
 	if err != nil {
-		return errors.Wrap(err, "failed to list oplog files")
+		return errors.Wrap(err, "list oplog files")
 	}
 	if len(files) == 0 {
 		return nil
@@ -254,7 +215,7 @@ func (s *Slicer) copyReplsetOplogImpl(ctx context.Context, backupOplogPath strin
 		}
 
 		n := oplog.FormatChunkFilepath(s.rs, fw, lw, cmp)
-		err = s.storage.Copy(backupOplogPath+"/"+file.Name, n)
+		err = s.storage.Copy(rs.OplogName+"/"+file.Name, n)
 		if err != nil {
 			return errors.Wrap(err, "storage copy")
 		}
@@ -272,11 +233,12 @@ func (s *Slicer) copyReplsetOplogImpl(ctx context.Context, backupOplogPath strin
 			Size:        stat.Size,
 		}
 		err = oplog.PITRAddChunk(ctx, s.leadClient, meta)
-		if err != nil {
+		if err != nil && !mongo.IsDuplicateKeyError(err) {
 			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
 		}
 	}
 
+	s.l.Info("copied chunks %s - %s", formatts(rs.FirstWriteTS), formatts(rs.LastWriteTS))
 	return nil
 }
 
@@ -358,7 +320,7 @@ func (s *Slicer) Stream(
 				opid := bcp.String()
 				s.l.Info("wake_up for bcp %s", opid)
 
-				sliceTo, err = s.backupStartTS(ctx, opid, timeouts.StartingStatus())
+				sliceTo, err = s.backupRSStartTS(ctx, opid, timeouts.StartingStatus())
 				if err != nil {
 					return errors.Wrap(err, "get backup start TS")
 				}
@@ -469,7 +431,8 @@ func (s *Slicer) Stream(
 
 func (s *Slicer) upload(
 	ctx context.Context,
-	from, to primitive.Timestamp,
+	from primitive.Timestamp,
+	to primitive.Timestamp,
 	compression compress.CompressionType,
 	level *int,
 ) error {
@@ -500,9 +463,15 @@ func (s *Slicer) upload(
 	}
 	err = oplog.PITRAddChunk(ctx, s.leadClient, meta)
 	if err != nil {
-		return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+		s.l.Info("create last_chunk<->snapshot slice: %v", err)
+		// duplicate key means chunk is already created by probably another routine
+		// so we're safe to continue
+		if !mongo.IsDuplicateKeyError(err) {
+			return errors.Wrapf(err, "unable to save chunk meta %v", meta)
+		}
 	}
 
+	s.l.Info("created chunk %s - %s", formatts(from), formatts(to))
 	return nil
 }
 
@@ -530,7 +499,9 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 	return lck, nil
 }
 
-func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration) (primitive.Timestamp, error) {
+var errUnsuitableBackup = errors.New("unsuitable backup")
+
+func (s *Slicer) backupRSStartTS(ctx context.Context, opid string, t time.Duration) (primitive.Timestamp, error) {
 	var ts primitive.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
@@ -546,12 +517,22 @@ func (s *Slicer) backupStartTS(ctx context.Context, opid string, t time.Duration
 
 			return ts, errors.Wrap(err, "get backup meta")
 		}
+		if b.Type != defs.LogicalBackup || util.IsSelective(b.Namespaces) {
+			return ts, errUnsuitableBackup
+		}
+		if b.Status == defs.StatusCancelled || b.Status == defs.StatusError {
+			return ts, errUnsuitableBackup
+		}
 
+		var rs *backup.BackupReplset
 		for i := range b.Replsets {
-			ts := b.Replsets[i].FirstWriteTS
-			if !ts.IsZero() {
-				return ts, nil
+			if r := &b.Replsets[i]; r.Name == s.rs {
+				rs = r
+				break
 			}
+		}
+		if rs != nil && !rs.FirstWriteTS.IsZero() {
+			return rs.FirstWriteTS, nil
 		}
 	}
 
