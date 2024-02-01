@@ -7,5 +7,4 @@ Homepage: https://percona.com
 Build-Depends: libkrb5-dev
 
 Package: percona-backup-mongodb
-Architecture: amd64
 Description: Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets.
