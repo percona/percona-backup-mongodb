@@ -470,8 +470,7 @@ func (b *Backup) convergeClusterWithTimeout(
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	tout := time.NewTicker(t)
-	defer tout.Stop()
+	tout := time.After(t)
 
 	for {
 		select {
@@ -483,8 +482,8 @@ func (b *Backup) convergeClusterWithTimeout(
 			if ok {
 				return nil
 			}
-		case <-tout.C:
-			return errConvergeTimeOut
+		case <-tout:
+			return errors.Wrap(errConvergeTimeOut, t.String())
 		case <-ctx.Done():
 			return ctx.Err()
 		}
