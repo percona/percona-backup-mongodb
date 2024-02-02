@@ -362,6 +362,14 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 				l.Error("release lock: %v", err)
 			}
 		}()
+
+		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
+		if err != nil {
+			l.Error("disable oplog slicer: %v", err)
+		} else {
+			l.Info("oplog slicer disabled")
+		}
+		a.removePitr()
 	}
 
 	stg, err := util.GetStorage(ctx, a.leadConn, l)
