@@ -142,7 +142,7 @@ func CanDeleteIncrementalChain(
 	if base.Status.IsRunning() {
 		return ErrBackupInProgress
 	}
-	if base.Type == defs.IncrementalBackup {
+	if base.Type != defs.IncrementalBackup {
 		return ErrNonIncrementalBackup
 	}
 	if base.SrcBackup != "" {
