@@ -40,6 +40,7 @@ var ExcludeFromRestore = []string{
 	"config.transactions",
 	"config.transaction_coordinators",
 	"config.changelog",
+	"config.actionlog",
 	"config.image_collection",
 	"admin.system.version",
 	"config.system.indexBuilds",
