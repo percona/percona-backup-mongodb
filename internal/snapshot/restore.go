@@ -43,6 +43,7 @@ var ExcludeFromRestore = []string{
 	"config.image_collection",
 	"admin.system.version",
 	"config.system.indexBuilds",
+	"config.system.sharding_ddl_coordinators",
 
 	// deprecated PBM collections, keep it here not to bring back from old backups
 	defs.DB + ".pbmBackups.old",
