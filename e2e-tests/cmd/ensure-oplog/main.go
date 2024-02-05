@@ -22,7 +22,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/oplog"
-	"github.com/percona/percona-backup-mongodb/internal/slicer"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/util"
 )
@@ -263,7 +262,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		logger.Printf("[%s] ensure missed chunk: %s - %s",
 			uri, formatTimestamp(t.from), formatTimestamp(t.till))
 
-		filename := slicer.ChunkName(info.SetName, t.from, t.till, compression)
+		filename := oplog.FormatChunkFilepath(info.SetName, t.from, t.till, compression)
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 

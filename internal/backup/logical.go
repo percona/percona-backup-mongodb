@@ -21,7 +21,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
 	"github.com/percona/percona-backup-mongodb/internal/log"
-	"github.com/percona/percona-backup-mongodb/internal/oplog"
 	"github.com/percona/percona-backup-mongodb/internal/snapshot"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
@@ -59,15 +58,8 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	oplog := oplog.NewOplogBackup(b.nodeConn)
-	oplogTS, err := oplog.LastWrite(ctx)
-	if err != nil {
-		return errors.Wrap(err, "define oplog start position")
-	}
-
 	rsMeta.Status = defs.StatusRunning
-	rsMeta.FirstWriteTS = oplogTS
-	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
+	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "oplog")
 	rsMeta.DumpName = path.Join(bcp.Name, rsMeta.Name, archive.MetaFile)
 	err = AddRSMeta(ctx, b.leadConn, bcp.Name, *rsMeta)
 	if err != nil {
@@ -94,6 +86,17 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "waiting for running")
 	}
+
+	stopOplogSlicer := startOplogSlicer(ctx,
+		b.nodeConn,
+		b.SlicerInterval(),
+		rsMeta.FirstWriteTS,
+		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
+			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, -1)
+		})
+	// ensure slicer is stopped in any case (done, error or canceled)
+	defer stopOplogSlicer() //nolint:errcheck
 
 	if !util.IsSelective(bcp.Namespaces) {
 		// Save users and roles to the tmp collections so the restore would copy that data
@@ -148,7 +151,8 @@ func (b *Backup) doLogical(
 		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
 	}
 
-	snapshotSize, err := snapshot.UploadDump(dump,
+	snapshotSize, err := snapshot.UploadDump(ctx,
+		dump,
 		func(ns, ext string, r io.Reader) error {
 			stg, err := util.StorageFromConfig(cfg.Storage, l)
 			if err != nil {
@@ -174,12 +178,12 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
-	lwts, err := oplog.LastWrite(ctx)
+	lastSavedTS, oplogSize, err := stopOplogSlicer()
 	if err != nil {
-		return errors.Wrap(err, "get shard's last write ts")
+		return errors.Wrap(err, "oplog")
 	}
 
-	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lwts)
+	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}
@@ -199,19 +203,6 @@ func (b *Backup) doLogical(
 	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
 	if err != nil {
 		return errors.Wrap(err, "waiting for dump done")
-	}
-
-	fwTS, lwTS, err := b.waitForFirstLastWrite(ctx, bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "get cluster first & last write ts")
-	}
-
-	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
-	oplog.SetTailingSpan(fwTS, lwTS)
-	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	oplogSize, err := storage.Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
-	if err != nil {
-		return errors.Wrap(err, "oplog")
 	}
 
 	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize)

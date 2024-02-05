@@ -1,14 +1,15 @@
 package snapshot
 
 import (
+	"context"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/percona/percona-backup-mongodb/internal/errors"
-
 	"github.com/percona/percona-backup-mongodb/internal/archive"
 	"github.com/percona/percona-backup-mongodb/internal/compress"
+	"github.com/percona/percona-backup-mongodb/internal/errors"
 )
 
 type UploadDumpOptions struct {
@@ -27,10 +28,18 @@ type UploadDumpOptions struct {
 
 type UploadFunc func(ns, ext string, r io.Reader) error
 
-func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
+func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
 	wg := sync.WaitGroup{}
 	pr, pw := io.Pipe()
 	size := int64(0)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		pw.CloseWithError(ctx.Err())
+	}()
 
 	go func() {
 		_, err := wt.WriteTo(pw)
@@ -68,6 +77,13 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 	}
 
 	err := archive.Decompose(pr, newWriter, opts.NSFilter, opts.DocFilter)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		// note: mongo-tools errors cannot be used for errors.Is()
+		if strings.Contains(err.Error(), "( context canceled )") {
+			err = context.Canceled
+		}
+	}
+
 	wg.Wait()
 	return size, errors.Wrap(err, "decompose")
 }

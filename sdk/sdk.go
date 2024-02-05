@@ -28,7 +28,7 @@ type (
 	Timestamp = primitive.Timestamp
 )
 
-var NoOpID = CommandID(ctrl.NilOPID().String())
+var NoOpID = CommandID(ctrl.NilOPID.String())
 
 type BackupType = defs.BackupType
 

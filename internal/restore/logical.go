@@ -140,7 +140,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		r.sMap = r.getShardMapping(bcp)
 	}
 
-	dump, oplogName, err := r.snapshotObjects(bcp)
+	dump, chunks, err := r.snapshotObjects(bcp)
 	if err != nil {
 		return err
 	}
@@ -166,13 +166,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 
-	err = r.applyOplog(ctx, []oplog.OplogChunk{{
-		RS:          r.nodeInfo.SetName,
-		FName:       oplogName,
-		Compression: bcp.Compression,
-		StartTS:     bcp.FirstWriteTS,
-		EndTS:       bcp.LastWriteTS,
-	}}, oplogOption)
+	err = r.applyOplog(ctx, chunks, oplogOption)
 	if err != nil {
 		return err
 	}
@@ -277,7 +271,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	dump, oplogName, err := r.snapshotObjects(bcp)
+	dump, bcpChunks, err := r.snapshotObjects(bcp)
 	if err != nil {
 		return err
 	}
@@ -297,21 +291,13 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	snapshotChunk := oplog.OplogChunk{
-		RS:          r.nodeInfo.SetName,
-		FName:       oplogName,
-		Compression: bcp.Compression,
-		StartTS:     bcp.FirstWriteTS,
-		EndTS:       bcp.LastWriteTS,
-	}
-
 	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 
-	err = r.applyOplog(ctx, append([]oplog.OplogChunk{snapshotChunk}, chunks...), &oplogOption)
+	err = r.applyOplog(ctx, append(bcpChunks, chunks...), &oplogOption)
 	if err != nil {
 		return err
 	}
@@ -557,39 +543,64 @@ func (r *Restore) setShards(ctx context.Context, bcp *backup.BackupMeta) error {
 
 var ErrNoDataForShard = errors.New("no data for shard")
 
-//nolint:nonamedreturns
-func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (dump, oplog string, err error) {
-	mapRS := util.MakeRSMapFunc(r.rsMap)
-
+func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.OplogChunk, error) {
 	var ok bool
-	for _, v := range bcp.Replsets {
-		name := mapRS(v.Name)
-
-		if name == r.nodeInfo.SetName {
-			dump = v.DumpName
-			oplog = v.OplogName
+	var rsMeta *backup.BackupReplset
+	revRSName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	for i := range bcp.Replsets {
+		r := &bcp.Replsets[i]
+		if r.Name == revRSName {
+			rsMeta = r
 			ok = true
 			break
 		}
 	}
 	if !ok {
 		if r.nodeInfo.IsLeader() {
-			return "", "", errors.New("no data for the config server or sole rs in backup")
+			return "", nil, errors.New("no data for the config server or sole rs in backup")
 		}
-		return "", "", ErrNoDataForShard
+		return "", nil, ErrNoDataForShard
 	}
 
-	_, err = r.stg.FileStat(dump)
+	if _, err := r.stg.FileStat(rsMeta.DumpName); err != nil {
+		return "", nil, errors.Wrapf(err, "failed to ensure snapshot file %s", rsMeta.DumpName)
+	}
+	if version.IsLegacyBackupOplog(bcp.PBMVersion) {
+		if _, err := r.stg.FileStat(rsMeta.OplogName); err != nil {
+			return "", nil, errors.Errorf("failed to ensure oplog file %s: %v", rsMeta.OplogName, err)
+		}
+
+		chunks := []oplog.OplogChunk{{
+			RS:          r.nodeInfo.SetName,
+			FName:       rsMeta.OplogName,
+			Compression: bcp.Compression,
+			StartTS:     bcp.FirstWriteTS,
+			EndTS:       bcp.LastWriteTS,
+		}}
+		return rsMeta.DumpName, chunks, nil
+	}
+
+	files, err := r.stg.List(rsMeta.OplogName, "")
 	if err != nil {
-		return "", "", errors.Errorf("failed to ensure snapshot file %s: %v", dump, err)
+		return "", nil, errors.Wrap(err, "failed to list oplog files")
 	}
 
-	_, err = r.stg.FileStat(oplog)
-	if err != nil {
-		return "", "", errors.Errorf("failed to ensure oplog file %s: %v", oplog, err)
+	chunks := make([]oplog.OplogChunk, len(files))
+	for i := range files {
+		file := &files[i]
+		chunk := &chunks[i]
+
+		chunk.RS = rsMeta.Name
+		chunk.FName = rsMeta.OplogName + "/" + file.Name
+		chunk.Size = file.Size
+
+		chunk.StartTS, chunk.EndTS, chunk.Compression, err = backup.ParseChunkName(file.Name)
+		if err != nil {
+			return "", nil, errors.Wrap(err, "failed to parse oplog filenames")
+		}
 	}
 
-	return dump, oplog, nil
+	return rsMeta.DumpName, chunks, nil
 }
 
 func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta) error {

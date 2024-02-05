@@ -115,7 +115,27 @@ func CheckBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 		rs := rs
 
 		eg.Go(func() error { return checkFile(stg, rs.DumpName) })
-		eg.Go(func() error { return checkFile(stg, rs.OplogName) })
+
+		eg.Go(func() error {
+			if version.IsLegacyBackupOplog(bcp.PBMVersion) {
+				return checkFile(stg, rs.OplogName)
+			}
+
+			files, err := stg.List(rs.OplogName, "")
+			if err != nil {
+				return errors.Wrap(err, "list")
+			}
+			if len(files) == 0 {
+				return errors.Wrap(err, "no oplog files")
+			}
+			for i := range files {
+				if files[i].Size == 0 {
+					return errors.Errorf("%q is empty", path.Join(rs.OplogName, files[i].Name))
+				}
+			}
+
+			return nil
+		})
 
 		if legacy {
 			continue
