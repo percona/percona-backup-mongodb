@@ -1,7 +1,6 @@
 package snapshot
 
 import (
-	"context"
 	"io"
 	"log"
 	"time"
@@ -17,12 +16,11 @@ import (
 )
 
 type backuper struct {
-	d     *mongodump.MongoDump
-	pm    *progress.BarWriter
-	stopC chan struct{}
+	d  *mongodump.MongoDump
+	pm *progress.BarWriter
 }
 
-func NewBackup(curi string, conns int, d, c string) (io.WriterTo, error) {
+func NewBackup(curi string, conns int, d, c string) (*backuper, error) {
 	if conns <= 0 {
 		conns = 1
 	}
@@ -90,36 +88,10 @@ func (d *backuper) WriteTo(to io.Writer) (int64, error) {
 	d.pm.Start()
 	defer d.pm.Stop()
 
-	d.stopC = make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-d.stopC:
-			d.d.HandleInterrupt()
-		}
-
-		d.stopC = nil
-	}()
-
 	d.d.OutputWriter = to
 	err = d.d.Dump()
 
 	return 0, errors.Wrap(err, "make dump")
-}
-
-func (d *backuper) Cancel() {
-	if c := d.stopC; c != nil {
-		select {
-		case _, ok := <-c:
-			if ok {
-				close(c)
-			}
-		default:
-		}
-	}
 }
 
 type DummyBackup struct{}

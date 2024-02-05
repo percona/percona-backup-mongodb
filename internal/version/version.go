@@ -15,7 +15,7 @@ import (
 )
 
 // current PBM version
-const version = "2.3.1-next"
+const version = "2.4.0-dev"
 
 var (
 	platform  string
@@ -139,6 +139,10 @@ func majmin(v string) string {
 
 func IsLegacyArchive(ver string) bool {
 	return semver.Compare(majmin(ver), "v2.0") == -1
+}
+
+func IsLegacyBackupOplog(ver string) bool {
+	return semver.Compare(majmin(ver), "v2.4") == -1
 }
 
 // BreakingChangesMap map of versions introduced breaking changes to respective

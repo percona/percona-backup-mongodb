@@ -43,7 +43,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	lock := lock.NewLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdDeleteBackup,
@@ -51,7 +51,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, lock, l)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -70,8 +70,10 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 	case d.OlderThan > 0:
 		t := time.Unix(d.OlderThan, 0).UTC()
 		obj := t.Format("2006-01-02T15:04:05Z")
+
 		l = logger.NewEvent(string(ctrl.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		ctx := log.SetLogEventToContext(ctx, l)
+
 		l.Info("deleting backups older than %v", t)
 		err := backup.DeleteBackupBefore(ctx, a.leadConn, t, "")
 		if err != nil {
@@ -81,6 +83,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 	case d.Backup != "":
 		l = logger.NewEvent(string(ctrl.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
 		ctx := log.SetLogEventToContext(ctx, l)
+
 		l.Info("deleting backup")
 		err := backup.DeleteBackup(ctx, a.leadConn, d.Backup)
 		if err != nil {
@@ -119,7 +122,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	lock := lock.NewLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdDeletePITR,
@@ -127,7 +130,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, lock, l)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return
@@ -173,11 +176,6 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 
 	ctx = log.SetLogEventToContext(ctx, l)
 
-	if d == nil {
-		l.Error("missed command")
-		return
-	}
-
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		l.Error("get node info data: %v", err)
@@ -189,7 +187,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	}
 
 	epts := ep.TS()
-	lock := lock.NewOpLock(a.leadConn, lock.LockHeader{
+	lock := lock.NewLock(a.leadConn, lock.LockHeader{
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
 		Type:    ctrl.CmdCleanup,
@@ -197,7 +195,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		Epoch:   &epts,
 	})
 
-	got, err := a.acquireLock(ctx, lock, l, nil)
+	got, err := a.acquireLock(ctx, lock, l)
 	if err != nil {
 		l.Error("acquire lock: %v", err)
 		return

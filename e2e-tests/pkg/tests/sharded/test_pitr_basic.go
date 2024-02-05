@@ -107,7 +107,7 @@ func (c *Cluster) pitrOff() {
 	}
 	log.Println("Turning pitr off")
 	log.Println("waiting for the pitr to stop")
-	err = c.mongopbm.WaitOp(context.TODO(),
+	err = c.mongopbm.WaitConcurentOp(context.TODO(),
 		&lock.LockHeader{Type: ctrl.CmdPITR},
 		time.Minute*5)
 	if err != nil {

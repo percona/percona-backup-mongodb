@@ -50,7 +50,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 		Epoch:   &epoch,
 	})
 
-	nominated, err := a.acquireLock(ctx, lck, l, nil)
+	nominated, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
 		l.Error("acquiring lock: %s", err.Error())
 		return

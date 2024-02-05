@@ -77,12 +77,12 @@ func sendCommand(ctx context.Context, m connect.Client, cmd Cmd) (OPID, error) {
 	cmd.TS = time.Now().UTC().Unix()
 	res, err := m.CmdStreamCollection().InsertOne(ctx, cmd)
 	if err != nil {
-		return NilOPID(), err
+		return NilOPID, err
 	}
 
 	opid, ok := res.InsertedID.(primitive.ObjectID)
 	if !ok {
-		return NilOPID(), errors.New("unexpected opid type")
+		return NilOPID, errors.New("unexpected opid type")
 	}
 
 	return OPID(opid), nil

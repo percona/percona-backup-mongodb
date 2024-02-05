@@ -766,7 +766,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe && op.Namespace == "config.chunks" {
-			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+			if mongo.IsDuplicateKeyError(err) {
 				return nil
 			}
 		}

@@ -363,13 +363,12 @@ func (p pitrStat) String() string {
 // isOplogSlicing checks if PITR slicing is running. It looks for PITR locks
 // and returns true if there is at least one not stale.
 func isOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
-	l, err := lock.GetLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
-	if errors.Is(err, mongo.ErrNoDocuments) || len(l) == 0 {
-		return false, nil
-	}
-
+	locks, err := lock.GetOpLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
 	if err != nil {
 		return false, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return false, nil
 	}
 
 	ct, err := topo.GetClusterTime(ctx, conn)
@@ -377,8 +376,8 @@ func isOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
 		return false, errors.Wrap(err, "get cluster time")
 	}
 
-	for _, lk := range l {
-		if lk.Heartbeat.T+defs.StaleFrameSec >= ct.T {
+	for i := range locks {
+		if locks[i].Heartbeat.T+defs.StaleFrameSec >= ct.T {
 			return true, nil
 		}
 	}
