@@ -683,9 +683,22 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 }
 
 func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
+	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.Before, bcpName)
+}
+
+func (b *Backup) setClusterLastWriteForPhysical(ctx context.Context, bcpName string) error {
+	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.After, bcpName)
+}
+
+func setClusterLastWriteImpl(
+	ctx context.Context,
+	conn connect.Client,
+	cmp func(a, b primitive.Timestamp) bool,
+	bcpName string,
+) error {
 	var err error
 	var bcp *BackupMeta
-	dbManager := NewDBManager(b.leadConn)
+	dbManager := NewDBManager(conn)
 
 	// make sure all replset has the last write ts
 	for {
@@ -706,12 +719,12 @@ func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error 
 
 	lw := bcp.Replsets[0].LastWriteTS
 	for i := 1; i != len(bcp.Replsets); i++ {
-		if rs := &bcp.Replsets[i]; rs.LastWriteTS.Before(lw) {
+		if rs := &bcp.Replsets[i]; cmp(rs.LastWriteTS, lw) {
 			lw = rs.LastWriteTS
 		}
 	}
 
-	err = SetLastWrite(ctx, b.leadConn, bcpName, lw)
+	err = SetLastWrite(ctx, conn, bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
 }
 
