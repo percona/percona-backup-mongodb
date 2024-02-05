@@ -52,7 +52,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete backup %s: %v", backups[4].name, err)
 	}
 	log.Println("wait for delete")
-	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeleteBackup}, time.Minute*5)
+	err = c.mongopbm.WaitOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeleteBackup}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
@@ -65,7 +65,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete backups older than %s: %v", backups[3].name, err)
 	}
 	log.Println("wait for delete")
-	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeleteBackup}, time.Minute*5)
+	err = c.mongopbm.WaitOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeleteBackup}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("waiting for the delete: %v", err)
 	}
@@ -113,7 +113,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete pitr older than %s: %v", tsp.Format("2006-01-02T15:04:05"), err)
 	}
 	log.Println("wait for delete-pitr")
-	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeletePITR}, time.Minute*5)
+	err = c.mongopbm.WaitOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeletePITR}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
 	}
@@ -143,7 +143,7 @@ func (c *Cluster) BackupDelete(storage string) {
 		log.Fatalf("ERROR: delete all pitr: %v", err)
 	}
 	log.Println("wait for delete-pitr all")
-	err = c.mongopbm.WaitConcurentOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeletePITR}, time.Minute*5)
+	err = c.mongopbm.WaitOp(context.TODO(), &lock.LockHeader{Type: ctrl.CmdDeletePITR}, time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the delete-pitr: %v", err)
 	}

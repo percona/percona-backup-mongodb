@@ -13,7 +13,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/internal/defs"
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/topo"
 )
 
 type Timeline struct {
@@ -168,9 +167,4 @@ func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 	}
 
 	return c != 0, nil
-}
-
-// LastWrite returns a timestamp of the last write operation readable by majority reads
-func (ot *OplogBackup) LastWrite(ctx context.Context) (primitive.Timestamp, error) {
-	return topo.GetLastWrite(ctx, ot.cl, true)
 }

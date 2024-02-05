@@ -124,7 +124,7 @@ func ResyncStorage(ctx context.Context, m connect.Client, l log.LogEvent) error 
 			l.Warning("skip pitr chunk %s/%s because of %v", defs.PITRfsPrefix, f.Name, err)
 			continue
 		}
-		chnk := oplog.PITRmetaFromFName(f.Name)
+		chnk := oplog.MakeChunkMetaFromFilepath(f.Name)
 		if chnk != nil {
 			chnk.Size = stat.Size
 			pitr = append(pitr, chnk)

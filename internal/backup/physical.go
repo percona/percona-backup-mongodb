@@ -319,7 +319,7 @@ func (b *Backup) doPhysical(
 			return errors.Wrap(err, "set cluster first write ts")
 		}
 
-		err = b.setClusterLastWrite(ctx, bcp.Name)
+		err = b.setClusterLastWriteForPhysical(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}

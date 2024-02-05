@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/percona/percona-backup-mongodb/internal/backup"
 	"github.com/percona/percona-backup-mongodb/internal/config"
 	"github.com/percona/percona-backup-mongodb/internal/ctrl"
@@ -17,36 +19,27 @@ import (
 )
 
 type currentBackup struct {
-	header *ctrl.BackupCmd
 	cancel context.CancelFunc
 }
 
-func (a *Agent) setBcp(b *currentBackup) bool {
+func (a *Agent) setBcp(b *currentBackup) {
 	a.mx.Lock()
 	defer a.mx.Unlock()
-	if a.bcp != nil {
-		return false
-	}
 
 	a.bcp = b
-	return true
-}
-
-func (a *Agent) unsetBcp() {
-	a.mx.Lock()
-	a.bcp = nil
-	a.mx.Unlock()
 }
 
 // CancelBackup cancels current backup
 func (a *Agent) CancelBackup() {
 	a.mx.Lock()
 	defer a.mx.Unlock()
+
 	if a.bcp == nil {
 		return
 	}
 
 	a.bcp.cancel()
+	a.bcp = nil
 }
 
 // Backup starts backup
@@ -67,6 +60,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("get node info: %v", err)
 		return
 	}
+	// TODO: do the check on the agent start only
 	if nodeInfo.IsStandalone() {
 		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. " +
 			"Please restart it as a primary in a single-node replicaset " +
@@ -78,7 +72,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
 	if err != nil {
 		l.Error("node check: %v", err)
-		if !isClusterLeader {
+		if errors.Is(err, context.Canceled) || !isClusterLeader {
 			return
 		}
 	}
@@ -89,10 +83,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	// wakeup the slicer not to wait for the tick
-	if p := a.getPitr(); p != nil {
-		p.w <- &opid
-	}
+	// wakeup the slicer to not wait for the tick
+	go a.sliceNow(opid)
 
 	var bcp *backup.Backup
 	switch cmd.Type {
@@ -117,6 +109,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("backups cannot be saved because PBM storage configuration hasn't been set yet")
 		return
 	}
+
+	bcp.SetSlicerInterval(cfg.BackupSlicerInterval())
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
 	if isClusterLeader {
@@ -187,21 +181,28 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			l.Error("get cluster members: %v", err)
 			return
 		}
-		for _, sh := range shards {
-			go func(rs string) {
-				err := a.nominateRS(ctx, cmd.Name, rs, nodes.RS(rs), l)
-				if err != nil {
-					l.Error("nodes nomination for %s: %v", rs, err)
-				}
-			}(sh.RS)
+
+		errGrp, grpCtx := errgroup.WithContext(ctx)
+		for i := range shards {
+			rs := shards[i].RS
+
+			errGrp.Go(func() error {
+				err := a.nominateRS(grpCtx, cmd.Name, rs, nodes.RS(rs))
+				return errors.Wrapf(err, "nodes nomination for %s", rs)
+			})
+		}
+
+		err = errGrp.Wait()
+		if err != nil {
+			l.Error(err.Error())
+			return
 		}
 	}
 
-	nominated, err := a.waitNomination(ctx, cmd.Name, nodeInfo.SetName, nodeInfo.Me, l)
+	nominated, err := a.waitNomination(ctx, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
 		l.Error("wait for nomination: %v", err)
 	}
-
 	if !nominated {
 		l.Debug("skip after nomination, probably started by another node")
 		return
@@ -216,13 +217,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		Epoch:   &epoch,
 	})
 
-	// install a backup lock despite having PITR one
-	got, err := a.acquireLock(ctx, lck, l, func(ctx context.Context) (bool, error) {
-		return lck.Rewrite(ctx, &lock.LockHeader{
-			Replset: a.brief.SetName,
-			Type:    ctrl.CmdPITR,
-		})
-	})
+	got, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
 		l.Error("acquiring lock: %v", err)
 		return
@@ -231,6 +226,13 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Debug("skip: lock not acquired")
 		return
 	}
+	defer func() {
+		l.Debug("releasing lock")
+		err = lck.Release()
+		if err != nil {
+			l.Error("unable to release backup lock %v: %v", lck, err)
+		}
+	}()
 
 	err = backup.SetRSNomineeACK(ctx, a.leadConn, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
@@ -238,13 +240,13 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	bcpCtx, cancel := context.WithCancel(ctx)
-	a.setBcp(&currentBackup{
-		header: cmd,
-		cancel: cancel,
-	})
+	defer cancel()
+
+	a.setBcp(&currentBackup{cancel: cancel})
+	defer a.setBcp(nil)
+
 	l.Info("backup started")
 	err = bcp.Run(bcpCtx, cmd, opid, l)
-	a.unsetBcp()
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
 			l.Info("backup was canceled")
@@ -254,18 +256,14 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	} else {
 		l.Info("backup finished")
 	}
-
-	l.Debug("releasing lock")
-	err = lck.Release()
-	if err != nil {
-		l.Error("unable to release backup lock %v: %v", lck, err)
-	}
 }
 
 const renominationFrame = 5 * time.Second
 
-func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string, l log.LogEvent) error {
+func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string) error {
+	l := log.LogEventFromContext(ctx)
 	l.Debug("nomination list for %s: %v", rs, nodes)
+
 	err := backup.SetRSNomination(ctx, a.leadConn, bcp, rs)
 	if err != nil {
 		return errors.Wrap(err, "set nomination meta")
@@ -298,7 +296,9 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 	return nil
 }
 
-func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string, l log.LogEvent) (bool, error) {
+func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool, error) {
+	l := log.LogEventFromContext(ctx)
+
 	tk := time.NewTicker(time.Millisecond * 500)
 	defer tk.Stop()
 

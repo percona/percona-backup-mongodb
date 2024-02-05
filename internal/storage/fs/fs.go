@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/percona/percona-backup-mongodb/internal/errors"
-
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 )
 
@@ -158,7 +157,14 @@ func (fs *FS) Copy(src, dst string) error {
 	if err != nil {
 		return errors.Wrap(err, "open src")
 	}
-	to, err := os.Create(path.Join(fs.root, dst))
+
+	destFilename := path.Join(fs.root, dst)
+	err = os.MkdirAll(path.Dir(destFilename), os.ModeDir|0o755)
+	if err != nil {
+		return errors.Wrap(err, "create dst dir")
+	}
+
+	to, err := os.Create(destFilename)
 	if err != nil {
 		return errors.Wrap(err, "create dst")
 	}
