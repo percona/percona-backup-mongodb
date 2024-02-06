@@ -370,28 +370,40 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list chunks before")
 	}
-	if !exclude {
+	if !exclude || len(backups) == 0 {
 		// all chunks can be deleted. there is a backup to fully restore data
+		// or no backup to exclude later
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
-	// the following check is needed for "delete all" special case.
-	// if there is no base snapshot after `ts` and PITR is running,
-	// the last base snapshot before `ts` should be excluded.
-	// otherwise, it is allowed to delete everything before `ts`
-	required, err := isRequiredForOplogSlicing(ctx, conn, ts)
+	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
 	if err != nil {
 		return CleanupInfo{}, err
 	}
-	if !required {
+	if !enabled || oplogOnly {
+		// oplog slicing is disabled or it is not snapshot based
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
+	keepTS := ts
 	// the `baseIndex` could be the base snapshot index for PITR to the `ts`
 	// or for currently running PITR
 	baseIndex := findLastBaseSnapshotIndex(backups)
+	if baseIndex != -1 {
+		keepTS = backups[baseIndex].LastWriteTS
+	}
+
+	nextBaseLastWrite, err := FindBaseSnapshotLWAfter(ctx, conn, keepTS)
+	if err != nil {
+		return CleanupInfo{}, errors.Wrap(err, "find next snapshot")
+	}
+	if !nextBaseLastWrite.IsZero() {
+		// there is another valid base snapshot for oplog slicing
+		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
+	}
+
 	if baseIndex == -1 {
-		// nothing to keep
+		// no valid base snapshot to exclude
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
@@ -399,9 +411,11 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	origin := chunks
 	chunks = []oplog.OplogChunk{}
 	for i := range origin {
-		if backups[baseIndex].LastWriteTS.Compare(origin[i].EndTS) != -1 {
+		if keepTS.Compare(origin[i].EndTS) != -1 {
 			chunks = append(chunks, origin[i])
 		} else {
+			// there is chunk after keepTS (the last valid base snapshot last write ts)
+			// the backup must be excluded
 			excluded = true
 		}
 	}
@@ -409,8 +423,12 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	// if excluded is false, the last found base snapshot is not used for PITR
 	// no need to keep it. otherwise, should be excluded
 	if excluded {
-		copy(backups[baseIndex:], backups[baseIndex+1:])
-		backups = backups[:len(backups)-1]
+		if backups[baseIndex].Type == defs.IncrementalBackup {
+			backups = extractIncrementalChain(backups)
+		} else {
+			copy(backups[baseIndex:], backups[baseIndex+1:])
+			backups = backups[:len(backups)-1]
+		}
 	}
 
 	return CleanupInfo{Backups: backups, Chunks: chunks}, nil
@@ -492,6 +510,44 @@ func extractLastIncrementalChain(
 	}
 
 	return bcps, nil
+}
+
+func extractIncrementalChain(bcps []BackupMeta) []BackupMeta {
+	// lookup for the last incremental
+	i := len(bcps) - 1
+	for ; i != -1; i-- {
+		if bcps[i].Status != defs.StatusDone {
+			continue
+		}
+		if bcps[i].Type == defs.IncrementalBackup {
+			break
+		}
+	}
+	if i == -1 {
+		// not found
+		return bcps
+	}
+
+	for base := bcps[i].Name; i != -1; i-- {
+		if bcps[i].Status != defs.StatusDone {
+			continue
+		}
+		if bcps[i].Name != base {
+			continue
+		}
+		base = bcps[i].SrcBackup
+
+		// exclude the backup from slice by index
+		copy(bcps[i:], bcps[i+1:])
+		bcps = bcps[:len(bcps)-1]
+
+		if base == "" {
+			// the root/base of the chain
+			break
+		}
+	}
+
+	return bcps
 }
 
 func findLastBaseSnapshotIndex(bcps []BackupMeta) int {
