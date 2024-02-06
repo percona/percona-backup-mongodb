@@ -270,7 +270,7 @@ func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primit
 		return false, errors.Wrap(err, "get oplog range from previous backup")
 	}
 	// check if there is a gap (missed ops) in oplog range between previous and following backup restore_to time
-	if len(timelines) != 1 || prevRestoreTime.T < timelines[0].Start {
+	if len(timelines) != 1 || prevRestoreTime.T >= timelines[0].Start {
 		return false, nil
 	}
 
