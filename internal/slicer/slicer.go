@@ -322,12 +322,16 @@ func (s *Slicer) Stream(
 
 				sliceTo, err = s.backupRSStartTS(ctx, opid, timeouts.StartingStatus())
 				if err != nil {
-					return errors.Wrap(err, "get backup start TS")
-				}
+					if !errors.Is(err, errUnsuitableBackup) {
+						return errors.Wrap(err, "get backup start TS")
+					}
 
-				// it can happen that prevoius slice >= backup's fisrt_write
-				// in that case we have to just back off.
-				if s.lastTS.After(sliceTo) {
+					s.l.Info("unsuitable backup [opid: %q]", opid)
+					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
+					sliceTo = primitive.Timestamp{}
+				} else if s.lastTS.After(sliceTo) {
+					// it can happen that prevoius slice >= backup's fisrt_write
+					// in that case we have to just back off.
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
 					return nil
 				}
