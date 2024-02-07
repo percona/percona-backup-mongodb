@@ -20,7 +20,7 @@ define ENVS_STATIC
 endef
 
 BUILD_FLAGS=-mod=vendor -tags gssapi
-versionpath?=github.com/percona/percona-backup-mongodb/version
+versionpath?=github.com/percona/percona-backup-mongodb/internal/version
 LDFLAGS= -X $(versionpath).gitCommit=$(GITCOMMIT) -X $(versionpath).gitBranch=$(GITBRANCH) -X $(versionpath).buildTime=$(BUILDTIME) -X $(versionpath).version=$(VERSION)
 LDFLAGS_STATIC=$(LDFLAGS) -extldflags "-static"
 LDFLAGS_TESTS_BUILD=$(LDFLAGS)
