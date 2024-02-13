@@ -442,7 +442,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
-		epch, err := config.ResetEpoch(a.leadConn)
+		epch, err := config.ResetEpoch(ctx, a.leadConn)
 		if err != nil {
 			l.Error("reset epoch: %v", err)
 		}
