@@ -137,6 +137,8 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
 		s.lastTS = rs.FirstWriteTS
 	}
 
@@ -145,8 +147,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
 		return nil
 	}
-	s.lastTS = lastBackup.LastWriteTS
-	s.l.Info("copy snapshot [%s] oplog: %v", lastBackup.Name, err)
+	s.lastTS = rs.LastWriteTS
 
 	return nil
 }
@@ -475,7 +476,6 @@ func (s *Slicer) upload(
 		}
 	}
 
-	s.l.Info("created chunk %s - %s", formatts(from), formatts(to))
 	return nil
 }
 
