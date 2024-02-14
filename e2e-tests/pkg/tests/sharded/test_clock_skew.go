@@ -4,7 +4,7 @@ import (
 	"log"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func (c *Cluster) ClockSkew(typ defs.BackupType, mongoVersion string) {

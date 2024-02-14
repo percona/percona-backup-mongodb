@@ -13,9 +13,9 @@ import (
 	dtypes "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 
-	"github.com/percona/percona-backup-mongodb/internal/defs"
-	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
 
 type Ctl struct {

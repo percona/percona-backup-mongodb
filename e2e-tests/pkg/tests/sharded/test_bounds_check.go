@@ -10,7 +10,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 type scounter struct {

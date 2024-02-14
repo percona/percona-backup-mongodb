@@ -9,14 +9,14 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/percona/percona-backup-mongodb/internal/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 
-	"github.com/percona/percona-backup-mongodb/internal/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type Results struct {

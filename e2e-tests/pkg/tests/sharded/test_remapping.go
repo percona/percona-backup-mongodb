@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 type RemappingEnvironment struct {

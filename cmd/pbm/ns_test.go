@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 func TestParseCLINSOption(t *testing.T) {
