@@ -327,7 +327,11 @@ func ListDeleteBackupBefore(
 	}
 
 	pred := func(m *BackupMeta) bool { return m.Type == bcpType }
-	if bcpType == SelectiveBackup {
+	if bcpType == defs.LogicalBackup {
+		pred = func(m *BackupMeta) bool {
+			return m.Type == defs.LogicalBackup && !util.IsSelective(m.Namespaces)
+		}
+	} else if bcpType == SelectiveBackup {
 		pred = func(m *BackupMeta) bool { return util.IsSelective(m.Namespaces) }
 	}
 
@@ -346,62 +350,37 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
-
-	exclude := true
-	if l := len(backups) - 1; l != -1 && backups[l].LastWriteTS.T == ts.T {
-		// there is a backup at the `ts`
-		if isValidBaseSnapshot(&backups[l]) {
-			// it can be used to fully restore data to the `ts` state.
-			// no need to exclude any base snapshot and chunks before the `ts`
-			exclude = false
-		}
-		// the backup is not considered to be deleted.
-		// used only for `exclude` value
-		backups = backups[:l]
-	}
-
-	// exclude the last incremental backups if it is required for following (after the `ts`)
-	backups, err = extractLastIncrementalChain(ctx, conn, backups)
-	if err != nil {
-		return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
-	}
-
 	chunks, err := listChunksBefore(ctx, conn, ts)
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list chunks before")
 	}
-	if !exclude || len(backups) == 0 {
-		// all chunks can be deleted. there is a backup to fully restore data
-		// or no backup to exclude later
+	if len(backups) == 0 {
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
-	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
-	if err != nil {
-		return CleanupInfo{}, err
-	}
-	if !enabled || oplogOnly {
-		// oplog slicing is disabled or it is not snapshot based
-		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
+	if r := &backups[len(backups)-1]; r.LastWriteTS.T == ts.T {
+		// there is a backup at the `ts`
+		backups = backups[:len(backups)-1]
+
+		if isValidBaseSnapshot(r) {
+			// it can be used to fully restore data to the `ts` state.
+			// no need to exclude any backups and chunks before the `ts`.
+			// except increments that is base for following increment (after `ts`) must be excluded
+			backups, err = extractLastIncrementalChain(ctx, conn, backups)
+			if err != nil {
+				return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
+			}
+
+			return CleanupInfo{Backups: backups, Chunks: chunks}, nil
+		}
 	}
 
-	keepTS := ts
-	// the `baseIndex` could be the base snapshot index for PITR to the `ts`
-	// or for currently running PITR
-	baseIndex := findLastBaseSnapshotIndex(backups)
-	if baseIndex != -1 {
-		keepTS = backups[baseIndex].LastWriteTS
+	baseIndex := len(backups) - 1
+	for ; baseIndex != -1; baseIndex-- {
+		if isValidBaseSnapshot(&backups[baseIndex]) {
+			break
+		}
 	}
-
-	nextBaseLastWrite, err := FindBaseSnapshotLWAfter(ctx, conn, keepTS)
-	if err != nil {
-		return CleanupInfo{}, errors.Wrap(err, "find next snapshot")
-	}
-	if !nextBaseLastWrite.IsZero() {
-		// there is another valid base snapshot for oplog slicing
-		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
-	}
-
 	if baseIndex == -1 {
 		// no valid base snapshot to exclude
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
@@ -411,24 +390,43 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	origin := chunks
 	chunks = []oplog.OplogChunk{}
 	for i := range origin {
-		if keepTS.Compare(origin[i].EndTS) != -1 {
+		if origin[i].EndTS.Before(backups[baseIndex].LastWriteTS) {
 			chunks = append(chunks, origin[i])
 		} else {
-			// there is chunk after keepTS (the last valid base snapshot last write ts)
+			// keep chunks after the last base snapshot restore time
 			// the backup must be excluded
 			excluded = true
 		}
 	}
 
-	// if excluded is false, the last found base snapshot is not used for PITR
-	// no need to keep it. otherwise, should be excluded
 	if excluded {
-		if backups[baseIndex].Type == defs.IncrementalBackup {
-			backups = extractIncrementalChain(backups)
-		} else {
-			copy(backups[baseIndex:], backups[baseIndex+1:])
-			backups = backups[:len(backups)-1]
+		// there is chunk(s) between snapshot and ts. keep the snapshot
+		copy(backups[baseIndex:], backups[baseIndex+1:])
+		backups = backups[:len(backups)-1]
+	} else {
+		// no chunks yet but if PITR is ON, the last snapshot can be base for the PITR
+		enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
+		if err != nil {
+			return CleanupInfo{}, errors.Wrap(err, "get PITR status")
 		}
+		if enabled && !oplogOnly {
+			nextRestoreTime, err := FindBaseSnapshotLWAfter(ctx, conn, ts)
+			if err != nil {
+				return CleanupInfo{}, errors.Wrap(err, "find next snapshot")
+			}
+
+			if nextRestoreTime.IsZero() {
+				// there is base snapshot for PITR after ts
+				copy(backups[baseIndex:], backups[baseIndex+1:])
+				backups = backups[:len(backups)-1]
+			}
+		}
+	}
+
+	// exclude increments that is base for following increment (after `ts`)
+	backups, err = extractLastIncrementalChain(ctx, conn, backups)
+	if err != nil {
+		return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
 	}
 
 	return CleanupInfo{Backups: backups, Chunks: chunks}, nil
@@ -490,44 +488,10 @@ func extractLastIncrementalChain(
 		return bcps, nil
 	}
 
-	for base := bcps[i].Name; i != -1; i-- {
-		if bcps[i].Status != defs.StatusDone {
-			continue
-		}
-		if bcps[i].Name != base {
-			continue
-		}
-		base = bcps[i].SrcBackup
-
-		// exclude the backup from slice by index
-		copy(bcps[i:], bcps[i+1:])
-		bcps = bcps[:len(bcps)-1]
-
-		if base == "" {
-			// the root/base of the chain
-			break
-		}
-	}
-
-	return bcps, nil
+	return extractIncrementalChain(bcps, i), nil
 }
 
-func extractIncrementalChain(bcps []BackupMeta) []BackupMeta {
-	// lookup for the last incremental
-	i := len(bcps) - 1
-	for ; i != -1; i-- {
-		if bcps[i].Status != defs.StatusDone {
-			continue
-		}
-		if bcps[i].Type == defs.IncrementalBackup {
-			break
-		}
-	}
-	if i == -1 {
-		// not found
-		return bcps
-	}
-
+func extractIncrementalChain(bcps []BackupMeta, i int) []BackupMeta {
 	for base := bcps[i].Name; i != -1; i-- {
 		if bcps[i].Status != defs.StatusDone {
 			continue
@@ -548,14 +512,4 @@ func extractIncrementalChain(bcps []BackupMeta) []BackupMeta {
 	}
 
 	return bcps
-}
-
-func findLastBaseSnapshotIndex(bcps []BackupMeta) int {
-	for i := len(bcps) - 1; i != -1; i-- {
-		if isValidBaseSnapshot(&bcps[i]) {
-			return i
-		}
-	}
-
-	return -1
 }
