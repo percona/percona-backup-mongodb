@@ -118,7 +118,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client) error {
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type != defs.PhysicalBackup && bcp.Type != defs.ExternalBackup {
+		if bcp.Type == defs.LogicalBackup {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}

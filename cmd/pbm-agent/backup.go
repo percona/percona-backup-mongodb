@@ -15,7 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/internal/log"
 	"github.com/percona/percona-backup-mongodb/internal/storage"
 	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/util"
 	"github.com/percona/percona-backup-mongodb/internal/version"
 )
 
@@ -84,7 +83,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	if cmd.Type == defs.LogicalBackup && !util.IsSelective(cmd.Namespaces) {
+	if cmd.Type == defs.LogicalBackup {
 		// wakeup the slicer to not wait for the tick
 		go a.sliceNow(opid)
 	}

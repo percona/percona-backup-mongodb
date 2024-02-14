@@ -113,7 +113,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return errors.Wrap(err, "get last chunk")
 	}
 
-	if lastBackup.Type != defs.LogicalBackup || util.IsSelective(lastBackup.Namespaces) {
+	if lastBackup.Type != defs.LogicalBackup {
 		// the backup does not contain complete oplog to copy from
 		// NOTE: the chunk' last op can be later than backup' first write ts
 		s.lastTS = lastChunk.EndTS
