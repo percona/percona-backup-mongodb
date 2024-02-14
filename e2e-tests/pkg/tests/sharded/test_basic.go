@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func (c *Cluster) BackupAndRestore(typ defs.BackupType) {

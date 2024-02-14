@@ -10,7 +10,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 
-	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {

@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/percona/percona-backup-mongodb/internal/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 func parseRSNamesMapping(s string) (map[string]string, error) {

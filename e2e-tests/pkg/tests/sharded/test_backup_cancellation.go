@@ -12,8 +12,8 @@ import (
 	"github.com/minio/minio-go"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/internal/config"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
