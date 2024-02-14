@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/internal/backup"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
-	"github.com/percona/percona-backup-mongodb/internal/errors"
-	"github.com/percona/percona-backup-mongodb/internal/topo"
-	"github.com/percona/percona-backup-mongodb/internal/util"
-	"github.com/percona/percona-backup-mongodb/internal/version"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func TestBcpMatchCluster(t *testing.T) {

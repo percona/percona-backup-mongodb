@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/internal/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func runRemappingTests(t *sharded.RemappingEnvironment) {

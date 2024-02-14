@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/internal/connect"
-	"github.com/percona/percona-backup-mongodb/internal/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 )
 
 func sendCmd(ctx context.Context, conn connect.Client, cmd ctrl.Cmd) error {
