@@ -386,25 +386,26 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
-	excluded := false
-	origin := chunks
-	chunks = []oplog.OplogChunk{}
-	for i := range origin {
-		if origin[i].EndTS.Before(backups[baseIndex].LastWriteTS) {
-			chunks = append(chunks, origin[i])
+	beforeChunks := []oplog.OplogChunk{}
+	afterChunks := []oplog.OplogChunk{}
+	for _, chunk := range chunks {
+		if chunk.EndTS.Before(backups[baseIndex].LastWriteTS) {
+			beforeChunks = append(beforeChunks, chunk)
 		} else {
 			// keep chunks after the last base snapshot restore time
-			// the backup must be excluded
-			excluded = true
+			// the backup may be excluded
+			afterChunks = append(afterChunks, chunk)
 		}
 	}
 
-	if excluded {
-		// there is chunk(s) between snapshot and ts. keep the snapshot
+	if oplog.HasSingleTimelineToCover(afterChunks, backups[baseIndex].LastWriteTS.T, ts.T) {
+		// there is single continuous oplog range between snapshot and ts.
+		// keep the backup and chunks to be able to restore to the ts
 		copy(backups[baseIndex:], backups[baseIndex+1:])
 		backups = backups[:len(backups)-1]
+		chunks = beforeChunks
 	} else {
-		// no chunks yet but if PITR is ON, the last snapshot can be base for the PITR
+		// no chunks yet but if PITR is ON, the backup can be base snapshot for it
 		enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
 		if err != nil {
 			return CleanupInfo{}, errors.Wrap(err, "get PITR status")
@@ -416,9 +417,10 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 			}
 
 			if nextRestoreTime.IsZero() {
-				// there is base snapshot for PITR after ts
+				// it is not the last base snapshot for PITR
 				copy(backups[baseIndex:], backups[baseIndex+1:])
 				backups = backups[:len(backups)-1]
+				chunks = beforeChunks
 			}
 		}
 	}
