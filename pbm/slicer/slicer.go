@@ -120,10 +120,11 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	fmt.Printf("lastChunk.EndTS [%d.%d] < rs.FirstWriteTS [%d.%d] => %v",
-		lastChunk.EndTS.T, lastChunk.EndTS.I,
-		rs.FirstWriteTS.T, rs.FirstWriteTS.I,
-		lastChunk.EndTS.Before(rs.FirstWriteTS))
+	if !lastChunk.EndTS.Before(rs.LastWriteTS) {
+		// no need to copy oplog from backup
+		s.lastTS = lastChunk.EndTS
+		return nil
+	}
 
 	// if there is a gap between chunk and the backup - fill it
 	// failed gap shouldn't prevent further chunk creation
