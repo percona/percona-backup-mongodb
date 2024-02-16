@@ -113,17 +113,18 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return errors.Wrap(err, "get last chunk")
 	}
 
-	if lastBackup.Type != defs.LogicalBackup || util.IsSelective(lastBackup.Namespaces) {
+	if lastBackup.Type != defs.LogicalBackup {
 		// the backup does not contain complete oplog to copy from
 		// NOTE: the chunk' last op can be later than backup' first write ts
 		s.lastTS = lastChunk.EndTS
 		return nil
 	}
 
-	fmt.Printf("lastChunk.EndTS [%d.%d] < rs.FirstWriteTS [%d.%d] => %v",
-		lastChunk.EndTS.T, lastChunk.EndTS.I,
-		rs.FirstWriteTS.T, rs.FirstWriteTS.I,
-		lastChunk.EndTS.Before(rs.FirstWriteTS))
+	if !lastChunk.EndTS.Before(rs.LastWriteTS) {
+		// no need to copy oplog from backup
+		s.lastTS = lastChunk.EndTS
+		return nil
+	}
 
 	// if there is a gap between chunk and the backup - fill it
 	// failed gap shouldn't prevent further chunk creation
@@ -137,6 +138,8 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
 		s.lastTS = rs.FirstWriteTS
 	}
 
@@ -145,8 +148,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
 		return nil
 	}
-	s.lastTS = lastBackup.LastWriteTS
-	s.l.Info("copy snapshot [%s] oplog: %v", lastBackup.Name, err)
+	s.lastTS = rs.LastWriteTS
 
 	return nil
 }
@@ -322,12 +324,16 @@ func (s *Slicer) Stream(
 
 				sliceTo, err = s.backupRSStartTS(ctx, opid, timeouts.StartingStatus())
 				if err != nil {
-					return errors.Wrap(err, "get backup start TS")
-				}
+					if !errors.Is(err, errUnsuitableBackup) {
+						return errors.Wrap(err, "get backup start TS")
+					}
 
-				// it can happen that prevoius slice >= backup's fisrt_write
-				// in that case we have to just back off.
-				if s.lastTS.After(sliceTo) {
+					s.l.Info("unsuitable backup [opid: %q]", opid)
+					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
+					sliceTo = primitive.Timestamp{}
+				} else if s.lastTS.After(sliceTo) {
+					// it can happen that prevoius slice >= backup's fisrt_write
+					// in that case we have to just back off.
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
 					return nil
 				}
@@ -471,7 +477,6 @@ func (s *Slicer) upload(
 		}
 	}
 
-	s.l.Info("created chunk %s - %s", formatts(from), formatts(to))
 	return nil
 }
 

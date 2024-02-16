@@ -104,7 +104,7 @@ func (c *clientImpl) GetBackupByName(
 
 	if options.FetchIncrements && bcp.Type == IncrementalBackup {
 		if bcp.SrcBackup != "" {
-			return nil, errors.New("cannot fetch increments for non-base increment")
+			return nil, ErrNotBaseIncrement
 		}
 
 		increments, err := backup.FetchAllIncrements(ctx, c.conn, bcp)
@@ -133,12 +133,16 @@ func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
 }
 
 func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (CommandID, error) {
-	meta, err := backup.NewDBManager(c.conn).GetBackupByName(ctx, name)
+	opts := GetBackupByNameOptions{FetchIncrements: true}
+	bcp, err := c.GetBackupByName(ctx, name, opts)
 	if err != nil {
 		return NoOpID, errors.Wrap(err, "get backup meta")
 	}
-
-	err = backup.CanDeleteBackup(ctx, c.conn, meta)
+	if bcp.Type == defs.IncrementalBackup {
+		err = CanDeleteIncrementalBackup(ctx, c, bcp, bcp.Increments)
+	} else {
+		err = CanDeleteBackup(ctx, c, bcp)
+	}
 	if err != nil {
 		return NoOpID, err
 	}

@@ -118,7 +118,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client) error {
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type != defs.PhysicalBackup && bcp.Type != defs.ExternalBackup {
+		if bcp.Type == defs.LogicalBackup {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}
@@ -442,7 +442,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
-		epch, err := config.ResetEpoch(a.leadConn)
+		epch, err := config.ResetEpoch(ctx, a.leadConn)
 		if err != nil {
 			l.Error("reset epoch: %v", err)
 		}

@@ -458,11 +458,7 @@ func GetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	return Epoch(c.Epoch), nil
 }
 
-func ResetEpoch(m connect.Client) (Epoch, error) {
-	return ResetEpochWithContext(context.Background(), m)
-}
-
-func ResetEpochWithContext(ctx context.Context, m connect.Client) (Epoch, error) {
+func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return Epoch{}, errors.Wrap(err, "get cluster time")

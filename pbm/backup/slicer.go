@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -22,9 +23,10 @@ func startOplogSlicer(
 	ctx context.Context,
 	m *mongo.Client,
 	interval time.Duration,
-	nextOpTime primitive.Timestamp,
+	startOpTime primitive.Timestamp,
 	upload uploadChunkFunc,
 ) stopSlicerFunc {
+	l := log.LogEventFromContext(ctx)
 	var uploaded int64
 	var err error
 
@@ -57,27 +59,36 @@ func startOplogSlicer(
 					return
 				}
 
-				log.LogEventFromContext(ctx).Error("failed to get last write: %v", err)
+				l.Error("failed to get last write: %v", err)
 				continue
 			}
-			if !currOpTime.After(nextOpTime) {
+			if !currOpTime.After(startOpTime) {
 				continue
 			}
 
-			oplog.SetTailingSpan(nextOpTime, currOpTime)
+			oplog.SetTailingSpan(startOpTime, currOpTime)
 
 			var n int64
-			n, err = upload(ctx, oplog, nextOpTime, currOpTime)
+			n, err = upload(ctx, oplog, startOpTime, currOpTime)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
 				}
 
-				log.LogEventFromContext(ctx).Error("failed to upload oplog: %v", err)
+				l.Error("failed to upload oplog: %v", err)
 				continue
 			}
 
-			nextOpTime = currOpTime
+			logm := fmt.Sprintf("created chunk %s - %s",
+				time.Unix(int64(startOpTime.T), 0).UTC().Format("2006-01-02T15:04:05"),
+				time.Unix(int64(currOpTime.T), 0).UTC().Format("2006-01-02T15:04:05"))
+			if keepRunning {
+				nextChunkT := time.Now().Add(interval)
+				logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT)
+			}
+			l.Info(logm)
+
+			startOpTime = currOpTime
 			uploaded += n
 		}
 	}()
@@ -91,6 +102,6 @@ func startOplogSlicer(
 			<-stoppedC
 		}
 
-		return nextOpTime, uploaded, err
+		return startOpTime, uploaded, err
 	}
 }

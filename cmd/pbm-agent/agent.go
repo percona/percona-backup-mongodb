@@ -206,7 +206,7 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 	}
 	l.Info("succeed")
 
-	epch, err := config.ResetEpoch(a.leadConn)
+	epch, err := config.ResetEpoch(ctx, a.leadConn)
 	if err != nil {
 		l.Error("reset epoch: %v", err)
 		return

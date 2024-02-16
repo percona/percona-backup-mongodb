@@ -472,3 +472,22 @@ func pitrParseTS(tstr string) *primitive.Timestamp {
 
 	return &ts
 }
+
+func HasSingleTimelineToCover(chunks []OplogChunk, from, till uint32) bool {
+	rss := make(map[string][]OplogChunk)
+	for _, c := range chunks {
+		rss[c.RS] = append(rss[c.RS], c)
+	}
+	tlns := make([][]Timeline, 0, len(rss))
+	for _, slices := range rss {
+		tlns = append(tlns, gettimelines(slices))
+	}
+
+	for _, r := range MergeTimelines(tlns...) {
+		if r.Start <= from && till <= r.End {
+			return true
+		}
+	}
+
+	return false
+}

@@ -289,7 +289,7 @@ func FindBaseSnapshotLWAfter(
 	cc connect.Client,
 	lw primitive.Timestamp,
 ) (primitive.Timestamp, error) {
-	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$gt": lw})
+	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$gt": lw}, 1)
 }
 
 func FindBaseSnapshotLWBefore(
@@ -297,17 +297,24 @@ func FindBaseSnapshotLWBefore(
 	cc connect.Client,
 	lw primitive.Timestamp,
 ) (primitive.Timestamp, error) {
-	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw})
+	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw}, -1)
 }
 
-func findBaseSnapshotLWImpl(ctx context.Context, conn connect.Client, lwCond bson.M) (primitive.Timestamp, error) {
+func findBaseSnapshotLWImpl(
+	ctx context.Context,
+	conn connect.Client,
+	lwCond bson.M,
+	sort int,
+) (primitive.Timestamp, error) {
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
 		{"last_write_ts", lwCond},
 		{"status", defs.StatusDone},
 	}
-	o := options.FindOne().SetProjection(bson.D{{"last_write_ts", 1}})
+	o := options.FindOne().
+		SetProjection(bson.D{{"last_write_ts", 1}}).
+		SetSort(bson.D{{"last_write_ts", sort}})
 	res := conn.BcpCollection().FindOne(ctx, f, o)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {

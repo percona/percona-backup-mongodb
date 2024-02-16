@@ -111,6 +111,11 @@ func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sd
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "parse --older-than")
 	}
+	if n := time.Now().UTC(); ts.T > uint32(n.Unix()) {
+		providedTime := time.Unix(int64(ts.T), 0).UTC().Format(time.RFC3339)
+		realTime := n.Format(time.RFC3339)
+		return sdk.NoOpID, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
+	}
 
 	bcpType := sdk.ParseBackupType(d.bcpType)
 	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType)
@@ -189,6 +194,11 @@ func deletePITR(
 		if err != nil {
 			return nil, errors.Wrap(err, "parse --older-then")
 		}
+		if n := time.Now().UTC(); ts.T > uint32(n.Unix()) {
+			providedTime := time.Unix(int64(ts.T), 0).UTC().Format(time.RFC3339)
+			realTime := n.Format(time.RFC3339)
+			return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
+		}
 	}
 	cid, err := pbm.DeleteOplogRange(ctx, ts)
 	if err != nil {
@@ -214,6 +224,12 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *clea
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
 	}
+	if n := time.Now().UTC(); ts.T > uint32(n.Unix()) {
+		providedTime := time.Unix(int64(ts.T), 0).UTC().Format(time.RFC3339)
+		realTime := n.Format(time.RFC3339)
+		return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
+	}
+
 	info, err := pbm.CleanupReport(ctx, ts)
 	if err != nil {
 		return nil, errors.Wrap(err, "make cleanup report")

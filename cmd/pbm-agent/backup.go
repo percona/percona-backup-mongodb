@@ -83,8 +83,10 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	// wakeup the slicer to not wait for the tick
-	go a.sliceNow(opid)
+	if cmd.Type == defs.LogicalBackup {
+		// wakeup the slicer to not wait for the tick
+		go a.sliceNow(opid)
+	}
 
 	var bcp *backup.Backup
 	switch cmd.Type {

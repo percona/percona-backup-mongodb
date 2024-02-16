@@ -77,7 +77,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 	}
 	l.Info("oplog replay successfully finished")
 
-	resetEpoch, err := config.ResetEpoch(a.leadConn)
+	resetEpoch, err := config.ResetEpoch(ctx, a.leadConn)
 	if err != nil {
 		l.Error("reset epoch: %s", err.Error())
 		return

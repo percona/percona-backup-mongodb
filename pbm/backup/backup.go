@@ -314,14 +314,6 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	if inf.IsLeader() {
-		var epch config.Epoch
-		epch, err = config.ResetEpochWithContext(ctx, b.leadConn)
-		if err != nil {
-			l.Error("reset epoch")
-		} else {
-			l.Debug("epoch set to %v", epch)
-		}
-
 		err = b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for backup done")

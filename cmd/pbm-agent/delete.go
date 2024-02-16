@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -74,8 +75,20 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		l = logger.NewEvent(string(ctrl.CmdDeleteBackup), obj, opid.String(), ep.TS())
 		ctx := log.SetLogEventToContext(ctx, l)
 
+		ct, err := topo.GetClusterTime(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get cluster time: %v", err)
+			return
+		}
+		if d.OlderThan > int64(ct.T) {
+			providedTime := t.Format(time.RFC3339)
+			realTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
+			l.Error("provided time %q is after now %q", providedTime, realTime)
+			return
+		}
+
 		l.Info("deleting backups older than %v", t)
-		err := backup.DeleteBackupBefore(ctx, a.leadConn, t, "")
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, "")
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -148,11 +161,28 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 	if d.OlderThan > 0 {
 		t := time.Unix(d.OlderThan, 0).UTC()
 		obj := t.Format("2006-01-02T15:04:05Z")
+
 		l = logger.NewEvent(string(ctrl.CmdDeletePITR), obj, opid.String(), ep.TS())
+		ctx := log.SetLogEventToContext(ctx, l)
+
+		var ct primitive.Timestamp
+		ct, err = topo.GetClusterTime(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get cluster time: %v", err)
+			return
+		}
+		if d.OlderThan > int64(ct.T) {
+			providedTime := t.Format(time.RFC3339)
+			realTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
+			l.Error("provided time %q is after now %q", providedTime, realTime)
+			return
+		}
+
 		l.Info("deleting pitr chunks older than %v", t)
 		err = oplogtmp.DeletePITR(ctx, a.leadConn, &t, l)
 	} else {
 		l = logger.NewEvent(string(ctrl.CmdDeletePITR), "_all_", opid.String(), ep.TS())
+		ctx := log.SetLogEventToContext(ctx, l)
 		l.Info("deleting all pitr chunks")
 		err = oplogtmp.DeletePITR(ctx, a.leadConn, nil, l)
 	}
@@ -209,6 +239,18 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 			l.Error("release lock: %v", err)
 		}
 	}()
+
+	ct, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get cluster time: %v", err)
+		return
+	}
+	if d.OlderThan.T > ct.T {
+		providedTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
+		realTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
+		l.Error("provided time %q is after now %q", providedTime, realTime)
+		return
+	}
 
 	stg, err := util.GetStorage(ctx, a.leadConn, l)
 	if err != nil {
