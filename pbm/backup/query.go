@@ -296,8 +296,9 @@ func FindBaseSnapshotLWBefore(
 	ctx context.Context,
 	cc connect.Client,
 	lw primitive.Timestamp,
+	exclude primitive.Timestamp,
 ) (primitive.Timestamp, error) {
-	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw}, -1)
+	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw, "$ne": exclude}, -1)
 }
 
 func findBaseSnapshotLWImpl(

@@ -142,7 +142,7 @@ func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) er
 		return ErrIncrementalBackup
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS)
+	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS, primitive.Timestamp{})
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -178,7 +178,7 @@ func CanDeleteIncrementalChain(
 		}
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite)
+	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite, base.LastWriteTS)
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -262,7 +262,12 @@ func isValidBaseSnapshot(bcp *BackupMeta) bool {
 	return true
 }
 
-func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primitive.Timestamp) (bool, error) {
+func isRequiredForOplogSlicing(
+	ctx context.Context,
+	cc connect.Client,
+	lw primitive.Timestamp,
+	baseLW primitive.Timestamp,
+) (bool, error) {
 	enabled, oplogOnly, err := config.IsPITREnabled(ctx, cc)
 	if err != nil {
 		return false, err
@@ -280,7 +285,7 @@ func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primit
 		return false, nil
 	}
 
-	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw)
+	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw, baseLW)
 	if err != nil {
 		return false, errors.Wrap(err, "find previous snapshot")
 	}
