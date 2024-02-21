@@ -254,7 +254,7 @@ func waitOp(ctx context.Context, conn connect.Client, lck *lock.LockHeader) erro
 				return errors.Wrap(err, "read cluster time")
 			}
 
-			if clusterTime.T-lock.Heartbeat.T < defs.StaleFrameSec {
+			if clusterTime.T-lock.Heartbeat.T >= defs.StaleFrameSec {
 				return errors.Errorf("operation stale, last beat ts: %d", lock.Heartbeat.T)
 			}
 		}
