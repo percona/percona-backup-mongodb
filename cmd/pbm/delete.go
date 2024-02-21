@@ -71,6 +71,11 @@ func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (
 	opts := sdk.GetBackupByNameOptions{FetchIncrements: true}
 	bcp, err := pbm.GetBackupByName(ctx, d.name, opts)
 	if err != nil {
+		if errors.Is(err, sdk.ErrNotBaseIncrement) {
+			err = errors.New("Removing a single incremental backup is not allowed; " +
+				"the entire chain must be removed instead.")
+			return sdk.NoOpID, err
+		}
 		return sdk.NoOpID, errors.Wrap(err, "get backup metadata")
 	}
 	if bcp.Type == defs.IncrementalBackup {
