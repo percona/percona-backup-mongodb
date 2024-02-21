@@ -112,12 +112,13 @@ wait_noop() {
     set +o xtrace
 
     retry=0
-    until [ "$(mongo_run 'db.getSiblingDB("admin").pbmLock.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ]; do
+    until [ "$(mongo_run 'db.getSiblingDB("admin").pbmLock.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ] && [ "$(mongo_run 'db.getSiblingDB("admin").pbmLockOp.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ]; do
         sleep 1
         echo -n .
         let retry+=1
         if [ $retry -ge 120 ]; then
             mongo_run 'db.getSiblingDB("admin").pbmLock.find()' "cfg"
+            mongo_run 'db.getSiblingDB("admin").pbmLockOp.find()' "cfg"
             exit 1
         fi
     done
