@@ -87,8 +87,14 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 
+		bcpType, err := backup.ParseDeleteBackupType(string(d.Type))
+		if err != nil {
+			l.Error("parse type field: %v", err.Error())
+			return
+		}
+
 		l.Info("deleting backups older than %v", t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, "")
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return

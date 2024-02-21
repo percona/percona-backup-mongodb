@@ -14,20 +14,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-var errMissedClusterTime = errors.New("missed cluster time")
+var (
+	errMissedClusterTime       = errors.New("missed cluster time")
+	errInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
+)
 
-func ParseBackupType(s string) BackupType {
-	switch s {
-	case
-		string(PhysicalBackup),
-		string(ExternalBackup),
-		string(IncrementalBackup),
-		string(LogicalBackup),
-		string(SelectiveBackup):
-		return BackupType(s)
-	}
-
-	return ""
+func ParseDeleteBackupType(s string) (BackupType, error) {
+	return backup.ParseDeleteBackupType(s)
 }
 
 func IsHeartbeatStale(clusterTime, other Timestamp) bool {
