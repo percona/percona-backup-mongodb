@@ -79,6 +79,11 @@ func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (
 		err = sdk.CanDeleteBackup(ctx, pbm, bcp)
 	}
 	if err != nil {
+		if errors.Is(err, sdk.ErrNotBaseIncrement) || errors.Is(err, sdk.ErrIncrementalBackup) {
+			err = errors.New("Removing a single incremental backup is not allowed; " +
+				"the entire chain must be removed instead.")
+			return sdk.NoOpID, err
+		}
 		return sdk.NoOpID, errors.Wrap(err, "backup cannot be deleted")
 	}
 
