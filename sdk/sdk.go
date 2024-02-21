@@ -92,6 +92,10 @@ type GetAllRestoresOptions struct {
 	Limit int64
 }
 
+type DeleteBackupBeforeOptions struct {
+	Type BackupType
+}
+
 type Command = ctrl.Cmd
 
 type Client interface {
@@ -112,7 +116,7 @@ type Client interface {
 	CancelBackup(ctx context.Context) (CommandID, error)
 
 	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
-	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp) (CommandID, error)
+	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp, options DeleteBackupBeforeOptions) (CommandID, error)
 
 	DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error)
 

@@ -20,6 +20,26 @@ import (
 
 const SelectiveBackup defs.BackupType = "selective"
 
+var ErrInvalidDeleteBackupType = errors.New("invalid backup type")
+
+func ParseDeleteBackupType(s string) (defs.BackupType, error) {
+	if s == "" {
+		return "", nil
+	}
+
+	switch s {
+	case
+		string(defs.PhysicalBackup),
+		string(defs.ExternalBackup),
+		string(defs.IncrementalBackup),
+		string(defs.LogicalBackup),
+		string(SelectiveBackup):
+		return defs.BackupType(s), nil
+	}
+
+	return "", ErrInvalidDeleteBackupType
+}
+
 var (
 	ErrBackupInProgress     = errors.New("backup is in progress")
 	ErrIncrementalBackup    = errors.New("backup is incremental")

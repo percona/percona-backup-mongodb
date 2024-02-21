@@ -122,7 +122,10 @@ func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sd
 		return sdk.NoOpID, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
 	}
 
-	bcpType := sdk.ParseBackupType(d.bcpType)
+	bcpType, err := backup.ParseDeleteBackupType(d.bcpType)
+	if err != nil {
+		return sdk.NoOpID, errors.Wrap(err, "parse --type")
+	}
 	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType)
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "fetch backup list")
@@ -141,7 +144,7 @@ func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sd
 		}
 	}
 
-	cid, err := pbm.DeleteBackupBefore(ctx, ts)
+	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType})
 	return cid, errors.Wrap(err, "schedule delete")
 }
 

@@ -151,8 +151,12 @@ func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (Comma
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) DeleteBackupBefore(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
-	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, "")
+func (c *clientImpl) DeleteBackupBefore(
+	ctx context.Context,
+	beforeTS Timestamp,
+	options DeleteBackupBeforeOptions,
+) (CommandID, error) {
+	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, options.Type)
 	return CommandID(opid.String()), err
 }
 
