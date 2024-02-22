@@ -11,6 +11,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -85,4 +86,12 @@ func ListDeleteBackupBefore(
 	bcpType BackupType,
 ) ([]BackupMetadata, error) {
 	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
+}
+
+func ListDeleteChunksBefore(
+	ctx context.Context,
+	sc Client,
+	ts primitive.Timestamp,
+) ([]OplogChunk, error) {
+	return oplog.ListChunksBefore(ctx, sc.(*clientImpl).conn, ts)
 }
