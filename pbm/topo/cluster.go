@@ -31,16 +31,20 @@ func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp,
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
-	inf, err := GetNodeInfoExt(ctx, m.MongoClient())
+	inf, err := GetNodeInfo(ctx, m.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}
 
-	if inf.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "no clusterTime in response")
+	return ClusterTimeFromNodeInfo(inf)
+}
+
+func ClusterTimeFromNodeInfo(info *NodeInfo) (primitive.Timestamp, error) {
+	if info.ClusterTime == nil {
+		return primitive.Timestamp{}, errors.New("no clusterTime in response")
 	}
 
-	return inf.ClusterTime.ClusterTime, nil
+	return info.ClusterTime.ClusterTime, nil
 }
 
 func GetLastWrite(ctx context.Context, m *mongo.Client, majority bool) (primitive.Timestamp, error) {
