@@ -396,6 +396,14 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 				return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
 			}
 
+			beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
+			for _, chunk := range chunks {
+				if chunk.EndTS.Before(r.LastWriteTS) {
+					beforeChunks = append(beforeChunks, chunk)
+				}
+			}
+			chunks = beforeChunks
+
 			return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 		}
 	}
@@ -408,6 +416,15 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	}
 	if baseIndex == -1 {
 		// no valid base snapshot to exclude
+
+		beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
+		for _, chunk := range chunks {
+			if chunk.EndTS.Before(ts) {
+				beforeChunks = append(beforeChunks, chunk)
+			}
+		}
+		chunks = beforeChunks
+
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
