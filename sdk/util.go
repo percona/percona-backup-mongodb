@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	errMissedClusterTime       = errors.New("missed cluster time")
-	errInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
+	ErrMissedClusterTime       = errors.New("missed cluster time")
+	ErrInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
 )
 
 func ParseDeleteBackupType(s string) (BackupType, error) {
@@ -33,7 +33,7 @@ func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
 		return primitive.Timestamp{}, err
 	}
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errMissedClusterTime
+		return primitive.Timestamp{}, ErrMissedClusterTime
 	}
 
 	return info.ClusterTime.ClusterTime, nil
