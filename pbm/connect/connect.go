@@ -60,6 +60,9 @@ func UnsafeClient(m *mongo.Client) Client {
 	return &clientImpl{m}
 }
 
+// Connect resolves MongoDB connection to Primary member and wraps it within Client object.
+// In case of replica set it returns connection to Primary member,
+// while in case of sharded cluster it returns connection to Config RS Primary member.
 func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, error) {
 	if opts == nil {
 		opts = &ConnectOptions{}
