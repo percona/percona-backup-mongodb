@@ -93,5 +93,5 @@ func ListDeleteChunksBefore(
 	sc Client,
 	ts primitive.Timestamp,
 ) ([]OplogChunk, error) {
-	return oplog.ListChunksBefore(ctx, sc.(*clientImpl).conn, ts)
+	return oplog.ListDeleteChunksBefore(ctx, sc.(*clientImpl).conn, ts)
 }

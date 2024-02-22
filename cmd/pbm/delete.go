@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -171,16 +170,17 @@ func deletePITR(
 		return nil, errors.New("cannot use --older-then and --all at the same command")
 	}
 
-	now := time.Now().UTC()
 	var until primitive.Timestamp
 	if d.all {
-		until = primitive.Timestamp{T: uint32(now.Unix())}
+		until = primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}
 	} else {
 		var err error
 		until, err = parseOlderThan(d.olderThan)
 		if err != nil {
 			return nil, errors.Wrap(err, "parse --older-then")
 		}
+
+		now := time.Now().UTC()
 		if until.T > uint32(now.Unix()) {
 			providedTime := time.Unix(int64(until.T), 0).UTC().Format(time.RFC3339)
 			realTime := now.Format(time.RFC3339)
@@ -194,24 +194,19 @@ func deletePITR(
 	}
 
 	if enabled && !oplogOnly {
-		lw, err := backup.FindBaseSnapshotLWBefore(ctx, conn, until, primitive.Timestamp{})
+		lw, err := backup.FindBaseSnapshotLWBefore(ctx,
+			conn, primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}, primitive.Timestamp{})
 		if err != nil {
 			return nil, errors.Wrap(err, "find previous snapshot")
 		}
 		if !lw.IsZero() {
-			until = lw
+			if lw.T < until.T || (lw.T == until.T && (until.I == 0 || lw.I < until.I)) {
+				until = lw
+			}
 		}
 	}
 
-	lw, err := backup.FindBaseSnapshotLWBefore(ctx, conn, until, primitive.Timestamp{})
-	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, errors.Wrap(err, "find base snapshot")
-	}
-	if !lw.IsZero() {
-		until = lw
-	}
-
-	chunks, err := sdk.ListDeleteChunksBefore(ctx, pbm, lw)
+	chunks, err := sdk.ListDeleteChunksBefore(ctx, pbm, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "list chunks")
 	}
@@ -356,7 +351,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 			}
 
 			restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
-			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]",
+			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]\n",
 				bcp.Name, fmtSize(bcp.Size), t, restoreTime)
 		}
 	}

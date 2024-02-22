@@ -308,16 +308,23 @@ func deletePITRImpl(ctx context.Context, conn connect.Client, ts primitive.Times
 	}
 
 	if cfg.PITR.Enabled && !cfg.PITR.OplogOnly {
-		lw, err := backup.FindBaseSnapshotLWBefore(ctx, conn, ts, primitive.Timestamp{})
+		ct, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "get cluster time")
+		}
+
+		lw, err := backup.FindBaseSnapshotLWBefore(ctx, conn, ct, primitive.Timestamp{})
 		if err != nil {
 			return errors.Wrap(err, "find previous snapshot")
 		}
 		if !lw.IsZero() {
-			ts = lw
+			if lw.T < ts.T || (lw.T == ts.T && (ts.I == 0 || lw.I < ts.I)) {
+				ts = lw
+			}
 		}
 	}
 
-	chunks, err := oplog.ListChunksBefore(ctx, conn, ts)
+	chunks, err := oplog.ListDeleteChunksBefore(ctx, conn, ts)
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}

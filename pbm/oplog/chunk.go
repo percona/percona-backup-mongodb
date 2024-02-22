@@ -492,7 +492,7 @@ func HasSingleTimelineToCover(chunks []OplogChunk, from, till uint32) bool {
 	return false
 }
 
-func ListChunksBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]OplogChunk, error) {
+func ListDeleteChunksBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]OplogChunk, error) {
 	f := bson.D{{"end_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"start_ts", 1}})
 	cur, err := conn.PITRChunksCollection().Find(ctx, f, o)
