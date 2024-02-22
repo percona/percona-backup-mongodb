@@ -24,13 +24,13 @@ var (
 	buildTime string
 )
 
-type Info struct { //nolint:musttag
-	Version   string
-	Platform  string
-	GitCommit string
-	GitBranch string
-	BuildTime string
-	GoVersion string
+type Info struct {
+	Version   string `json:"Version"`
+	Platform  string `json:"Platform"`
+	GitCommit string `json:"GitCommit"`
+	GitBranch string `json:"GitBranch"`
+	BuildTime string `json:"BuildTime"`
+	GoVersion string `json:"GoVersion"`
 }
 
 const plain = `Version:   %s
