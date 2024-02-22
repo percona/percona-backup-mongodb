@@ -92,14 +92,13 @@ func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (
 		return sdk.NoOpID, errors.Wrap(err, "backup cannot be deleted")
 	}
 
-	fmt.Println(shortBcpInfo(bcp))
-	if bcp.Type == sdk.IncrementalBackup {
-		for _, increments := range bcp.Increments {
-			for _, inc := range increments {
-				fmt.Println(shortBcpInfo(inc))
-			}
+	allBackups := []sdk.BackupMetadata{*bcp}
+	for _, increments := range bcp.Increments {
+		for _, inc := range increments {
+			allBackups = append(allBackups, *inc)
 		}
 	}
+	printDeleteInfoTo(os.Stdout, allBackups, nil)
 
 	if d.dryRun {
 		return sdk.NoOpID, nil
@@ -136,9 +135,7 @@ func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sd
 		return sdk.NoOpID, errors.Wrap(err, "fetch backup list")
 	}
 
-	for i := range backups {
-		fmt.Println(shortBcpInfo(&backups[i]))
-	}
+	printDeleteInfoTo(os.Stdout, backups, nil)
 
 	if d.dryRun {
 		return sdk.NoOpID, nil
@@ -151,20 +148,6 @@ func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sd
 
 	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType})
 	return cid, errors.Wrap(err, "schedule delete")
-}
-
-func shortBcpInfo(bcp *sdk.BackupMetadata) string {
-	size := fmtSize(bcp.Size)
-
-	t := string(bcp.Type)
-	if bcp.Type == sdk.LogicalBackup && len(bcp.Namespaces) != 0 {
-		t += ", selective"
-	} else if bcp.Type == defs.IncrementalBackup && bcp.SrcBackup == "" {
-		t += ", base"
-	}
-
-	restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
-	return fmt.Sprintf("%q [size: %s type: <%s>, restore time: %s]", bcp.Name, size, t, restoreTime)
 }
 
 type deletePitrOpts struct {
@@ -251,14 +234,13 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *clea
 		return outMsg{"nothing to delete"}, nil
 	}
 
-	if d.dryRun {
-		b := &strings.Builder{}
-		printCleanupInfoTo(b, info.Backups, info.Chunks)
-		return b, nil
-	}
+	printDeleteInfoTo(os.Stdout, info.Backups, info.Chunks)
 
+	if d.dryRun {
+		return nil, nil
+	}
 	if !d.yes {
-		if err := askCleanupConfirmation(info); err != nil {
+		if err := askConfirmation("Are you sure you want to delete?"); err != nil {
 			if errors.Is(err, errUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
@@ -319,19 +301,22 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.Duration(d * 24 * int64(time.Hour)), nil
 }
 
-func printCleanupInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.OplogChunk) {
+func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.OplogChunk) {
 	if len(backups) != 0 {
 		fmt.Fprintln(w, "Snapshots:")
 		for i := range backups {
 			bcp := &backups[i]
+
 			t := string(bcp.Type)
-			if util.IsSelective(bcp.Namespaces) {
+			if bcp.Type == sdk.LogicalBackup && len(bcp.Namespaces) != 0 {
 				t += ", selective"
 			} else if bcp.Type == defs.IncrementalBackup && bcp.SrcBackup == "" {
 				t += ", base"
 			}
-			fmt.Fprintf(w, " - %s <%s> [restore_time: %s]\n",
-				bcp.Name, t, fmtTS(int64(bcp.LastWriteTS.T)))
+
+			restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
+			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]",
+				bcp.Name, fmtSize(bcp.Size), t, restoreTime)
 		}
 	}
 
@@ -369,11 +354,6 @@ func printCleanupInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog
 			fmt.Fprintf(w, " - %s - %s\n", fmtTS(int64(r.Start.T)), fmtTS(int64(r.End.T)))
 		}
 	}
-}
-
-func askCleanupConfirmation(info backup.CleanupInfo) error {
-	printCleanupInfoTo(os.Stdout, info.Backups, info.Chunks)
-	return askConfirmation("Are you sure you want to delete?")
 }
 
 var errUserCanceled = errors.New("canceled")
