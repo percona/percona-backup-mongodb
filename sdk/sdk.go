@@ -135,6 +135,11 @@ func NewClient(ctx context.Context, uri string) (Client, error) {
 	return &clientImpl{conn: conn}, nil
 }
 
+func WaitForCleanup(ctx context.Context, client Client) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdCleanup}
+	return waitOp(ctx, client.(*clientImpl).conn, lck)
+}
+
 func WaitForDeleteBackup(ctx context.Context, client Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdDeleteBackup}
 	return waitOp(ctx, client.(*clientImpl).conn, lck)

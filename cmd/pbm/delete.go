@@ -427,6 +427,8 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 
 	var waitFn func(ctx context.Context, client sdk.Client) error
 	switch cmd.Cmd {
+	case ctrl.CmdCleanup:
+		waitFn = sdk.WaitForCleanup
 	case ctrl.CmdDeleteBackup:
 		waitFn = sdk.WaitForDeleteBackup
 	case ctrl.CmdDeletePITR:
