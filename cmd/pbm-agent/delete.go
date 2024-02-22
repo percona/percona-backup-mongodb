@@ -23,8 +23,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
-var errPITREnabled = errors.New("snapshot-based oplog slicing is enabled")
-
 // Delete deletes backup(s) from the store and cleans up its metadata
 func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.OPID, ep config.Epoch) {
 	logger := log.FromContext(ctx)

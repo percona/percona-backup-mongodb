@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -249,28 +247,6 @@ func deletePITR(
 	}
 
 	return waitForDelete(ctx, conn, pbm, cid)
-}
-
-func findPITRBaseSnapshotFor(
-	ctx context.Context,
-	sc connect.Client,
-	ts primitive.Timestamp,
-) (*sdk.BackupMetadata, error) {
-	f := bson.D{
-		{"nss", nil},
-		{"type", bson.M{"$ne": defs.ExternalBackup}},
-		{"last_write_ts", bson.M{"$lte": ts}},
-		{"status", defs.StatusDone},
-	}
-	o := options.FindOne().SetSort(bson.D{{"last_write_ts", -1}})
-	res := sc.BcpCollection().FindOne(ctx, f, o)
-	if err := res.Err(); err != nil {
-		return nil, errors.Wrap(err, "query")
-	}
-
-	bcp := &sdk.BackupMetadata{}
-	err := res.Decode(&bcp)
-	return bcp, errors.Wrap(err, "decode")
 }
 
 type cleanupOptions struct {
