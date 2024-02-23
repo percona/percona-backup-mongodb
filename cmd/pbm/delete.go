@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -33,7 +34,6 @@ func deleteBackup(
 	conn connect.Client,
 	pbm sdk.Client,
 	d *deleteBcpOpts,
-	outf outFormat,
 ) (fmt.Stringer, error) {
 	if d.name == "" && d.olderThan == "" {
 		return nil, errors.New("either --name or --older-than should be set")
@@ -59,7 +59,7 @@ func deleteBackup(
 		return nil, err
 	}
 
-	if outf != outText || d.dryRun {
+	if d.dryRun {
 		return nil, nil
 	}
 
@@ -153,6 +153,8 @@ type deletePitrOpts struct {
 	olderThan string
 	yes       bool
 	all       bool
+	wait      bool
+	dryRun    bool
 }
 
 func deletePITR(
@@ -160,15 +162,63 @@ func deletePITR(
 	conn connect.Client,
 	pbm sdk.Client,
 	d *deletePitrOpts,
-	outf outFormat,
 ) (fmt.Stringer, error) {
+	if d.olderThan == "" && !d.all {
+		return nil, errors.New("either --older-than or --all should be set")
+	}
 	if d.olderThan != "" && d.all {
 		return nil, errors.New("cannot use --older-then and --all at the same command")
 	}
-	if !d.all && d.olderThan == "" {
-		return nil, errors.New("either --older-than or --all should be set")
+
+	var until primitive.Timestamp
+	if d.all {
+		until = primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}
+	} else {
+		var err error
+		until, err = parseOlderThan(d.olderThan)
+		if err != nil {
+			return nil, errors.Wrap(err, "parse --older-then")
+		}
+
+		now := time.Now().UTC()
+		if until.T > uint32(now.Unix()) {
+			providedTime := time.Unix(int64(until.T), 0).UTC().Format(time.RFC3339)
+			realTime := now.Format(time.RFC3339)
+			return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
+		}
 	}
 
+	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "check pitr status")
+	}
+
+	if enabled && !oplogOnly {
+		lw, err := backup.FindBaseSnapshotLWBefore(ctx,
+			conn, primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}, primitive.Timestamp{})
+		if err != nil {
+			return nil, errors.Wrap(err, "find previous snapshot")
+		}
+		if !lw.IsZero() {
+			if lw.T < until.T || (lw.T == until.T && (until.I == 0 || lw.I < until.I)) {
+				until = lw
+			}
+		}
+	}
+
+	chunks, err := sdk.ListDeleteChunksBefore(ctx, pbm, until)
+	if err != nil {
+		return nil, errors.Wrap(err, "list chunks")
+	}
+	if len(chunks) == 0 {
+		return outMsg{"nothing to delete"}, nil
+	}
+
+	printDeleteInfoTo(os.Stdout, nil, chunks)
+
+	if d.dryRun {
+		return nil, nil
+	}
 	if !d.yes {
 		q := "Are you sure you want to delete chunks?"
 		if d.all {
@@ -182,26 +232,13 @@ func deletePITR(
 		}
 	}
 
-	var ts primitive.Timestamp
-	if d.olderThan != "" {
-		var err error
-		ts, err = parseOlderThan(d.olderThan)
-		if err != nil {
-			return nil, errors.Wrap(err, "parse --older-then")
-		}
-		if n := time.Now().UTC(); ts.T > uint32(n.Unix()) {
-			providedTime := time.Unix(int64(ts.T), 0).UTC().Format(time.RFC3339)
-			realTime := n.Format(time.RFC3339)
-			return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
-		}
-	}
-	cid, err := pbm.DeleteOplogRange(ctx, ts)
+	cid, err := pbm.DeleteOplogRange(ctx, until)
 	if err != nil {
 		return nil, errors.Wrap(err, "schedule pitr delete")
 	}
 
-	if outf != outText {
-		return nil, nil
+	if !d.wait {
+		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
 	return waitForDelete(ctx, conn, pbm, cid)
@@ -314,7 +351,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 			}
 
 			restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
-			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]",
+			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]\n",
 				bcp.Name, fmtSize(bcp.Size), t, restoreTime)
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -59,6 +60,7 @@ type (
 	Config          = config.Config
 	BackupMetadata  = backup.BackupMeta
 	RestoreMetadata = restore.RestoreMeta
+	OplogChunk      = oplog.OplogChunk
 	CleanupReport   = backup.CleanupInfo
 )
 
