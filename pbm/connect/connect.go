@@ -15,18 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
-// todo: remove this
-type ConnectOptions struct {
-	AppName string
-}
-
 type MongoOption func(*options.ClientOptions) error
-
-// todo: rename this
-type MongoConnectOptions struct {
-	AppName string
-	Direct  bool
-}
 
 func AppName(name string) MongoOption {
 	return func(opts *options.ClientOptions) error {
@@ -64,7 +53,7 @@ func MongoConnect(ctx context.Context, uri string, mongoOptions ...MongoOption) 
 		uri = "mongodb://" + uri
 	}
 
-	// default options - suitable for most of cases
+	// default options
 	mopts := options.Client().
 		SetAppName("pbm").
 		SetReadPreference(readpref.Primary()).
