@@ -11,7 +11,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -93,5 +92,6 @@ func ListDeleteChunksBefore(
 	sc Client,
 	ts primitive.Timestamp,
 ) ([]OplogChunk, error) {
-	return oplog.ListDeleteChunksBefore(ctx, sc.(*clientImpl).conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, sc.(*clientImpl).conn, ts)
+	return r.Chunks, err
 }

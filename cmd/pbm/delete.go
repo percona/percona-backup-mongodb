@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -185,24 +184,6 @@ func deletePITR(
 			providedTime := time.Unix(int64(until.T), 0).UTC().Format(time.RFC3339)
 			realTime := now.Format(time.RFC3339)
 			return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
-		}
-	}
-
-	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "check pitr status")
-	}
-
-	if enabled && !oplogOnly {
-		lw, err := backup.FindBaseSnapshotLWBefore(ctx,
-			conn, primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}, primitive.Timestamp{})
-		if err != nil {
-			return nil, errors.Wrap(err, "find previous snapshot")
-		}
-		if !lw.IsZero() {
-			if lw.T < until.T || (lw.T == until.T && (until.I == 0 || lw.I < until.I)) {
-				until = lw
-			}
 		}
 	}
 

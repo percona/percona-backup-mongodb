@@ -302,43 +302,21 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 func deletePITRImpl(ctx context.Context, conn connect.Client, ts primitive.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
-	cfg, err := config.GetConfig(ctx, conn)
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-
-	if cfg.PITR.Enabled && !cfg.PITR.OplogOnly {
-		ct, err := topo.GetClusterTime(ctx, conn)
-		if err != nil {
-			return errors.Wrap(err, "get cluster time")
-		}
-
-		lw, err := backup.FindBaseSnapshotLWBefore(ctx, conn, ct, primitive.Timestamp{})
-		if err != nil {
-			return errors.Wrap(err, "find previous snapshot")
-		}
-		if !lw.IsZero() {
-			if lw.T < ts.T || (lw.T == ts.T && (ts.I == 0 || lw.I < ts.I)) {
-				ts = lw
-			}
-		}
-	}
-
-	chunks, err := oplog.ListDeleteChunksBefore(ctx, conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, conn, ts)
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}
-	if len(chunks) == 0 {
+	if len(r.Chunks) == 0 {
 		l.Debug("nothing to delete")
 		return nil
 	}
 
-	stg, err := util.StorageFromConfig(cfg.Storage, l)
+	stg, err := util.GetStorage(ctx, conn, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	return deleteChunks(ctx, conn, stg, chunks)
+	return deleteChunks(ctx, conn, stg, r.Chunks)
 }
 
 func deleteChunks(ctx context.Context, m connect.Client, stg storage.Storage, chunks []oplog.OplogChunk) error {
