@@ -19,6 +19,7 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/dumprestore"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
@@ -291,13 +292,19 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
+	// skip no-ops
+	if oe.Operation == "n" {
+		return nil
+	}
+
 	if o.excludeNS.Has(oe.Namespace) {
 		return nil
 	}
 
-	// skip no-ops
-	if oe.Operation == "n" {
-		return nil
+	if db, coll, _ := strings.Cut(oe.Namespace, "."); db == "config" {
+		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
+			return nil
+		}
 	}
 
 	if !o.isOpSelected(&oe) {
@@ -621,6 +628,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.excludeNS.Has(op.Namespace) {
 		return nil
+	}
+
+	if db, coll, _ := strings.Cut(op.Namespace, "."); db == "config" {
+		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
+			return nil
+		}
 	}
 
 	op, err := o.filterUUIDs(op)
