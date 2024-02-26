@@ -26,12 +26,14 @@ func AppName(name string) MongoOption {
 		return nil
 	}
 }
+
 func Direct(direct bool) MongoOption {
 	return func(opts *options.ClientOptions) error {
 		opts.SetDirect(direct)
 		return nil
 	}
 }
+
 func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 	return func(opts *options.ClientOptions) error {
 		if readConcern == nil {
@@ -41,6 +43,7 @@ func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 		return nil
 	}
 }
+
 func NoRS() MongoOption {
 	return func(opts *options.ClientOptions) error {
 		opts.SetReplicaSet("")
@@ -97,7 +100,7 @@ func UnsafeClient(m *mongo.Client) Client {
 // Connect resolves MongoDB connection to Primary member and wraps it within Client object.
 // In case of replica set it returns connection to Primary member,
 // while in case of sharded cluster it returns connection to Config RS Primary member.
-func Connect(ctx context.Context, uri string, appName string) (Client, error) {
+func Connect(ctx context.Context, uri, appName string) (Client, error) {
 	client, err := MongoConnect(ctx, uri, AppName(appName))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
