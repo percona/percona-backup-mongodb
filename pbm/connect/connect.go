@@ -15,30 +15,75 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
+// todo: remove this
 type ConnectOptions struct {
 	AppName string
 }
 
+type MongoOption func(*options.ClientOptions) error
+
+// todo: rename this
 type MongoConnectOptions struct {
 	AppName string
 	Direct  bool
 }
 
-func MongoConnect(ctx context.Context, uri string, opts *MongoConnectOptions) (*mongo.Client, error) {
+func AppName(name string) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		if len(name) == 0 {
+			return errors.New("AppName is not specified")
+		}
+		opts.SetAppName(name)
+		return nil
+	}
+}
+func Direct(direct bool) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetDirect(direct)
+		return nil
+	}
+}
+func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		if readConcern == nil {
+			return errors.New("ReadConcern not specified")
+		}
+		opts.SetReadConcern(readConcern)
+		return nil
+	}
+}
+func NoRS() MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetReplicaSet("")
+		return nil
+	}
+}
+
+func MongoConnect(ctx context.Context, uri string, mongoOptions ...MongoOption) (*mongo.Client, error) {
 	if !strings.HasPrefix(uri, "mongodb://") {
 		uri = "mongodb://" + uri
 	}
 
-	if opts == nil {
-		opts = &MongoConnectOptions{}
-	}
-
-	mopts := options.Client().ApplyURI(uri).
-		SetAppName(opts.AppName).
+	// default options - suitable for most of cases
+	mopts := options.Client().
+		SetAppName("pbm").
 		SetReadPreference(readpref.Primary()).
 		SetReadConcern(readconcern.Majority()).
 		SetWriteConcern(writeconcern.Majority()).
-		SetDirect(opts.Direct)
+		SetDirect(true)
+
+	// apply and override using end-user options from conn string
+	mopts.ApplyURI(uri)
+
+	// override with explicit options from the code
+	for _, opt := range mongoOptions {
+		if opt != nil {
+			if err := opt(mopts); err != nil {
+				return nil, errors.Wrap(err, "invalid mongo option")
+			}
+		}
+	}
+
 	conn, err := mongo.Connect(ctx, mopts)
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
@@ -63,13 +108,8 @@ func UnsafeClient(m *mongo.Client) Client {
 // Connect resolves MongoDB connection to Primary member and wraps it within Client object.
 // In case of replica set it returns connection to Primary member,
 // while in case of sharded cluster it returns connection to Config RS Primary member.
-func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, error) {
-	if opts == nil {
-		opts = &ConnectOptions{}
-	}
-
-	mopts := &MongoConnectOptions{AppName: opts.AppName}
-	client, err := MongoConnect(ctx, uri, mopts)
+func Connect(ctx context.Context, uri string, appName string) (Client, error) {
+	client, err := MongoConnect(ctx, uri, AppName(appName))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -113,11 +153,8 @@ func Connect(ctx context.Context, uri string, opts *ConnectOptions) (Client, err
 
 	// Preserving the `replicaSet` parameter will cause an error
 	// while connecting to the ConfigServer (mismatched replicaset names)
-	query := curi.Query()
-	query.Del("replicaSet")
-	curi.RawQuery = query.Encode()
 	curi.Host = chost[1]
-	client, err = MongoConnect(ctx, curi.String(), mopts)
+	client, err = MongoConnect(ctx, curi.String(), AppName(appName), NoRS())
 	if err != nil {
 		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
