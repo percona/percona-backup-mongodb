@@ -13,7 +13,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -329,7 +328,7 @@ func directConnect(ctx context.Context, uri, hosts string) (*mongo.Client, error
 	curi.RawQuery = query.Encode()
 	curi.Host = host
 
-	conn, err := mongo.Connect(ctx, options.Client().ApplyURI(curi.String()).SetAppName("pbm-status"))
+	conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-status"))
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}

@@ -90,7 +90,7 @@ func testCompression(mURL string, compression compress.CompressionType, level *i
 	var cn *mongo.Client
 
 	if collection != "" {
-		cn, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
+		cn, err := connect.MongoConnect(ctx, mURL, connect.Direct(true))
 		if err != nil {
 			stdlog.Fatalln("Error: connect to mongodb-node:", err)
 		}
@@ -114,13 +114,13 @@ func testCompression(mURL string, compression compress.CompressionType, level *i
 func testStorage(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
-	sess, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
+	sess, err := connect.MongoConnect(ctx, mURL, connect.Direct(true))
 	if err != nil {
 		stdlog.Fatalln("Error: connect to mongodb-node:", err)
 	}
 	defer sess.Disconnect(ctx) //nolint:errcheck
 
-	client, err := connect.Connect(ctx, mURL, &connect.ConnectOptions{AppName: "pbm-speed-test"})
+	client, err := connect.Connect(ctx, mURL, "pbm-speed-test")
 	if err != nil {
 		stdlog.Fatalln("Error: connect to mongodb-pbm:", err)
 	}

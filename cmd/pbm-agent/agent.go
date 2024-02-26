@@ -44,7 +44,7 @@ type Agent struct {
 }
 
 func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
-	nodeConn, err := connect.MongoConnect(ctx, uri, &connect.MongoConnectOptions{Direct: true})
+	nodeConn, err := connect.MongoConnect(ctx, uri, connect.Direct(true))
 	if err != nil {
 		return nil, err
 	}

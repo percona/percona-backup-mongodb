@@ -378,7 +378,7 @@ func main() {
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
-		conn, err = connect.Connect(ctx, *mURL, &connect.ConnectOptions{AppName: "pbm-ctl"})
+		conn, err = connect.Connect(ctx, *mURL, "pbm-ctl")
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
