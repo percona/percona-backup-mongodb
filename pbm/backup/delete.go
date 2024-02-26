@@ -398,7 +398,7 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 
 			beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
 			for _, chunk := range chunks {
-				if chunk.EndTS.Before(r.LastWriteTS) {
+				if !chunk.EndTS.After(r.LastWriteTS) {
 					beforeChunks = append(beforeChunks, chunk)
 				}
 			}
@@ -419,7 +419,7 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 
 		beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
 		for _, chunk := range chunks {
-			if chunk.EndTS.Before(ts) {
+			if !chunk.EndTS.After(ts) {
 				beforeChunks = append(beforeChunks, chunk)
 			}
 		}
@@ -431,7 +431,7 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	beforeChunks := []oplog.OplogChunk{}
 	afterChunks := []oplog.OplogChunk{}
 	for _, chunk := range chunks {
-		if chunk.EndTS.Before(backups[baseIndex].LastWriteTS) {
+		if !chunk.EndTS.After(backups[baseIndex].LastWriteTS) {
 			beforeChunks = append(beforeChunks, chunk)
 		} else {
 			// keep chunks after the last base snapshot restore time
