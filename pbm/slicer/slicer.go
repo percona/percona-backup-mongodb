@@ -112,6 +112,10 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 
 		return errors.Wrap(err, "get last chunk")
 	}
+	if lastRestore != nil && int64(lastChunk.EndTS.T) < lastRestore.StartTS {
+		s.lastTS = lastBackup.LastWriteTS
+		return nil
+	}
 
 	if lastBackup.Type != defs.LogicalBackup {
 		// the backup does not contain complete oplog to copy from
