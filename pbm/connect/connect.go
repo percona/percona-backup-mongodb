@@ -62,7 +62,7 @@ func MongoConnect(ctx context.Context, uri string, mongoOptions ...MongoOption) 
 		SetReadPreference(readpref.Primary()).
 		SetReadConcern(readconcern.Majority()).
 		SetWriteConcern(writeconcern.Majority()).
-		SetDirect(true)
+		SetDirect(false)
 
 	// apply and override using end-user options from conn string
 	mopts.ApplyURI(uri)
