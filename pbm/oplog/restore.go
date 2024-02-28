@@ -574,7 +574,7 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 func (o *OplogRestore) applyTxn(id string) error {
 	t, ok := o.txnData[id]
 	if !ok {
-		return errors.Errorf("unknown transaction id %s", id)
+		return nil
 	}
 
 	for _, op := range t.applyOps {
