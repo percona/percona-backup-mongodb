@@ -160,7 +160,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	oplogOption := &applyOplogOption{nss: nss}
+	oplogOption := &applyOplogOption{end: &bcp.LastWriteTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)

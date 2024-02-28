@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -59,6 +60,7 @@ type (
 	Config          = config.Config
 	BackupMetadata  = backup.BackupMeta
 	RestoreMetadata = restore.RestoreMeta
+	OplogChunk      = oplog.OplogChunk
 	CleanupReport   = backup.CleanupInfo
 )
 
@@ -92,6 +94,10 @@ type GetAllRestoresOptions struct {
 	Limit int64
 }
 
+type DeleteBackupBeforeOptions struct {
+	Type BackupType
+}
+
 type Command = ctrl.Cmd
 
 type Client interface {
@@ -112,7 +118,7 @@ type Client interface {
 	CancelBackup(ctx context.Context) (CommandID, error)
 
 	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
-	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp) (CommandID, error)
+	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp, options DeleteBackupBeforeOptions) (CommandID, error)
 
 	DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error)
 
@@ -129,6 +135,11 @@ func NewClient(ctx context.Context, uri string) (Client, error) {
 	}
 
 	return &clientImpl{conn: conn}, nil
+}
+
+func WaitForCleanup(ctx context.Context, client Client) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdCleanup}
+	return waitOp(ctx, client.(*clientImpl).conn, lck)
 }
 
 func WaitForDeleteBackup(ctx context.Context, client Client) error {

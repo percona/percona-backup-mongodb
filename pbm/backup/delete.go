@@ -20,6 +20,26 @@ import (
 
 const SelectiveBackup defs.BackupType = "selective"
 
+var ErrInvalidDeleteBackupType = errors.New("invalid backup type")
+
+func ParseDeleteBackupType(s string) (defs.BackupType, error) {
+	if s == "" {
+		return "", nil
+	}
+
+	switch s {
+	case
+		string(defs.PhysicalBackup),
+		string(defs.ExternalBackup),
+		string(defs.IncrementalBackup),
+		string(defs.LogicalBackup),
+		string(SelectiveBackup):
+		return defs.BackupType(s), nil
+	}
+
+	return "", ErrInvalidDeleteBackupType
+}
+
 var (
 	ErrBackupInProgress     = errors.New("backup is in progress")
 	ErrIncrementalBackup    = errors.New("backup is incremental")
@@ -122,7 +142,7 @@ func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) er
 		return ErrIncrementalBackup
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS)
+	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS, primitive.Timestamp{})
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -158,7 +178,7 @@ func CanDeleteIncrementalChain(
 		}
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite)
+	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite, base.LastWriteTS)
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -242,7 +262,12 @@ func isValidBaseSnapshot(bcp *BackupMeta) bool {
 	return true
 }
 
-func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primitive.Timestamp) (bool, error) {
+func isRequiredForOplogSlicing(
+	ctx context.Context,
+	cc connect.Client,
+	lw primitive.Timestamp,
+	baseLW primitive.Timestamp,
+) (bool, error) {
 	enabled, oplogOnly, err := config.IsPITREnabled(ctx, cc)
 	if err != nil {
 		return false, err
@@ -260,7 +285,7 @@ func isRequiredForOplogSlicing(ctx context.Context, cc connect.Client, lw primit
 		return false, nil
 	}
 
-	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw)
+	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw, baseLW)
 	if err != nil {
 		return false, errors.Wrap(err, "find previous snapshot")
 	}
@@ -371,6 +396,14 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 				return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
 			}
 
+			beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
+			for _, chunk := range chunks {
+				if !chunk.EndTS.After(r.LastWriteTS) {
+					beforeChunks = append(beforeChunks, chunk)
+				}
+			}
+			chunks = beforeChunks
+
 			return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 		}
 	}
@@ -383,13 +416,22 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	}
 	if baseIndex == -1 {
 		// no valid base snapshot to exclude
+
+		beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
+		for _, chunk := range chunks {
+			if !chunk.EndTS.After(ts) {
+				beforeChunks = append(beforeChunks, chunk)
+			}
+		}
+		chunks = beforeChunks
+
 		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
 	beforeChunks := []oplog.OplogChunk{}
 	afterChunks := []oplog.OplogChunk{}
 	for _, chunk := range chunks {
-		if chunk.EndTS.Before(backups[baseIndex].LastWriteTS) {
+		if !chunk.EndTS.After(backups[baseIndex].LastWriteTS) {
 			beforeChunks = append(beforeChunks, chunk)
 		} else {
 			// keep chunks after the last base snapshot restore time

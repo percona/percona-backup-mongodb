@@ -178,6 +178,18 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
+	if inf.IsLeader() {
+		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDumpDone, nil)
+		if err != nil {
+			return errors.Wrap(err, "check cluster for dump done")
+		}
+	}
+
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
+	if err != nil {
+		return errors.Wrap(err, "waiting for dump done")
+	}
+
 	lastSavedTS, oplogSize, err := stopOplogSlicer()
 	if err != nil {
 		return errors.Wrap(err, "oplog")
@@ -189,20 +201,10 @@ func (b *Backup) doLogical(
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDumpDone, nil)
-		if err != nil {
-			return errors.Wrap(err, "check cluster for dump done")
-		}
-
 		err = b.setClusterLastWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}
-	}
-
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for dump done")
 	}
 
 	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize)

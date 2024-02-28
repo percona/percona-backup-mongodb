@@ -59,8 +59,8 @@ func (c *Cluster) BackupDelete(storage string) {
 
 	c.printBcpList()
 
-	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[3].ts.Format("2006-01-02T15:04:05"))
-	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-y", "--older-than", backups[3].ts.Format("2006-01-02T15:04:05"))
+	log.Printf("delete backups older than %s / %s \n", backups[3].name, backups[4].ts.Format("2006-01-02T15:04:05"))
+	_, err = c.pbm.RunCmd("pbm", "delete-backup", "-y", "--older-than", backups[4].ts.Format("2006-01-02T15:04:05"))
 	if err != nil {
 		log.Fatalf("ERROR: delete backups older than %s: %v", backups[3].name, err)
 	}

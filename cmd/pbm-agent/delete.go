@@ -5,17 +5,20 @@ import (
 	"runtime"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog/oplogtmp"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/resync"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
@@ -87,8 +90,14 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 
+		bcpType, err := backup.ParseDeleteBackupType(string(d.Type))
+		if err != nil {
+			l.Error("parse type field: %v", err.Error())
+			return
+		}
+
 		l.Info("deleting backups older than %v", t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, "")
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -158,34 +167,28 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 		}
 	}()
 
-	if d.OlderThan > 0 {
-		t := time.Unix(d.OlderThan, 0).UTC()
-		obj := t.Format("2006-01-02T15:04:05Z")
-
-		l = logger.NewEvent(string(ctrl.CmdDeletePITR), obj, opid.String(), ep.TS())
-		ctx := log.SetLogEventToContext(ctx, l)
-
-		var ct primitive.Timestamp
-		ct, err = topo.GetClusterTime(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get cluster time: %v", err)
-			return
-		}
-		if d.OlderThan > int64(ct.T) {
-			providedTime := t.Format(time.RFC3339)
-			realTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
-			l.Error("provided time %q is after now %q", providedTime, realTime)
-			return
-		}
-
-		l.Info("deleting pitr chunks older than %v", t)
-		err = oplogtmp.DeletePITR(ctx, a.leadConn, &t, l)
-	} else {
-		l = logger.NewEvent(string(ctrl.CmdDeletePITR), "_all_", opid.String(), ep.TS())
-		ctx := log.SetLogEventToContext(ctx, l)
-		l.Info("deleting all pitr chunks")
-		err = oplogtmp.DeletePITR(ctx, a.leadConn, nil, l)
+	ct, err := topo.ClusterTimeFromNodeInfo(nodeInfo)
+	if err != nil {
+		l.Error("get cluster time: %v", err)
+		return
 	}
+
+	t := time.Unix(d.OlderThan, 0).UTC()
+	obj := t.Format("2006-01-02T15:04:05Z")
+
+	l = logger.NewEvent(string(ctrl.CmdDeletePITR), obj, opid.String(), ep.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
+
+	if d.OlderThan > int64(ct.T) {
+		providedTime := t.Format(time.RFC3339)
+		realTime := time.Unix(int64(ct.T), 0).UTC().Format(time.RFC3339)
+		l.Error("provided time %q is after now %q", providedTime, realTime)
+		return
+	}
+
+	ts := primitive.Timestamp{T: uint32(t.Unix())}
+	l.Info("deleting pitr chunks older than %v", t)
+	err = deletePITRImpl(ctx, a.leadConn, ts)
 	if err != nil {
 		l.Error("deleting: %v", err)
 		return
@@ -294,4 +297,52 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}
+}
+
+func deletePITRImpl(ctx context.Context, conn connect.Client, ts primitive.Timestamp) error {
+	l := log.LogEventFromContext(ctx)
+
+	r, err := backup.MakeCleanupInfo(ctx, conn, ts)
+	if err != nil {
+		return errors.Wrap(err, "get pitr chunks")
+	}
+	if len(r.Chunks) == 0 {
+		l.Debug("nothing to delete")
+		return nil
+	}
+
+	stg, err := util.GetStorage(ctx, conn, l)
+	if err != nil {
+		return errors.Wrap(err, "get storage")
+	}
+
+	return deleteChunks(ctx, conn, stg, r.Chunks)
+}
+
+func deleteChunks(ctx context.Context, m connect.Client, stg storage.Storage, chunks []oplog.OplogChunk) error {
+	l := log.LogEventFromContext(ctx)
+
+	for _, chnk := range chunks {
+		err := stg.Delete(chnk.FName)
+		if err != nil && !errors.Is(err, storage.ErrNotExist) {
+			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
+		}
+
+		_, err = m.PITRChunksCollection().DeleteOne(
+			ctx,
+			bson.D{
+				{"rs", chnk.RS},
+				{"start_ts", chnk.StartTS},
+				{"end_ts", chnk.EndTS},
+			},
+		)
+
+		if err != nil {
+			return errors.Wrap(err, "delete pitr chunk metadata")
+		}
+
+		l.Debug("deleted %s", chnk.FName)
+	}
+
+	return nil
 }

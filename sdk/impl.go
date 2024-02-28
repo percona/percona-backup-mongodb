@@ -151,8 +151,12 @@ func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (Comma
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) DeleteBackupBefore(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
-	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, "")
+func (c *clientImpl) DeleteBackupBefore(
+	ctx context.Context,
+	beforeTS Timestamp,
+	options DeleteBackupBeforeOptions,
+) (CommandID, error) {
+	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, options.Type)
 	return CommandID(opid.String()), err
 }
 
@@ -254,7 +258,7 @@ func waitOp(ctx context.Context, conn connect.Client, lck *lock.LockHeader) erro
 				return errors.Wrap(err, "read cluster time")
 			}
 
-			if clusterTime.T-lock.Heartbeat.T < defs.StaleFrameSec {
+			if clusterTime.T-lock.Heartbeat.T >= defs.StaleFrameSec {
 				return errors.Errorf("operation stale, last beat ts: %d", lock.Heartbeat.T)
 			}
 		}

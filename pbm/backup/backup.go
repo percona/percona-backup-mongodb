@@ -622,7 +622,7 @@ func (b *Backup) waitForFirstLastWrite(
 				return first, last, errors.Errorf("backup stuck, last beat ts: %d", bmeta.Hb.T)
 			}
 
-			if bmeta.FirstWriteTS.T > 0 && bmeta.LastWriteTS.T > 0 {
+			if bmeta.FirstWriteTS.T > 1 && bmeta.LastWriteTS.T > 1 {
 				return bmeta.FirstWriteTS, bmeta.LastWriteTS, nil
 			}
 		case <-ctx.Done():
@@ -702,7 +702,7 @@ func setClusterLastWriteImpl(
 			return errors.New("no replset metadata")
 		}
 
-		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return !br.LastWriteTS.IsZero() }) {
+		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return br.LastWriteTS.T > 1 }) {
 			break
 		}
 

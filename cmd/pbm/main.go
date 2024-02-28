@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	stdlog "log"
 	"os"
 	"strings"
 	"time"
@@ -264,7 +263,7 @@ func main() {
 			datetimeFormat,
 			dateFormat)).
 		StringVar(&deletePitr.olderThan)
-	deletePitrCmd.Flag("all", "Delete all chunks").
+	deletePitrCmd.Flag("all", `Delete all chunks (deprecated). Use --older-than="0d"`).
 		Short('a').
 		BoolVar(&deletePitr.all)
 	deletePitrCmd.Flag("yes", "Don't ask for confirmation").
@@ -273,6 +272,11 @@ func main() {
 	deletePitrCmd.Flag("force", "Don't ask for confirmation (deprecated)").
 		Short('f').
 		BoolVar(&deletePitr.yes)
+	deletePitrCmd.Flag("wait", "Wait for deletion done").
+		Short('w').
+		BoolVar(&deletePitr.wait)
+	deletePitrCmd.Flag("dry-run", "Report but do not delete").
+		BoolVar(&deletePitr.dryRun)
 
 	cleanupCmd := pbmCmd.Command("cleanup", "Delete Backups and PITR chunks")
 	cleanupOpts := cleanupOptions{}
@@ -324,7 +328,7 @@ func main() {
 		BoolVar(&logs.extr)
 
 	statusOpts := statusOptions{}
-	statusCmd := pbmCmd.Command("status", "Show PBM status")
+	statusCmd := pbmCmd.Command("status", "Show PBM status").Alias("s")
 	statusCmd.Flag(RSMappingFlag, RSMappingDoc).
 		Envar(RSMappingEnvVar).
 		StringVar(&statusOpts.rsMap)
@@ -386,7 +390,8 @@ func main() {
 
 		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 		if err != nil {
-			stdlog.Fatalf("get mongo version: %v", err)
+			fmt.Fprintf(os.Stderr, "get mongo version: %v", err)
+			os.Exit(1)
 		}
 		if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
@@ -420,9 +425,9 @@ func main() {
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():
-		out, err = deleteBackup(ctx, conn, pbm, &deleteBcp, pbmOutF)
+		out, err = deleteBackup(ctx, conn, pbm, &deleteBcp)
 	case deletePitrCmd.FullCommand():
-		out, err = deletePITR(ctx, conn, pbm, &deletePitr, pbmOutF)
+		out, err = deletePITR(ctx, conn, pbm, &deletePitr)
 	case cleanupCmd.FullCommand():
 		out, err = doCleanup(ctx, conn, pbm, &cleanupOpts)
 	case logsCmd.FullCommand():

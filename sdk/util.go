@@ -14,20 +14,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-var errMissedClusterTime = errors.New("missed cluster time")
+var (
+	ErrMissedClusterTime       = errors.New("missed cluster time")
+	ErrInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
+)
 
-func ParseBackupType(s string) BackupType {
-	switch s {
-	case
-		string(PhysicalBackup),
-		string(ExternalBackup),
-		string(IncrementalBackup),
-		string(LogicalBackup),
-		string(SelectiveBackup):
-		return BackupType(s)
-	}
-
-	return ""
+func ParseDeleteBackupType(s string) (BackupType, error) {
+	return backup.ParseDeleteBackupType(s)
 }
 
 func IsHeartbeatStale(clusterTime, other Timestamp) bool {
@@ -40,7 +33,7 @@ func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
 		return primitive.Timestamp{}, err
 	}
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errMissedClusterTime
+		return primitive.Timestamp{}, ErrMissedClusterTime
 	}
 
 	return info.ClusterTime.ClusterTime, nil
@@ -92,4 +85,13 @@ func ListDeleteBackupBefore(
 	bcpType BackupType,
 ) ([]BackupMetadata, error) {
 	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
+}
+
+func ListDeleteChunksBefore(
+	ctx context.Context,
+	sc Client,
+	ts primitive.Timestamp,
+) ([]OplogChunk, error) {
+	r, err := backup.MakeCleanupInfo(ctx, sc.(*clientImpl).conn, ts)
+	return r.Chunks, err
 }
