@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/go-toolset:1.19
+FROM registry.access.redhat.com/ubi8/go-toolset:1.22
 WORKDIR /opt/pbm
 COPY . .
 RUN make install

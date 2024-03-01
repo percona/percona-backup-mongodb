@@ -36,7 +36,7 @@ jobs:
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
-      GO_VER: ${{ github.event.inputs.go_ver || '1.19-bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || '1.22-bullseye' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
 
     steps:
