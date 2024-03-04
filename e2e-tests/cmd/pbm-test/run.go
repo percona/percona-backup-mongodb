@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"time"
 
 	"golang.org/x/mod/semver"
 
@@ -31,7 +30,6 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(remoteStg), func(i, j int) {
 		remoteStg[i], remoteStg[j] = remoteStg[j], remoteStg[i]
 	})
