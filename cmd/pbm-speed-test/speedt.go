@@ -4,18 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"time"
-	"unsafe"
-
-	"github.com/percona/percona-backup-mongodb/pbm/compress"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -54,12 +50,17 @@ func (b Byte) String() string {
 }
 
 type Rand struct {
-	size Byte
+	size    Byte
+	dataset [][]byte
 }
 
 func NewRand(size Byte) *Rand {
 	r := &Rand{
-		size: size,
+		size:    size,
+		dataset: make([][]byte, len(dataset)),
+	}
+	for i, s := range dataset {
+		r.dataset[i] = []byte(s)
 	}
 	return r
 }
@@ -67,7 +68,7 @@ func NewRand(size Byte) *Rand {
 func (r *Rand) WriteTo(w io.Writer) (int64, error) {
 	var written int64
 	for i := 0; written < int64(r.size); i++ {
-		n, err := w.Write(StringToBytes(dataset[i%len(dataset)]))
+		n, err := w.Write(r.dataset[i%len(dataset)])
 		if err != nil {
 			return written, err
 		}
@@ -79,6 +80,8 @@ func (r *Rand) WriteTo(w io.Writer) (int64, error) {
 type Collection struct {
 	size Byte
 	c    *mongo.Collection
+
+	dataset [][]byte
 }
 
 func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, error) {
@@ -87,10 +90,16 @@ func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, 
 		return nil, errors.New("namespace should be in format `database.collection`")
 	}
 
-	return &Collection{
+	r := &Collection{
 		size: size,
 		c:    cn.Database(ns[0]).Collection(ns[1]),
-	}, nil
+
+		dataset: make([][]byte, len(dataset)),
+	}
+	for i, s := range dataset {
+		r.dataset[i] = []byte(s)
+	}
+	return r, nil
 }
 
 func (c *Collection) WriteTo(w io.Writer) (int64, error) {
@@ -104,7 +113,7 @@ func (c *Collection) WriteTo(w io.Writer) (int64, error) {
 
 	var written int64
 	for cur.Next(ctx) {
-		n, err := w.Write([]byte(cur.Current))
+		n, err := w.Write(cur.Current)
 		if err != nil {
 			return written, errors.Wrap(err, "write")
 		}
@@ -148,12 +157,4 @@ func doTest(
 	r.Time = time.Since(ts)
 
 	return r, nil
-}
-
-// StringToBytes converts given string to the slice of bytes
-// without allocations
-func StringToBytes(s string) []byte {
-	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh := reflect.SliceHeader{sh.Data, sh.Len, sh.Len}
-	return *(*[]byte)(unsafe.Pointer(&bh)) //nolint:govet
 }
