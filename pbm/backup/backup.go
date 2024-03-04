@@ -16,6 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -174,7 +175,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		return errors.Wrap(err, "get cluster info")
 	}
 
-	oplogTS, err := topo.OpTimeFromNodeInfo(inf, true)
+	oplogTS, err := oplog.GetOplogStartTime(ctx, b.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "define oplog start position")
 	}
@@ -656,7 +657,7 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 			return errors.New("no replset metadata")
 		}
 
-		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return !br.FirstWriteTS.IsZero() }) {
+		if condAll(bcp.Replsets, func(br *BackupReplset) bool { return br.FirstWriteTS.T > 1 }) {
 			break
 		}
 

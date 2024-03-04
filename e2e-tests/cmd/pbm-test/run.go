@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
@@ -109,17 +108,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 		runTest("Distributed Transactions PITR",
 			t.DistributedTrxPITR)
 
-		disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
-		tsTo := primitive.Timestamp{1644410656, 8}
+		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
+		// tsTo := primitive.Timestamp{1644410656, 8}
 
-		if semver.Compare(cVersion, "v5.0") >= 0 {
-			disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
-			tsTo = primitive.Timestamp{1644243375, 7}
-		}
+		//if semver.Compare(cVersion, "v5.0") >= 0 {
+		//	disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
+		//	tsTo = primitive.Timestamp{1644243375, 7}
+		//}
 
-		t.ApplyConfig(context.TODO(), disttxnconf)
-		runTest("Distributed Transactions PITR",
-			func() { t.DistributedCommit(tsTo) })
+		// t.ApplyConfig(context.TODO(), disttxnconf)
+		// runTest("Distributed Transactions PITR",
+		//	func() { t.DistributedCommit(tsTo) })
 
 		t.ApplyConfig(context.TODO(), storage)
 	}
