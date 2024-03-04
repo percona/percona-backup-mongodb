@@ -21,7 +21,6 @@ func (c *Cluster) IncrementalBackup(mongoVersion string) {
 		inRange = lt
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	counters := make(map[string]scounter)
 	for name, shard := range c.shards {
 		c.bcheckClear(name, shard)

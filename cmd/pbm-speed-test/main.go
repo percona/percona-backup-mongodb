@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
-	"math/rand"
 	"os"
 	"time"
 
@@ -62,8 +61,6 @@ func main() {
 	if *sampleSizeF == 0 {
 		*sampleSizeF = 1
 	}
-
-	rand.Seed(time.Now().UnixNano())
 
 	switch cmd {
 	case compressionCmd.FullCommand():
