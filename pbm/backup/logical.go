@@ -216,7 +216,7 @@ func (b *Backup) doLogical(
 }
 
 func dropTMPcoll(ctx context.Context, uri string) error {
-	m, err := connect.MongoConnect(ctx, uri, nil)
+	m, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return errors.Wrap(err, "connect to primary")
 	}
@@ -251,7 +251,7 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) 
 
 //nolint:nonamedreturns
 func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
-	cn, err := connect.MongoConnect(ctx, uri, nil)
+	cn, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
