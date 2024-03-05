@@ -66,8 +66,6 @@ func NewPitr(c *Cluster) *Pitr {
 }
 
 func (p *Pitr) Backup() {
-	rand.Seed(time.Now().UnixNano())
-
 	bcpName := p.c.LogicalBackup()
 	p.started <- struct{}{}
 	p.c.pitrOn()

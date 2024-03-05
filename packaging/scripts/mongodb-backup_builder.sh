@@ -61,30 +61,6 @@ parse_arguments() {
     done
 }
 
-add_percona_yum_repo() {
-    if [ ! -f /etc/yum.repos.d/percona-dev.repo ]; then
-        if [ "x$RHEL" = "x8" ]; then
-            cat >/etc/yum.repos.d/percona-dev.repo <<EOL
-[percona-rhel8-AppStream]
-name=Percona internal YUM repository for RHEL8 AppStream
-baseurl=http://jenkins.percona.com/yum-repo/rhel8/AppStream
-gpgkey=https://jenkins.percona.com/yum-repo/rhel8/AppStream/RPM-GPG-KEY-redhat-beta
-gpgcheck=0
-enabled=1
-[percona-rhel8-BaseOS]
-name=Percona internal YUM repository for RHEL8 BaseOS
-baseurl=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/
-gpgkey=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/RPM-GPG-KEY-redhat-beta
-gpgcheck=0
-enabled=1
-EOL
-        else
-            curl -o /etc/yum.repos.d/ https://jenkins.percona.com/yum-repo/percona-dev.repo
-        fi
-    fi
-    return
-}
-
 check_workdir() {
     if [ "x$WORKDIR" = "x$CURDIR" ]; then
         echo >&2 "Current directory cannot be used for building!"
@@ -165,11 +141,11 @@ install_golang() {
     elif [ x"$ARCH" = "xaarch64" ]; then
         GO_ARCH="arm64"
     fi
-    wget https://golang.org/dl/go1.19.linux-${GO_ARCH}.tar.gz -O /tmp/golang1.19.tar.gz
-    tar --transform=s,go,go1.19, -zxf /tmp/golang1.19.tar.gz
+    wget https://golang.org/dl/go1.22.linux-${GO_ARCH}.tar.gz -O /tmp/golang1.22.tar.gz
+    tar --transform=s,go,go1.22, -zxf /tmp/golang1.22.tar.gz
     rm -rf /usr/local/go*
-    mv go1.19 /usr/local/
-    ln -s /usr/local/go1.19 /usr/local/go
+    mv go1.22 /usr/local/
+    ln -s /usr/local/go1.22 /usr/local/go
 }
 
 install_deps() {
@@ -185,9 +161,6 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
         RHEL=$(rpm --eval %rhel)
-        if [ "$RHEL" -lt 9 ]; then
-            add_percona_yum_repo
-        fi
         yum clean all
         yum -y install epel-release git wget
         yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
