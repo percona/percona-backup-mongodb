@@ -61,30 +61,6 @@ parse_arguments() {
     done
 }
 
-add_percona_yum_repo() {
-    if [ ! -f /etc/yum.repos.d/percona-dev.repo ]; then
-        if [ "x$RHEL" = "x8" ]; then
-            cat >/etc/yum.repos.d/percona-dev.repo <<EOL
-[percona-rhel8-AppStream]
-name=Percona internal YUM repository for RHEL8 AppStream
-baseurl=http://jenkins.percona.com/yum-repo/rhel8/AppStream
-gpgkey=https://jenkins.percona.com/yum-repo/rhel8/AppStream/RPM-GPG-KEY-redhat-beta
-gpgcheck=0
-enabled=1
-[percona-rhel8-BaseOS]
-name=Percona internal YUM repository for RHEL8 BaseOS
-baseurl=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/
-gpgkey=https://jenkins.percona.com/yum-repo/rhel8/BaseOS/RPM-GPG-KEY-redhat-beta
-gpgcheck=0
-enabled=1
-EOL
-        else
-            curl -o /etc/yum.repos.d/ https://jenkins.percona.com/yum-repo/percona-dev.repo
-        fi
-    fi
-    return
-}
-
 check_workdir() {
     if [ "x$WORKDIR" = "x$CURDIR" ]; then
         echo >&2 "Current directory cannot be used for building!"
@@ -185,9 +161,6 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
         RHEL=$(rpm --eval %rhel)
-        if [ "$RHEL" -lt 9 ]; then
-            add_percona_yum_repo
-        fi
         yum clean all
         yum -y install epel-release git wget
         yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
