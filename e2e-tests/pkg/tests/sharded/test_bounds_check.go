@@ -43,7 +43,6 @@ func (c *Cluster) BackupBoundsCheck(typ defs.BackupType, mongoVersion string) {
 		}
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	counters := make(map[string]scounter)
 	for name, shard := range c.shards {
 		c.bcheckClear(name, shard)

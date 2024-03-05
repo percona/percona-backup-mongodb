@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"math/rand"
-	"time"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -22,7 +21,6 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(remoteStg), func(i, j int) {
 		remoteStg[i], remoteStg[j] = remoteStg[j], remoteStg[i]
 	})

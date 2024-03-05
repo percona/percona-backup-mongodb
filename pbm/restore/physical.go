@@ -189,8 +189,6 @@ func peekTmpPort(current int) (int, error) {
 		try = 150
 	)
 
-	rand.Seed(time.Now().UnixNano())
-
 	for i := 0; i < try; i++ {
 		p := current + rand.Intn(rng) + 1
 		ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
