@@ -3,28 +3,30 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	stdlog "log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/pitr"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
-var logger = log.New(os.Stdout, "", log.Ltime)
+var logger = stdlog.New(os.Stdout, "", stdlog.Ltime)
 
 func main() {
 	ctx := context.Background()
@@ -36,21 +38,21 @@ func main() {
 	tillS := cmd.Flag("till", "last op time").String()
 	_, err := app.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
-		log.Fatal(err)
+		stdlog.Fatal(err)
 	}
 
 	fromTS, err := parseTS(*fromS)
 	if err != nil {
-		log.Fatalf("parse from time: %s", err.Error())
+		stdlog.Fatalf("parse from time: %s", err.Error())
 	}
 	tillTS, err := parseTS(*tillS)
 	if err != nil {
-		log.Fatalf("parse till time: %s", err.Error())
+		stdlog.Fatalf("parse till time: %s", err.Error())
 	}
 
 	t, err := connTopo(ctx, *uri)
 	if err != nil {
-		log.Fatalf("getTopo: %s", err.Error())
+		stdlog.Fatalf("getTopo: %s", err.Error())
 	}
 
 	switch t {
@@ -63,7 +65,7 @@ func main() {
 	}
 
 	if err != nil {
-		log.Fatal(err)
+		stdlog.Fatal(err)
 	}
 }
 
@@ -76,15 +78,15 @@ const (
 )
 
 func connTopo(ctx context.Context, uri string) (topo, error) {
-	m, err := connect(ctx, uri)
+	m, err := connect.MongoConnect(ctx, uri, nil)
 	if err != nil {
-		return topoUnknown, errors.WithMessage(err, "connect")
+		return topoUnknown, errors.Wrap(err, "connect")
 	}
 	defer m.Disconnect(context.Background()) // nolint:errcheck
 
 	r, err := sayHello(ctx, m)
 	if err != nil {
-		return topoUnknown, errors.WithMessage(err, "getShortHello")
+		return topoUnknown, errors.Wrap(err, "getShortHello")
 	}
 
 	switch {
@@ -106,11 +108,11 @@ func parseTS(t string) (primitive.Timestamp, error) {
 	if tt, ii, ok := strings.Cut(t, ","); ok {
 		t, err := strconv.ParseUint(tt, 10, 32)
 		if err != nil {
-			return ts, errors.WithMessage(err, "parse clusterTime T")
+			return ts, errors.Wrap(err, "parse clusterTime T")
 		}
 		i, err := strconv.ParseUint(ii, 10, 32)
 		if err != nil {
-			return ts, errors.WithMessage(err, "parse clusterTime I")
+			return ts, errors.Wrap(err, "parse clusterTime I")
 		}
 
 		ts.T = uint32(t)
@@ -133,29 +135,11 @@ func parseTS(t string) (primitive.Timestamp, error) {
 	}
 
 	if err != nil {
-		return ts, errors.WithMessage(err, "parse date")
+		return ts, errors.Wrap(err, "parse date")
 	}
 
 	ts.T = uint32(tsto.Unix())
 	return ts, nil
-}
-
-func connect(ctx context.Context, uri string) (*mongo.Client, error) {
-	if !strings.HasPrefix(uri, "mongodb://") {
-		uri = "mongodb://" + uri
-	}
-
-	m, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		return nil, errors.WithMessage(err, "connect")
-	}
-
-	if err = m.Ping(ctx, nil); err != nil {
-		m.Disconnect(context.Background()) // nolint:errcheck
-		return nil, errors.WithMessage(err, "ping")
-	}
-
-	return m, nil
 }
 
 type hello struct {
@@ -166,32 +150,32 @@ type hello struct {
 func sayHello(ctx context.Context, m *mongo.Client) (*hello, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"hello", 1}})
 	if err := res.Err(); err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return nil, errors.Wrap(err, "query")
 	}
 
 	var r *hello
 	err := res.Decode(&r)
-	return r, errors.WithMessage(err, "decode")
+	return r, errors.Wrap(err, "decode")
 }
 
 func ensureClusterOplog(ctx context.Context, uri string, from, till primitive.Timestamp) error {
 	logger.Printf("[%s] ensuring cluster oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
-	m, err := connect(ctx, uri)
+	m, err := connect.MongoConnect(ctx, uri, nil)
 	if err != nil {
-		return errors.WithMessage(err, "connect")
+		return errors.Wrap(err, "connect")
 	}
 	defer m.Disconnect(context.Background()) // nolint:errcheck
 
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"getShardMap", 1}})
 	if err := res.Err(); err != nil {
-		return errors.WithMessage(err, "getShardMap: query")
+		return errors.Wrap(err, "getShardMap: query")
 	}
 
 	var r struct{ ConnStrings map[string]string }
 	if err := res.Decode(&r); err != nil {
-		return errors.WithMessage(err, "getShardMap: decode")
+		return errors.Wrap(err, "getShardMap: decode")
 	}
 
 	eg, gc := errgroup.WithContext(ctx)
@@ -200,7 +184,7 @@ func ensureClusterOplog(ctx context.Context, uri string, from, till primitive.Ti
 
 		eg.Go(func() error {
 			err := ensureReplsetOplog(gc, rsURI, from, till)
-			return errors.WithMessagef(err, "[%s] ensure oplog", id)
+			return errors.Wrapf(err, "[%s] ensure oplog", id)
 		})
 	}
 
@@ -218,14 +202,14 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 	logger.Printf("[%s] ensure replset oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
-	m, err := connect(ctx, uri)
+	m, err := connect.MongoConnect(ctx, uri, nil)
 	if err != nil {
-		return errors.WithMessage(err, "connect")
+		return errors.Wrap(err, "connect")
 	}
 
 	info, err := sayHello(ctx, m)
 	if err != nil {
-		return errors.WithMessage(err, "get node info")
+		return errors.Wrap(err, "get node info")
 	}
 	if info.SetName == "" {
 		return errors.New("cannot ensure oplog in standalone mode")
@@ -233,25 +217,25 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 
 	firstOpT, err := findPreviousOplogTS(ctx, m, from)
 	if err != nil {
-		return errors.WithMessage(err, "lookup first oplog record")
+		return errors.Wrap(err, "lookup first oplog record")
 	}
 
 	lastOpT, err := findFollowingOplogTS(ctx, m, till)
 	if err != nil {
-		return errors.WithMessage(err, "lookup first oplog record")
+		return errors.Wrap(err, "lookup first oplog record")
 	}
 
 	logger.Printf("[%s] ensuring replset oplog (actual): %s - %s",
 		uri, formatTimestamp(firstOpT), formatTimestamp(lastOpT))
 
-	pbmC, err := pbm.New(ctx, uri, "ensure-oplog")
+	conn, err := connect.Connect(ctx, uri, &connect.ConnectOptions{AppName: "ensure-oplog"})
 	if err != nil {
-		return errors.WithMessage(err, "connect to PBM")
+		return errors.Wrap(err, "connect to PBM")
 	}
 
-	chunks, err := pbmC.PITRGetChunksSlice(info.SetName, firstOpT, lastOpT)
+	chunks, err := oplog.PITRGetChunksSlice(ctx, conn, info.SetName, firstOpT, lastOpT)
 	if err != nil {
-		return errors.WithMessage(err, "get chunks")
+		return errors.Wrap(err, "get chunks")
 	}
 
 	missedChunks := findChunkRanges(chunks, firstOpT, lastOpT)
@@ -261,14 +245,15 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		return nil
 	}
 
-	cfg, err := pbmC.GetConfig()
+	cfg, err := config.GetConfig(ctx, conn)
 	if err != nil {
-		return errors.WithMessage(err, "get config")
+		return errors.Wrap(err, "get config")
 	}
 
-	stg, err := pbmC.GetStorage(nil)
+	stg, err := util.StorageFromConfig(cfg.Storage,
+		log.FromContext(ctx).NewDefaultEvent())
 	if err != nil {
-		return errors.WithMessage(err, "get storage")
+		return errors.Wrap(err, "get storage")
 	}
 
 	compression := compress.CompressionType(cfg.PITR.Compression)
@@ -277,20 +262,20 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		logger.Printf("[%s] ensure missed chunk: %s - %s",
 			uri, formatTimestamp(t.from), formatTimestamp(t.till))
 
-		filename := pitr.ChunkName(info.SetName, t.from, t.till, compression)
+		filename := oplog.FormatChunkFilepath(info.SetName, t.from, t.till, compression)
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 
-		n, err := backup.Upload(ctx, o, stg, compression, cfg.PITR.CompressionLevel, filename, -1)
+		n, err := storage.Upload(ctx, o, stg, compression, cfg.PITR.CompressionLevel, filename, -1)
 		if err != nil {
-			return errors.WithMessagef(err, "failed to upload %s - %s chunk",
+			return errors.Wrapf(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))
 		}
 
 		logger.Printf("[%s] uploaded chunk: %s - %s (%d bytes)",
 			uri, formatTimestamp(t.from), formatTimestamp(t.till), n)
 
-		meta := pbm.OplogChunk{
+		meta := oplog.OplogChunk{
 			RS:          info.SetName,
 			FName:       filename,
 			Compression: compression,
@@ -298,8 +283,8 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 			EndTS:       t.till,
 		}
 
-		if err := pbmC.PITRAddChunk(meta); err != nil {
-			return errors.WithMessagef(err, "failed to save %s - %s chunk meta",
+		if err := oplog.PITRAddChunk(ctx, conn, meta); err != nil {
+			return errors.Wrapf(err, "failed to save %s - %s chunk meta",
 				formatTimestamp(t.from), formatTimestamp(t.till))
 		}
 
@@ -340,7 +325,7 @@ func findOplogTSHelper(res *mongo.SingleResult) (primitive.Timestamp, error) {
 
 	var v struct{ TS primitive.Timestamp }
 	if err := res.Decode(&v); err != nil {
-		return primitive.Timestamp{}, errors.WithMessage(err, "decode")
+		return primitive.Timestamp{}, errors.Wrap(err, "decode")
 	}
 
 	return v.TS, nil
@@ -350,7 +335,7 @@ type timerange struct {
 	from, till primitive.Timestamp
 }
 
-func findChunkRanges(rs []pbm.OplogChunk, from, till primitive.Timestamp) []timerange {
+func findChunkRanges(rs []oplog.OplogChunk, from, till primitive.Timestamp) []timerange {
 	if len(rs) == 0 {
 		return []timerange{{from, till}}
 	}

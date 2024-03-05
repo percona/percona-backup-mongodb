@@ -1,14 +1,15 @@
 package snapshot
 
 import (
+	"context"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/pkg/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 type UploadDumpOptions struct {
@@ -27,14 +28,22 @@ type UploadDumpOptions struct {
 
 type UploadFunc func(ns, ext string, r io.Reader) error
 
-func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
+func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
 	wg := sync.WaitGroup{}
 	pr, pw := io.Pipe()
 	size := int64(0)
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		pw.CloseWithError(ctx.Err())
+	}()
+
 	go func() {
 		_, err := wt.WriteTo(pw)
-		pw.CloseWithError(errors.WithMessage(err, "write to"))
+		pw.CloseWithError(errors.Wrap(err, "write to"))
 	}()
 
 	newWriter := func(ns string) (io.WriteCloser, error) {
@@ -52,7 +61,7 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 			rc := &readCounter{r: pr}
 			err := upload(ns, ext, rc)
 			if err != nil {
-				pr.CloseWithError(errors.WithMessagef(err, "upload: %q", ns))
+				pr.CloseWithError(errors.Wrapf(err, "upload: %q", ns))
 			}
 
 			atomic.AddInt64(&size, rc.n)
@@ -64,12 +73,19 @@ func UploadDump(wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int6
 
 		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
 		dwc := io.WriteCloser(&delegatedWriteCloser{w, pw})
-		return dwc, errors.WithMessagef(err, "create compressor: %q", ns)
+		return dwc, errors.Wrapf(err, "create compressor: %q", ns)
 	}
 
 	err := archive.Decompose(pr, newWriter, opts.NSFilter, opts.DocFilter)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		// note: mongo-tools errors cannot be used for errors.Is()
+		if strings.Contains(err.Error(), "( context canceled )") {
+			err = context.Canceled
+		}
+	}
+
 	wg.Wait()
-	return size, errors.WithMessage(err, "decompose")
+	return size, errors.Wrap(err, "decompose")
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
@@ -89,7 +105,7 @@ func DownloadDump(
 
 			r, err := download(ns)
 			if err != nil {
-				return nil, errors.WithMessagef(err, "download: %q", ns)
+				return nil, errors.Wrapf(err, "download: %q", ns)
 			}
 
 			if ns == archive.MetaFile {
@@ -97,11 +113,11 @@ func DownloadDump(
 			}
 
 			r, err = compress.Decompress(r, compression)
-			return r, errors.WithMessagef(err, "create decompressor: %q", ns)
+			return r, errors.Wrapf(err, "create decompressor: %q", ns)
 		}
 
 		err := archive.Compose(pw, match, newReader)
-		pw.CloseWithError(errors.WithMessage(err, "compose"))
+		pw.CloseWithError(errors.Wrap(err, "compose"))
 	}()
 
 	return pr, nil

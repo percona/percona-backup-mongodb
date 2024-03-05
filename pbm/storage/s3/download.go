@@ -15,7 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
@@ -189,7 +190,7 @@ type partReader struct {
 	chunkSize int64
 
 	getSess func() (*s3.S3, error)
-	l       *log.Event
+	l       log.LogEvent
 	opts    *Conf
 	buf     []byte // preallocated buf for io.Copy
 

@@ -19,16 +19,19 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/dumprestore"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 type Record = db.Oplog
@@ -41,8 +44,8 @@ func DefaultOpFilter(*Record) bool { return true }
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
-	pbm.DB + "." + pbm.TmpUsersCollection,
-	pbm.DB + "." + pbm.TmpRolesCollection,
+	defs.DB + "." + defs.TmpUsersCollection,
+	defs.DB + "." + defs.TmpRolesCollection,
 }
 
 var knownCommands = map[string]struct{}{
@@ -104,7 +107,7 @@ type OplogRestore struct {
 	// the queue of last N committed transactions
 	txnCommit *cqueue
 
-	txn        chan pbm.RestoreTxn
+	txn        chan phys.RestoreTxn
 	txnSyncErr chan error
 	// The `T` part of the last applied op's Timestamp.
 	// Keeping just `T` allows atomic use as we only care
@@ -126,10 +129,10 @@ const saveLastDistTxns = 100
 func NewOplogRestore(
 	dst *mongo.Client,
 	ic *idx.IndexCatalog,
-	sv *pbm.MongoVersion,
+	sv *version.MongoVersion,
 	unsafe,
 	preserveUUID bool,
-	ctxn chan pbm.RestoreTxn,
+	ctxn chan phys.RestoreTxn,
 	txnErr chan error,
 ) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
@@ -289,13 +292,19 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
+	// skip no-ops
+	if oe.Operation == "n" {
+		return nil
+	}
+
 	if o.excludeNS.Has(oe.Namespace) {
 		return nil
 	}
 
-	// skip no-ops
-	if oe.Operation == "n" {
-		return nil
+	if db, coll, _ := strings.Cut(oe.Namespace, "."); db == "config" {
+		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
+			return nil
+		}
 	}
 
 	if !o.isOpSelected(&oe) {
@@ -448,10 +457,10 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 			}
 		}
 
-		o.txnCommit.push(pbm.RestoreTxn{
+		o.txnCommit.push(phys.RestoreTxn{
 			ID:    txnID,
 			Ctime: cts,
-			State: pbm.TxnCommit,
+			State: phys.TxnCommit,
 		})
 	}
 
@@ -565,7 +574,7 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 func (o *OplogRestore) applyTxn(id string) error {
 	t, ok := o.txnData[id]
 	if !ok {
-		return errors.Errorf("unknown transaction id %s", id)
+		return nil
 	}
 
 	for _, op := range t.applyOps {
@@ -580,7 +589,7 @@ func (o *OplogRestore) applyTxn(id string) error {
 }
 
 //nolint:nonamedreturns
-func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []pbm.RestoreTxn) {
+func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits []phys.RestoreTxn) {
 	return o.txnData, o.txnCommit.s
 }
 
@@ -619,6 +628,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.excludeNS.Has(op.Namespace) {
 		return nil
+	}
+
+	if db, coll, _ := strings.Cut(op.Namespace, "."); db == "config" {
+		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
+			return nil
+		}
 	}
 
 	op, err := o.filterUUIDs(op)
@@ -755,7 +770,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			op2 := op
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {
-				return errors.WithMessage(err, "oplog: drop collection before create")
+				return errors.Wrap(err, "oplog: drop collection before create")
 			}
 		}
 	}
@@ -764,7 +779,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe && op.Namespace == "config.chunks" {
-			if se, ok := err.(mongo.ServerError); ok && se.HasErrorCode(11000) { //nolint:errorlint
+			if mongo.IsDuplicateKeyError(err) {
 				return nil
 			}
 		}
@@ -777,15 +792,15 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 }
 
 type cqueue struct {
-	s []pbm.RestoreTxn
+	s []phys.RestoreTxn
 	c int
 }
 
 func newCQueue(capacity int) *cqueue {
-	return &cqueue{s: make([]pbm.RestoreTxn, 0, capacity), c: capacity}
+	return &cqueue{s: make([]phys.RestoreTxn, 0, capacity), c: capacity}
 }
 
-func (c *cqueue) push(v pbm.RestoreTxn) {
+func (c *cqueue) push(v phys.RestoreTxn) {
 	if len(c.s) == c.c {
 		c.s = c.s[1:]
 	}
@@ -793,7 +808,7 @@ func (c *cqueue) push(v pbm.RestoreTxn) {
 	c.s = append(c.s, v)
 }
 
-func (c *cqueue) last() *pbm.RestoreTxn {
+func (c *cqueue) last() *phys.RestoreTxn {
 	if len(c.s) == 0 {
 		return nil
 	}

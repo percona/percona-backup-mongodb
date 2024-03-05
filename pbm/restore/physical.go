@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -27,12 +26,21 @@ import (
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 const (
@@ -50,34 +58,34 @@ const (
 type files struct {
 	BcpName string
 	Cmpr    compress.CompressionType
-	Data    []pbm.File
+	Data    []backup.File
 
 	// dbpath to cut from destination if there is any (see PBM-1058)
 	dbpath string
 }
 
 type PhysRestore struct {
-	cn     *pbm.PBM
-	node   *pbm.Node
-	dbpath string
+	leadConn connect.Client
+	node     *mongo.Client
+	dbpath   string
 	// an ephemeral port to restart mongod on during the restore
 	tmpPort int
 	tmpConf *os.File
-	rsConf  *pbm.RSConfig     // original replset config
+	rsConf  *topo.RSConfig    // original replset config
 	shards  map[string]string // original shards list on config server
 	cfgConn string            // shardIdentity configsvrConnectionString
 	startTS int64
-	secOpts *pbm.MongodOptsSec
+	secOpts *topo.MongodOptsSec
 
 	name      string
 	opid      string
-	nodeInfo  *pbm.NodeInfo
+	nodeInfo  *topo.NodeInfo
 	stg       storage.Storage
-	bcp       *pbm.BackupMeta
+	bcp       *backup.BackupMeta
 	files     []files
 	restoreTS primitive.Timestamp
 
-	confOpts pbm.RestoreConf
+	confOpts config.RestoreConf
 
 	mongod string // location of mongod used for internal restarts
 
@@ -95,20 +103,26 @@ type PhysRestore struct {
 
 	stopHB chan struct{}
 
-	log *log.Event
+	log log.LogEvent
 
 	rsMap map[string]string
 }
 
-func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[string]string) (*PhysRestore, error) {
-	opts, err := node.GetOpts(nil)
+func NewPhysical(
+	ctx context.Context,
+	leadConn connect.Client,
+	node *mongo.Client,
+	inf *topo.NodeInfo,
+	rsMap map[string]string,
+) (*PhysRestore, error) {
+	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo options")
 	}
 	p := opts.Storage.DBpath
 	if p == "" {
 		switch inf.ReplsetRole() {
-		case pbm.RoleConfigSrv:
+		case topo.RoleConfigSrv:
 			p = defaultCSRSdbpath
 		default:
 			p = defaultRSdbpath
@@ -119,7 +133,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 		opts.Net.Port = defaultPort
 	}
 
-	rcf, err := node.GetRSconf()
+	rcf, err := topo.GetReplSetConfig(ctx, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get replset config")
 	}
@@ -127,9 +141,9 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 	var shards map[string]string
 	var csvr string
 	if inf.IsSharded() {
-		ss, err := cn.GetShards()
+		ss, err := topo.ClusterMembers(ctx, leadConn.MongoClient())
 		if err != nil {
-			return nil, errors.WithMessage(err, "get shards")
+			return nil, errors.Wrap(err, "get shards")
 		}
 
 		shards = make(map[string]string)
@@ -137,8 +151,8 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 			shards[s.ID] = s.Host
 		}
 
-		if inf.ReplsetRole() != pbm.RoleConfigSrv {
-			csvr, err = node.ConfSvrConn()
+		if inf.ReplsetRole() != topo.RoleConfigSrv {
+			csvr, err = topo.ConfSvrConn(ctx, node)
 			if err != nil {
 				return nil, errors.Wrap(err, "get configsvrConnectionString")
 			}
@@ -155,7 +169,7 @@ func NewPhysical(cn *pbm.PBM, node *pbm.Node, inf *pbm.NodeInfo, rsMap map[strin
 	}
 
 	return &PhysRestore{
-		cn:       cn,
+		leadConn: leadConn,
 		node:     node,
 		dbpath:   p,
 		rsConf:   rcf,
@@ -207,7 +221,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
 		}
 		extMeta := filepath.Join(r.dbpath,
-			fmt.Sprintf(pbm.ExternalRsMetaFile, pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
+			fmt.Sprintf(defs.ExternalRsMetaFile, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
 		err = os.Remove(extMeta)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
@@ -224,30 +238,30 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 	}
 }
 
-func (r *PhysRestore) flush() error {
+func (r *PhysRestore) flush(ctx context.Context) error {
 	r.log.Debug("shutdown server")
-	rsStat, err := r.node.GetReplsetStatus()
+	rsStat, err := topo.GetReplsetStatus(ctx, r.node)
 	if err != nil {
 		return errors.Wrap(err, "get replset status")
 	}
 
 	if r.nodeInfo.IsConfigSrv() {
 		r.log.Debug("waiting for shards to shutdown")
-		_, err := r.waitFiles(pbm.StatusDown, r.syncPathDataShards, false)
+		_, err := r.waitFiles(defs.StatusDown, r.syncPathDataShards, false)
 		if err != nil {
 			return errors.Wrap(err, "wait for datashards to shutdown")
 		}
 	}
 
 	for {
-		inf, err := r.node.GetInfo()
+		inf, err := topo.GetNodeInfoExt(ctx, r.node)
 		if err != nil {
 			return errors.Wrap(err, "get node info")
 		}
 		// single-node replica set won't stepdown do secondary
 		// so we have to shut it down despite of role
 		if !inf.IsPrimary || len(rsStat.Members) == 1 {
-			err = r.node.Shutdown()
+			err = nodeShutdown(ctx, r.node)
 			if err != nil &&
 				strings.Contains(err.Error(), // wait a bit and let the node to stepdown
 					"(ConflictingOperationInProgress) This node is already in the process of stepping down") {
@@ -266,7 +280,7 @@ func (r *PhysRestore) flush() error {
 	}
 
 	if r.nodeInfo.IsPrimary {
-		err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusDown),
+		err = r.stg.Save(r.syncPathRS+"."+string(defs.StatusDown),
 			okStatus(), -1)
 		if err != nil {
 			return errors.Wrap(err, "write replset StatusDown")
@@ -280,6 +294,14 @@ func (r *PhysRestore) flush() error {
 	}
 
 	return nil
+}
+
+func nodeShutdown(ctx context.Context, m *mongo.Client) error {
+	err := m.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}}).Err()
+	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
+		return nil
+	}
+	return err
 }
 
 func waitMgoShutdown(dbpath string) error {
@@ -355,18 +377,18 @@ func waitMgoShutdown(dbpath string) error {
 //	     │   └── rs.starting
 //
 //nolint:lll,nonamedreturns
-func (r *PhysRestore) toState(status pbm.Status) (_ pbm.Status, err error) {
+func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	defer func() {
 		if err != nil {
-			if r.nodeInfo.IsPrimary && status != pbm.StatusDone {
-				serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
+			if r.nodeInfo.IsPrimary && status != defs.StatusDone {
+				serr := r.stg.Save(r.syncPathRS+"."+string(defs.StatusError),
 					errStatus(err), -1)
 				if serr != nil {
 					r.log.Error("toState: write replset error state `%v`: %v", err, serr)
 				}
 			}
-			if r.nodeInfo.IsClusterLeader() && status != pbm.StatusDone {
-				serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
+			if r.nodeInfo.IsClusterLeader() && status != defs.StatusDone {
+				serr := r.stg.Save(r.syncPathCluster+"."+string(defs.StatusError),
 					errStatus(err), -1)
 				if serr != nil {
 					r.log.Error("toState: write cluster error state `%v`: %v", err, serr)
@@ -380,41 +402,41 @@ func (r *PhysRestore) toState(status pbm.Status) (_ pbm.Status, err error) {
 	err = r.stg.Save(r.syncPathNode+"."+string(status),
 		okStatus(), -1)
 	if err != nil {
-		return pbm.StatusError, errors.Wrap(err, "write node state")
+		return defs.StatusError, errors.Wrap(err, "write node state")
 	}
 
-	if r.nodeInfo.IsPrimary || status == pbm.StatusDone {
+	if r.nodeInfo.IsPrimary || status == defs.StatusDone {
 		r.log.Info("waiting for `%s` status in rs %v", status, r.syncPathPeers)
 		cstat, err := r.waitFiles(status, copyMap(r.syncPathPeers), false)
 		if err != nil {
-			return pbm.StatusError, errors.Wrap(err, "wait for nodes in rs")
+			return defs.StatusError, errors.Wrap(err, "wait for nodes in rs")
 		}
 
 		err = r.stg.Save(r.syncPathRS+"."+string(cstat),
 			okStatus(), -1)
 		if err != nil {
-			return pbm.StatusError, errors.Wrap(err, "write replset state")
+			return defs.StatusError, errors.Wrap(err, "write replset state")
 		}
 	}
 
-	if r.nodeInfo.IsClusterLeader() || status == pbm.StatusDone {
+	if r.nodeInfo.IsClusterLeader() || status == defs.StatusDone {
 		r.log.Info("waiting for shards %v", r.syncPathShards)
 		cstat, err := r.waitFiles(status, copyMap(r.syncPathShards), true)
 		if err != nil {
-			return pbm.StatusError, errors.Wrap(err, "wait for shards")
+			return defs.StatusError, errors.Wrap(err, "wait for shards")
 		}
 
 		err = r.stg.Save(r.syncPathCluster+"."+string(cstat),
 			okStatus(), -1)
 		if err != nil {
-			return pbm.StatusError, errors.Wrap(err, "write replset state")
+			return defs.StatusError, errors.Wrap(err, "write replset state")
 		}
 	}
 
 	r.log.Info("waiting for cluster")
 	cstat, err := r.waitFiles(status, map[string]struct{}{r.syncPathCluster: {}}, true)
 	if err != nil {
-		return pbm.StatusError, errors.Wrap(err, "wait for cluster")
+		return defs.StatusError, errors.Wrap(err, "wait for cluster")
 	}
 
 	r.log.Debug("converged to state %s", cstat)
@@ -423,7 +445,7 @@ func (r *PhysRestore) toState(status pbm.Status) (_ pbm.Status, err error) {
 }
 
 func (r *PhysRestore) getTSFromSyncFile(path string) (primitive.Timestamp, error) {
-	res, err := r.stg.SourceReader(path + "." + string(pbm.StatusExtTS))
+	res, err := r.stg.SourceReader(path + "." + string(defs.StatusExtTS))
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "get timestamp")
 	}
@@ -485,12 +507,12 @@ func copyMap[K comparable, V any](m map[K]V) map[K]V {
 }
 
 func (r *PhysRestore) waitFiles(
-	status pbm.Status,
+	status defs.Status,
 	objs map[string]struct{},
 	cluster bool,
-) (pbm.Status, error) {
+) (defs.Status, error) {
 	if len(objs) == 0 {
-		return pbm.StatusError, errors.New("empty objects maps")
+		return defs.StatusError, errors.New("empty objects maps")
 	}
 
 	tk := time.NewTicker(time.Second * 5)
@@ -502,25 +524,25 @@ func (r *PhysRestore) waitFiles(
 	var haveDone bool
 	for range tk.C {
 		for f := range objs {
-			errFile := f + "." + string(pbm.StatusError)
+			errFile := f + "." + string(defs.StatusError)
 			_, err := r.stg.FileStat(errFile)
 			if err != nil && !errors.Is(err, storage.ErrNotExist) {
-				return pbm.StatusError, errors.Wrapf(err, "get file %s", errFile)
+				return defs.StatusError, errors.Wrapf(err, "get file %s", errFile)
 			}
 
 			if err == nil {
 				r, err := r.stg.SourceReader(errFile)
 				if err != nil {
-					return pbm.StatusError, errors.Wrapf(err, "open error file %s", errFile)
+					return defs.StatusError, errors.Wrapf(err, "open error file %s", errFile)
 				}
 
 				b, err := io.ReadAll(r)
 				r.Close()
 				if err != nil {
-					return pbm.StatusError, errors.Wrapf(err, "read error file %s", errFile)
+					return defs.StatusError, errors.Wrapf(err, "read error file %s", errFile)
 				}
-				if status != pbm.StatusDone {
-					return pbm.StatusError, nodeError{filepath.Base(f), string(b)}
+				if status != defs.StatusDone {
+					return defs.StatusError, nodeError{filepath.Base(f), string(b)}
 				}
 				curErr = nodeError{filepath.Base(f), string(b)}
 				delete(objs, f)
@@ -530,8 +552,8 @@ func (r *PhysRestore) waitFiles(
 			err = r.checkHB(f + "." + syncHbSuffix)
 			if err != nil {
 				curErr = errors.Wrapf(err, "check heartbeat in %s.%s", f, syncHbSuffix)
-				if status != pbm.StatusDone {
-					return pbm.StatusError, curErr
+				if status != defs.StatusDone {
+					return defs.StatusError, curErr
 				}
 				delete(objs, f)
 				continue
@@ -539,23 +561,24 @@ func (r *PhysRestore) waitFiles(
 
 			ok, err := checkFile(f+"."+string(status), r.stg)
 			if err != nil {
-				return pbm.StatusError, errors.Wrapf(err, "check file %s", f+"."+string(status))
+				return defs.StatusError, errors.Wrapf(err, "check file %s", f+"."+string(status))
 			}
 
 			if !ok {
-				if status != pbm.StatusDone {
+				if status != defs.StatusDone {
 					continue
 				}
 
-				ok, err := checkFile(f+"."+string(pbm.StatusPartlyDone), r.stg)
+				ok, err := checkFile(f+"."+string(defs.StatusPartlyDone), r.stg)
 				if err != nil {
-					return pbm.StatusError, errors.Wrapf(err, "check file %s", f+"."+string(pbm.StatusPartlyDone))
+					return defs.StatusError, errors.Wrapf(err,
+						"check file %s", f+"."+string(defs.StatusPartlyDone))
 				}
 
 				if !ok {
 					continue
 				}
-				retStatus = pbm.StatusPartlyDone
+				retStatus = defs.StatusPartlyDone
 			}
 
 			haveDone = true
@@ -568,14 +591,14 @@ func (r *PhysRestore) waitFiles(
 			}
 
 			if haveDone && !cluster {
-				return pbm.StatusPartlyDone, nil
+				return defs.StatusPartlyDone, nil
 			}
 
-			return pbm.StatusError, curErr
+			return defs.StatusError, curErr
 		}
 	}
 
-	return pbm.StatusError, storage.ErrNotExist
+	return defs.StatusError, storage.ErrNotExist
 }
 
 func checkFile(f string, stg storage.Storage) (bool, error) {
@@ -677,23 +700,24 @@ func (l *logBuff) Flush() error {
 //
 //nolint:nonamedreturns
 func (r *PhysRestore) Snapshot(
-	cmd *pbm.RestoreCmd,
+	ctx context.Context,
+	cmd *ctrl.RestoreCmd,
 	pitr primitive.Timestamp,
-	opid pbm.OPID,
-	l *log.Event,
+	opid ctrl.OPID,
+	l log.LogEvent,
 	stopAgentC chan<- struct{},
 	pauseHB func(),
 ) (err error) {
 	l.Debug("port: %d", r.tmpPort)
 
-	meta := &pbm.RestoreMeta{
-		Type:     pbm.PhysicalBackup,
+	meta := &RestoreMeta{
+		Type:     defs.PhysicalBackup,
 		OPID:     opid.String(),
 		Name:     cmd.Name,
 		Backup:   cmd.BackupName,
 		StartTS:  time.Now().Unix(),
-		Status:   pbm.StatusInit,
-		Replsets: []pbm.RestoreReplset{{Name: r.nodeInfo.Me}},
+		Status:   defs.StatusInit,
+		Replsets: []RestoreReplset{{Name: r.nodeInfo.Me}},
 	}
 	if r.nodeInfo.IsClusterLeader() {
 		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
@@ -710,7 +734,7 @@ func (r *PhysRestore) Snapshot(
 		r.close(err == nil, progress.is(restoreStared) && !progress.is(restoreDone))
 	}()
 
-	err = r.init(cmd.Name, opid, l)
+	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -720,7 +744,7 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	if cmd.BackupName != "" {
-		err = r.prepareBackup(cmd.BackupName)
+		err = r.prepareBackup(ctx, cmd.BackupName)
 		if err != nil {
 			return err
 		}
@@ -730,45 +754,46 @@ func (r *PhysRestore) Snapshot(
 		r.restoreTS = cmd.ExtTS
 	}
 	if cmd.External {
-		meta.Type = pbm.ExternalBackup
+		meta.Type = defs.ExternalBackup
 	} else {
 		meta.Type = r.bcp.Type
 	}
 
-	var opChunks []pbm.OplogChunk
+	var opChunks []oplog.OplogChunk
 	if !pitr.IsZero() {
-		opChunks, err = chunks(r.cn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
+		opChunks, err = chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
 	}
 
-	if meta.Type == pbm.IncrementalBackup {
+	if meta.Type == defs.IncrementalBackup {
 		meta.BcpChain = make([]string, 0, len(r.files))
 		for i := len(r.files) - 1; i >= 0; i-- {
 			meta.BcpChain = append(meta.BcpChain, r.files[i].BcpName)
 		}
 	}
 
-	_, err = r.toState(pbm.StatusStarting)
+	_, err = r.toState(defs.StatusStarting)
 	if err != nil {
 		return errors.Wrap(err, "move to running state")
 	}
-	l.Debug("%s", pbm.StatusStarting)
+	l.Debug("%s", defs.StatusStarting)
 
 	// don't write logs to the mongo anymore
 	// but dump it on storage
-	r.cn.Logger().SefBuffer(&logBuff{
+	logger := log.FromContext(ctx)
+	logger.SefBuffer(&logBuff{
 		buf:   &bytes.Buffer{},
-		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		write: func(name string, data io.Reader) error { return r.stg.Save(name, data, -1) },
 	})
-	r.cn.Logger().PauseMgo()
+	logger.PauseMgo()
 
-	_, err = r.toState(pbm.StatusRunning)
+	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
-		return errors.Wrapf(err, "moving to state %s", pbm.StatusRunning)
+		return errors.Wrapf(err, "moving to state %s", defs.StatusRunning)
 	}
 
 	// On this stage, the agent has to be closed on any outcome as mongod
@@ -784,7 +809,7 @@ func (r *PhysRestore) Snapshot(
 	pauseHB()
 
 	l.Info("stopping mongod and flushing old data")
-	err = r.flush()
+	err = r.flush(ctx)
 	if err != nil {
 		return err
 	}
@@ -800,28 +825,28 @@ func (r *PhysRestore) Snapshot(
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
-	var excfg *pbm.MongodOpts
-	var stats pbm.RestoreShardStat
+	var excfg *topo.MongodOpts
+	var stats phys.RestoreShardStat
 
 	if cmd.External {
-		_, err = r.toState(pbm.StatusCopyReady)
+		_, err = r.toState(defs.StatusCopyReady)
 		if err != nil {
-			return errors.Wrapf(err, "moving to state %s", pbm.StatusCopyReady)
+			return errors.Wrapf(err, "moving to state %s", defs.StatusCopyReady)
 		}
 
 		l.Info("waiting for the datadir to be copied")
-		_, err := r.waitFiles(pbm.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
+		_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
 		if err != nil {
-			return errors.Wrapf(err, "check %s state", pbm.StatusCopyDone)
+			return errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
 		}
 
 		// try to read replset meta from the backup and use its data
-		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-		rsMetaF := filepath.Join(r.dbpath, fmt.Sprintf(pbm.ExternalRsMetaFile, setName))
+		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+		rsMetaF := filepath.Join(r.dbpath, fmt.Sprintf(defs.ExternalRsMetaFile, setName))
 		conff, err := os.Open(rsMetaF)
-		var needFiles []pbm.File
+		var needFiles []backup.File
 		if err == nil {
-			rsMeta := &pbm.BackupReplset{}
+			rsMeta := &backup.BackupReplset{}
 			err := json.NewDecoder(conff).Decode(rsMeta)
 			if err != nil {
 				return errors.Wrap(err, "decode replset meta from the backup")
@@ -896,9 +921,9 @@ func (r *PhysRestore) Snapshot(
 	// next.
 	progress |= restoreDone
 
-	stat, err := r.toState(pbm.StatusDone)
+	stat, err := r.toState(defs.StatusDone)
 	if err != nil {
-		return errors.Wrapf(err, "moving to state %s", pbm.StatusDone)
+		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
 	}
 
 	err = r.writeStat(stats)
@@ -924,7 +949,7 @@ var rmFromDatadir = map[string]struct{}{
 }
 
 // removes obsolete files from the datadir
-func (r *PhysRestore) cleanupDatadir(bcpFiles []pbm.File) error {
+func (r *PhysRestore) cleanupDatadir(bcpFiles []backup.File) error {
 	var rm func(f string) bool
 
 	needFiles := bcpFiles
@@ -983,8 +1008,8 @@ func (r *PhysRestore) writeStat(stat any) error {
 	return nil
 }
 
-func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) error {
-	name := fmt.Sprintf("%s/%s.json", pbm.PhysRestoresDir, meta.Name)
+func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) error {
+	name := fmt.Sprintf("%s/%s.json", defs.PhysRestoresDir, meta.Name)
 	_, err := r.stg.FileStat(name)
 	if err == nil {
 		r.log.Warning("meta `%s` already exists, trying write %s status with '%s'", name, s, msg)
@@ -999,7 +1024,7 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 	// The meta generated here is more for debugging porpuses (just in case).
 	// `pbm status` and `resync` will always rebuild it from agents' reports
 	// not relying solely on this file.
-	condsm, err := pbm.GetPhysRestoreMeta(meta.Name, r.stg, r.log)
+	condsm, err := GetPhysRestoreMeta(meta.Name, r.stg, r.log)
 	if err == nil {
 		meta.Replsets = condsm.Replsets
 		meta.Status = condsm.Status
@@ -1008,10 +1033,10 @@ func (r *PhysRestore) dumpMeta(meta *pbm.RestoreMeta, s pbm.Status, msg string) 
 		meta.Hb = condsm.Hb
 		meta.Conditions = condsm.Conditions
 	}
-	if err != nil || s == pbm.StatusError {
+	if err != nil || s == defs.StatusError {
 		ts := time.Now().Unix()
 		meta.Status = s
-		meta.Conditions = append(meta.Conditions, &pbm.Condition{Timestamp: ts, Status: s})
+		meta.Conditions = append(meta.Conditions, &Condition{Timestamp: ts, Status: s})
 		meta.LastTransitionTS = ts
 		meta.Error = fmt.Sprintf("%s/%s: %s", r.nodeInfo.SetName, r.nodeInfo.Me, msg)
 	}
@@ -1046,7 +1071,7 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 		}()
 	}
 
-	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	cpbuf := make([]byte, 32*1024)
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
@@ -1126,7 +1151,7 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	res := c.Database("local").Collection("oplog.rs").FindOne(
 		ctx,
@@ -1210,7 +1235,7 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func shutdown(c *mongo.Client, dbpath string) error {
-	err := c.Database("admin").RunCommand(context.Background(), bson.D{{"shutdown", 1}}).Err()
+	err := c.Database("admin").RunCommand(context.TODO(), bson.D{{"shutdown", 1}}).Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
 	}
@@ -1246,8 +1271,8 @@ func (r *PhysRestore) recoverStandalone() error {
 
 func (r *PhysRestore) replayOplog(
 	from, to primitive.Timestamp,
-	opChunks []pbm.OplogChunk,
-	stat *pbm.RestoreShardStat,
+	opChunks []oplog.OplogChunk,
+	stat *phys.RestoreShardStat,
 ) error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
@@ -1262,11 +1287,11 @@ func (r *PhysRestore) replayOplog(
 
 	ctx := context.Background()
 	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
-		pbm.RSConfig{
+		topo.RSConfig{
 			ID:      r.rsConf.ID,
 			CSRS:    r.nodeInfo.IsConfigSrv(),
 			Version: 1,
-			Members: []pbm.RSMember{{
+			Members: []topo.RSMember{{
 				ID:           0,
 				Host:         "localhost:" + strconv.Itoa(r.tmpPort),
 				Votes:        1,
@@ -1303,7 +1328,7 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "connect to mongo rs")
 	}
 
-	mgoV, err := pbm.GetMongoVersion(ctx, c)
+	mgoV, err := version.GetMongoVersion(ctx, c)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
@@ -1313,7 +1338,7 @@ func (r *PhysRestore) replayOplog(
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
+	partial, err := applyOplog(ctx, c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
 		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
 		&mgoV, r.stg, r.log)
 	if err != nil {
@@ -1357,7 +1382,7 @@ func (r *PhysRestore) resetRS() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	if r.nodeInfo.IsConfigSrv() {
 		_, err = c.Database("config").Collection("mongos").DeleteMany(ctx, bson.D{})
@@ -1371,7 +1396,7 @@ func (r *PhysRestore) resetRS() error {
 
 		cur, err := c.Database("config").Collection("shards").Find(ctx, bson.D{})
 		if err != nil {
-			return errors.WithMessage(err, "find: config.shards")
+			return errors.Wrap(err, "find: config.shards")
 		}
 
 		var docs []struct {
@@ -1380,11 +1405,11 @@ func (r *PhysRestore) resetRS() error {
 			R map[string]any `bson:",inline"`
 		}
 		if err := cur.All(ctx, &docs); err != nil {
-			return errors.WithMessage(err, "decode: config.shards")
+			return errors.Wrap(err, "decode: config.shards")
 		}
 
 		sMap := r.getShardMapping(r.bcp)
-		mapS := pbm.MakeRSMapFunc(sMap)
+		mapS := util.MakeRSMapFunc(sMap)
 		ms := []mongo.WriteModel{&mongo.DeleteManyModel{Filter: bson.D{}}}
 		for _, doc := range docs {
 			doc.I = mapS(doc.I)
@@ -1399,8 +1424,8 @@ func (r *PhysRestore) resetRS() error {
 
 		if len(sMap) != 0 {
 			r.log.Debug("updating router config")
-			if err := updateRouterTables(ctx, c, sMap); err != nil {
-				return errors.WithMessage(err, "update router tables")
+			if err := updateRouterTables(ctx, connect.UnsafeClient(c), sMap); err != nil {
+				return errors.Wrap(err, "update router tables")
 			}
 		}
 	} else {
@@ -1428,7 +1453,7 @@ func (r *PhysRestore) resetRS() error {
 
 	colls, err := c.Database("config").ListCollectionNames(ctx, bson.D{{"name", bson.M{"$regex": `^cache\.`}}})
 	if err != nil {
-		return errors.WithMessage(err, "list cache collections")
+		return errors.Wrap(err, "list cache collections")
 	}
 	for _, coll := range colls {
 		_, err := c.Database("config").Collection(coll).DeleteMany(ctx, bson.D{})
@@ -1456,7 +1481,7 @@ func (r *PhysRestore) resetRS() error {
 	}
 
 	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
-		pbm.RSConfig{
+		topo.RSConfig{
 			ID:       r.rsConf.ID,
 			CSRS:     r.nodeInfo.IsConfigSrv(),
 			Version:  1,
@@ -1474,7 +1499,7 @@ func (r *PhysRestore) resetRS() error {
 	// restore and chunks made after the backup. So it would successfully start slicing
 	// and overwrites chunks after the backup.
 	if r.nodeInfo.IsLeader() {
-		_, err = c.Database(pbm.DB).Collection(pbm.ConfigCollection).UpdateOne(ctx, bson.D{},
+		_, err = c.Database(defs.DB).Collection(defs.ConfigCollection).UpdateOne(ctx, bson.D{},
 			bson.D{{"$set", bson.M{"pitr.enabled": false}}},
 		)
 		if err != nil {
@@ -1490,7 +1515,7 @@ func (r *PhysRestore) resetRS() error {
 	return nil
 }
 
-func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
+func (r *PhysRestore) getShardMapping(bcp *backup.BackupMeta) map[string]string {
 	source := make(map[string]string)
 	if bcp != nil && bcp.ShardRemap != nil {
 		for i := range bcp.Replsets {
@@ -1501,7 +1526,7 @@ func (r *PhysRestore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 		}
 	}
 
-	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	mapRevRS := util.MakeReverseRSMapFunc(r.rsMap)
 	rv := make(map[string]string)
 	for targetS, uri := range r.shards {
 		targetRS, _, _ := strings.Cut(uri, "/")
@@ -1536,13 +1561,13 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 	))
 	// saving straight for RS as backup for nodes in the RS the same,
 	// hence TS would be the same as well
-	err = r.stg.Save(r.syncPathRS+"."+string(pbm.StatusExtTS), bts, -1)
+	err = r.stg.Save(r.syncPathRS+"."+string(defs.StatusExtTS), bts, -1)
 	if err != nil {
 		return ts, errors.Wrap(err, "write RS timestamp")
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		_, err := r.waitFiles(pbm.StatusExtTS, copyMap(r.syncPathShards), true)
+		_, err := r.waitFiles(defs.StatusExtTS, copyMap(r.syncPathShards), true)
 		if err != nil {
 			return ts, errors.Wrap(err, "wait for shards timestamp")
 		}
@@ -1560,13 +1585,13 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 		bts := bytes.NewReader([]byte(
 			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
 		))
-		err = r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusExtTS), bts, -1)
+		err = r.stg.Save(r.syncPathCluster+"."+string(defs.StatusExtTS), bts, -1)
 		if err != nil {
 			return ts, errors.Wrap(err, "write")
 		}
 	}
 
-	_, err = r.waitFiles(pbm.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
+	_, err = r.waitFiles(defs.StatusExtTS, map[string]struct{}{r.syncPathCluster: {}}, false)
 	if err != nil {
 		return ts, errors.Wrap(err, "wait for cluster timestamp")
 	}
@@ -1579,9 +1604,9 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 	return ts, nil
 }
 
-func (r *PhysRestore) setcommittedTxn(txn []pbm.RestoreTxn) error {
+func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) error {
 	if txn == nil {
-		txn = []pbm.RestoreTxn{}
+		txn = []phys.RestoreTxn{}
 	}
 	var b bytes.Buffer
 	err := json.NewEncoder(&b).Encode(txn)
@@ -1593,12 +1618,12 @@ func (r *PhysRestore) setcommittedTxn(txn []pbm.RestoreTxn) error {
 	)
 }
 
-func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) {
+func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
 	shards := copyMap(r.syncPathShards)
 	txn := make(map[string]primitive.Timestamp)
 	for len(shards) > 0 {
 		for f := range shards {
-			dr, err := r.stg.FileStat(f + "." + string(pbm.StatusDone))
+			dr, err := r.stg.FileStat(f + "." + string(defs.StatusDone))
 			if err != nil && !errors.Is(err, storage.ErrNotExist) {
 				return nil, errors.Wrapf(err, "check done for <%s>", f)
 			}
@@ -1614,13 +1639,13 @@ func (r *PhysRestore) getcommittedTxn() (map[string]primitive.Timestamp, error) 
 			if err != nil {
 				return nil, errors.Wrapf(err, "get txns <%s>", f)
 			}
-			txns := []pbm.RestoreTxn{}
+			txns := []phys.RestoreTxn{}
 			err = json.NewDecoder(txnr).Decode(&txns)
 			if err != nil {
 				return nil, errors.Wrapf(err, "deconde txns <%s>", f)
 			}
 			for _, t := range txns {
-				if t.State == pbm.TxnCommit {
+				if t.State == phys.TxnCommit {
 					txn[t.ID] = t.Ctime
 				}
 			}
@@ -1740,13 +1765,13 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 
 const hbFrameSec = 60 * 2
 
-func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) error {
-	cfg, err := r.cn.GetConfig()
+func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l log.LogEvent) error {
+	cfg, err := config.GetConfig(ctx, r.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = pbm.Storage(cfg, l)
+	r.stg, err = util.StorageFromConfig(cfg.Storage, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -1768,33 +1793,29 @@ func (r *PhysRestore) init(name string, opid pbm.OPID, l *log.Event) error {
 
 	r.startTS = time.Now().Unix()
 
-	r.syncPathNode = fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
-	r.syncPathNodeStat = fmt.Sprintf("%s/%s/rs.%s/stat.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
-	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, r.rsConf.ID)
-	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", pbm.PhysRestoresDir, r.name)
+	r.syncPathNode = fmt.Sprintf("%s/%s/rs.%s/node.%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	r.syncPathNodeStat = fmt.Sprintf("%s/%s/rs.%s/stat.%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	r.syncPathRS = fmt.Sprintf("%s/%s/rs.%s/rs", defs.PhysRestoresDir, r.name, r.rsConf.ID)
+	r.syncPathCluster = fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, r.name)
 	r.syncPathPeers = make(map[string]struct{})
 	for _, m := range r.rsConf.Members {
 		if !m.ArbiterOnly {
-			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", pbm.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
+			r.syncPathPeers[fmt.Sprintf("%s/%s/rs.%s/node.%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, m.Host)] = struct{}{}
 		}
 	}
 
-	dsh, err := r.cn.ClusterMembers()
+	dsh, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get  shards")
 	}
-	r.syncPathShards = make(map[string]struct{})
-	for _, s := range dsh {
-		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
-	}
 
-	sh, err := r.cn.GetShards()
-	if err != nil {
-		return errors.Wrap(err, "get data shards")
-	}
+	r.syncPathShards = make(map[string]struct{})
 	r.syncPathDataShards = make(map[string]struct{})
-	for _, s := range sh {
-		r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", pbm.PhysRestoresDir, r.name, s.RS)] = struct{}{}
+	for _, s := range dsh {
+		r.syncPathShards[fmt.Sprintf("%s/%s/rs.%s/rs", defs.PhysRestoresDir, r.name, s.RS)] = struct{}{}
+		if s.ID != "config" {
+			r.syncPathDataShards[fmt.Sprintf("%s/%s/rs.%s/rs", defs.PhysRestoresDir, r.name, s.RS)] = struct{}{}
+		}
 	}
 
 	err = r.hb()
@@ -1890,13 +1911,13 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
-func (r *PhysRestore) setTmpConf(xopts *pbm.MongodOpts) error {
-	opts := &pbm.MongodOpts{}
-	opts.Storage = *pbm.NewMongodOptsStorage()
+func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
+	opts := &topo.MongodOpts{}
+	opts.Storage = *topo.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
 	} else if r.bcp != nil {
-		setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 		for _, v := range r.bcp.Replsets {
 			if v.Name == setName {
 				if v.MongodOpts != nil {
@@ -1949,10 +1970,10 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
-func (r *PhysRestore) setBcpFiles() error {
+func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 	bcp := r.bcp
 
-	setName := pbm.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	rs := getRS(bcp, setName)
 	if rs == nil {
 		return errors.Errorf("no data in the backup for the replica set %s", setName)
@@ -1967,7 +1988,7 @@ func (r *PhysRestore) setBcpFiles() error {
 		data := files{
 			BcpName: bcp.Name,
 			Cmpr:    bcp.Compression,
-			Data:    []pbm.File{},
+			Data:    []backup.File{},
 		}
 		// PBM-1058
 		var is1058 bool
@@ -1993,7 +2014,7 @@ func (r *PhysRestore) setBcpFiles() error {
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
 		var err error
-		bcp, err = r.cn.GetBackupMeta(bcp.SrcBackup)
+		bcp, err = backup.NewDBManager(r.leadConn).GetBackupByName(ctx, bcp.SrcBackup)
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
 		}
@@ -2008,13 +2029,13 @@ func (r *PhysRestore) setBcpFiles() error {
 	// it runs with `directoryPerDB` option. Namely fails to create a directory
 	// for the collections. So we have to detect and create these directories
 	// during the restore.
-	var dirs []pbm.File
+	var dirs []backup.File
 	dirsm := make(map[string]struct{})
 	for f, was := range targetFiles {
 		if !was {
 			dir := path.Dir(f)
 			if _, ok := dirsm[dir]; dir != "." && !ok {
-				dirs = append(dirs, pbm.File{
+				dirs = append(dirs, backup.File{
 					Name: f,
 					Off:  -1,
 					Len:  -1,
@@ -2059,7 +2080,7 @@ func findDBpath(fname string) (bool, string) {
 	return is, prefix
 }
 
-func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
+func getRS(bcp *backup.BackupMeta, rs string) *backup.BackupReplset {
 	for _, r := range bcp.Replsets {
 		if r.Name == rs {
 			return &r
@@ -2068,10 +2089,10 @@ func getRS(bcp *pbm.BackupMeta, rs string) *pbm.BackupReplset {
 	return nil
 }
 
-func (r *PhysRestore) prepareBackup(backupName string) error {
+func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) error {
 	var err error
-	r.bcp, err = r.cn.GetBackupMeta(backupName)
-	if errors.Is(err, pbm.ErrNotFound) {
+	r.bcp, err = backup.NewDBManager(r.leadConn).GetBackupByName(ctx, backupName)
+	if errors.Is(err, errors.ErrNotFound) {
 		r.bcp, err = GetMetaFromStore(r.stg, backupName)
 	}
 	if err != nil {
@@ -2082,21 +2103,21 @@ func (r *PhysRestore) prepareBackup(backupName string) error {
 		return errors.New("snapshot name doesn't set")
 	}
 
-	err = r.cn.SetRestoreBackup(r.name, r.bcp.Name, nil)
+	err = setRestoreBackup(ctx, r.leadConn, r.name, r.bcp.Name, nil)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
 
-	if r.bcp.Status != pbm.StatusDone {
+	if r.bcp.Status != defs.StatusDone {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s", r.bcp.Status, r.bcp.Error())
 	}
 
-	if !version.CompatibleWith(r.bcp.PBMVersion, pbm.BreakingChangesMap[r.bcp.Type]) {
+	if !version.CompatibleWith(r.bcp.PBMVersion, version.BreakingChangesMap[r.bcp.Type]) {
 		return errors.Errorf("backup version (v%s) is not compatible with PBM v%s",
 			r.bcp.PBMVersion, version.Current().Version)
 	}
 
-	mgoV, err := r.node.GetMongoVersion()
+	mgoV, err := version.GetMongoVersion(ctx, r.node)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
@@ -2112,18 +2133,18 @@ func (r *PhysRestore) prepareBackup(backupName string) error {
 	}
 	r.log.Debug("mongod binary: %s, version: %s", r.mongod, mv)
 
-	err = r.setBcpFiles()
+	err = r.setBcpFiles(ctx)
 	if err != nil {
 		return errors.Wrap(err, "get data for restore")
 	}
 
-	s, err := r.cn.ClusterMembers()
+	s, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
 	}
 
-	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
-	fl := make(map[string]pbm.Shard, len(s))
+	mapRevRS := util.MakeReverseRSMapFunc(r.rsMap)
+	fl := make(map[string]topo.Shard, len(s))
 	for _, rs := range s {
 		fl[mapRevRS(rs.RS)] = rs
 	}
@@ -2188,21 +2209,21 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster bool) {
+func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	var nerr nodeError
 	if errors.As(e, &nerr) {
 		e = nerr
-		meta.Replsets = []pbm.RestoreReplset{{
+		meta.Replsets = []RestoreReplset{{
 			Name:   nerr.node,
-			Status: pbm.StatusError,
+			Status: defs.StatusError,
 			Error:  nerr.msg,
 		}}
 	} else if len(meta.Replsets) > 0 {
-		meta.Replsets[0].Status = pbm.StatusError
+		meta.Replsets[0].Status = defs.StatusError
 		meta.Replsets[0].Error = e.Error()
 	}
 
-	err := r.stg.Save(r.syncPathNode+"."+string(pbm.StatusError),
+	err := r.stg.Save(r.syncPathNode+"."+string(defs.StatusError),
 		errStatus(e), -1)
 	if err != nil {
 		r.log.Error("write error state `%v` to storage: %v", e, err)
@@ -2212,14 +2233,14 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster boo
 	// (in `toState` method).
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.nodeInfo.IsPrimary && markCluster {
-		serr := r.stg.Save(r.syncPathRS+"."+string(pbm.StatusError),
+		serr := r.stg.Save(r.syncPathRS+"."+string(defs.StatusError),
 			errStatus(e), -1)
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
 	if r.nodeInfo.IsClusterLeader() && markCluster {
-		serr := r.stg.Save(r.syncPathCluster+"."+string(pbm.StatusError),
+		serr := r.stg.Save(r.syncPathCluster+"."+string(defs.StatusError),
 			errStatus(e), -1)
 		if serr != nil {
 			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
@@ -2227,7 +2248,7 @@ func (r *PhysRestore) MarkFailed(meta *pbm.RestoreMeta, e error, markCluster boo
 	}
 }
 
-func removeAll(dir string, l *log.Event) error {
+func removeAll(dir string, l log.LogEvent) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return errors.Wrap(err, "open dir")

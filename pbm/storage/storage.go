@@ -1,8 +1,12 @@
 package storage
 
 import (
-	"errors"
+	"context"
 	"io"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 )
 
 var (
@@ -57,4 +61,95 @@ func ParseType(s string) Type {
 	default:
 		return Undef
 	}
+}
+
+// rwError multierror for the read/compress/write-to-store operations set
+type rwError struct {
+	read     error
+	compress error
+	write    error
+}
+
+func (rwe rwError) Error() string {
+	var r string
+	if rwe.read != nil {
+		r += "read data: " + rwe.read.Error() + "."
+	}
+	if rwe.compress != nil {
+		r += "compress data: " + rwe.compress.Error() + "."
+	}
+	if rwe.write != nil {
+		r += "write data: " + rwe.write.Error() + "."
+	}
+
+	return r
+}
+
+func (rwe rwError) nil() bool {
+	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
+}
+
+type Source interface {
+	io.WriterTo
+}
+
+type Canceller interface {
+	Cancel()
+}
+
+// ErrCancelled means backup was canceled
+var ErrCancelled = errors.New("backup canceled")
+
+// Upload writes data to dst from given src and returns an amount of written bytes
+func Upload(
+	ctx context.Context,
+	src Source,
+	dst Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	fname string,
+	sizeb int64,
+) (int64, error) {
+	r, pw := io.Pipe()
+
+	w, err := compress.Compress(pw, compression, compressLevel)
+	if err != nil {
+		return 0, err
+	}
+
+	var rwErr rwError
+	var n int64
+	go func() {
+		n, rwErr.read = src.WriteTo(w)
+		rwErr.compress = w.Close()
+		pw.Close()
+	}()
+
+	saveDone := make(chan struct{})
+	go func() {
+		rwErr.write = dst.Save(fname, r, sizeb)
+		saveDone <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		if c, ok := src.(Canceller); ok {
+			c.Cancel()
+		}
+
+		err := r.Close()
+		if err != nil {
+			return 0, errors.Wrap(err, "cancel backup: close reader")
+		}
+		return 0, ErrCancelled
+	case <-saveDone:
+	}
+
+	r.Close()
+
+	if !rwErr.nil() {
+		return 0, rwErr
+	}
+
+	return n, nil
 }

@@ -3,19 +3,21 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	stdlog "log"
 	"math/rand"
 	"os"
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
-	"github.com/percona/percona-backup-mongodb/speedt"
-	"github.com/percona/percona-backup-mongodb/version"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func main() {
@@ -53,7 +55,7 @@ func main() {
 
 	cmd, err := tCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil && cmd != versionCmd.FullCommand() {
-		log.Println("Error: Parse command line parameters:", err)
+		stdlog.Println("Error: Parse command line parameters:", err)
 		return
 	}
 
@@ -66,10 +68,10 @@ func main() {
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
-		compression(*mURL, compress.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		testCompression(*mURL, compress.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case storageCmd.FullCommand():
 		fmt.Print("Test started ")
-		storage(*mURL, compress.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
+		testStorage(*mURL, compress.CompressionType(*compressType), compressLevel, *sampleSizeF, *sampleColF)
 	case versionCmd.FullCommand():
 		switch {
 		case *versionCommit:
@@ -82,18 +84,16 @@ func main() {
 	}
 }
 
-func compression(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
+func testCompression(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
 	var cn *mongo.Client
 
 	if collection != "" {
-		node, err := pbm.NewNode(ctx, mURL, 1)
+		cn, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
 		if err != nil {
-			log.Fatalln("Error: connect to mongodb-node:", err)
+			stdlog.Fatalln("Error: connect to mongodb-node:", err)
 		}
-		cn = node.Session()
-
 		defer cn.Disconnect(ctx) //nolint:errcheck
 	}
 
@@ -101,9 +101,9 @@ func compression(mURL string, compression compress.CompressionType, level *int, 
 	done := make(chan struct{})
 	go printw(done)
 
-	r, err := speedt.Run(cn, stg, compression, level, sizeGb, collection)
+	r, err := doTest(cn, stg, compression, level, sizeGb, collection)
 	if err != nil {
-		log.Fatalln("Error:", err)
+		stdlog.Fatalln("Error:", err)
 	}
 
 	done <- struct{}{}
@@ -111,32 +111,32 @@ func compression(mURL string, compression compress.CompressionType, level *int, 
 	fmt.Println(r)
 }
 
-func storage(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
+func testStorage(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
 	ctx := context.Background()
 
-	node, err := pbm.NewNode(ctx, mURL, 1)
+	sess, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
 	if err != nil {
-		log.Fatalln("Error: connect to mongodb-node:", err)
+		stdlog.Fatalln("Error: connect to mongodb-node:", err)
 	}
-	sess := node.Session()
-
 	defer sess.Disconnect(ctx) //nolint:errcheck
 
-	pbmClient, err := pbm.New(ctx, mURL, "pbm-speed-test")
+	client, err := connect.Connect(ctx, mURL, &connect.ConnectOptions{AppName: "pbm-speed-test"})
 	if err != nil {
-		log.Fatalln("Error: connect to mongodb-pbm:", err)
+		stdlog.Fatalln("Error: connect to mongodb-pbm:", err)
 	}
-	defer pbmClient.Conn.Disconnect(ctx) //nolint:errcheck
+	defer client.Disconnect(ctx) //nolint:errcheck
 
-	stg, err := pbmClient.GetStorage(nil)
+	l := log.FromContext(ctx).
+		NewEvent("", "", "", primitive.Timestamp{})
+	stg, err := util.GetStorage(ctx, client, l)
 	if err != nil {
-		log.Fatalln("Error: get storage:", err)
+		stdlog.Fatalln("Error: get storage:", err)
 	}
 	done := make(chan struct{})
 	go printw(done)
-	r, err := speedt.Run(sess, stg, compression, level, sizeGb, collection)
+	r, err := doTest(sess, stg, compression, level, sizeGb, collection)
 	if err != nil {
-		log.Fatalln("Error:", err)
+		stdlog.Fatalln("Error:", err)
 	}
 
 	done <- struct{}{}

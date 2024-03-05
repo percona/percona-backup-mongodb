@@ -28,8 +28,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/minio/minio-go"
 	"github.com/minio/minio-go/pkg/encrypt"
-	"github.com/pkg/errors"
 
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -223,13 +223,13 @@ const (
 
 type S3 struct {
 	opts Conf
-	log  *log.Event
+	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts Conf, l *log.Event) (*S3, error) {
+func New(opts Conf, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -538,7 +538,7 @@ func (s *S3) session() (*session.Session, error) {
 
 	awsSession, err := session.NewSession()
 	if err != nil {
-		return nil, errors.WithMessage(err, "new session")
+		return nil, errors.Wrap(err, "new session")
 	}
 
 	// allow fetching credentials from env variables and ec2 metadata endpoint
@@ -583,7 +583,7 @@ func (s *S3) session() (*session.Session, error) {
 	})
 }
 
-func awsLogger(l *log.Event) aws.Logger {
+func awsLogger(l log.LogEvent) aws.Logger {
 	if l == nil {
 		return aws.NewDefaultLogger()
 	}

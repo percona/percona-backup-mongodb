@@ -21,7 +21,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	conn := c.mongos.Conn()
 
 	log.Println("Updating transactionLifetimeLimitSeconds to", trxLimitT)
-	err := c.mongopbm.Conn().Database("admin").RunCommand(
+	err := c.mongopbm.Conn().AdminCommand(
 		ctx,
 		bson.D{{"setParameter", 1}, {"transactionLifetimeLimitSeconds", trxLimitT}},
 	).Err()
@@ -56,8 +56,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 			SetDefaultReadPreference(readpref.Primary()).
 			SetCausalConsistency(true).
 			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.Majority()),
-	)
+			SetDefaultWriteConcern(writeconcern.Majority()))
 	if err != nil {
 		log.Fatalln("ERROR: start session:", err)
 	}

@@ -12,7 +12,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 type Docker struct {

@@ -7,8 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
-
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -33,24 +32,24 @@ func New(opts Conf) (*FS, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.MkdirAll(opts.Path, os.ModeDir|0o755); err != nil {
-				return nil, errors.WithMessagef(err, "mkdir %s", opts.Path)
+				return nil, errors.Wrapf(err, "mkdir %s", opts.Path)
 			}
 
 			return &FS{opts.Path}, nil
 		}
 
-		return nil, errors.WithMessagef(err, "stat %s", opts.Path)
+		return nil, errors.Wrapf(err, "stat %s", opts.Path)
 	}
 
 	root := opts.Path
 	if info.Mode()&os.ModeSymlink != 0 {
 		root, err = filepath.EvalSymlinks(opts.Path)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "resolve link: %s", opts.Path)
+			return nil, errors.Wrapf(err, "resolve link: %s", opts.Path)
 		}
 		info, err = os.Lstat(root)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "stat %s", root)
+			return nil, errors.Wrapf(err, "stat %s", root)
 		}
 	}
 	if !info.Mode().IsDir() {
@@ -158,7 +157,14 @@ func (fs *FS) Copy(src, dst string) error {
 	if err != nil {
 		return errors.Wrap(err, "open src")
 	}
-	to, err := os.Create(path.Join(fs.root, dst))
+
+	destFilename := path.Join(fs.root, dst)
+	err = os.MkdirAll(path.Dir(destFilename), os.ModeDir|0o755)
+	if err != nil {
+		return errors.Wrap(err, "create dst dir")
+	}
+
+	to, err := os.Create(destFilename)
 	if err != nil {
 		return errors.Wrap(err, "create dst")
 	}

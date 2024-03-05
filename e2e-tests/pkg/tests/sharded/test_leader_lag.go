@@ -1,11 +1,13 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 // LeaderLag checks if cluster deals with leader lag during backup start
@@ -23,10 +25,10 @@ func (c *Cluster) LeaderLag() {
 	bcpName := time.Now().UTC().Format(time.RFC3339)
 
 	log.Println("Starting backup", bcpName)
-	err = c.mongopbm.SendCmd(pbm.Cmd{
-		Cmd: pbm.CmdBackup,
-		Backup: &pbm.BackupCmd{
-			Type:        pbm.LogicalBackup,
+	err = c.mongopbm.SendCmd(context.Background(), ctrl.Cmd{
+		Cmd: ctrl.CmdBackup,
+		Backup: &ctrl.BackupCmd{
+			Type:        defs.LogicalBackup,
 			Name:        bcpName,
 			Compression: compress.CompressionTypeS2,
 		},
@@ -46,17 +48,17 @@ func (c *Cluster) LeaderLag() {
 	}
 	log.Println("Agents resumed", c.confsrv)
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 	c.DeleteBallast()
 
 	// to be sure the backup didn't vanish after the resync
 	// i.e. resync finished correctly
 	log.Println("resync backup list")
-	err = c.mongopbm.StoreResync()
+	err = c.mongopbm.StoreResync(context.TODO())
 	if err != nil {
 		log.Fatalln("Error: resync backup lists:", err)
 	}
 
-	c.LogicalRestore(bcpName)
+	c.LogicalRestore(context.TODO(), bcpName)
 	checkData()
 }

@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -20,7 +21,7 @@ func (c *Cluster) Timeseries() {
 	c.pitrOn()
 	defer c.pitrOff()
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 
 	time.Sleep(time.Second)
 

@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"math/rand"
 	"time"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func runPhysical(t *sharded.Cluster, typ testTyp) {
@@ -39,32 +38,30 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 			continue
 		}
 
-		t.ApplyConfig(stg.conf)
+		t.ApplyConfig(context.TODO(), stg.conf)
 		flush(t)
 
 		t.SetBallastData(1e5)
 
 		runTest("Physical Backup & Restore "+stg.name,
-			func() { t.BackupAndRestore(pbm.PhysicalBackup) })
+			func() { t.BackupAndRestore(defs.PhysicalBackup) })
 
 		flushStore(t)
 	}
 
 	runTest("Physical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.PhysicalBackup, cVersion) })
+		func() { t.BackupBoundsCheck(defs.PhysicalBackup, cVersion) })
 
 	runTest("Incremental Backup & Restore ",
 		func() { t.IncrementalBackup(cVersion) })
 
 	if typ == testsSharded {
-		if semver.Compare(cVersion, "v4.2") >= 0 {
-			runTest("Physical Distributed Transactions backup",
-				t.DistributedTrxPhysical)
-		}
+		runTest("Physical Distributed Transactions backup",
+			t.DistributedTrxPhysical)
 	}
 
 	runTest("Clock Skew Tests",
-		func() { t.ClockSkew(pbm.PhysicalBackup, cVersion) })
+		func() { t.ClockSkew(defs.PhysicalBackup, cVersion) })
 
 	flushStore(t)
 }

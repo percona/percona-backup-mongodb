@@ -9,9 +9,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
-
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/lock"
 )
 
 func (c *Cluster) PITRbasic() {
@@ -35,7 +35,7 @@ func (c *Cluster) PITRbasic() {
 		}
 	}
 
-	c.BackupWaitDone(bcpName)
+	c.BackupWaitDone(context.TODO(), bcpName)
 
 	c.printBcpList()
 
@@ -43,7 +43,7 @@ func (c *Cluster) PITRbasic() {
 	log.Printf("Sleep for %v", time.Second*30)
 
 	bcp2 := c.LogicalBackup()
-	c.BackupWaitDone(bcp2)
+	c.BackupWaitDone(context.TODO(), bcp2)
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
 	log.Printf("Generating data for %v", ds)
@@ -69,7 +69,7 @@ func (c *Cluster) PITRbasic() {
 	}
 
 	log.Printf("Deleting backup %v", bcp2)
-	err := c.mongopbm.DeleteBackup(bcp2)
+	err := c.mongopbm.DeleteBackup(context.TODO(), bcp2)
 	if err != nil {
 		log.Fatalf("Error: delete backup %s: %v", bcp2, err)
 	}
@@ -107,11 +107,9 @@ func (c *Cluster) pitrOff() {
 	}
 	log.Println("Turning pitr off")
 	log.Println("waiting for the pitr to stop")
-	err = c.mongopbm.WaitOp(&pbm.LockHeader{
-		Type: pbm.CmdPITR,
-	},
-		time.Minute*5,
-	)
+	err = c.mongopbm.WaitConcurentOp(context.TODO(),
+		&lock.LockHeader{Type: ctrl.CmdPITR},
+		time.Minute*5)
 	if err != nil {
 		log.Fatalf("ERROR: waiting for the pitr to stop: %v", err)
 	}
@@ -175,7 +173,7 @@ func (c *Cluster) pitrcCheck(name string, shard *pbmt.Mongo, data *[]pbmt.Counte
 	log.Println(name, "checking restored counters")
 	var lastc pbmt.Counter
 	for i, d := range *data {
-		// if primitive.CompareTimestamp(d.WriteTime, bcpLastWrite) <= 0 {
+		// if d.WriteTime.Compare(bcpLastWrite) <= 0 {
 		if d.WriteTime.T <= bcpLastWrite.T {
 			if len(restored) <= i {
 				log.Fatalf("ERROR: %s no record #%d/%d in restored (%d) | last: %v\n",

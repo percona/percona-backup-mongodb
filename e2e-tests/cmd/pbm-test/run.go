@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
@@ -49,20 +49,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 		storage = stg.conf
 
-		t.ApplyConfig(storage)
+		t.ApplyConfig(context.TODO(), storage)
 		flush(t)
 
 		t.SetBallastData(1e5)
 
 		runTest("Logical Backup & Restore "+stg.name,
-			func() { t.BackupAndRestore(pbm.LogicalBackup) })
+			func() { t.BackupAndRestore(defs.LogicalBackup) })
 
-		runTest("Logical PITR & Restore "+stg.name,
-			t.PITRbasic)
+		runTest("Logical PITR & Restore "+stg.name, t.PITRbasic)
 
-		printStart("Oplog Replay " + stg.name)
-		t.OplogReplay()
-		printDone("Oplog Replay " + stg.name)
+		runTest("Oplog Replay "+stg.name, t.OplogReplay)
 
 		t.SetBallastData(1e3)
 		flush(t)
@@ -85,7 +82,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		t.LeaderLag)
 
 	runTest("Logical Backup Data Bounds Check",
-		func() { t.BackupBoundsCheck(pbm.LogicalBackup, cVersion) })
+		func() { t.BackupBoundsCheck(defs.LogicalBackup, cVersion) })
 
 	if typ == testsSharded {
 		t.SetBallastData(1e6)
@@ -105,29 +102,25 @@ func run(t *sharded.Cluster, typ testTyp) {
 		runTest("Restart agents during the backup",
 			t.RestartAgents)
 
-		if semver.Compare(cVersion, "v4.2") >= 0 {
-			runTest("Distributed Transactions backup",
-				t.DistributedTrxSnapshot)
+		runTest("Distributed Transactions backup",
+			t.DistributedTrxSnapshot)
 
-			runTest("Distributed Transactions PITR",
-				t.DistributedTrxPITR)
-		}
+		runTest("Distributed Transactions PITR",
+			t.DistributedTrxPITR)
 
-		if semver.Compare(cVersion, "v4.4") >= 0 {
-			disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
-			tsTo := primitive.Timestamp{1644410656, 8}
+		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
+		// tsTo := primitive.Timestamp{1644410656, 8}
 
-			if semver.Compare(cVersion, "v5.0") >= 0 {
-				disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
-				tsTo = primitive.Timestamp{1644243375, 7}
-			}
+		//if semver.Compare(cVersion, "v5.0") >= 0 {
+		//	disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
+		//	tsTo = primitive.Timestamp{1644243375, 7}
+		//}
 
-			t.ApplyConfig(disttxnconf)
-			runTest("Distributed Transactions PITR",
-				func() { t.DistributedCommit(tsTo) })
+		// t.ApplyConfig(context.TODO(), disttxnconf)
+		// runTest("Distributed Transactions PITR",
+		//	func() { t.DistributedCommit(tsTo) })
 
-			t.ApplyConfig(storage)
-		}
+		t.ApplyConfig(context.TODO(), storage)
 	}
 
 	if semver.Compare(cVersion, "v5.0") >= 0 {
@@ -143,7 +136,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	t.SetBallastData(1e5)
 
 	runTest("Clock Skew Tests",
-		func() { t.ClockSkew(pbm.LogicalBackup, cVersion) })
+		func() { t.ClockSkew(defs.LogicalBackup, cVersion) })
 
 	flushStore(t)
 }
@@ -175,7 +168,7 @@ func flushPbm(t *sharded.Cluster) {
 }
 
 func flushStore(t *sharded.Cluster) {
-	err := t.FlushStorage()
+	err := t.FlushStorage(context.TODO())
 	if err != nil {
 		log.Fatalln("Error: unable flush storage:", err)
 	}

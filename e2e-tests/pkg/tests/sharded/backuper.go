@@ -1,6 +1,7 @@
 package sharded
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"time"
@@ -34,7 +35,7 @@ func NewSnapshot(c *Cluster) *Snapshot {
 func (s *Snapshot) Backup() {
 	s.bcpName = s.c.LogicalBackup()
 	s.started <- struct{}{}
-	s.c.BackupWaitDone(s.bcpName)
+	s.c.BackupWaitDone(context.TODO(), s.bcpName)
 	time.Sleep(time.Second * 1)
 	s.done <- struct{}{}
 }
@@ -44,7 +45,7 @@ func (s *Snapshot) WaitDone()     { <-s.done }
 func (s *Snapshot) WaitStarted()  { <-s.started }
 
 func (s *Snapshot) Restore() {
-	s.c.LogicalRestore(s.bcpName)
+	s.c.LogicalRestore(context.TODO(), s.bcpName)
 }
 
 type Pitr struct {
@@ -70,7 +71,7 @@ func (p *Pitr) Backup() {
 	bcpName := p.c.LogicalBackup()
 	p.started <- struct{}{}
 	p.c.pitrOn()
-	p.c.BackupWaitDone(bcpName)
+	p.c.BackupWaitDone(context.TODO(), bcpName)
 	p.sdone <- struct{}{}
 
 	ds := time.Second * 30 * time.Duration(rand.Int63n(5)+2)
@@ -117,7 +118,7 @@ func NewPhysical(c *Cluster) *Physical {
 func (s *Physical) Backup() {
 	s.bcpName = s.c.PhysicalBackup()
 	s.started <- struct{}{}
-	s.c.BackupWaitDone(s.bcpName)
+	s.c.BackupWaitDone(context.TODO(), s.bcpName)
 	time.Sleep(time.Second * 1)
 	s.done <- struct{}{}
 }
@@ -127,5 +128,5 @@ func (s *Physical) WaitDone()     { <-s.done }
 func (s *Physical) WaitStarted()  { <-s.started }
 
 func (s *Physical) Restore() {
-	s.c.PhysicalRestore(s.bcpName)
+	s.c.PhysicalRestore(context.TODO(), s.bcpName)
 }

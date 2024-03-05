@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
+
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
 
 func runRemappingTests(t *sharded.RemappingEnvironment) {
@@ -11,15 +13,15 @@ func runRemappingTests(t *sharded.RemappingEnvironment) {
 		return
 	}
 
-	t.Donor.ApplyConfig(storage)
+	t.Donor.ApplyConfig(context.TODO(), storage)
 	flush(t.Donor)
-	t.Recipient.ApplyConfig(storage)
+	t.Recipient.ApplyConfig(context.TODO(), storage)
 	flush(t.Recipient)
 
 	t.Donor.SetBallastData(1e4)
 
 	runTest("Logical Backup & Restore with remapping Minio",
-		func() { t.BackupAndRestore(pbm.LogicalBackup) })
+		func() { t.BackupAndRestore(defs.LogicalBackup) })
 
 	flushStore(t.Recipient)
 }

@@ -1,8 +1,6 @@
 package restore
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestDBpathSearch(t *testing.T) {
 	cases := []struct {

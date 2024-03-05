@@ -1,19 +1,21 @@
 package restore
 
 import (
+	"context"
 	"io"
 	"path"
 	"strings"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 const (
@@ -25,39 +27,44 @@ const (
 const maxBulkWriteCount = 500
 
 // configsvrRestore restores for selected namespaces
-func (r *Restore) configsvrRestore(bcp *pbm.BackupMeta, nss []string, mapRS pbm.RSMapFunc) error {
-	mapS := pbm.MakeRSMapFunc(r.sMap)
+func (r *Restore) configsvrRestore(
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+	nss []string,
+	mapRS util.RSMapFunc,
+) error {
+	mapS := util.MakeRSMapFunc(r.sMap)
 	available, err := fetchAvailability(bcp, r.stg)
 	if err != nil {
 		return err
 	}
 
 	if available[databasesNS] {
-		if err := r.configsvrRestoreDatabases(bcp, nss, mapRS, mapS); err != nil {
-			return errors.WithMessage(err, "restore config.databases")
+		if err := r.configsvrRestoreDatabases(ctx, bcp, nss, mapRS, mapS); err != nil {
+			return errors.Wrap(err, "restore config.databases")
 		}
 	}
 
-	var chunkSelector sel.ChunkSelector
+	var chunkSelector util.ChunkSelector
 	if available[collectionsNS] {
 		var err error
-		chunkSelector, err = r.configsvrRestoreCollections(bcp, nss, mapRS)
+		chunkSelector, err = r.configsvrRestoreCollections(ctx, bcp, nss, mapRS)
 		if err != nil {
-			return errors.WithMessage(err, "restore config.collections")
+			return errors.Wrap(err, "restore config.collections")
 		}
 	}
 
 	if available[chunksNS] {
-		if err := r.configsvrRestoreChunks(bcp, chunkSelector, mapRS, mapS); err != nil {
-			return errors.WithMessage(err, "restore config.chunks")
+		if err := r.configsvrRestoreChunks(ctx, bcp, chunkSelector, mapRS, mapS); err != nil {
+			return errors.Wrap(err, "restore config.chunks")
 		}
 	}
 
 	return nil
 }
 
-func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]bool, error) {
-	var cfgRS *pbm.BackupReplset
+func fetchAvailability(bcp *backup.BackupMeta, stg storage.Storage) (map[string]bool, error) {
+	var cfgRS *backup.BackupReplset
 	for i := range bcp.Replsets {
 		rs := &bcp.Replsets[i]
 		if rs.IsConfigSvr != nil && *rs.IsConfigSvr {
@@ -69,9 +76,9 @@ func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]boo
 		return nil, errors.New("no configsvr replset metadata found")
 	}
 
-	nss, err := pbm.ReadArchiveNamespaces(stg, cfgRS.DumpName)
+	nss, err := backup.ReadArchiveNamespaces(stg, cfgRS.DumpName)
 	if err != nil {
-		return nil, errors.WithMessagef(err, "read archive namespaces %q", cfgRS.DumpName)
+		return nil, errors.Wrapf(err, "read archive namespaces %q", cfgRS.DumpName)
 	}
 
 	rv := make(map[string]bool)
@@ -85,13 +92,13 @@ func fetchAvailability(bcp *pbm.BackupMeta, stg storage.Storage) (map[string]boo
 	return rv, nil
 }
 
-func (r *Restore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
+func (r *Restore) getShardMapping(bcp *backup.BackupMeta) map[string]string {
 	source := bcp.ShardRemap
 	if source == nil {
 		source = make(map[string]string)
 	}
 
-	mapRevRS := pbm.MakeReverseRSMapFunc(r.rsMap)
+	mapRevRS := util.MakeReverseRSMapFunc(r.rsMap)
 	rv := make(map[string]string)
 	for _, s := range r.shards {
 		sourceRS := mapRevRS(s.RS)
@@ -109,8 +116,13 @@ func (r *Restore) getShardMapping(bcp *pbm.BackupMeta) map[string]string {
 
 // configsvrRestoreDatabases upserts config.databases documents
 // for selected databases
-func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, mapRS, mapS pbm.RSMapFunc) error {
-	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.databases"+bcp.Compression.Suffix())
+func (r *Restore) configsvrRestoreDatabases(
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+	nss []string,
+	mapRS, mapS util.RSMapFunc,
+) error {
+	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.databases"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return err
@@ -147,7 +159,7 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 
 		doc := bson.D{}
 		if err = bson.Unmarshal(buf, &doc); err != nil {
-			return errors.WithMessage(err, "unmarshal")
+			return errors.Wrap(err, "unmarshal")
 		}
 
 		for i, a := range doc {
@@ -168,31 +180,32 @@ func (r *Restore) configsvrRestoreDatabases(bcp *pbm.BackupMeta, nss []string, m
 		return nil
 	}
 
-	coll := r.cn.Conn.Database("config").Collection("databases")
-	_, err = coll.BulkWrite(r.cn.Context(), models)
-	return errors.WithMessage(err, "update config.databases")
+	coll := r.leadConn.ConfigDatabase().Collection("databases")
+	_, err = coll.BulkWrite(ctx, models)
+	return errors.Wrap(err, "update config.databases")
 }
 
 // configsvrRestoreCollections upserts config.collections documents
 // for selected namespaces
 func (r *Restore) configsvrRestoreCollections(
-	bcp *pbm.BackupMeta,
+	ctx context.Context,
+	bcp *backup.BackupMeta,
 	nss []string,
-	mapRS pbm.RSMapFunc,
-) (sel.ChunkSelector, error) {
-	ver, err := pbm.GetMongoVersion(r.cn.Context(), r.node.Session())
+	mapRS util.RSMapFunc,
+) (util.ChunkSelector, error) {
+	ver, err := version.GetMongoVersion(ctx, r.nodeConn)
 	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
+		return nil, errors.Wrap(err, "get mongo version")
 	}
 
-	var chunkSelector sel.ChunkSelector
+	var chunkSelector util.ChunkSelector
 	if ver.Major() >= 5 {
-		chunkSelector = sel.NewUUIDChunkSelector()
+		chunkSelector = util.NewUUIDChunkSelector()
 	} else {
-		chunkSelector = sel.NewNSChunkSelector()
+		chunkSelector = util.NewNSChunkSelector()
 	}
 
-	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.collections"+bcp.Compression.Suffix())
+	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.collections"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return nil, err
@@ -202,7 +215,7 @@ func (r *Restore) configsvrRestoreCollections(
 		return nil, err
 	}
 
-	selected := sel.MakeSelectedPred(nss)
+	selected := util.MakeSelectedPred(nss)
 
 	models := []mongo.WriteModel{}
 	buf := make([]byte, archive.MaxBSONSize)
@@ -226,7 +239,7 @@ func (r *Restore) configsvrRestoreCollections(
 		doc := bson.D{}
 		err = bson.Unmarshal(buf, &doc)
 		if err != nil {
-			return nil, errors.WithMessage(err, "unmarshal")
+			return nil, errors.Wrap(err, "unmarshal")
 		}
 
 		model := mongo.NewReplaceOneModel()
@@ -240,9 +253,9 @@ func (r *Restore) configsvrRestoreCollections(
 		return chunkSelector, nil
 	}
 
-	coll := r.cn.Conn.Database("config").Collection("collections")
-	if _, err = coll.BulkWrite(r.cn.Context(), models); err != nil {
-		return nil, errors.WithMessage(err, "update config.collections")
+	coll := r.leadConn.ConfigDatabase().Collection("collections")
+	if _, err = coll.BulkWrite(ctx, models); err != nil {
+		return nil, errors.Wrap(err, "update config.collections")
 	}
 
 	return chunkSelector, nil
@@ -250,12 +263,13 @@ func (r *Restore) configsvrRestoreCollections(
 
 // configsvrRestoreChunks upserts config.chunks documents for selected namespaces
 func (r *Restore) configsvrRestoreChunks(
-	bcp *pbm.BackupMeta,
-	selector sel.ChunkSelector,
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+	selector util.ChunkSelector,
 	mapRS,
-	mapS pbm.RSMapFunc,
+	mapS util.RSMapFunc,
 ) error {
-	filepath := path.Join(bcp.Name, mapRS(r.node.RS()), "config.chunks"+bcp.Compression.Suffix())
+	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.chunks"+bcp.Compression.Suffix())
 	rdr, err := r.stg.SourceReader(filepath)
 	if err != nil {
 		return err
@@ -265,8 +279,8 @@ func (r *Restore) configsvrRestoreChunks(
 		return err
 	}
 
-	coll := r.cn.Conn.Database("config").Collection("chunks")
-	_, err = coll.DeleteMany(r.cn.Context(), selector.BuildFilter())
+	coll := r.leadConn.ConfigDatabase().Collection("chunks")
+	_, err = coll.DeleteMany(ctx, selector.BuildFilter())
 	if err != nil {
 		return err
 	}
@@ -293,7 +307,7 @@ func (r *Restore) configsvrRestoreChunks(
 
 			doc := bson.D{}
 			if err := bson.Unmarshal(buf, &doc); err != nil {
-				return errors.WithMessage(err, "unmarshal")
+				return errors.Wrap(err, "unmarshal")
 			}
 
 			for i, a := range doc {
@@ -322,9 +336,9 @@ func (r *Restore) configsvrRestoreChunks(
 			return nil
 		}
 
-		_, err = coll.BulkWrite(r.cn.Context(), models)
+		_, err = coll.BulkWrite(ctx, models)
 		if err != nil {
-			return errors.WithMessage(err, "update config.chunks")
+			return errors.Wrap(err, "update config.chunks")
 		}
 
 		models = models[:0]

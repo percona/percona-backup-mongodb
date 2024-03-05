@@ -112,12 +112,13 @@ wait_noop() {
     set +o xtrace
 
     retry=0
-    until [ "$(mongo_run 'db.getSiblingDB("admin").pbmLock.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ]; do
+    until [ "$(mongo_run 'db.getSiblingDB("admin").pbmLock.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ] && [ "$(mongo_run 'db.getSiblingDB("admin").pbmLockOp.find().count()' cfg | tail -n 1 | tr -d '\r')" == 0 ]; do
         sleep 1
         echo -n .
         let retry+=1
         if [ $retry -ge 120 ]; then
             mongo_run 'db.getSiblingDB("admin").pbmLock.find()' "cfg"
+            mongo_run 'db.getSiblingDB("admin").pbmLockOp.find()' "cfg"
             exit 1
         fi
     done
@@ -168,7 +169,7 @@ start_cluster() {
         mkdir "${test_dir}/docker/backups"
         chmod -R 777 "${test_dir}/docker/backups"
     fi
-    export MONGODB_VERSION=${mongo_version:-"5.0"}
+    export MONGODB_VERSION=${mongo_version:-"4.4"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $COMPOSE_PATH up --quiet-pull --no-color -d \
         cfg01 cfg02 cfg03 rs101 rs102 rs103 rs201 rs202 rs203 mongos minio createbucket
@@ -209,7 +210,7 @@ start_replset() {
         chmod -R 777 "${test_dir}/docker/backups"
     fi
 
-    export MONGODB_VERSION=${mongo_version:-"5.0"}
+    export MONGODB_VERSION=${mongo_version:-"4.4"}
     export MONGODB_IMAGE=${MONGODB_IMAGE:-"percona/percona-server-mongodb"}
     docker-compose -f $compose up --quiet-pull --no-color -d \
         $nodes

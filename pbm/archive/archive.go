@@ -7,10 +7,11 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/archive"
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 type (
@@ -48,7 +49,7 @@ func DefaultDocFilter(string, bson.Raw) bool { return true }
 func Decompose(r io.Reader, newWriter NewWriter, nsFilter NSFilterFn, docFilter DocFilterFn) error {
 	meta, err := readPrelude(r)
 	if err != nil {
-		return errors.WithMessage(err, "prelude")
+		return errors.Wrap(err, "prelude")
 	}
 
 	if nsFilter == nil {
@@ -60,7 +61,7 @@ func Decompose(r io.Reader, newWriter NewWriter, nsFilter NSFilterFn, docFilter 
 
 	c := newConsumer(newWriter, nsFilter, docFilter)
 	if err := (&archive.Parser{In: r}).ReadAllBlocks(c); err != nil {
-		return errors.WithMessage(err, "archive parser")
+		return errors.Wrap(err, "archive parser")
 	}
 
 	// save metadata for selected namespaces only
@@ -78,13 +79,13 @@ func Decompose(r io.Reader, newWriter NewWriter, nsFilter NSFilterFn, docFilter 
 	meta.Namespaces = nss
 
 	err = writeMetadata(meta, newWriter)
-	return errors.WithMessage(err, "metadata")
+	return errors.Wrap(err, "metadata")
 }
 
 func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
 	meta, err := readMetadata(newReader)
 	if err != nil {
-		return errors.WithMessage(err, "metadata")
+		return errors.Wrap(err, "metadata")
 	}
 
 	nss := make([]*Namespace, 0, len(meta.Namespaces))
@@ -97,20 +98,20 @@ func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
 	meta.Namespaces = nss
 
 	if err := writePrelude(w, meta); err != nil {
-		return errors.WithMessage(err, "prelude")
+		return errors.Wrap(err, "prelude")
 	}
 
 	err = writeAllNamespaces(w, newReader,
 		int(meta.Header.ConcurrentCollections),
 		meta.Namespaces)
-	return errors.WithMessage(err, "write namespaces")
+	return errors.Wrap(err, "write namespaces")
 }
 
 func readPrelude(r io.Reader) (*archiveMeta, error) {
 	prelude := archive.Prelude{}
 	err := prelude.Read(r)
 	if err != nil {
-		return nil, errors.WithMessage(err, "read")
+		return nil, errors.Wrap(err, "read")
 	}
 
 	m := &archiveMeta{Header: prelude.Header}
@@ -130,7 +131,7 @@ func writePrelude(w io.Writer, m *archiveMeta) error {
 	}
 
 	err := prelude.Write(w)
-	return errors.WithMessage(err, "write")
+	return errors.Wrap(err, "write")
 }
 
 func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namespace) error {
@@ -146,13 +147,13 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 				mu.Lock()
 				defer mu.Unlock()
 
-				return errors.WithMessage(closeChunk(w, ns), "close empty chunk")
+				return errors.Wrap(closeChunk(w, ns), "close empty chunk")
 			}
 
 			nss := NSify(ns.Database, ns.Collection)
 			r, err := newReader(nss)
 			if err != nil {
-				return errors.WithMessage(err, "new reader")
+				return errors.Wrap(err, "new reader")
 			}
 			defer r.Close()
 
@@ -160,16 +161,16 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 				mu.Lock()
 				defer mu.Unlock()
 
-				return errors.WithMessage(writeChunk(w, ns, b), "write chunk")
+				return errors.Wrap(writeChunk(w, ns, b), "write chunk")
 			})
 			if err != nil {
-				return errors.WithMessage(err, "split")
+				return errors.Wrap(err, "split")
 			}
 
 			mu.Lock()
 			defer mu.Unlock()
 
-			return errors.WithMessage(closeChunk(w, ns), "close chunk")
+			return errors.Wrap(closeChunk(w, ns), "close chunk")
 		})
 	}
 
@@ -192,14 +193,14 @@ func splitChunks(r io.Reader, size int, write func([]byte) error) error {
 	}
 
 	if !errors.Is(err, io.EOF) {
-		return errors.WithMessage(err, "read bson")
+		return errors.Wrap(err, "read bson")
 	}
 
 	if len(chunk) == 0 {
 		return nil
 	}
 
-	return errors.WithMessage(write(chunk), "last")
+	return errors.Wrap(write(chunk), "last")
 }
 
 // ReadBSONBuffer reads raw bson document from r reader using buf buffer
@@ -208,7 +209,7 @@ func ReadBSONBuffer(r io.Reader, buf []byte) ([]byte, error) {
 
 	_, err := io.ReadFull(r, l[:])
 	if err != nil {
-		return nil, errors.WithMessage(err, "length")
+		return nil, errors.Wrap(err, "length")
 	}
 
 	size := int(int32(l[0]) | int32(l[1])<<8 | int32(l[2])<<16 | int32(l[3])<<24)
@@ -244,19 +245,19 @@ func writeChunk(w io.Writer, ns *Namespace, data []byte) error {
 
 	header, err := bson.Marshal(nsHeader)
 	if err != nil {
-		return errors.WithMessage(err, "marshal")
+		return errors.Wrap(err, "marshal")
 	}
 
 	if err := SecureWrite(w, header); err != nil {
-		return errors.WithMessage(err, "header")
+		return errors.Wrap(err, "header")
 	}
 
 	if err := SecureWrite(w, data); err != nil {
-		return errors.WithMessage(err, "data")
+		return errors.Wrap(err, "data")
 	}
 
 	err = SecureWrite(w, terminatorBytes)
-	return errors.WithMessage(err, "terminator")
+	return errors.Wrap(err, "terminator")
 }
 
 func closeChunk(w io.Writer, ns *Namespace) error {
@@ -272,27 +273,27 @@ func closeChunk(w io.Writer, ns *Namespace) error {
 
 	header, err := bson.Marshal(nsHeader)
 	if err != nil {
-		return errors.WithMessage(err, "marshal")
+		return errors.Wrap(err, "marshal")
 	}
 
 	if err := SecureWrite(w, header); err != nil {
-		return errors.WithMessage(err, "header")
+		return errors.Wrap(err, "header")
 	}
 
 	err = SecureWrite(w, terminatorBytes)
-	return errors.WithMessage(err, "terminator")
+	return errors.Wrap(err, "terminator")
 }
 
 func writeMetadata(meta *archiveMeta, newWriter NewWriter) error {
 	w, err := newWriter(MetaFile)
 	if err != nil {
-		return errors.WithMessage(err, "new writer")
+		return errors.Wrap(err, "new writer")
 	}
 	defer w.Close()
 
 	data, err := bson.MarshalExtJSONIndent(meta, true, true, "", "\t")
 	if err != nil {
-		return errors.WithMessage(err, "marshal")
+		return errors.Wrap(err, "marshal")
 	}
 
 	return SecureWrite(w, data)
@@ -301,7 +302,7 @@ func writeMetadata(meta *archiveMeta, newWriter NewWriter) error {
 func readMetadata(newReader NewReader) (*archiveMeta, error) {
 	r, err := newReader(MetaFile)
 	if err != nil {
-		return nil, errors.WithMessage(err, "new metafile reader")
+		return nil, errors.Wrap(err, "new metafile reader")
 	}
 	defer r.Close()
 
@@ -311,12 +312,12 @@ func readMetadata(newReader NewReader) (*archiveMeta, error) {
 func ReadMetadata(r io.Reader) (*archiveMeta, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, errors.WithMessage(err, "read")
+		return nil, errors.Wrap(err, "read")
 	}
 
 	meta := &archiveMeta{}
 	err = bson.UnmarshalExtJSON(data, true, meta)
-	return meta, errors.WithMessage(err, "unmarshal")
+	return meta, errors.Wrap(err, "unmarshal")
 }
 
 type consumer struct {
@@ -343,7 +344,7 @@ func newConsumer(newWriter NewWriter, nsFilter NSFilterFn, docFilter DocFilterFn
 func (c *consumer) HeaderBSON(data []byte) error {
 	h := &archive.NamespaceHeader{}
 	if err := bson.Unmarshal(data, h); err != nil {
-		return errors.WithMessage(err, "unmarshal")
+		return errors.Wrap(err, "unmarshal")
 	}
 
 	ns := NSify(h.Database, h.Collection)
@@ -366,7 +367,7 @@ func (c *consumer) HeaderBSON(data []byte) error {
 	}
 
 	delete(c.nss, ns)
-	return errors.WithMessage(w.Close(), "close")
+	return errors.Wrap(w.Close(), "close")
 }
 
 func (c *consumer) BodyBSON(data []byte) error {
@@ -385,14 +386,14 @@ func (c *consumer) BodyBSON(data []byte) error {
 		var err error
 		w, err = c.open(ns)
 		if err != nil {
-			return errors.WithMessagef(err, "open: %q", ns)
+			return errors.Wrapf(err, "open: %q", ns)
 		}
 
 		c.nss[ns] = w
 	}
 
 	c.size[ns] += int64(len(data))
-	return errors.WithMessagef(SecureWrite(w, data), "%q", ns)
+	return errors.Wrapf(SecureWrite(w, data), "%q", ns)
 }
 
 func (c *consumer) End() error {
@@ -401,7 +402,7 @@ func (c *consumer) End() error {
 	for ns, w := range c.nss {
 		ns, w := ns, w
 		eg.Go(func() error {
-			return errors.WithMessagef(w.Close(), "close: %q", ns)
+			return errors.Wrapf(w.Close(), "close: %q", ns)
 		})
 	}
 
@@ -411,7 +412,7 @@ func (c *consumer) End() error {
 func SecureWrite(w io.Writer, data []byte) error {
 	n, err := w.Write(data)
 	if err != nil {
-		return errors.WithMessage(err, "write")
+		return errors.Wrap(err, "write")
 	}
 	if n != len(data) {
 		return io.ErrShortWrite

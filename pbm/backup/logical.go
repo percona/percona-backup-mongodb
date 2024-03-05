@@ -6,33 +6,39 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	plog "github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/sel"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func (b *Backup) doLogical(
 	ctx context.Context,
-	bcp *pbm.BackupCmd,
-	opid pbm.OPID,
-	rsMeta *pbm.BackupReplset,
-	inf *pbm.NodeInfo,
+	bcp *ctrl.BackupCmd,
+	opid ctrl.OPID,
+	rsMeta *BackupReplset,
+	inf *topo.NodeInfo,
 	stg storage.Storage,
-	l *plog.Event,
+	l log.LogEvent,
 ) error {
 	var db, coll string
-	if sel.IsSelective(bcp.Namespaces) {
+	if util.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.
 		// only some collections from config db is required to restore cluster state
 		if inf.IsConfigSrv() {
@@ -42,9 +48,9 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	nssSize, err := getNamespacesSize(ctx, b.node.Session(), db, coll)
+	nssSize, err := getNamespacesSize(ctx, b.nodeConn, db, coll)
 	if err != nil {
-		return errors.WithMessage(err, "get namespaces size")
+		return errors.Wrap(err, "get namespaces size")
 	}
 	if bcp.Compression == compress.CompressionTypeNone {
 		for n := range nssSize {
@@ -52,23 +58,16 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	oplog := oplog.NewOplogBackup(b.node.Session())
-	oplogTS, err := oplog.LastWrite()
-	if err != nil {
-		return errors.Wrap(err, "define oplog start position")
-	}
-
-	rsMeta.Status = pbm.StatusRunning
-	rsMeta.FirstWriteTS = oplogTS
-	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "local.oplog.rs.bson") + bcp.Compression.Suffix()
+	rsMeta.Status = defs.StatusRunning
+	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "oplog")
 	rsMeta.DumpName = path.Join(bcp.Name, rsMeta.Name, archive.MetaFile)
-	err = b.cn.AddRSMeta(bcp.Name, *rsMeta)
+	err = AddRSMeta(ctx, b.leadConn, bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusRunning, ref(b.timeouts.StartingStatus()))
+		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusRunning, ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -76,30 +75,41 @@ func (b *Backup) doLogical(
 			return errors.Wrap(err, "check cluster for backup started")
 		}
 
-		err = b.setClusterFirstWrite(bcp.Name)
+		err = b.setClusterFirstWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster first write ts")
 		}
 	}
 
 	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(bcp.Name, pbm.StatusRunning, nil)
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
 	if err != nil {
 		return errors.Wrap(err, "waiting for running")
 	}
 
-	if !sel.IsSelective(bcp.Namespaces) {
+	stopOplogSlicer := startOplogSlicer(ctx,
+		b.nodeConn,
+		b.SlicerInterval(),
+		rsMeta.FirstWriteTS,
+		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
+			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, -1)
+		})
+	// ensure slicer is stopped in any case (done, error or canceled)
+	defer stopOplogSlicer() //nolint:errcheck
+
+	if !util.IsSelective(bcp.Namespaces) {
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
-		lw, err := b.node.CopyUsersNRolles()
+		lw, err := copyUsersNRolles(ctx, b.brief.URI)
 		if err != nil {
 			return errors.Wrap(err, "copy users and roles for the restore")
 		}
 
 		defer func() {
 			l.Info("dropping tmp collections")
-			if err := b.node.DropTMPcoll(); err != nil {
+			if err := dropTMPcoll(context.Background(), b.brief.URI); err != nil {
 				l.Warning("drop tmp users and roles: %v", err)
 			}
 		}()
@@ -108,7 +118,7 @@ func (b *Backup) doLogical(
 		// have replicated to the node we're about to take a backup from
 		// *copying made on a primary but backup does a secondary node
 		l.Debug("wait for tmp users %v", lw)
-		err = b.node.WaitForWrite(lw)
+		err = waitForWrite(ctx, b.nodeConn, lw)
 		if err != nil {
 			return errors.Wrap(err, "wait for tmp users and roles replication")
 		}
@@ -118,34 +128,35 @@ func (b *Backup) doLogical(
 	if len(nssSize) == 0 {
 		dump = snapshot.DummyBackup{}
 	} else {
-		dump, err = snapshot.NewBackup(b.node.ConnURI(), b.node.DumpConns(), db, coll)
+		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll)
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
 		}
 	}
 
-	cfg, err := b.cn.GetConfig()
+	cfg, err := config.GetConfig(ctx, b.leadConn)
 	if err != nil {
-		return errors.WithMessage(err, "get config")
+		return errors.Wrap(err, "get config")
 	}
 
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
-	if inf.IsConfigSrv() && sel.IsSelective(bcp.Namespaces) {
-		chunkSelector, err := createBackupChunkSelector(ctx, b.cn.Conn, bcp.Namespaces)
+	if inf.IsConfigSrv() && util.IsSelective(bcp.Namespaces) {
+		chunkSelector, err := createBackupChunkSelector(ctx, b.leadConn, bcp.Namespaces)
 		if err != nil {
-			return errors.WithMessage(err, "fetch uuids")
+			return errors.Wrap(err, "fetch uuids")
 		}
 
 		nsFilter = makeConfigsvrNSFilter()
 		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
 	}
 
-	snapshotSize, err := snapshot.UploadDump(dump,
+	snapshotSize, err := snapshot.UploadDump(ctx,
+		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := pbm.Storage(cfg, l)
+			stg, err := util.StorageFromConfig(cfg.Storage, l)
 			if err != nil {
-				return errors.WithMessage(err, "get storage")
+				return errors.Wrap(err, "get storage")
 			}
 
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
@@ -162,52 +173,41 @@ func (b *Backup) doLogical(
 	}
 	l.Info("mongodump finished, waiting for the oplog")
 
-	err = b.cn.ChangeRSState(bcp.Name, rsMeta.Name, pbm.StatusDumpDone, "")
+	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
 
-	lwts, err := oplog.LastWrite()
-	if err != nil {
-		return errors.Wrap(err, "get shard's last write ts")
+	if inf.IsLeader() {
+		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDumpDone, nil)
+		if err != nil {
+			return errors.Wrap(err, "check cluster for dump done")
+		}
 	}
 
-	err = b.cn.SetRSLastWrite(bcp.Name, rsMeta.Name, lwts)
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
+	if err != nil {
+		return errors.Wrap(err, "waiting for dump done")
+	}
+
+	lastSavedTS, oplogSize, err := stopOplogSlicer()
+	if err != nil {
+		return errors.Wrap(err, "oplog")
+	}
+
+	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(bcp.Name, opid.String(), pbm.StatusDumpDone, nil)
-		if err != nil {
-			return errors.Wrap(err, "check cluster for dump done")
-		}
-
-		err = b.setClusterLastWrite(bcp.Name)
+		err = b.setClusterLastWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}
 	}
 
-	err = b.waitForStatus(bcp.Name, pbm.StatusDumpDone, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for dump done")
-	}
-
-	fwTS, lwTS, err := b.waitForFirstLastWrite(bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "get cluster first & last write ts")
-	}
-
-	l.Debug("set oplog span to %v / %v", fwTS, lwTS)
-	oplog.SetTailingSpan(fwTS, lwTS)
-	// size -1 - we're assuming oplog never exceed 97Gb (see comments in s3.Save method)
-	oplogSize, err := Upload(ctx, oplog, stg, bcp.Compression, bcp.CompressionLevel, rsMeta.OplogName, -1)
-	if err != nil {
-		return errors.Wrap(err, "oplog")
-	}
-
-	err = b.cn.IncBackupSize(ctx, bcp.Name, snapshotSize+oplogSize)
+	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}
@@ -215,26 +215,113 @@ func (b *Backup) doLogical(
 	return nil
 }
 
-func createBackupChunkSelector(ctx context.Context, m *mongo.Client, nss []string) (sel.ChunkSelector, error) {
-	ver, err := pbm.GetMongoVersion(ctx, m)
+func dropTMPcoll(ctx context.Context, uri string) error {
+	m, err := connect.MongoConnect(ctx, uri, nil)
 	if err != nil {
-		return nil, errors.WithMessage(err, "get mongo version")
+		return errors.Wrap(err, "connect to primary")
+	}
+	defer m.Disconnect(ctx) //nolint:errcheck
+
+	err = util.DropTMPcoll(ctx, m)
+	if err != nil {
+		return err
 	}
 
-	var chunkSelector sel.ChunkSelector
-	if ver.Major() >= 5 {
-		chunkSelector = sel.NewUUIDChunkSelector()
-	} else {
-		chunkSelector = sel.NewNSChunkSelector()
+	return nil
+}
+
+func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) error {
+	var lw primitive.Timestamp
+	var err error
+
+	for i := 0; i < 21; i++ {
+		lw, err = topo.GetLastWrite(ctx, m, false)
+		if err == nil && lw.Compare(ts) >= 0 {
+			return nil
+		}
+		time.Sleep(time.Second * 1)
 	}
 
-	cur, err := m.Database("config").Collection("collections").Find(ctx, bson.D{})
 	if err != nil {
-		return nil, errors.WithMessage(err, "query")
+		return err
+	}
+
+	return errors.New("run out of time")
+}
+
+//nolint:nonamedreturns
+func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
+	cn, err := connect.MongoConnect(ctx, uri, nil)
+	if err != nil {
+		return lastWrite, errors.Wrap(err, "connect to primary")
+	}
+	defer cn.Disconnect(ctx) //nolint:errcheck
+
+	err = util.DropTMPcoll(ctx, cn)
+	if err != nil {
+		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
+	}
+
+	err = copyColl(ctx,
+		cn.Database("admin").Collection("system.roles"),
+		cn.Database(defs.DB).Collection(defs.TmpRolesCollection),
+		bson.M{},
+	)
+	if err != nil {
+		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
+	}
+	err = copyColl(ctx,
+		cn.Database("admin").Collection("system.users"),
+		cn.Database(defs.DB).Collection(defs.TmpUsersCollection),
+		bson.M{},
+	)
+	if err != nil {
+		return lastWrite, errors.Wrap(err, "copy admin.system.users")
+	}
+
+	return topo.GetLastWrite(ctx, cn, false)
+}
+
+// copyColl copy documents matching the given filter and return number of copied documents
+func copyColl(ctx context.Context, from, to *mongo.Collection, filter any) error {
+	cur, err := from.Find(ctx, filter)
+	if err != nil {
+		return errors.Wrap(err, "create cursor")
 	}
 	defer cur.Close(ctx)
 
-	selected := sel.MakeSelectedPred(nss)
+	n := 0
+	for cur.Next(ctx) {
+		_, err = to.InsertOne(ctx, cur.Current)
+		if err != nil {
+			return errors.Wrap(err, "insert document")
+		}
+		n++
+	}
+
+	return nil
+}
+
+func createBackupChunkSelector(ctx context.Context, m connect.Client, nss []string) (util.ChunkSelector, error) {
+	ver, err := version.GetMongoVersion(ctx, m.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get mongo version")
+	}
+
+	var chunkSelector util.ChunkSelector
+	if ver.Major() >= 5 {
+		chunkSelector = util.NewUUIDChunkSelector()
+	} else {
+		chunkSelector = util.NewNSChunkSelector()
+	}
+
+	cur, err := m.ConfigDatabase().Collection("collections").Find(ctx, bson.D{})
+	if err != nil {
+		return nil, errors.Wrap(err, "query")
+	}
+	defer cur.Close(ctx)
+
+	selected := util.MakeSelectedPred(nss)
 	for cur.Next(ctx) {
 		ns := cur.Current.Lookup("_id").StringValue()
 		if selected(ns) {
@@ -242,7 +329,7 @@ func createBackupChunkSelector(ctx context.Context, m *mongo.Client, nss []strin
 		}
 	}
 	if err := cur.Err(); err != nil {
-		return nil, errors.WithMessage(err, "cursor")
+		return nil, errors.Wrap(err, "cursor")
 	}
 
 	return chunkSelector, nil
@@ -261,8 +348,8 @@ func makeConfigsvrNSFilter() archive.NSFilterFn {
 	}
 }
 
-func makeConfigsvrDocFilter(nss []string, selector sel.ChunkSelector) archive.DocFilterFn {
-	selectedNS := sel.MakeSelectedPred(nss)
+func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.DocFilterFn {
+	selectedNS := util.MakeSelectedPred(nss)
 	allowedDBs := make(map[string]bool)
 	for _, ns := range nss {
 		db, _, _ := strings.Cut(ns, ".")
@@ -294,7 +381,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 	}
 	dbs, err := m.ListDatabaseNames(ctx, q)
 	if err != nil {
-		return nil, errors.WithMessage(err, "list databases")
+		return nil, errors.Wrap(err, "list databases")
 	}
 	if len(dbs) == 0 {
 		return rv, nil
@@ -313,7 +400,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 			}
 			res, err := m.Database(db).ListCollectionSpecifications(ctx, q)
 			if err != nil {
-				return errors.WithMessagef(err, "list collections for %q", db)
+				return errors.Wrapf(err, "list collections for %q", db)
 			}
 			if len(res) == 0 {
 				return nil
@@ -332,7 +419,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 					ns := db + "." + coll.Name
 					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
 					if err := res.Err(); err != nil {
-						return errors.WithMessagef(err, "collStats %q", ns)
+						return errors.Wrapf(err, "collStats %q", ns)
 					}
 
 					var doc struct {
@@ -340,7 +427,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 					}
 
 					if err := res.Decode(&doc); err != nil {
-						return errors.WithMessagef(err, "decode %q", ns)
+						return errors.Wrapf(err, "decode %q", ns)
 					}
 
 					mu.Lock()

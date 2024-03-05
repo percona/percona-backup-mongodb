@@ -4,15 +4,29 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/percona-backup-mongodb/pbm"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
+
+type Timeline struct {
+	Start uint32 `json:"start"`
+	End   uint32 `json:"end"`
+	Size  int64  `json:"-"`
+}
+
+func (t Timeline) String() string {
+	const tlTimeFormat = "2006-01-02T15:04:05"
+	ts := time.Unix(int64(t.Start), 0).UTC()
+	te := time.Unix(int64(t.End), 0).UTC()
+	return fmt.Sprintf("%s - %s", ts.Format(tlTimeFormat), te.Format(tlTimeFormat))
+}
 
 // OplogBackup is used for reading the Mongodb oplog
 type OplogBackup struct {
@@ -116,7 +130,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 		}
 
 		// skip noop operations
-		if cur.Current.Lookup("op").String() == string(pbm.OperationNoop) {
+		if cur.Current.Lookup("op").String() == string(defs.OperationNoop) {
 			continue
 		}
 
@@ -153,9 +167,4 @@ func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 	}
 
 	return c != 0, nil
-}
-
-// LastWrite returns a timestamp of the last write operation readable by majority reads
-func (ot *OplogBackup) LastWrite() (primitive.Timestamp, error) {
-	return pbm.LastWrite(ot.cl, true)
 }

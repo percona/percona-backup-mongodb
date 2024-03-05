@@ -11,7 +11,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 type CompressionType string
@@ -25,22 +26,6 @@ const (
 	CompressionTypeS2        CompressionType = "s2"
 	CompressionTypeZstandard CompressionType = "zstd"
 )
-
-func IsValidCompressionType(s string) bool {
-	switch CompressionType(s) {
-	case
-		CompressionTypeNone,
-		CompressionTypeGZIP,
-		CompressionTypePGZIP,
-		CompressionTypeSNAPPY,
-		CompressionTypeLZ4,
-		CompressionTypeS2,
-		CompressionTypeZstandard:
-		return true
-	}
-
-	return false
-}
 
 func (c CompressionType) Suffix() string {
 	switch c {
@@ -61,13 +46,29 @@ func (c CompressionType) Suffix() string {
 	}
 }
 
+func IsValidCompressionType(s string) bool {
+	switch CompressionType(s) {
+	case
+		CompressionTypeNone,
+		CompressionTypeGZIP,
+		CompressionTypePGZIP,
+		CompressionTypeSNAPPY,
+		CompressionTypeLZ4,
+		CompressionTypeS2,
+		CompressionTypeZstandard:
+		return true
+	}
+
+	return false
+}
+
 // FileCompression return compression alg based on given file extension
 func FileCompression(ext string) CompressionType {
 	switch ext {
 	default:
 		return CompressionTypeNone
 	case "gz":
-		return CompressionTypePGZIP
+		return CompressionTypeGZIP
 	case "lz4":
 		return CompressionTypeLZ4
 	case "snappy":

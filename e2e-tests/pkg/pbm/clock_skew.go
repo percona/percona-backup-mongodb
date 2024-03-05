@@ -9,7 +9,8 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
-	"github.com/pkg/errors"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {
@@ -44,7 +45,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 
 		envs := append([]string{}, containerOld.Config.Env...)
 		envs = append(envs,
-			`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1`,
+			`LD_PRELOAD=/lib64/faketime/libfaketime.so.1`,
 			`FAKETIME=`+ts,
 		)
 
@@ -54,6 +55,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			Env:    envs,
 			Cmd:    []string{"pbm-agent"},
 			Labels: containerOld.Config.Labels,
+			User:   "1001",
 		},
 			containerOld.HostConfig,
 			&network.NetworkingConfig{
