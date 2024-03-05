@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	dtypes "github.com/docker/docker/api/types"
-	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -19,7 +20,7 @@ import (
 )
 
 type Ctl struct {
-	cn        *docker.Client
+	cn        *client.Client
 	ctx       context.Context
 	container string
 	env       []string
@@ -28,7 +29,7 @@ type Ctl struct {
 var backupNameRE = regexp.MustCompile(`Starting backup '([0-9\-\:TZ]+)'`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
-	cn, err := docker.NewClientWithOpts(docker.WithHost(host))
+	cn, err := client.NewClientWithOpts(client.WithHost(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}
@@ -286,7 +287,7 @@ func (c *Ctl) PITRestoreClusterTime(t, i uint32) error {
 }
 
 func (c *Ctl) RunCmd(cmds ...string) (string, error) {
-	execConf := dtypes.ExecConfig{
+	execConf := types.ExecConfig{
 		Env:          c.env,
 		Cmd:          cmds,
 		AttachStderr: true,
@@ -297,7 +298,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, dtypes.ExecStartCheck{})
+	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, types.ExecStartCheck{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}
@@ -334,7 +335,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 func (c *Ctl) ContainerLogs() (string, error) {
 	r, err := c.cn.ContainerLogs(
 		c.ctx, c.container,
-		dtypes.ContainerLogsOptions{
+		container.LogsOptions{
 			ShowStderr: true,
 		})
 	if err != nil {

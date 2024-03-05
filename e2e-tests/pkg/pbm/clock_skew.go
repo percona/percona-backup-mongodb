@@ -4,11 +4,10 @@ import (
 	"context"
 	"log"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
-	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/client"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
@@ -16,7 +15,7 @@ import (
 func ClockSkew(rsName, ts, dockerHost string) error {
 	log.Printf("== Skew the clock for %s on the replicaset %s ", ts, rsName)
 
-	cn, err := docker.NewClientWithOpts(docker.WithHost(dockerHost))
+	cn, err := client.NewClientWithOpts(client.WithHost(dockerHost))
 	if err != nil {
 		return errors.Wrap(err, "docker client")
 	}
@@ -24,7 +23,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 
 	fltr := filters.NewArgs()
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := cn.ContainerList(context.Background(), types.ContainerListOptions{
+	containers, err := cn.ContainerList(context.Background(), container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -38,7 +37,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 		}
 
 		log.Printf("Removing container %s/%s\n", containerOld.ID, containerOld.Name)
-		err = cn.ContainerRemove(context.Background(), c.ID, types.ContainerRemoveOptions{Force: true})
+		err = cn.ContainerRemove(context.Background(), c.ID, container.RemoveOptions{Force: true})
 		if err != nil {
 			return errors.Wrapf(err, "remove container %s", c.ID)
 		}
@@ -67,7 +66,7 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			return errors.Wrap(err, "ContainerCreate")
 		}
 
-		err = cn.ContainerStart(context.Background(), containerNew.ID, types.ContainerStartOptions{})
+		err = cn.ContainerStart(context.Background(), containerNew.ID, container.StartOptions{})
 		if err != nil {
 			return errors.Wrap(err, "ContainerStart")
 		}
