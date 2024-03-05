@@ -80,8 +80,6 @@ func (r *Rand) WriteTo(w io.Writer) (int64, error) {
 type Collection struct {
 	size Byte
 	c    *mongo.Collection
-
-	dataset [][]byte
 }
 
 func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, error) {
@@ -93,11 +91,6 @@ func NewCollection(size Byte, cn *mongo.Client, namespace string) (*Collection, 
 	r := &Collection{
 		size: size,
 		c:    cn.Database(ns[0]).Collection(ns[1]),
-
-		dataset: make([][]byte, len(dataset)),
-	}
-	for i, s := range dataset {
-		r.dataset[i] = []byte(s)
 	}
 	return r, nil
 }
