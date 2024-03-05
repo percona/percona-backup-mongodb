@@ -102,14 +102,14 @@ func (b *Backup) doLogical(
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
-		lw, err := copyUsersNRolles(ctx, b.leadConn.MongoClient())
+		lw, err := copyUsersNRolles(ctx, b.brief.URI)
 		if err != nil {
 			return errors.Wrap(err, "copy users and roles for the restore")
 		}
 
 		defer func() {
 			l.Info("dropping tmp collections")
-			if err := dropTMPcoll(context.Background(), b.leadConn.MongoClient()); err != nil {
+			if err := dropTMPcoll(context.Background(), b.brief.URI); err != nil {
 				l.Warning("drop tmp users and roles: %v", err)
 			}
 		}()
@@ -215,10 +215,16 @@ func (b *Backup) doLogical(
 	return nil
 }
 
-func dropTMPcoll(ctx context.Context, conn *mongo.Client) error {
-	err := util.DropTMPcoll(ctx, conn)
+func dropTMPcoll(ctx context.Context, uri string) error {
+	m, err := connect.MongoConnect(ctx, uri, nil)
 	if err != nil {
-		return errors.Wrap(err, "dropping tmp collection on primary")
+		return errors.Wrap(err, "connect to primary")
+	}
+	defer m.Disconnect(ctx) //nolint:errcheck
+
+	err = util.DropTMPcoll(ctx, m)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -244,30 +250,36 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) 
 }
 
 //nolint:nonamedreturns
-func copyUsersNRolles(ctx context.Context, conn *mongo.Client) (lastWrite primitive.Timestamp, err error) {
-	err = util.DropTMPcoll(ctx, conn)
+func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
+	cn, err := connect.MongoConnect(ctx, uri, nil)
+	if err != nil {
+		return lastWrite, errors.Wrap(err, "connect to primary")
+	}
+	defer cn.Disconnect(ctx) //nolint:errcheck
+
+	err = util.DropTMPcoll(ctx, cn)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
 	}
 
 	err = copyColl(ctx,
-		conn.Database("admin").Collection("system.roles"),
-		conn.Database(defs.DB).Collection(defs.TmpRolesCollection),
+		cn.Database("admin").Collection("system.roles"),
+		cn.Database(defs.DB).Collection(defs.TmpRolesCollection),
 		bson.M{},
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
 	}
 	err = copyColl(ctx,
-		conn.Database("admin").Collection("system.users"),
-		conn.Database(defs.DB).Collection(defs.TmpUsersCollection),
+		cn.Database("admin").Collection("system.users"),
+		cn.Database(defs.DB).Collection(defs.TmpUsersCollection),
 		bson.M{},
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.users")
 	}
 
-	return topo.GetLastWrite(ctx, conn, false)
+	return topo.GetLastWrite(ctx, cn, false)
 }
 
 // copyColl copy documents matching the given filter and return number of copied documents
