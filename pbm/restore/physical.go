@@ -42,6 +42,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
+	"github.com/percona/percona-backup-mongodb/wt"
 )
 
 const (
@@ -106,7 +107,10 @@ type PhysRestore struct {
 
 	log log.LogEvent
 
+	nss   []string
 	rsMap map[string]string
+
+	fileFilter func(filename string) bool
 }
 
 func NewPhysical(
@@ -114,6 +118,7 @@ func NewPhysical(
 	leadConn connect.Client,
 	node *mongo.Client,
 	inf *topo.NodeInfo,
+	nss []string,
 	rsMap map[string]string,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
@@ -179,7 +184,10 @@ func NewPhysical(
 		nodeInfo: inf,
 		tmpPort:  tmpPort,
 		secOpts:  opts.Security,
+		nss:      nss,
 		rsMap:    rsMap,
+
+		fileFilter: func(s string) bool { return true },
 	}, nil
 }
 
@@ -290,10 +298,12 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	r.log.Debug("revome old data")
-	err = removeAll(r.dbpath, r.log)
-	if err != nil {
-		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	r.log.Debug("remove old data")
+	if !util.IsSelective(r.nss) {
+		err = removeAll(r.dbpath, r.log)
+		if err != nil {
+			return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+		}
 	}
 
 	return nil
@@ -714,13 +724,14 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("port: %d", r.tmpPort)
 
 	meta := &RestoreMeta{
-		Type:     defs.PhysicalBackup,
-		OPID:     opid.String(),
-		Name:     cmd.Name,
-		Backup:   cmd.BackupName,
-		StartTS:  time.Now().Unix(),
-		Status:   defs.StatusInit,
-		Replsets: []RestoreReplset{{Name: r.nodeInfo.Me}},
+		Type:       defs.PhysicalBackup,
+		OPID:       opid.String(),
+		Name:       cmd.Name,
+		Backup:     cmd.BackupName,
+		StartTS:    time.Now().Unix(),
+		Status:     defs.StatusInit,
+		Namespaces: r.nss,
+		Replsets:   []RestoreReplset{{Name: r.nodeInfo.Me}},
 	}
 	if r.nodeInfo.IsClusterLeader() {
 		meta.Leader = r.nodeInfo.Me + "/" + r.rsConf.ID
@@ -888,10 +899,24 @@ func (r *PhysRestore) Snapshot(
 			return errors.Wrap(err, "cleanup datadir")
 		}
 	} else {
+		var nss []*wt.Namespace
+		if util.IsSelective(r.nss) {
+			nss, err = r.readCatalogForSelected()
+			if err != nil {
+				return errors.Wrap(err, "select files")
+			}
+		}
+
 		l.Info("copying backup data")
 		stats.D, err = r.copyFiles()
 		if err != nil {
 			return errors.Wrap(err, "copy files")
+		}
+
+		if util.IsSelective(r.nss) {
+			if err := r.importSelected(nss); err != nil {
+				return errors.Wrap(err, "import selected")
+			}
 		}
 	}
 
@@ -1078,6 +1103,119 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
+func (r *PhysRestore) readCatalogForSelected() ([]*wt.Namespace, error) {
+	if len(r.files) == 0 {
+		return nil, errors.New("no data")
+	}
+
+	set := r.files[0]
+	src := filepath.Join(set.BcpName, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName))
+
+	mm := make(map[string]*backup.File, len(set.Data))
+	for i := range set.Data {
+		d := set.Data[i]
+		mm[d.Name] = &d
+	}
+
+	temp, err := os.MkdirTemp("", "")
+	if err != nil {
+		return nil, fmt.Errorf("mkdtemp: %w", err)
+	}
+	defer os.RemoveAll(temp)
+
+	for _, filename := range wt.BackupFiles {
+		a := filepath.Join(src, filename+set.Cmpr.Suffix())
+		b := filepath.Join(temp, filename)
+
+		rdr, err := r.stg.SourceReader(a)
+		if err != nil {
+			return nil, fmt.Errorf("open: %w", err)
+		}
+		defer rdr.Close()
+
+		rdr, err = compress.Decompress(rdr, set.Cmpr)
+		if err != nil {
+			return nil, fmt.Errorf("decompress: %w", err)
+		}
+		defer rdr.Close()
+
+		file, err := os.Create(b)
+		if err != nil {
+			return nil, fmt.Errorf("create: %w", err)
+		}
+		defer file.Close()
+
+		if _, err := io.Copy(file, rdr); err != nil {
+			return nil, fmt.Errorf("copy: %w", err)
+		}
+
+		rdr.Close()
+		file.Close()
+	}
+
+	if err := wt.RecoverToStable(temp); err != nil {
+		return nil, fmt.Errorf("recover to stable: %w", err)
+	}
+
+	sess, err := wt.OpenSession(temp, wt.BaseConfig+",readonly")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", err, temp)
+	}
+	defer sess.Close()
+
+	metadata, err := wt.ReadCatalog(sess)
+	if err != nil {
+		return nil, fmt.Errorf("namespaces: %w", err)
+	}
+
+	isSelected := util.MakeSelectedPred(r.nss)
+	nss := []*wt.Namespace{}
+	files := make(map[string]struct{})
+	for _, ns := range metadata {
+		if !isSelected(ns.NS) {
+			continue
+		}
+
+		nss = append(nss, ns)
+		files[ns.Ident+".wt"] = struct{}{}
+		for _, ident := range ns.IdxIdent {
+			files[ident+".wt"] = struct{}{}
+		}
+	}
+
+	r.fileFilter = func(s string) bool {
+		if _, ok := files[s]; ok {
+			return true
+		}
+
+		return strings.HasPrefix(s, "journal/WiredTigerLog.")
+	}
+
+	return nss, nil
+}
+
+func (r *PhysRestore) importSelected(nss []*wt.Namespace) error {
+	sess, err := wt.OpenSession(r.dbpath, wt.BaseConfig+",log=(enabled=true,path=journal,compressor=snappy)")
+	if err != nil {
+		return errors.Wrap(err, "open")
+	}
+	defer sess.Close()
+
+	for _, ns := range nss {
+		err = wt.ImportCollection(sess, ns)
+		if err != nil {
+			return errors.Wrapf(err, "import %q", ns.NS)
+		}
+	}
+
+	err = sess.Checkpoint()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	var stat *s3.DownloadStat
 	readFn := r.stg.SourceReader
@@ -1098,6 +1236,10 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
+			if !r.fileFilter(f.Name) {
+				continue
+			}
+
 			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
 			if f.Len != 0 {
 				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
@@ -1216,33 +1358,36 @@ func (r *PhysRestore) prepareData() error {
 
 	ctx := context.Background()
 
-	_, err = c.Database("local").Collection("replset.minvalid").DeleteMany(ctx, bson.D{})
-	if err != nil {
-		return errors.Wrap(err, "drop replset.minvalid")
-	}
-	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").DeleteMany(ctx, bson.D{})
-	if err != nil {
-		return errors.Wrap(err, "drop replset.oplogTruncateAfterPoint")
-	}
-	_, err = c.Database("local").Collection("replset.election").DeleteMany(ctx, bson.D{})
-	if err != nil {
-		return errors.Wrap(err, "drop replset.election")
-	}
-	_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
-	if err != nil {
-		return errors.Wrap(err, "delete from system.replset")
-	}
+	if !util.IsSelective(r.nss) {
+		_, err = c.Database("local").Collection("replset.minvalid").DeleteMany(ctx, bson.D{})
+		if err != nil {
+			return errors.Wrap(err, "drop replset.minvalid")
+		}
+		_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").DeleteMany(ctx, bson.D{})
+		if err != nil {
+			return errors.Wrap(err, "drop replset.oplogTruncateAfterPoint")
+		}
+		_, err = c.Database("local").Collection("replset.election").DeleteMany(ctx, bson.D{})
+		if err != nil {
+			return errors.Wrap(err, "drop replset.election")
+		}
+		_, err = c.Database("local").Collection("system.replset").DeleteMany(ctx, bson.D{})
+		if err != nil {
+			return errors.Wrap(err, "delete from system.replset")
+		}
 
-	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
-		bson.M{"_id": primitive.NewObjectID(), "t": -1, "ts": primitive.Timestamp{0, 1}},
-	)
-	if err != nil {
-		return errors.Wrap(err, "insert to replset.minvalid")
+		_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
+			bson.M{"_id": primitive.NewObjectID(), "t": -1, "ts": primitive.Timestamp{0, 1}},
+		)
+		if err != nil {
+			return errors.Wrap(err, "insert to replset.minvalid")
+		}
 	}
 
 	r.log.Debug("oplogTruncateAfterPoint: %v", r.restoreTS)
-	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").InsertOne(ctx,
-		bson.M{"_id": "oplogTruncateAfterPoint", "oplogTruncateAfterPoint": r.restoreTS},
+	_, err = c.Database("local").Collection("replset.oplogTruncateAfterPoint").UpdateOne(ctx,
+		bson.M{"_id": "oplogTruncateAfterPoint"},
+		bson.M{"$set": bson.M{"oplogTruncateAfterPoint": r.restoreTS}},
 	)
 	if err != nil {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
@@ -1359,6 +1504,7 @@ func (r *PhysRestore) replayOplog(
 		start:  &from,
 		end:    &to,
 		unsafe: true,
+		nss:    r.nss,
 	}
 	partial, err := applyOplog(ctx, c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
 		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,

@@ -399,6 +399,11 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		bcpType = bcp.Type
 	}
 
+	nss := bcp.Namespaces
+	if util.IsSelective(r.Namespaces) {
+		nss = r.Namespaces
+	}
+
 	l.Info("recovery started")
 
 	switch bcpType {
@@ -423,7 +428,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 
 		var rstr *restore.PhysRestore
-		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
+		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, nss, r.RSMap)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
 			return

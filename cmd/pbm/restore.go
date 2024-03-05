@@ -283,7 +283,7 @@ func checkBackup(
 	if err != nil {
 		return "", "", errors.Wrap(err, "get backup data")
 	}
-	if len(nss) != 0 && bcp.Type != defs.LogicalBackup {
+	if len(nss) != 0 && bcp.Type != defs.LogicalBackup && bcp.Type != defs.PhysicalBackup {
 		return "", "", errors.New("--ns flag is only allowed for logical restore")
 	}
 	if bcp.Status != defs.StatusDone {
@@ -358,9 +358,10 @@ func doRestore(
 
 	if outf != outText {
 		return &restore.RestoreMeta{
-			Name:   name,
-			Backup: bcp,
-			Type:   bcpType,
+			Name:       name,
+			Backup:     bcp,
+			Type:       bcpType,
+			Namespaces: nss,
 		}, nil
 	}
 
