@@ -34,12 +34,28 @@ func Direct(direct bool) MongoOption {
 	}
 }
 
+// ReadConcern option sets availability guarantees for read operation.
+// For PBM typically use: [readconcern.Local()] or [readconcern.Majority()].
+// If the option is not specified the default is: [readconcern.Majority()].
 func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 	return func(opts *options.ClientOptions) error {
 		if readConcern == nil {
 			return errors.New("ReadConcern not specified")
 		}
 		opts.SetReadConcern(readConcern)
+		return nil
+	}
+}
+
+// WriteConcern option sets level of acknowledgment for write operation.
+// For PBM typically use: [writeconcern.W1()] or [writeconcern.Majority()].
+// If the option is not specified the default is: [writeconcern.Majority()].
+func WriteConcern(writeConcern *writeconcern.WriteConcern) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		if writeConcern == nil {
+			return errors.New("WriteConcern not specified")
+		}
+		opts.SetWriteConcern(writeConcern)
 		return nil
 	}
 }
