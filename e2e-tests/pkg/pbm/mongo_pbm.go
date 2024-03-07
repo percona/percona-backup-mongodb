@@ -25,7 +25,7 @@ type MongoPBM struct {
 }
 
 func NewMongoPBM(ctx context.Context, connectionURI string) (*MongoPBM, error) {
-	conn, err := connect.Connect(ctx, connectionURI, &connect.ConnectOptions{AppName: "e2e-tests-pbm"})
+	conn, err := connect.Connect(ctx, connectionURI, "e2e-tests-pbm")
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}

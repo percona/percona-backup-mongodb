@@ -78,7 +78,7 @@ const (
 )
 
 func connTopo(ctx context.Context, uri string) (topo, error) {
-	m, err := connect.MongoConnect(ctx, uri, nil)
+	m, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return topoUnknown, errors.Wrap(err, "connect")
 	}
@@ -162,7 +162,7 @@ func ensureClusterOplog(ctx context.Context, uri string, from, till primitive.Ti
 	logger.Printf("[%s] ensuring cluster oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
-	m, err := connect.MongoConnect(ctx, uri, nil)
+	m, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return errors.Wrap(err, "connect")
 	}
@@ -202,7 +202,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 	logger.Printf("[%s] ensure replset oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
-	m, err := connect.MongoConnect(ctx, uri, nil)
+	m, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return errors.Wrap(err, "connect")
 	}
@@ -228,7 +228,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 	logger.Printf("[%s] ensuring replset oplog (actual): %s - %s",
 		uri, formatTimestamp(firstOpT), formatTimestamp(lastOpT))
 
-	conn, err := connect.Connect(ctx, uri, &connect.ConnectOptions{AppName: "ensure-oplog"})
+	conn, err := connect.Connect(ctx, uri, "ensure-oplog")
 	if err != nil {
 		return errors.Wrap(err, "connect to PBM")
 	}

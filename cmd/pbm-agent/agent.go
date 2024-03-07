@@ -44,12 +44,12 @@ type Agent struct {
 }
 
 func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
-	m, err := connect.MongoConnect(ctx, uri, &connect.MongoConnectOptions{Direct: true})
+	nodeConn, err := connect.MongoConnect(ctx, uri, connect.Direct(true))
 	if err != nil {
 		return nil, err
 	}
 
-	info, err := topo.GetNodeInfo(ctx, m)
+	info, err := topo.GetNodeInfo(ctx, nodeConn)
 	if err != nil {
 		return nil, err
 	}
@@ -57,14 +57,14 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 	a := &Agent{
 		leadConn: leadConn,
 		closeCMD: make(chan struct{}),
+		nodeConn: nodeConn,
+		brief: topo.NodeBrief{
+			URI:     uri,
+			SetName: info.SetName,
+			Me:      info.Me,
+		},
+		dumpConns: dumpConns,
 	}
-	a.nodeConn = m
-	a.brief = topo.NodeBrief{
-		URI:     uri,
-		SetName: info.SetName,
-		Me:      info.Me,
-	}
-	a.dumpConns = dumpConns
 	return a, nil
 }
 
