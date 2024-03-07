@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -63,6 +64,20 @@ func WriteConcern(writeConcern *writeconcern.WriteConcern) MongoOption {
 func NoRS() MongoOption {
 	return func(opts *options.ClientOptions) error {
 		opts.SetReplicaSet("")
+		return nil
+	}
+}
+
+func ConnectTimeout(d time.Duration) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetConnectTimeout(d)
+		return nil
+	}
+}
+
+func ServerSelectionTimeout(d time.Duration) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetServerSelectionTimeout(d)
 		return nil
 	}
 }
