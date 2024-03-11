@@ -23,6 +23,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
@@ -1674,6 +1675,7 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 		cn, err = connect.MongoConnect(context.Background(), host,
 			connect.AppName("pbm-physical-restore"),
 			connect.Direct(true),
+			connect.WriteConcern(writeconcern.W1()),
 			connect.ConnectTimeout(time.Second*120),
 			connect.ServerSelectionTimeout(tryConnTimeout),
 		)
