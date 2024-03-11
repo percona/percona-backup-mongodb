@@ -28,7 +28,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
     timeout-minutes: 120
     strategy:
       fail-fast: false
