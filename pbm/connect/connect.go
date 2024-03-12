@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -34,6 +35,9 @@ func Direct(direct bool) MongoOption {
 	}
 }
 
+// ReadConcern option sets availability guarantees for read operation.
+// For PBM typically use: [readconcern.Local] or [readconcern.Majority].
+// If the option is not specified the default is: [readconcern.Majority].
 func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 	return func(opts *options.ClientOptions) error {
 		if readConcern == nil {
@@ -44,9 +48,37 @@ func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 	}
 }
 
+// WriteConcern option sets level of acknowledgment for write operation.
+// For PBM typically use: [writeconcern.W1] or [writeconcern.Majority].
+// If the option is not specified the default is: [writeconcern.Majority].
+func WriteConcern(writeConcern *writeconcern.WriteConcern) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		if writeConcern == nil {
+			return errors.New("WriteConcern not specified")
+		}
+		opts.SetWriteConcern(writeConcern)
+		return nil
+	}
+}
+
+// NoRS option removes replica set name setting
 func NoRS() MongoOption {
 	return func(opts *options.ClientOptions) error {
 		opts.SetReplicaSet("")
+		return nil
+	}
+}
+
+func ConnectTimeout(d time.Duration) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetConnectTimeout(d)
+		return nil
+	}
+}
+
+func ServerSelectionTimeout(d time.Duration) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetServerSelectionTimeout(d)
 		return nil
 	}
 }
