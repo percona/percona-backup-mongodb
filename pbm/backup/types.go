@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -149,4 +150,54 @@ func (f *File) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	return io.Copy(w, io.NewSectionReader(fd, f.Off, f.Len))
+}
+
+// FilelistName is filename that is used to store list of files for physical backup
+const FilelistName = "filelist.pbm"
+
+type Filelist []File
+
+func (filelist Filelist) WriteTo(w io.Writer) (int64, error) {
+	size := int64(0)
+
+	for _, file := range filelist {
+		data, err := bson.Marshal(file)
+		if err != nil {
+			return 0, errors.Wrap(err, "json encode")
+		}
+
+		n, err := w.Write(data)
+		if err != nil {
+			return size, errors.Wrap(err, "write")
+		}
+		if n != len(data) {
+			return size, io.ErrShortWrite
+		}
+
+		size += int64(n)
+	}
+
+	return size, nil
+}
+
+func ReadFilelist(r io.Reader) (Filelist, error) {
+	filelist := Filelist{}
+
+	var err error
+	var raw bson.Raw
+	for raw, err = bson.ReadDocument(r); err == nil; raw, err = bson.ReadDocument(r) {
+		file := File{}
+
+		err = bson.Unmarshal(raw, &file)
+		if err != nil {
+			return nil, errors.Wrap(err, "decode")
+		}
+
+		filelist = append(filelist, file)
+	}
+	if !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
+	return filelist, nil
 }
