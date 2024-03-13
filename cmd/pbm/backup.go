@@ -357,7 +357,7 @@ func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b 
 	var stg storage.Storage
 	if b.coll {
 		l := log.FromContext(ctx).NewDefaultEvent()
-		stg, err := util.GetStorage(ctx, conn, l)
+		stg, err = util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
