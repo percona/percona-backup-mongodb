@@ -2,10 +2,13 @@ package sdk
 
 import (
 	"context"
+	"path"
+	"runtime"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -16,7 +19,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 var ErrNotImplemented = errors.New("not implemented")
@@ -120,7 +126,111 @@ func (c *clientImpl) GetBackupByName(
 		bcp.Increments = increments
 	}
 
+	if options.FetchFilelist {
+		err = fillFilelistForBackup(ctx, c.conn, bcp)
+		if err != nil {
+			return nil, errors.Wrap(err, "fetch filelist")
+		}
+	}
+
 	return bcp, nil
+}
+
+func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMetadata) error {
+	var err error
+	var stg storage.Storage
+
+	eg, _ := errgroup.WithContext(ctx)
+	eg.SetLimit(runtime.NumCPU())
+	if version.HasFilelistFile(bcp.PBMVersion) {
+		stg, err = getStorageForRead(ctx, cc)
+		if err != nil {
+			return errors.Wrap(err, "get storage")
+		}
+
+		for i := range bcp.Replsets {
+			rs := &bcp.Replsets[i]
+
+			eg.Go(func() error {
+				filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+				if err != nil {
+					return errors.Wrapf(err, "get filelist for %q [rs: %s] backup", bcp.Name, rs.Name)
+				}
+
+				rs.Files = filelist
+				return nil
+			})
+		}
+	}
+
+	for i := range bcp.Increments {
+		for j := range bcp.Increments[i] {
+			bcp := bcp.Increments[i][j]
+
+			if bcp.Status != defs.StatusDone {
+				continue
+			}
+			if !version.HasFilelistFile(bcp.PBMVersion) {
+				continue
+			}
+
+			if stg == nil {
+				// in case if it is the first backup made with filelist file
+				stg, err = getStorageForRead(ctx, cc)
+				if err != nil {
+					return errors.Wrap(err, "get storage")
+				}
+			}
+
+			for i := range bcp.Replsets {
+				rs := &bcp.Replsets[i]
+
+				eg.Go(func() error {
+					filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+					if err != nil {
+						return errors.Wrapf(err, "fetch files for %q [rs: %s] backup", bcp.Name, rs.Name)
+					}
+
+					rs.Files = filelist
+					return nil
+				})
+			}
+		}
+	}
+
+	return eg.Wait()
+}
+
+func getStorageForRead(ctx context.Context, cc connect.Client) (storage.Storage, error) {
+	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+	ok, err := storage.HasReadAccess(ctx, stg)
+	if err != nil {
+		return nil, errors.Wrap(err, "check storage access")
+	}
+	if !ok {
+		return nil, errors.New("no read permission for configured storage")
+	}
+
+	return stg, nil
+}
+
+func getFilelistForReplset(stg storage.Storage, bcpName, rsName string) (backup.Filelist, error) {
+	pfFilepath := path.Join(bcpName, rsName, backup.FilelistName)
+	rdr, err := stg.SourceReader(pfFilepath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %q", pfFilepath)
+	}
+	defer rdr.Close()
+
+	filelist, err := backup.ReadFilelist(rdr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse filelist %q", pfFilepath)
+	}
+
+	return filelist, nil
 }
 
 func (c *clientImpl) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {

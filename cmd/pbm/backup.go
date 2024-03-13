@@ -176,6 +176,7 @@ func runBackup(
 		out := externBcpOut{Name: b.name, list: b.externList}
 		for _, rs := range bcp.Replsets {
 			node := externBcpNode{Name: rs.Node}
+			// todo
 			for _, f := range rs.Files {
 				node.Files = append(node.Files, f.Name)
 			}
@@ -348,7 +349,7 @@ func byteCountIEC(b int64) string {
 }
 
 func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b *descBcp) (fmt.Stringer, error) {
-	opts := sdk.GetBackupByNameOptions{}
+	opts := sdk.GetBackupByNameOptions{FetchFilelist: true}
 	bcp, err := pbm.GetBackupByName(ctx, b.name, opts)
 	if err != nil {
 		return nil, err
