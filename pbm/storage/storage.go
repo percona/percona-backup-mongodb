@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
@@ -60,6 +61,14 @@ func ParseType(s string) Type {
 	default:
 		return Undef
 	}
+}
+
+// HasReadAccess checks if the storage has read access to the specified file.
+// It returns true if read access is available, otherwise it returns false.
+// If an error occurs during the check, it returns the error.
+func HasReadAccess(ctx context.Context, stg Storage) (bool, error) {
+	_, err := stg.FileStat(defs.StorInitFile)
+	return err == nil, err
 }
 
 // rwError multierror for the read/compress/write-to-store operations set

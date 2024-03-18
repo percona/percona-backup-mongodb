@@ -138,6 +138,7 @@ func runBackup(
 			Namespaces:       nss,
 			Compression:      compression,
 			CompressionLevel: level,
+			Filelist:         b.externList,
 		},
 	})
 	if err != nil {
@@ -169,7 +170,7 @@ func runBackup(
 			return nil, errors.Errorf("unexpected backup status %v", str)
 		}
 
-		bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
+		bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{FetchFilelist: b.externList})
 		if err != nil {
 			return nil, errors.Wrap(err, "get backup meta")
 		}
@@ -348,7 +349,8 @@ func byteCountIEC(b int64) string {
 }
 
 func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b *descBcp) (fmt.Stringer, error) {
-	bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
+	opts := sdk.GetBackupByNameOptions{}
+	bcp, err := pbm.GetBackupByName(ctx, b.name, opts)
 	if err != nil {
 		return nil, err
 	}
