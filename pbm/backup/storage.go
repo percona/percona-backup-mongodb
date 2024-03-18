@@ -212,6 +212,10 @@ func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 	if version.HasFilelistFile(meta.PBMVersion) {
 		for i := range meta.Replsets {
 			rs := &meta.Replsets[i]
+			if rs.Files != nil {
+				// it is already fetched
+				continue
+			}
 
 			filelistPath := path.Join(meta.Name, rs.Name, FilelistName)
 			rdr, err := stg.SourceReader(filelistPath)
