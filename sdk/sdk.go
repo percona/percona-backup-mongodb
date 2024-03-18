@@ -88,7 +88,6 @@ type IncrementalBackupOptions struct {
 
 type GetBackupByNameOptions struct {
 	FetchIncrements bool
-	FetchFilelist   bool
 }
 
 type GetAllRestoresOptions struct {
