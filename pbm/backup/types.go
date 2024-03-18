@@ -42,7 +42,7 @@ type BackupMeta struct {
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	Store            config.StorageConf       `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
-	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version"`
 	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
@@ -53,7 +53,7 @@ type BackupMeta struct {
 	Conditions       []Condition              `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
 	Err              string                   `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string                   `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	PBMVersion       string                   `bson:"pbm_version" json:"pbm_version"`
 	BalancerStatus   topo.BalancerMode        `bson:"balancer" json:"balancer"`
 	runtimeError     error
 }
@@ -95,6 +95,7 @@ type BackupRsNomination struct {
 
 type BackupReplset struct {
 	Name string `bson:"name" json:"name"`
+
 	// Journal is not used. left for backward compatibility
 	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
@@ -110,6 +111,10 @@ type BackupReplset struct {
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	MongodOpts       *topo.MongodOpts    `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
+
+	// required for external backup (PBM-1252)
+	PBMVersion   string `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	MongoVersion string `bson:"mongo_version,omitempty" json:"mongo_version,omitempty"`
 
 	// CustomThisID is customized thisBackupName value for $backupCursor (in WT: "this_id").
 	// If it is not set (empty), the default value was used.

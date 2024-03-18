@@ -101,6 +101,7 @@ func TestCompatibility(t *testing.T) {
 
 func TestHasPhysicalFilesMetadata(t *testing.T) {
 	cases := map[string]bool{
+		"":           false,
 		"v2.3.2":     false,
 		"v2.4.0":     false,
 		"v2.4.1-dev": true,

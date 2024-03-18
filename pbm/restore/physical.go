@@ -862,9 +862,8 @@ func (r *PhysRestore) Snapshot(
 			}
 			excfg = rsMeta.MongodOpts
 
-			if version.HasFilelistFile(r.bcp.PBMVersion) {
-				fmt.Printf("has physical filelist\n")
-				filelistPath := filepath.Join(r.dbpath, cmd.BackupName, setName, backup.FilelistName)
+			if version.HasFilelistFile(rsMeta.PBMVersion) {
+				filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
 				f, err := os.Open(filelistPath)
 				if err != nil {
 					return errors.Wrapf(err, "open filelist %q", filelistPath)
