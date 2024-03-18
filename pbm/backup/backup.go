@@ -27,7 +27,6 @@ type Backup struct {
 	leadConn            connect.Client
 	nodeConn            *mongo.Client
 	brief               topo.NodeBrief
-	config              *config.Config
 	mongoVersion        string
 	typ                 defs.BackupType
 	incrBase            bool
@@ -72,10 +71,6 @@ func NewIncremental(leadConn connect.Client, conn *mongo.Client, brief topo.Node
 		typ:      defs.IncrementalBackup,
 		incrBase: base,
 	}
-}
-
-func (b *Backup) SetConfig(c *config.Config) {
-	b.config = c
 }
 
 func (b *Backup) SetMongoVersion(v string) {

@@ -25,7 +25,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
-	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 const cursorCreateRetries = 10
@@ -355,7 +354,7 @@ func (b *Backup) doPhysical(
 	}
 
 	if b.typ == defs.ExternalBackup {
-		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, l)
+		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg, l)
 	}
 
 	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
@@ -370,6 +369,7 @@ func (b *Backup) handleExternal(
 	dbpath string,
 	opid ctrl.OPID,
 	inf *topo.NodeInfo,
+	stg storage.Storage,
 	l log.LogEvent,
 ) error {
 	filelist := make(Filelist, len(data)+len(jrnls)+1) // +1 for metadata
@@ -409,16 +409,17 @@ func (b *Backup) handleExternal(
 
 	if bcp.Filelist {
 		// keep filelist on backup storage for listing files to copy
-		stg, err := util.StorageFromConfig(b.config.Storage, log.LogEventFromContext(ctx))
-		if err != nil {
-			return errors.Wrap(err, "get storage")
-		}
-
 		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
 		_, err = storage.Upload(ctx, filelist, stg, bcp.Compression, bcp.CompressionLevel, bcpStoragePath, -1)
 		if err != nil {
 			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
 		}
+
+		defer func() {
+			if err := stg.Delete(bcp.Name); err != nil {
+				l.Warning("remove backup folder <%s>: %v", bcp.Name, err)
+			}
+		}()
 	}
 
 	err = b.toState(ctx, defs.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
