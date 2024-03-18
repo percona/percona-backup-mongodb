@@ -501,7 +501,7 @@ func (b *Backup) uploadPhysical(
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
 	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
 	if err != nil {
-		return errors.Wrap(err, "upload files metadata")
+		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
 	l.Info("uploaded: %q %s", filelistPath, fmtSize(flSize))
 

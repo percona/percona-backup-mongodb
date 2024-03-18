@@ -155,6 +155,7 @@ func (f *File) WriteTo(w io.Writer) (int64, error) {
 // FilelistName is filename that is used to store list of files for physical backup
 const FilelistName = "filelist.pbm"
 
+// Filelist represents a list of files.
 type Filelist []File
 
 func (filelist Filelist) WriteTo(w io.Writer) (int64, error) {
