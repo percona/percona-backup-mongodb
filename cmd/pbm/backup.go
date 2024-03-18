@@ -169,14 +169,13 @@ func runBackup(
 			return nil, errors.Errorf("unexpected backup status %v", str)
 		}
 
-		bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, b.name)
+		bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{FetchFilelist: true})
 		if err != nil {
 			return nil, errors.Wrap(err, "get backup meta")
 		}
 		out := externBcpOut{Name: b.name, list: b.externList}
 		for _, rs := range bcp.Replsets {
 			node := externBcpNode{Name: rs.Node}
-			// todo
 			for _, f := range rs.Files {
 				node.Files = append(node.Files, f.Name)
 			}
