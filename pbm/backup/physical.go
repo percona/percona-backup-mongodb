@@ -372,7 +372,7 @@ func (b *Backup) handleExternal(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	filelist := make(Filelist, len(data)+len(jrnls)+1) // +1 for metadata
+	filelist := make(Filelist, 0, len(data)+len(jrnls)+1) // +1 for metadata
 	for _, f := range append(data, jrnls...) {
 		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
 		filelist = append(filelist, f)
