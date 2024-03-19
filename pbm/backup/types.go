@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -190,19 +191,24 @@ func ReadFilelist(r io.Reader) (Filelist, error) {
 	filelist := Filelist{}
 
 	var err error
-	var raw bson.Raw
-	for raw, err = bson.ReadDocument(r); err == nil; raw, err = bson.ReadDocument(r) {
-		file := File{}
+	buf := make([]byte, archive.MaxBSONSize)
+	for {
+		buf, err = archive.ReadBSONBuffer(r, buf[:cap(buf)])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 
-		err = bson.Unmarshal(raw, &file)
+			return nil, errors.Wrap(err, "read bson")
+		}
+
+		file := File{}
+		err = bson.Unmarshal(buf, &file)
 		if err != nil {
 			return nil, errors.Wrap(err, "decode")
 		}
 
 		filelist = append(filelist, file)
-	}
-	if !errors.Is(err, io.EOF) {
-		return nil, err
 	}
 
 	return filelist, nil
