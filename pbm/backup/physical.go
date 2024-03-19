@@ -410,7 +410,7 @@ func (b *Backup) handleExternal(
 	if bcp.Filelist {
 		// keep filelist on backup storage for listing files to copy
 		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-		_, err = storage.Upload(ctx, filelist, stg, bcp.Compression, bcp.CompressionLevel, bcpStoragePath, -1)
+		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath, -1)
 		if err != nil {
 			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
 		}
