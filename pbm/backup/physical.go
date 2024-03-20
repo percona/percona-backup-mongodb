@@ -372,7 +372,7 @@ func (b *Backup) handleExternal(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	filelist := make(Filelist, 0, len(data)+len(jrnls)+1) // +1 for metadata
+	filelist := make(Filelist, 0, len(data)+len(jrnls)+2) // +2 for metadata and filelist
 	for _, f := range append(data, jrnls...) {
 		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
 		filelist = append(filelist, f)
@@ -391,9 +391,7 @@ func (b *Backup) handleExternal(
 	}
 	// save rs meta along with the data files so it can be used during the restore
 	metaf := fmt.Sprintf(defs.ExternalRsMetaFile, fsMeta.Name)
-	filelist = append(filelist, File{
-		Name: metaf,
-	})
+	filelist = append(filelist, File{Name: metaf}, File{Name: FilelistName})
 	metadst := filepath.Join(dbpath, metaf)
 	err = writeRSmetaToDisk(metadst, &fsMeta)
 	if err != nil {
