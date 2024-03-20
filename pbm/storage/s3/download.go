@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 

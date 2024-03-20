@@ -226,6 +226,10 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
+		err = os.Remove(backup.FilelistName)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			r.log.Warning("remove file <%s>: %v", backup.FilelistName, err)
+		}
 	} else if cleanup { // clean-up dbpath on err if needed
 		r.log.Debug("clean-up dbpath")
 		err := removeAll(r.dbpath, r.log)
@@ -842,7 +846,8 @@ func (r *PhysRestore) Snapshot(
 
 		// try to read replset meta from the backup and use its data
 		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-		rsMetaF := filepath.Join(r.dbpath, fmt.Sprintf(defs.ExternalRsMetaFile, setName))
+		rsMetaFilename := fmt.Sprintf(defs.ExternalRsMetaFile, setName)
+		rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
 		conff, err := os.Open(rsMetaF)
 		var needFiles []backup.File
 		if err == nil {
@@ -856,6 +861,24 @@ func (r *PhysRestore) Snapshot(
 				r.restoreTS = rsMeta.LastWriteTS
 			}
 			excfg = rsMeta.MongodOpts
+
+			if version.HasFilelistFile(rsMeta.PBMVersion) {
+				filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
+				f, err := os.Open(filelistPath)
+				if err != nil {
+					return errors.Wrapf(err, "open filelist %q", filelistPath)
+				}
+				defer f.Close()
+
+				filelist, err := backup.ReadFilelist(f)
+				f.Close()
+				if err != nil {
+					return errors.Wrap(err, "parse filelist")
+				}
+
+				rsMeta.Files = filelist
+			}
+
 			needFiles = rsMeta.Files
 		} else {
 			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
@@ -1979,6 +2002,23 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		return errors.Errorf("no data in the backup for the replica set %s", setName)
 	}
 
+	if version.HasFilelistFile(bcp.PBMVersion) {
+		filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
+		rdr, err := r.stg.SourceReader(filelistPath)
+		if err != nil {
+			return errors.Wrapf(err, "open filelist %q", filelistPath)
+		}
+		defer rdr.Close()
+
+		filelist, err := backup.ReadFilelist(rdr)
+		rdr.Close()
+		if err != nil {
+			return errors.Wrap(err, "parse filelist")
+		}
+
+		rs.Files = filelist
+	}
+
 	targetFiles := make(map[string]bool)
 	for _, f := range append(rs.Files, rs.Journal...) {
 		targetFiles[f.Name] = false
@@ -2019,6 +2059,23 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 			return errors.Wrapf(err, "get source backup")
 		}
 		rs = getRS(bcp, setName)
+
+		if version.HasFilelistFile(bcp.PBMVersion) {
+			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
+			rdr, err := r.stg.SourceReader(filelistPath)
+			if err != nil {
+				return errors.Wrapf(err, "open filelist %q", filelistPath)
+			}
+			defer rdr.Close()
+
+			filelist, err := backup.ReadFilelist(rdr)
+			rdr.Close()
+			if err != nil {
+				return errors.Wrap(err, "parse filelist")
+			}
+
+			rs.Files = filelist
+		}
 	}
 
 	// Directories only. Incremental $backupCusor returns collections that

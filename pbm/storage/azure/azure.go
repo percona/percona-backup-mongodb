@@ -51,6 +51,9 @@ type Blob struct {
 }
 
 func New(opts Conf, l log.LogEvent) (*Blob, error) {
+	if l == nil {
+		l = log.DiscardEvent
+	}
 	b := &Blob{
 		opts: opts,
 		log:  l,

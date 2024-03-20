@@ -354,7 +354,7 @@ func (b *Backup) doPhysical(
 	}
 
 	if b.typ == defs.ExternalBackup {
-		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, l)
+		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg, l)
 	}
 
 	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
@@ -364,16 +364,18 @@ func (b *Backup) handleExternal(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
 	rsMeta *BackupReplset,
-	data,
+	data []File,
 	jrnls []File,
 	dbpath string,
 	opid ctrl.OPID,
 	inf *topo.NodeInfo,
+	stg storage.Storage,
 	l log.LogEvent,
 ) error {
+	filelist := make(Filelist, 0, len(data)+len(jrnls)+2) // +2 for metadata and filelist
 	for _, f := range append(data, jrnls...) {
 		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
-		rsMeta.Files = append(rsMeta.Files, f)
+		filelist = append(filelist, f)
 	}
 
 	// We'll rewrite rs' LastWriteTS with the cluster LastWriteTS for the meta
@@ -389,9 +391,7 @@ func (b *Backup) handleExternal(
 	}
 	// save rs meta along with the data files so it can be used during the restore
 	metaf := fmt.Sprintf(defs.ExternalRsMetaFile, fsMeta.Name)
-	fsMeta.Files = append(fsMeta.Files, File{
-		Name: metaf,
-	})
+	filelist = append(filelist, File{Name: metaf}, File{Name: FilelistName})
 	metadst := filepath.Join(dbpath, metaf)
 	err = writeRSmetaToDisk(metadst, &fsMeta)
 	if err != nil {
@@ -399,9 +399,25 @@ func (b *Backup) handleExternal(
 		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
 	}
 
-	err = RSSetPhyFiles(ctx, b.leadConn, bcp.Name, rsMeta.Name, rsMeta)
+	filelistPath := filepath.Join(dbpath, FilelistName)
+	err = saveFilelist(filelistPath, filelist)
 	if err != nil {
-		return errors.Wrap(err, "set shard's files list")
+		return errors.Wrap(err, "save filelist to dbpath")
+	}
+
+	if bcp.Filelist {
+		// keep filelist on backup storage for listing files to copy
+		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
+		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath, -1)
+		if err != nil {
+			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
+		}
+
+		defer func() {
+			if err := stg.Delete(bcp.Name); err != nil {
+				l.Warning("remove backup folder <%s>: %v", bcp.Name, err)
+			}
+		}()
 	}
 
 	err = b.toState(ctx, defs.StatusCopyReady, bcp.Name, opid.String(), inf, nil)
@@ -419,8 +435,26 @@ func (b *Backup) handleExternal(
 	if err != nil {
 		l.Warning("remove rs meta file <%s>: %v", metadst, err)
 	}
+	err = os.Remove(filelistPath)
+	if err != nil {
+		l.Warning("remove file <%s>: %v", filelistPath, err)
+	}
 
 	return nil
+}
+
+func saveFilelist(filepath string, fl Filelist) error {
+	fw, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return errors.Wrapf(err, "create/open")
+	}
+	defer fw.Close()
+
+	if _, err = fl.WriteTo(fw); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return errors.Wrap(fw.Sync(), "fsync")
 }
 
 func writeRSmetaToDisk(fname string, rsMeta *BackupReplset) error {
@@ -454,12 +488,11 @@ func (b *Backup) uploadPhysical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	var err error
 	l.Info("uploading data")
-	rsMeta.Files, err = uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
+	dataFiles, err := uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
 		b.typ == defs.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "upload data files")
 	}
 	l.Info("uploading data done")
 
@@ -467,22 +500,26 @@ func (b *Backup) uploadPhysical(
 	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, dbpath,
 		false, stg, bcp.Compression, bcp.CompressionLevel, l)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "upload journal files")
 	}
 	l.Info("uploading journals done")
-	rsMeta.Files = append(rsMeta.Files, ju...)
 
-	err = RSSetPhyFiles(ctx, b.leadConn, bcp.Name, rsMeta.Name, rsMeta)
-	if err != nil {
-		return errors.Wrap(err, "set shard's files list")
-	}
+	filelist := Filelist(dataFiles)
+	filelist = append(filelist, ju...)
 
 	size := int64(0)
-	for _, f := range rsMeta.Files {
+	for _, f := range filelist {
 		size += f.StgSize
 	}
 
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size)
+	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
+	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
+	if err != nil {
+		return errors.Wrapf(err, "upload filelist %q", filelistPath)
+	}
+	l.Info("uploaded: %q %s", filelistPath, fmtSize(flSize))
+
+	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}

@@ -5,8 +5,10 @@ import (
 	"io"
 	"os"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -41,7 +43,7 @@ type BackupMeta struct {
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	Store            config.StorageConf       `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
-	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version,omitempty"`
+	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version"`
 	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
@@ -52,7 +54,7 @@ type BackupMeta struct {
 	Conditions       []Condition              `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
 	Err              string                   `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string                   `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	PBMVersion       string                   `bson:"pbm_version" json:"pbm_version"`
 	BalancerStatus   topo.BalancerMode        `bson:"balancer" json:"balancer"`
 	runtimeError     error
 }
@@ -94,6 +96,7 @@ type BackupRsNomination struct {
 
 type BackupReplset struct {
 	Name string `bson:"name" json:"name"`
+
 	// Journal is not used. left for backward compatibility
 	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
@@ -109,6 +112,10 @@ type BackupReplset struct {
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`
 	MongodOpts       *topo.MongodOpts    `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
+
+	// required for external backup (PBM-1252)
+	PBMVersion   string `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`
+	MongoVersion string `bson:"mongo_version,omitempty" json:"mongo_version,omitempty"`
 
 	// CustomThisID is customized thisBackupName value for $backupCursor (in WT: "this_id").
 	// If it is not set (empty), the default value was used.
@@ -149,4 +156,60 @@ func (f *File) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	return io.Copy(w, io.NewSectionReader(fd, f.Off, f.Len))
+}
+
+// FilelistName is filename that is used to store list of files for physical backup
+const FilelistName = "filelist.pbm"
+
+// Filelist represents a list of files.
+type Filelist []File
+
+func (filelist Filelist) WriteTo(w io.Writer) (int64, error) {
+	size := int64(0)
+
+	for _, file := range filelist {
+		data, err := bson.Marshal(file)
+		if err != nil {
+			return 0, errors.Wrap(err, "json encode")
+		}
+
+		n, err := w.Write(data)
+		if err != nil {
+			return size, errors.Wrap(err, "write")
+		}
+		if n != len(data) {
+			return size, io.ErrShortWrite
+		}
+
+		size += int64(n)
+	}
+
+	return size, nil
+}
+
+func ReadFilelist(r io.Reader) (Filelist, error) {
+	filelist := Filelist{}
+
+	var err error
+	buf := make([]byte, archive.MaxBSONSize)
+	for {
+		buf, err = archive.ReadBSONBuffer(r, buf[:cap(buf)])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return nil, errors.Wrap(err, "read bson")
+		}
+
+		file := File{}
+		err = bson.Unmarshal(buf, &file)
+		if err != nil {
+			return nil, errors.Wrap(err, "decode")
+		}
+
+		filelist = append(filelist, file)
+	}
+
+	return filelist, nil
 }

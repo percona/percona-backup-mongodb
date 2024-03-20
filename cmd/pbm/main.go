@@ -132,7 +132,7 @@ func main() {
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
 		BoolVar(&backupOptions.wait)
-	backupCmd.Flag("list-files", "Wait for the backup to finish").
+	backupCmd.Flag("list-files", "Shows the list of files per node (external backup only)").
 		Short('l').
 		BoolVar(&backupOptions.externList)
 

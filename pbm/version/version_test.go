@@ -98,3 +98,23 @@ func TestCompatibility(t *testing.T) {
 		}
 	}
 }
+
+func TestHasPhysicalFilesMetadata(t *testing.T) {
+	cases := map[string]bool{
+		"":           false,
+		"v2.3.2":     false,
+		"v2.4.0":     false,
+		"v2.4.1-dev": true,
+		"v2.4.1":     true,
+		"v2.4.2":     true,
+		"v2.5.0":     true,
+		"v3.0.0":     true,
+	}
+
+	for ver, expect := range cases {
+		got := HasFilelistFile(ver)
+		if expect != got {
+			t.Errorf("%q - expected %v, got %v", ver, expect, got)
+		}
+	}
+}
