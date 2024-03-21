@@ -1273,7 +1273,6 @@ func shutdown(c *mongo.Client, dbpath string) error {
 
 func (r *PhysRestore) recoverStandalone() error {
 	err := r.startMongo("--dbpath", r.dbpath,
-		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
 	if err != nil {
