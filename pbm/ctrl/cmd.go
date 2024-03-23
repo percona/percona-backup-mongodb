@@ -126,10 +126,11 @@ func (b BackupCmd) String() string {
 }
 
 type RestoreCmd struct {
-	Name       string            `bson:"name"`
-	BackupName string            `bson:"backupName"`
-	Namespaces []string          `bson:"nss,omitempty"`
-	RSMap      map[string]string `bson:"rsMap,omitempty"`
+	Name          string            `bson:"name"`
+	BackupName    string            `bson:"backupName"`
+	Namespaces    []string          `bson:"nss,omitempty"`
+	UsersAndRoles bool              `bson:"usersAndRoles,omitempty"`
+	RSMap         map[string]string `bson:"rsMap,omitempty"`
 
 	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
 
