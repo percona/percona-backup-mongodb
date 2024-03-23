@@ -36,6 +36,7 @@ type backupOpts struct {
 	ns               string
 	wait             bool
 	externList       bool
+	usersAndRoles    bool
 }
 
 type backupOut struct {
@@ -94,6 +95,9 @@ func runBackup(
 	}
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
+	}
+	if len(nss) == 0 && b.usersAndRoles {
+		return nil, errors.New("Including users and roles are only allowed for specific database (use --ns flag for selective backup)")
 	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {

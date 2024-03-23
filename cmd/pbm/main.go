@@ -129,6 +129,8 @@ func main() {
 		IntsVar(&backupOptions.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
 		StringVar(&backupOptions.ns)
+	backupCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
+		BoolVar(&backupOptions.usersAndRoles)
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
 		BoolVar(&backupOptions.wait)
