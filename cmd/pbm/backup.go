@@ -140,6 +140,7 @@ func runBackup(
 			IncrBase:         b.base,
 			Name:             b.name,
 			Namespaces:       nss,
+			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
 		},

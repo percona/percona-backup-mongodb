@@ -128,7 +128,7 @@ func (b *Backup) doLogical(
 	if len(nssSize) == 0 {
 		dump = snapshot.DummyBackup{}
 	} else {
-		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll)
+		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll, bcp.UsersAndRoles)
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
 		}
