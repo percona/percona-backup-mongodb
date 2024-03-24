@@ -44,7 +44,7 @@ func (b *Backup) doLogical(
 		if inf.IsConfigSrv() {
 			db = "config"
 		} else {
-			db, coll = parseNS(bcp.Namespaces[0])
+			db, coll = util.ParseNS(bcp.Namespaces[0])
 		}
 	}
 
@@ -444,17 +444,4 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
-}
-
-func parseNS(ns string) (string, string) {
-	db, coll, _ := strings.Cut(ns, ".")
-
-	if db == "*" {
-		db = ""
-	}
-	if coll == "*" {
-		coll = ""
-	}
-
-	return db, coll
 }

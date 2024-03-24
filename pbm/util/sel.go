@@ -20,6 +20,20 @@ func IsSelective(ids []string) bool {
 	return false
 }
 
+// ParseNS breaks namespace into database and collection parts
+func ParseNS(ns string) (string, string) {
+	db, coll, _ := strings.Cut(ns, ".")
+
+	if db == "*" {
+		db = ""
+	}
+	if coll == "*" {
+		coll = ""
+	}
+
+	return db, coll
+}
+
 func MakeSelectedPred(nss []string) archive.NSFilterFn {
 	if len(nss) == 0 {
 		return func(string) bool { return true }
