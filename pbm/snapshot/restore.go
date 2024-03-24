@@ -41,7 +41,13 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
+type RestoreOptions struct {
+	UsersAndRoles bool
+	DB            string
+	Coll          string
+}
+
+func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
@@ -66,6 +72,12 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 
 	topts.Direct = true
 	topts.WriteConcern = writeconcern.Majority()
+	if opts.UsersAndRoles {
+		topts.Namespace = &options.Namespace{
+			DB:         opts.DB,
+			Collection: opts.Coll,
+		}
+	}
 
 	batchSize := batchSizeDefault
 	if cfg.Restore.BatchSize > 0 {
@@ -79,7 +91,8 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	mopts := mongorestore.Options{}
 	mopts.ToolOptions = topts
 	mopts.InputOptions = &mongorestore.InputOptions{
-		Archive: "-",
+		Archive:                "-",
+		RestoreDBUsersAndRoles: opts.UsersAndRoles,
 	}
 	mopts.OutputOptions = &mongorestore.OutputOptions{
 		BulkBufferSize:           batchSize,
@@ -91,6 +104,8 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 		StopOnError:              true,
 		WriteConcern:             "majority",
 		NoIndexRestore:           true,
+		TempUsersColl:            defs.TmpMRestoreUsersCollection,
+		TempRolesColl:            defs.TmpMRestoreRolesCollection,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
@@ -100,7 +115,7 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongorestore obj")
 	}
-	mr.SkipUsersAndRoles = true
+	mr.SkipUsersAndRoles = !opts.UsersAndRoles
 
 	return &restorer{mr}, nil
 }

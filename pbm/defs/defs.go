@@ -36,6 +36,11 @@ const (
 	// See https://jira.percona.com/browse/PBM-425, https://jira.percona.com/browse/PBM-636
 	TmpUsersCollection = `pbmRUsers`
 	TmpRolesCollection = `pbmRRoles`
+
+	// TmpRestoreUsersCollection is temp collection that MongoRestore uses internally for restore of users
+	TmpMRestoreUsersCollection = "tempUsersColl"
+	// TmpRestoreRolesCollection is temp collection that MongoRestore uses internally for restore of roles
+	TmpMRestoreRolesCollection = "tempRolesColl"
 )
 
 const (

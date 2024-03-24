@@ -150,7 +150,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cmd.UsersAndRoles)
 	if err != nil {
 		return err
 	}
@@ -281,7 +281,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, false)
 	if err != nil {
 		return err
 	}
@@ -647,7 +647,8 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.BackupMeta, nss []string) error {
+func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.BackupMeta,
+	nss []string, usersAndRoles bool) error {
 	var rdr io.ReadCloser
 
 	var err error
@@ -725,7 +726,7 @@ func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.Back
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(ctx, rdr)
+	err = r.snapshot(ctx, rdr, nss, usersAndRoles)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1065,13 +1066,29 @@ func (r *Restore) applyOplog(ctx context.Context, chunks []oplog.OplogChunk, opt
 	return nil
 }
 
-func (r *Restore) snapshot(ctx context.Context, input io.Reader) error {
+func (r *Restore) snapshot(ctx context.Context, input io.Reader, nss []string, usersAndRoles bool) error {
 	cfg, err := config.GetConfig(ctx, r.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 
-	rf, err := snapshot.NewRestore(r.brief.URI, cfg)
+	if !util.IsSelective(nss) && usersAndRoles {
+		return errors.New("restoring users and roles for non-selective restore")
+	}
+
+	var opts *snapshot.RestoreOptions
+	if util.IsSelective(nss) {
+		db, c := util.ParseNS(nss[0])
+		opts = &snapshot.RestoreOptions{
+			UsersAndRoles: usersAndRoles,
+			DB:            db,
+			Coll:          c,
+		}
+	} else {
+		opts = &snapshot.RestoreOptions{}
+	}
+
+	rf, err := snapshot.NewRestore(r.brief.URI, cfg, opts)
 	if err != nil {
 		return err
 	}
