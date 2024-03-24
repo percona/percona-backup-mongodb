@@ -135,7 +135,7 @@ func writePrelude(w io.Writer, m *archiveMeta) error {
 }
 
 func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namespace) error {
-	mu := sync.Mutex{}
+	mu := &sync.Mutex{}
 	eg := errgroup.Group{}
 	eg.SetLimit(lim)
 
@@ -143,38 +143,42 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 		ns := ns
 
 		eg.Go(func() error {
-			if ns.Size == 0 {
-				mu.Lock()
-				defer mu.Unlock()
-
-				return errors.Wrap(closeChunk(w, ns), "close empty chunk")
-			}
-
-			nss := NSify(ns.Database, ns.Collection)
-			r, err := newReader(nss)
-			if err != nil {
-				return errors.Wrap(err, "new reader")
-			}
-			defer r.Close()
-
-			err = splitChunks(r, MaxBSONSize*2, func(b []byte) error {
-				mu.Lock()
-				defer mu.Unlock()
-
-				return errors.Wrap(writeChunk(w, ns, b), "write chunk")
-			})
-			if err != nil {
-				return errors.Wrap(err, "split")
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			return errors.Wrap(closeChunk(w, ns), "close chunk")
+			return writeNamespace(w, newReader, ns, mu)
 		})
 	}
 
 	return eg.Wait()
+}
+
+func writeNamespace(w io.Writer, newReader NewReader, ns *Namespace, mu *sync.Mutex) error {
+	if ns.Size == 0 {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return errors.Wrap(closeChunk(w, ns), "close empty chunk")
+	}
+
+	nss := NSify(ns.Database, ns.Collection)
+	r, err := newReader(nss)
+	if err != nil {
+		return errors.Wrap(err, "new reader")
+	}
+	defer r.Close()
+
+	err = splitChunks(r, MaxBSONSize*2, func(b []byte) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return errors.Wrap(writeChunk(w, ns, b), "write chunk")
+	})
+	if err != nil {
+		return errors.Wrap(err, "split")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	return errors.Wrap(closeChunk(w, ns), "close chunk")
 }
 
 func splitChunks(r io.Reader, size int, write func([]byte) error) error {
