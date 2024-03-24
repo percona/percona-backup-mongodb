@@ -41,6 +41,8 @@ const (
 	TmpMRestoreUsersCollection = "tempUsersColl"
 	// TmpRestoreRolesCollection is temp collection that MongoRestore uses internally for restore of roles
 	TmpMRestoreRolesCollection = "tempRolesColl"
+	// MongoDump/MongoRestore special collection for users/roles versions
+	SpecialCollectionAuthVersion = "$admin.system.version"
 )
 
 const (

@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
@@ -101,6 +102,10 @@ func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
 		return errors.Wrap(err, "prelude")
 	}
 
+	if err := writeSpecialAuthSystemVerNS(w, newReader, meta.Namespaces); err != nil {
+		return errors.Wrap(err, "write special namespaces")
+	}
+
 	err = writeAllNamespaces(w, newReader,
 		int(meta.Header.ConcurrentCollections),
 		meta.Namespaces)
@@ -141,6 +146,9 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 
 	for _, ns := range nss {
 		ns := ns
+		if ns.Collection == defs.SpecialCollectionAuthVersion {
+			continue
+		}
 
 		eg.Go(func() error {
 			return writeNamespace(w, newReader, ns, mu)
@@ -148,6 +156,18 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 	}
 
 	return eg.Wait()
+}
+
+// writeSpecialAuthSystemVerNS writes "$admin.system.version" namespace if such exists in the dump.
+// That namespace requires special handling because MongoRestore uses it for initial validation.
+// Therefore, it needs to be streamed down at the beginning, not in random order like all other namespaces.
+func writeSpecialAuthSystemVerNS(w io.Writer, newReader NewReader, nss []*Namespace) error {
+	for _, ns := range nss {
+		if ns.Collection == defs.SpecialCollectionAuthVersion {
+			return writeNamespace(w, newReader, ns, &sync.Mutex{})
+		}
+	}
+	return nil
 }
 
 func writeNamespace(w io.Writer, newReader NewReader, ns *Namespace, mu *sync.Mutex) error {
