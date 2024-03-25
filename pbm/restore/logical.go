@@ -1082,11 +1082,10 @@ func (r *Restore) snapshot(ctx context.Context, input io.Reader, nss []string, u
 
 	var opts *snapshot.RestoreOptions
 	if util.IsSelective(nss) {
-		db, c := util.ParseNS(nss[0])
+		db, _ := util.ParseNS(nss[0])
 		opts = &snapshot.RestoreOptions{
 			UsersAndRoles: usersAndRoles,
 			DB:            db,
-			Coll:          c,
 		}
 	} else {
 		opts = &snapshot.RestoreOptions{}

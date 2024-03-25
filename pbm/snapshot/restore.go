@@ -44,7 +44,6 @@ type restorer struct{ *mongorestore.MongoRestore }
 type RestoreOptions struct {
 	UsersAndRoles bool
 	DB            string
-	Coll          string
 }
 
 func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.ReaderFrom, error) {
@@ -74,8 +73,7 @@ func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.Reader
 	topts.WriteConcern = writeconcern.Majority()
 	if opts.UsersAndRoles {
 		topts.Namespace = &options.Namespace{
-			DB:         opts.DB,
-			Collection: opts.Coll,
+			DB: opts.DB,
 		}
 	}
 

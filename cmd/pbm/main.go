@@ -172,7 +172,7 @@ func main() {
 		StringVar(&restore.pitrBase)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
-	restoreCmd.Flag("--with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
+	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
 		BoolVar(&restore.usersAndRoles)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').

@@ -99,6 +99,9 @@ func runBackup(
 	if len(nss) == 0 && b.usersAndRoles {
 		return nil, errors.New("Including users and roles are only allowed for selected database (use --ns flag for selective backup)")
 	}
+	if len(nss) >= 1 && util.CollExists(nss[0]) && b.usersAndRoles {
+		return nil, errors.New("Including users and roles are not allowed for specific collection. Use --ns='db.*' to specify the whole database instead.")
+	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")

@@ -34,6 +34,17 @@ func ParseNS(ns string) (string, string) {
 	return db, coll
 }
 
+// CollExists ispect if collection is explicitely specified by name
+// within the namespace
+func CollExists(ns string) bool {
+	_, c := ParseNS(ns)
+	if c != "" {
+		return true
+	}
+
+	return false
+}
+
 func MakeSelectedPred(nss []string) archive.NSFilterFn {
 	if len(nss) == 0 {
 		return func(string) bool { return true }
