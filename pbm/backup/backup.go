@@ -27,6 +27,7 @@ type Backup struct {
 	leadConn            connect.Client
 	nodeConn            *mongo.Client
 	brief               topo.NodeBrief
+	mongoVersion        string
 	typ                 defs.BackupType
 	incrBase            bool
 	timeouts            *config.BackupTimeouts
@@ -70,6 +71,10 @@ func NewIncremental(leadConn connect.Client, conn *mongo.Client, brief topo.Node
 		typ:      defs.IncrementalBackup,
 		incrBase: base,
 	}
+}
+
+func (b *Backup) SetMongoVersion(v string) {
+	b.mongoVersion = v
 }
 
 func (b *Backup) SetTimeouts(t *config.BackupTimeouts) {
@@ -117,6 +122,7 @@ func (b *Backup) Init(
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
 		PBMVersion:     version.Current().Version,
+		MongoVersion:   b.mongoVersion,
 		Nomination:     []BackupRsNomination{},
 		BalancerStatus: balancer,
 		Hb:             ts,
@@ -131,12 +137,6 @@ func (b *Backup) Init(
 		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
 	}
 	meta.Store = cfg.Storage
-
-	ver, err := version.GetMongoVersion(ctx, b.nodeConn)
-	if err != nil {
-		return errors.Wrap(err, "get mongo version")
-	}
-	meta.MongoVersion = ver.VersionString
 
 	fcv, err := version.GetFCV(ctx, b.nodeConn)
 	if err != nil {
@@ -182,6 +182,8 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	rsMeta := BackupReplset{
 		Name:         inf.SetName,
 		Node:         inf.Me,
+		PBMVersion:   version.Current().Version,
+		MongoVersion: b.mongoVersion,
 		StartTS:      time.Now().UTC().Unix(),
 		Status:       defs.StatusRunning,
 		Conditions:   []Condition{},

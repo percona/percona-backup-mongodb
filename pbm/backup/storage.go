@@ -209,6 +209,35 @@ func DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 
 // DeleteBackupFiles removes backup's artifacts from storage
 func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
+	if version.HasFilelistFile(meta.PBMVersion) {
+		for i := range meta.Replsets {
+			rs := &meta.Replsets[i]
+			if rs.Files != nil {
+				// it is already fetched
+				continue
+			}
+
+			filelistPath := path.Join(meta.Name, rs.Name, FilelistName)
+			rdr, err := stg.SourceReader(filelistPath)
+			if err != nil {
+				if errors.Is(err, storage.ErrNotExist) {
+					continue
+				}
+
+				return errors.Wrapf(err, "open %q", filelistPath)
+			}
+			defer rdr.Close()
+
+			filelist, err := ReadFilelist(rdr)
+			rdr.Close()
+			if err != nil {
+				return errors.Wrapf(err, "parse filelist")
+			}
+
+			rs.Files = filelist
+		}
+	}
+
 	for _, r := range meta.Replsets {
 		for _, f := range r.Files {
 			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
