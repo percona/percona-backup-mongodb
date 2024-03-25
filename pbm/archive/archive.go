@@ -158,9 +158,10 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 	return eg.Wait()
 }
 
-// writeSpecialAuthSystemVerNS writes "$admin.system.version" namespace if such exists in the dump.
+// writeSpecialAuthSystemVerNS writes "$admin.system.version" namespace in the stream if such namespace
+// exists in the dump.
 // That namespace requires special handling because MongoRestore uses it for initial validation.
-// Therefore, it needs to be streamed down at the beginning, not in random order like all other namespaces.
+// Therefore, it needs to be streamed down beforehand, and not in the random order like all other namespaces.
 func writeSpecialAuthSystemVerNS(w io.Writer, newReader NewReader, nss []*Namespace) error {
 	for _, ns := range nss {
 		if ns.Collection == defs.SpecialCollectionAuthVersion {

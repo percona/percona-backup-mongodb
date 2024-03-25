@@ -762,7 +762,7 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 
 	for _, ns := range meta.Namespaces {
 		if ns.Metadata == "" {
-			// special collections ($admin.*) doesn't have metadata
+			// for nspecial collections ($admin.*) which don't have metadata
 			continue
 		}
 		var md mongorestore.Metadata

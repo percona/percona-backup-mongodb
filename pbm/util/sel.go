@@ -34,8 +34,7 @@ func ParseNS(ns string) (string, string) {
 	return db, coll
 }
 
-// CollExists ispect if collection is explicitely specified by name
-// within the namespace
+// CollExists inspects if collection is specified by name within the namespace
 func CollExists(ns string) bool {
 	_, c := ParseNS(ns)
 	if c != "" {
