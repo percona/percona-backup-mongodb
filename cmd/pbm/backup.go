@@ -90,17 +90,11 @@ func runBackup(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) > 1 {
-		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
+	if err := validateNS(b, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
-		return nil, errors.New("--ns flag is only allowed for logical backup")
-	}
-	if len(nss) == 0 && b.usersAndRoles {
-		return nil, errors.New("Including users and roles are only allowed for selected database (use --ns flag for selective backup)")
-	}
-	if len(nss) >= 1 && util.CollExists(nss[0]) && b.usersAndRoles {
-		return nil, errors.New("Including users and roles are not allowed for specific collection. Use --ns='db.*' to specify the whole database instead.")
+	if err := validateBackupUsersAndRoles(b, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
@@ -643,4 +637,26 @@ func (incompatibleMongodVersionError) Is(err error) bool {
 
 func (e incompatibleMongodVersionError) Unwrap() error {
 	return errIncompatible
+}
+
+func validateNS(b *backupOpts, nss []string) error {
+	if len(nss) > 1 {
+		return errors.New("multiple namespaces are not supported")
+	}
+	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
+		return errors.New("--ns flag is only allowed for logical backup")
+	}
+
+	return nil
+}
+
+func validateBackupUsersAndRoles(b *backupOpts, nss []string) error {
+	if len(nss) == 0 && b.usersAndRoles {
+		return errors.New("including users and roles are only allowed for selected database (use --ns flag for selective backup)")
+	}
+	if len(nss) >= 1 && util.CollExists(nss[0]) && b.usersAndRoles {
+		return errors.New("including users and roles are not allowed for specific collection. Use --ns='db.*' to backup the whole database instead.")
+	}
+
+	return nil
 }

@@ -102,8 +102,8 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) == 0 && o.usersAndRoles {
-		return nil, errors.New("Including users and roles are only allowed for selected database (use --ns flag for selective backup)")
+	if err := validateRestoreUsersAndRoles(o, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -672,4 +672,15 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	}
 
 	return res, nil
+}
+
+func validateRestoreUsersAndRoles(o *restoreOpts, nss []string) error {
+	if len(nss) == 0 && o.usersAndRoles {
+		return errors.New("including users and roles are only allowed for selected database (use --ns flag for selective restore)")
+	}
+	if len(nss) >= 1 && util.CollExists(nss[0]) && o.usersAndRoles {
+		return errors.New("including users and roles are not allowed for specific collection. Use --ns='db.*' to restore the whole database instead.")
+	}
+
+	return nil
 }

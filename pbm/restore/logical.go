@@ -647,8 +647,7 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.BackupMeta,
-	nss []string, usersAndRoles bool) error {
+func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.BackupMeta, nss []string, usersAndRoles bool) error {
 	var rdr io.ReadCloser
 
 	var err error
