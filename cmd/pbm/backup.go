@@ -652,10 +652,12 @@ func validateNS(b *backupOpts, nss []string) error {
 
 func validateBackupUsersAndRoles(b *backupOpts, nss []string) error {
 	if len(nss) == 0 && b.usersAndRoles {
-		return errors.New("including users and roles are only allowed for selected database (use --ns flag for selective backup)")
+		return errors.New("including users and roles are only allowed for selected database " +
+			"(use --ns flag for selective backup)")
 	}
 	if len(nss) >= 1 && util.CollExists(nss[0]) && b.usersAndRoles {
-		return errors.New("including users and roles are not allowed for specific collection. Use --ns='db.*' to backup the whole database instead.")
+		return errors.New("including users and roles are not allowed for specific collection " +
+			"(use --ns='db.*' to backup the whole database instead)")
 	}
 
 	return nil

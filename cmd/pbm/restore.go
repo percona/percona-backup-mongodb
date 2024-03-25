@@ -676,10 +676,12 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 
 func validateRestoreUsersAndRoles(o *restoreOpts, nss []string) error {
 	if len(nss) == 0 && o.usersAndRoles {
-		return errors.New("including users and roles are only allowed for selected database (use --ns flag for selective restore)")
+		return errors.New("including users and roles are only allowed for selected database " +
+			"(use --ns flag for selective restore)")
 	}
 	if len(nss) >= 1 && util.CollExists(nss[0]) && o.usersAndRoles {
-		return errors.New("including users and roles are not allowed for specific collection. Use --ns='db.*' to restore the whole database instead.")
+		return errors.New("including users and roles are not allowed for specific collection " +
+			"(use --ns='db.*' to restore the whole database instead)")
 	}
 
 	return nil
