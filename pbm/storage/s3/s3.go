@@ -234,6 +234,9 @@ func New(opts Conf, l log.LogEvent) (*S3, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
 	}
+	if l == nil {
+		l = log.DiscardEvent
+	}
 
 	s := &S3{
 		opts: opts,

@@ -208,19 +208,6 @@ func IncBackupSize(ctx context.Context, conn connect.Client, bcpName string, siz
 	return err
 }
 
-func RSSetPhyFiles(ctx context.Context, conn connect.Client, bcpName, rsName string, rs *BackupReplset) error {
-	_, err := conn.BcpCollection().UpdateOne(
-		ctx,
-		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.files": rs.Files}},
-			{"$set", bson.M{"replsets.$.journal": rs.Journal}},
-		},
-	)
-
-	return err
-}
-
 func SetRSLastWrite(conn connect.Client, bcpName, rsName string, ts primitive.Timestamp) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		context.Background(),
