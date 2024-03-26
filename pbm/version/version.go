@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -15,7 +16,7 @@ import (
 )
 
 // current PBM version
-const version = "2.4.0"
+const version = "2.4.1"
 
 var (
 	platform  string
@@ -137,12 +138,32 @@ func majmin(v string) string {
 	return semver.MajorMinor(v)
 }
 
+func canonify(ver string) string {
+	if len(ver) == 0 {
+		return ver
+	}
+
+	if !strings.HasPrefix(ver, "v") {
+		ver = "v" + ver
+	}
+
+	v := semver.Canonical(ver)
+	v, _, _ = strings.Cut(v, "-") // cut prerelease
+	v, _, _ = strings.Cut(v, "+") // cut build
+	return v
+}
+
 func IsLegacyArchive(ver string) bool {
 	return semver.Compare(majmin(ver), "v2.0") == -1
 }
 
 func IsLegacyBackupOplog(ver string) bool {
 	return semver.Compare(majmin(ver), "v2.4") == -1
+}
+
+func HasFilelistFile(ver string) bool {
+	// PBM-1252
+	return semver.Compare(canonify(ver), "v2.4.1") != -1
 }
 
 // BreakingChangesMap map of versions introduced breaking changes to respective

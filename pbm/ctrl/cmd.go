@@ -113,6 +113,7 @@ type BackupCmd struct {
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
 	UsersAndRoles    bool                     `bson:"usersAndRoles,omitempty"`
+	Filelist         bool                     `bson:"filelist,omitempty"`
 }
 
 func (b BackupCmd) String() string {

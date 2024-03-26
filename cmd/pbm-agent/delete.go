@@ -336,7 +336,6 @@ func deleteChunks(ctx context.Context, m connect.Client, stg storage.Storage, ch
 				{"end_ts", chnk.EndTS},
 			},
 		)
-
 		if err != nil {
 			return errors.Wrap(err, "delete pitr chunk metadata")
 		}

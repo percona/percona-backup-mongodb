@@ -140,6 +140,7 @@ func runBackup(
 			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
+			Filelist:         b.externList,
 		},
 	})
 	if err != nil {
@@ -171,7 +172,7 @@ func runBackup(
 			return nil, errors.Errorf("unexpected backup status %v", str)
 		}
 
-		bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, b.name)
+		bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{FetchFilelist: b.externList})
 		if err != nil {
 			return nil, errors.Wrap(err, "get backup meta")
 		}

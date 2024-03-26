@@ -34,6 +34,8 @@ type Agent struct {
 
 	brief topo.NodeBrief
 
+	mongoVersion version.MongoVersion
+
 	dumpConns int
 
 	closeCMD chan struct{}
@@ -51,7 +53,12 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 
 	info, err := topo.GetNodeInfo(ctx, nodeConn)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get node info")
+	}
+
+	mongoVersion, err := version.GetMongoVersion(ctx, nodeConn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get mongo version")
 	}
 
 	a := &Agent{
@@ -63,7 +70,8 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 			SetName: info.SetName,
 			Me:      info.Me,
 		},
-		dumpConns: dumpConns,
+		mongoVersion: mongoVersion,
+		dumpConns:    dumpConns,
 	}
 	return a, nil
 }
