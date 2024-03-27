@@ -281,10 +281,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	nss := cmd.Namespaces
-	if len(nss) == 0 {
-		nss = bcp.Namespaces
-	}
+	nss, rstOpts := resolveNamespaceAndRestoreOptions(bcp, cmd)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
@@ -336,7 +333,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, &restoreOptions{})
+	err = r.RunSnapshot(ctx, dump, bcp, nss, rstOpts)
 	if err != nil {
 		return err
 	}
