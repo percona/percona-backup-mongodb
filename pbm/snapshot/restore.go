@@ -42,8 +42,8 @@ var ExcludeFromRestore = []string{
 type restorer struct{ *mongorestore.MongoRestore }
 
 type RestoreOptions struct {
-	UsersAndRoles bool
-	DB            string
+	RestoreDBUsersAndRoles bool
+	DB                     string
 }
 
 func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.ReaderFrom, error) {
@@ -71,7 +71,7 @@ func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.Reader
 
 	topts.Direct = true
 	topts.WriteConcern = writeconcern.Majority()
-	if opts.UsersAndRoles {
+	if opts.RestoreDBUsersAndRoles {
 		topts.Namespace = &options.Namespace{
 			DB: opts.DB,
 		}
@@ -90,7 +90,7 @@ func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.Reader
 	mopts.ToolOptions = topts
 	mopts.InputOptions = &mongorestore.InputOptions{
 		Archive:                "-",
-		RestoreDBUsersAndRoles: opts.UsersAndRoles,
+		RestoreDBUsersAndRoles: opts.RestoreDBUsersAndRoles,
 	}
 	mopts.OutputOptions = &mongorestore.OutputOptions{
 		BulkBufferSize:           batchSize,
@@ -113,7 +113,7 @@ func NewRestore(uri string, cfg *config.Config, opts *RestoreOptions) (io.Reader
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongorestore obj")
 	}
-	mr.SkipUsersAndRoles = !opts.UsersAndRoles
+	mr.SkipUsersAndRoles = !opts.RestoreDBUsersAndRoles
 
 	return &restorer{mr}, nil
 }
