@@ -435,7 +435,7 @@ func main() {
 	case cleanupCmd.FullCommand():
 		out, err = doCleanup(ctx, conn, pbm, &cleanupOpts)
 	case logsCmd.FullCommand():
-		out, err = runLogs(ctx, conn, &logs)
+		out, err = runLogs(ctx, conn, &logs, pbmOutF)
 	case statusCmd.FullCommand():
 		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
@@ -500,7 +500,7 @@ func exitErr(e error, f outFormat) {
 	os.Exit(1)
 }
 
-func runLogs(ctx context.Context, conn connect.Client, l *logsOpts) (fmt.Stringer, error) {
+func runLogs(ctx context.Context, conn connect.Client, l *logsOpts, f outFormat) (fmt.Stringer, error) {
 	r := &log.LogRequest{}
 
 	if l.node != "" {
@@ -539,7 +539,7 @@ func runLogs(ctx context.Context, conn connect.Client, l *logsOpts) (fmt.Stringe
 	}
 
 	if l.follow {
-		err := followLogs(ctx, conn, r, r.Node == "", l.extr)
+		err := followLogs(ctx, conn, r, r.Node == "", l.extr, f)
 		return nil, err
 	}
 
@@ -565,8 +565,16 @@ func runLogs(ctx context.Context, conn connect.Client, l *logsOpts) (fmt.Stringe
 	return o, nil
 }
 
-func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, showNode, expr bool) error {
+func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, showNode, expr bool, f outFormat) error {
 	outC, errC := log.Follow(ctx, conn, r, false)
+
+	var enc *json.Encoder
+	if f == outJSON {
+		enc = json.NewEncoder(os.Stdout)
+	} else if f == outJSONpretty {
+		enc = json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+	}
 
 	for {
 		select {
@@ -575,7 +583,14 @@ func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, sho
 				return nil
 			}
 
-			fmt.Println(entry.Stringify(tsUTC, showNode, expr))
+			if f == outJSON || f == outJSONpretty {
+				err := enc.Encode(entry)
+				if err != nil {
+					exitErr(errors.Wrap(err, "encode output"), f)
+				}
+			} else {
+				fmt.Println(entry.Stringify(tsUTC, showNode, expr))
+			}
 		case err, ok := <-errC:
 			if !ok {
 				return nil
