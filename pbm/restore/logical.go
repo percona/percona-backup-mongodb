@@ -38,10 +38,9 @@ import (
 
 type restoreOptions struct {
 	// mongo restore flag should be used
-	restoreDbUsersAndRolesFlag bool
-
+	restoreDBUsersAndRolesFlag bool
 	// PBM restore from temp collections should be used
-	restoreDbUsersAndRolesTmpColl bool
+	restoreDBUsersAndRolesTmpColl bool
 }
 
 type Restore struct {
@@ -108,12 +107,16 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	r.Close()
 }
 
-// resolveNamespaceAndRestoreOptions resolves final namespace(s) and restoring options based on the created backup and restore command.
+// resolveNamespaceAndRestoreOptions resolves final namespace(s) and restoring options based on
+// the created backup and restore commands.
 // It resolves the final result using the following input:
 // - backup namespace (should be none or single)
 // - restore namespace (can be none, single or multiple)
 // - userAndRoles option which can be turned on for selective types of backup and restore
-func resolveNamespaceAndRestoreOptions(bcpMeta *backup.BackupMeta, rstCmd *ctrl.RestoreCmd) ([]string, *restoreOptions) {
+func resolveNamespaceAndRestoreOptions(
+	bcpMeta *backup.BackupMeta,
+	rstCmd *ctrl.RestoreCmd,
+) ([]string, *restoreOptions) {
 	isSelectiveBackup := util.IsSelective(bcpMeta.Namespaces)
 	isFullBackup := !isSelectiveBackup
 
@@ -126,27 +129,27 @@ func resolveNamespaceAndRestoreOptions(bcpMeta *backup.BackupMeta, rstCmd *ctrl.
 	if isFullBackup && isFullRestore {
 		nss = []string{}
 
-		rstOpts.restoreDbUsersAndRolesFlag = false
-		rstOpts.restoreDbUsersAndRolesTmpColl = true
+		rstOpts.restoreDBUsersAndRolesFlag = false
+		rstOpts.restoreDBUsersAndRolesTmpColl = true
 	} else if isSelectiveBackup && isFullRestore {
 		nss = bcpMeta.Namespaces
 
 		// this can be enabled only for selective restore (cli validation should disallow oposit case)
-		rstOpts.restoreDbUsersAndRolesFlag = false
-		rstOpts.restoreDbUsersAndRolesTmpColl = false
+		rstOpts.restoreDBUsersAndRolesFlag = false
+		rstOpts.restoreDBUsersAndRolesTmpColl = false
 	} else if isFullBackup && isSelectiveRestore {
 		nss = rstCmd.Namespaces
 		if rstCmd.UsersAndRoles {
 			nss = append(nss, defs.DB+"."+defs.TmpUsersCollection, defs.DB+"."+defs.TmpRolesCollection)
 		}
 
-		rstOpts.restoreDbUsersAndRolesFlag = false
-		rstOpts.restoreDbUsersAndRolesTmpColl = rstCmd.UsersAndRoles
+		rstOpts.restoreDBUsersAndRolesFlag = false
+		rstOpts.restoreDBUsersAndRolesTmpColl = rstCmd.UsersAndRoles
 	} else if isSelectiveBackup && isSelectiveRestore {
 		nss = rstCmd.Namespaces
 
-		rstOpts.restoreDbUsersAndRolesFlag = rstCmd.UsersAndRoles
-		rstOpts.restoreDbUsersAndRolesTmpColl = false
+		rstOpts.restoreDBUsersAndRolesFlag = rstCmd.UsersAndRoles
+		rstOpts.restoreDBUsersAndRolesTmpColl = false
 	} else {
 		// this should never happened, but let's have restrictive default
 		nss = bcpMeta.Namespaces
@@ -783,12 +786,12 @@ func (r *Restore) RunSnapshot(
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(ctx, rdr, nss, rstOpts.restoreDbUsersAndRolesFlag)
+	err = r.snapshot(ctx, rdr, nss, rstOpts.restoreDBUsersAndRolesFlag)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if !rstOpts.restoreDbUsersAndRolesTmpColl {
+	if !rstOpts.restoreDBUsersAndRolesTmpColl {
 		return nil
 	}
 
