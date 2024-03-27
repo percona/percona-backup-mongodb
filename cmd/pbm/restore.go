@@ -679,10 +679,5 @@ func validateRestoreUsersAndRoles(o *restoreOpts, nss []string) error {
 		return errors.New("including users and roles are only allowed for selected database " +
 			"(use --ns flag for selective restore)")
 	}
-	if len(nss) >= 1 && util.CollExists(nss[0]) && o.usersAndRoles {
-		return errors.New("including users and roles are not allowed for specific collection " +
-			"(use --ns='db.*' to restore the whole database instead)")
-	}
-
 	return nil
 }
