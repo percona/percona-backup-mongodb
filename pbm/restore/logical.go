@@ -1200,9 +1200,13 @@ func (r *Restore) Done(ctx context.Context) error {
 }
 
 func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []string) error {
-	dbFilter := ""
-	if len(nss) > 0 {
-		dbFilter, _ = util.ParseNS(nss[0])
+	dbs := []string{}
+	for _, ns := range nss {
+		db, _ := util.ParseNS(ns)
+		if strings.HasPrefix(db, defs.DB) {
+			continue
+		}
+		dbs = append(dbs, db)
 	}
 
 	rolesC := r.nodeConn.Database("admin").Collection("system.roles")
@@ -1214,8 +1218,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []s
 	rolesFilter := bson.M{
 		"_id": bson.M{"$nin": eroles},
 	}
-	if dbFilter != "" {
-		rolesFilter["db"] = dbFilter
+	if len(dbs) > 0 {
+		rolesFilter["db"] = bson.M{"$in": dbs}
 	}
 	curr, err := r.nodeConn.Database(defs.DB).Collection(defs.TmpRolesCollection).
 		Find(ctx, rolesFilter)
@@ -1248,8 +1252,8 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []s
 	filterUsers := bson.M{
 		"_id": bson.M{"$ne": user},
 	}
-	if dbFilter != "" {
-		filterUsers["db"] = dbFilter
+	if len(dbs) > 0 {
+		filterUsers["db"] = bson.M{"$in": dbs}
 	}
 	cur, err := r.nodeConn.Database(defs.DB).Collection(defs.TmpUsersCollection).
 		Find(ctx, filterUsers)
