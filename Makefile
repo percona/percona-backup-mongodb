@@ -54,6 +54,12 @@ install-stest:
 install-entrypoint:
 	$(ENVS) go install -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent-entrypoint
 
+build-debug:
+build-debug-pbm:
+	$(ENVS) go build -gcflags="all=-N -l" -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
+build-debug-agent:
+	$(ENVS) go build -gcflags="all=-N -l" -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
+
 # RACE DETECTOR ON
 build-race: build-pbm-race build-agent-race build-stest-race
 build-pbm-race:
