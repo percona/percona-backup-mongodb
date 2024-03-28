@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
@@ -101,6 +102,10 @@ func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
 		return errors.Wrap(err, "prelude")
 	}
 
+	if err := writeSpecialAuthSystemVerNS(w, newReader, meta.Namespaces); err != nil {
+		return errors.Wrap(err, "write special namespaces")
+	}
+
 	err = writeAllNamespaces(w, newReader,
 		int(meta.Header.ConcurrentCollections),
 		meta.Namespaces)
@@ -135,46 +140,66 @@ func writePrelude(w io.Writer, m *archiveMeta) error {
 }
 
 func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namespace) error {
-	mu := sync.Mutex{}
+	mu := &sync.Mutex{}
 	eg := errgroup.Group{}
 	eg.SetLimit(lim)
 
 	for _, ns := range nss {
 		ns := ns
+		if ns.Collection == defs.SpecialCollectionAuthVersion {
+			continue
+		}
 
 		eg.Go(func() error {
-			if ns.Size == 0 {
-				mu.Lock()
-				defer mu.Unlock()
-
-				return errors.Wrap(closeChunk(w, ns), "close empty chunk")
-			}
-
-			nss := NSify(ns.Database, ns.Collection)
-			r, err := newReader(nss)
-			if err != nil {
-				return errors.Wrap(err, "new reader")
-			}
-			defer r.Close()
-
-			err = splitChunks(r, MaxBSONSize*2, func(b []byte) error {
-				mu.Lock()
-				defer mu.Unlock()
-
-				return errors.Wrap(writeChunk(w, ns, b), "write chunk")
-			})
-			if err != nil {
-				return errors.Wrap(err, "split")
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			return errors.Wrap(closeChunk(w, ns), "close chunk")
+			return writeNamespace(w, newReader, ns, mu)
 		})
 	}
 
 	return eg.Wait()
+}
+
+// writeSpecialAuthSystemVerNS writes "$admin.system.version" namespace in the stream if such namespace
+// exists in the dump.
+// That namespace requires special handling because MongoRestore uses it for initial validation.
+// Therefore, it needs to be streamed down beforehand, and not in the random order like all other namespaces.
+func writeSpecialAuthSystemVerNS(w io.Writer, newReader NewReader, nss []*Namespace) error {
+	for _, ns := range nss {
+		if ns.Collection == defs.SpecialCollectionAuthVersion {
+			return writeNamespace(w, newReader, ns, &sync.Mutex{})
+		}
+	}
+	return nil
+}
+
+func writeNamespace(w io.Writer, newReader NewReader, ns *Namespace, mu *sync.Mutex) error {
+	if ns.Size == 0 {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return errors.Wrap(closeChunk(w, ns), "close empty chunk")
+	}
+
+	nss := NSify(ns.Database, ns.Collection)
+	r, err := newReader(nss)
+	if err != nil {
+		return errors.Wrap(err, "new reader")
+	}
+	defer r.Close()
+
+	err = splitChunks(r, MaxBSONSize*2, func(b []byte) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return errors.Wrap(writeChunk(w, ns, b), "write chunk")
+	})
+	if err != nil {
+		return errors.Wrap(err, "split")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	return errors.Wrap(closeChunk(w, ns), "close chunk")
 }
 
 func splitChunks(r io.Reader, size int, write func([]byte) error) error {

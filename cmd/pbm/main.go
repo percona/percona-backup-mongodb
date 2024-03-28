@@ -129,6 +129,8 @@ func main() {
 		IntsVar(&backupOptions.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
 		StringVar(&backupOptions.ns)
+	backupCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
+		BoolVar(&backupOptions.usersAndRoles)
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
 		BoolVar(&backupOptions.wait)
@@ -170,6 +172,8 @@ func main() {
 		StringVar(&restore.pitrBase)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
+	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
+		BoolVar(&restore.usersAndRoles)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').
 		BoolVar(&restore.wait)

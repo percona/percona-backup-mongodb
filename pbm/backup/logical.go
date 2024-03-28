@@ -44,7 +44,7 @@ func (b *Backup) doLogical(
 		if inf.IsConfigSrv() {
 			db = "config"
 		} else {
-			db, coll = parseNS(bcp.Namespaces[0])
+			db, coll = util.ParseNS(bcp.Namespaces[0])
 		}
 	}
 
@@ -128,7 +128,7 @@ func (b *Backup) doLogical(
 	if len(nssSize) == 0 {
 		dump = snapshot.DummyBackup{}
 	} else {
-		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll)
+		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll, bcp.UsersAndRoles)
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
 		}
@@ -444,17 +444,4 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
-}
-
-func parseNS(ns string) (string, string) {
-	db, coll, _ := strings.Cut(ns, ".")
-
-	if db == "*" {
-		db = ""
-	}
-	if coll == "*" {
-		coll = ""
-	}
-
-	return db, coll
 }

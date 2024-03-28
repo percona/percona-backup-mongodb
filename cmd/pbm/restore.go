@@ -29,15 +29,16 @@ import (
 )
 
 type restoreOpts struct {
-	bcp      string
-	pitr     string
-	pitrBase string
-	wait     bool
-	extern   bool
-	ns       string
-	rsMap    string
-	conf     string
-	ts       string
+	bcp           string
+	pitr          string
+	pitrBase      string
+	wait          bool
+	extern        bool
+	ns            string
+	usersAndRoles bool
+	rsMap         string
+	conf          string
+	ts            string
 }
 
 type restoreRet struct {
@@ -100,6 +101,9 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
+	}
+	if err := validateRestoreUsersAndRoles(o, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -315,11 +319,12 @@ func doRestore(
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdRestore,
 		Restore: &ctrl.RestoreCmd{
-			Name:       name,
-			BackupName: bcp,
-			Namespaces: nss,
-			RSMap:      rsMapping,
-			External:   o.extern,
+			Name:          name,
+			BackupName:    bcp,
+			Namespaces:    nss,
+			UsersAndRoles: o.usersAndRoles,
+			RSMap:         rsMapping,
+			External:      o.extern,
 		},
 	}
 	if o.pitr != "" {
@@ -667,4 +672,12 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	}
 
 	return res, nil
+}
+
+func validateRestoreUsersAndRoles(o *restoreOpts, nss []string) error {
+	if len(nss) == 0 && o.usersAndRoles {
+		return errors.New("including users and roles are only allowed for selected database " +
+			"(use --ns flag for selective restore)")
+	}
+	return nil
 }

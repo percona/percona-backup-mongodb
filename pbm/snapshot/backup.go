@@ -20,7 +20,7 @@ type backuper struct {
 	pm *progress.BarWriter
 }
 
-func NewBackup(curi string, conns int, d, c string) (*backuper, error) {
+func NewBackup(curi string, conns int, d, c string, usersAndRoles bool) (*backuper, error) {
 	if conns <= 0 {
 		conns = 1
 	}
@@ -60,11 +60,12 @@ func NewBackup(curi string, conns int, d, c string) (*backuper, error) {
 			// you nee to look the code to discover it.
 			Archive:                "-",
 			NumParallelCollections: conns,
+			DumpDBUsersAndRoles:    usersAndRoles,
 		},
 		InputOptions:      &mongodump.InputOptions{},
 		SessionProvider:   &db.SessionProvider{},
 		ProgressManager:   backup.pm,
-		SkipUsersAndRoles: d != "",
+		SkipUsersAndRoles: !usersAndRoles,
 	}
 	return backup, nil
 }
