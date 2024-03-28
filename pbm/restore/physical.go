@@ -42,7 +42,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
-	"github.com/percona/percona-backup-mongodb/wt"
 )
 
 const (
@@ -84,6 +83,7 @@ type PhysRestore struct {
 	nodeInfo  *topo.NodeInfo
 	stg       storage.Storage
 	bcp       *backup.BackupMeta
+	filelist  backup.Filelist
 	files     []files
 	restoreTS primitive.Timestamp
 
@@ -880,16 +880,14 @@ func (r *PhysRestore) Snapshot(
 				}
 				defer f.Close()
 
-				filelist, err := backup.ReadFilelist(f)
+				r.filelist, err = backup.ReadFilelist(f)
 				f.Close()
 				if err != nil {
 					return errors.Wrap(err, "parse filelist")
 				}
-
-				rsMeta.Files = filelist
 			}
 
-			needFiles = rsMeta.Files
+			needFiles = r.filelist
 		} else {
 			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
 		}
@@ -899,9 +897,9 @@ func (r *PhysRestore) Snapshot(
 			return errors.Wrap(err, "cleanup datadir")
 		}
 	} else {
-		var nss []*wt.Namespace
+		var mds []*psmdbNSMetadata
 		if util.IsSelective(r.nss) {
-			nss, err = r.readCatalogForSelected()
+			mds, err = r.readCatalogForSelected(ctx)
 			if err != nil {
 				return errors.Wrap(err, "select files")
 			}
@@ -914,7 +912,7 @@ func (r *PhysRestore) Snapshot(
 		}
 
 		if util.IsSelective(r.nss) {
-			if err := r.importSelected(nss); err != nil {
+			if err := r.importSelected(ctx, nil, mds); err != nil {
 				return errors.Wrap(err, "import selected")
 			}
 		}
@@ -1103,7 +1101,16 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
-func (r *PhysRestore) readCatalogForSelected() ([]*wt.Namespace, error) {
+var wtBackupFiles = []string{
+	// "storage.bson",
+	"WiredTiger",
+	"WiredTiger.backup",
+	"WiredTigerHS.wt",
+	"_mdb_catalog.wt",
+	"sizeStorer.wt",
+}
+
+func (r *PhysRestore) readCatalogForSelected(ctx context.Context) ([]*psmdbNSMetadata, error) {
 	if len(r.files) == 0 {
 		return nil, errors.New("no data")
 	}
@@ -1123,7 +1130,7 @@ func (r *PhysRestore) readCatalogForSelected() ([]*wt.Namespace, error) {
 	}
 	defer os.RemoveAll(temp)
 
-	for _, filename := range wt.BackupFiles {
+	for _, filename := range wtBackupFiles {
 		a := filepath.Join(src, filename+set.Cmpr.Suffix())
 		b := filepath.Join(temp, filename)
 
@@ -1153,34 +1160,26 @@ func (r *PhysRestore) readCatalogForSelected() ([]*wt.Namespace, error) {
 		file.Close()
 	}
 
-	if err := wt.RecoverToStable(temp); err != nil {
-		return nil, fmt.Errorf("recover to stable: %w", err)
-	}
-
-	sess, err := wt.OpenSession(temp, wt.BaseConfig+",readonly")
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", err, temp)
-	}
-	defer sess.Close()
-
-	metadata, err := wt.ReadCatalog(sess)
+	// TODO: RecoverToStable
+	metadata, err := readPSMDBNSMetadata(ctx, r.node, temp)
 	if err != nil {
 		return nil, fmt.Errorf("namespaces: %w", err)
 	}
 
 	isSelected := util.MakeSelectedPred(r.nss)
-	nss := []*wt.Namespace{}
+	mds := []*psmdbNSMetadata{}
 	files := make(map[string]struct{})
-	for _, ns := range metadata {
-		if !isSelected(ns.NS) {
+	for i := range metadata {
+		md := metadata[i]
+		if !isSelected(md.Metadata.NS) {
 			continue
 		}
 
-		nss = append(nss, ns)
-		files[ns.Ident+".wt"] = struct{}{}
-		for _, ident := range ns.IdxIdent {
-			files[ident+".wt"] = struct{}{}
+		files[md.Metadata.Ident+".wt"] = struct{}{}
+		for _, indent := range md.Metadata.IdxIdent {
+			files[indent+".wt"] = struct{}{}
 		}
+		mds = append(mds, md)
 	}
 
 	r.fileFilter = func(s string) bool {
@@ -1191,26 +1190,57 @@ func (r *PhysRestore) readCatalogForSelected() ([]*wt.Namespace, error) {
 		return strings.HasPrefix(s, "journal/WiredTigerLog.")
 	}
 
-	return nss, nil
+	return mds, nil
 }
 
-func (r *PhysRestore) importSelected(nss []*wt.Namespace) error {
-	sess, err := wt.OpenSession(r.dbpath, wt.BaseConfig+",log=(enabled=true,path=journal,compressor=snappy)")
-	if err != nil {
-		return errors.Wrap(err, "open")
-	}
-	defer sess.Close()
+type psmdbNSMetadata struct {
+	Metadata struct {
+		NS       string            `bson:"ns"`
+		Ident    string            `bson:"ident"`
+		IdxIdent map[string]string `bson:"idxIdent"`
+		Any      any               `bson:",inline"`
+	} `bson:"metadata"`
+	Any any `bson:",inline"`
+}
 
-	for _, ns := range nss {
-		err = wt.ImportCollection(sess, ns)
+func readPSMDBNSMetadata(ctx context.Context, m *mongo.Client, path string) ([]*psmdbNSMetadata, error) {
+	cur, err := m.Database("admin").
+		Aggregate(ctx, mongo.Pipeline{{{"$backupMetadata", bson.D{{"backupPath", path}}}}})
+	if err != nil {
+		return nil, errors.Wrap(err, "pipeline: $backupMetadata")
+	}
+	defer func() {
+		err = cur.Close(context.Background())
 		if err != nil {
-			return errors.Wrapf(err, "import %q", ns.NS)
+			log.LogEventFromContext(ctx).
+				Warning("close $backupMetadata cursor: %v", err)
 		}
+	}()
+
+	rv := []*psmdbNSMetadata{}
+	for cur.Next(ctx) {
+		w := &psmdbNSMetadata{}
+		err = cur.Decode(&w)
+		if err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		rv = append(rv, w)
+	}
+	err = cur.Err()
+	if err != nil {
+		return nil, errors.Wrap(err, "cursor")
 	}
 
-	err = sess.Checkpoint()
-	if err != nil {
-		return err
+	return rv, nil
+}
+
+func (r *PhysRestore) importSelected(ctx context.Context, m *mongo.Client, mds []*psmdbNSMetadata) error {
+	for _, md := range mds {
+		res := m.Database("admin").RunCommand(ctx, bson.D{{"attachCollection", md}})
+		if err := res.Err(); err != nil {
+			return errors.Wrap(err, "cmd: attachCollection")
+		}
 	}
 
 	return nil
@@ -2289,6 +2319,34 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.New("snapshot name doesn't set")
 	}
 
+	mapRevRS := util.MakeReverseRSMapFunc(r.rsMap)
+	setName := mapRevRS(r.nodeInfo.SetName)
+	var rsMeta *backup.BackupReplset
+	for i := range r.bcp.Replsets {
+		r := &r.bcp.Replsets[i]
+		if r.Name == setName {
+			rsMeta = r
+			break
+		}
+	}
+	if rsMeta == nil {
+		return errors.New("no replset data")
+	}
+
+	if version.HasFilelistFile(rsMeta.PBMVersion) {
+		filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
+		f, err := os.Open(filelistPath)
+		if err != nil {
+			return errors.Wrapf(err, "open filelist %q", filelistPath)
+		}
+		defer f.Close()
+
+		r.filelist, err = backup.ReadFilelist(f)
+		f.Close()
+		if err != nil {
+			return errors.Wrap(err, "parse filelist")
+		}
+	}
 	err = setRestoreBackup(ctx, r.leadConn, r.name, r.bcp.Name, nil)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
@@ -2329,7 +2387,6 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get cluster members")
 	}
 
-	mapRevRS := util.MakeReverseRSMapFunc(r.rsMap)
 	fl := make(map[string]topo.Shard, len(s))
 	for _, rs := range s {
 		fl[mapRevRS(rs.RS)] = rs
@@ -2346,7 +2403,6 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Errorf("extra/unknown replica set found in the backup: %s", strings.Join(nors, ","))
 	}
 
-	setName := mapRevRS(r.nodeInfo.SetName)
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == setName {
