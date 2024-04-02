@@ -1199,8 +1199,9 @@ func (r *Restore) Done(ctx context.Context) error {
 func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []string) error {
 	dbs := []string{}
 	for _, ns := range nss {
+		// ns can be "*.*" or "admin.pbmRUsers" or "admin.pbmRRoles"
 		db, _ := util.ParseNS(ns)
-		if strings.HasPrefix(db, defs.DB) {
+		if len(db) == 0 || strings.HasPrefix(db, defs.DB) {
 			continue
 		}
 		dbs = append(dbs, db)
