@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	stdlog "log"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,7 +18,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -101,14 +102,7 @@ func runBackup(
 	}
 
 	if err := checkConcurrentOp(ctx, conn); err != nil {
-		// PITR slicing can be run along with the backup start - agents will resolve it.
-		var e concurentOpError
-		if !errors.As(err, &e) {
-			return nil, err
-		}
-		if e.op.Type != ctrl.CmdPITR {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	cfg, err := pbm.GetConfig(ctx)
@@ -129,22 +123,40 @@ func runBackup(
 		level = &b.compressionLevel[0]
 	}
 
-	err = sendCmd(ctx, conn, ctrl.Cmd{
-		Cmd: ctrl.CmdBackup,
-		Backup: &ctrl.BackupCmd{
-			Type:             defs.BackupType(b.typ),
-			IncrBase:         b.base,
+	var cid sdk.CommandID
+	switch b.typ {
+	case string(defs.LogicalBackup):
+		cid, err = pbm.RunLogicalBackup(ctx, sdk.LogicalBackupOptions{
 			Name:             b.name,
 			Namespaces:       nss,
-			Compression:      compression,
+			CompressionType:  compression,
 			CompressionLevel: level,
-			Filelist:         b.externList,
-		},
-	})
+		})
+	case string(defs.PhysicalBackup):
+		cid, err = pbm.RunPhysicalBackup(ctx, sdk.PhysicalBackupOptions{
+			Name:             b.name,
+			CompressionType:  compression,
+			CompressionLevel: level,
+		})
+	case string(defs.IncrementalBackup):
+		cid, err = pbm.RunIncrementalBackup(ctx, sdk.IncrementalBackupOptions{
+			Name:             b.name,
+			NewBase:          b.base,
+			CompressionType:  compression,
+			CompressionLevel: level,
+		})
+	case string(defs.ExternalBackup):
+		cid, err = pbm.StartExternalBackup(ctx, sdk.ExternalBackupOptions{
+			Name:             b.name,
+			CompressionType:  compression,
+			CompressionLevel: level,
+		})
+	default:
+		return nil, errors.Errorf("unknown backup type: %q", b.typ)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
-
 	if outf != outText {
 		return backupOut{b.name, cfg.Storage.Path()}, nil
 	}
@@ -152,6 +164,13 @@ func runBackup(
 	fmt.Printf("Starting backup '%s'", b.name)
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
+
+	bcp, err := sdk.WaitForBackupStatus(ctx, pbm, cid, defs.StatusStarting)
+	if err != nil {
+		return nil, errors.Wrap(err, "wait for backup")
+	}
+	_ = bcp
+
 	err = waitForBcpStatus(startCtx, conn, b.name)
 	if err != nil {
 		return nil, err
@@ -237,6 +256,44 @@ func waitBackup(ctx context.Context, conn connect.Client, name string, status de
 
 		fmt.Print(".")
 	}
+}
+
+func showProgress(ctx context.Context, w io.StringWriter) func() {
+	progressCtx, stopProgress := context.WithCancel(ctx)
+	defer stopProgress()
+
+	go func() {
+		for tick := time.NewTicker(time.Second); ; {
+			select {
+			case <-tick.C:
+				w.WriteString(".")
+			case <-progressCtx.Done():
+				return
+			}
+		}
+	}()
+
+	return stopProgress
+}
+
+func waitForBcpStatus2(ctx context.Context, pbm sdk.Client, cid sdk.CommandID) error {
+	stopProgress := showProgress(ctx, os.Stdout)
+	defer stopProgress()
+
+	statuses := []defs.Status{
+		defs.StatusRunning,
+		defs.StatusDumpDone,
+		defs.StatusDone,
+		defs.StatusCancelled,
+	}
+
+	bcp, err := sdk.WaitForBackupStatus(ctx, pbm, cid, statuses...)
+	if err != nil {
+		return errors.Wrap(err, "wait for backup")
+	}
+	_ = bcp
+
+	return nil
 }
 
 func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) error {

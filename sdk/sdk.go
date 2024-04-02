@@ -2,8 +2,10 @@ package sdk
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -70,18 +72,27 @@ type Lock interface {
 }
 
 type LogicalBackupOptions struct {
+	Name             string
+	Namespaces       []string
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
-	Namespaces       []string
 }
 
 type PhysicalBackupOptions struct {
+	Name             string
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
 }
 
 type IncrementalBackupOptions struct {
+	Name             string
 	NewBase          bool
+	CompressionType  CompressionType
+	CompressionLevel CompressionLevel
+}
+
+type ExternalBackupOptions struct {
+	Name             string
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
 }
@@ -116,6 +127,10 @@ type Client interface {
 	GetAllRestores(ctx context.Context, m connect.Client, options GetAllRestoresOptions) ([]RestoreMetadata, error)
 	GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error)
 
+	RunLogicalBackup(ctx context.Context, options LogicalBackupOptions) (CommandID, error)
+	RunPhysicalBackup(ctx context.Context, options PhysicalBackupOptions) (CommandID, error)
+	RunIncrementalBackup(ctx context.Context, options IncrementalBackupOptions) (CommandID, error)
+	StartExternalBackup(ctx context.Context, options ExternalBackupOptions) (CommandID, error)
 	CancelBackup(ctx context.Context) (CommandID, error)
 
 	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
@@ -136,6 +151,44 @@ func NewClient(ctx context.Context, uri string) (Client, error) {
 	}
 
 	return &clientImpl{conn: conn}, nil
+}
+
+func WaitForBackupStatus(
+	ctx context.Context,
+	client Client,
+	cid CommandID,
+	statuses ...defs.Status,
+) (*BackupMetadata, error) {
+	var bcp *BackupMetadata
+	var err error
+
+	db := backup.NewDBManager(client.(*clientImpl).conn)
+	for range 5 {
+		bcp, err = db.GetBackupByOpID(ctx, string(cid))
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				time.Sleep(time.Second)
+				continue
+			}
+
+			return nil, errors.Wrap(err, "get backup")
+		}
+	}
+
+	for {
+		for _, s := range statuses {
+			if bcp.Conditions.Has(s) {
+				return bcp, nil
+			}
+
+			time.Sleep(5 * time.Second)
+
+			bcp, err = db.GetBackupByOpID(ctx, string(cid))
+			if err != nil {
+				return nil, errors.Wrap(err, "wait for condition: get backup")
+			}
+		}
+	}
 }
 
 func WaitForCleanup(ctx context.Context, client Client) error {

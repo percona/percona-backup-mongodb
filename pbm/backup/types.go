@@ -51,7 +51,7 @@ type BackupMeta struct {
 	LastWriteTS      primitive.Timestamp      `bson:"last_write_ts" json:"last_write_ts"`
 	Hb               primitive.Timestamp      `bson:"hb" json:"hb"`
 	Status           defs.Status              `bson:"status" json:"status"`
-	Conditions       []Condition              `bson:"conditions" json:"conditions"`
+	Conditions       Conditions               `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
 	Err              string                   `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string                   `bson:"pbm_version" json:"pbm_version"`
@@ -110,7 +110,7 @@ type BackupReplset struct {
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Node             string              `bson:"node" json:"node"` // node that performed backup
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition         `bson:"conditions" json:"conditions"`
+	Conditions       Conditions          `bson:"conditions" json:"conditions"`
 	MongodOpts       *topo.MongodOpts    `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
 
 	// required for external backup (PBM-1252)
@@ -126,6 +126,18 @@ type Condition struct {
 	Timestamp int64       `bson:"timestamp" json:"timestamp"`
 	Status    defs.Status `bson:"status" json:"status"`
 	Error     string      `bson:"error,omitempty" json:"error,omitempty"`
+}
+
+type Conditions []Condition
+
+func (c Conditions) Has(status defs.Status) bool {
+	for _, cond := range c {
+		if cond.Status == status {
+			return true
+		}
+	}
+
+	return false
 }
 
 type File struct {

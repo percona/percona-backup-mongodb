@@ -291,15 +291,37 @@ func (c *clientImpl) CancelBackup(ctx context.Context) (CommandID, error) {
 }
 
 func (c *clientImpl) RunLogicalBackup(ctx context.Context, options LogicalBackupOptions) (CommandID, error) {
-	return NoOpID, ErrNotImplemented
+	opid, err := ctrl.SendRunLogicalBackup(ctx, c.conn,
+		options.Name,
+		options.Namespaces,
+		options.CompressionType,
+		options.CompressionLevel)
+	return CommandID(opid.String()), err
 }
 
 func (c *clientImpl) RunPhysicalBackup(ctx context.Context, options PhysicalBackupOptions) (CommandID, error) {
-	return NoOpID, ErrNotImplemented
+	opid, err := ctrl.SendRunPhysicalBackup(ctx, c.conn,
+		options.Name,
+		options.CompressionType,
+		options.CompressionLevel)
+	return CommandID(opid.String()), err
 }
 
 func (c *clientImpl) RunIncrementalBackup(ctx context.Context, options IncrementalBackupOptions) (CommandID, error) {
-	return NoOpID, ErrNotImplemented
+	opid, err := ctrl.SendRunIncrementalBackup(ctx, c.conn,
+		options.Name,
+		options.NewBase,
+		options.CompressionType,
+		options.CompressionLevel)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) StartExternalBackup(ctx context.Context, options ExternalBackupOptions) (CommandID, error) {
+	opid, err := ctrl.SendStartExternalBackup(ctx, c.conn,
+		options.Name,
+		options.CompressionType,
+		options.CompressionLevel)
+	return CommandID(opid.String()), err
 }
 
 func (c *clientImpl) Restore(ctx context.Context, backupName string, clusterTS Timestamp) (CommandID, error) {

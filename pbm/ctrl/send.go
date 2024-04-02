@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -67,6 +68,86 @@ func SendCleanup(
 
 func SendResync(ctx context.Context, m connect.Client) (OPID, error) {
 	return sendCommand(ctx, m, Cmd{Cmd: CmdResync})
+}
+
+func SendRunLogicalBackup(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	nss []string,
+	comp compress.CompressionType,
+	compLvl *int,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdBackup,
+		Backup: &BackupCmd{
+			Type:             defs.LogicalBackup,
+			Name:             name,
+			Namespaces:       nss,
+			Compression:      comp,
+			CompressionLevel: compLvl,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendRunPhysicalBackup(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	comp compress.CompressionType,
+	compLvl *int,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdBackup,
+		Backup: &BackupCmd{
+			Type:             defs.PhysicalBackup,
+			Name:             name,
+			Compression:      comp,
+			CompressionLevel: compLvl,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendRunIncrementalBackup(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	base bool,
+	comp compress.CompressionType,
+	compLvl *int,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdBackup,
+		Backup: &BackupCmd{
+			Type:             defs.IncrementalBackup,
+			IncrBase:         base,
+			Name:             name,
+			Compression:      comp,
+			CompressionLevel: compLvl,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendStartExternalBackup(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	comp compress.CompressionType,
+	compLvl *int,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdBackup,
+		Backup: &BackupCmd{
+			Type:             defs.ExternalBackup,
+			Name:             name,
+			Compression:      comp,
+			CompressionLevel: compLvl,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
 }
 
 func SendCancelBackup(ctx context.Context, m connect.Client) (OPID, error) {
