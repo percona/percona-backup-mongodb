@@ -49,13 +49,13 @@ jobs:
 
       - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker-compose build
-          docker-compose up -d
+          PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker compose build
+          docker compose up -d
         working-directory: psmdb-testing/pbm-functional/pytest
 
       - name: Test ${{ matrix.test }} backup/restore on PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          docker-compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
+          docker compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
         working-directory: psmdb-testing/pbm-functional/pytest
 
       - name: Publish Test Report
