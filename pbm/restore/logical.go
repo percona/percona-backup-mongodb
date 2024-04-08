@@ -797,7 +797,7 @@ func (r *Restore) RunSnapshot(
 	}
 
 	if rstOpts.restoreDBUsersAndRolesTmpColl {
-		r.restoreUsersAndRoles(ctx, nss)
+		return r.restoreUsersAndRoles(ctx, nss)
 	}
 
 	return nil
