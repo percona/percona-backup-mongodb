@@ -731,7 +731,15 @@ func (r *Restore) RunSnapshot(
 		mapRS := util.MakeReverseRSMapFunc(r.rsMap)
 		if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 			// restore cluster specific configs only
-			return r.configsvrRestore(ctx, bcp, nss, mapRS)
+			if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
+				return err
+			}
+			if !rstOpts.restoreDBUsersAndRolesTmpColl {
+				return nil
+			}
+
+			// selective restore needs to process users and roles from the full backup,
+			// so we'll continue with selective restore
 		}
 
 		var cfg *config.Config
