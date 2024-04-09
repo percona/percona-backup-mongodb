@@ -781,10 +781,16 @@ func (r *Restore) RunSnapshot(
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if !rstOpts.restoreDBUsersAndRolesTmpColl {
-		return nil
+	if rstOpts.restoreDBUsersAndRolesTmpColl {
+		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
+			return errors.Wrap(err, "restoring users and roles")
+		}
 	}
 
+	return nil
+}
+
+func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error {
 	r.log.Info("restoring users and roles")
 	cusr, err := topo.CurrentUser(ctx, r.nodeConn)
 	if err != nil {
