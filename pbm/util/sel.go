@@ -23,6 +23,8 @@ func IsSelective(ids []string) bool {
 // ParseNS breaks namespace into database and collection parts
 func ParseNS(ns string) (string, string) {
 	db, coll, _ := strings.Cut(ns, ".")
+	db = strings.TrimSpace(db)
+	coll = strings.TrimSpace(coll)
 
 	if db == "*" {
 		db = ""
