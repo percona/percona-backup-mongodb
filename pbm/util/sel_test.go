@@ -87,8 +87,8 @@ func TestCollExists(t *testing.T) {
 	}{
 		{desc: "collection is defined", ns: "d.c", res: true},
 		{desc: "collection is wild-carded", ns: "d.*", res: false},
-		{desc: "namespace is wild-carded", ns: "d.*", res: false},
-		{desc: "namespace is empty", ns: "d.*", res: false},
+		{desc: "namespace is wild-carded", ns: "*.*", res: false},
+		{desc: "namespace is empty", ns: "", res: false},
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
