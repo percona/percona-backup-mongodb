@@ -64,10 +64,8 @@ type Restore struct {
 	indexCatalog *idx.IndexCatalog
 }
 
-type restoreOptions struct {
-	// PBM restore from temp collections (pbmRUsers/pbmRRoles)should be used
-	restoreDBUsersAndRolesTmpColl bool
-}
+// PBM restore from temp collections (pbmRUsers/pbmRRoles)should be used
+type restoreUsersAndRolesOption bool
 
 // New creates a new restore object
 func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, rsMap map[string]string) *Restore {
@@ -105,50 +103,39 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	r.Close()
 }
 
-// resolveNamespaceAndRestoreOptions resolves final namespace(s) and restoring options
-// based on the created backup and restore command.
-// It resolves the final result using the following input:
-// - backup namespace (should be none or single)
-// - restore namespace (can be none, single or multiple)
-// - userAndRoles option which can be turned on for selective types of backup and restore
-func resolveNamespaceAndRestoreOptions(
-	bcpMeta *backup.BackupMeta,
-	rstCmd *ctrl.RestoreCmd,
-) ([]string, *restoreOptions) {
-	isSelectiveBackup := util.IsSelective(bcpMeta.Namespaces)
-	isFullBackup := !isSelectiveBackup
-
-	isSelectiveRestore := util.IsSelective(rstCmd.Namespaces)
-	isFullRestore := !isSelectiveRestore
-
-	rstOpts := &restoreOptions{}
-
-	var nss []string
-	if isFullBackup && isFullRestore {
-		nss = []string{}
-
-		rstOpts.restoreDBUsersAndRolesTmpColl = true
-	} else if isSelectiveBackup && isFullRestore {
-		nss = bcpMeta.Namespaces
-
-		rstOpts.restoreDBUsersAndRolesTmpColl = false
-	} else if isFullBackup && isSelectiveRestore {
-		nss = rstCmd.Namespaces
-		if rstCmd.UsersAndRoles {
-			nss = append(nss, defs.DB+"."+defs.TmpUsersCollection, defs.DB+"."+defs.TmpRolesCollection)
+// resolveNamespace resolves final namespace(s) based on the backup namespace,
+// restore namespace, and option whether we should restore users&roles
+func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
+	if util.IsSelective(nssBackup) {
+		return nssBackup
+	}
+	if util.IsSelective(nssRestore) {
+		if usingUsersAndRoles {
+			var nss []string
+			nss = append(nss, nssRestore...)
+			nss = append(nss,
+				defs.DB+"."+defs.TmpUsersCollection,
+				defs.DB+"."+defs.TmpRolesCollection,
+			)
+			return nss
 		}
 
-		rstOpts.restoreDBUsersAndRolesTmpColl = rstCmd.UsersAndRoles
-	} else if isSelectiveBackup && isSelectiveRestore {
-		nss = rstCmd.Namespaces
-
-		rstOpts.restoreDBUsersAndRolesTmpColl = false
-	} else {
-		// this should never happened, but let's have restrictive default
-		nss = bcpMeta.Namespaces
+		return nssRestore
 	}
 
-	return nss, rstOpts
+	return nssBackup
+}
+
+// shouldRestoreUsersAndRoles determines whether user&roles should be restored from the backup
+func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRoles bool) restoreUsersAndRolesOption {
+	if util.IsSelective(nssBackup) {
+		return false
+	}
+	if util.IsSelective(nssRestore) {
+		return restoreUsersAndRolesOption(usingUsersAndRoles)
+	}
+
+	return true
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
@@ -167,7 +154,8 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	nss, rstOpts := resolveNamespaceAndRestoreOptions(bcp, cmd)
+	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
 	if err != nil {
@@ -198,7 +186,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, rstOpts)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -274,7 +262,8 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	nss, rstOpts := resolveNamespaceAndRestoreOptions(bcp, cmd)
+	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
@@ -326,7 +315,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, rstOpts)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -697,7 +686,7 @@ func (r *Restore) RunSnapshot(
 	dump string,
 	bcp *backup.BackupMeta,
 	nss []string,
-	rstOpts *restoreOptions,
+	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	var rdr io.ReadCloser
 
@@ -727,7 +716,7 @@ func (r *Restore) RunSnapshot(
 			if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
 				return err
 			}
-			if !rstOpts.restoreDBUsersAndRolesTmpColl {
+			if !usersAndRolesOpt {
 				return nil
 			}
 
@@ -789,7 +778,7 @@ func (r *Restore) RunSnapshot(
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if rstOpts.restoreDBUsersAndRolesTmpColl {
+	if usersAndRolesOpt {
 		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
 			return errors.Wrap(err, "restoring users and roles")
 		}
