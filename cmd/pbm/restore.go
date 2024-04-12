@@ -675,11 +675,11 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 }
 
 func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
-	if len(nss) == 0 && usersAndRoles {
+	if util.IsSelective(nss) && usersAndRoles {
 		return errors.New("Including users and roles are only allowed for selected database " +
 			"(use --ns flag for selective backup)")
 	}
-	if len(nss) >= 1 && util.AnyCollExists(nss) && usersAndRoles {
+	if len(nss) >= 1 && util.ContainsSpecifiedColl(nss) && usersAndRoles {
 		return errors.New("Including users and roles are not allowed for specific collection. " +
 			"Use --ns='db.*' to specify the whole database instead.")
 	}

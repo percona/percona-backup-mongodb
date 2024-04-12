@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/hex"
+	"slices"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -23,8 +24,6 @@ func IsSelective(ids []string) bool {
 // ParseNS breaks namespace into database and collection parts
 func ParseNS(ns string) (string, string) {
 	db, coll, _ := strings.Cut(ns, ".")
-	db = strings.TrimSpace(db)
-	coll = strings.TrimSpace(coll)
 
 	if db == "*" {
 		db = ""
@@ -36,26 +35,18 @@ func ParseNS(ns string) (string, string) {
 	return db, coll
 }
 
-// CollExists inspects if collection is explicitly specified by name
+// ContainsColl inspects if collection is explicitly specified by name
 // within the namespace
-func CollExists(ns string) bool {
+func ContainsColl(ns string) bool {
 	_, c := ParseNS(ns)
-	if c != "" {
-		return true
-	}
-
-	return false
+	return c != ""
 }
 
-// AnyCollExists inspects if any collection exists for multi-ns
-func AnyCollExists(nss []string) bool {
-	for _, ns := range nss {
-		if CollExists(ns) {
-			return true
-		}
-	}
-
-	return false
+// ContainsSpecifiedColl inspects if any collection exists for multi-ns
+func ContainsSpecifiedColl(nss []string) bool {
+	return slices.ContainsFunc(nss, func(ns string) bool {
+		return ContainsColl(ns)
+	})
 }
 
 func MakeSelectedPred(nss []string) archive.NSFilterFn {

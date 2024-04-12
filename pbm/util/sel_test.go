@@ -58,13 +58,13 @@ func TestParseNS(t *testing.T) {
 		{desc: "only db specified", ns: "D", resDB: "D", resColl: ""},
 		{desc: "only db specified, collection with wild-card", ns: "D.*", resDB: "D", resColl: ""},
 		{desc: "only db specified, collection is empty", ns: "D.", resDB: "D", resColl: ""},
-		{desc: "only db specified, collection is whitespace", ns: "D.   ", resDB: "D", resColl: ""},
-		{desc: "only db with whitespaces specified, collection is whitespace", ns: " D    ", resDB: "D", resColl: ""},
+		{desc: "only db specified, collection is whitespace", ns: "D. ", resDB: "D", resColl: " "},
+		{desc: "only db with whitespaces specified, collection is whitespace", ns: " D ", resDB: " D ", resColl: ""},
 		{desc: "only collection specified", ns: ".C", resDB: "", resColl: "C"},
 		{desc: "only collection specified, database with wild-card", ns: "*.C", resDB: "", resColl: "C"},
 		{desc: "only collection specified, collection is empty", ns: ".C", resDB: "", resColl: "C"},
-		{desc: "only collection specified, db is whitespace", ns: "  .C", resDB: "", resColl: "C"},
-		{desc: "only collection with whitespaces specified, database is whitespace", ns: " . C    ", resDB: "", resColl: "C"},
+		{desc: "only collection specified, db is whitespace", ns: " .C", resDB: " ", resColl: "C"},
+		{desc: "only collection with whitespaces specified, database is whitespace", ns: " . C ", resDB: " ", resColl: " C "},
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestParseNS(t *testing.T) {
 	}
 }
 
-func TestCollExists(t *testing.T) {
+func TestContainsColl(t *testing.T) {
 	testCases := []struct {
 		desc string
 		ns   string
@@ -92,14 +92,14 @@ func TestCollExists(t *testing.T) {
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
-			if res := util.CollExists(tC.ns); res != tC.res {
+			if res := util.ContainsColl(tC.ns); res != tC.res {
 				t.Errorf("expected: %t, got: %t", tC.res, res)
 			}
 		})
 	}
 }
 
-func TestAnyCollExists(t *testing.T) {
+func TestContainsSpecifiedColl(t *testing.T) {
 	testCases := []struct {
 		desc string
 		ns   []string
@@ -111,7 +111,7 @@ func TestAnyCollExists(t *testing.T) {
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
-			if res := util.AnyCollExists(tC.ns); res != tC.res {
+			if res := util.ContainsSpecifiedColl(tC.ns); res != tC.res {
 				t.Errorf("expected: %t, got: %t", tC.res, res)
 			}
 		})
