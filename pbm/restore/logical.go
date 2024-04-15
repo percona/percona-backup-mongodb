@@ -106,9 +106,6 @@ func (r *Restore) exit(ctx context.Context, err error) {
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
 // restore namespace, and option whether we should restore users&roles
 func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
-	if util.IsSelective(nssBackup) {
-		return nssBackup
-	}
 	if util.IsSelective(nssRestore) {
 		if usingUsersAndRoles {
 			var nss []string
@@ -121,6 +118,9 @@ func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) [
 		}
 
 		return nssRestore
+	}
+	if util.IsSelective(nssBackup) {
+		return nssBackup
 	}
 
 	return nssBackup

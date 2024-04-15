@@ -38,6 +38,12 @@ func TestResolveNamespace(t *testing.T) {
 				nssRestore: []string{},
 				want:       []string{"d.c"},
 			},
+			{
+				desc:       "selective backup -> selective restore",
+				nssBackup:  []string{"d.*"},
+				nssRestore: []string{"d.c"},
+				want:       []string{"d.c"},
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
