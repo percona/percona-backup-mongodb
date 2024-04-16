@@ -255,9 +255,10 @@ func checkBackup(
 	conn connect.Client,
 	o *restoreOpts,
 	nss []string,
-) (string, defs.BackupType, error) {
+) (name string, typ defs.BackupType, isSelective bool, err error) {
 	if o.extern && o.bcp == "" {
-		return "", defs.ExternalBackup, nil
+		typ = defs.ExternalBackup
+		return
 	}
 
 	b := o.bcp
@@ -265,36 +266,52 @@ func checkBackup(
 		b = o.pitrBase
 	}
 
-	var err error
 	var bcp *backup.BackupMeta
 	if b != "" {
 		bcp, err = backup.NewDBManager(conn).GetBackupByName(ctx, b)
 		if errors.Is(err, errors.ErrNotFound) {
-			return "", "", errors.Errorf("backup '%s' not found", b)
+			err = errors.Errorf("backup '%s' not found", b)
+			return
 		}
 	} else {
 		var ts primitive.Timestamp
 		ts, err = parseTS(o.pitr)
 		if err != nil {
-			return "", "", errors.Wrap(err, "parse pitr")
+			err = errors.Wrap(err, "parse pitr")
+			return
 		}
 
 		bcp, err = backup.GetLastBackup(ctx, conn, &primitive.Timestamp{T: ts.T + 1, I: 0})
 		if errors.Is(err, errors.ErrNotFound) {
-			return "", "", errors.New("no base snapshot found")
+			err = errors.New("no base snapshot found")
+			return
 		}
 	}
 	if err != nil {
-		return "", "", errors.Wrap(err, "get backup data")
-	}
-	if len(nss) != 0 && bcp.Type != defs.LogicalBackup {
-		return "", "", errors.New("--ns flag is only allowed for logical restore")
-	}
-	if bcp.Status != defs.StatusDone {
-		return "", "", errors.Errorf("backup '%s' didn't finish successfully", b)
+		err = errors.Wrap(err, "get backup data")
+		return
 	}
 
-	return bcp.Name, bcp.Type, nil
+	if util.IsSelective(nss) {
+		if bcp.Type != defs.LogicalBackup && bcp.Type != defs.PhysicalBackup {
+			err = errors.Errorf("selective restore from %s backup is not supported", bcp.Type)
+			return
+		}
+		if bcp.Type == defs.PhysicalBackup && o.pitr != "" {
+			err = errors.New("selective PITR from physical backup is not supported")
+			return
+		}
+		if util.IsSelective(bcp.Namespaces) {
+			err = errors.New("selective restore from selective physical backup is not supported")
+			return
+		}
+	}
+	if bcp.Status != defs.StatusDone {
+		err = errors.Errorf("backup '%s' didn't finish successfully", b)
+		return
+	}
+
+	return bcp.Name, bcp.Type, util.IsSelective(bcp.Namespaces), nil
 }
 
 func doRestore(
@@ -305,10 +322,28 @@ func doRestore(
 	rsMapping map[string]string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
+	bcp, bcpType, bcpSelective, err := checkBackup(ctx, conn, o, nss)
 	if err != nil {
 		return nil, err
 	}
+
+	isSelective := util.IsSelective(nss)
+	if bcpType == defs.PhysicalBackup && isSelective {
+		info, err := topo.GetNodeInfo(ctx, conn.MongoClient())
+		if err != nil {
+			return nil, errors.Wrap(err, "get node info")
+		}
+		if info.IsMongos() || info.IsSharded() {
+			return nil, errors.New("selective physical restore for sharded cluster is not supported")
+		}
+		if len(info.Hosts) != 1 {
+			return nil, errors.New("selective physical restore for multi-member replset is not supported")
+		}
+		if bcpSelective {
+			return nil, errors.New("selective physical restore from selective backup is not supported")
+		}
+	}
+
 	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
@@ -363,9 +398,10 @@ func doRestore(
 
 	if outf != outText {
 		return &restore.RestoreMeta{
-			Name:   name,
-			Backup: bcp,
-			Type:   bcpType,
+			Name:       name,
+			Backup:     bcp,
+			Type:       bcpType,
+			Namespaces: nss,
 		}, nil
 	}
 
@@ -390,7 +426,7 @@ func doRestore(
 	// physical restore may take more time to start
 	const waitPhysRestoreStart = time.Second * 120
 	var startCtx context.Context
-	if bcpType == defs.LogicalBackup {
+	if bcpType == defs.LogicalBackup || (bcpType == defs.PhysicalBackup && isSelective) {
 		fn = restore.GetRestoreMeta
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
