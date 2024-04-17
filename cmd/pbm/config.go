@@ -127,7 +127,7 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 			oldCfg = &config.Config{}
 		}
 
-		if err := config.SetConfig(ctx, conn, newCfg); err != nil {
+		if err := config.SetConfig(ctx, conn, &newCfg); err != nil {
 			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 
