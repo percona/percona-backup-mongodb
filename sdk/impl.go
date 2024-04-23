@@ -79,7 +79,7 @@ func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
 }
 
 func (c *clientImpl) SetConfig(ctx context.Context, cfg Config) (CommandID, error) {
-	return NoOpID, config.SetConfig(ctx, c.conn, cfg)
+	return NoOpID, config.SetConfig(ctx, c.conn, &cfg)
 }
 
 func (c *clientImpl) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
