@@ -253,10 +253,6 @@ func (r *SelectivePhysical) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *SelectivePhysical) backupFailed(ctx context.Context, cause error) error {
-	return r.updateStatusImpl(ctx, defs.StatusError, cause)
-}
-
 func (r *SelectivePhysical) updateStatus(ctx context.Context, status defs.Status) error {
 	return r.updateStatusImpl(ctx, status, nil)
 }
@@ -362,6 +358,7 @@ func (r *SelectivePhysical) dropNamespaces(ctx context.Context) error {
 	return nil
 }
 
+//nolint:nonamedreturns
 func (r *SelectivePhysical) importCollection(
 	ctx context.Context,
 	filemap map[string]backup.File,
@@ -550,6 +547,7 @@ func (r *SelectivePhysical) removeFile(_ context.Context, filename string) error
 	return os.Remove(filename)
 }
 
+//nolint:unused
 func getCheckedRestoreMeta(ctx context.Context, c connect.Client, name string) (*RestoreMeta, error) {
 	meta, err := GetRestoreMeta(ctx, c, name)
 	if err != nil {
@@ -572,6 +570,7 @@ func getCheckedRestoreMeta(ctx context.Context, c connect.Client, name string) (
 	return meta, nil
 }
 
+//nolint:unused
 func (r *SelectivePhysical) waitForStatus(ctx context.Context, status defs.Status) error {
 	for {
 		meta, err := getCheckedRestoreMeta(ctx, r.leader, r.name)

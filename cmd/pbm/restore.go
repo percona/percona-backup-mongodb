@@ -250,6 +250,7 @@ func (e restoreFailedError) Is(err error) bool {
 	return ok
 }
 
+//nolint:nonamedreturns
 func checkBackup(
 	ctx context.Context,
 	conn connect.Client,
