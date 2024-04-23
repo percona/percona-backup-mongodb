@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -54,6 +55,10 @@ type Condition struct {
 }
 
 type Conditions []*Condition
+
+func (b Conditions) Has(s defs.Status) bool {
+	return slices.ContainsFunc(b, func(c *Condition) bool { return c.Status == s })
+}
 
 func (b Conditions) Len() int           { return len(b) }
 func (b Conditions) Less(i, j int) bool { return b[i].Timestamp < b[j].Timestamp }
