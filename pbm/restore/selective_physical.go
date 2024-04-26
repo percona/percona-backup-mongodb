@@ -235,16 +235,20 @@ func (r *SelectivePhysical) Run(ctx context.Context) error {
 		filemap[file.Name] = file
 	}
 
+	elog := log.LogEventFromContext(ctx)
+	elog.Debug("reading wt metadata")
 	md, err := r.readWTMetadata(ctx, filemap)
 	if err != nil {
 		return errors.Wrap(err, "read wiredtiger metadata")
 	}
 
+	elog.Debug("dropping namespaces")
 	err = r.dropNamespaces(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop namespaces")
 	}
 
+	elog.Debug("importing collection")
 	err = r.importCollection(ctx, filemap, md)
 	if err != nil {
 		return errors.Wrap(err, "import collection")
@@ -265,6 +269,7 @@ func (r *SelectivePhysical) updateStatusImpl(ctx context.Context, status defs.St
 		leaderErrText = fmt.Sprintf("%s: %s: %s", r.info.SetName, r.info.Me, errText)
 	}
 
+	log.LogEventFromContext(ctx).Debug("updaing status: %v", status)
 	nowUnix := time.Now().UTC().Unix()
 
 	leaderUpdate := mongo.UpdateOneModel{
@@ -414,6 +419,9 @@ func (r *SelectivePhysical) importCollection(
 	md.StorageMetadata = newStgMeta
 	md.IndexFiles = newIdxFiles
 
+	elog := log.LogEventFromContext(ctx)
+	elog.Debug("checking if files exit")
+
 	eg, _ := errgroup.WithContext(ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
@@ -453,6 +461,8 @@ func (r *SelectivePhysical) importCollection(
 		}
 	}()
 
+	elog.Debug("copying files")
+
 	eg, copyCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
@@ -469,6 +479,7 @@ func (r *SelectivePhysical) importCollection(
 		return err
 	}
 
+	elog.Debug("attaching collection")
 	return attachCollection(ctx, r.node, md)
 }
 
