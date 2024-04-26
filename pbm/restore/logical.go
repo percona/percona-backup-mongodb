@@ -439,7 +439,7 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 		}
 		err = SetRestoreMeta(ctx, r.leadConn, meta)
 		if err != nil {
-			return errors.Wrap(err, "write backup meta to db")
+			return errors.Wrap(err, "write restore meta to db")
 		}
 
 		r.stopHB = make(chan struct{})

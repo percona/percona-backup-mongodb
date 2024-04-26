@@ -413,24 +413,28 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, l)
 		}
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
-		if lck != nil {
-			// Don't care about errors. Anyway, the lock gonna disappear after the
-			// restore. And the commands stream is down as well.
-			// The lock also updates its heartbeats but Restore waits only for one state
-			// with the timeout twice as short defs.StaleFrameSec.
-			_ = lck.Release()
-			lck = nil
-		}
+		if bcpType == defs.PhysicalBackup && util.IsSelective(r.Namespaces) {
+			err = a.doSelectivePhysicalRestore(ctx, r, opid)
+		} else {
+			if lck != nil {
+				// Don't care about errors. Anyway, the lock gonna disappear after the
+				// restore. And the commands stream is down as well.
+				// The lock also updates its heartbeats but Restore waits only for one state
+				// with the timeout twice as short defs.StaleFrameSec.
+				_ = lck.Release()
+				lck = nil
+			}
 
-		var rstr *restore.PhysRestore
-		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
-		if err != nil {
-			l.Error("init physical backup: %v", err)
-			return
-		}
+			var rstr *restore.PhysRestore
+			rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
+			if err != nil {
+				l.Error("init physical restore: %v", err)
+				return
+			}
 
-		r.BackupName = bcp.Name
-		err = rstr.Snapshot(ctx, r, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
+			r.BackupName = bcp.Name
+			err = rstr.Snapshot(ctx, r, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
@@ -450,4 +454,70 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	l.Info("recovery successfully finished")
+}
+
+//nolint:nonamedreturns
+func (a *Agent) doSelectivePhysicalRestore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID) (err error) {
+	nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
+	if err != nil {
+		return errors.Wrap(err, "get node info")
+	}
+	bcpMeta, err := backup.NewDBManager(a.leadConn).GetBackupByName(ctx, r.BackupName)
+	if err != nil {
+		return errors.Wrap(err, "get backup meta")
+	}
+	config, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+	storage, err := util.StorageFromConfig(config.Storage, log.LogEventFromContext(ctx))
+	if err != nil {
+		return errors.Wrap(err, "storage from config")
+	}
+
+	restoreOptions := restore.SelectivePhysicalOptions{
+		LeaderConn: a.leadConn,
+		NodeConn:   a.nodeConn,
+		NodeInfo:   nodeInfo,
+		Config:     config,
+		Storage:    storage,
+		Name:       r.Name,
+		Backup:     bcpMeta,
+		Namespaces: r.Namespaces,
+	}
+	res, err := restore.NewSelectivePhysical(ctx, restoreOptions)
+	if err != nil {
+		return errors.Wrap(err, "new restore")
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			err = errors.Errorf("panicked with: %v", v)
+		}
+		if err == nil {
+			return
+		}
+
+		closeError := res.CloseWithError(context.Background(), err)
+		if closeError != nil {
+			l := log.LogEventFromContext(ctx)
+			l.Error("close restore: %v", closeError)
+		}
+	}()
+
+	err = res.Init(ctx, opid)
+	if err != nil {
+		return errors.Wrap(err, "init")
+	}
+
+	err = res.Run(ctx)
+	if err != nil {
+		return errors.Wrap(err, "run")
+	}
+
+	err = res.Done(ctx)
+	if err != nil {
+		return errors.Wrap(err, "done")
+	}
+
+	return nil
 }

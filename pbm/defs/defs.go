@@ -1,6 +1,9 @@
 package defs
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	// DB is a name of the PBM database
@@ -71,6 +74,12 @@ const (
 )
 
 type BackupType string
+
+var _ fmt.Stringer = BackupType("")
+
+func (t BackupType) String() string {
+	return string(t)
+}
 
 const (
 	PhysicalBackup    BackupType = "physical"

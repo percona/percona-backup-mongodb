@@ -144,6 +144,14 @@ func (f File) String() string {
 	return fmt.Sprintf("%s [%d:%d]", f.Name, f.Off, f.Len)
 }
 
+func (f File) Filename(comp compress.CompressionType) string {
+	if f.Off == 0 && f.Len == 0 {
+		return f.Name + comp.Suffix()
+	}
+
+	return fmt.Sprintf("%s%s.%d-%d", f.Name, comp.Suffix(), f.Off, f.Len)
+}
+
 func (f *File) WriteTo(w io.Writer) (int64, error) {
 	fd, err := os.Open(f.Name)
 	if err != nil {
