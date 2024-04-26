@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +34,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
+
+const SelectivePhysicalHeartbeatInternal = 5 * time.Second
 
 var wtBackupFiles = []string{
 	"storage.bson",
@@ -107,6 +108,8 @@ func NewSelectivePhysical(ctx context.Context, options SelectivePhysicalOptions)
 	}
 
 	rv := &SelectivePhysical{
+		stopHeartbeat: func() {},
+
 		config:  options.Config,
 		storage: options.Storage,
 		leader:  options.LeaderConn,
@@ -198,27 +201,37 @@ func (r *SelectivePhysical) Init(ctx context.Context, opid ctrl.OPID) error {
 		return errors.Wrap(err, "write restore meta to db")
 	}
 
-	closeC := make(chan struct{})
-	r.stopHeartbeat = sync.OnceFunc(func() { close(closeC) })
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-
-			select {
-			case <-closeC:
-				return
-			default:
-			}
-
-			err := RestoreHB(ctx, r.leader, r.name)
-			if err != nil {
-				l := log.LogEventFromContext(ctx)
-				l.Error("send heartbeat: %v", err)
-			}
-		}
-	}()
+	r.runHeartbeat(ctx)
 
 	return nil
+}
+
+func (r *SelectivePhysical) runHeartbeat(ctx context.Context) {
+	elog := log.LogEventFromContext(ctx)
+	elog.Debug("running heartbeat")
+
+	stopErr := errors.New("graceful stop")
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	r.stopHeartbeat = func() { cancel(stopErr) }
+
+	go func() {
+		for {
+			if err := RestoreHB(ctx, r.leader, r.name); err != nil {
+				if errors.Is(err, stopErr) ||
+					errors.Is(err, context.Canceled) ||
+					errors.Is(err, context.DeadlineExceeded) {
+					elog.Debug("stopping heartbeat: %v", err)
+					return
+				}
+
+				elog.Error("send heartbeat: %v", err)
+			}
+
+			time.Sleep(SelectivePhysicalHeartbeatInternal)
+		}
+	}()
 }
 
 func (r *SelectivePhysical) Run(ctx context.Context) error {
