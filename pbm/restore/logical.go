@@ -909,7 +909,7 @@ func (r *Restore) updateRouterConfig(ctx context.Context) error {
 		}
 	}
 
-	res := r.leadConn.AdminCommand(ctx, primitive.M{"flushRouterConfig": 1})
+	res := r.leadConn.AdminCommand(ctx, bson.D{{"flushRouterConfig", 1}})
 	return errors.Wrap(res.Err(), "flushRouterConfig")
 }
 

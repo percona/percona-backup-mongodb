@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -83,7 +84,10 @@ func ServerSelectionTimeout(d time.Duration) MongoOption {
 	}
 }
 
-func MongoConnect(ctx context.Context, uri string, mongoOptions ...MongoOption) (*mongo.Client, error) {
+func MongoConnectWithOpts(ctx context.Context,
+	uri string,
+	mongoOptions ...MongoOption,
+) (*mongo.Client, *options.ClientOptions, error) {
 	if !strings.HasPrefix(uri, "mongodb://") {
 		uri = "mongodb://" + uri
 	}
@@ -103,37 +107,50 @@ func MongoConnect(ctx context.Context, uri string, mongoOptions ...MongoOption) 
 	for _, opt := range mongoOptions {
 		if opt != nil {
 			if err := opt(mopts); err != nil {
-				return nil, errors.Wrap(err, "invalid mongo option")
+				return nil, nil, errors.Wrap(err, "invalid mongo option")
 			}
 		}
 	}
 
 	conn, err := mongo.Connect(ctx, mopts)
 	if err != nil {
-		return nil, errors.Wrap(err, "connect")
+		return nil, nil, errors.Wrap(err, "connect")
 	}
 
 	err = conn.Ping(ctx, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "ping")
+		return nil, nil, errors.Wrap(err, "ping")
 	}
 
-	return conn, nil
+	return conn, mopts, nil
+}
+
+func MongoConnect(
+	ctx context.Context,
+	uri string,
+	mongoOptions ...MongoOption,
+) (*mongo.Client, error) {
+	client, _, err := MongoConnectWithOpts(ctx, uri, mongoOptions...)
+	return client, err
 }
 
 type clientImpl struct {
-	client *mongo.Client
+	client  *mongo.Client
+	options *options.ClientOptions
 }
 
 func UnsafeClient(m *mongo.Client) Client {
-	return &clientImpl{m}
+	return &clientImpl{
+		client:  m,
+		options: options.Client(),
+	}
 }
 
 // Connect resolves MongoDB connection to Primary member and wraps it within Client object.
 // In case of replica set it returns connection to Primary member,
 // while in case of sharded cluster it returns connection to Config RS Primary member.
 func Connect(ctx context.Context, uri, appName string) (Client, error) {
-	client, err := MongoConnect(ctx, uri, AppName(appName))
+	client, opts, err := MongoConnectWithOpts(ctx, uri, AppName(appName))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
 	}
@@ -143,7 +160,10 @@ func Connect(ctx context.Context, uri, appName string) (Client, error) {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
 	if inf.isMongos() {
-		return &clientImpl{client: client}, nil
+		return &clientImpl{
+			client:  client,
+			options: opts,
+		}, nil
 	}
 
 	inf.Opts, err = getMongodOpts(ctx, client, nil)
@@ -152,7 +172,10 @@ func Connect(ctx context.Context, uri, appName string) (Client, error) {
 	}
 
 	if inf.isClusterLeader() {
-		return &clientImpl{client: client}, nil
+		return &clientImpl{
+			client:  client,
+			options: opts,
+		}, nil
 	}
 
 	csvr, err := getConfigsvrURI(ctx, client)
@@ -183,7 +206,10 @@ func Connect(ctx context.Context, uri, appName string) (Client, error) {
 		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
 	}
 
-	return &clientImpl{client: client}, nil
+	return &clientImpl{
+		client:  client,
+		options: opts,
+	}, nil
 }
 
 func (l *clientImpl) HasValidConnection(ctx context.Context) error {
@@ -212,11 +238,19 @@ func (l *clientImpl) MongoClient() *mongo.Client {
 	return l.client
 }
 
+func (l *clientImpl) MongoOptions() *options.ClientOptions {
+	return l.options
+}
+
 func (l *clientImpl) ConfigDatabase() *mongo.Database {
 	return l.client.Database("config")
 }
 
-func (l *clientImpl) AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult {
+func (l *clientImpl) AdminCommand(ctx context.Context, cmd bson.D, opts ...*options.RunCmdOptions) *mongo.SingleResult {
+	cmd = append(cmd,
+		bson.E{"readConcern", l.options.ReadConcern},
+		bson.E{"writeConcern", l.options.WriteConcern},
+	)
 	return l.client.Database(defs.DB).RunCommand(ctx, cmd, opts...)
 }
 
@@ -266,9 +300,10 @@ type Client interface {
 	Disconnect(ctx context.Context) error
 
 	MongoClient() *mongo.Client
+	MongoOptions() *options.ClientOptions
 
 	ConfigDatabase() *mongo.Database
-	AdminCommand(ctx context.Context, cmd any, opts ...*options.RunCmdOptions) *mongo.SingleResult
+	AdminCommand(ctx context.Context, cmd bson.D, opts ...*options.RunCmdOptions) *mongo.SingleResult
 
 	LogCollection() *mongo.Collection
 	ConfigCollection() *mongo.Collection
