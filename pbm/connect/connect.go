@@ -247,10 +247,7 @@ func (l *clientImpl) ConfigDatabase() *mongo.Database {
 }
 
 func (l *clientImpl) AdminCommand(ctx context.Context, cmd bson.D, opts ...*options.RunCmdOptions) *mongo.SingleResult {
-	cmd = append(cmd,
-		bson.E{"readConcern", l.options.ReadConcern},
-		bson.E{"writeConcern", l.options.WriteConcern},
-	)
+	cmd = l.applyOptonsFromConnString(cmd)
 	return l.client.Database(defs.DB).RunCommand(ctx, cmd, opts...)
 }
 
@@ -292,6 +289,28 @@ func (l *clientImpl) PBMOpLogCollection() *mongo.Collection {
 
 func (l *clientImpl) AgentsStatusCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.AgentsStatusCollection)
+}
+
+func (l *clientImpl) applyOptonsFromConnString(cmd bson.D) bson.D {
+	if len(cmd) == 0 {
+		return cmd
+	}
+
+	cmdName := cmd[0].Key
+	switch cmdName {
+	case "create":
+		if l.options.WriteConcern != nil {
+			cmd = append(cmd, bson.E{"writeConcern", l.options.WriteConcern})
+		}
+	default:
+		// do nothing for all other commands:
+		// flushRouterConfig
+		// _configsvrBalancerStart
+		// _configsvrBalancerStop
+		// _configsvrBalancerStatus
+	}
+
+	return cmd
 }
 
 var ErrInvalidConnection = errors.New("invalid mongo connection")
