@@ -69,7 +69,11 @@ func OpTimeFromNodeInfo(inf *NodeInfo, majority bool) (primitive.Timestamp, erro
 
 // IsWriteMajorityRequested compares cluster wide majority (replSetGetStatus.writeMajorityCount)
 // with WriteConcern requested in connection string and determinates if majority is requested or not
-func IsWriteMajorityRequested(ctx context.Context, m *mongo.Client, writeConcern *writeconcern.WriteConcern) (bool, error) {
+func IsWriteMajorityRequested(
+	ctx context.Context,
+	m *mongo.Client,
+	writeConcern *writeconcern.WriteConcern,
+) (bool, error) {
 	if writeConcern == nil ||
 		!writeConcern.IsValid() ||
 		writeConcern == writeconcern.Majority() {
