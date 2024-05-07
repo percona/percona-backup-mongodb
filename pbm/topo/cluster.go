@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -64,6 +65,29 @@ func OpTimeFromNodeInfo(inf *NodeInfo, majority bool) (primitive.Timestamp, erro
 		return primitive.Timestamp{}, errors.New("last write timestamp is nil")
 	}
 	return lw, nil
+}
+
+// IsWriteMajorityRequested compares cluster wide majority (replSetGetStatus.writeMajorityCount)
+// with WriteConcern requested in connection string and determinates if majority is requested or not
+func IsWriteMajorityRequested(ctx context.Context, m *mongo.Client, writeConcern *writeconcern.WriteConcern) (bool, error) {
+	if writeConcern == nil ||
+		!writeConcern.IsValid() ||
+		writeConcern == writeconcern.Majority() {
+		return true, nil
+	}
+
+	w, ok := writeConcern.W.(int)
+	if !ok {
+		return true, nil
+	}
+
+	s, err := GetReplsetStatus(ctx, m)
+	if err != nil {
+		return true, errors.Wrap(err, "get replset status")
+	}
+
+	return s.WriteMajorityCount >= w,
+		nil
 }
 
 // ClusterMembers returns list of replicasets current cluster consists of
