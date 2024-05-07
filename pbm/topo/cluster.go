@@ -90,7 +90,7 @@ func IsWriteMajorityRequested(
 		return true, errors.Wrap(err, "get replset status")
 	}
 
-	return s.WriteMajorityCount >= w,
+	return w >= s.WriteMajorityCount,
 		nil
 }
 
