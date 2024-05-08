@@ -89,6 +89,7 @@ func (b *Backup) doLogical(
 
 	stopOplogSlicer := startOplogSlicer(ctx,
 		b.nodeConn,
+		b.leadConn.MongoOptions().WriteConcern,
 		b.SlicerInterval(),
 		rsMeta.FirstWriteTS,
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
