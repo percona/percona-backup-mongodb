@@ -54,12 +54,23 @@ func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 // If the option is not specified the default is: [writeconcern.Majority].
 func WriteConcern(writeConcern *writeconcern.WriteConcern) MongoOption {
 	return func(opts *options.ClientOptions) error {
-		if writeConcern == nil {
-			return errors.New("WriteConcern not specified")
+		if err := validateWriteConcern(writeConcern); err != nil {
+			return err
 		}
+
 		opts.SetWriteConcern(writeConcern)
 		return nil
 	}
+}
+
+func validateWriteConcern(writeConcern *writeconcern.WriteConcern) error {
+	if writeConcern == nil {
+		return errors.New("WriteConcern not specified")
+	}
+	if w, ok := writeConcern.W.(int); ok && w == 0 {
+		return errors.New("WriteConcern without acknowledgment is not allowed (w: 0)")
+	}
+	return nil
 }
 
 // NoRS option removes replica set name setting
@@ -102,6 +113,9 @@ func MongoConnectWithOpts(ctx context.Context,
 
 	// apply and override using end-user options from conn string
 	mopts.ApplyURI(uri)
+	if err := validateConnStringOpts(mopts); err != nil {
+		return nil, nil, errors.Wrap(err, "invalid connection string option")
+	}
 
 	// override with explicit options from the code
 	for _, opt := range mongoOptions {
@@ -123,6 +137,18 @@ func MongoConnectWithOpts(ctx context.Context,
 	}
 
 	return conn, mopts, nil
+}
+
+func validateConnStringOpts(opts *options.ClientOptions) error {
+	var err error
+	if err = opts.Validate(); err != nil {
+		return err
+	}
+	if err = validateWriteConcern(opts.WriteConcern); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func MongoConnect(
