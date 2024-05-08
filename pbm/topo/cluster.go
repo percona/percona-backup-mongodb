@@ -90,8 +90,7 @@ func IsWriteMajorityRequested(
 		return true, errors.Wrap(err, "get replset status")
 	}
 
-	return w >= s.WriteMajorityCount,
-		nil
+	return w >= s.WriteMajorityCount, nil
 }
 
 // ClusterMembers returns list of replicasets current cluster consists of
