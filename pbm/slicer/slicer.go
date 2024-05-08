@@ -392,7 +392,11 @@ func (s *Slicer) Stream(
 			return OpMovedError{ld.Node}
 		}
 		if sliceTo.IsZero() {
-			sliceTo, err = topo.GetLastWrite(ctx, s.node, true)
+			majority, err := topo.IsWriteMajorityRequested(ctx, s.node, s.leadClient.MongoOptions().WriteConcern)
+			if err != nil {
+				return errors.Wrap(err, "define requested majority")
+			}
+			sliceTo, err = topo.GetLastWrite(ctx, s.node, majority)
 			if err != nil {
 				return errors.Wrap(err, "define last write timestamp")
 			}
