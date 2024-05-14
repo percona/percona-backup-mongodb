@@ -41,12 +41,23 @@ func Direct(direct bool) MongoOption {
 // If the option is not specified the default is: [readconcern.Majority].
 func ReadConcern(readConcern *readconcern.ReadConcern) MongoOption {
 	return func(opts *options.ClientOptions) error {
-		if readConcern == nil {
-			return errors.New("ReadConcern not specified")
+		if err := validateReadConcern(readConcern); err != nil {
+			return err
 		}
 		opts.SetReadConcern(readConcern)
 		return nil
 	}
+}
+
+func validateReadConcern(readConcern *readconcern.ReadConcern) error {
+	if readConcern == nil {
+		return errors.New("ReadConcern not specified")
+	}
+	if readConcern.Level != readconcern.Local().Level &&
+		readConcern.Level != readconcern.Majority().Level {
+		return errors.New("ReadConcern level is not allowed")
+	}
+	return nil
 }
 
 // WriteConcern option sets level of acknowledgment for write operation.
@@ -146,6 +157,13 @@ func validateConnStringOpts(opts *options.ClientOptions) error {
 	}
 	if err = validateWriteConcern(opts.WriteConcern); err != nil {
 		return err
+	}
+	if err = validateReadConcern(opts.ReadConcern); err != nil {
+		return err
+	}
+	if opts.ReadConcern.Level == readconcern.Majority().Level &&
+		opts.WriteConcern.W == writeconcern.W1().W {
+		return errors.New("ReadConcern majority and WriteConcern 1 is not allowed")
 	}
 
 	return nil
