@@ -103,6 +103,9 @@ func (a *Agent) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 	logger.Printf("pbm-agent:\n%s", version.Current().All(""))
 	logger.Printf("node: %s/%s", a.brief.SetName, a.brief.Me)
+	logger.Printf("conn level ReadConcern: %v; WriteConcern: %v",
+		a.leadConn.MongoOptions().ReadConcern.Level,
+		a.leadConn.MongoOptions().WriteConcern.W)
 
 	c, cerr := ctrl.ListenCmd(ctx, a.leadConn, a.closeCMD)
 
