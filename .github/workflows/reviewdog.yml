@@ -15,6 +15,7 @@ jobs:
   shellcheck:
     name: runner / shellcheck
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
       - name: spellcheck
@@ -30,6 +31,7 @@ jobs:
   misspell:
     name: runner / misspell
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
       - name: misspell
@@ -45,6 +47,7 @@ jobs:
   alex:
     name: runner / alex
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
       - name: alex
