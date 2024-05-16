@@ -23,6 +23,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
@@ -188,8 +189,6 @@ func peekTmpPort(current int) (int, error) {
 		rng = 1111
 		try = 150
 	)
-
-	rand.Seed(time.Now().UnixNano())
 
 	for i := 0; i < try; i++ {
 		p := current + rand.Intn(rng) + 1
@@ -1694,8 +1693,15 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 
 	var cn *mongo.Client
 	var err error
+	host := fmt.Sprintf("mongodb://localhost:%d", port)
 	for i := 0; i < tryConnCount; i++ {
-		cn, err = conn(port, tryConnTimeout)
+		cn, err = connect.MongoConnect(context.Background(), host,
+			connect.AppName("pbm-physical-restore"),
+			connect.Direct(true),
+			connect.WriteConcern(writeconcern.W1()),
+			connect.ConnectTimeout(time.Second*120),
+			connect.ServerSelectionTimeout(tryConnTimeout),
+		)
 		if err == nil {
 			return cn, nil
 		}
@@ -1721,29 +1727,6 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 	}
 
 	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
-}
-
-func conn(port int, tout time.Duration) (*mongo.Client, error) {
-	ctx := context.Background()
-
-	opts := options.Client().
-		SetHosts([]string{"localhost:" + strconv.Itoa(port)}).
-		SetAppName("pbm-physical-restore").
-		SetDirect(true).
-		SetConnectTimeout(time.Second * 120).
-		SetServerSelectionTimeout(tout)
-
-	conn, err := mongo.Connect(ctx, opts)
-	if err != nil {
-		return nil, errors.Wrap(err, "connect")
-	}
-
-	err = conn.Ping(ctx, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "ping")
-	}
-
-	return conn, nil
 }
 
 const internalMongodLog = "pbm.restore.log"

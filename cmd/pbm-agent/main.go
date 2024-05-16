@@ -86,7 +86,7 @@ func runAgent(mongoURI string, dumpConns int) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	leadConn, err := connect.Connect(ctx, mongoURI, &connect.ConnectOptions{AppName: "pbm-agent"})
+	leadConn, err := connect.Connect(ctx, mongoURI, "pbm-agent")
 	if err != nil {
 		return errors.Wrap(err, "connect to PBM")
 	}

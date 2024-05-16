@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -22,6 +23,7 @@ type stopSlicerFunc func() (primitive.Timestamp, int64, error)
 func startOplogSlicer(
 	ctx context.Context,
 	m *mongo.Client,
+	writeConcern *writeconcern.WriteConcern,
 	interval time.Duration,
 	startOpTime primitive.Timestamp,
 	upload uploadChunkFunc,
@@ -53,7 +55,11 @@ func startOplogSlicer(
 				return
 			}
 
-			currOpTime, err := topo.GetLastWrite(ctx, m, true)
+			majority, err := topo.IsWriteMajorityRequested(ctx, m, writeConcern)
+			if err != nil {
+				l.Error("failed to inspect requested majority: %v", err)
+			}
+			currOpTime, err := topo.GetLastWrite(ctx, m, majority)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return

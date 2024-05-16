@@ -22,7 +22,7 @@ type Mongo struct {
 }
 
 func NewMongo(ctx context.Context, connectionURI string) (*Mongo, error) {
-	cn, err := connect.MongoConnect(ctx, connectionURI, &connect.MongoConnectOptions{AppName: "e2e-tests"})
+	cn, err := connect.MongoConnect(ctx, connectionURI, connect.AppName("e2e-tests"))
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}

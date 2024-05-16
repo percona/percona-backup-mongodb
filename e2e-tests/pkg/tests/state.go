@@ -162,7 +162,7 @@ func ClusterState(ctx context.Context, mongos *mongo.Client, creds *Credentials)
 		uri = "mongodb://" + uri
 
 		eg.Go(func() error {
-			m, err := connect.Connect(ctx, uri, nil)
+			m, err := connect.Connect(ctx, uri, "pbm")
 			if err != nil {
 				return errors.Wrapf(err, "connect: %q", uri)
 			}

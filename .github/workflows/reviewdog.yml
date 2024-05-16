@@ -5,18 +5,19 @@ jobs:
     name: runner / go-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.19"
+          go-version: "1.22"
       - name: test
         run: go test -v ./...
 
   shellcheck:
     name: runner / shellcheck
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: spellcheck
         uses: reviewdog/action-shellcheck@v1
         with:
@@ -30,8 +31,9 @@ jobs:
   misspell:
     name: runner / misspell
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: misspell
         uses: reviewdog/action-misspell@v1
         with:
@@ -45,8 +47,9 @@ jobs:
   alex:
     name: runner / alex
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: alex
         uses: reviewdog/action-alex@v1
         with:
@@ -56,10 +59,10 @@ jobs:
     name: runner / golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.19"
+          go-version: "1.22"
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2
         with:
@@ -70,12 +73,12 @@ jobs:
     name: runner / gofmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.19"
+          go-version: "1.22"
       - run: go install golang.org/x/tools/cmd/goimports@latest
-      - run: go install mvdan.cc/gofumpt@v0.5.0
+      - run: go install mvdan.cc/gofumpt@latest
       - run: goimports -w -local "github.com/percona" $(find . -not -path "*/vendor/*" -name "*.go")
       - run: gofumpt -w -extra $(find . -not -path "*/vendor/*" -name "*.go")
       - uses: reviewdog/action-suggester@v1
@@ -86,10 +89,10 @@ jobs:
     name: runner / shfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.19"
+          go-version: "1.22"
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       - run: shfmt -f . | grep -v 'vendor' | xargs shfmt -w -s
       - name: suggester / shfmt

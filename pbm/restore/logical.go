@@ -64,6 +64,9 @@ type Restore struct {
 	indexCatalog *idx.IndexCatalog
 }
 
+// PBM restore from temp collections (pbmRUsers/pbmRRoles)should be used
+type restoreUsersAndRolesOption bool
+
 // New creates a new restore object
 func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, rsMap map[string]string) *Restore {
 	if rsMap == nil {
@@ -100,6 +103,41 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	r.Close()
 }
 
+// resolveNamespace resolves final namespace(s) based on the backup namespace,
+// restore namespace, and option whether we should restore users&roles
+func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
+	if util.IsSelective(nssRestore) {
+		if usingUsersAndRoles {
+			var nss []string
+			nss = append(nss, nssRestore...)
+			nss = append(nss,
+				defs.DB+"."+defs.TmpUsersCollection,
+				defs.DB+"."+defs.TmpRolesCollection,
+			)
+			return nss
+		}
+
+		return nssRestore
+	}
+	if util.IsSelective(nssBackup) {
+		return nssBackup
+	}
+
+	return nssBackup
+}
+
+// shouldRestoreUsersAndRoles determines whether user&roles should be restored from the backup
+func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRoles bool) restoreUsersAndRolesOption {
+	if util.IsSelective(nssBackup) {
+		return false
+	}
+	if util.IsSelective(nssRestore) {
+		return restoreUsersAndRolesOption(usingUsersAndRoles)
+	}
+
+	return true
+}
+
 // Snapshot do the snapshot's (mongo dump) restore
 //
 //nolint:nonamedreturns
@@ -116,10 +154,8 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	nss := cmd.Namespaces
-	if !util.IsSelective(nss) {
-		nss = bcp.Namespaces
-	}
+	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
 	if err != nil {
@@ -150,7 +186,7 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -226,10 +262,8 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	nss := cmd.Namespaces
-	if len(nss) == 0 {
-		nss = bcp.Namespaces
-	}
+	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
@@ -281,7 +315,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -647,7 +681,13 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.BackupMeta, nss []string) error {
+func (r *Restore) RunSnapshot(
+	ctx context.Context,
+	dump string,
+	bcp *backup.BackupMeta,
+	nss []string,
+	usersAndRolesOpt restoreUsersAndRolesOption,
+) error {
 	var rdr io.ReadCloser
 
 	var err error
@@ -673,7 +713,15 @@ func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.Back
 		mapRS := util.MakeReverseRSMapFunc(r.rsMap)
 		if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 			// restore cluster specific configs only
-			return r.configsvrRestore(ctx, bcp, nss, mapRS)
+			if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
+				return err
+			}
+			if !usersAndRolesOpt {
+				return nil
+			}
+
+			// selective restore needs to process users and roles from the full backup,
+			// so we'll continue with selective restore
 		}
 
 		var cfg *config.Config
@@ -730,17 +778,23 @@ func (r *Restore) RunSnapshot(ctx context.Context, dump string, bcp *backup.Back
 		return errors.Wrap(err, "mongorestore")
 	}
 
-	if util.IsSelective(nss) {
-		return nil
+	if usersAndRolesOpt {
+		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
+			return errors.Wrap(err, "restoring users and roles")
+		}
 	}
 
+	return nil
+}
+
+func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error {
 	r.log.Info("restoring users and roles")
 	cusr, err := topo.CurrentUser(ctx, r.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get current user")
 	}
 
-	err = r.swapUsers(ctx, cusr)
+	err = r.swapUsers(ctx, cusr, nss)
 	if err != nil {
 		return errors.Wrap(err, "swap users 'n' roles")
 	}
@@ -855,7 +909,7 @@ func (r *Restore) updateRouterConfig(ctx context.Context) error {
 		}
 	}
 
-	res := r.leadConn.AdminCommand(ctx, primitive.M{"flushRouterConfig": 1})
+	res := r.leadConn.AdminCommand(ctx, bson.D{{"flushRouterConfig", 1}})
 	return errors.Wrap(res.Err(), "flushRouterConfig")
 }
 
@@ -1123,7 +1177,17 @@ func (r *Restore) Done(ctx context.Context) error {
 	return nil
 }
 
-func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo) error {
+func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []string) error {
+	dbs := []string{}
+	for _, ns := range nss {
+		// ns can be "*.*" or "admin.pbmRUsers" or "admin.pbmRRoles"
+		db, _ := util.ParseNS(ns)
+		if len(db) == 0 || strings.HasPrefix(db, defs.DB) {
+			continue
+		}
+		dbs = append(dbs, db)
+	}
+
 	rolesC := r.nodeConn.Database("admin").Collection("system.roles")
 
 	eroles := []string{}
@@ -1131,14 +1195,21 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo) error {
 		eroles = append(eroles, r.DB+"."+r.Role)
 	}
 
+	rolesFilter := bson.M{
+		"_id": bson.M{"$nin": eroles},
+	}
+	if len(dbs) > 0 {
+		rolesFilter["db"] = bson.M{"$in": dbs}
+	}
+
 	curr, err := r.nodeConn.Database(defs.DB).Collection(defs.TmpRolesCollection).
-		Find(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+		Find(ctx, rolesFilter)
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpRoles")
 	}
 	defer curr.Close(ctx)
 
-	_, err = rolesC.DeleteMany(ctx, bson.M{"_id": bson.M{"$nin": eroles}})
+	_, err = rolesC.DeleteMany(ctx, rolesFilter)
 	if err != nil {
 		return errors.Wrap(err, "delete current roles")
 	}
@@ -1159,15 +1230,21 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo) error {
 	if len(exclude.Users) > 0 {
 		user = exclude.Users[0].DB + "." + exclude.Users[0].User
 	}
+	filterUsers := bson.M{
+		"_id": bson.M{"$ne": user},
+	}
+	if len(dbs) > 0 {
+		filterUsers["db"] = bson.M{"$in": dbs}
+	}
 	cur, err := r.nodeConn.Database(defs.DB).Collection(defs.TmpUsersCollection).
-		Find(ctx, bson.M{"_id": bson.M{"$ne": user}})
+		Find(ctx, filterUsers)
 	if err != nil {
 		return errors.Wrap(err, "create cursor for tmpUsers")
 	}
 	defer cur.Close(ctx)
 
 	usersC := r.nodeConn.Database("admin").Collection("system.users")
-	_, err = usersC.DeleteMany(ctx, bson.M{"_id": bson.M{"$ne": user}})
+	_, err = usersC.DeleteMany(ctx, filterUsers)
 	if err != nil {
 		return errors.Wrap(err, "delete current users")
 	}

@@ -263,7 +263,10 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	return cfg, nil
 }
 
-func SetConfig(ctx context.Context, m connect.Client, cfg Config) error {
+// SetConfig stores config doc within the database.
+// It also applies default storage parameters depending on the type of storage
+// and assigns those possible default values to the cfg parameter.
+func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	switch cfg.Storage.Type {
 	case storage.S3:
 		err := cfg.Storage.S3.Cast()
@@ -299,7 +302,7 @@ func SetConfig(ctx context.Context, m connect.Client, cfg Config) error {
 	_, err = m.ConfigCollection().UpdateOne(
 		ctx,
 		bson.D{},
-		bson.M{"$set": cfg},
+		bson.M{"$set": *cfg},
 		options.Update().SetUpsert(true),
 	)
 	return errors.Wrap(err, "mongo defs.ConfigCollection UpdateOne")

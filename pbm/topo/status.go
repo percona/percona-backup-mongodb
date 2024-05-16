@@ -54,6 +54,7 @@ type ReplsetStatus struct {
 	ClusterTime             *ClusterTime         `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
 	ConfigServerState       *ConfigServerState   `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
 	OperationTime           *primitive.Timestamp `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
+	WriteMajorityCount      int                  `bson:"writeMajorityCount,omitempty" json:"writeMajorityCount,omitempty"`
 }
 
 func CurrentUser(ctx context.Context, m *mongo.Client) (*AuthInfo, error) {

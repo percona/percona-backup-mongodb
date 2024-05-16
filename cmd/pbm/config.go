@@ -127,12 +127,10 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 			oldCfg = &config.Config{}
 		}
 
-		if err := config.SetConfig(ctx, conn, newCfg); err != nil {
+		if err := config.SetConfig(ctx, conn, &newCfg); err != nil {
 			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 
-		// provider value may differ as it set automatically after config parsing
-		oldCfg.Storage.S3.Provider = newCfg.Storage.S3.Provider
 		// resync storage only if Storage options have changed
 		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
 			if _, err := pbm.SyncFromStorage(ctx); err != nil {

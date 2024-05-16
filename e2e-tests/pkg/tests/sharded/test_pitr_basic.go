@@ -21,8 +21,6 @@ func (c *Cluster) PITRbasic() {
 	log.Println("turn on PITR")
 	defer c.pitrOff()
 
-	rand.Seed(time.Now().UnixNano())
-
 	counters := make(map[string]shardCounter)
 	for name, cn := range c.shards {
 		c.bcheckClear(name, cn)

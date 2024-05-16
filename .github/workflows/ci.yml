@@ -27,7 +27,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -36,12 +36,12 @@ jobs:
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
-      GO_VER: ${{ github.event.inputs.go_ver || '1.19-bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || 'bullseye' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
 
     steps:
       - name: Checkout testing repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: Percona-QA/psmdb-testing
           ref: ${{ github.event.inputs.tests_ver || 'main'}}
@@ -49,17 +49,17 @@ jobs:
 
       - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker-compose build
-          docker-compose up -d
+          PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker compose build
+          docker compose up -d
         working-directory: psmdb-testing/pbm-functional/pytest
 
       - name: Test ${{ matrix.test }} backup/restore on PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          docker-compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
+          docker compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
         working-directory: psmdb-testing/pbm-functional/pytest
 
       - name: Publish Test Report
-        uses: mikepenz/action-junit-report@v3
+        uses: mikepenz/action-junit-report@v4
         if: success() || failure()
         with:
           report_paths: "**/junit.xml"

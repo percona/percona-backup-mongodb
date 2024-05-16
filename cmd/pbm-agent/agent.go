@@ -46,17 +46,17 @@ type Agent struct {
 }
 
 func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
-	m, err := connect.MongoConnect(ctx, uri, &connect.MongoConnectOptions{Direct: true})
+	nodeConn, err := connect.MongoConnect(ctx, uri, connect.Direct(true))
 	if err != nil {
 		return nil, err
 	}
 
-	info, err := topo.GetNodeInfo(ctx, m)
+	info, err := topo.GetNodeInfo(ctx, nodeConn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get node info")
 	}
 
-	mongoVersion, err := version.GetMongoVersion(ctx, m)
+	mongoVersion, err := version.GetMongoVersion(ctx, nodeConn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
@@ -64,15 +64,15 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 	a := &Agent{
 		leadConn: leadConn,
 		closeCMD: make(chan struct{}),
+		nodeConn: nodeConn,
+		brief: topo.NodeBrief{
+			URI:     uri,
+			SetName: info.SetName,
+			Me:      info.Me,
+		},
+		mongoVersion: mongoVersion,
+		dumpConns:    dumpConns,
 	}
-	a.nodeConn = m
-	a.brief = topo.NodeBrief{
-		URI:     uri,
-		SetName: info.SetName,
-		Me:      info.Me,
-	}
-	a.mongoVersion = mongoVersion
-	a.dumpConns = dumpConns
 	return a, nil
 }
 
@@ -103,6 +103,9 @@ func (a *Agent) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 	logger.Printf("pbm-agent:\n%s", version.Current().All(""))
 	logger.Printf("node: %s/%s", a.brief.SetName, a.brief.Me)
+	logger.Printf("conn level ReadConcern: %v; WriteConcern: %v",
+		a.leadConn.MongoOptions().ReadConcern.Level,
+		a.leadConn.MongoOptions().WriteConcern.W)
 
 	c, cerr := ctrl.ListenCmd(ctx, a.leadConn, a.closeCMD)
 

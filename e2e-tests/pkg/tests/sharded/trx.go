@@ -361,6 +361,7 @@ func (c *Cluster) checkTrxCollection(ctx context.Context, col string, bcp Backup
 	}
 	c.flushRouterConfig(ctx)
 
+	time.Sleep(time.Second * 60)
 	bcp.Restore()
 
 	log.Println("check committed transaction")

@@ -44,7 +44,7 @@ func (b *Backup) doLogical(
 		if inf.IsConfigSrv() {
 			db = "config"
 		} else {
-			db, coll = parseNS(bcp.Namespaces[0])
+			db, coll = util.ParseNS(bcp.Namespaces[0])
 		}
 	}
 
@@ -89,6 +89,7 @@ func (b *Backup) doLogical(
 
 	stopOplogSlicer := startOplogSlicer(ctx,
 		b.nodeConn,
+		b.leadConn.MongoOptions().WriteConcern,
 		b.SlicerInterval(),
 		rsMeta.FirstWriteTS,
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
@@ -216,7 +217,7 @@ func (b *Backup) doLogical(
 }
 
 func dropTMPcoll(ctx context.Context, uri string) error {
-	m, err := connect.MongoConnect(ctx, uri, nil)
+	m, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return errors.Wrap(err, "connect to primary")
 	}
@@ -251,7 +252,7 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) 
 
 //nolint:nonamedreturns
 func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
-	cn, err := connect.MongoConnect(ctx, uri, nil)
+	cn, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
 	}
@@ -444,17 +445,4 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
-}
-
-func parseNS(ns string) (string, string) {
-	db, coll, _ := strings.Cut(ns, ".")
-
-	if db == "*" {
-		db = ""
-	}
-	if coll == "*" {
-		coll = ""
-	}
-
-	return db, coll
 }

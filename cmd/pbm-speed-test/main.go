@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
-	"math/rand"
 	"os"
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -63,8 +61,6 @@ func main() {
 		*sampleSizeF = 1
 	}
 
-	rand.Seed(time.Now().UnixNano())
-
 	switch cmd {
 	case compressionCmd.FullCommand():
 		fmt.Print("Test started ")
@@ -90,7 +86,7 @@ func testCompression(mURL string, compression compress.CompressionType, level *i
 	var cn *mongo.Client
 
 	if collection != "" {
-		cn, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
+		cn, err := connect.MongoConnect(ctx, mURL, connect.Direct(true))
 		if err != nil {
 			stdlog.Fatalln("Error: connect to mongodb-node:", err)
 		}
@@ -112,23 +108,19 @@ func testCompression(mURL string, compression compress.CompressionType, level *i
 }
 
 func testStorage(mURL string, compression compress.CompressionType, level *int, sizeGb float64, collection string) {
-	ctx := context.Background()
-
-	sess, err := connect.MongoConnect(ctx, mURL, &connect.MongoConnectOptions{Direct: true})
+	sess, err := connect.MongoConnect(context.Background(), mURL, connect.Direct(true))
 	if err != nil {
 		stdlog.Fatalln("Error: connect to mongodb-node:", err)
 	}
-	defer sess.Disconnect(ctx) //nolint:errcheck
+	defer sess.Disconnect(context.Background()) //nolint:errcheck
 
-	client, err := connect.Connect(ctx, mURL, &connect.ConnectOptions{AppName: "pbm-speed-test"})
+	client, err := connect.Connect(context.Background(), mURL, "pbm-speed-test")
 	if err != nil {
 		stdlog.Fatalln("Error: connect to mongodb-pbm:", err)
 	}
-	defer client.Disconnect(ctx) //nolint:errcheck
+	defer client.Disconnect(context.Background()) //nolint:errcheck
 
-	l := log.FromContext(ctx).
-		NewEvent("", "", "", primitive.Timestamp{})
-	stg, err := util.GetStorage(ctx, client, l)
+	stg, err := util.GetStorage(context.Background(), client, log.DiscardEvent)
 	if err != nil {
 		stdlog.Fatalln("Error: get storage:", err)
 	}

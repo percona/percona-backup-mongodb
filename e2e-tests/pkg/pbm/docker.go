@@ -11,18 +11,18 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/client"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 type Docker struct {
-	cn  *docker.Client
+	cn  *client.Client
 	ctx context.Context
 }
 
 func NewDocker(ctx context.Context, host string) (*Docker, error) {
-	cn, err := docker.NewClientWithOpts(docker.WithHost(host))
+	cn, err := client.NewClientWithOpts(client.WithHost(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}
@@ -39,7 +39,7 @@ func (d *Docker) StopContainers(labels []string) error {
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -66,7 +66,7 @@ func (d *Docker) StopAgents(rsName string) error {
 func (d *Docker) PauseAgents(rsName string) error {
 	fltr := filters.NewArgs()
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func (d *Docker) PauseAgents(rsName string) error {
 func (d *Docker) UnpauseAgents(rsName string) error {
 	fltr := filters.NewArgs()
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -123,7 +123,7 @@ func (d *Docker) StartContainers(labels []string) error {
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		All:     true,
 		Filters: fltr,
 	})
@@ -136,7 +136,7 @@ func (d *Docker) StartContainers(labels []string) error {
 
 	for _, c := range containers {
 		log.Println("Straing container", c.ID)
-		err = d.cn.ContainerStart(d.ctx, c.ID, types.ContainerStartOptions{})
+		err = d.cn.ContainerStart(d.ctx, c.ID, container.StartOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "start container %s", c.ID)
 		}
@@ -156,7 +156,7 @@ func (d *Docker) RestartContainers(labels []string) error {
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -177,7 +177,7 @@ func (d *Docker) RestartContainers(labels []string) error {
 func (d *Docker) RunOnReplSet(rsName string, wait time.Duration, cmd ...string) error {
 	fltr := filters.NewArgs()
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
@@ -260,7 +260,7 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 		fltr.Add("label", v)
 	}
 
-	containers, err := d.cn.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
 		All:     true,
 		Filters: fltr,
 	})
@@ -282,7 +282,7 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 			var buf strings.Builder
 			var started bool
 			for i := 1; i <= 5; i++ {
-				err := d.cn.ContainerStart(d.ctx, cont.ID, types.ContainerStartOptions{})
+				err := d.cn.ContainerStart(d.ctx, cont.ID, container.StartOptions{})
 				if err != nil {
 					errCh <- errors.Wrapf(err, "start container %s", cont.ID)
 					return
@@ -290,7 +290,7 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 
 				since := time.Now().Format(time.RFC3339Nano)
 				time.Sleep(5 * time.Second)
-				out, err := d.cn.ContainerLogs(d.ctx, cont.ID, types.ContainerLogsOptions{
+				out, err := d.cn.ContainerLogs(d.ctx, cont.ID, container.LogsOptions{
 					ShowStdout: true,
 					ShowStderr: true,
 					Follow:     false,
