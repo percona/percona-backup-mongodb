@@ -1,0 +1,69 @@
+script_template: &SCRIPT_TEMPLATE
+  system_info_script: |
+    uname -r
+    uname -i
+    df -Th
+    free -m
+    pwd
+    ls -l ..
+    nproc --all
+    cat /proc/cpuinfo
+  install_dependencies_script: |
+    export DEBIAN_FRONTEND=noninteractive
+    PACKAGES_TO_INSTALL="lz4 unzip"
+    apt update
+    apt -yq --no-install-suggests --no-install-recommends --allow-unauthenticated install $PACKAGES_TO_INSTALL
+    if ! $(aws --version | grep -q 'aws-cli/2'); then
+        find /tmp -maxdepth 1 -name "*aws*" | xargs sudo rm -rf
+
+        until curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"; do
+            sleep 1
+            echo try again
+        done
+
+        unzip -o /tmp/awscliv2.zip -d /tmp
+        cd /tmp/aws && sudo ./install
+    fi
+  set_additional_tags_script: |
+    TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+    echo $TOKEN
+    INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+    echo $INSTANCE_ID
+    AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    echo $AZ
+    REGION=$(echo $AZ | sed 's/[a-z]$//')
+    aws --version
+    sleep 5
+    aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" --region=$REGION || true
+    aws ec2 describe-tags --filters "Name=resource-id,Values=$INSTANCE_ID" --region=$REGION || true
+    aws ec2 describe-instances --instance-ids $INSTANCE_ID --region=$REGION || true
+    aws sts get-caller-identity || true
+    aws ec2 associate-iam-instance-profile --instance-id $INSTANCE_ID --iam-instance-profile Name=jenkins-ps80-master || true
+    sleep 3600
+
+
+task:
+  name: "Test tags"
+  aws_credentials: ENCRYPTED[3dec7f4eb176b0bde14de840ddf9c356de3a739bd7ae14fcb9751c38afc96dd2f39c25853e6934cfff5c8e433c1d98e5]
+  ec2_instance:
+    image: ami-0cf2b4e024cdb6960 # Replace with your desired AMI ID
+    type: c5.large # Specify the instance type you want to use
+    region: us-west-2  # Define the region where the instance will be launched
+    key_name: jenkins-master  # Optionally specify a key pair for SSH access
+    spot: true
+    tags:
+      - key: Name
+        value: test
+      - key: Cirrusci
+        value: test-tag
+      - key: iit-billing-tag
+        value: CirrusCI
+    security_groups:
+      - default  # Specify security groups
+    block_device_mappings:
+      - device_name: /dev/sda1
+        ebs:
+          volume_size: 20  # Size of the EBS volume in GB
+  script: |
+    uname -a
+  << : *SCRIPT_TEMPLATE
