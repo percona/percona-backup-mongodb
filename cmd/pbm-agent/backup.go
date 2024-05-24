@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -185,20 +183,12 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			return
 		}
 
-		errGrp, grpCtx := errgroup.WithContext(ctx)
-		for i := range shards {
-			rs := shards[i].RS
-
-			errGrp.Go(func() error {
-				err := a.nominateRS(grpCtx, cmd.Name, rs, nodes.RS(rs))
-				return errors.Wrapf(err, "nodes nomination for %s", rs)
-			})
-		}
-
-		err = errGrp.Wait()
-		if err != nil {
-			l.Error(err.Error())
-			return
+		for _, sh := range shards {
+			go func(rs string) {
+				if err := a.nominateRS(ctx, cmd.Name, rs, nodes.RS(rs)); err != nil {
+					l.Error("nodes nomination error for %s: %v", rs, err)
+				}
+			}(sh.RS)
 		}
 	}
 
