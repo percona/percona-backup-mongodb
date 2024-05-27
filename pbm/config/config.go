@@ -147,8 +147,6 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.Filesystem:
 		return "FS"
-	case storage.BlackHole:
-		return "BlackHole"
 	case storage.Undef:
 		fallthrough
 	default:
@@ -179,8 +177,6 @@ func (s *StorageConf) Path() string {
 		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
-	case storage.BlackHole:
-		path = "BlackHole"
 	}
 
 	return path

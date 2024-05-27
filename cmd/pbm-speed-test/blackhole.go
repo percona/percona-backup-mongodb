@@ -1,4 +1,4 @@
-package blackhole
+package main
 
 import (
 	"io"
@@ -8,12 +8,12 @@ import (
 
 type Blackhole struct{}
 
-func New() *Blackhole {
+func newBlackhole() *Blackhole {
 	return &Blackhole{}
 }
 
 func (*Blackhole) Type() storage.Type {
-	return storage.BlackHole
+	return "blackhole"
 }
 
 func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {
