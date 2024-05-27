@@ -82,6 +82,12 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		return errors.Wrap(err, "get node info")
 	}
 
+	if info.IsStandalone() {
+		return errors.New("mongod node can not be used to fetch a consistent " +
+			"backup because it has no oplog. Please restart it as a primary " +
+			"in a single-node replicaset to make it compatible with PBM's " +
+			"backup method using the oplog")
+	}
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
 	}
