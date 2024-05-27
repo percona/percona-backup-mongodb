@@ -155,7 +155,7 @@ func (b *Backup) doLogical(
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(cfg.Storage, l)
+			stg, err := util.StorageFromConfig(&cfg.Storage, l)
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}

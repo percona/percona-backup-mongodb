@@ -11,11 +11,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-type Conf struct {
+type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
-func (c *Conf) Cast() error {
+func (c *Config) Cast() error {
 	if c.Path == "" {
 		return errors.New("path can't be empty")
 	}
@@ -27,7 +27,7 @@ type FS struct {
 	root string
 }
 
-func New(opts Conf) (*FS, error) {
+func New(opts *Config) (*FS, error) {
 	info, err := os.Lstat(opts.Path)
 	if err != nil {
 		if os.IsNotExist(err) {

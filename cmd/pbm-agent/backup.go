@@ -98,7 +98,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("unable to get PBM config settings: " + err.Error())
 		return
 	}
-	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undef {
+	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undefined {
 		l.Error("backups cannot be saved because PBM storage configuration hasn't been set yet")
 		return
 	}

@@ -31,7 +31,7 @@ const (
 	maxBlocks = 50_000
 )
 
-type Conf struct {
+type Config struct {
 	Account     string      `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
 	Container   string      `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
 	EndpointURL string      `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
@@ -44,13 +44,13 @@ type Credentials struct {
 }
 
 type Blob struct {
-	opts Conf
+	opts *Config
 	log  log.LogEvent
 	// url  *url.URL
 	c *azblob.Client
 }
 
-func New(opts Conf, l log.LogEvent) (*Blob, error) {
+func New(opts *Config, l log.LogEvent) (*Blob, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}

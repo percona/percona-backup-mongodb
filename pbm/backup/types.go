@@ -41,7 +41,7 @@ type BackupMeta struct {
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
-	Store            config.StorageConf       `bson:"store" json:"store"`
+	Store            Storage                  `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
 	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version"`
 	FCV              string                   `bson:"fcv" json:"fcv"`
@@ -84,6 +84,10 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 		}
 	}
 	return nil
+}
+
+type Storage struct {
+	config.Storage `bson:",inline" json:",inline"`
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup

@@ -1777,7 +1777,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(cfg.Storage, l)
+	r.stg, err = util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}

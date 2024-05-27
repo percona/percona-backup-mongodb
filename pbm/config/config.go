@@ -62,34 +62,38 @@ func validateConfigKey(k string) bool {
 // Config is a pbm config
 type Config struct {
 	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
-	Storage StorageConf         `bson:"storage" json:"storage" yaml:"storage"`
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
-func (c Config) String() string {
-	if c.Storage.S3.Credentials.AccessKeyID != "" {
-		c.Storage.S3.Credentials.AccessKeyID = "***"
+func (c *Config) String() string {
+	if c.Storage.S3 != nil {
+		if c.Storage.S3.Credentials.AccessKeyID != "" {
+			c.Storage.S3.Credentials.AccessKeyID = "***"
+		}
+		if c.Storage.S3.Credentials.SecretAccessKey != "" {
+			c.Storage.S3.Credentials.SecretAccessKey = "***"
+		}
+		if c.Storage.S3.Credentials.SessionToken != "" {
+			c.Storage.S3.Credentials.SessionToken = "***"
+		}
+		if c.Storage.S3.Credentials.Vault.Secret != "" {
+			c.Storage.S3.Credentials.Vault.Secret = "***"
+		}
+		if c.Storage.S3.Credentials.Vault.Token != "" {
+			c.Storage.S3.Credentials.Vault.Token = "***"
+		}
+		if c.Storage.S3.ServerSideEncryption != nil &&
+			c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
+			c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
+		}
 	}
-	if c.Storage.S3.Credentials.SecretAccessKey != "" {
-		c.Storage.S3.Credentials.SecretAccessKey = "***"
-	}
-	if c.Storage.S3.Credentials.SessionToken != "" {
-		c.Storage.S3.Credentials.SessionToken = "***"
-	}
-	if c.Storage.S3.Credentials.Vault.Secret != "" {
-		c.Storage.S3.Credentials.Vault.Secret = "***"
-	}
-	if c.Storage.S3.Credentials.Vault.Token != "" {
-		c.Storage.S3.Credentials.Vault.Token = "***"
-	}
-	if c.Storage.S3.ServerSideEncryption != nil &&
-		c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
-		c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
-	}
-	if c.Storage.Azure.Credentials.Key != "" {
-		c.Storage.Azure.Credentials.Key = "***"
+	if c.Storage.Azure != nil {
+		if c.Storage.Azure.Credentials.Key != "" {
+			c.Storage.Azure.Credentials.Key = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
@@ -131,15 +135,15 @@ type PITRConf struct {
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
-// StorageConf is a configuration of the backup storage
-type StorageConf struct {
-	Type       storage.Type `bson:"type" json:"type" yaml:"type"`
-	S3         s3.Conf      `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
-	Azure      azure.Conf   `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
-	Filesystem fs.Conf      `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+// Storage is a configuration of the backup storage
+type Storage struct {
+	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
+	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
+	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
-func (s *StorageConf) Typ() string {
+func (s *Storage) Typ() string {
 	switch s.Type {
 	case storage.S3:
 		return "S3"
@@ -147,14 +151,14 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.Filesystem:
 		return "FS"
-	case storage.Undef:
+	case storage.Undefined:
 		fallthrough
 	default:
 		return "Unknown"
 	}
 }
 
-func (s *StorageConf) Path() string {
+func (s *Storage) Path() string {
 	path := ""
 	switch s.Type {
 	case storage.S3:

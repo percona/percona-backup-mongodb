@@ -190,7 +190,7 @@ type partReader struct {
 
 	getSess func() (*s3.S3, error)
 	l       log.LogEvent
-	opts    *Conf
+	opts    *Config
 	buf     []byte // preallocated buf for io.Copy
 
 	taskq   chan chunkMeta
@@ -203,7 +203,7 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader
 	return &partReader{
 		l:         s.log,
 		buf:       make([]byte, 32*1024),
-		opts:      &s.opts,
+		opts:      s.opts,
 		fname:     fname,
 		fsize:     fsize,
 		chunkSize: int64(chunkSize),

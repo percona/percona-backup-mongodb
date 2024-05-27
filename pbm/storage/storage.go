@@ -23,7 +23,7 @@ var (
 type Type string
 
 const (
-	Undef      Type = ""
+	Undefined  Type = ""
 	S3         Type = "s3"
 	Azure      Type = "azure"
 	Filesystem Type = "filesystem"
@@ -60,7 +60,7 @@ func ParseType(s string) Type {
 	case string(Filesystem):
 		return Filesystem
 	default:
-		return Undef
+		return Undefined
 	}
 }
 

@@ -220,7 +220,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	stg, err := util.StorageFromConfig(cfg.Storage, l)
+	stg, err := util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}

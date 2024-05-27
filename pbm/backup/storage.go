@@ -24,11 +24,11 @@ type StorageManager interface {
 }
 
 type storageManagerImpl struct {
-	cfg config.StorageConf
+	cfg *config.Storage
 	stg storage.Storage
 }
 
-func NewStorageManager(ctx context.Context, cfg config.StorageConf) (*storageManagerImpl, error) {
+func NewStorageManager(ctx context.Context, cfg *config.Storage) (*storageManagerImpl, error) {
 	stg, err := util.StorageFromConfig(cfg, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backup store")

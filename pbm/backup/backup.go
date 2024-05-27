@@ -98,7 +98,7 @@ func (b *Backup) Init(
 	bcp *ctrl.BackupCmd,
 	opid ctrl.OPID,
 	inf *topo.NodeInfo,
-	store config.StorageConf,
+	store config.Storage,
 	balancer topo.BalancerMode,
 	l log.LogEvent,
 ) error {
@@ -113,7 +113,6 @@ func (b *Backup) Init(
 		Name:        bcp.Name,
 		Namespaces:  bcp.Namespaces,
 		Compression: bcp.Compression,
-		Store:       store,
 		StartTS:     time.Now().Unix(),
 		Status:      defs.StatusStarting,
 		Replsets:    []BackupReplset{},
@@ -132,11 +131,11 @@ func (b *Backup) Init(
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
-	_, err = util.StorageFromConfig(cfg.Storage, l)
+	_, err = util.StorageFromConfig(&cfg.Storage, l)
 	if errors.Is(err, util.ErrStorageUndefined) {
 		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
 	}
-	meta.Store = cfg.Storage
+	meta.Store = Storage{cfg.Storage}
 
 	fcv, err := version.GetFCV(ctx, b.nodeConn)
 	if err != nil {

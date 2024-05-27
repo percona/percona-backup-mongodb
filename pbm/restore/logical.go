@@ -736,7 +736,7 @@ func (r *Restore) RunSnapshot(
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(cfg.Storage, r.log)
+				stg, err := util.StorageFromConfig(&cfg.Storage, r.log)
 				if err != nil {
 					return nil, errors.Wrap(err, "get storage")
 				}

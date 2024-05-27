@@ -42,7 +42,7 @@ const (
 )
 
 //nolint:lll
-type Conf struct {
+type Config struct {
 	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
@@ -129,7 +129,7 @@ type AWSsse struct {
 	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
-func (c *Conf) Cast() error {
+func (c *Config) Cast() error {
 	if c.Region == "" {
 		c.Region = defaultS3Region
 	}
@@ -222,14 +222,14 @@ const (
 )
 
 type S3 struct {
-	opts Conf
+	opts *Config
 	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts Conf, l log.LogEvent) (*S3, error) {
+func New(opts *Config, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")

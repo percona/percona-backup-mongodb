@@ -573,7 +573,7 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(cfg.Storage, l)
+	return util.StorageFromConfig(&cfg.Storage, l)
 }
 
 func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {
