@@ -71,6 +71,28 @@ type Config struct {
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+
+	rv := *c
+	if c.ForcePathStyle != nil {
+		a := *c.ForcePathStyle
+		rv.ForcePathStyle = &a
+	}
+	if c.ServerSideEncryption != nil {
+		a := *c.ServerSideEncryption
+		rv.ServerSideEncryption = &a
+	}
+	if c.Retryer != nil {
+		a := *c.Retryer
+		rv.Retryer = &a
+	}
+
+	return &rv
+}
+
 type Retryer struct {
 	// Num max Retries is the number of max retries that will be performed.
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.NumMaxRetries

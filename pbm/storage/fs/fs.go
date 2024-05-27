@@ -15,6 +15,14 @@ type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+
+	return &Config{Path: c.Path}
+}
+
 func (c *Config) Cast() error {
 	if c.Path == "" {
 		return errors.New("path can't be empty")

@@ -39,6 +39,15 @@ type Config struct {
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 }
 
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	return &rv
+}
+
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }

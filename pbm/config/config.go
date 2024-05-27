@@ -89,7 +89,25 @@ func Parse(r io.Reader) (*Config, error) {
 	return cfg, nil
 }
 
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+
+	rv := &Config{
+		Storage: *c.Storage.Clone(),
+		Oplog:   c.Oplog.Clone(),
+		Restore: c.Restore.Clone(),
+		Backup:  c.Backup.Clone(),
+		Epoch:   c.Epoch,
+	}
+
+	return rv
+}
+
 func (c *Config) String() string {
+	c = c.Clone()
+
 	if c.Storage.S3 != nil {
 		if c.Storage.S3.Credentials.AccessKeyID != "" {
 			c.Storage.S3.Credentials.AccessKeyID = "***"
@@ -156,12 +174,47 @@ type GlobalSlicer struct {
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
+func (cfg *GlobalSlicer) Clone() *GlobalSlicer {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if cfg.CompressionLevel != nil {
+		a := *cfg.CompressionLevel
+		rv.CompressionLevel = &a
+	}
+
+	return &rv
+}
+
 // Storage is a configuration of the backup storage
 type Storage struct {
 	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+}
+
+func (s *Storage) Clone() *Storage {
+	if s == nil {
+		return nil
+	}
+
+	rv := &Storage{
+		Type: s.Type,
+	}
+
+	switch s.Type {
+	case storage.Filesystem:
+		rv.Filesystem = s.Filesystem.Clone()
+	case storage.S3:
+		rv.S3 = s.S3.Clone()
+	case storage.Azure:
+		rv.Azure = s.Azure.Clone()
+	}
+
+	return rv
 }
 
 func (s *Storage) Cast() error {
@@ -243,6 +296,22 @@ type Restore struct {
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
+func (cfg *Restore) Clone() *Restore {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if len(cfg.MongodLocationMap) != 0 {
+		rv.MongodLocationMap = make(map[string]string, len(cfg.MongodLocationMap))
+		for k, v := range cfg.MongodLocationMap {
+			rv.MongodLocationMap[k] = v
+		}
+	}
+
+	return &rv
+}
+
 //nolint:lll
 type Backup struct {
 	SlicingInterval  float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
@@ -250,6 +319,33 @@ type Backup struct {
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+}
+
+func (cfg *Backup) Clone() *Backup {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if len(cfg.Priority) != 0 {
+		rv.Priority = make(map[string]float64, len(cfg.Priority))
+		for k, v := range cfg.Priority {
+			rv.Priority[k] = v
+		}
+	}
+	if cfg.Timeouts != nil {
+		if cfg.Timeouts.Starting != nil {
+			rv.Timeouts = &BackupTimeouts{
+				Starting: cfg.Timeouts.Starting,
+			}
+		}
+	}
+	if cfg.CompressionLevel != nil {
+		a := *cfg.CompressionLevel
+		rv.CompressionLevel = &a
+	}
+
+	return &rv
 }
 
 type BackupTimeouts struct {
