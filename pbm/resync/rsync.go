@@ -1,7 +1,6 @@
 package resync
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
-	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 // ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
@@ -28,12 +26,21 @@ func ResyncStorage(ctx context.Context, m connect.Client, l log.LogEvent) error 
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err = stg.Save(defs.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
-	}
+	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {
-		return errors.Wrap(err, "init storage")
+		if !errors.Is(err, storage.ErrUninitialized) {
+			return errors.Wrap(err, "check read access")
+		}
+
+		err = storage.InitStorage(ctx, stg)
+		if err != nil {
+			return errors.Wrap(err, "init storage")
+		}
+	} else {
+		err = storage.ReinitStorage(ctx, stg)
+		if err != nil {
+			return errors.Wrap(err, "reinit storage")
+		}
 	}
 
 	rstrs, err := stg.List(defs.PhysRestoresDir, ".json")

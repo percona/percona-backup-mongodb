@@ -3,16 +3,20 @@ package storage
 import (
 	"context"
 	"io"
+	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 var (
 	// ErrNotExist is an error for file doesn't exists on storage
-	ErrNotExist = errors.New("no such file")
-	ErrEmpty    = errors.New("file is empty")
+	ErrNotExist      = errors.New("no such file")
+	ErrEmpty         = errors.New("file is empty")
+	ErrUninitialized = errors.New("uninitialized")
 )
 
 // Type represents a type of the destination storage for backups
@@ -63,12 +67,87 @@ func ParseType(s string) Type {
 	}
 }
 
-// HasReadAccess checks if the storage has read access to the specified file.
-// It returns true if read access is available, otherwise it returns false.
-// If an error occurs during the check, it returns the error.
-func HasReadAccess(ctx context.Context, stg Storage) (bool, error) {
+// IsStorageInitialized checks if there is PBM init file on the storage.
+func IsStorageInitialized(ctx context.Context, stg Storage) (bool, error) {
 	_, err := stg.FileStat(defs.StorInitFile)
-	return err == nil, err
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "file stat")
+	}
+
+	return true, nil
+}
+
+// HasReadAccess checks if the provided storage allows the reading of file content.
+//
+// It gets the size (stat) and reads the content of the PBM init file.
+//
+// ErrUninitialized is returned if there is no init file.
+func HasReadAccess(ctx context.Context, stg Storage) error {
+	stat, err := stg.FileStat(defs.StorInitFile)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return ErrUninitialized
+		}
+
+		return errors.Wrap(err, "file stat")
+	}
+
+	r, err := stg.SourceReader(defs.StorInitFile)
+	if err != nil {
+		return errors.Wrap(err, "open file")
+	}
+	defer func() {
+		err := r.Close()
+		if err != nil {
+			log.LogEventFromContext(ctx).
+				Error("HasReadAccess(): close file: %v", err)
+		}
+	}()
+
+	const MaxCount = 10 // for "v999.99.99"
+	var buf [MaxCount]byte
+	n, err := r.Read(buf[:])
+	if err != nil && !errors.Is(err, io.EOF) {
+		return errors.Wrap(err, "read file")
+	}
+
+	expect := MaxCount
+	if stat.Size < int64(expect) {
+		expect = int(stat.Size)
+	}
+	if n != expect {
+		return errors.Errorf("short read (%d of %d)", n, expect)
+	}
+
+	return nil
+}
+
+// InitStorage write current PBM version to PBM init file.
+//
+// It does not handle "file already exists" error.
+func InitStorage(ctx context.Context, stg Storage) error {
+	err := stg.Save(defs.StorInitFile, strings.NewReader(version.Current().Version), 0)
+	if err != nil {
+		return errors.Wrap(err, "write init file")
+	}
+
+	return nil
+}
+
+// ReinitStorage delete existing PBM init file and create new once with current PBM version.
+//
+// It expects that the file exists.
+func ReinitStorage(ctx context.Context, stg Storage) error {
+	err := stg.Delete(defs.StorInitFile)
+	if err != nil {
+		return errors.Wrap(err, "delete init file")
+	}
+
+	return InitStorage(ctx, stg)
 }
 
 // rwError multierror for the read/compress/write-to-store operations set

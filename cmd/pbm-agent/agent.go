@@ -397,16 +397,13 @@ func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStor
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(defs.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
-		if err != nil {
-			return topo.SubsysStatus{
-				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),
-			}
-		}
-	} else if err != nil {
-		return topo.SubsysStatus{Err: fmt.Sprintf("storage check failed with: %v", err)}
+	ok, err := storage.IsStorageInitialized(ctx, stg)
+	if err != nil {
+		errStr := fmt.Sprintf("storage check failed with: %v", err)
+		return topo.SubsysStatus{Err: errStr}
+	}
+	if !ok {
+		return topo.SubsysStatus{Err: "storage is not initialized"}
 	}
 
 	return topo.SubsysStatus{OK: true}

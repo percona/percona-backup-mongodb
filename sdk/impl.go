@@ -207,12 +207,9 @@ func getStorageForRead(ctx context.Context, cc connect.Client) (storage.Storage,
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
-	ok, err := storage.HasReadAccess(ctx, stg)
-	if err != nil {
+	err = storage.HasReadAccess(ctx, stg)
+	if err != nil && !errors.Is(err, storage.ErrUninitialized) {
 		return nil, errors.Wrap(err, "check storage access")
-	}
-	if !ok {
-		return nil, errors.New("no read permission for configured storage")
 	}
 
 	return stg, nil

@@ -266,7 +266,23 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				}
 			}
 		}()
+	}
 
+	err = storage.HasReadAccess(ctx, stg)
+	if err != nil {
+		if !errors.Is(err, storage.ErrUninitialized) {
+			return errors.Wrap(err, "check read access")
+		}
+
+		if inf.IsLeader() {
+			err = storage.InitStorage(ctx, stg)
+			if err != nil {
+				return errors.Wrap(err, "init storage")
+			}
+		}
+	}
+
+	if inf.IsSharded() && inf.IsLeader() {
 		if bcpm.BalancerStatus == topo.BalancerModeOn {
 			err = topo.SetBalancerStatus(ctx, b.leadConn, topo.BalancerModeOff)
 			if err != nil {
