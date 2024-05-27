@@ -1,6 +1,7 @@
 .env
 .vscode/*
 !.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 /bin/
 /.dev
