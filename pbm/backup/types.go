@@ -87,6 +87,9 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 }
 
 type Storage struct {
+	Name      string `bson:"name,omitempty" json:"name,omitempty"`
+	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty"`
+
 	config.Storage `bson:",inline" json:",inline"`
 }
 

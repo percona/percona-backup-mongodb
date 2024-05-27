@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -60,6 +61,33 @@ func SendCleanup(
 		Cmd: CmdCleanup,
 		Cleanup: &CleanupCmd{
 			OlderThan: before,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendAddConfigProfile(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	storage config.Storage,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdAddConfigProfile,
+		Profile: &ProfileCmd{
+			Name:      name,
+			IsProfile: true,
+			Storage:   storage,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendRemoveConfigProfile(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdRemoveConfigProfile,
+		Profile: &ProfileCmd{
+			Name: name,
 		},
 	}
 	return sendCommand(ctx, m, cmd)

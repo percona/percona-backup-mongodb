@@ -136,6 +136,10 @@ func (a *Agent) Start(ctx context.Context) error {
 			logger.Printf("got epoch %v", ep)
 
 			switch cmd.Cmd {
+			case ctrl.CmdAddConfigProfile:
+				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+			case ctrl.CmdRemoveConfigProfile:
+				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
 				go a.Backup(ctx, cmd.Backup, cmd.OPID, ep)

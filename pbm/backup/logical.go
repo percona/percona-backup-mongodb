@@ -15,7 +15,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -136,11 +135,6 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	cfg, err := config.GetConfig(ctx, b.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
 	if inf.IsConfigSrv() && util.IsSelective(bcp.Namespaces) {
@@ -156,7 +150,7 @@ func (b *Backup) doLogical(
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(&cfg.Storage, l)
+			stg, err := util.StorageFromConfig(&b.config.Storage, l)
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}

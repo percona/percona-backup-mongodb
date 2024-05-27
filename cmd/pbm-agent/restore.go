@@ -100,7 +100,7 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 
 // canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
 // Only physical backups (full, incremental, external) is allowed.
-func canSlicingNow(ctx context.Context, conn connect.Client) error {
+func canSlicingNow(ctx context.Context, conn connect.Client, cfg *config.Storage) error {
 	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return errors.Wrap(err, "get locks data")
@@ -118,7 +118,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client) error {
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type == defs.LogicalBackup {
+		if bcp.Type == defs.LogicalBackup && bcp.Store.Equal(cfg) {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}
@@ -148,7 +148,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
-	if err := canSlicingNow(ctx, a.leadConn); err != nil {
+	if err := canSlicingNow(ctx, a.leadConn, &cfg.Storage); err != nil {
 		e := lock.ConcurrentOpError{}
 		if errors.As(err, &e) {
 			l.Info("oplog slicer is paused for lock [%s, opid: %s]", e.Lock.Type, e.Lock.OPID)

@@ -78,8 +78,22 @@ func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
 	return config.GetConfig(ctx, c.conn)
 }
 
-func (c *clientImpl) SetConfig(ctx context.Context, cfg Config) (CommandID, error) {
-	return NoOpID, config.SetConfig(ctx, c.conn, &cfg)
+func (c *clientImpl) ListConfigProfiles(ctx context.Context) ([]config.Config, error) {
+	return config.ListProfiles(ctx, c.conn)
+}
+
+func (c *clientImpl) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
+	return config.GetProfile(ctx, c.conn, name)
+}
+
+func (c *clientImpl) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
+	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) RemoveConfigProfile(ctx context.Context, name string) (CommandID, error) {
+	opid, err := ctrl.SendRemoveConfigProfile(ctx, c.conn, name)
+	return CommandID(opid.String()), err
 }
 
 func (c *clientImpl) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {

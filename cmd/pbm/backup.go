@@ -33,6 +33,7 @@ type backupOpts struct {
 	base             bool
 	compression      string
 	compressionLevel []int
+	profile          string
 	ns               string
 	wait             bool
 	externList       bool
@@ -139,6 +140,7 @@ func runBackup(
 			Compression:      compression,
 			CompressionLevel: level,
 			Filelist:         b.externList,
+			Profile:          b.profile,
 		},
 	})
 	if err != nil {

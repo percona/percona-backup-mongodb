@@ -109,6 +109,10 @@ type Client interface {
 	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
 
 	GetConfig(ctx context.Context) (*Config, error)
+	ListConfigProfiles(ctx context.Context) ([]config.Config, error)
+	GetConfigProfile(ctx context.Context, name string) (*config.Config, error)
+	AddConfigProfile(ctx context.Context, name string, cfg *config.Config) (CommandID, error)
+	RemoveConfigProfile(ctx context.Context, name string) (CommandID, error)
 
 	GetAllBackups(ctx context.Context) ([]BackupMetadata, error)
 	GetBackupByName(ctx context.Context, name string, options GetBackupByNameOptions) (*BackupMetadata, error)

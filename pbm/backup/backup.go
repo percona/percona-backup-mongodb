@@ -27,6 +27,7 @@ type Backup struct {
 	leadConn            connect.Client
 	nodeConn            *mongo.Client
 	brief               topo.NodeBrief
+	config              *config.Config
 	mongoVersion        string
 	typ                 defs.BackupType
 	incrBase            bool
@@ -73,6 +74,10 @@ func NewIncremental(leadConn connect.Client, conn *mongo.Client, brief topo.Node
 	}
 }
 
+func (b *Backup) SetConfig(cfg *config.Config) {
+	b.config = cfg
+}
+
 func (b *Backup) SetMongoVersion(v string) {
 	b.mongoVersion = v
 }
@@ -97,10 +102,7 @@ func (b *Backup) Init(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
 	opid ctrl.OPID,
-	inf *topo.NodeInfo,
-	store config.Storage,
 	balancer topo.BalancerMode,
-	l log.LogEvent,
 ) error {
 	ts, err := topo.GetClusterTime(ctx, b.leadConn)
 	if err != nil {
@@ -113,9 +115,14 @@ func (b *Backup) Init(
 		Name:        bcp.Name,
 		Namespaces:  bcp.Namespaces,
 		Compression: bcp.Compression,
-		StartTS:     time.Now().Unix(),
-		Status:      defs.StatusStarting,
-		Replsets:    []BackupReplset{},
+		Store: Storage{
+			Name:      b.config.Name,
+			IsProfile: b.config.IsProfile,
+			Storage:   b.config.Storage,
+		},
+		StartTS:  time.Now().Unix(),
+		Status:   defs.StatusStarting,
+		Replsets: []BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
@@ -126,16 +133,6 @@ func (b *Backup) Init(
 		BalancerStatus: balancer,
 		Hb:             ts,
 	}
-
-	cfg, err := config.GetConfig(ctx, b.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-	_, err = util.StorageFromConfig(&cfg.Storage, l)
-	if errors.Is(err, util.ErrStorageUndefined) {
-		return errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
-	}
-	meta.Store = Storage{cfg.Storage}
 
 	fcv, err := version.GetFCV(ctx, b.nodeConn)
 	if err != nil {
@@ -192,7 +189,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		rsMeta.IsConfigSvr = &v
 	}
 
-	stg, err := util.GetStorage(ctx, b.leadConn, l)
+	stg, err := util.StorageFromConfig(&b.config.Storage, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}

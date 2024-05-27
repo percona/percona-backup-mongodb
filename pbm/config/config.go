@@ -64,6 +64,9 @@ func validateConfigKey(k string) bool {
 
 // Config is a pbm config
 type Config struct {
+	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
+	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty" yaml:"profile,omitempty"`
+
 	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
 	Oplog   *GlobalSlicer       `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
 	Backup  *Backup             `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
@@ -95,11 +98,13 @@ func (c *Config) Clone() *Config {
 	}
 
 	rv := &Config{
-		Storage: *c.Storage.Clone(),
-		Oplog:   c.Oplog.Clone(),
-		Restore: c.Restore.Clone(),
-		Backup:  c.Backup.Clone(),
-		Epoch:   c.Epoch,
+		Name:      c.Name,
+		IsProfile: c.IsProfile,
+		Storage:   *c.Storage.Clone(),
+		Oplog:     c.Oplog.Clone(),
+		Restore:   c.Restore.Clone(),
+		Backup:    c.Backup.Clone(),
+		Epoch:     c.Epoch,
 	}
 
 	return rv
@@ -215,6 +220,23 @@ func (s *Storage) Clone() *Storage {
 	}
 
 	return rv
+}
+
+func (s *Storage) Equal(other *Storage) bool {
+	if s.Type != other.Type {
+		return false
+	}
+
+	switch s.Type {
+	case storage.S3:
+		return reflect.DeepEqual(s.S3, other.S3)
+	case storage.Azure:
+		return reflect.DeepEqual(s.Azure, other.Azure)
+	case storage.Filesystem:
+		return reflect.DeepEqual(s.Filesystem, other.Filesystem)
+	}
+
+	return false
 }
 
 func (s *Storage) Cast() error {
@@ -364,7 +386,7 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
-	res := m.ConfigCollection().FindOne(ctx, bson.D{})
+	res := m.ConfigCollection().FindOne(ctx, bson.D{{"profile", nil}})
 	if err := res.Err(); err != nil {
 		return nil, errors.Wrap(err, "get")
 	}
@@ -428,12 +450,10 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
 	_, _ = GetConfig(ctx, m)
 
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": *cfg},
-		options.Update().SetUpsert(true),
-	)
+	_, err = m.ConfigCollection().ReplaceOne(ctx,
+		bson.D{{"profile", nil}},
+		cfg,
+		options.Replace().SetUpsert(true))
 	return errors.Wrap(err, "mongo defs.ConfigCollection UpdateOne")
 }
 
@@ -490,12 +510,9 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		s3.SDKLogLevel(v.(string), os.Stderr)
 	}
 
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{key: v}},
-	)
-
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{key: v}})
 	return errors.Wrap(err, "write to db")
 }
 
@@ -521,7 +538,9 @@ func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{
 		return nil, errors.New("invalid config key")
 	}
 
-	bts, err := m.ConfigCollection().FindOne(ctx, bson.D{}).Raw()
+	bts, err := m.ConfigCollection().
+		FindOne(ctx, bson.D{{"profile", nil}}).
+		Raw()
 	if err != nil {
 		return nil, errors.Wrap(err, "get from db")
 	}
@@ -595,11 +614,9 @@ func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	if err != nil {
 		return Epoch{}, errors.Wrap(err, "get cluster time")
 	}
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{"epoch": ct}},
-	)
 
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{"epoch": ct}})
 	return Epoch(ct), err
 }
