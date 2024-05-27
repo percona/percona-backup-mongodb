@@ -64,8 +64,8 @@ func ParseType(s string) Type {
 	}
 }
 
-// IsStorageInitialized checks if there is PBM init file on the storage.
-func IsStorageInitialized(ctx context.Context, stg Storage) (bool, error) {
+// IsInitialized checks if there is PBM init file on the storage.
+func IsInitialized(ctx context.Context, stg Storage) (bool, error) {
 	_, err := stg.FileStat(defs.StorInitFile)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
@@ -123,10 +123,10 @@ func HasReadAccess(ctx context.Context, stg Storage) error {
 	return nil
 }
 
-// InitStorage write current PBM version to PBM init file.
+// Initialize write current PBM version to PBM init file.
 //
 // It does not handle "file already exists" error.
-func InitStorage(ctx context.Context, stg Storage) error {
+func Initialize(ctx context.Context, stg Storage) error {
 	err := stg.Save(defs.StorInitFile, strings.NewReader(version.Current().Version), 0)
 	if err != nil {
 		return errors.Wrap(err, "write init file")
@@ -135,16 +135,16 @@ func InitStorage(ctx context.Context, stg Storage) error {
 	return nil
 }
 
-// ReinitStorage delete existing PBM init file and create new once with current PBM version.
+// Reinitialize delete existing PBM init file and create new once with current PBM version.
 //
 // It expects that the file exists.
-func ReinitStorage(ctx context.Context, stg Storage) error {
+func Reinitialize(ctx context.Context, stg Storage) error {
 	err := stg.Delete(defs.StorInitFile)
 	if err != nil {
 		return errors.Wrap(err, "delete init file")
 	}
 
-	return InitStorage(ctx, stg)
+	return Initialize(ctx, stg)
 }
 
 // rwError multierror for the read/compress/write-to-store operations set

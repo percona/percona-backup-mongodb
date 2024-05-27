@@ -401,7 +401,7 @@ func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStor
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
-	ok, err := storage.IsStorageInitialized(ctx, stg)
+	ok, err := storage.IsInitialized(ctx, stg)
 	if err != nil {
 		errStr := fmt.Sprintf("storage check failed with: %v", err)
 		return topo.SubsysStatus{Err: errStr}

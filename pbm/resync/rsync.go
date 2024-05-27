@@ -32,12 +32,12 @@ func ResyncStorage(ctx context.Context, m connect.Client, l log.LogEvent) error 
 			return errors.Wrap(err, "check read access")
 		}
 
-		err = storage.InitStorage(ctx, stg)
+		err = storage.Initialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "init storage")
 		}
 	} else {
-		err = storage.ReinitStorage(ctx, stg)
+		err = storage.Reinitialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "reinit storage")
 		}
