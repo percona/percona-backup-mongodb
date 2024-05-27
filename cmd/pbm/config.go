@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
+	"log"
 	"os"
 	"reflect"
 	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
-	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -101,22 +100,16 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 
 		return outMsg{"Storage resync finished"}, nil
 	case len(c.file) > 0:
-		var buf []byte
 		var err error
+		var newCfg *config.Config
 
 		if c.file == "-" {
-			buf, err = io.ReadAll(os.Stdin)
+			newCfg, err = config.Parse(os.Stdin)
 		} else {
-			buf, err = os.ReadFile(c.file)
+			newCfg, err = readConfigFromFile(c.file)
 		}
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to read config file")
-		}
-
-		var newCfg *config.Config
-		err = yaml.UnmarshalStrict(buf, &newCfg)
-		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+			return nil, errors.Wrap(err, "unable to get new config")
 		}
 
 		oldCfg, err := pbm.GetConfig(ctx)
@@ -142,4 +135,18 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 	}
 
 	return pbm.GetConfig(ctx)
+}
+
+func readConfigFromFile(filename string) (*config.Config, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %q", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("close: %v", err)
+		}
+	}()
+
+	return config.Parse(file)
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strconv"
@@ -25,6 +26,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
+
+var ErrUnkownStorageType = errors.New("unknown storage type")
 
 var errMissedConfig = errors.New("missed config")
 
@@ -66,6 +69,24 @@ type Config struct {
 	Backup  *Backup             `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *Restore            `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+}
+
+func Parse(r io.Reader) (*Config, error) {
+	cfg := &Config{}
+
+	dec := yaml.NewDecoder(r)
+	dec.SetStrict(true)
+	err := dec.Decode(cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "decode")
+	}
+
+	err = cfg.Storage.Cast()
+	if err != nil {
+		return nil, errors.Wrap(err, "storage cast")
+	}
+
+	return cfg, nil
 }
 
 func (c *Config) String() string {
@@ -141,6 +162,18 @@ type Storage struct {
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+}
+
+func (s *Storage) Cast() error {
+	switch s.Type {
+	case storage.Filesystem:
+		return s.Filesystem.Cast()
+	case storage.S3:
+		return s.S3.Cast()
+	case storage.Azure: // noop
+	}
+
+	return errors.Wrap(ErrUnkownStorageType, string(s.Type))
 }
 
 func (s *Storage) Typ() string {
@@ -272,21 +305,14 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 // It also applies default storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.
 func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
-	switch cfg.Storage.Type {
-	case storage.S3:
-		err := cfg.Storage.S3.Cast()
-		if err != nil {
-			return errors.Wrap(err, "cast storage")
-		}
+	if err := cfg.Storage.Cast(); err != nil {
+		return errors.Wrap(err, "cast storage")
+	}
 
+	if cfg.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
 		// warning about unsupported levels will be printed
 		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
-	case storage.Filesystem:
-		err := cfg.Storage.Filesystem.Cast()
-		if err != nil {
-			return errors.Wrap(err, "check config")
-		}
 	}
 
 	if cfg.Oplog != nil {
