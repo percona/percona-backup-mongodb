@@ -220,7 +220,14 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 	}()
 
 	l.Info("started")
-	err = resync.ResyncStorage(ctx, a.leadConn, l)
+
+	stg, err := util.GetStorage(ctx, a.leadConn, l)
+	if err != nil {
+		l.Error("unable to get backup store: %v", err)
+		return
+	}
+
+	err = resync.Resync(ctx, a.leadConn, stg)
 	if err != nil {
 		l.Error("%v", err)
 		return

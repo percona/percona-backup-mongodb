@@ -63,7 +63,13 @@ func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
 func (m *MongoPBM) StoreResync(ctx context.Context) error {
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdResync), "", "", primitive.Timestamp{})
-	return resync.ResyncStorage(ctx, m.conn, l)
+
+	stg, err := util.GetStorage(ctx, m.conn, l)
+	if err != nil {
+		return errors.Wrap(err, "unable to get backup store")
+	}
+
+	return resync.Resync(ctx, m.conn, stg)
 }
 
 func (m *MongoPBM) Conn() connect.Client {

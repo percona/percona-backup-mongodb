@@ -293,7 +293,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error(err.Error())
 	}
 
-	err = resync.ResyncStorage(ctx, a.leadConn, l)
+	err = resync.Resync(ctx, a.leadConn, stg)
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}
