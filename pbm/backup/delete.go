@@ -352,11 +352,12 @@ func ListDeleteBackupBefore(
 	}
 
 	pred := func(m *BackupMeta) bool { return m.Type == bcpType }
-	if bcpType == defs.LogicalBackup {
+	switch bcpType {
+	case defs.LogicalBackup:
 		pred = func(m *BackupMeta) bool {
 			return m.Type == defs.LogicalBackup && !util.IsSelective(m.Namespaces)
 		}
-	} else if bcpType == SelectiveBackup {
+	case SelectiveBackup:
 		pred = func(m *BackupMeta) bool { return util.IsSelective(m.Namespaces) }
 	}
 

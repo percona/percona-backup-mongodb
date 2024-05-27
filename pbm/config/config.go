@@ -515,28 +515,6 @@ func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 	return err
 }
 
-func DeleteConfigVar(ctx context.Context, m connect.Client, key string) error {
-	if !validateConfigKey(key) {
-		return errors.New("invalid config key")
-	}
-
-	_, err := GetConfig(ctx, m)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return errors.New("config is not set")
-		}
-		return err
-	}
-
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$unset": bson.M{key: 1}},
-	)
-
-	return errors.Wrap(err, "write to db")
-}
-
 // GetConfigVar returns value of given config vaiable
 func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{}, error) {
 	if !validateConfigKey(key) {
@@ -583,13 +561,33 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 
 type Epoch primitive.Timestamp
 
+func (e Epoch) TS() primitive.Timestamp {
+	return primitive.Timestamp(e)
+}
+
 func GetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
-	c, err := GetConfig(ctx, m)
-	if err != nil {
-		return Epoch{}, errors.Wrap(err, "get config")
+	opts := options.FindOne().SetProjection(bson.D{{"_id", 0}, {"epoch", 1}})
+	res := m.ConfigCollection().FindOne(ctx, bson.D{{"profile", nil}}, opts)
+	if err := res.Err(); err != nil {
+		return Epoch{}, errors.Wrap(err, "query")
 	}
 
-	return Epoch(c.Epoch), nil
+	raw, err := res.Raw()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "read raw")
+	}
+
+	val, err := raw.LookupErr("epoch")
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "lookup")
+	}
+
+	t, i, ok := val.TimestampOK()
+	if !ok {
+		return Epoch{}, errors.Wrap(err, "not a timestamp")
+	}
+
+	return Epoch{T: t, I: i}, nil
 }
 
 func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
@@ -604,8 +602,4 @@ func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	)
 
 	return Epoch(ct), err
-}
-
-func (e Epoch) TS() primitive.Timestamp {
-	return primitive.Timestamp(e)
 }

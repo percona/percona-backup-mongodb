@@ -1037,7 +1037,7 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 		r.log.Warning("meta `%s` already exists, trying write %s status with '%s'", name, s, msg)
 		return nil
 	}
-	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+	if !errors.Is(err, storage.ErrNotExist) {
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 

@@ -68,6 +68,7 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 			URI:     uri,
 			SetName: info.SetName,
 			Me:      info.Me,
+			Sharded: info.IsSharded(),
 		},
 		mongoVersion: mongoVersion,
 		dumpConns:    dumpConns,
@@ -76,7 +77,7 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 }
 
 func (a *Agent) CanStart(ctx context.Context) error {
-	info, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	info, err := topo.GetNodeInfo(ctx, a.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get node info")
 	}

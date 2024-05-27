@@ -1,13 +1,9 @@
 package main
 
 import (
-	"context"
 	"sort"
 
-	"github.com/percona/percona-backup-mongodb/pbm/config"
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -45,17 +41,7 @@ type agentScore func(topo.AgentStat) float64
 // in descended order. First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func BcpNodesPriority(
-	ctx context.Context,
-	m connect.Client,
-	c map[string]float64,
-	agents []topo.AgentStat,
-) (*NodesPriority, error) {
-	cfg, err := config.GetConfig(ctx, m)
-	if err != nil {
-		return nil, errors.Wrap(err, "get config")
-	}
-
+func BcpNodesPriority(priority map[string]float64, c map[string]float64, agents []topo.AgentStat) *NodesPriority {
 	// if cfg.Backup.Priority doesn't set apply defaults
 	f := func(a topo.AgentStat) float64 {
 		if coeff, ok := c[a.Node]; ok && c != nil {
@@ -68,9 +54,9 @@ func BcpNodesPriority(
 		return defaultScore
 	}
 
-	if cfg.Backup.Priority != nil || len(cfg.Backup.Priority) > 0 {
+	if len(priority) != 0 {
 		f = func(a topo.AgentStat) float64 {
-			sc, ok := cfg.Backup.Priority[a.Node]
+			sc, ok := priority[a.Node]
 			if !ok || sc < 0 {
 				return defaultScore
 			}
@@ -79,7 +65,7 @@ func BcpNodesPriority(
 		}
 	}
 
-	return bcpNodesPriority(agents, f), nil
+	return bcpNodesPriority(agents, f)
 }
 
 func bcpNodesPriority(agents []topo.AgentStat, f agentScore) *NodesPriority {

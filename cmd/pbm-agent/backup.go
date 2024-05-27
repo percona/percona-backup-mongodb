@@ -109,7 +109,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 
 	if isClusterLeader {
 		balancer := topo.BalancerModeOff
-		if nodeInfo.IsSharded() {
+		if a.brief.Sharded {
 			bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
@@ -165,11 +165,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			validCandidates = append(validCandidates, s)
 		}
 
-		nodes, err := BcpNodesPriority(ctx, a.leadConn, c, validCandidates)
-		if err != nil {
-			l.Error("get nodes priority: %v", err)
-			return
-		}
+		nodes := BcpNodesPriority(cfg.Backup.Priority, c, validCandidates)
 		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 		if err != nil {
 			l.Error("get cluster members: %v", err)
@@ -185,7 +181,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	nominated, err := a.waitNomination(ctx, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	nominated, err := a.waitNomination(ctx, cmd.Name)
 	if err != nil {
 		l.Error("wait for nomination: %v", err)
 	}
@@ -197,8 +193,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	epoch := ep.TS()
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdBackup,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
+		Replset: a.brief.SetName,
+		Node:    a.brief.Me,
 		OPID:    opid.String(),
 		Epoch:   &epoch,
 	})
@@ -282,7 +278,7 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 	return nil
 }
 
-func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool, error) {
+func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 	l := log.LogEventFromContext(ctx)
 
 	tk := time.NewTicker(time.Millisecond * 500)
@@ -294,7 +290,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 	for {
 		select {
 		case <-tk.C:
-			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, rs)
+			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, a.brief.SetName)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
@@ -305,7 +301,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 				return false, nil
 			}
 			for _, n := range nm.Nodes {
-				if n == node {
+				if n == a.brief.Me {
 					return true, nil
 				}
 			}

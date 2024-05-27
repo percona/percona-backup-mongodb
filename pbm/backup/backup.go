@@ -143,7 +143,7 @@ func (b *Backup) Init(
 	}
 	meta.FCV = fcv
 
-	if inf.IsSharded() {
+	if b.brief.Sharded {
 		ss, err := topo.ClusterMembers(ctx, b.leadConn.MongoClient())
 		if err != nil {
 			return errors.Wrap(err, "get shards")
@@ -296,7 +296,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 
 	// Waiting for StatusStarting to move further.
 	// In case some preparations has to be done before backup.
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusStarting, ref(b.timeouts.StartingStatus()))
+	err = b.waitForStatus(ctx, bcp.Name, defs.StatusStarting, util.Ref(b.timeouts.StartingStatus()))
 	if err != nil {
 		return errors.Wrap(err, "waiting for start")
 	}
@@ -746,8 +746,4 @@ func condAll[T any, Cond func(*T) bool](ts []T, ok Cond) bool {
 	}
 
 	return true
-}
-
-func ref[T any](v T) *T {
-	return &v
 }
