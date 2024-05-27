@@ -87,7 +87,7 @@ func (b *Backup) SetSlicerInterval(d time.Duration) {
 
 func (b *Backup) SlicerInterval() time.Duration {
 	if b.oplogSlicerInterval == 0 {
-		return defs.PITRdefaultSpan
+		return defs.DefaultPITRInterval
 	}
 
 	return b.oplogSlicerInterval

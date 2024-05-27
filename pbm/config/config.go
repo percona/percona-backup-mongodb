@@ -61,10 +61,10 @@ func validateConfigKey(k string) bool {
 
 // Config is a pbm config
 type Config struct {
-	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
+	Oplog   *GlobalSlicer       `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -106,12 +106,12 @@ func (c *Config) String() string {
 
 // OplogSlicerInterval returns interval for general oplog slicer routine.
 // If it is not configured, the function returns default (hardcoded) value 10 mins.
-func (c Config) OplogSlicerInterval() time.Duration {
-	if c.PITR.OplogSpanMin == 0 {
-		return defs.PITRdefaultSpan
+func (c *Config) OplogSlicerInterval() time.Duration {
+	if c.Oplog == nil || c.Oplog.Interval == 0 {
+		return defs.DefaultPITRInterval
 	}
 
-	return time.Duration(c.PITR.OplogSpanMin * float64(time.Minute))
+	return time.Duration(c.Oplog.Interval * float64(time.Minute))
 }
 
 // BackupSlicerInterval returns interval for backup slicer routine.
@@ -124,12 +124,12 @@ func (c Config) BackupSlicerInterval() time.Duration {
 	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
 }
 
-// PITRConf is a Point-In-Time Recovery options
+// GlobalSlicer is a Point-In-Time Recovery options
 //
 //nolint:lll
-type PITRConf struct {
+type GlobalSlicer struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
-	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Interval         float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
@@ -245,14 +245,17 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 		return nil, errors.Wrap(err, "decode")
 	}
 
+	if cfg.Oplog == nil {
+		cfg.Oplog = &GlobalSlicer{}
+	}
 	if cfg.Backup.Compression == "" {
 		cfg.Backup.Compression = compress.CompressionTypeS2
 	}
-	if cfg.PITR.Compression == "" {
-		cfg.PITR.Compression = cfg.Backup.Compression
+	if cfg.Oplog.Compression == "" {
+		cfg.Oplog.Compression = cfg.Backup.Compression
 	}
-	if cfg.PITR.CompressionLevel == nil {
-		cfg.PITR.CompressionLevel = cfg.Backup.CompressionLevel
+	if cfg.Oplog.CompressionLevel == nil {
+		cfg.Oplog.CompressionLevel = cfg.Backup.CompressionLevel
 	}
 
 	return cfg, nil
@@ -279,8 +282,10 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 		}
 	}
 
-	if c := string(cfg.PITR.Compression); c != "" && !compress.IsValidCompressionType(c) {
-		return errors.Errorf("unsupported compression type: %q", c)
+	if cfg.Oplog != nil {
+		if c := string(cfg.Oplog.Compression); c != "" && !compress.IsValidCompressionType(c) {
+			return errors.Errorf("unsupported compression type: %q", c)
+		}
 	}
 
 	ct, err := topo.GetClusterTime(ctx, m)
@@ -343,7 +348,7 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 	// TODO: how to be with special case options like pitr.enabled
 	switch key {
 	case "pitr.enabled":
-		return errors.Wrap(confSetPITR(ctx, m, key, v.(bool)), "write to db")
+		return errors.Wrap(confSetPITR(ctx, m, v.(bool)), "write to db")
 	case "pitr.compression":
 		if c := v.(string); c != "" && !compress.IsValidCompressionType(c) {
 			return errors.Errorf("unsupported compression type: %q", c)
@@ -365,16 +370,18 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 	return errors.Wrap(err, "write to db")
 }
 
-func confSetPITR(ctx context.Context, m connect.Client, k string, v bool) error {
+func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
 	}
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix(), "epoch": ct}},
-	)
+
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{
+			"pitr.enabled": value,
+			"epoch":        ct,
+		}})
 
 	return err
 }
@@ -442,7 +449,7 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 		return false, false, errors.Wrap(err, "get config")
 	}
 
-	return cfg.PITR.Enabled, cfg.PITR.OplogOnly, nil
+	return cfg.Oplog.Enabled, cfg.Oplog.OplogOnly, nil
 }
 
 type Epoch primitive.Timestamp

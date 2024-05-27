@@ -132,12 +132,14 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if !errors.Is(err, mongo.ErrNoDocuments) {
 			return errors.Wrap(err, "get conf")
 		}
-		cfg = &config.Config{}
+		cfg = &config.Config{
+			Oplog: &config.GlobalSlicer{},
+		}
 	}
 
-	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
+	a.stopPitrOnOplogOnlyChange(cfg.Oplog.OplogOnly)
 
-	if !cfg.PITR.Enabled {
+	if cfg.Oplog == nil || !cfg.Oplog.Enabled {
 		a.removePitr()
 		return nil
 	}
@@ -228,7 +230,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	ibcp := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
 	ibcp.SetSpan(slicerInterval)
 
-	if cfg.PITR.OplogOnly {
+	if cfg.Oplog.OplogOnly {
 		err = ibcp.OplogOnlyCatchup(ctx)
 	} else {
 		err = ibcp.Catchup(ctx)
@@ -261,8 +263,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		streamErr := ibcp.Stream(ctx,
 			stopC,
 			w,
-			cfg.PITR.Compression,
-			cfg.PITR.CompressionLevel,
+			cfg.Oplog.Compression,
+			cfg.Oplog.CompressionLevel,
 			cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error

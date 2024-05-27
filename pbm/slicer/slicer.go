@@ -51,7 +51,7 @@ func NewSlicer(
 		leadClient: cn,
 		node:       node,
 		rs:         rs,
-		span:       int64(defs.PITRdefaultSpan),
+		span:       int64(defs.DefaultPITRInterval),
 		storage:    to,
 		oplog:      oplog.NewOplogBackup(node),
 		cfg:        cfg,
@@ -138,7 +138,11 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 			return errors.Wrap(err, "get config")
 		}
 
-		err = s.upload(ctx, lastChunk.EndTS, rs.FirstWriteTS, cfg.PITR.Compression, cfg.PITR.CompressionLevel)
+		err = s.upload(ctx,
+			lastChunk.EndTS,
+			rs.FirstWriteTS,
+			cfg.Oplog.Compression,
+			cfg.Oplog.CompressionLevel)
 		if err != nil {
 			return err
 		}
