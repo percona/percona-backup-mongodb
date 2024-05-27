@@ -381,7 +381,7 @@ Loop:
 		}
 	}
 
-	if bs != nil {
+	if bs == nil {
 		return topo.BalancerMode("")
 	}
 

@@ -25,7 +25,7 @@ type dbMangerImpl struct {
 	conn connect.Client
 }
 
-func NewDBManager(conn connect.Client) Manager {
+func NewDBManager(conn connect.Client) *dbMangerImpl {
 	return &dbMangerImpl{conn: conn}
 }
 

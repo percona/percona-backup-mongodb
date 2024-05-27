@@ -31,12 +31,7 @@ var errMissedConfig = errors.New("missed config")
 type confMap map[string]reflect.Kind
 
 // _confmap is a list of config's valid keys and its types
-var _confmap confMap
-
-//nolint:gochecknoinits
-func init() {
-	_confmap = keys(reflect.TypeOf(Config{}))
-}
+var _confmap confMap = keys(reflect.TypeOf(Config{}))
 
 func keys(t reflect.Type) confMap {
 	v := make(confMap)

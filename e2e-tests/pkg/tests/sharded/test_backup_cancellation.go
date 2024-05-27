@@ -48,6 +48,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 	}
 }
 
+//nolint:unused
 func checkNoBackupFiles(backupName, conf string) {
 	log.Println("check no artifacts left for backup", backupName)
 	buf, err := os.ReadFile(conf)

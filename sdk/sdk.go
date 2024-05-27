@@ -129,7 +129,7 @@ type Client interface {
 	SyncFromStorage(ctx context.Context) (CommandID, error)
 }
 
-func NewClient(ctx context.Context, uri string) (Client, error) {
+func NewClient(ctx context.Context, uri string) (*clientImpl, error) {
 	conn, err := connect.Connect(ctx, uri, "sdk")
 	if err != nil {
 		return nil, err
