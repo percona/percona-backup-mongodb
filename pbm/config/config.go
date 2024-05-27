@@ -62,9 +62,9 @@ func validateConfigKey(k string) bool {
 // Config is a pbm config
 type Config struct {
 	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
-	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
 	Oplog   *GlobalSlicer       `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
+	Backup  *Backup             `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -116,12 +116,12 @@ func (c *Config) OplogSlicerInterval() time.Duration {
 
 // BackupSlicerInterval returns interval for backup slicer routine.
 // If it is not confugured, the function returns general oplog slicer interval.
-func (c Config) BackupSlicerInterval() time.Duration {
-	if c.Backup.OplogSpanMin == 0 {
+func (c *Config) BackupSlicerInterval() time.Duration {
+	if c.Backup == nil || c.Backup.SlicingInterval == 0 {
 		return c.OplogSlicerInterval()
 	}
 
-	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
+	return time.Duration(c.Backup.SlicingInterval * float64(time.Minute))
 }
 
 // GlobalSlicer is a Point-In-Time Recovery options
@@ -211,8 +211,8 @@ type RestoreConf struct {
 }
 
 //nolint:lll
-type BackupConf struct {
-	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+type Backup struct {
+	SlicingInterval  float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
@@ -248,8 +248,11 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	if cfg.Oplog == nil {
 		cfg.Oplog = &GlobalSlicer{}
 	}
+	if cfg.Backup == nil {
+		cfg.Backup = &Backup{}
+	}
 	if cfg.Backup.Compression == "" {
-		cfg.Backup.Compression = compress.CompressionTypeS2
+		cfg.Backup.Compression = defs.DefaultCompression
 	}
 	if cfg.Oplog.Compression == "" {
 		cfg.Oplog.Compression = cfg.Backup.Compression
