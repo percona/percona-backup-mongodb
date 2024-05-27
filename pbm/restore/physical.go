@@ -86,7 +86,7 @@ type PhysRestore struct {
 	files     []files
 	restoreTS primitive.Timestamp
 
-	confOpts config.RestoreConf
+	confOpts *config.Restore
 
 	mongod string // location of mongod used for internal restarts
 

@@ -61,10 +61,10 @@ func validateConfigKey(k string) bool {
 
 // Config is a pbm config
 type Config struct {
-	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
 	Oplog   *GlobalSlicer       `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
 	Backup  *Backup             `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Restore *Restore            `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -186,10 +186,10 @@ func (s *Storage) Path() string {
 	return path
 }
 
-// RestoreConf is config options for the restore
+// Restore is config options for the restore
 //
 //nolint:lll
-type RestoreConf struct {
+type Restore struct {
 	// Logical restore
 	//
 	// num of documents to buffer
@@ -251,6 +251,10 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	if cfg.Backup == nil {
 		cfg.Backup = &Backup{}
 	}
+	if cfg.Restore == nil {
+		cfg.Restore = &Restore{}
+	}
+
 	if cfg.Backup.Compression == "" {
 		cfg.Backup.Compression = defs.DefaultCompression
 	}
