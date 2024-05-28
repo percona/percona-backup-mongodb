@@ -404,7 +404,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	switch bcpType {
 	case defs.LogicalBackup:
 		if !nodeInfo.IsPrimary {
-			l.Info("Node in not suitable for restore")
+			l.Info("This node is not the primary. Check pbm agent on the primary for restore progress")
 			return
 		}
 		if r.OplogTS.IsZero() {
