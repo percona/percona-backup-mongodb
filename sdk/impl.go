@@ -254,6 +254,11 @@ func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
 	return CommandID(opid.String()), err
 }
 
+func (c *clientImpl) SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, name)
+	return CommandID(opid.String()), err
+}
+
 func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (CommandID, error) {
 	opts := GetBackupByNameOptions{FetchIncrements: true}
 	bcp, err := c.GetBackupByName(ctx, name, opts)

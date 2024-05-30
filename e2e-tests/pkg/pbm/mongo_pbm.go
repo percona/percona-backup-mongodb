@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -63,13 +64,14 @@ func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
 func (m *MongoPBM) StoreResync(ctx context.Context) error {
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdResync), "", "", primitive.Timestamp{})
+	ctx = log.SetLogEventToContext(ctx, l)
 
-	stg, err := util.GetStorage(ctx, m.conn, l)
+	cfg, err := config.GetConfig(ctx, m.conn)
 	if err != nil {
-		return errors.Wrap(err, "unable to get backup store")
+		return errors.Wrap(err, "get config")
 	}
 
-	return resync.Resync(ctx, m.conn, stg)
+	return resync.Resync(ctx, m.conn, &cfg.Storage)
 }
 
 func (m *MongoPBM) Conn() connect.Client {

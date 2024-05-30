@@ -8,6 +8,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/resync"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -26,13 +27,13 @@ func (a *Agent) handleAddConfigProfile(
 		l.Error("missed command")
 		return
 	}
+
+	l := logger.NewEvent(string(ctrl.CmdAddConfigProfile), cmd.Name, opid.String(), epoch.TS())
 	if cmd.Name == "" {
-		l := logger.NewEvent(string(ctrl.CmdAddConfigProfile), "", opid.String(), epoch.TS())
 		l.Error("missed config profile name")
 		return
 	}
 
-	l := logger.NewEvent(string(ctrl.CmdAddConfigProfile), cmd.Name, opid.String(), epoch.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
 	var err error
@@ -47,7 +48,7 @@ func (a *Agent) handleAddConfigProfile(
 		err = errors.Wrap(err, "get node info")
 		return
 	}
-	if !nodeInfo.IsClusterLeader() {
+	if !nodeInfo.IsLeader() {
 		l.Debug("not leader. skip")
 		return
 	}
@@ -128,13 +129,13 @@ func (a *Agent) handleRemoveConfigProfile(
 		l.Error("missed command")
 		return
 	}
+
+	l := logger.NewEvent(string(ctrl.CmdRemoveConfigProfile), cmd.Name, opid.String(), epoch.TS())
 	if cmd.Name == "" {
-		l := logger.NewEvent(string(ctrl.CmdRemoveConfigProfile), "", opid.String(), epoch.TS())
 		l.Error("missed config profile name")
 		return
 	}
 
-	l := logger.NewEvent(string(ctrl.CmdRemoveConfigProfile), cmd.Name, opid.String(), epoch.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
 	var err error
@@ -149,7 +150,7 @@ func (a *Agent) handleRemoveConfigProfile(
 		err = errors.Wrap(err, "get node info")
 		return
 	}
-	if !nodeInfo.IsClusterLeader() {
+	if !nodeInfo.IsLeader() {
 		l.Debug("not leader. skip")
 		return
 	}
@@ -179,9 +180,80 @@ func (a *Agent) handleRemoveConfigProfile(
 		}
 	}()
 
+	err = resync.ClearBackupList(ctx, a.leadConn, cmd.Name)
+	if err != nil {
+		l.Error("clear backup list: %v", err)
+		return
+	}
+
 	err = config.RemoveProfile(ctx, a.leadConn, cmd.Name)
 	if err != nil {
 		l.Error("delete document", err)
+		return
+	}
+}
+
+func (a *Agent) handleSyncMetaFrom(
+	ctx context.Context,
+	cmd *ctrl.ResyncCmd,
+	opid ctrl.OPID,
+	epoch config.Epoch,
+) {
+	logger := log.FromContext(ctx)
+	l := logger.NewEvent(string(ctrl.CmdResync), "", opid.String(), epoch.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
+
+	var err error
+	defer func() {
+		if err != nil {
+			l.Error("failed to add config profile: %v", err)
+		}
+	}()
+
+	nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
+	if err != nil {
+		err = errors.Wrap(err, "get node info")
+		return
+	}
+	if !nodeInfo.IsClusterLeader() {
+		l.Debug("not leader. skip")
+		return
+	}
+
+	lck := lock.NewLock(a.leadConn, lock.LockHeader{
+		Type:    ctrl.CmdAddConfigProfile,
+		Replset: a.brief.SetName,
+		Node:    a.brief.Me,
+		OPID:    opid.String(),
+		Epoch:   util.Ref(epoch.TS()),
+	})
+
+	got, err := a.acquireLock(ctx, lck, l)
+	if err != nil {
+		l.Error("acquiring lock: %v", err)
+		return
+	}
+	if !got {
+		l.Error("lock not acquired")
+		return
+	}
+	defer func() {
+		l.Debug("releasing lock")
+		err = lck.Release()
+		if err != nil {
+			l.Error("unable to release lock %v: %v", lck, err)
+		}
+	}()
+
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		err = errors.Wrap(err, "get storage config")
+		return
+	}
+
+	err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, cmd.Name)
+	if err != nil {
+		err = errors.Wrap(err, "sync backup list")
 		return
 	}
 }

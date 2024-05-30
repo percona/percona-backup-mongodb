@@ -118,25 +118,49 @@ func main() {
 	addConfigProfileCmd := configProfileCmd.
 		Command("add", "Save configuration profile")
 	addConfigProfileCmd.
-		Flag("name", "Profile name").
+		Arg("name", "Profile name").
 		Required().
 		StringVar(&addConfigProfileOpts.name)
 	addConfigProfileCmd.
 		Arg("file", "Path to configuration file").
 		Required().
-		StringVar(&addConfigProfileOpts.file)
+		FileVar(&addConfigProfileOpts.file)
+	addConfigProfileCmd.
+		Flag("sync", "Sync from the external storage").
+		BoolVar(&addConfigProfileOpts.sync)
+	addConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&addConfigProfileOpts.wait)
 
 	removeConfigProfileOpts := removeConfigProfileOptions{}
 	removeConfigProfileCmd := configProfileCmd.
 		Command("remove", "Remove configuration profile")
 	removeConfigProfileCmd.
-		Arg("profile-name", "Profile name").
+		Arg("name", "Profile name").
 		Required().
 		StringVar(&removeConfigProfileOpts.name)
 	removeConfigProfileCmd.
 		Flag("wait", "Wait for done by agents").
 		Short('w').
 		BoolVar(&removeConfigProfileOpts.wait)
+
+	syncConfigProfileOpts := syncConfigProfileOptions{}
+	syncConfigProfileCmd := configProfileCmd.
+		Command("sync", "Sync backup list from configuration profile")
+	syncConfigProfileCmd.
+		Arg("profile", "Profile name").
+		StringVar(&syncConfigProfileOpts.name)
+	syncConfigProfileCmd.
+		Flag("all", "Sync from all external storages").
+		BoolVar(&syncConfigProfileOpts.all)
+	syncConfigProfileCmd.
+		Flag("clear", "Clear backup list (can be used with profile name or --all)").
+		BoolVar(&syncConfigProfileOpts.clear)
+	syncConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&syncConfigProfileOpts.wait)
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backupOptions := backupOpts{}
@@ -457,6 +481,8 @@ func main() {
 		out, err = handleAddConfigProfile(ctx, pbm, addConfigProfileOpts)
 	case removeConfigProfileCmd.FullCommand():
 		out, err = handleRemoveConfigProfile(ctx, pbm, removeConfigProfileOpts)
+	case syncConfigProfileCmd.FullCommand():
+		out, err = handleSyncConfigProfile(ctx, pbm, syncConfigProfileOpts)
 	case backupCmd.FullCommand():
 		backupOptions.name = time.Now().UTC().Format(time.RFC3339)
 		out, err = runBackup(ctx, conn, pbm, &backupOptions, pbmOutF)

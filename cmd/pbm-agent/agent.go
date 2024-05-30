@@ -136,10 +136,6 @@ func (a *Agent) Start(ctx context.Context) error {
 			logger.Printf("got epoch %v", ep)
 
 			switch cmd.Cmd {
-			case ctrl.CmdAddConfigProfile:
-				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
-			case ctrl.CmdRemoveConfigProfile:
-				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
 				go a.Backup(ctx, cmd.Backup, cmd.OPID, ep)
@@ -149,8 +145,12 @@ func (a *Agent) Start(ctx context.Context) error {
 				a.Restore(ctx, cmd.Restore, cmd.OPID, ep)
 			case ctrl.CmdReplay:
 				a.OplogReplay(ctx, cmd.Replay, cmd.OPID, ep)
+			case ctrl.CmdAddConfigProfile:
+				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+			case ctrl.CmdRemoveConfigProfile:
+				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdResync:
-				a.Resync(ctx, cmd.OPID, ep)
+				a.Resync(ctx, cmd.Resync, cmd.OPID, ep)
 			case ctrl.CmdDeleteBackup:
 				a.Delete(ctx, cmd.Delete, cmd.OPID, ep)
 			case ctrl.CmdDeletePITR:
@@ -175,7 +175,11 @@ func (a *Agent) Start(ctx context.Context) error {
 }
 
 // Resync uploads a backup list from the remote store
-func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
+func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID, ep config.Epoch) {
+	if cmd == nil {
+		cmd = &ctrl.ResyncCmd{}
+	}
+
 	logger := log.FromContext(ctx)
 	l := logger.NewEvent(string(ctrl.CmdResync), "", opid.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
@@ -194,13 +198,12 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 		return
 	}
 
-	epts := ep.TS()
 	lock := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdResync,
 		Replset: nodeInfo.SetName,
 		Node:    nodeInfo.Me,
 		OPID:    opid.String(),
-		Epoch:   &epts,
+		Epoch:   util.Ref(ep.TS()),
 	})
 
 	got, err := a.acquireLock(ctx, lock, l)
@@ -221,26 +224,61 @@ func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
 
 	l.Info("started")
 
-	stg, err := util.GetStorage(ctx, a.leadConn, l)
-	if err != nil {
-		l.Error("unable to get backup store: %v", err)
-		return
+	if cmd.All {
+		profiles, err := config.ListProfiles(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get config profiles: %v", err)
+			return
+		}
+
+		err = resync.ClearAllBackupMetaFromExternal(ctx, a.leadConn)
+		if err != nil {
+			l.Error("clear all backup meta from external storages: %v", err)
+			return
+		}
+
+		for i := range profiles {
+			cfg := profiles[i]
+			err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, cfg.Name)
+			if err != nil {
+				l.Error("sync backup list from external storage %q: %v", cfg.Name, err)
+				return
+			}
+		}
+	} else if !cmd.All && cmd.Name != "" {
+		cfg, err := config.GetProfile(ctx, a.leadConn, cmd.Name)
+		if err != nil {
+			l.Error("get config profile: %v", err)
+			return
+		}
+
+		err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, cfg.Name)
+		if err != nil {
+			l.Error("sync backup list from external storage %q: %v", cfg.Name, err)
+			return
+		}
+	} else if !cmd.All && cmd.Name == "" {
+		cfg, err := config.GetConfig(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get config: %v", err)
+			return
+		}
+
+		err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
+		if err != nil {
+			l.Error("resync from main storage: %v", err)
+			return
+		}
+
+		epch, err := config.ResetEpoch(ctx, a.leadConn)
+		if err != nil {
+			l.Error("reset epoch: %v", err)
+			return
+		}
+		l.Debug("epoch set to %v", epch)
 	}
 
-	err = resync.Resync(ctx, a.leadConn, stg)
-	if err != nil {
-		l.Error("%v", err)
-		return
-	}
 	l.Info("succeed")
-
-	epch, err := config.ResetEpoch(ctx, a.leadConn)
-	if err != nil {
-		l.Error("reset epoch: %v", err)
-		return
-	}
-
-	l.Debug("epoch set to %v", epch)
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock

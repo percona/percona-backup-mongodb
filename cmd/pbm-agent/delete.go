@@ -255,7 +255,12 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, l)
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get config: %v", err)
+	}
+
+	stg, err := util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
 	}
@@ -293,7 +298,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error(err.Error())
 	}
 
-	err = resync.Resync(ctx, a.leadConn, stg)
+	err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}

@@ -173,7 +173,7 @@ func (c *Config) BackupSlicerInterval() time.Duration {
 //nolint:lll
 type GlobalSlicer struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
-	Interval         float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Interval         float64                  `bson:"oplogSpanMin,omitempty" json:"oplogSpanMin,omitempty" yaml:"oplogSpanMin,omitempty"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`

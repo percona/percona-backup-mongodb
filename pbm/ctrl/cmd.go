@@ -82,6 +82,7 @@ func (o OPID) Obj() primitive.ObjectID {
 
 type Cmd struct {
 	Cmd        Command          `bson:"cmd"`
+	Resync     *ResyncCmd       `bson:"resync,omitempty"`
 	Profile    *ProfileCmd      `bson:"profile,omitempty"`
 	Backup     *BackupCmd       `bson:"backup,omitempty"`
 	Restore    *RestoreCmd      `bson:"restore,omitempty"`
@@ -117,6 +118,12 @@ type ProfileCmd struct {
 	Name      string         `bson:"name"`
 	IsProfile bool           `bson:"profile"`
 	Storage   config.Storage `bson:"storage"`
+}
+
+type ResyncCmd struct {
+	Name  string `bson:"name,omitempty"`
+	All   bool   `bson:"all,omitempty"`
+	Clear bool   `bson:"clear,omitempty"`
 }
 
 type BackupCmd struct {

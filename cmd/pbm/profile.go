@@ -16,13 +16,23 @@ type descConfigProfileOptions struct {
 }
 
 type addConfigProfileOptions struct {
-	name string
-	file string
+	name  string
+	file  *os.File
+	force bool
+	sync  bool
+	wait  bool
 }
 
 type removeConfigProfileOptions struct {
 	name string
 	wait bool
+}
+
+type syncConfigProfileOptions struct {
+	name  string
+	all   bool
+	clear bool
+	wait  bool
 }
 
 type configProfileList struct {
@@ -59,15 +69,10 @@ func handleDescibeConfigProfiles(
 	opts descConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("name is required")
+		return nil, errors.New("argument `name` should not be empty")
 	}
 
-	profile, err := pbm.GetConfigProfile(ctx, opts.name)
-	if err != nil {
-		return nil, err
-	}
-
-	return profile, nil
+	return pbm.GetConfigProfile(ctx, opts.name)
 }
 
 func handleAddConfigProfile(
@@ -76,23 +81,41 @@ func handleAddConfigProfile(
 	opts addConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("name is required")
+		return nil, errors.New("argument `name` should not be empty")
+	}
+	if opts.file == nil {
+		return nil, errors.New("missed file: nil value")
 	}
 
-	var err error
-	var cfg *config.Config
-	if opts.file == "-" {
-		cfg, err = config.Parse(os.Stdin)
-	} else {
-		cfg, err = readConfigFromFile(opts.file)
-	}
+	cfg, err := config.Parse(opts.file)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to get new config")
+		return nil, errors.Wrap(err, "parse config")
 	}
 
-	_, err = pbm.AddConfigProfile(ctx, opts.name, cfg)
+	cid, err := pbm.AddConfigProfile(ctx, opts.name, cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "add config profile")
+	}
+
+	if opts.wait {
+		err = sdk.WaitForAddProfile(ctx, pbm, cid)
+		if err != nil {
+			return nil, errors.Wrap(err, "wait")
+		}
+	}
+
+	if opts.sync {
+		cid, err := pbm.SyncFromExternalStorage(ctx, opts.name)
+		if err != nil {
+			return nil, errors.Wrap(err, "sync")
+		}
+
+		if opts.wait {
+			err = sdk.WaitForResync(ctx, pbm, cid)
+			if err != nil {
+				return nil, errors.Wrap(err, "wait")
+			}
+		}
 	}
 
 	return &outMsg{"OK"}, nil
@@ -104,12 +127,47 @@ func handleRemoveConfigProfile(
 	opts removeConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("name is required")
+		return nil, errors.New("argument `name` should not be empty")
 	}
 
-	_, err := pbm.RemoveConfigProfile(ctx, opts.name)
+	cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
 	if err != nil {
 		return nil, errors.Wrap(err, "sdk: remove config profile")
+	}
+
+	if opts.wait {
+		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+		if err != nil {
+			return nil, errors.Wrap(err, "wait")
+		}
+	}
+
+	return &outMsg{"OK"}, nil
+}
+
+func handleSyncConfigProfile(
+	ctx context.Context,
+	pbm sdk.Client,
+	opts syncConfigProfileOptions,
+) (fmt.Stringer, error) {
+	if opts.name == "" && !opts.all {
+		return nil, errors.New("--profile or --all is required")
+	}
+	// TODO: finish here
+	if opts.name == "" {
+		return nil, errors.New("argument `name` should not be empty")
+	}
+
+	cid, err := pbm.SyncFromExternalStorage(ctx, opts.name)
+	if err != nil {
+		return nil, errors.Wrap(err, "sync from storage")
+	}
+
+	if opts.wait {
+		err = sdk.WaitForResync(ctx, pbm, cid)
+		if err != nil {
+			return nil, errors.Wrap(err, "wait")
+		}
 	}
 
 	return &outMsg{"OK"}, nil

@@ -93,6 +93,27 @@ func SendRemoveConfigProfile(ctx context.Context, m connect.Client, name string)
 	return sendCommand(ctx, m, cmd)
 }
 
+func SendSyncMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdResync,
+		Resync: &ResyncCmd{
+			Name: name,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendClearMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdResync,
+		Resync: &ResyncCmd{
+			Name:  name,
+			Clear: true,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
 func SendResync(ctx context.Context, m connect.Client) (OPID, error) {
 	return sendCommand(ctx, m, Cmd{Cmd: CmdResync})
 }
