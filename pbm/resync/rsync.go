@@ -67,15 +67,6 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error
 	return nil
 }
 
-func ClearAllBackupMetaFromExternal(ctx context.Context, conn connect.Client) error {
-	_, err := conn.BcpCollection().DeleteMany(ctx, bson.D{{"profile", true}})
-	if err != nil {
-		return errors.Wrapf(err, "delete all backup meta from db")
-	}
-
-	return nil
-}
-
 func ClearBackupList(ctx context.Context, conn connect.Client, profile string) error {
 	storeFilter := bson.M{"profile": nil}
 	if profile != "" {

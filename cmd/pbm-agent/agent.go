@@ -225,48 +225,21 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	l.Info("started")
 
 	if cmd.All {
-		profiles, err := config.ListProfiles(ctx, a.leadConn)
+		err = syncAllProfile(ctx, a.leadConn)
 		if err != nil {
-			l.Error("get config profiles: %v", err)
+			l.Error("sync all profiles: %v", err)
 			return
 		}
-
-		err = resync.ClearAllBackupMetaFromExternal(ctx, a.leadConn)
+	} else if cmd.Name != "" {
+		err = syncProfile(ctx, a.leadConn, cmd.Name)
 		if err != nil {
-			l.Error("clear all backup meta from external storages: %v", err)
+			l.Error("sync profile %q: %v", cmd.Name, err)
 			return
 		}
-
-		for i := range profiles {
-			cfg := profiles[i]
-			err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, cfg.Name)
-			if err != nil {
-				l.Error("sync backup list from external storage %q: %v", cfg.Name, err)
-				return
-			}
-		}
-	} else if !cmd.All && cmd.Name != "" {
-		cfg, err := config.GetProfile(ctx, a.leadConn, cmd.Name)
+	} else {
+		err = syncMain(ctx, a.leadConn)
 		if err != nil {
-			l.Error("get config profile: %v", err)
-			return
-		}
-
-		err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, cfg.Name)
-		if err != nil {
-			l.Error("sync backup list from external storage %q: %v", cfg.Name, err)
-			return
-		}
-	} else if !cmd.All && cmd.Name == "" {
-		cfg, err := config.GetConfig(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get config: %v", err)
-			return
-		}
-
-		err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
-		if err != nil {
-			l.Error("resync from main storage: %v", err)
+			l.Error(err.Error())
 			return
 		}
 
@@ -279,6 +252,50 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	}
 
 	l.Info("succeed")
+}
+
+func syncProfile(ctx context.Context, conn connect.Client, profileName string) error {
+	cfg, err := config.GetProfile(ctx, conn, profileName)
+	if err != nil {
+		return errors.Wrap(err, "get config profile")
+	}
+
+	err = resync.SyncBackupList(ctx, conn, &cfg.Storage, cfg.Name)
+	if err != nil {
+		return errors.Wrap(err, "sync backup list")
+	}
+
+	return nil
+}
+
+func syncAllProfile(ctx context.Context, conn connect.Client) error {
+	profiles, err := config.ListProfiles(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "get config profiles")
+	}
+
+	for i := range profiles {
+		err = syncProfile(ctx, conn, profiles[i].Name)
+		if err != nil {
+			return errors.Wrapf(err, "sync profile %q", profiles[i].Name)
+		}
+	}
+
+	return nil
+}
+
+func syncMain(ctx context.Context, conn connect.Client) error {
+	cfg, err := config.GetConfig(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+
+	err = resync.Resync(ctx, conn, &cfg.Storage)
+	if err != nil {
+		return errors.Wrap(err, "resync")
+	}
+
+	return nil
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock
