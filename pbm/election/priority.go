@@ -41,11 +41,12 @@ func (n *NodesPriority) RS(rs string) [][]string {
 
 type agentScore func(topo.AgentStat) float64
 
-// BcpNodesPriority returns list nodes grouped by backup preferences
-// in descended order. First are nodes with the highest priority.
+// CalcNodesPriority calculates and returns list nodes grouped by
+// backup/pitr preferences in descended order.
+// First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func BcpNodesPriority(
+func CalcNodesPriority(
 	ctx context.Context,
 	m connect.Client,
 	c map[string]float64,
