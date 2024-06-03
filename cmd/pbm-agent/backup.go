@@ -6,7 +6,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -80,9 +79,9 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		go a.sliceNow(opid)
 	}
 
-	cfg, err := getMergedConfig(ctx, a.leadConn, cmd.Profile)
+	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, cmd.Profile)
 	if err != nil {
-		l.Error("get merged config: %v", err)
+		l.Error("get profiled config: %v", err)
 		return
 	}
 
@@ -236,38 +235,6 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	} else {
 		l.Info("backup finished")
 	}
-}
-
-func getMergedConfig(
-	ctx context.Context,
-	conn connect.Client,
-	profileName string,
-) (*config.Config, error) {
-	cfg, err := config.GetConfig(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "get main config")
-	}
-
-	if profileName != "" {
-		custom, err := config.GetProfile(ctx, conn, profileName)
-		if err != nil {
-			return nil, errors.Wrap(err, "get config profile")
-		}
-		if err := custom.Storage.Cast(); err != nil {
-			return nil, errors.Wrap(err, "storage cast")
-		}
-
-		// use storage config only
-		cfg.Storage = custom.Storage
-		cfg.Name = custom.Name
-		cfg.IsProfile = true
-	}
-
-	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undefined {
-		return nil, errors.New("backups cannot be saved because PBM storage configuration hasn't been set yet")
-	}
-
-	return cfg, nil
 }
 
 const renominationFrame = 5 * time.Second
