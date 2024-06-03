@@ -150,12 +150,11 @@ func handleSyncConfigProfile(
 	pbm sdk.Client,
 	opts syncConfigProfileOptions,
 ) (fmt.Stringer, error) {
-	if opts.name == "" && !opts.all {
+	if !opts.all && opts.name == "" {
 		return nil, errors.New("--profile or --all is required")
 	}
-	// TODO: finish here
-	if opts.name == "" {
-		return nil, errors.New("argument `name` should not be empty")
+	if opts.all && opts.name != "" {
+		return nil, errors.New("ambiguous params: --profile and --all are set")
 	}
 
 	cid, err := pbm.SyncFromExternalStorage(ctx, opts.name)
