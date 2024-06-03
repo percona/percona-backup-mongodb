@@ -132,6 +132,9 @@ type Client interface {
 
 	SyncFromStorage(ctx context.Context) (CommandID, error)
 	SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
+	SyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
+	ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
+	ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
 }
 
 func NewClient(ctx context.Context, uri string) (*clientImpl, error) {

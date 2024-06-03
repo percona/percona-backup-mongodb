@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -112,12 +112,15 @@ func runBackup(
 		}
 	}
 
-	cfg, err := pbm.GetConfig(ctx)
+	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.New("no store set. Set remote store with <pbm store set>")
+		if errors.Is(err, config.ErrMissedConfig) {
+			return nil, errors.New("no config set. Set config with <pbm config>")
 		}
-		return nil, errors.Wrap(err, "get remote-store")
+		if errors.Is(err, config.ErrMissedConfigProfile) {
+			return nil, errors.Errorf("invalid profile: %v", b.profile)
+		}
+		return nil, errors.Wrap(err, "get config")
 	}
 
 	compression := cfg.Backup.Compression
@@ -306,6 +309,7 @@ type bcpDesc struct {
 	Status             defs.Status     `json:"status" yaml:"status"`
 	Size               int64           `json:"size" yaml:"-"`
 	HSize              string          `json:"size_h" yaml:"size_h"`
+	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	Err                *string         `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets           []bcpReplDesc   `json:"replsets" yaml:"replsets"`
 }
@@ -386,6 +390,7 @@ func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b 
 		Status:             bcp.Status,
 		Size:               bcp.Size,
 		HSize:              byteCountIEC(bcp.Size),
+		StorageName:        bcp.Store.Name,
 	}
 	if bcp.Err != "" {
 		rv.Err = &bcp.Err

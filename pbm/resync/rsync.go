@@ -68,13 +68,20 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error
 }
 
 func ClearBackupList(ctx context.Context, conn connect.Client, profile string) error {
-	storeFilter := bson.M{"profile": nil}
-	if profile != "" {
-		storeFilter["profile"] = true
-		storeFilter["name"] = profile
+	var filter bson.D
+	if profile == "" {
+		// from main storage
+		filter = bson.D{
+			{"store.profile", nil},
+		}
+	} else {
+		filter = bson.D{
+			{"store.profile", true},
+			{"store.name", profile},
+		}
 	}
 
-	_, err := conn.BcpCollection().DeleteMany(ctx, bson.D{{"store", storeFilter}})
+	_, err := conn.BcpCollection().DeleteMany(ctx, filter)
 	if err != nil {
 		return errors.Wrapf(err, "delete all backup meta from db")
 	}

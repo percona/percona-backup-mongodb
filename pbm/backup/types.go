@@ -86,9 +86,14 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 	return nil
 }
 
+// Storage keeps storage configuration used during backup.
+//
+// If external configuration is used, IsProfile is `true` and Name is set.
 type Storage struct {
-	Name      string `bson:"name,omitempty" json:"name,omitempty"`
-	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty"`
+	// Name is config profile name.
+	Name string `bson:"name,omitempty" json:"name,omitempty"`
+	// IsProfile is true when storage is non-main (external).
+	IsProfile bool `bson:"profile,omitempty" json:"profile,omitempty"`
 
 	config.Storage `bson:",inline" json:",inline"`
 }

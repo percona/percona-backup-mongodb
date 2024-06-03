@@ -110,7 +110,7 @@ func main() {
 	descConfigProfileCmd := configProfileCmd.
 		Command("describe", "Describe configuration profile")
 	descConfigProfileCmd.
-		Arg("name", "Profile name").
+		Arg("profile-name", "Profile name").
 		Required().
 		StringVar(&descConfigProfileOpts.name)
 
@@ -118,7 +118,7 @@ func main() {
 	addConfigProfileCmd := configProfileCmd.
 		Command("add", "Save configuration profile")
 	addConfigProfileCmd.
-		Arg("name", "Profile name").
+		Arg("profile-name", "Profile name").
 		Required().
 		StringVar(&addConfigProfileOpts.name)
 	addConfigProfileCmd.
@@ -137,7 +137,7 @@ func main() {
 	removeConfigProfileCmd := configProfileCmd.
 		Command("remove", "Remove configuration profile")
 	removeConfigProfileCmd.
-		Arg("name", "Profile name").
+		Arg("profile-name", "Profile name").
 		Required().
 		StringVar(&removeConfigProfileOpts.name)
 	removeConfigProfileCmd.
@@ -149,7 +149,7 @@ func main() {
 	syncConfigProfileCmd := configProfileCmd.
 		Command("sync", "Sync backup list from configuration profile")
 	syncConfigProfileCmd.
-		Arg("profile", "Profile name").
+		Arg("profile-name", "Profile name").
 		StringVar(&syncConfigProfileOpts.name)
 	syncConfigProfileCmd.
 		Flag("all", "Sync from all external storages").
@@ -689,6 +689,7 @@ type snapshotStat struct {
 	PBMVersion string          `json:"pbmVersion"`
 	Type       defs.BackupType `json:"type"`
 	SrcBackup  string          `json:"src"`
+	StoreName  string          `json:"storage,omitempty"`
 }
 
 type pitrRange struct {

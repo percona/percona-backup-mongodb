@@ -255,7 +255,30 @@ func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
 }
 
 func (c *clientImpl) SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+	if name == "" {
+		return NoOpID, errors.New("name is not provided")
+	}
+
 	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, name)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, "")
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+	if name == "" {
+		return NoOpID, errors.New("name is not provided")
+	}
+
+	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, name)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, "")
 	return CommandID(opid.String()), err
 }
 

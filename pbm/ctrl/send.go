@@ -93,29 +93,38 @@ func SendRemoveConfigProfile(ctx context.Context, m connect.Client, name string)
 	return sendCommand(ctx, m, cmd)
 }
 
+func SendResync(ctx context.Context, m connect.Client) (OPID, error) {
+	return sendCommand(ctx, m, Cmd{Cmd: CmdResync})
+}
+
 func SendSyncMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	opts := &ResyncCmd{}
+	if name != "" {
+		opts.Name = name
+	} else {
+		opts.All = true
+	}
+
 	cmd := Cmd{
-		Cmd: CmdResync,
-		Resync: &ResyncCmd{
-			Name: name,
-		},
+		Cmd:    CmdResync,
+		Resync: opts,
 	}
 	return sendCommand(ctx, m, cmd)
 }
 
 func SendClearMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	opts := &ResyncCmd{Clear: true}
+	if name != "" {
+		opts.Name = name
+	} else {
+		opts.All = true
+	}
+
 	cmd := Cmd{
-		Cmd: CmdResync,
-		Resync: &ResyncCmd{
-			Name:  name,
-			Clear: true,
-		},
+		Cmd:    CmdResync,
+		Resync: opts,
 	}
 	return sendCommand(ctx, m, cmd)
-}
-
-func SendResync(ctx context.Context, m connect.Client) (OPID, error) {
-	return sendCommand(ctx, m, Cmd{Cmd: CmdResync})
 }
 
 func SendCancelBackup(ctx context.Context, m connect.Client) (OPID, error) {

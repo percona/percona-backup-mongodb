@@ -27,9 +27,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-var ErrUnkownStorageType = errors.New("unknown storage type")
-
-var errMissedConfig = errors.New("missed config")
+var (
+	ErrUnkownStorageType   = errors.New("unknown storage type")
+	ErrMissedConfig        = errors.New("missed config")
+	ErrMissedConfigProfile = errors.New("missed config profile")
+)
 
 type confMap map[string]reflect.Kind
 
@@ -67,11 +69,12 @@ type Config struct {
 	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
 	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty" yaml:"profile,omitempty"`
 
-	Storage Storage             `bson:"storage" json:"storage" yaml:"storage"`
-	Oplog   *GlobalSlicer       `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
-	Backup  *Backup             `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
-	Restore *Restore            `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
-	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Storage Storage       `bson:"storage" json:"storage" yaml:"storage"`
+	Oplog   *GlobalSlicer `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
+	Backup  *Backup       `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Restore *Restore      `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+
+	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
 func Parse(r io.Reader) (*Config, error) {
@@ -569,7 +572,7 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 	cfg, err := GetConfig(ctx, m)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			err = errMissedConfig
+			err = ErrMissedConfig
 		}
 
 		return false, false, errors.Wrap(err, "get config")

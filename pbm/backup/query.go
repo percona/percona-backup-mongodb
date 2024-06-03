@@ -228,13 +228,19 @@ func LastIncrementalBackup(ctx context.Context, conn connect.Client) (*BackupMet
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
 func GetLastBackup(ctx context.Context, conn connect.Client, before *primitive.Timestamp) (*BackupMeta, error) {
-	return getRecentBackup(ctx, conn, nil, before, -1,
-		bson.D{{"nss", nil}, {"type", bson.M{"$ne": defs.ExternalBackup}}})
+	return getRecentBackup(ctx, conn, nil, before, -1, bson.D{
+		{"nss", nil},
+		{"type", bson.M{"$ne": defs.ExternalBackup}},
+		{"store.profile", nil},
+	})
 }
 
 func GetFirstBackup(ctx context.Context, conn connect.Client, after *primitive.Timestamp) (*BackupMeta, error) {
-	return getRecentBackup(ctx, conn, after, nil, 1,
-		bson.D{{"nss", nil}, {"type", bson.M{"$ne": defs.ExternalBackup}}})
+	return getRecentBackup(ctx, conn, after, nil, 1, bson.D{
+		{"nss", nil},
+		{"type", bson.M{"$ne": defs.ExternalBackup}},
+		{"store.profile", nil},
+	})
 }
 
 func getRecentBackup(
@@ -297,6 +303,7 @@ func findBaseSnapshotLWImpl(
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
+		{"store.profile", nil},
 		{"last_write_ts", lwCond},
 		{"status", defs.StatusDone},
 	}

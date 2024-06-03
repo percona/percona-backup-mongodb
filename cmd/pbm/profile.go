@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/sdk"
@@ -69,7 +71,7 @@ func handleDescibeConfigProfiles(
 	opts descConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("argument `name` should not be empty")
+		return nil, errors.New("argument `profile-name` should not be empty")
 	}
 
 	return pbm.GetConfigProfile(ctx, opts.name)
@@ -81,10 +83,15 @@ func handleAddConfigProfile(
 	opts addConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("argument `name` should not be empty")
+		return nil, errors.New("argument `profile-name` should not be empty")
 	}
-	if opts.file == nil {
-		return nil, errors.New("missed file: nil value")
+
+	_, err := pbm.GetConfig(ctx)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.New("PBM is not configured")
+		}
+		return nil, errors.Wrap(err, "get config")
 	}
 
 	cfg, err := config.Parse(opts.file)
@@ -127,7 +134,7 @@ func handleRemoveConfigProfile(
 	opts removeConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
-		return nil, errors.New("argument `name` should not be empty")
+		return nil, errors.New("argument `profile-name` should not be empty")
 	}
 
 	cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
@@ -151,13 +158,28 @@ func handleSyncConfigProfile(
 	opts syncConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if !opts.all && opts.name == "" {
-		return nil, errors.New("--profile or --all is required")
+		return nil, errors.New("<profile-name> or --all must be provided")
 	}
 	if opts.all && opts.name != "" {
-		return nil, errors.New("ambiguous params: --profile and --all are set")
+		return nil, errors.New("ambiguous: <profile-name> and --all are provided")
 	}
 
-	cid, err := pbm.SyncFromExternalStorage(ctx, opts.name)
+	var err error
+	var cid sdk.CommandID
+
+	if opts.clear {
+		if opts.all {
+			cid, err = pbm.ClearSyncFromAllExternalStorages(ctx)
+		} else {
+			cid, err = pbm.ClearSyncFromExternalStorage(ctx, opts.name)
+		}
+	} else {
+		if opts.all {
+			cid, err = pbm.SyncFromAllExternalStorages(ctx)
+		} else {
+			cid, err = pbm.SyncFromExternalStorage(ctx, opts.name)
+		}
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "sync from storage")
 	}

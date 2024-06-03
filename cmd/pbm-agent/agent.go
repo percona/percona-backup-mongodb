@@ -225,21 +225,64 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	l.Info("started")
 
 	if cmd.All {
-		err = syncAllProfile(ctx, a.leadConn)
+		profiles, err := config.ListProfiles(ctx, a.leadConn)
 		if err != nil {
-			l.Error("sync all profiles: %v", err)
+			l.Error("get config profiles: %v", err)
 			return
+		}
+
+		if cmd.Clear {
+			l.Debug("clearing backup list for %d config profiles", len(profiles))
+			for i := range profiles {
+				name := profiles[i].Name
+				err = resync.ClearBackupList(ctx, a.leadConn, name)
+				if err != nil {
+					l.Error("clear backup list for %q: %v", name, err)
+				}
+			}
+		} else {
+			l.Debug("syncing backup list for %d config profiles", len(profiles))
+			for i := range profiles {
+				profile := &profiles[i]
+				err = resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name)
+				if err != nil {
+					l.Error("sync backup list for %q: %v", profile.Name, err)
+					return
+				}
+			}
 		}
 	} else if cmd.Name != "" {
-		err = syncProfile(ctx, a.leadConn, cmd.Name)
+		profile, err := config.GetProfile(ctx, a.leadConn, cmd.Name)
 		if err != nil {
-			l.Error("sync profile %q: %v", cmd.Name, err)
+			l.Error("get config profile: %v", err)
 			return
 		}
-	} else {
-		err = syncMain(ctx, a.leadConn)
+
+		if cmd.Clear {
+			l.Debug("clearing backup list for %q", profile.Name)
+			err = resync.ClearBackupList(ctx, a.leadConn, profile.Name)
+			if err != nil {
+				l.Error("clear backup list for %q: %v", profile.Name, err)
+			}
+		} else {
+			l.Debug("syncing backup list for %q", profile.Name)
+			err = resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name)
+			if err != nil {
+				l.Error("sync backup list for %q: %v", profile.Name, err)
+				return
+			}
+		}
+	} else { // resync main storage only
+		l.Debug("resync from main storage")
+		cfg, err := config.GetConfig(ctx, a.leadConn)
 		if err != nil {
-			l.Error(err.Error())
+			l.Error("get config: %v", err)
+			return
+		}
+
+		err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
+		if err != nil {
+			l.Error("resync: %v", err)
 			return
 		}
 
@@ -252,50 +295,6 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	}
 
 	l.Info("succeed")
-}
-
-func syncProfile(ctx context.Context, conn connect.Client, profileName string) error {
-	cfg, err := config.GetProfile(ctx, conn, profileName)
-	if err != nil {
-		return errors.Wrap(err, "get config profile")
-	}
-
-	err = resync.SyncBackupList(ctx, conn, &cfg.Storage, cfg.Name)
-	if err != nil {
-		return errors.Wrap(err, "sync backup list")
-	}
-
-	return nil
-}
-
-func syncAllProfile(ctx context.Context, conn connect.Client) error {
-	profiles, err := config.ListProfiles(ctx, conn)
-	if err != nil {
-		return errors.Wrap(err, "get config profiles")
-	}
-
-	for i := range profiles {
-		err = syncProfile(ctx, conn, profiles[i].Name)
-		if err != nil {
-			return errors.Wrapf(err, "sync profile %q", profiles[i].Name)
-		}
-	}
-
-	return nil
-}
-
-func syncMain(ctx context.Context, conn connect.Client) error {
-	cfg, err := config.GetConfig(ctx, conn)
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-
-	err = resync.Resync(ctx, conn, &cfg.Storage)
-	if err != nil {
-		return errors.Wrap(err, "resync")
-	}
-
-	return nil
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock
