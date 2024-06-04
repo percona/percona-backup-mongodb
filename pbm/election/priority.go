@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -46,9 +45,8 @@ type agentScore func(topo.AgentStat) float64
 // if the config is set.
 func CalcNodesPriority(
 	ctx context.Context,
-	m connect.Client,
 	c map[string]float64,
-	cfgPrio map[string]float64,
+	expPrio map[string]float64,
 	agents []topo.AgentStat,
 ) (*NodesPriority, error) {
 	// if config level priorities (cfgPrio) aren't set, apply defaults
@@ -63,9 +61,9 @@ func CalcNodesPriority(
 		return defaultScore
 	}
 
-	if cfgPrio != nil || len(cfgPrio) > 0 {
+	if expPrio != nil || len(expPrio) > 0 {
 		f = func(a topo.AgentStat) float64 {
-			sc, ok := cfgPrio[a.Node]
+			sc, ok := expPrio[a.Node]
 			if !ok || sc < 0 {
 				return defaultScore
 			}
