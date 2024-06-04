@@ -1,4 +1,4 @@
-package election
+package prio
 
 import (
 	"context"

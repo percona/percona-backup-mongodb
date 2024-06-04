@@ -8,10 +8,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
-	"github.com/percona/percona-backup-mongodb/pbm/election"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -173,7 +173,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			validCandidates = append(validCandidates, s)
 		}
 
-		nodes, err := election.CalcNodesPriority(ctx, c, cfg.Backup.Priority, validCandidates)
+		nodes, err := prio.CalcNodesPriority(ctx, c, cfg.Backup.Priority, validCandidates)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return
