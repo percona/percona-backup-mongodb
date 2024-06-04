@@ -292,7 +292,7 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		bcpShards[i] = bcp.Replsets[i].Name
 	}
 
-	if !Contains(bcpShards, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+	if !slices.Contains(bcpShards, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
 		return r.Done(ctx) // skip. no backup for current rs
 	}
 
@@ -382,7 +382,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return errors.Wrap(err, "topology")
 	}
 
-	if !Contains(oplogShards, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
+	if !slices.Contains(oplogShards, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)) {
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
