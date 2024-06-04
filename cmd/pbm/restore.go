@@ -103,7 +103,7 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
-		return nil, errors.Wrap(err, "parse --with-users-and-roles-option")
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
