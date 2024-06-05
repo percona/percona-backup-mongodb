@@ -118,7 +118,7 @@ func runBackup(
 			return nil, errors.New("no config set. Set config with <pbm config>")
 		}
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			return nil, errors.Errorf("invalid profile: %v", b.profile)
+			return nil, errors.Errorf("profile %q is not found", b.profile)
 		}
 		return nil, errors.Wrap(err, "get config")
 	}
@@ -355,23 +355,23 @@ func byteCountIEC(b int64) string {
 }
 
 func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b *descBcp) (fmt.Stringer, error) {
-	opts := sdk.GetBackupByNameOptions{}
-	bcp, err := pbm.GetBackupByName(ctx, b.name, opts)
+	bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get backup meta")
 	}
 
 	var stg storage.Storage
-	if b.coll {
-		l := log.FromContext(ctx).NewDefaultEvent()
-		stg, err = util.GetStorage(ctx, conn, l)
+	if b.coll || bcp.Size == 0 {
+		// to read backed up collection names
+		// or calculate size of files for legacy backups
+		stg, err = util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		_, err = stg.FileStat(defs.StorInitFile)
-		if err != nil {
-			return nil, errors.Wrap(err, "check storage access")
+		err = storage.HasReadAccess(ctx, stg)
+		if err != nil && !errors.Is(err, storage.ErrUninitialized) {
+			return nil, errors.Wrap(err, "check read access")
 		}
 	}
 
@@ -399,12 +399,6 @@ func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b 
 	if bcp.Size == 0 {
 		switch bcp.Status {
 		case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
-			l := log.FromContext(ctx).NewDefaultEvent()
-			stg, err := util.GetStorage(ctx, conn, l)
-			if err != nil {
-				return nil, errors.Wrap(err, "get storage")
-			}
-
 			rv.Size, err = getLegacySnapshotSize(bcp, stg)
 			if errors.Is(err, errMissedFile) && bcp.Status != defs.StatusDone {
 				// canceled/failed backup can be incomplete. ignore

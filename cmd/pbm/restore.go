@@ -395,16 +395,15 @@ func doRestore(
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
 		ep, _ := config.GetEpoch(ctx, conn)
-		logger := log.FromContext(ctx)
-		l := logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+
 		stg, err := util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
 		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
-			return restore.GetPhysRestoreMeta(name, stg,
-				logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS()))
+			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}

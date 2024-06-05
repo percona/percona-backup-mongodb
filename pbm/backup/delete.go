@@ -74,7 +74,7 @@ func deleteBackupImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) e
 		return err
 	}
 
-	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -108,7 +108,7 @@ func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *Back
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -477,9 +477,14 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 }
 
-// listBackupsBefore returns backups with restore cluster time less than or equals to ts
+// listBackupsBefore returns backups with restore cluster time less than or equals to ts.
+//
+// It does not include backups stored on an external storages.
 func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]BackupMeta, error) {
-	f := bson.D{{"last_write_ts", bson.M{"$lt": ts}}}
+	f := bson.D{
+		{"store.profile", nil},
+		{"last_write_ts", bson.M{"$lt": ts}},
+	}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)
 	if err != nil {

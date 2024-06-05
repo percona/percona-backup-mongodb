@@ -141,7 +141,7 @@ func (c *clientImpl) GetBackupByName(
 	}
 
 	if options.FetchFilelist {
-		err = fillFilelistForBackup(ctx, c.conn, bcp)
+		err = fillFilelistForBackup(ctx, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -150,7 +150,7 @@ func (c *clientImpl) GetBackupByName(
 	return bcp, nil
 }
 
-func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMetadata) error {
+func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	var err error
 	var stg storage.Storage
 
@@ -158,7 +158,7 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.GetStorage(ctx, cc, nil)
+		stg, err = util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -191,7 +191,7 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 
 			if stg == nil {
 				// in case if it is the first backup made with filelist file
-				stg, err = getStorageForRead(ctx, cc)
+				stg, err = getStorageForRead(ctx, bcp)
 				if err != nil {
 					return errors.Wrap(err, "get storage")
 				}
@@ -216,8 +216,8 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 	return eg.Wait()
 }
 
-func getStorageForRead(ctx context.Context, cc connect.Client) (storage.Storage, error) {
-	stg, err := util.GetStorage(ctx, cc, nil)
+func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
+	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}

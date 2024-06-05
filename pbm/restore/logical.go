@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,12 @@ type Restore struct {
 	opid string
 
 	indexCatalog *idx.IndexCatalog
+}
+
+type oplogRange struct {
+	chunks []oplog.OplogChunk
+
+	storage storage.Storage
 }
 
 // PBM restore from temp collections (pbmRUsers/pbmRRoles)should be used
@@ -141,17 +148,24 @@ func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRol
 // Snapshot do the snapshot's (mongo dump) restore
 //
 //nolint:nonamedreturns
-func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
-	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
+func (r *Restore) Snapshot(
+	ctx context.Context,
+	cmd *ctrl.RestoreCmd,
+	opid ctrl.OPID,
+	bcp *backup.BackupMeta,
+) (err error) {
+	l := log.LogEventFromContext(ctx)
 
-	bcp, err := SnapshotMeta(ctx, r.leadConn, cmd.BackupName, r.stg)
-	if err != nil {
-		return err
-	}
+	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
 
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
 		return err
+	}
+
+	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
 	}
 
 	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
@@ -196,13 +210,15 @@ func (r *Restore) Snapshot(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.
 		return err
 	}
 
+	oplogRanges := []oplogRange{
+		{chunks: chunks, storage: r.stg},
+	}
 	oplogOption := &applyOplogOption{end: &bcp.LastWriteTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
-
-	err = r.applyOplog(ctx, chunks, oplogOption)
+	err = r.applyOplog(ctx, oplogRanges, oplogOption)
 	if err != nil {
 		return err
 	}
@@ -245,7 +261,14 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 // PITR do the Point-in-Time Recovery
 //
 //nolint:nonamedreturns
-func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
+func (r *Restore) PITR(
+	ctx context.Context,
+	cmd *ctrl.RestoreCmd,
+	opid ctrl.OPID,
+	bcp *backup.BackupMeta,
+) (err error) {
+	l := log.LogEventFromContext(ctx)
+
 	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
 
 	err = r.init(ctx, cmd.Name, opid, l)
@@ -253,13 +276,14 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
-	bcp, err := SnapshotMeta(ctx, r.leadConn, cmd.BackupName, r.stg)
-	if err != nil {
-		return errors.Wrap(err, "get base backup")
-	}
 	if bcp.LastWriteTS.Compare(cmd.OplogTS) >= 0 {
 		return errors.New("snapshot's last write is later than the target time. " +
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+	}
+
+	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
 	}
 
 	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
@@ -325,13 +349,21 @@ func (r *Restore) PITR(ctx context.Context, cmd *ctrl.RestoreCmd, opid ctrl.OPID
 		return err
 	}
 
+	oplogStorage, err := util.GetStorage(ctx, r.leadConn, l)
+	if err != nil {
+		return errors.Wrap(err, "get oplog storage")
+	}
+
+	oplogRanges := []oplogRange{
+		{chunks: bcpChunks, storage: r.stg},
+		{chunks: chunks, storage: oplogStorage},
+	}
 	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
-
-	err = r.applyOplog(ctx, append(bcpChunks, chunks...), &oplogOption)
+	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
 	if err != nil {
 		return err
 	}
@@ -396,12 +428,16 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return err
 	}
 
+	oplogRanges := []oplogRange{
+		{chunks: opChunks, storage: r.stg},
+	}
 	oplogOption := applyOplogOption{
 		start:  &cmd.Start,
 		end:    &cmd.End,
 		unsafe: true,
 	}
-	if err = r.applyOplog(ctx, opChunks, &oplogOption); err != nil {
+	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
+	if err != nil {
 		return err
 	}
 
@@ -480,11 +516,6 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 		return errors.Wrap(err, "add shard's metadata")
 	}
 
-	r.stg, err = util.GetStorage(ctx, r.leadConn, r.log)
-	if err != nil {
-		return errors.Wrap(err, "get backup storage")
-	}
-
 	return nil
 }
 
@@ -520,18 +551,32 @@ func (r *Restore) chunks(ctx context.Context, from, to primitive.Timestamp) ([]o
 	return chunks(ctx, r.leadConn, r.stg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
-func SnapshotMeta(
+// LookupBackupMeta fetches backup metadata.
+//
+// It tries to find the metadata in database. If there is no such metadata in
+// database, it tries to fetch from the main storage.
+func LookupBackupMeta(
 	ctx context.Context,
 	conn connect.Client,
 	backupName string,
-	stg storage.Storage,
 ) (*backup.BackupMeta, error) {
 	bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, backupName)
-	if errors.Is(err, errors.ErrNotFound) {
-		bcp, err = GetMetaFromStore(stg, backupName)
+	if err == nil {
+		return bcp, nil
 	}
+	if !errors.Is(err, errors.ErrNotFound) {
+		return nil, errors.Wrap(err, "get backup metadata from db")
+	}
+
+	var stg storage.Storage
+	stg, err = util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
 	if err != nil {
-		return nil, errors.Wrap(err, "get backup metadata")
+		return nil, errors.Wrap(err, "get storage")
+	}
+
+	bcp, err = GetMetaFromStore(stg, backupName)
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup metadata from storage")
 	}
 
 	return bcp, nil
@@ -724,19 +769,9 @@ func (r *Restore) RunSnapshot(
 			// so we'll continue with selective restore
 		}
 
-		var cfg *config.Config
-		// get pbm.Config for creating a storage.Storage later.
-		// while r.stg is already created storage for the restore,
-		// it triggers data race warnings during concurrent file downloading/reading.
-		// for that, it's better to create a new storage for each file
-		cfg, err = config.GetConfig(ctx, r.leadConn)
-		if err != nil {
-			return errors.Wrap(err, "get config")
-		}
-
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(&cfg.Storage, r.log)
+				stg, err := util.StorageFromConfig(&bcp.Store.Storage, r.log)
 				if err != nil {
 					return nil, errors.Wrap(err, "get storage")
 				}
@@ -1086,15 +1121,22 @@ func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Tim
 	return txn, nil
 }
 
-func (r *Restore) applyOplog(ctx context.Context, chunks []oplog.OplogChunk, options *applyOplogOption) error {
+func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *applyOplogOption) error {
 	mgoV, err := version.GetMongoVersion(ctx, r.nodeConn)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
 	stat := phys.RestoreShardStat{}
-	partial, err := applyOplog(ctx, r.nodeConn, chunks, options, r.nodeInfo.IsSharded(),
-		r.indexCatalog, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
-		&mgoV, r.stg, r.log)
+	partial, err := applyOplog(ctx,
+		r.nodeConn,
+		ranges,
+		options,
+		r.nodeInfo.IsSharded(),
+		r.indexCatalog,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		&stat.Txn,
+		&mgoV)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

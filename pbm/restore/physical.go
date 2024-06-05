@@ -35,7 +35,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
@@ -762,12 +761,14 @@ func (r *PhysRestore) Snapshot(
 		meta.Type = r.bcp.Type
 	}
 
-	var opChunks []oplog.OplogChunk
+	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
-		opChunks, err = chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
+		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
+
+		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: r.stg})
 	}
 
 	if meta.Type == defs.IncrementalBackup {
@@ -925,7 +926,7 @@ func (r *PhysRestore) Snapshot(
 
 	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
 		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, opChunks, &stats)
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, &stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}
@@ -1292,8 +1293,9 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) replayOplog(
-	from, to primitive.Timestamp,
-	opChunks []oplog.OplogChunk,
+	from primitive.Timestamp,
+	to primitive.Timestamp,
+	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
 	err := r.startMongo("--dbpath", r.dbpath,
@@ -1302,13 +1304,13 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
 	ctx := context.Background()
-	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+	_, err = nodeConn.Database("local").Collection("system.replset").InsertOne(ctx,
 		topo.RSConfig{
 			ID:      r.rsConf.ID,
 			CSRS:    r.nodeInfo.IsConfigSrv(),
@@ -1326,7 +1328,7 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
 
-	err = shutdown(c, r.dbpath)
+	err = shutdown(nodeConn, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -1345,12 +1347,12 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "start mongo as rs")
 	}
 
-	c, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	nodeConn, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo rs")
 	}
 
-	mgoV, err := version.GetMongoVersion(ctx, c)
+	mgoV, err := version.GetMongoVersion(ctx, nodeConn)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
@@ -1360,9 +1362,16 @@ func (r *PhysRestore) replayOplog(
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(ctx, c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
-		&mgoV, r.stg, r.log)
+	partial, err := applyOplog(ctx,
+		nodeConn,
+		oplogRanges,
+		&oplogOption,
+		r.nodeInfo.IsSharded(),
+		nil,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		&stat.Txn,
+		&mgoV)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}
@@ -1383,7 +1392,7 @@ func (r *PhysRestore) replayOplog(
 		}
 	}
 
-	err = shutdown(c, r.dbpath)
+	err = shutdown(nodeConn, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}

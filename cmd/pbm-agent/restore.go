@@ -374,20 +374,16 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		a.removePitr()
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, l)
-	if err != nil {
-		l.Error("get storage: %v", err)
-		return
-	}
-
 	var bcpType defs.BackupType
-	bcp := &backup.BackupMeta{}
+	var bcp *backup.BackupMeta
 
 	if r.External && r.BackupName == "" {
 		bcpType = defs.ExternalBackup
 	} else {
 		l.Info("backup: %s", r.BackupName)
-		bcp, err = restore.SnapshotMeta(ctx, a.leadConn, r.BackupName, stg)
+
+		// XXX: why is backup searched on storage?
+		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName)
 		if err != nil {
 			l.Error("define base backup: %v", err)
 			return
@@ -410,9 +406,9 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 		if r.OplogTS.IsZero() {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).Snapshot(ctx, r, opid, l)
+			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).Snapshot(ctx, r, opid, bcp)
 		} else {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, l)
+			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, bcp)
 		}
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
 		if lck != nil {
