@@ -224,13 +224,13 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
-	ibcp := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
-	ibcp.SetSpan(slicerInterval)
+	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
+	s.SetSpan(slicerInterval)
 
 	if cfg.PITR.OplogOnly {
-		err = ibcp.OplogOnlyCatchup(ctx)
+		err = s.OplogOnlyCatchup(ctx)
 	} else {
-		err = ibcp.Catchup(ctx)
+		err = s.Catchup(ctx)
 	}
 	if err != nil {
 		if err := lck.Release(); err != nil {
@@ -246,7 +246,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 		w := make(chan ctrl.OPID)
 		a.setPitr(&currentPitr{
-			slicer: ibcp,
+			slicer: s,
 			cancel: stopSlicing,
 			w:      w,
 		})
@@ -257,7 +257,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			a.removePitr()
 		}()
 
-		streamErr := ibcp.Stream(ctx,
+		streamErr := s.Stream(ctx,
 			stopC,
 			w,
 			cfg.PITR.Compression,
