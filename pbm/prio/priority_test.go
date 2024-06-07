@@ -328,7 +328,7 @@ func TestCalcNodesPriority(t *testing.T) {
 				},
 			},
 			{
-				desc: "only primary is down prioritised",
+				desc: "only primary is down prioritized",
 				agents: []topo.AgentStat{
 					newP("rs0", "rs01"),
 					newS("rs0", "rs02"),
