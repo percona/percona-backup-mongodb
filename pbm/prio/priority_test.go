@@ -10,7 +10,6 @@ import (
 )
 
 func TestCalcNodesPriority(t *testing.T) {
-
 	t.Run("implicit priorities - rs", func(t *testing.T) {
 		testCases := []struct {
 			desc   string
@@ -72,7 +71,6 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-
 				np, err := CalcNodesPriority(context.Background(), nil, nil, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
@@ -151,7 +149,6 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-
 				np, err := CalcNodesPriority(context.Background(), nil, nil, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
@@ -175,7 +172,6 @@ func TestCalcNodesPriority(t *testing.T) {
 	})
 
 	t.Run("explicit priorities - rs", func(t *testing.T) {
-
 		testCases := []struct {
 			desc    string
 			agents  []topo.AgentStat
@@ -265,7 +261,6 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-
 				np, err := CalcNodesPriority(context.Background(), nil, tC.expPrio, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
@@ -361,7 +356,6 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-
 				np, err := CalcNodesPriority(context.Background(), nil, tC.expPrio, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
