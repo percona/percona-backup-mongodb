@@ -125,6 +125,10 @@ func (c Config) BackupSlicerInterval() time.Duration {
 	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
 }
 
+// Priority contains priority values for cluster members.
+// It is used for specifying Backup and PITR configuration priorities.
+type Priority map[string]float64
+
 // PITRConf is a Point-In-Time Recovery options
 //
 //nolint:lll
@@ -132,6 +136,7 @@ type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
+	Priority         Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
@@ -218,7 +223,7 @@ type RestoreConf struct {
 //nolint:lll
 type BackupConf struct {
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Priority         Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
