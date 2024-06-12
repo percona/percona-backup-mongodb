@@ -327,6 +327,10 @@ func (l *clientImpl) PITRChunksCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PITRChunksCollection)
 }
 
+func (l *clientImpl) PITRCollection() *mongo.Collection {
+	return l.client.Database(defs.DB).Collection(defs.PITRCollection)
+}
+
 func (l *clientImpl) PBMOpLogCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PBMOpLogCollection)
 }
@@ -376,6 +380,7 @@ type Client interface {
 	RestoresCollection() *mongo.Collection
 	CmdStreamCollection() *mongo.Collection
 	PITRChunksCollection() *mongo.Collection
+	PITRCollection() *mongo.Collection
 	PBMOpLogCollection() *mongo.Collection
 	AgentsStatusCollection() *mongo.Collection
 }
