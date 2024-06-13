@@ -14,6 +14,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -59,6 +61,7 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 }
 
 const pitrCheckPeriod = time.Second * 15
+const pitrRenominationFrame = 5 * time.Second
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
@@ -134,16 +137,18 @@ func (a *Agent) pitr(ctx context.Context) error {
 		cfg = &config.Config{}
 	}
 
-	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
+	slicerInterval := cfg.OplogSlicerInterval()
+
+	ep := config.Epoch(cfg.Epoch)
+	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
 
 	if !cfg.PITR.Enabled {
 		a.removePitr()
 		return nil
 	}
 
-	ep := config.Epoch(cfg.Epoch)
-	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
+	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 
 	if err := canSlicingNow(ctx, a.leadConn); err != nil {
 		e := lock.ConcurrentOpError{}
@@ -155,10 +160,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return err
 	}
 
-	slicerInterval := cfg.OplogSlicerInterval()
-
 	if p := a.getPitr(); p != nil {
 		// already do the job
+		//todo: remove this span changing detaction to leader
 		currInterval := p.slicer.GetSpan()
 		if currInterval != slicerInterval {
 			p.slicer.SetSpan(slicerInterval)
@@ -178,8 +182,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "check if already run")
 	}
-
 	if !moveOn {
+		l.Debug("pitr running on another RS member")
 		return nil
 	}
 
@@ -188,17 +192,61 @@ func (a *Agent) pitr(ctx context.Context) error {
 	// if node failing, then some other agent with healthy node will hopefully catch up
 	// so this code won't be reached and will not pollute log with "pitr" errors while
 	// the other node does successfully slice
-	ninf, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
+		l.Error("get node info: %v", err)
 		return errors.Wrap(err, "get node info")
 	}
-	q, err := topo.NodeSuits(ctx, a.nodeConn, ninf)
+
+	q, err := topo.NodeSuits(ctx, a.nodeConn, nodeInfo)
 	if err != nil {
 		return errors.Wrap(err, "node check")
 	}
-
-	// node is not suitable for doing backup
+	// node is not suitable for doing pitr
 	if !q {
+		return nil
+	}
+
+	isClusterLeader := nodeInfo.IsClusterLeader()
+
+	if isClusterLeader {
+		//todo: init meta on first usage
+		//oplog.InitMeta(ctx, a.leadConn)
+
+		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get agents list: %v", err)
+			return errors.Wrap(err, "list agents statuses")
+		}
+
+		nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.Backup.Priority, agents)
+		if err != nil {
+			l.Error("get nodes priority: %v", err)
+			return errors.Wrap(err, "get nodes priorities")
+		}
+
+		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
+		if err != nil {
+			l.Error("get cluster members: %v", err)
+			return errors.Wrap(err, "get cluster members")
+		}
+
+		for _, sh := range shards {
+			go func(rs string) {
+				if err := a.nominateRSForPITR(ctx, rs, nodes.RS(rs)); err != nil {
+					l.Error("nodes nomination error for %s: %v", rs, err)
+				}
+			}(sh.RS)
+		}
+	}
+
+	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
+	if err != nil {
+		l.Error("wait for pitr nomination: %v", err)
+		return errors.Wrap(err, "wait nomination for pitr")
+	}
+	if !nominated {
+		l.Debug("skip after pitr nomination, probably started by another node")
 		return nil
 	}
 
@@ -218,6 +266,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		l.Debug("skip: lock not acquired")
 		return nil
 	}
+	err = oplog.SetPITRNomineeACK(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
 
 	stg, err := util.StorageFromConfig(cfg.Storage, l)
 	if err != nil {
@@ -286,6 +335,36 @@ func (a *Agent) pitr(ctx context.Context) error {
 	return nil
 }
 
+func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("pitr nomination list for %s: %v", rs, nodes)
+	err := oplog.SetPITRNomination(ctx, a.leadConn, rs)
+	if err != nil {
+		return errors.Wrap(err, "set pitr nomination meta")
+	}
+
+	for _, n := range nodes {
+		nms, err := oplog.GetPITRNominees(ctx, a.leadConn, rs)
+		if err != nil && !errors.Is(err, errors.ErrNotFound) {
+			return errors.Wrap(err, "get pitr nominees")
+		}
+		if nms != nil && len(nms.Ack) > 0 {
+			l.Debug("pitr nomination: %s won by %s", rs, nms.Ack)
+			return nil
+		}
+
+		err = oplog.SetPITRNominees(ctx, a.leadConn, rs, n)
+		if err != nil {
+			return errors.Wrap(err, "set pitr nominees")
+		}
+		l.Debug("pitr nomination %s, set candidates %v", rs, n)
+
+		time.Sleep(pitrRenominationFrame)
+	}
+
+	return nil
+}
+
 func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 	ts, err := topo.GetClusterTime(ctx, a.leadConn)
 	if err != nil {
@@ -307,4 +386,38 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 
 	// stale lock means we should move on and clean it up during the lock.Acquire
 	return tl.Heartbeat.T+defs.StaleFrameSec < ts.T, nil
+}
+
+func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (bool, error) {
+	l := log.LogEventFromContext(ctx)
+
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+
+	l.Debug("waiting pitr nomination")
+	for {
+		select {
+		case <-tk.C:
+
+			nm, err := oplog.GetPITRNominees(ctx, a.leadConn, rs)
+			if err != nil {
+				if errors.Is(err, errors.ErrNotFound) {
+					continue
+				}
+				return false, errors.Wrap(err, "check pitr nomination")
+			}
+			if len(nm.Ack) > 0 {
+				return false, nil
+			}
+			for _, n := range nm.Nodes {
+				if n == node {
+					return true, nil
+				}
+			}
+		}
+		//todo: we should handle cancelation here also, for e.g.:
+		// - pitr is disabled
+		// - configuration has been changed
+		// - cluster topology has been changed
+	}
 }

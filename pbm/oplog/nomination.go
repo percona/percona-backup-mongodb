@@ -56,7 +56,7 @@ func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) erro
 			options.Update().SetUpsert(true),
 		)
 
-	return errors.Wrap(err, "update pirt nomination")
+	return errors.Wrap(err, "update pitr nomination")
 }
 
 // GetPITRNominees fetches nomination fragment for specified RS
