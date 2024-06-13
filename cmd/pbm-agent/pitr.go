@@ -219,7 +219,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			return errors.Wrap(err, "list agents statuses")
 		}
 
-		nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.Backup.Priority, agents)
+		nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.PITR.Priority, agents)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return errors.Wrap(err, "get nodes priorities")
