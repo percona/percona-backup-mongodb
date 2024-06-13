@@ -461,7 +461,7 @@ func describeBackup(ctx context.Context, conn connect.Client, pbm sdk.Client, b 
 // in given `bcps`.
 func bcpsMatchCluster(
 	bcps []backup.BackupMeta,
-	ver,
+	ver string,
 	fcv string,
 	shards []topo.Shard,
 	confsrv string,
@@ -478,7 +478,14 @@ func bcpsMatchCluster(
 	}
 }
 
-func bcpMatchCluster(bcp *backup.BackupMeta, ver, fcv string, shards map[string]bool, mapRS, mapRevRS util.RSMapFunc) {
+func bcpMatchCluster(
+	bcp *backup.BackupMeta,
+	ver string,
+	fcv string,
+	shards map[string]bool,
+	mapRS util.RSMapFunc,
+	mapRevRS util.RSMapFunc,
+) {
 	if bcp.Status != defs.StatusDone {
 		return
 	}

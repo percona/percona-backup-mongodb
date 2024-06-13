@@ -262,11 +262,11 @@ func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 	}
 
 	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
-	if errors.Is(err, storage.ErrNotExist) {
-		return nil
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+		return errors.Wrap(err, "delete metadata file from storage")
 	}
 
-	return errors.Wrap(err, "delete metadata file from storage")
+	return nil
 }
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
@@ -320,9 +320,9 @@ func deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error
 	}
 
 	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
-	if errors.Is(err, storage.ErrNotExist) {
-		return nil
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+		return errors.Wrap(err, "delete metadata file from storage")
 	}
 
-	return errors.Wrap(err, "delete metadata file from storage")
+	return nil
 }
