@@ -18,11 +18,10 @@ type showConfigProfileOptions struct {
 }
 
 type addConfigProfileOptions struct {
-	name  string
-	file  *os.File
-	force bool
-	sync  bool
-	wait  bool
+	name string
+	file *os.File
+	sync bool
+	wait bool
 }
 
 type removeConfigProfileOptions struct {

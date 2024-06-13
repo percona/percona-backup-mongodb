@@ -493,7 +493,7 @@ func main() {
 	case restoreFinishCmd.FullCommand():
 		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, conn, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(ctx, conn, &restore, pbmOutF)
 	case replayCmd.FullCommand():
