@@ -83,7 +83,15 @@ func (c *clientImpl) ListConfigProfiles(ctx context.Context) ([]config.Config, e
 }
 
 func (c *clientImpl) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
-	return config.GetProfile(ctx, c.conn, name)
+	profile, err := config.GetProfile(ctx, c.conn, name)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			err = config.ErrMissedConfigProfile
+		}
+		return nil, err
+	}
+
+	return profile, nil
 }
 
 func (c *clientImpl) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {

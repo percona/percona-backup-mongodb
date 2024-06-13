@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -179,6 +181,17 @@ func (a *Agent) handleRemoveConfigProfile(
 			l.Error("unable to release lock %v: %v", lck, err)
 		}
 	}()
+
+	_, err = config.GetProfile(ctx, a.leadConn, cmd.Name)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			l.Warning("profile %q is not found", cmd.Name)
+			return
+		}
+
+		l.Error("get config profile: %v", err)
+		return
+	}
 
 	err = resync.ClearBackupList(ctx, a.leadConn, cmd.Name)
 	if err != nil {

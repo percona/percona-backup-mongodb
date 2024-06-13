@@ -254,6 +254,10 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	} else if cmd.Name != "" {
 		profile, err := config.GetProfile(ctx, a.leadConn, cmd.Name)
 		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				err = errors.Errorf("profile %q not found", cmd.Name)
+			}
+
 			l.Error("get config profile: %v", err)
 			return
 		}

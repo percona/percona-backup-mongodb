@@ -74,7 +74,15 @@ func handleDescibeConfigProfiles(
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
 
-	return pbm.GetConfigProfile(ctx, opts.name)
+	profile, err := pbm.GetConfigProfile(ctx, opts.name)
+	if err != nil {
+		if errors.Is(err, config.ErrMissedConfigProfile) {
+			err = errors.Errorf("profile %q is not found", opts.name)
+		}
+		return nil, err
+	}
+
+	return profile, nil
 }
 
 func handleAddConfigProfile(
@@ -135,6 +143,14 @@ func handleRemoveConfigProfile(
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
 		return nil, errors.New("argument `profile-name` should not be empty")
+	}
+
+	_, err := pbm.GetConfigProfile(ctx, opts.name)
+	if err != nil {
+		if errors.Is(err, config.ErrMissedConfigProfile) {
+			err = errors.Errorf("profile %q is not found", opts.name)
+		}
+		return nil, err
 	}
 
 	cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
