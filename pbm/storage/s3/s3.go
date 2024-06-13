@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -71,28 +72,6 @@ type Config struct {
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
-func (c *Config) Clone() *Config {
-	if c == nil {
-		return nil
-	}
-
-	rv := *c
-	if c.ForcePathStyle != nil {
-		a := *c.ForcePathStyle
-		rv.ForcePathStyle = &a
-	}
-	if c.ServerSideEncryption != nil {
-		a := *c.ServerSideEncryption
-		rv.ServerSideEncryption = &a
-	}
-	if c.Retryer != nil {
-		a := *c.Retryer
-		rv.Retryer = &a
-	}
-
-	return &rv
-}
-
 type Retryer struct {
 	// Num max Retries is the number of max retries that will be performed.
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.NumMaxRetries
@@ -151,38 +130,107 @@ type AWSsse struct {
 	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
-func (c *Config) Cast() error {
-	if c.Region == "" {
-		c.Region = defaultS3Region
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
 	}
-	if c.ForcePathStyle == nil {
-		c.ForcePathStyle = aws.Bool(true)
+
+	rv := *cfg
+	if cfg.ForcePathStyle != nil {
+		a := *cfg.ForcePathStyle
+		rv.ForcePathStyle = &a
 	}
-	if c.Provider == S3ProviderUndef {
-		c.Provider = S3ProviderAWS
-		if c.EndpointURL != "" {
-			eu, err := url.Parse(c.EndpointURL)
+	if cfg.ServerSideEncryption != nil {
+		a := *cfg.ServerSideEncryption
+		rv.ServerSideEncryption = &a
+	}
+	if cfg.Retryer != nil {
+		a := *cfg.Retryer
+		rv.Retryer = &a
+	}
+
+	return &rv
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Provider != other.Provider {
+		return false
+	}
+	if cfg.Region != other.Region {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	if cfg.StorageClass != other.StorageClass {
+		return false
+	}
+
+	lhs, rhs := true, true
+	if cfg.ForcePathStyle != nil {
+		lhs = *cfg.ForcePathStyle
+	}
+	if other.ForcePathStyle != nil {
+		rhs = *other.ForcePathStyle
+	}
+	if lhs != rhs {
+		return false
+	}
+
+	// TODO: check only required fields
+	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
+		return false
+	}
+	// TODO: check only required fields
+	if !reflect.DeepEqual(cfg.ServerSideEncryption, other.ServerSideEncryption) {
+		return false
+	}
+
+	return true
+}
+
+func (cfg *Config) Cast() error {
+	if cfg.Region == "" {
+		cfg.Region = defaultS3Region
+	}
+	if cfg.ForcePathStyle == nil {
+		cfg.ForcePathStyle = aws.Bool(true)
+	}
+	if cfg.Provider == S3ProviderUndef {
+		cfg.Provider = S3ProviderAWS
+		if cfg.EndpointURL != "" {
+			eu, err := url.Parse(cfg.EndpointURL)
 			if err != nil {
 				return errors.Wrap(err, "parse EndpointURL")
 			}
 			if eu.Host == GCSEndpointURL {
-				c.Provider = S3ProviderGCS
+				cfg.Provider = S3ProviderGCS
 			}
 		}
 	}
-	if c.MaxUploadParts <= 0 {
-		c.MaxUploadParts = s3manager.MaxUploadParts
+	if cfg.MaxUploadParts <= 0 {
+		cfg.MaxUploadParts = s3manager.MaxUploadParts
 	}
-	if c.StorageClass == "" {
-		c.StorageClass = s3.StorageClassStandard
+	if cfg.StorageClass == "" {
+		cfg.StorageClass = s3.StorageClassStandard
 	}
 
-	if c.Retryer != nil {
-		if c.Retryer.MinRetryDelay == 0 {
-			c.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+	if cfg.Retryer != nil {
+		if cfg.Retryer.MinRetryDelay == 0 {
+			cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
 		}
-		if c.Retryer.MaxRetryDelay == 0 {
-			c.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+		if cfg.Retryer.MaxRetryDelay == 0 {
+			cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
 		}
 	}
 

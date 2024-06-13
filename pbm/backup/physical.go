@@ -232,6 +232,11 @@ func (b *Backup) doPhysical(
 				}
 			}
 
+			if !b.config.Storage.Equal(&src.Store.Storage) {
+				return errors.New("cannot use the configured storage: " +
+					"source backup is stored on a different storage")
+			}
+
 			// realSrcID is actual thisBackupName of the replset
 			var realSrcID string
 			for _, rs := range src.Replsets {

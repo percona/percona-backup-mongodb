@@ -48,6 +48,30 @@ func (cfg *Config) Clone() *Config {
 	return &rv
 }
 
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Account != other.Account {
+		return false
+	}
+	if cfg.Container != other.Container {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	if cfg.Credentials.Key != other.Credentials.Key {
+		return false
+	}
+
+	return true
+}
+
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }

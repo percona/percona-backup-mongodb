@@ -15,16 +15,24 @@ type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
-func (c *Config) Clone() *Config {
-	if c == nil {
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
 		return nil
 	}
 
-	return &Config{Path: c.Path}
+	return &Config{Path: cfg.Path}
 }
 
-func (c *Config) Cast() error {
-	if c.Path == "" {
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	return cfg.Path == other.Path
+}
+
+func (cfg *Config) Cast() error {
+	if cfg.Path == "" {
 		return errors.New("path can't be empty")
 	}
 

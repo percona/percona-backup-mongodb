@@ -232,11 +232,11 @@ func (s *Storage) Equal(other *Storage) bool {
 
 	switch s.Type {
 	case storage.S3:
-		return reflect.DeepEqual(s.S3, other.S3)
+		return s.S3.Equal(other.S3)
 	case storage.Azure:
-		return reflect.DeepEqual(s.Azure, other.Azure)
+		return s.Azure.Equal(other.Azure)
 	case storage.Filesystem:
-		return reflect.DeepEqual(s.Filesystem, other.Filesystem)
+		return s.Filesystem.Equal(other.Filesystem)
 	}
 
 	return false
