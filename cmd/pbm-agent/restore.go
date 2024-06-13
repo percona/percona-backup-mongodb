@@ -397,6 +397,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 		bcpType = bcp.Type
+		r.BackupName = bcp.Name
 	}
 
 	l.Info("recovery started")
@@ -429,7 +430,6 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 
-		r.BackupName = bcp.Name
 		err = rstr.Snapshot(ctx, r, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
 	}
 	if err != nil {
