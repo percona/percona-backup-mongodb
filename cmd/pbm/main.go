@@ -106,13 +106,13 @@ func main() {
 		Command("list", "List configuration profiles").
 		Default()
 
-	descConfigProfileOpts := descConfigProfileOptions{}
-	descConfigProfileCmd := configProfileCmd.
-		Command("describe", "Describe configuration profile")
-	descConfigProfileCmd.
+	showConfigProfileOpts := showConfigProfileOptions{}
+	showConfigProfileCmd := configProfileCmd.
+		Command("show", "Show configuration profile")
+	showConfigProfileCmd.
 		Arg("profile-name", "Profile name").
 		Required().
-		StringVar(&descConfigProfileOpts.name)
+		StringVar(&showConfigProfileOpts.name)
 
 	addConfigProfileOpts := addConfigProfileOptions{}
 	addConfigProfileCmd := configProfileCmd.
@@ -475,8 +475,8 @@ func main() {
 		out, err = runConfig(ctx, conn, pbm, &cfg)
 	case listConfigProfileCmd.FullCommand():
 		out, err = handleListConfigProfiles(ctx, pbm)
-	case descConfigProfileCmd.FullCommand():
-		out, err = handleDescibeConfigProfiles(ctx, pbm, descConfigProfileOpts)
+	case showConfigProfileCmd.FullCommand():
+		out, err = handleShowConfigProfiles(ctx, pbm, showConfigProfileOpts)
 	case addConfigProfileCmd.FullCommand():
 		out, err = handleAddConfigProfile(ctx, pbm, addConfigProfileOpts)
 	case removeConfigProfileCmd.FullCommand():

@@ -13,7 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
-type descConfigProfileOptions struct {
+type showConfigProfileOptions struct {
 	name string
 }
 
@@ -65,10 +65,10 @@ func handleListConfigProfiles(ctx context.Context, pbm sdk.Client) (fmt.Stringer
 	return configProfileList{profiles}, nil
 }
 
-func handleDescibeConfigProfiles(
+func handleShowConfigProfiles(
 	ctx context.Context,
 	pbm sdk.Client,
-	opts descConfigProfileOptions,
+	opts showConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
 		return nil, errors.New("argument `profile-name` should not be empty")
