@@ -38,17 +38,17 @@ type syncConfigProfileOptions struct {
 }
 
 type configProfileList struct {
-	configs []config.Config
+	Profiles []config.Config `json:"profiles"`
 }
 
 func (l configProfileList) String() string {
-	if len(l.configs) == 0 {
+	if len(l.Profiles) == 0 {
 		return ""
 	}
 
 	sb := strings.Builder{}
-	sb.WriteString(l.configs[0].String())
-	for _, profile := range l.configs[1:] {
+	sb.WriteString(l.Profiles[0].String())
+	for _, profile := range l.Profiles[1:] {
 		sb.WriteString("---\n")
 		sb.WriteString(profile.String())
 	}
@@ -60,6 +60,10 @@ func handleListConfigProfiles(ctx context.Context, pbm sdk.Client) (fmt.Stringer
 	profiles, err := pbm.ListConfigProfiles(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if profiles == nil {
+		// (for JSON) to have {"profiles":[]} instead of {"profiles":null}
+		profiles = []config.Config{}
 	}
 
 	return configProfileList{profiles}, nil
