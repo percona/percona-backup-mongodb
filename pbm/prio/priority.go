@@ -1,6 +1,7 @@
-package main
+package prio
 
 import (
+	"context"
 	"sort"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -37,12 +38,18 @@ func (n *NodesPriority) RS(rs string) [][]string {
 
 type agentScore func(topo.AgentStat) float64
 
-// BcpNodesPriority returns list nodes grouped by backup preferences
-// in descended order. First are nodes with the highest priority.
+// CalcNodesPriority calculates and returns list nodes grouped by
+// backup/pitr preferences in descended order.
+// First are nodes with the highest priority.
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
-func BcpNodesPriority(priority map[string]float64, c map[string]float64, agents []topo.AgentStat) *NodesPriority {
-	// if cfg.Backup.Priority doesn't set apply defaults
+func CalcNodesPriority(
+	ctx context.Context,
+	c map[string]float64,
+	cfgPrio map[string]float64,
+	agents []topo.AgentStat,
+) (*NodesPriority, error) {
+	// if config level priorities (cfgPrio) aren't set, apply defaults
 	f := func(a topo.AgentStat) float64 {
 		if coeff, ok := c[a.Node]; ok && c != nil {
 			return defaultScore * coeff
@@ -54,9 +61,9 @@ func BcpNodesPriority(priority map[string]float64, c map[string]float64, agents 
 		return defaultScore
 	}
 
-	if len(priority) != 0 {
+	if cfgPrio != nil || len(cfgPrio) > 0 {
 		f = func(a topo.AgentStat) float64 {
-			sc, ok := priority[a.Node]
+			sc, ok := cfgPrio[a.Node]
 			if !ok || sc < 0 {
 				return defaultScore
 			}
@@ -65,10 +72,10 @@ func BcpNodesPriority(priority map[string]float64, c map[string]float64, agents 
 		}
 	}
 
-	return bcpNodesPriority(agents, f)
+	return calcNodesPriority(agents, f), nil
 }
 
-func bcpNodesPriority(agents []topo.AgentStat, f agentScore) *NodesPriority {
+func calcNodesPriority(agents []topo.AgentStat, f agentScore) *NodesPriority {
 	scores := NewNodesPriority()
 
 	for _, a := range agents {
