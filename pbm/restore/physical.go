@@ -81,6 +81,7 @@ type PhysRestore struct {
 	opid      string
 	nodeInfo  *topo.NodeInfo
 	stg       storage.Storage
+	bcpStg    storage.Storage
 	bcp       *backup.BackupMeta
 	files     []files
 	restoreTS primitive.Timestamp
@@ -1081,8 +1082,8 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 
 func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	var stat *s3.DownloadStat
-	readFn := r.stg.SourceReader
-	if t, ok := r.stg.(*s3.S3); ok {
+	readFn := r.bcpStg.SourceReader
+	if t, ok := r.bcpStg.(*s3.S3); ok {
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
 
@@ -1996,7 +1997,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
 		filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
-		rdr, err := r.stg.SourceReader(filelistPath)
+		rdr, err := r.bcpStg.SourceReader(filelistPath)
 		if err != nil {
 			return errors.Wrapf(err, "open filelist %q", filelistPath)
 		}
@@ -2054,7 +2055,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 
 		if version.HasFilelistFile(bcp.PBMVersion) {
 			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
-			rdr, err := r.stg.SourceReader(filelistPath)
+			rdr, err := r.bcpStg.SourceReader(filelistPath)
 			if err != nil {
 				return errors.Wrapf(err, "open filelist %q", filelistPath)
 			}
@@ -2146,6 +2147,11 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
+	}
+
+	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.Storage, log.LogEventFromContext(ctx))
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
 	}
 
 	if r.bcp == nil {
