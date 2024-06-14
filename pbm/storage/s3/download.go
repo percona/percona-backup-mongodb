@@ -448,10 +448,11 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
-		var er awserr.RequestFailure
-		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
+		rerr, ok := err.(awserr.RequestFailure)
+		if ok && rerr.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
 			return nil, io.EOF
 		}
+
 		pr.l.Warning("errGetObj Err: %v", err)
 		return nil, getObjError{err}
 	}
