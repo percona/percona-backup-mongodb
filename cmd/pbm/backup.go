@@ -103,7 +103,7 @@ func runBackup(
 
 	if err := checkConcurrentOp(ctx, conn); err != nil {
 		// PITR slicing can be run along with the backup start - agents will resolve it.
-		var e concurentOpError
+		var e *concurentOpError
 		if !errors.As(err, &e) {
 			return nil, err
 		}
