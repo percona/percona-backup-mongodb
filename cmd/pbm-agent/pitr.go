@@ -61,7 +61,7 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 }
 
 const pitrCheckPeriod = time.Second * 15
-const pitrRenominationFrame = 5 * time.Second
+const pitrRenominationFrame = 30 * time.Second
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
@@ -205,8 +205,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	isClusterLeader := nodeInfo.IsClusterLeader()
 
 	if isClusterLeader {
-		//todo: init meta on first usage
-		//oplog.InitMeta(ctx, a.leadConn)
+		oplog.InitMeta(ctx, a.leadConn)
 
 		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
 		if err != nil {

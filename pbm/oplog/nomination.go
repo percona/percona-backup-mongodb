@@ -30,7 +30,8 @@ type PITRNomination struct {
 // Init add initial PITR document.
 func InitMeta(ctx context.Context, conn connect.Client) error {
 	pitrMeta := PITRMeta{
-		StartTS: time.Now().Unix(),
+		StartTS:    time.Now().Unix(),
+		Nomination: []PITRNomination{},
 	}
 	_, err := conn.PITRCollection().ReplaceOne(
 		ctx,
