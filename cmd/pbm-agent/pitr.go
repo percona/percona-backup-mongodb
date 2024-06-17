@@ -69,20 +69,15 @@ func (a *Agent) PITR(ctx context.Context) {
 	l.Printf("starting PITR routine")
 
 	for {
-		wait := pitrCheckPeriod
-
 		err := a.pitr(ctx)
 		if err != nil {
 			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
 			ep, _ := config.GetEpoch(ctx, a.leadConn)
 			l.Error(string(ctrl.CmdPITR), "", "", ep.TS(), "init: %v", err)
-
-			// penalty to the failed node so healthy nodes would have priority on next try
-			wait *= 2
 		}
 
-		time.Sleep(wait)
+		time.Sleep(pitrCheckPeriod)
 	}
 }
 
