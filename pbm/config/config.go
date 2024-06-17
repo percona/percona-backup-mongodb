@@ -249,6 +249,7 @@ func (s *Storage) Cast() error {
 	case storage.S3:
 		return s.S3.Cast()
 	case storage.Azure: // noop
+		return nil
 	}
 
 	return errors.Wrap(ErrUnkownStorageType, string(s.Type))
