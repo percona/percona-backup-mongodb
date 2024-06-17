@@ -359,31 +359,6 @@ func (p pitrStat) String() string {
 	return s
 }
 
-// isOplogSlicing checks if PITR slicing is running. It looks for PITR locks
-// and returns true if there is at least one not stale.
-func isOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
-	locks, err := lock.GetOpLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
-	if err != nil {
-		return false, errors.Wrap(err, "get locks")
-	}
-	if len(locks) == 0 {
-		return false, nil
-	}
-
-	ct, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return false, errors.Wrap(err, "get cluster time")
-	}
-
-	for i := range locks {
-		if locks[i].Heartbeat.T+defs.StaleFrameSec >= ct.T {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
 func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
 	var p pitrStat
 	var err error
@@ -392,7 +367,7 @@ func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, erro
 		return p, errors.Wrap(err, "unable check PITR config status")
 	}
 
-	p.Running, err = isOplogSlicing(ctx, conn)
+	p.Running, err = oplog.IsOplogSlicing(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
 	}

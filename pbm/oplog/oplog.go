@@ -9,7 +9,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lock"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 var errNoTransaction = errors.New("no transaction found")
@@ -67,4 +72,29 @@ func findLastOplogTS(ctx context.Context, m *mongo.Client) (primitive.Timestamp,
 	}
 
 	return primitive.Timestamp{T: t, I: i}, nil
+}
+
+// IsOplogSlicing checks if PITR slicing is running. It looks for PITR locks
+// and returns true if there is at least one not stale.
+func IsOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
+	locks, err := lock.GetOpLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
+	if err != nil {
+		return false, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return false, nil
+	}
+
+	ct, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return false, errors.Wrap(err, "get cluster time")
+	}
+
+	for i := range locks {
+		if locks[i].Heartbeat.T+defs.StaleFrameSec >= ct.T {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
