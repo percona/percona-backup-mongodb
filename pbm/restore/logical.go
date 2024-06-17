@@ -418,6 +418,11 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
+	r.stg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
+	if err != nil {
+		return errors.Wrapf(err, "get storage")
+	}
+
 	opChunks, err := r.chunks(ctx, cmd.Start, cmd.End)
 	if err != nil {
 		return err
