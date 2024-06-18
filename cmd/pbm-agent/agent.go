@@ -472,7 +472,7 @@ func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStor
 		return topo.SubsysStatus{Err: errStr}
 	}
 	if !ok {
-		return topo.SubsysStatus{Err: "storage is not initialized"}
+		log.Warning("storage is not initialized")
 	}
 
 	return topo.SubsysStatus{OK: true}
