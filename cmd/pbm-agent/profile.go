@@ -95,13 +95,13 @@ func (a *Agent) handleAddConfigProfile(
 	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {
 		if !errors.Is(err, storage.ErrUninitialized) {
-			err = errors.Wrap(err, "check read access")
+			l.Error("check read access: %v", err)
 			return
 		}
 
 		err = storage.Initialize(ctx, stg)
 		if err != nil {
-			err = errors.Wrap(err, "init storage")
+			l.Error("init storage: %v", err)
 			return
 		}
 	}
@@ -113,9 +113,11 @@ func (a *Agent) handleAddConfigProfile(
 	}
 	err = config.AddProfile(ctx, a.leadConn, profile)
 	if err != nil {
-		err = errors.Wrap(err, "add profile config")
+		l.Error("add profile config: %v", err)
 		return
 	}
+
+	l.Info("profile saved")
 }
 
 func (a *Agent) handleRemoveConfigProfile(
