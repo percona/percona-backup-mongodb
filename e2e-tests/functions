@@ -158,7 +158,7 @@ start_cluster() {
     genMongoKey
 
     echo 'Build agents and tests'
-    docker-compose -f $COMPOSE_PATH build
+    docker-compose -f $COMPOSE_PATH build --no-cache --pull
 
     mongo="mongo"
     if [ "${mongo_version:0:1}" -ge 6 ]; then
@@ -203,7 +203,7 @@ start_replset() {
     genMongoKey
 
     echo 'Build agents and tests'
-    docker-compose -f $compose build
+    docker-compose -f $compose build --no-cache --pull
 
     if [ ! -d "${test_dir}/docker/backups" ]; then
         mkdir "${test_dir}/docker/backups"
