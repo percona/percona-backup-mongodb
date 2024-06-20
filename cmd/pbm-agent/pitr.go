@@ -60,8 +60,12 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 	a.pitrjob.w <- opid
 }
 
-const pitrCheckPeriod = time.Second * 15
-const pitrRenominationFrame = 30 * time.Second
+const (
+	pitrCheckPeriod          = 15 * time.Second
+	pitrRenominationFrame    = 30 * time.Second
+	pitrOpLockPollingCycle   = 15 * time.Second
+	pitrOpLockPollingTimeOut = 2 * time.Minute
+)
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
@@ -205,6 +209,18 @@ func (a *Agent) pitr(ctx context.Context) error {
 	isClusterLeader := nodeInfo.IsClusterLeader()
 
 	if isClusterLeader {
+		l.Debug("checking locks in the whole cluster")
+		noLocks, err := a.waitAllOpLockRelease(ctx)
+		if err != nil {
+			l.Error("wait for all oplock release: %v", err)
+			return errors.Wrap(err, "wait all oplock release")
+		}
+		if !noLocks {
+			l.Debug("there are still working pitr members, members nomination will not be continued")
+			return nil
+		}
+
+		l.Debug("init pitr meta on the first usage")
 		oplog.InitMeta(ctx, a.leadConn)
 
 		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
@@ -382,6 +398,40 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 	return tl.Heartbeat.T+defs.StaleFrameSec < ts.T, nil
 }
 
+// waitAllOpLockRelease waits to not have any live OpLock and in such a case returns true.
+// Waiting process duration is deadlined, and in that case false will be returned.
+func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
+	l := log.LogEventFromContext(ctx)
+
+	tick := time.NewTicker(pitrOpLockPollingCycle)
+	defer tick.Stop()
+
+	tout := time.NewTimer(pitrOpLockPollingTimeOut)
+	defer tout.Stop()
+
+	for {
+		select {
+		case <-tick.C:
+			running, err := oplog.IsOplogSlicing(ctx, a.leadConn)
+			if err != nil {
+				return false, errors.Wrap(err, "is oplog slicing check")
+			}
+			if !running {
+				return true, nil
+			}
+			l.Debug("oplog slicing still running")
+		case <-tout.C:
+			l.Warning("timeout while waiting for relese all OpLocks")
+			return false, nil
+		}
+	}
+}
+
+// waitNominationForPITR is used by potentional nominee to determinate if it
+// is nominated by the leader. It returns true if member receive nomination.
+// If nomination document is not found, nominee tries again on another tick.
+// If Ack is found in fetched fragment, that means that another member confirmed
+// nomination, so in that case current member lost nomination and false is returned.
 func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (bool, error) {
 	l := log.LogEventFromContext(ctx)
 
@@ -409,9 +459,6 @@ func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (boo
 				}
 			}
 		}
-		//todo: we should handle cancelation here also, for e.g.:
-		// - pitr is disabled
-		// - configuration has been changed
-		// - cluster topology has been changed
 	}
+	//todo: add timeout: e.g. 2 minutes
 }

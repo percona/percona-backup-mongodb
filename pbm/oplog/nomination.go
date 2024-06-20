@@ -62,6 +62,8 @@ func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) erro
 
 // GetPITRNominees fetches nomination fragment for specified RS
 // from PITRMeta document.
+// If document is not found, or document fragment for specific RS is not found,
+// error ErrNotFound is returned.
 func GetPITRNominees(
 	ctx context.Context,
 	conn connect.Client,
