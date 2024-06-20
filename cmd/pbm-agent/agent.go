@@ -340,7 +340,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		hb.Hidden = false
 		hb.Passive = false
 
-		inf, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+		inf, err := topo.GetNodeInfo(ctx, a.nodeConn)
 		if err != nil {
 			l.Error("get NodeInfo: %v", err)
 			hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
@@ -348,6 +348,11 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			hb.Hidden = inf.Hidden
 			hb.Passive = inf.Passive
 			hb.Arbiter = inf.ArbiterOnly
+			if inf.SecondaryDelayOld != 0 {
+				hb.DelaySecs = inf.SecondaryDelayOld
+			} else {
+				hb.DelaySecs = inf.SecondaryDelaySecs
+			}
 		}
 
 		err = topo.SetAgentStatus(ctx, a.leadConn, hb)

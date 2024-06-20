@@ -43,10 +43,6 @@ func (c *clientImpl) Close(ctx context.Context) error {
 	return c.conn.Disconnect(ctx)
 }
 
-func (c *clientImpl) ClusterMembers(ctx context.Context) ([]topo.Shard, error) {
-	return topo.ClusterMembers(ctx, c.conn.MongoClient())
-}
-
 func (c *clientImpl) CommandInfo(ctx context.Context, id CommandID) (*Command, error) {
 	opid, err := ctrl.OPIDfromStr(string(id))
 	if err != nil {

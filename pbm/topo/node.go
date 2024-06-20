@@ -72,8 +72,8 @@ type NodeInfo struct {
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	Passive                      bool                 `bson:"passive,omitempty"`
 	ArbiterOnly                  bool                 `bson:"arbiterOnly"`
-	SecondaryDelayOld            int                  `bson:"slaveDelay"`
-	SecondaryDelaySecs           int                  `bson:"secondaryDelaySecs"`
+	SecondaryDelayOld            int32                `bson:"slaveDelay"`
+	SecondaryDelaySecs           int32                `bson:"secondaryDelaySecs"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
 	LastWrite                    MongoLastWrite       `bson:"lastWrite"`

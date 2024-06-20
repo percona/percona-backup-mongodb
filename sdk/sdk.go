@@ -13,9 +13,9 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
-	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 var (
@@ -104,8 +104,6 @@ type Command = ctrl.Cmd
 type Client interface {
 	Close(ctx context.Context) error
 
-	ClusterMembers(ctx context.Context) ([]topo.Shard, error)
-
 	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
 
 	GetConfig(ctx context.Context) (*Config, error)
@@ -155,4 +153,65 @@ func WaitForDeleteOplogRange(ctx context.Context, client Client) error {
 
 func WaitForErrorLog(ctx context.Context, client Client, cmd *Command) (string, error) {
 	return lastLogErr(ctx, client.(*clientImpl).conn, cmd.Cmd, cmd.TS)
+}
+
+func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	r := &log.LogRequest{
+		LogKeys: log.LogKeys{
+			Event:    string(ctrl.CmdResync),
+			OPID:     string(cid),
+			Severity: log.Info,
+		},
+	}
+
+	outC, errC := log.Follow(ctx, c.(*clientImpl).conn, r, false)
+
+	for {
+		select {
+		case entry := <-outC:
+			if entry != nil && entry.Msg == "succeed" {
+				return nil
+			}
+		case err := <-errC:
+			return err
+		}
+	}
+}
+
+func CanDeleteBackup(ctx context.Context, sc Client, bcp *BackupMetadata) error {
+	return backup.CanDeleteBackup(ctx, sc.(*clientImpl).conn, bcp)
+}
+
+func CanDeleteIncrementalBackup(
+	ctx context.Context,
+	sc Client,
+	bcp *BackupMetadata,
+	increments [][]*BackupMetadata,
+) error {
+	return backup.CanDeleteIncrementalChain(ctx, sc.(*clientImpl).conn, bcp, increments)
+}
+
+func ListDeleteBackupBefore(
+	ctx context.Context,
+	sc Client,
+	ts primitive.Timestamp,
+	bcpType BackupType,
+) ([]BackupMetadata, error) {
+	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
+}
+
+func ListDeleteChunksBefore(
+	ctx context.Context,
+	sc Client,
+	ts primitive.Timestamp,
+) ([]OplogChunk, error) {
+	r, err := backup.MakeCleanupInfo(ctx, sc.(*clientImpl).conn, ts)
+	return r.Chunks, err
+}
+
+func ParseDeleteBackupType(s string) (BackupType, error) {
+	return backup.ParseDeleteBackupType(s)
 }

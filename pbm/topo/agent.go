@@ -18,26 +18,73 @@ import (
 )
 
 type AgentStat struct {
-	Node          string              `bson:"n"`
-	RS            string              `bson:"rs"`
-	State         defs.NodeState      `bson:"s"`
-	StateStr      string              `bson:"str"`
-	Hidden        bool                `bson:"hdn"`
-	Passive       bool                `bson:"psv"`
-	Arbiter       bool                `bson:"arb"`
-	AgentVer      string              `bson:"v"`
-	MongoVer      string              `bson:"mv"`
-	PerconaVer    string              `bson:"pv,omitempty"`
-	PBMStatus     SubsysStatus        `bson:"pbms"`
-	NodeStatus    SubsysStatus        `bson:"nodes"`
-	StorageStatus SubsysStatus        `bson:"stors"`
-	Heartbeat     primitive.Timestamp `bson:"hb"`
-	Err           string              `bson:"e"`
+	// Node is like agent ID. Looks like `rs00:27017` (host:port of direct mongod).
+	Node string `bson:"n"`
+
+	// RS is the direct node replset name.
+	RS string `bson:"rs"`
+
+	// State is the mongod state code.
+	State defs.NodeState `bson:"s"`
+
+	// StateStr is the mongod state string (e.g. PRIMARY, SECONDARY, ARBITER)
+	StateStr string `bson:"str"`
+
+	// Hidden is set for hidden node.
+	Hidden bool `bson:"hdn"`
+
+	// Passive is set when node cannot be primary (priority 0).
+	//
+	// Hidden and delayed nodes are always passive.
+	// Arbiter cannot be primary because it is not a data-bearing member (non-writable)
+	// but it is not passive (has 1 election vote).
+	Passive bool `bson:"psv"`
+
+	// Arbiter is true for argiter node.
+	Arbiter bool `bson:"arb"`
+
+	// DelaySecs is the node configured replication delay (lag).
+	DelaySecs int32 `bson:"delay"`
+
+	// AgentVer has the PBM Agent version (looks like `v2.3.4`)
+	AgentVer string `bson:"v"`
+
+	// MongoVer is the mongod version (looks like `v7.0.0`)
+	MongoVer string `bson:"mv"`
+
+	// PerconaVer is the PSMDB version (looks like `v7.0.0-1`).
+	//
+	// Empty for non-PSMDB (e.i MongoDB CE).
+	PerconaVer string `bson:"pv,omitempty"`
+
+	// PBMStatus is the agent status.
+	PBMStatus SubsysStatus `bson:"pbms"`
+
+	// NodeStatus is the mongod/connection status.
+	NodeStatus SubsysStatus `bson:"nodes"`
+
+	// StorageStatus is the remote storage status.
+	StorageStatus SubsysStatus `bson:"stors"`
+
+	// Heartbeat is agent's last seen cluster time.
+	Heartbeat primitive.Timestamp `bson:"hb"`
+
+	// Err can be any error.
+	Err string `bson:"e"`
 }
 
+// SubsysStatus is generic status.
 type SubsysStatus struct {
-	OK  bool   `bson:"ok"`
+	// OK is false if there is an error. Otherwise true.
+	OK bool `bson:"ok"`
+
+	// Err is error string.
 	Err string `bson:"e"`
+}
+
+// IsStale returns true if agent's heartbeat is steal for the give `t` cluster time.
+func (s *AgentStat) IsStale(t primitive.Timestamp) bool {
+	return s.Heartbeat.T+defs.StaleFrameSec < t.T
 }
 
 func (s *AgentStat) OK() (bool, []string) {

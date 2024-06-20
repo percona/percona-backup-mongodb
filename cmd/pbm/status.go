@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -117,8 +116,8 @@ func status(
 		data: []*statusSect{
 			{
 				"cluster", "Cluster", nil,
-				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, conn, curi)
+				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+					return clusterStatus(ctx, pbm, makeGetRSMembers(curi))
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -199,12 +198,7 @@ func (n node) String() string {
 		return fmt.Sprintf("%s [!Arbiter]: arbiter node is not supported", n.Host)
 	}
 
-	role := n.Role
-	if role != RolePrimary && role != RoleSecondary {
-		role = RoleSecondary
-	}
-
-	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
+	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, n.Role, n.Ver)
 	if n.OK {
 		s += " OK"
 		return s
@@ -228,72 +222,96 @@ func (c cluster) String() string {
 	return s
 }
 
-func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.Stringer, error) {
-	clstr, err := topo.ClusterMembers(ctx, conn.MongoClient())
+func clusterStatus(
+	ctx context.Context,
+	pbm sdk.Client,
+	getRSMembers getRSMembersFunc,
+) (fmt.Stringer, error) {
+	clusterMembers, err := sdk.ClusterMembers(ctx, pbm)
+	if err != nil {
+		return nil, errors.Wrap(err, "get agent statuses")
+	}
+	agentStatuses, err := sdk.AgentStatuses(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
 	}
-
-	clusterTime, err := topo.GetClusterTime(ctx, conn)
+	clusterTime, err := sdk.ClusterTime(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
+	}
+
+	agentMap := make(map[topo.ReplsetName]map[string]*sdk.AgentStatus, len(clusterMembers))
+	for i := range agentStatuses {
+		agent := &agentStatuses[i]
+		rs, ok := agentMap[agent.RS]
+		if !ok {
+			rs = make(map[string]*topo.AgentStat)
+			agentMap[agent.RS] = rs
+		}
+
+		rs[agent.Node] = agent
+		agentMap[agent.RS] = rs
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
 	m := sync.Mutex{}
 
 	var ret cluster
-	for _, c := range clstr {
-		c := c
-
+	for _, c := range clusterMembers {
 		eg.Go(func() error {
-			client, err := directConnect(ctx, uri, c.Host)
+			rsMembers, err := getRSMembers(ctx, c.Host)
 			if err != nil {
-				return errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
-			}
-
-			rsConfig, err := topo.GetReplSetConfig(ctx, client)
-			if err != nil {
-				_ = client.Disconnect(ctx)
 				return errors.Wrapf(err, "get replset status for `%s`", c.RS)
 			}
-			info, err := topo.GetNodeInfo(ctx, client)
-			// don't need the connection anymore despite the result
-			_ = client.Disconnect(ctx)
-			if err != nil {
-				return errors.Wrap(err, "get node info")
+
+			lrs := rs{
+				Name:  c.RS,
+				Nodes: make([]node, len(rsMembers)),
 			}
 
-			lrs := rs{Name: c.RS}
-			for i, n := range rsConfig.Members {
-				lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Host})
+			for i, member := range rsMembers {
+				node := &lrs.Nodes[i]
+				node.Host = member.Host
 
-				nd := &lrs.Nodes[i]
+				rsAgents := agentMap[c.RS]
+				if rsAgents == nil {
+					node.Ver = "NOT FOUND"
+					continue
+				}
+				agent := rsAgents[member.Host]
+				if agent == nil {
+					node.Ver = "NOT FOUND"
+					continue
+				}
+
+				node.Ver = "v" + agent.AgentVer
+
 				switch {
-				case n.Host == info.Primary:
-					nd.Role = RolePrimary
-				case n.ArbiterOnly:
-					nd.Role = RoleArbiter
-				case n.SecondaryDelayOld != 0 || n.SecondaryDelaySecs != 0:
-					nd.Role = RoleDelayed
-				case n.Hidden:
-					nd.Role = RoleHidden
+				case agent.State == 1: // agent.StateStr == "PRIMARY"
+					node.Role = RolePrimary
+				case agent.State == 7: // agent.StateStr == "ARBITER"
+					node.Role = RoleArbiter
+				case agent.State == 2: // agent.StateStr == "SECONDARY"
+					if agent.DelaySecs != 0 {
+						node.Role = RoleDelayed
+					} else if agent.Hidden {
+						node.Role = RoleHidden
+					} else {
+						node.Role = RoleSecondary
+					}
+				default:
+					// unexpected state. show actual state
+					node.Role = RSRole(agent.StateStr)
 				}
 
-				stat, err := topo.GetAgentStatus(ctx, conn, c.RS, n.Host)
-				if errors.Is(err, mongo.ErrNoDocuments) {
-					nd.Ver = "NOT FOUND"
-					continue
-				} else if err != nil {
-					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: get agent status: %v", err))
+				if agent.IsStale(clusterTime) {
+					node.Errs = []string{
+						fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", agent.Heartbeat.T),
+					}
 					continue
 				}
-				if stat.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
-					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
-					continue
-				}
-				nd.Ver = "v" + stat.AgentVer
-				nd.OK, nd.Errs = stat.OK()
+
+				node.OK, node.Errs = agent.OK()
 			}
 
 			m.Lock()
@@ -307,38 +325,43 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 	return ret, err
 }
 
-func directConnect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
-	var host string
-	chost := strings.Split(hosts, "/")
-	if len(chost) > 1 {
-		host = chost[1]
-	} else {
-		host = chost[0]
+type getRSMembersFunc func(ctx context.Context, hosts string) ([]topo.RSMember, error)
+
+func makeGetRSMembers(uri string) getRSMembersFunc {
+	return func(ctx context.Context, hosts string) ([]topo.RSMember, error) {
+		var host string
+		chost := strings.Split(hosts, "/")
+		if len(chost) > 1 {
+			host = chost[1]
+		} else {
+			host = chost[0]
+		}
+
+		curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
+		if err != nil {
+			return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
+		}
+
+		// Preserving the `replicaSet` parameter will cause an error
+		// while connecting to the ConfigServer (mismatched replicaset names)
+		query := curi.Query()
+		query.Del("replicaSet")
+		curi.RawQuery = query.Encode()
+		curi.Host = host
+
+		conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-status"))
+		if err != nil {
+			return nil, errors.Wrap(err, "connect")
+		}
+		defer conn.Disconnect(context.Background())
+
+		rsConfig, err := topo.GetReplSetConfig(ctx, conn)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get replset config")
+		}
+
+		return rsConfig.Members, nil
 	}
-
-	curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
-	if err != nil {
-		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
-	}
-
-	// Preserving the `replicaSet` parameter will cause an error
-	// while connecting to the ConfigServer (mismatched replicaset names)
-	query := curi.Query()
-	query.Del("replicaSet")
-	curi.RawQuery = query.Encode()
-	curi.Host = host
-
-	conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-status"))
-	if err != nil {
-		return nil, errors.Wrap(err, "connect")
-	}
-
-	err = conn.Ping(ctx, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "ping")
-	}
-
-	return conn, nil
 }
 
 type pitrStat struct {
