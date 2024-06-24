@@ -5,14 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	stdlog "log"
-	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -30,6 +27,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
+	"github.com/percona/percona-backup-mongodb/sdk/cli"
 )
 
 type statusOptions struct {
@@ -117,7 +115,7 @@ func status(
 			{
 				"cluster", "Cluster", nil,
 				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, pbm, makeGetRSMembers(curi))
+					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi))
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -175,34 +173,36 @@ type rs struct {
 	Nodes []node `json:"nodes"`
 }
 
-type RSRole string
-
-const (
-	RolePrimary   RSRole = "P"
-	RoleSecondary RSRole = "S"
-	RoleArbiter   RSRole = "A"
-	RoleHidden    RSRole = "H"
-	RoleDelayed   RSRole = "D"
-)
-
 type node struct {
-	Host string   `json:"host"`
-	Ver  string   `json:"agent"`
-	Role RSRole   `json:"role"`
-	OK   bool     `json:"ok"`
-	Errs []string `json:"errors,omitempty"`
+	Host string     `json:"host"`
+	Ver  string     `json:"agent"`
+	Role cli.RSRole `json:"role"`
+	OK   bool       `json:"ok"`
+	Errs []string   `json:"errors,omitempty"`
 }
 
 func (n node) String() string {
-	if n.Role == RoleArbiter {
+	if n.Role == cli.RoleArbiter {
 		return fmt.Sprintf("%s [!Arbiter]: arbiter node is not supported", n.Host)
 	}
 
-	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, n.Role, n.Ver)
+	role := n.Role
+	if role == "" {
+		role = " "
+	}
+	ver := n.Ver
+	if ver == "" {
+		ver = "NOT FOUND"
+	}
+	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, ver)
 	if n.OK {
 		s += " OK"
 		return s
 	}
+	if len(n.Errs) == 0 {
+		return s
+	}
+
 	s += " FAILED status:"
 	for _, e := range n.Errs {
 		s += fmt.Sprintf("\n      > ERROR with %s", e)
@@ -225,143 +225,37 @@ func (c cluster) String() string {
 func clusterStatus(
 	ctx context.Context,
 	pbm sdk.Client,
-	getRSMembers getRSMembersFunc,
+	confGetter cli.RSConfGetter,
 ) (fmt.Stringer, error) {
-	clusterMembers, err := sdk.ClusterMembers(ctx, pbm)
+	status, err := cli.ClusterStatus(ctx, pbm, confGetter)
 	if err != nil {
-		return nil, errors.Wrap(err, "get agent statuses")
-	}
-	agentStatuses, err := sdk.AgentStatuses(ctx, pbm)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster members")
-	}
-	clusterTime, err := sdk.ClusterTime(ctx, pbm)
-	if err != nil {
-		return nil, errors.Wrap(err, "read cluster time")
+		return nil, errors.Wrap(err, "get cluster status")
 	}
 
-	agentMap := make(map[topo.ReplsetName]map[string]*sdk.AgentStatus, len(clusterMembers))
-	for i := range agentStatuses {
-		agent := &agentStatuses[i]
-		rs, ok := agentMap[agent.RS]
-		if !ok {
-			rs = make(map[string]*topo.AgentStat)
-			agentMap[agent.RS] = rs
+	rv := make(cluster, 0, len(status))
+	for rsName, rsMembers := range status {
+		nodes := make([]node, len(rsMembers))
+		for i, agent := range rsMembers {
+			node := &nodes[i]
+			node.Host = agent.Host
+			node.Ver = agent.Ver
+			node.Role = agent.Role
+			node.OK = agent.OK
+
+			if len(agent.Errs) != 0 {
+				node.Errs = make([]string, len(agent.Errs))
+				for j, e := range agent.Errs {
+					node.Errs[j] = e.Error()
+				}
+			}
 		}
-
-		rs[agent.Node] = agent
-		agentMap[agent.RS] = rs
-	}
-
-	eg, ctx := errgroup.WithContext(ctx)
-	m := sync.Mutex{}
-
-	var ret cluster
-	for _, c := range clusterMembers {
-		eg.Go(func() error {
-			rsMembers, err := getRSMembers(ctx, c.Host)
-			if err != nil {
-				return errors.Wrapf(err, "get replset status for `%s`", c.RS)
-			}
-
-			lrs := rs{
-				Name:  c.RS,
-				Nodes: make([]node, len(rsMembers)),
-			}
-
-			for i, member := range rsMembers {
-				node := &lrs.Nodes[i]
-				node.Host = member.Host
-
-				rsAgents := agentMap[c.RS]
-				if rsAgents == nil {
-					node.Ver = "NOT FOUND"
-					continue
-				}
-				agent := rsAgents[member.Host]
-				if agent == nil {
-					node.Ver = "NOT FOUND"
-					continue
-				}
-
-				node.Ver = "v" + agent.AgentVer
-
-				switch {
-				case agent.State == 1: // agent.StateStr == "PRIMARY"
-					node.Role = RolePrimary
-				case agent.State == 7: // agent.StateStr == "ARBITER"
-					node.Role = RoleArbiter
-				case agent.State == 2: // agent.StateStr == "SECONDARY"
-					if agent.DelaySecs != 0 {
-						node.Role = RoleDelayed
-					} else if agent.Hidden {
-						node.Role = RoleHidden
-					} else {
-						node.Role = RoleSecondary
-					}
-				default:
-					// unexpected state. show actual state
-					node.Role = RSRole(agent.StateStr)
-				}
-
-				if agent.IsStale(clusterTime) {
-					node.Errs = []string{
-						fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", agent.Heartbeat.T),
-					}
-					continue
-				}
-
-				node.OK, node.Errs = agent.OK()
-			}
-
-			m.Lock()
-			ret = append(ret, lrs)
-			m.Unlock()
-			return nil
+		rv = append(rv, rs{
+			Name:  rsName,
+			Nodes: nodes,
 		})
 	}
 
-	err = eg.Wait()
-	return ret, err
-}
-
-type getRSMembersFunc func(ctx context.Context, hosts string) ([]topo.RSMember, error)
-
-func makeGetRSMembers(uri string) getRSMembersFunc {
-	return func(ctx context.Context, hosts string) ([]topo.RSMember, error) {
-		var host string
-		chost := strings.Split(hosts, "/")
-		if len(chost) > 1 {
-			host = chost[1]
-		} else {
-			host = chost[0]
-		}
-
-		curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
-		if err != nil {
-			return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
-		}
-
-		// Preserving the `replicaSet` parameter will cause an error
-		// while connecting to the ConfigServer (mismatched replicaset names)
-		query := curi.Query()
-		query.Del("replicaSet")
-		curi.RawQuery = query.Encode()
-		curi.Host = host
-
-		conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-status"))
-		if err != nil {
-			return nil, errors.Wrap(err, "connect")
-		}
-		defer conn.Disconnect(context.Background())
-
-		rsConfig, err := topo.GetReplSetConfig(ctx, conn)
-		if err != nil {
-			return nil, errors.Wrapf(err, "get replset config")
-		}
-
-		return rsConfig.Members, nil
-	}
+	return rv, nil
 }
 
 type pitrStat struct {

@@ -2,7 +2,6 @@ package topo
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -87,20 +86,20 @@ func (s *AgentStat) IsStale(t primitive.Timestamp) bool {
 	return s.Heartbeat.T+defs.StaleFrameSec < t.T
 }
 
-func (s *AgentStat) OK() (bool, []string) {
-	var errs []string
+func (s *AgentStat) OK() (bool, []error) {
+	var errs []error
 	ok := true
 	if !s.PBMStatus.OK {
 		ok = false
-		errs = append(errs, fmt.Sprintf("PBM connection: %s", s.PBMStatus.Err))
+		errs = append(errs, errors.Errorf("PBM connection: %s", s.PBMStatus.Err))
 	}
 	if !s.NodeStatus.OK {
 		ok = false
-		errs = append(errs, fmt.Sprintf("node connection: %s", s.NodeStatus.Err))
+		errs = append(errs, errors.Errorf("node connection: %s", s.NodeStatus.Err))
 	}
 	if !s.StorageStatus.OK {
 		ok = false
-		errs = append(errs, fmt.Sprintf("storage: %s", s.StorageStatus.Err))
+		errs = append(errs, errors.Errorf("storage: %s", s.StorageStatus.Err))
 	}
 
 	return ok, errs

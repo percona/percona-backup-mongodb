@@ -117,9 +117,7 @@ func collectTopoCheckErrors(
 				errs = append(errs, errors.New(a.Err))
 			}
 			if ok, estrs := a.OK(); !ok {
-				for _, e := range estrs {
-					errs = append(errs, errors.New(e))
-				}
+				errs = append(errs, estrs...)
 			}
 
 			const maxReplicationLag uint32 = 35
