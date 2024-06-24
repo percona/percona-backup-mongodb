@@ -14,7 +14,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -679,59 +678,15 @@ func parseDateT(v string) (time.Time, error) {
 	return time.Time{}, errInvalidFormat
 }
 
-type findLockFn = func(ctx context.Context, conn connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
-
-func findLock(ctx context.Context, conn connect.Client, fn findLockFn) (*lock.LockData, error) {
-	locks, err := fn(ctx, conn, &lock.LockHeader{})
-	if err != nil {
-		return nil, errors.Wrap(err, "get locks")
-	}
-
-	ct, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster time")
-	}
-
-	var lck *lock.LockData
-	for _, l := range locks {
-		// We don't care about the PITR slicing here. It is a subject of other status sections
-		if l.Type == ctrl.CmdPITR || l.Heartbeat.T+defs.StaleFrameSec < ct.T {
-			continue
-		}
-
-		// Just check if all locks are for the same op
-		//
-		// It could happen that the healthy `lk` became stale by the time of this check
-		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
-		// would be true but for the legit reason (no error).
-		// But chances for that are quite low and on the next run of `pbm status` everything
-		//  would be ok. So no reason to complicate code to avoid that.
-		if lck != nil && l.OPID != lck.OPID {
-			if err != nil {
-				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
-					"This conflict may naturally resolve after 10 seconds",
-					l.Replset, l.Node, l.Type, l.OPID,
-					lck.Replset, lck.Node, lck.Type, lck.OPID,
-				)
-			}
-		}
-
-		l := l
-		lck = &l
-	}
-
-	return lck, nil
-}
-
 type concurentOpError struct {
 	op *lock.LockHeader
 }
 
-func (e concurentOpError) Error() string {
+func (e *concurentOpError) Error() string {
 	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
 }
 
-func (e concurentOpError) As(err any) bool {
+func (e *concurentOpError) As(err any) bool {
 	if err == nil {
 		return false
 	}
@@ -745,7 +700,7 @@ func (e concurentOpError) As(err any) bool {
 	return true
 }
 
-func (e concurentOpError) MarshalJSON() ([]byte, error) {
+func (e *concurentOpError) MarshalJSON() ([]byte, error) {
 	s := make(map[string]interface{})
 	s["error"] = "another operation in progress"
 	s["operation"] = e.op
@@ -768,7 +723,7 @@ func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
-			return concurentOpError{&l.LockHeader}
+			return &concurentOpError{&l.LockHeader}
 		}
 	}
 

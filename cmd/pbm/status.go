@@ -20,7 +20,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -106,10 +105,6 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
-	storageStatFn := func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-		return getStorageStat(ctx, conn, pbm, rsMap)
-	}
-
 	out := statusOut{
 		data: []*statusSect{
 			{
@@ -119,8 +114,18 @@ func status(
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
-			{"running", "Currently running", nil, getCurrOps},
-			{"backups", "Backups", nil, storageStatFn},
+			{
+				"running", "Currently running", nil,
+				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+					return getCurrOps(ctx, pbm)
+				},
+			},
+			{
+				"backups", "Backups", nil,
+				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
+					return getStorageStat(ctx, conn, pbm, rsMap)
+				},
+			},
 		},
 		pretty: pretty,
 	}
@@ -381,10 +386,10 @@ LOOP:
 
 type currOp struct {
 	Type    ctrl.Command `json:"type,omitempty"`
+	OPID    string       `json:"opID,omitempty"`
 	Name    string       `json:"name,omitempty"`
 	StartTS int64        `json:"startTS,omitempty"`
 	Status  string       `json:"status,omitempty"`
-	OPID    string       `json:"opID,omitempty"`
 }
 
 func (c currOp) String() string {
@@ -403,62 +408,54 @@ func (c currOp) String() string {
 	}
 }
 
-func getCurrOps(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-	var r currOp
-
-	// check for ops
-	lk, err := findLock(ctx, conn, lock.GetLocks)
+func getCurrOps(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+	locks, err := pbm.OpLocks(ctx)
 	if err != nil {
-		return r, errors.Wrap(err, "get ops")
+		return nil, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return currOp{}, nil
 	}
 
-	if lk == nil {
-		// check for delete ops
-		lk, err = findLock(ctx, conn, lock.GetOpLocks)
-		if err != nil {
-			return r, errors.Wrap(err, "get delete ops")
-		}
+	r := currOp{
+		Type: locks[0].Cmd,
+		OPID: string(locks[0].OpID),
 	}
 
-	if lk == nil {
-		return r, nil
-	}
-
-	r = currOp{
-		Type: lk.Type,
-		OPID: lk.OPID,
-	}
-
-	// reaching here means no conflict operation, hence all locks are the same,
-	// hence any lock in `lk` contains info on the current op
-	switch r.Type {
+	switch locks[0].Cmd {
 	case ctrl.CmdBackup:
-		bcp, err := backup.GetBackupByOPID(ctx, conn, r.OPID)
+		bcp, err := pbm.GetBackupByOpID(ctx, r.OPID, sdk.GetBackupByNameOptions{})
 		if err != nil {
 			return r, errors.Wrap(err, "get backup info")
 		}
+
 		r.Name = bcp.Name
 		r.StartTS = bcp.StartTS
-		r.Status = string(bcp.Status)
+
 		switch bcp.Status {
 		case defs.StatusRunning:
 			r.Status = "snapshot backup"
 		case defs.StatusDumpDone:
 			r.Status = "oplog backup"
+		default:
+			r.Status = string(bcp.Status)
 		}
 	case ctrl.CmdRestore:
-		rst, err := restore.GetRestoreMetaByOPID(ctx, conn, r.OPID)
+		rst, err := pbm.GetRestoreByOpID(ctx, r.OPID)
 		if err != nil {
 			return r, errors.Wrap(err, "get restore info")
 		}
+
 		r.Name = rst.Backup
 		r.StartTS = rst.StartTS
-		r.Status = string(rst.Status)
+
 		switch rst.Status {
 		case defs.StatusRunning:
 			r.Status = "snapshot restore"
 		case defs.StatusDumpDone:
 			r.Status = "oplog restore"
+		default:
+			r.Status = string(rst.Status)
 		}
 	}
 
