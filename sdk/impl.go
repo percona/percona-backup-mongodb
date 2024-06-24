@@ -44,7 +44,7 @@ func (c *clientImpl) Close(ctx context.Context) error {
 }
 
 func (c *clientImpl) CommandInfo(ctx context.Context, id CommandID) (*Command, error) {
-	opid, err := ctrl.OPIDfromStr(string(id))
+	opid, err := ctrl.ParseOPID(string(id))
 	if err != nil {
 		return nil, ErrInvalidCommandID
 	}
@@ -64,10 +64,6 @@ func (c *clientImpl) CommandInfo(ctx context.Context, id CommandID) (*Command, e
 
 	cmd.OPID = opid
 	return cmd, nil
-}
-
-func (c *clientImpl) CurrentLocks(ctx context.Context) ([]Lock, error) {
-	return nil, ErrNotImplemented
 }
 
 func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
@@ -101,9 +97,30 @@ func (c *clientImpl) GetBackupByName(
 ) (*BackupMetadata, error) {
 	bcp, err := backup.NewDBManager(c.conn).GetBackupByName(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get backup meta")
 	}
 
+	return c.getBackupHelper(ctx, bcp, options)
+}
+
+func (c *clientImpl) GetBackupByOpID(
+	ctx context.Context,
+	opid string,
+	options GetBackupByNameOptions,
+) (*BackupMetadata, error) {
+	bcp, err := backup.NewDBManager(c.conn).GetBackupByOpID(ctx, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup meta")
+	}
+
+	return c.getBackupHelper(ctx, bcp, options)
+}
+
+func (c *clientImpl) getBackupHelper(
+	ctx context.Context,
+	bcp *BackupMetadata,
+	options GetBackupByNameOptions,
+) (*BackupMetadata, error) {
 	if options.FetchIncrements && bcp.Type == IncrementalBackup {
 		if bcp.SrcBackup != "" {
 			return nil, ErrNotBaseIncrement
@@ -123,7 +140,7 @@ func (c *clientImpl) GetBackupByName(
 	}
 
 	if options.FetchFilelist {
-		err = fillFilelistForBackup(ctx, c.conn, bcp)
+		err := fillFilelistForBackup(ctx, c.conn, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -234,6 +251,10 @@ func (c *clientImpl) GetRestoreByName(ctx context.Context, name string) (*Restor
 	return restore.GetRestoreMeta(ctx, c.conn, name)
 }
 
+func (c *clientImpl) GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMetadata, error) {
+	return restore.GetRestoreMetaByOPID(ctx, c.conn, opid)
+}
+
 func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendResync(ctx, c.conn)
 	return CommandID(opid.String()), err
@@ -318,25 +339,35 @@ func (l lockImpl) Heartbeat() Timestamp {
 	return l.LockData.Heartbeat
 }
 
-func (c *clientImpl) CurrentOperations(ctx context.Context) ([]Lock, error) {
-	rv := []Lock{}
+var ErrStaleHearbeat = errors.New("stale heartbeat")
 
+func (c *clientImpl) OpLocks(ctx context.Context) ([]OpLock, error) {
 	locks, err := lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get locks")
 	}
-	for _, l := range locks {
-		rv = append(rv, lockImpl{l})
+	if len(locks) == 0 {
+		// no current op
+		return nil, nil
 	}
 
-	locks, err = lock.GetOpLocks(ctx, c.conn, &lock.LockHeader{})
+	clusterTime, err := ClusterTime(ctx, c)
 	if err != nil {
-		return nil, err
-	}
-	for _, l := range locks {
-		rv = append(rv, lockImpl{l})
+		return nil, errors.Wrap(err, "get cluster time")
 	}
 
+	rv := make([]OpLock, len(locks))
+	for i := range locks {
+		rv[i].OpID = CommandID(locks[i].OPID)
+		rv[i].Cmd = locks[i].Type
+		rv[i].Replset = locks[i].Replset
+		rv[i].Node = locks[i].Node
+		rv[i].Heartbeat = locks[i].Heartbeat
+
+		if rv[i].Heartbeat.T+defs.StaleFrameSec > (clusterTime.T) {
+			rv[i].err = ErrStaleHearbeat
+		}
+	}
 	return rv, nil
 }
 

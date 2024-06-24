@@ -64,11 +64,6 @@ type (
 	CleanupReport   = backup.CleanupInfo
 )
 
-type Lock interface {
-	Type() string
-	CommandID() string
-}
-
 type LogicalBackupOptions struct {
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
@@ -101,18 +96,43 @@ type DeleteBackupBeforeOptions struct {
 
 type Command = ctrl.Cmd
 
+// OpLock represents internal PBM lock.
+//
+// Some commands can have many locks (one lock per replset).
+type OpLock struct {
+	// OpID is its command id.
+	OpID CommandID `json:"opid,omitempty"`
+	// Cmd is the type of command
+	Cmd ctrl.Command `json:"cmd,omitempty"`
+	// Replset is name of a replset that acquired the lock.
+	Replset string `json:"rs,omitempty"`
+	// Node is `host:port` pair of an agent that acquired the lock.
+	Node string `json:"node,omitempty"`
+	// Heartbeat is the last cluster time seen by an agent that acquired the lock.
+	Heartbeat primitive.Timestamp `json:"hb"`
+
+	err error
+}
+
+func (l *OpLock) Err() error {
+	return l.err
+}
+
 type Client interface {
 	Close(ctx context.Context) error
 
 	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
+	OpLocks(ctx context.Context) ([]OpLock, error)
 
 	GetConfig(ctx context.Context) (*Config, error)
 
 	GetAllBackups(ctx context.Context) ([]BackupMetadata, error)
 	GetBackupByName(ctx context.Context, name string, options GetBackupByNameOptions) (*BackupMetadata, error)
+	GetBackupByOpID(ctx context.Context, opid string, options GetBackupByNameOptions) (*BackupMetadata, error)
 
 	GetAllRestores(ctx context.Context, m connect.Client, options GetAllRestoresOptions) ([]RestoreMetadata, error)
 	GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error)
+	GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMetadata, error)
 
 	CancelBackup(ctx context.Context) (CommandID, error)
 
