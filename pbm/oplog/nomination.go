@@ -13,10 +13,10 @@ import (
 
 // PITRMeta contains all operational data about PITR execution process.
 type PITRMeta struct {
-	StartTS int64 `bson:"start_ts" json:"start_ts"`
-	// Hb         primitive.Timestamp `bson:"hb" json:"hb"`
-	// Status     defs.Status         `bson:"status" json:"status"`
+	StartTS    int64            `bson:"start_ts" json:"start_ts"`
+	Status     Status           `bson:"status" json:"status"`
 	Nomination []PITRNomination `bson:"n" json:"n"`
+	Replsets   []PITRReplset    `bson:"replsets" json:"replsets"`
 }
 
 // PITRNomination is used to choose (nominate and elect) member(s)
@@ -27,11 +27,33 @@ type PITRNomination struct {
 	Ack   string   `bson:"ack" json:"ack"`
 }
 
+// PITRReplset holds status for each replica set.
+// Each replicaset tries to reach cluster status set by Cluser Leader.
+type PITRReplset struct {
+	Name   string `bson:"name" json:"name"`
+	Node   string `bson:"node" json:"node"`
+	Status Status `bson:"status" json:"status"`
+	Error  string `bson:"error,omitempty" json:"error,omitempty"`
+}
+
+// Status is a PITR status.
+// It is used within pbmPITR collection to sync operation between
+// cluster leader and agents.
+type Status string
+
+const (
+	StatusReady    Status = "ready"
+	StatusRunning  Status = "running"
+	StatusReconfig Status = "reconfig"
+	StatusError    Status = "error"
+)
+
 // Init add initial PITR document.
 func InitMeta(ctx context.Context, conn connect.Client) error {
 	pitrMeta := PITRMeta{
 		StartTS:    time.Now().Unix(),
 		Nomination: []PITRNomination{},
+		Replsets:   []PITRReplset{},
 	}
 	_, err := conn.PITRCollection().ReplaceOne(
 		ctx,
