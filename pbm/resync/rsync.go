@@ -52,19 +52,19 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error
 		}
 	}
 
-	err = resyncPhysicalRestores(ctx, conn, stg)
-	if err != nil {
-		l.Error("resync physical restore metadata")
-	}
-
 	err = SyncBackupList(ctx, conn, cfg, "")
 	if err != nil {
-		l.Error("resync backup metadata")
+		l.Error("failed sync backup metadata: %v", err)
 	}
 
 	err = resyncOplogRange(ctx, conn, stg)
 	if err != nil {
-		l.Error("resync oplog range")
+		l.Error("failed sync oplog range: %v", err)
+	}
+
+	err = resyncPhysicalRestores(ctx, conn, stg)
+	if err != nil {
+		l.Error("failed sync physical restore metadata: %v", err)
 	}
 
 	return nil
