@@ -74,7 +74,7 @@ func (a *Agent) handleAddConfigProfile(
 	}
 	defer func() {
 		l.Debug("releasing lock")
-		err = lck.Release()
+		err := lck.Release()
 		if err != nil {
 			l.Error("unable to release lock %v: %v", lck, err)
 		}
@@ -178,7 +178,7 @@ func (a *Agent) handleRemoveConfigProfile(
 	}
 	defer func() {
 		l.Debug("releasing lock")
-		err = lck.Release()
+		err := lck.Release()
 		if err != nil {
 			l.Error("unable to release lock %v: %v", lck, err)
 		}
