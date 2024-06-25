@@ -69,10 +69,10 @@ type Config struct {
 	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
 	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty" yaml:"profile,omitempty"`
 
-	Storage Storage       `bson:"storage" json:"storage" yaml:"storage"`
-	Oplog   *GlobalSlicer `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
-	Backup  *Backup       `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
-	Restore *Restore      `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Storage StorageConf  `bson:"storage" json:"storage" yaml:"storage"`
+	PITR    *PITRConf    `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
+	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
 	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
@@ -104,7 +104,7 @@ func (c *Config) Clone() *Config {
 		Name:      c.Name,
 		IsProfile: c.IsProfile,
 		Storage:   *c.Storage.Clone(),
-		Oplog:     c.Oplog.Clone(),
+		PITR:      c.PITR.Clone(),
 		Restore:   c.Restore.Clone(),
 		Backup:    c.Backup.Clone(),
 		Epoch:     c.Epoch,
@@ -154,35 +154,35 @@ func (c *Config) String() string {
 // OplogSlicerInterval returns interval for general oplog slicer routine.
 // If it is not configured, the function returns default (hardcoded) value 10 mins.
 func (c *Config) OplogSlicerInterval() time.Duration {
-	if c.Oplog == nil || c.Oplog.Interval == 0 {
+	if c.PITR == nil || c.PITR.OplogSpanMin == 0 {
 		return defs.DefaultPITRInterval
 	}
 
-	return time.Duration(c.Oplog.Interval * float64(time.Minute))
+	return time.Duration(c.PITR.OplogSpanMin * float64(time.Minute))
 }
 
 // BackupSlicerInterval returns interval for backup slicer routine.
 // If it is not confugured, the function returns general oplog slicer interval.
 func (c *Config) BackupSlicerInterval() time.Duration {
-	if c.Backup == nil || c.Backup.SlicingInterval == 0 {
+	if c.Backup == nil || c.Backup.OplogSpanMin == 0 {
 		return c.OplogSlicerInterval()
 	}
 
-	return time.Duration(c.Backup.SlicingInterval * float64(time.Minute))
+	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
 }
 
-// GlobalSlicer is a Point-In-Time Recovery options
+// PITRConf is a Point-In-Time Recovery options
 //
 //nolint:lll
-type GlobalSlicer struct {
+type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
-	Interval         float64                  `bson:"oplogSpanMin,omitempty" json:"oplogSpanMin,omitempty" yaml:"oplogSpanMin,omitempty"`
+	OplogSpanMin     float64                  `bson:"oplogSpanMin,omitempty" json:"oplogSpanMin,omitempty" yaml:"oplogSpanMin,omitempty"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
-func (cfg *GlobalSlicer) Clone() *GlobalSlicer {
+func (cfg *PITRConf) Clone() *PITRConf {
 	if cfg == nil {
 		return nil
 	}
@@ -196,20 +196,20 @@ func (cfg *GlobalSlicer) Clone() *GlobalSlicer {
 	return &rv
 }
 
-// Storage is a configuration of the backup storage
-type Storage struct {
+// StorageConf is a configuration of the backup storage
+type StorageConf struct {
 	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
 
-func (s *Storage) Clone() *Storage {
+func (s *StorageConf) Clone() *StorageConf {
 	if s == nil {
 		return nil
 	}
 
-	rv := &Storage{
+	rv := &StorageConf{
 		Type: s.Type,
 	}
 
@@ -225,7 +225,7 @@ func (s *Storage) Clone() *Storage {
 	return rv
 }
 
-func (s *Storage) Equal(other *Storage) bool {
+func (s *StorageConf) Equal(other *StorageConf) bool {
 	if s.Type != other.Type {
 		return false
 	}
@@ -242,7 +242,7 @@ func (s *Storage) Equal(other *Storage) bool {
 	return false
 }
 
-func (s *Storage) Cast() error {
+func (s *StorageConf) Cast() error {
 	switch s.Type {
 	case storage.Filesystem:
 		return s.Filesystem.Cast()
@@ -255,7 +255,7 @@ func (s *Storage) Cast() error {
 	return errors.Wrap(ErrUnkownStorageType, string(s.Type))
 }
 
-func (s *Storage) Typ() string {
+func (s *StorageConf) Typ() string {
 	switch s.Type {
 	case storage.S3:
 		return "S3"
@@ -270,7 +270,7 @@ func (s *Storage) Typ() string {
 	}
 }
 
-func (s *Storage) Path() string {
+func (s *StorageConf) Path() string {
 	path := ""
 	switch s.Type {
 	case storage.S3:
@@ -298,10 +298,10 @@ func (s *Storage) Path() string {
 	return path
 }
 
-// Restore is config options for the restore
+// RestoreConf is config options for the restore
 //
 //nolint:lll
-type Restore struct {
+type RestoreConf struct {
 	// Logical restore
 	//
 	// num of documents to buffer
@@ -322,7 +322,7 @@ type Restore struct {
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
-func (cfg *Restore) Clone() *Restore {
+func (cfg *RestoreConf) Clone() *RestoreConf {
 	if cfg == nil {
 		return nil
 	}
@@ -339,15 +339,15 @@ func (cfg *Restore) Clone() *Restore {
 }
 
 //nolint:lll
-type Backup struct {
-	SlicingInterval  float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+type BackupConf struct {
+	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
 	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
-func (cfg *Backup) Clone() *Backup {
+func (cfg *BackupConf) Clone() *BackupConf {
 	if cfg == nil {
 		return nil
 	}
@@ -400,24 +400,24 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 		return nil, errors.Wrap(err, "decode")
 	}
 
-	if cfg.Oplog == nil {
-		cfg.Oplog = &GlobalSlicer{}
+	if cfg.PITR == nil {
+		cfg.PITR = &PITRConf{}
 	}
 	if cfg.Backup == nil {
-		cfg.Backup = &Backup{}
+		cfg.Backup = &BackupConf{}
 	}
 	if cfg.Restore == nil {
-		cfg.Restore = &Restore{}
+		cfg.Restore = &RestoreConf{}
 	}
 
 	if cfg.Backup.Compression == "" {
 		cfg.Backup.Compression = defs.DefaultCompression
 	}
-	if cfg.Oplog.Compression == "" {
-		cfg.Oplog.Compression = cfg.Backup.Compression
+	if cfg.PITR.Compression == "" {
+		cfg.PITR.Compression = cfg.Backup.Compression
 	}
-	if cfg.Oplog.CompressionLevel == nil {
-		cfg.Oplog.CompressionLevel = cfg.Backup.CompressionLevel
+	if cfg.PITR.CompressionLevel == nil {
+		cfg.PITR.CompressionLevel = cfg.Backup.CompressionLevel
 	}
 
 	return cfg, nil
@@ -437,8 +437,8 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
 	}
 
-	if cfg.Oplog != nil {
-		if c := string(cfg.Oplog.Compression); c != "" && !compress.IsValidCompressionType(c) {
+	if cfg.PITR != nil {
+		if c := string(cfg.PITR.Compression); c != "" && !compress.IsValidCompressionType(c) {
 			return errors.Errorf("unsupported compression type: %q", c)
 		}
 	}
@@ -579,7 +579,7 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 		return false, false, errors.Wrap(err, "get config")
 	}
 
-	return cfg.Oplog.Enabled, cfg.Oplog.OplogOnly, nil
+	return cfg.PITR.Enabled, cfg.PITR.OplogOnly, nil
 }
 
 type Epoch primitive.Timestamp

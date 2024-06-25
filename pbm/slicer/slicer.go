@@ -141,8 +141,8 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		err = s.upload(ctx,
 			lastChunk.EndTS,
 			rs.FirstWriteTS,
-			cfg.Oplog.Compression,
-			cfg.Oplog.CompressionLevel)
+			cfg.PITR.Compression,
+			cfg.PITR.CompressionLevel)
 		if err != nil {
 			return err
 		}

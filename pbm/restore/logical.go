@@ -163,7 +163,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	r.stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -281,7 +281,7 @@ func (r *Restore) PITR(
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	r.stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -776,7 +776,7 @@ func (r *Restore) RunSnapshot(
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(&bcp.Store.Storage, r.log)
+				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 				if err != nil {
 					return nil, errors.Wrap(err, "get storage")
 				}

@@ -258,9 +258,9 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 
 	compression := defs.DefaultCompression
 	compressionLevel := (*int)(nil)
-	if cfg.Oplog != nil {
-		compression = compress.CompressionType(cfg.Oplog.Compression)
-		compressionLevel = cfg.Oplog.CompressionLevel
+	if cfg.PITR != nil {
+		compression = compress.CompressionType(cfg.PITR.Compression)
+		compressionLevel = cfg.PITR.CompressionLevel
 	}
 
 	for _, t := range missedChunks {

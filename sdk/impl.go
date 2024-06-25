@@ -166,7 +166,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -225,7 +225,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 }
 
 func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}

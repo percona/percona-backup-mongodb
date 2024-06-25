@@ -115,9 +115,9 @@ func (c Cmd) String() string {
 }
 
 type ProfileCmd struct {
-	Name      string         `bson:"name"`
-	IsProfile bool           `bson:"profile"`
-	Storage   config.Storage `bson:"storage"`
+	Name      string             `bson:"name"`
+	IsProfile bool               `bson:"profile"`
+	Storage   config.StorageConf `bson:"storage"`
 }
 
 type ResyncCmd struct {

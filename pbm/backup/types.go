@@ -95,7 +95,7 @@ type Storage struct {
 	// IsProfile is true when storage is non-main (external).
 	IsProfile bool `bson:"profile,omitempty" json:"profile,omitempty"`
 
-	config.Storage `bson:",inline" json:",inline"`
+	config.StorageConf `bson:",inline" json:",inline"`
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup

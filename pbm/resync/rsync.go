@@ -26,7 +26,7 @@ import (
 //
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
-func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error {
+func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) error {
 	l := log.LogEventFromContext(ctx)
 
 	stg, err := util.StorageFromConfig(cfg, l)
@@ -95,7 +95,7 @@ func ClearBackupList(ctx context.Context, conn connect.Client, profile string) e
 func SyncBackupList(
 	ctx context.Context,
 	conn connect.Client,
-	cfg *config.Storage,
+	cfg *config.StorageConf,
 	profile string,
 ) error {
 	l := log.LogEventFromContext(ctx)
@@ -122,9 +122,9 @@ func SyncBackupList(
 	}
 
 	backupStore := backup.Storage{
-		Name:      profile,
-		IsProfile: profile != "",
-		Storage:   *cfg,
+		Name:        profile,
+		IsProfile:   profile != "",
+		StorageConf: *cfg,
 	}
 
 	for i := range backupList {
