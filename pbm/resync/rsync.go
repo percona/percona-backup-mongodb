@@ -3,9 +3,12 @@ package resync
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -124,18 +127,62 @@ func SyncBackupList(
 		Storage:   *cfg,
 	}
 
-	docs := make([]any, len(backupList))
-	for i, m := range backupList {
-		l.Debug("bcp: %v", m.Name)
-
+	for i := range backupList {
 		// overwriting config allows PBM to download files from the current deployment
-		m.Store = backupStore
-		docs[i] = m
+		backupList[i].Store = backupStore
 	}
 
-	_, err = conn.BcpCollection().InsertMany(ctx, docs)
-	if err != nil {
-		return errors.Wrap(err, "write backups meta into db")
+	return insertBackupList(ctx, conn, backupList)
+}
+
+func insertBackupList(
+	ctx context.Context,
+	conn connect.Client,
+	backups []*backup.BackupMeta,
+) error {
+	concurrencyNumber := runtime.NumCPU()
+
+	inC := make(chan *backup.BackupMeta)
+	errC := make(chan error, concurrencyNumber)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(concurrencyNumber)
+	for range concurrencyNumber {
+		go func() {
+			defer wg.Done()
+			l := log.LogEventFromContext(ctx)
+
+			for bcp := range inC {
+				l.Debug("bcp: %v", bcp.Name)
+
+				_, err := conn.BcpCollection().InsertOne(ctx, bcp)
+				if err != nil {
+					if mongo.IsDuplicateKeyError(err) {
+						l.Warning("backup %q already exists", bcp.Name)
+						continue
+					}
+					errC <- errors.Wrapf(err, "backup %q", bcp.Name)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, bcp := range backups {
+			inC <- bcp
+		}
+
+		close(inC)
+		wg.Wait()
+		close(errC)
+	}()
+
+	var errs []error
+	for err := range errC {
+		errs = append(errs, err)
+	}
+	if len(errs) != 0 {
+		return errors.Errorf("write backup meta:\n%v", errors.Join(errs...))
 	}
 
 	return nil
