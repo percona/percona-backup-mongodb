@@ -46,6 +46,7 @@ const (
 	StatusRunning  Status = "running"
 	StatusReconfig Status = "reconfig"
 	StatusError    Status = "error"
+	StatusUnset    Status = ""
 )
 
 // Init add initial PITR document.
@@ -101,6 +102,18 @@ func SetClusterStatus(ctx context.Context, conn connect.Client, status Status) e
 	return errors.Wrap(err, "update pitr doc to status")
 }
 
+func GetClusterStatus(ctx context.Context, conn connect.Client) (Status, error) {
+	meta, err := GetMeta(ctx, conn)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			return StatusUnset, err
+		}
+		return StatusUnset, errors.Wrap(err, "getting meta")
+	}
+
+	return meta.Status, nil
+}
+
 // SetReadyRSStatus sets Ready status for specified replicaset.
 func SetReadyRSStatus(ctx context.Context, conn connect.Client, rs, node string) error {
 	repliset := PITRReplset{
@@ -151,7 +164,7 @@ func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) erro
 }
 
 // GetPITRNominees fetches nomination fragment for specified RS
-// from PITRMeta document.
+// from pmbPITR document.
 // If document is not found, or document fragment for specific RS is not found,
 // error ErrNotFound is returned.
 func GetPITRNominees(
@@ -159,17 +172,9 @@ func GetPITRNominees(
 	conn connect.Client,
 	rs string,
 ) (*PITRNomination, error) {
-	res := conn.PITRCollection().FindOne(ctx, bson.D{})
-	if err := res.Err(); err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.ErrNotFound
-		}
-		return nil, errors.Wrap(err, "find pitr meta")
-	}
-
-	meta := &PITRMeta{}
-	if err := res.Decode(meta); err != nil {
-		errors.Wrap(err, "decode")
+	meta, err := GetMeta(ctx, conn)
+	if err != nil {
+		errors.Wrap(err, "get meta")
 	}
 
 	for _, n := range meta.Nomination {
