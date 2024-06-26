@@ -96,7 +96,7 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.list)
 }
 
-func runList(ctx context.Context, conn connect.Client, pbm sdk.Client, l *listOpts) (fmt.Stringer, error) {
+func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listOpts) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
@@ -116,7 +116,7 @@ func runList(ctx context.Context, conn connect.Client, pbm sdk.Client, l *listOp
 	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
 }
 
-func findLock(ctx context.Context, pbm sdk.Client) (*sdk.OpLock, error) {
+func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
 	locks, err := pbm.OpLocks(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
@@ -153,7 +153,7 @@ func findLock(ctx context.Context, pbm sdk.Client) (*sdk.OpLock, error) {
 	return lck, nil
 }
 
-func restoreList(ctx context.Context, conn connect.Client, pbm sdk.Client, limit int64) (*restoreListOut, error) {
+func restoreList(ctx context.Context, conn connect.Client, pbm *sdk.Client, limit int64) (*restoreListOut, error) {
 	opts := sdk.GetAllRestoresOptions{Limit: limit}
 	rlist, err := pbm.GetAllRestores(ctx, conn, opts)
 	if err != nil {

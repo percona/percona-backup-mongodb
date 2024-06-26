@@ -379,7 +379,7 @@ func main() {
 	defer cancel()
 
 	var conn connect.Client
-	var pbm sdk.Client
+	var pbm *sdk.Client
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -658,7 +658,7 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func cancelBcp(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+func cancelBcp(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	if _, err := pbm.CancelBackup(ctx); err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}

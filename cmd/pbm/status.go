@@ -95,7 +95,7 @@ func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[str
 func status(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	curi string,
 	opts statusOptions,
 	pretty bool,
@@ -229,7 +229,7 @@ func (c cluster) String() string {
 
 func clusterStatus(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	confGetter cli.RSConfGetter,
 ) (fmt.Stringer, error) {
 	status, err := cli.ClusterStatus(ctx, pbm, confGetter)
@@ -408,7 +408,7 @@ func (c currOp) String() string {
 	}
 }
 
-func getCurrOps(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+func getCurrOps(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	locks, err := pbm.OpLocks(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
@@ -544,7 +544,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat

@@ -25,8 +25,8 @@ func IsHeartbeatStale(clusterTime, other Timestamp) bool {
 	return clusterTime.T >= other.T+defs.StaleFrameSec
 }
 
-func ClusterTime(ctx context.Context, client Client) (Timestamp, error) {
-	info, err := topo.GetNodeInfo(ctx, client.(*clientImpl).conn.MongoClient())
+func ClusterTime(ctx context.Context, client *Client) (Timestamp, error) {
+	info, err := topo.GetNodeInfo(ctx, client.conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, err
 	}
@@ -41,8 +41,8 @@ func ClusterTime(ctx context.Context, client Client) (Timestamp, error) {
 //
 // For sharded cluster: the configsvr (with ID `config`) and all shards.
 // For non-sharded cluster: the replset.
-func ClusterMembers(ctx context.Context, client Client) ([]ReplsetInfo, error) {
-	shards, err := topo.ClusterMembers(ctx, client.(*clientImpl).conn.MongoClient())
+func ClusterMembers(ctx context.Context, client *Client) ([]ReplsetInfo, error) {
+	shards, err := topo.ClusterMembers(ctx, client.conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "topo")
 	}
@@ -50,6 +50,6 @@ func ClusterMembers(ctx context.Context, client Client) ([]ReplsetInfo, error) {
 }
 
 // AgentStatuses returns list of all PBM Agents statuses.
-func AgentStatuses(ctx context.Context, sc Client) ([]AgentStatus, error) {
-	return topo.ListAgents(ctx, sc.(*clientImpl).conn)
+func AgentStatuses(ctx context.Context, client *Client) ([]AgentStatus, error) {
+	return topo.ListAgents(ctx, client.conn)
 }

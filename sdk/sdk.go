@@ -118,64 +118,35 @@ func (l *OpLock) Err() error {
 	return l.err
 }
 
-type Client interface {
-	Close(ctx context.Context) error
-
-	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
-	OpLocks(ctx context.Context) ([]OpLock, error)
-
-	GetConfig(ctx context.Context) (*Config, error)
-
-	GetAllBackups(ctx context.Context) ([]BackupMetadata, error)
-	GetBackupByName(ctx context.Context, name string, options GetBackupByNameOptions) (*BackupMetadata, error)
-	GetBackupByOpID(ctx context.Context, opid string, options GetBackupByNameOptions) (*BackupMetadata, error)
-
-	GetAllRestores(ctx context.Context, m connect.Client, options GetAllRestoresOptions) ([]RestoreMetadata, error)
-	GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error)
-	GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMetadata, error)
-
-	CancelBackup(ctx context.Context) (CommandID, error)
-
-	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
-	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp, options DeleteBackupBeforeOptions) (CommandID, error)
-
-	DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error)
-
-	CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error)
-	RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error)
-
-	SyncFromStorage(ctx context.Context) (CommandID, error)
-}
-
-func NewClient(ctx context.Context, uri string) (Client, error) {
+func NewClient(ctx context.Context, uri string) (*Client, error) {
 	conn, err := connect.Connect(ctx, uri, "sdk")
 	if err != nil {
 		return nil, err
 	}
 
-	return &clientImpl{conn: conn}, nil
+	return &Client{conn: conn}, nil
 }
 
-func WaitForCleanup(ctx context.Context, client Client) error {
+func WaitForCleanup(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdCleanup}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForDeleteBackup(ctx context.Context, client Client) error {
+func WaitForDeleteBackup(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdDeleteBackup}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForDeleteOplogRange(ctx context.Context, client Client) error {
+func WaitForDeleteOplogRange(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdDeletePITR}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForErrorLog(ctx context.Context, client Client, cmd *Command) (string, error) {
-	return lastLogErr(ctx, client.(*clientImpl).conn, cmd.Cmd, cmd.TS)
+func WaitForErrorLog(ctx context.Context, client *Client, cmd *Command) (string, error) {
+	return lastLogErr(ctx, client.conn, cmd.Cmd, cmd.TS)
 }
 
-func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
+func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -187,7 +158,7 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 		},
 	}
 
-	outC, errC := log.Follow(ctx, c.(*clientImpl).conn, r, false)
+	outC, errC := log.Follow(ctx, c.conn, r, false)
 
 	for {
 		select {
@@ -201,34 +172,34 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 	}
 }
 
-func CanDeleteBackup(ctx context.Context, sc Client, bcp *BackupMetadata) error {
-	return backup.CanDeleteBackup(ctx, sc.(*clientImpl).conn, bcp)
+func CanDeleteBackup(ctx context.Context, client *Client, bcp *BackupMetadata) error {
+	return backup.CanDeleteBackup(ctx, client.conn, bcp)
 }
 
 func CanDeleteIncrementalBackup(
 	ctx context.Context,
-	sc Client,
+	client *Client,
 	bcp *BackupMetadata,
 	increments [][]*BackupMetadata,
 ) error {
-	return backup.CanDeleteIncrementalChain(ctx, sc.(*clientImpl).conn, bcp, increments)
+	return backup.CanDeleteIncrementalChain(ctx, client.conn, bcp, increments)
 }
 
 func ListDeleteBackupBefore(
 	ctx context.Context,
-	sc Client,
+	client *Client,
 	ts primitive.Timestamp,
 	bcpType BackupType,
 ) ([]BackupMetadata, error) {
-	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
+	return backup.ListDeleteBackupBefore(ctx, client.conn, ts, bcpType)
 }
 
 func ListDeleteChunksBefore(
 	ctx context.Context,
-	sc Client,
+	client *Client,
 	ts primitive.Timestamp,
 ) ([]OplogChunk, error) {
-	r, err := backup.MakeCleanupInfo(ctx, sc.(*clientImpl).conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts)
 	return r.Chunks, err
 }
 

@@ -31,7 +31,7 @@ type deleteBcpOpts struct {
 func deleteBackup(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	d *deleteBcpOpts,
 ) (fmt.Stringer, error) {
 	if d.name == "" && d.olderThan == "" {
@@ -65,7 +65,7 @@ func deleteBackup(
 	return waitForDelete(ctx, conn, pbm, cid)
 }
 
-func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
 	opts := sdk.GetBackupByNameOptions{FetchIncrements: true}
 	bcp, err := pbm.GetBackupByName(ctx, d.name, opts)
 	if err != nil {
@@ -112,7 +112,7 @@ func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (
 	return cid, errors.Wrap(err, "schedule delete")
 }
 
-func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
 	var ts primitive.Timestamp
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
@@ -159,7 +159,7 @@ type deletePitrOpts struct {
 func deletePITR(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	d *deletePitrOpts,
 ) (fmt.Stringer, error) {
 	if d.olderThan == "" && !d.all {
@@ -232,7 +232,7 @@ type cleanupOptions struct {
 	dryRun    bool
 }
 
-func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
+func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
@@ -400,7 +400,7 @@ func askConfirmation(question string) error {
 	return errUserCanceled
 }
 
-func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
+func waitForDelete(ctx context.Context, conn connect.Client, pbm *sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
 	progressCtx, stopProgress := context.WithCancel(ctx)
 	defer stopProgress()
 
@@ -422,7 +422,7 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 		return nil, errors.Wrap(err, "get command info")
 	}
 
-	var waitFn func(ctx context.Context, client sdk.Client) error
+	var waitFn func(ctx context.Context, client *sdk.Client) error
 	switch cmd.Cmd {
 	case ctrl.CmdCleanup:
 		waitFn = sdk.WaitForCleanup

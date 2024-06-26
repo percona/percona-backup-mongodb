@@ -55,26 +55,26 @@ type CleanupInfo struct {
 
 // DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
-func DeleteBackup(ctx context.Context, cc connect.Client, name string) error {
-	bcp, err := NewDBManager(cc).GetBackupByName(ctx, name)
+func DeleteBackup(ctx context.Context, conn connect.Client, name string) error {
+	bcp, err := NewDBManager(conn).GetBackupByName(ctx, name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
 
 	if bcp.Type == defs.IncrementalBackup {
-		return deleteIncremetalChainImpl(ctx, cc, bcp)
+		return deleteIncremetalChainImpl(ctx, conn, bcp)
 	}
 
-	return deleteBackupImpl(ctx, cc, bcp)
+	return deleteBackupImpl(ctx, conn, bcp)
 }
 
-func deleteBackupImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) error {
-	err := CanDeleteBackup(ctx, cc, bcp)
+func deleteBackupImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
+	err := CanDeleteBackup(ctx, conn, bcp)
 	if err != nil {
 		return err
 	}
 
-	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -84,7 +84,7 @@ func deleteBackupImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) e
 		return errors.Wrap(err, "delete files from storage")
 	}
 
-	_, err = cc.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
+	_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
 	if err != nil {
 		return errors.Wrap(err, "delete metadata from db")
 	}
@@ -92,13 +92,13 @@ func deleteBackupImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) e
 	return nil
 }
 
-func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) error {
-	increments, err := FetchAllIncrements(ctx, cc, bcp)
+func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
+	increments, err := FetchAllIncrements(ctx, conn, bcp)
 	if err != nil {
 		return err
 	}
 
-	err = CanDeleteIncrementalChain(ctx, cc, bcp, increments)
+	err = CanDeleteIncrementalChain(ctx, conn, bcp, increments)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *Back
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -121,7 +121,7 @@ func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *Back
 			return errors.Wrap(err, "delete files from storage")
 		}
 
-		_, err = cc.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
+		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
 		if err != nil {
 			return errors.Wrap(err, "delete metadata from db")
 		}
@@ -131,7 +131,7 @@ func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *Back
 	return nil
 }
 
-func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) error {
+func CanDeleteBackup(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
 	if bcp.Status.IsRunning() {
 		return ErrBackupInProgress
 	}
@@ -142,7 +142,7 @@ func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) er
 		return ErrIncrementalBackup
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, bcp.LastWriteTS, primitive.Timestamp{})
+	required, err := isRequiredForOplogSlicing(ctx, conn, bcp.LastWriteTS, primitive.Timestamp{})
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -155,7 +155,7 @@ func CanDeleteBackup(ctx context.Context, cc connect.Client, bcp *BackupMeta) er
 
 func CanDeleteIncrementalChain(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	base *BackupMeta,
 	increments [][]*BackupMeta,
 ) error {
@@ -178,7 +178,7 @@ func CanDeleteIncrementalChain(
 		}
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, cc, lastWrite, base.LastWriteTS)
+	required, err := isRequiredForOplogSlicing(ctx, conn, lastWrite, base.LastWriteTS)
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -189,7 +189,11 @@ func CanDeleteIncrementalChain(
 	return nil
 }
 
-func FetchAllIncrements(ctx context.Context, cc connect.Client, base *BackupMeta) ([][]*BackupMeta, error) {
+func FetchAllIncrements(
+	ctx context.Context,
+	conn connect.Client,
+	base *BackupMeta,
+) ([][]*BackupMeta, error) {
 	if base.SrcBackup != "" {
 		return nil, ErrNotBaseIncrement
 	}
@@ -198,7 +202,7 @@ func FetchAllIncrements(ctx context.Context, cc connect.Client, base *BackupMeta
 
 	lastInc := base
 	for {
-		cur, err := cc.BcpCollection().Find(ctx, bson.D{{"src_backup", lastInc.Name}})
+		cur, err := conn.BcpCollection().Find(ctx, bson.D{{"src_backup", lastInc.Name}})
 		if err != nil {
 			return nil, errors.Wrap(err, "query")
 		}
@@ -230,13 +234,17 @@ func FetchAllIncrements(ctx context.Context, cc connect.Client, base *BackupMeta
 	return chain, nil
 }
 
-func isSourceForIncremental(ctx context.Context, cc connect.Client, bcpName string) (bool, error) {
+func isSourceForIncremental(
+	ctx context.Context,
+	conn connect.Client,
+	bcpName string,
+) (bool, error) {
 	// check if there is an increment based on the backup
 	f := bson.D{
 		{"src_backup", bcpName},
 		{"status", bson.M{"$nin": bson.A{defs.StatusCancelled, defs.StatusError}}},
 	}
-	res := cc.BcpCollection().FindOne(ctx, f)
+	res := conn.BcpCollection().FindOne(ctx, f)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			// the backup is the last increment in the chain
@@ -264,11 +272,11 @@ func isValidBaseSnapshot(bcp *BackupMeta) bool {
 
 func isRequiredForOplogSlicing(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	lw primitive.Timestamp,
 	baseLW primitive.Timestamp,
 ) (bool, error) {
-	enabled, oplogOnly, err := config.IsPITREnabled(ctx, cc)
+	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
 	if err != nil {
 		return false, err
 	}
@@ -276,7 +284,7 @@ func isRequiredForOplogSlicing(
 		return false, nil
 	}
 
-	nextRestoreTime, err := FindBaseSnapshotLWAfter(ctx, cc, lw)
+	nextRestoreTime, err := FindBaseSnapshotLWAfter(ctx, conn, lw)
 	if err != nil {
 		return false, errors.Wrap(err, "find next snapshot")
 	}
@@ -285,12 +293,12 @@ func isRequiredForOplogSlicing(
 		return false, nil
 	}
 
-	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, cc, lw, baseLW)
+	prevRestoreTime, err := FindBaseSnapshotLWBefore(ctx, conn, lw, baseLW)
 	if err != nil {
 		return false, errors.Wrap(err, "find previous snapshot")
 	}
 
-	timelines, err := oplog.PITRTimelinesBetween(ctx, cc, prevRestoreTime, lw)
+	timelines, err := oplog.PITRTimelinesBetween(ctx, conn, prevRestoreTime, lw)
 	if err != nil {
 		return false, errors.Wrap(err, "get oplog range from previous backup")
 	}
@@ -303,8 +311,13 @@ func isRequiredForOplogSlicing(
 }
 
 // DeleteBackupBefore deletes backups which are older than given time
-func DeleteBackupBefore(ctx context.Context, cc connect.Client, t time.Time, bcpType defs.BackupType) error {
-	backups, err := ListDeleteBackupBefore(ctx, cc, primitive.Timestamp{T: uint32(t.Unix())}, bcpType)
+func DeleteBackupBefore(
+	ctx context.Context,
+	conn connect.Client,
+	t time.Time,
+	bcpType defs.BackupType,
+) error {
+	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType)
 	if err != nil {
 		return err
 	}
@@ -312,7 +325,7 @@ func DeleteBackupBefore(ctx context.Context, cc connect.Client, t time.Time, bcp
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, cc, log.LogEventFromContext(ctx))
+	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -325,7 +338,7 @@ func DeleteBackupBefore(ctx context.Context, cc connect.Client, t time.Time, bcp
 			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
 		}
 
-		_, err = cc.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
+		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
 		if err != nil {
 			return errors.Wrapf(err, "delete metadata from db for %q", bcp.Name)
 		}
@@ -336,11 +349,11 @@ func DeleteBackupBefore(ctx context.Context, cc connect.Client, t time.Time, bcp
 
 func ListDeleteBackupBefore(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	ts primitive.Timestamp,
 	bcpType defs.BackupType,
 ) ([]BackupMeta, error) {
-	info, err := MakeCleanupInfo(ctx, cc, ts)
+	info, err := MakeCleanupInfo(ctx, conn, ts)
 	if err != nil {
 		return nil, err
 	}

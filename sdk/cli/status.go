@@ -59,7 +59,7 @@ func (n Node) IsLost() bool {
 
 func ClusterStatus(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	confGetter RSConfGetter,
 ) (map[string][]Node, error) {
 	clusterMembers, err := sdk.ClusterMembers(ctx, pbm)
