@@ -42,7 +42,7 @@ type Node struct {
 	Errs []error
 }
 
-func (n Node) IsLost() bool {
+func (n Node) IsAgentLost() bool {
 	if len(n.Errs) == 0 {
 		return false
 	}

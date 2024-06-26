@@ -25,8 +25,10 @@ var (
 )
 
 type (
-	CommandID string
-	Timestamp = primitive.Timestamp
+	Command     = ctrl.Cmd
+	CommandID   string
+	CommandType = ctrl.Command
+	Timestamp   = primitive.Timestamp
 )
 
 var NoOpID = CommandID(ctrl.NilOPID.String())
@@ -94,8 +96,6 @@ type DeleteBackupBeforeOptions struct {
 	Type BackupType
 }
 
-type Command = ctrl.Cmd
-
 // OpLock represents internal PBM lock.
 //
 // Some commands can have many locks (one lock per replset).
@@ -103,7 +103,7 @@ type OpLock struct {
 	// OpID is its command id.
 	OpID CommandID `json:"opid,omitempty"`
 	// Cmd is the type of command
-	Cmd ctrl.Command `json:"cmd,omitempty"`
+	Cmd CommandType `json:"cmd,omitempty"`
 	// Replset is name of a replset that acquired the lock.
 	Replset string `json:"rs,omitempty"`
 	// Node is `host:port` pair of an agent that acquired the lock.
