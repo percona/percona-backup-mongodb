@@ -65,6 +65,75 @@ func InitMeta(ctx context.Context, conn connect.Client) error {
 	return errors.Wrap(err, "pitr meta replace")
 }
 
+// GetMeta fetches PITR meta doc from pbmPITR collection.
+func GetMeta(
+	ctx context.Context,
+	conn connect.Client,
+) (*PITRMeta, error) {
+	res := conn.PITRCollection().FindOne(ctx, bson.D{})
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.ErrNotFound
+		}
+		return nil, errors.Wrap(err, "find pitr meta")
+	}
+
+	meta := &PITRMeta{}
+	if err := res.Decode(meta); err != nil {
+		errors.Wrap(err, "decode")
+	}
+	return meta, nil
+}
+
+// SetClusterStatus sets cluster status field of PITR Meta doc.
+// It also resets all content of replsets field doc.
+func SetClusterStatus(ctx context.Context, conn connect.Client, status Status) error {
+	_, err := conn.PITRCollection().
+		UpdateOne(
+			ctx,
+			bson.D{},
+			bson.D{{"$set", bson.M{
+				"status":   status,
+				"replsets": []PITRReplset{},
+			}}},
+			options.Update().SetUpsert(true),
+		)
+	return errors.Wrap(err, "update pitr doc to status")
+}
+
+// SetReadyRSStatus sets Ready status for specified replicaset.
+func SetReadyRSStatus(ctx context.Context, conn connect.Client, rs, node string) error {
+	repliset := PITRReplset{
+		Name:   rs,
+		Node:   node,
+		Status: StatusReady,
+	}
+	_, err := conn.PITRCollection().
+		UpdateOne(
+			ctx,
+			bson.D{},
+			bson.D{{"$addToSet", bson.M{"replsets": repliset}}},
+			options.Update().SetUpsert(true),
+		)
+	return errors.Wrap(err, "update pitr doc for RS ready status")
+}
+
+// GetReadyReplSets fetches all replicasets which reported Ready status
+func GetReadyReplSets(ctx context.Context, conn connect.Client) ([]PITRReplset, error) {
+	meta, err := GetMeta(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get meta")
+	}
+
+	readyReplsets := []PITRReplset{}
+	for _, rs := range meta.Replsets {
+		if rs.Status == StatusReady {
+			readyReplsets = append(readyReplsets, rs)
+		}
+	}
+	return readyReplsets, nil
+}
+
 // SetPITRNomination adds nomination fragment for specified RS within PITRMeta.
 func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) error {
 	n := PITRNomination{
@@ -78,7 +147,6 @@ func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) erro
 			bson.D{{"$addToSet", bson.M{"n": n}}},
 			options.Update().SetUpsert(true),
 		)
-
 	return errors.Wrap(err, "update pitr nomination")
 }
 
