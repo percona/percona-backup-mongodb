@@ -220,6 +220,7 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.S3 = s.S3.Clone()
 	case storage.Azure:
 		rv.Azure = s.Azure.Clone()
+	case storage.Blackhole: // no config
 	}
 
 	return rv
@@ -237,6 +238,8 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 		return s.Azure.Equal(other.Azure)
 	case storage.Filesystem:
 		return s.Filesystem.Equal(other.Filesystem)
+	case storage.Blackhole:
+		return true
 	}
 
 	return false
@@ -249,6 +252,8 @@ func (s *StorageConf) Cast() error {
 	case storage.S3:
 		return s.S3.Cast()
 	case storage.Azure: // noop
+		return nil
+	case storage.Blackhole: // noop
 		return nil
 	}
 
@@ -263,6 +268,8 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.Filesystem:
 		return "FS"
+	case storage.Blackhole:
+		return "blackhole"
 	case storage.Undefined:
 		fallthrough
 	default:

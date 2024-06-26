@@ -9,6 +9,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
@@ -25,6 +26,8 @@ func StorageFromConfig(cfg *config.StorageConf, l log.LogEvent) (storage.Storage
 		return azure.New(cfg.Azure, l)
 	case storage.Filesystem:
 		return fs.New(cfg.Filesystem)
+	case storage.Blackhole:
+		return blackhole.New(), nil
 	case storage.Undefined:
 		return nil, ErrStorageUndefined
 	default:

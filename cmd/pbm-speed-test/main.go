@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -92,7 +93,7 @@ func testCompression(mURL string, compression compress.CompressionType, level *i
 		defer cn.Disconnect(ctx) //nolint:errcheck
 	}
 
-	stg := newBlackhole()
+	stg := blackhole.New()
 	done := make(chan struct{})
 	go printw(done)
 
