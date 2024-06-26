@@ -56,7 +56,7 @@ func (l configProfileList) String() string {
 }
 
 func handleListConfigProfiles(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
-	profiles, err := pbm.ListConfigProfiles(ctx)
+	profiles, err := pbm.GetAllConfigProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}

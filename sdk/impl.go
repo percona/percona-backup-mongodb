@@ -78,7 +78,7 @@ func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
 	return config.GetConfig(ctx, c.conn)
 }
 
-func (c *clientImpl) ListConfigProfiles(ctx context.Context) ([]config.Config, error) {
+func (c *clientImpl) GetAllConfigProfiles(ctx context.Context) ([]config.Config, error) {
 	return config.ListProfiles(ctx, c.conn)
 }
 
