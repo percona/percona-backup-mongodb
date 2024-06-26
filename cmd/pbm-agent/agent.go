@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -225,80 +226,92 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	l.Info("started")
 
 	if cmd.All {
-		profiles, err := config.ListProfiles(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get config profiles: %v", err)
-			return
-		}
-
-		if cmd.Clear {
-			l.Debug("clearing backup list for %d config profiles", len(profiles))
-			for i := range profiles {
-				name := profiles[i].Name
-				err = resync.ClearBackupList(ctx, a.leadConn, name)
-				if err != nil {
-					l.Error("clear backup list for %q: %v", name, err)
-				}
-			}
-		} else {
-			l.Debug("syncing backup list for %d config profiles", len(profiles))
-			for i := range profiles {
-				profile := &profiles[i]
-				err = resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name)
-				if err != nil {
-					l.Error("sync backup list for %q: %v", profile.Name, err)
-					return
-				}
-			}
-		}
+		err = handleSyncAllProfiles(ctx, a.leadConn, cmd.Clear)
 	} else if cmd.Name != "" {
-		profile, err := config.GetProfile(ctx, a.leadConn, cmd.Name)
-		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				err = errors.Errorf("profile %q not found", cmd.Name)
-			}
-
-			l.Error("get config profile: %v", err)
-			return
-		}
-
-		if cmd.Clear {
-			l.Debug("clearing backup list for %q", profile.Name)
-			err = resync.ClearBackupList(ctx, a.leadConn, profile.Name)
-			if err != nil {
-				l.Error("clear backup list for %q: %v", profile.Name, err)
-			}
-		} else {
-			l.Debug("syncing backup list for %q", profile.Name)
-			err = resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name)
-			if err != nil {
-				l.Error("sync backup list for %q: %v", profile.Name, err)
-				return
-			}
-		}
-	} else { // resync main storage only
-		l.Debug("resync from main storage")
-		cfg, err := config.GetConfig(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get config: %v", err)
-			return
-		}
-
-		err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
-		if err != nil {
-			l.Error("resync: %v", err)
-			return
-		}
-
-		epch, err := config.ResetEpoch(ctx, a.leadConn)
-		if err != nil {
-			l.Error("reset epoch: %v", err)
-			return
-		}
-		l.Debug("epoch set to %v", epch)
+		err = handleSyncProfile(ctx, a.leadConn, cmd.Name, cmd.Clear)
+	} else {
+		err = handleSyncMainStorage(ctx, a.leadConn)
+	}
+	if err != nil {
+		l.Error(err.Error())
+		return
 	}
 
 	l.Info("succeed")
+}
+
+func handleSyncAllProfiles(ctx context.Context, conn connect.Client, clear bool) error {
+	profiles, err := config.ListProfiles(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "get config profiles")
+	}
+
+	eg, ctx := errgroup.WithContext(ctx)
+	if clear {
+		for i := range profiles {
+			eg.Go(func() error {
+				return helpClearProfileBackups(ctx, conn, profiles[i].Name)
+			})
+		}
+	} else {
+		for i := range profiles {
+			eg.Go(func() error {
+				return helpSyncProfileBackups(ctx, conn, &profiles[i])
+			})
+		}
+	}
+
+	return eg.Wait()
+}
+
+func handleSyncProfile(ctx context.Context, conn connect.Client, name string, clear bool) error {
+	profile, err := config.GetProfile(ctx, conn, name)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			err = errors.Errorf("profile %q not found", name)
+		}
+
+		return errors.Wrap(err, "get config profile")
+	}
+
+	if clear {
+		err = helpClearProfileBackups(ctx, conn, profile.Name)
+	} else {
+		err = helpSyncProfileBackups(ctx, conn, profile)
+	}
+
+	return err
+}
+
+func helpClearProfileBackups(ctx context.Context, conn connect.Client, profileName string) error {
+	err := resync.ClearBackupList(ctx, conn, profileName)
+	return errors.Wrapf(err, "clear backup list for %q", profileName)
+}
+
+func helpSyncProfileBackups(ctx context.Context, conn connect.Client, profile *config.Config) error {
+	err := resync.SyncBackupList(ctx, conn, &profile.Storage, profile.Name)
+	return errors.Wrapf(err, "sync backup list for %q", profile.Name)
+}
+
+func handleSyncMainStorage(ctx context.Context, conn connect.Client) error {
+	cfg, err := config.GetConfig(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+
+	err = resync.Resync(ctx, conn, &cfg.Storage)
+	if err != nil {
+		return errors.Wrap(err, "resync")
+	}
+
+	epch, err := config.ResetEpoch(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "reset epoch")
+	}
+	log.LogEventFromContext(ctx).
+		Debug("epoch set to %v", epch)
+
+	return nil
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock
