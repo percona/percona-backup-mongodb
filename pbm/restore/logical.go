@@ -44,7 +44,8 @@ type Restore struct {
 	brief    topo.NodeBrief
 	stopHB   chan struct{}
 	nodeInfo *topo.NodeInfo
-	stg      storage.Storage
+	bcpStg   storage.Storage
+	oplogStg storage.Storage
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -163,7 +164,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -211,7 +212,7 @@ func (r *Restore) Snapshot(
 	}
 
 	oplogRanges := []oplogRange{
-		{chunks: chunks, storage: r.stg},
+		{chunks: chunks, storage: r.bcpStg},
 	}
 	oplogOption := &applyOplogOption{end: &bcp.LastWriteTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
@@ -281,9 +282,13 @@ func (r *Restore) PITR(
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	r.stg, err = util.StorageFromConfig(&bcp.Store.Storage, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
+	}
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
+	if err != nil {
+		return errors.Wrap(err, "get oplog storage")
 	}
 
 	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
@@ -349,14 +354,9 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	oplogStorage, err := util.GetStorage(ctx, r.leadConn, l)
-	if err != nil {
-		return errors.Wrap(err, "get oplog storage")
-	}
-
 	oplogRanges := []oplogRange{
-		{chunks: bcpChunks, storage: r.stg},
-		{chunks: chunks, storage: oplogStorage},
+		{chunks: bcpChunks, storage: r.bcpStg},
+		{chunks: chunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
@@ -418,9 +418,9 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
-	r.stg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
 	if err != nil {
-		return errors.Wrapf(err, "get storage")
+		return errors.Wrapf(err, "get oplog storage")
 	}
 
 	opChunks, err := r.chunks(ctx, cmd.Start, cmd.End)
@@ -434,7 +434,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 	}
 
 	oplogRanges := []oplogRange{
-		{chunks: opChunks, storage: r.stg},
+		{chunks: opChunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{
 		start:  &cmd.Start,
@@ -553,7 +553,7 @@ func (r *Restore) checkTopologyForOplog(currShards []topo.Shard, oplogShards []s
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func (r *Restore) chunks(ctx context.Context, from, to primitive.Timestamp) ([]oplog.OplogChunk, error) {
-	return chunks(ctx, r.leadConn, r.stg, from, to, r.nodeInfo.SetName, r.rsMap)
+	return chunks(ctx, r.leadConn, r.oplogStg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
 // LookupBackupMeta fetches backup metadata.
@@ -646,11 +646,11 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 		return "", nil, ErrNoDataForShard
 	}
 
-	if _, err := r.stg.FileStat(rsMeta.DumpName); err != nil {
+	if _, err := r.bcpStg.FileStat(rsMeta.DumpName); err != nil {
 		return "", nil, errors.Wrapf(err, "failed to ensure snapshot file %s", rsMeta.DumpName)
 	}
 	if version.IsLegacyBackupOplog(bcp.PBMVersion) {
-		if _, err := r.stg.FileStat(rsMeta.OplogName); err != nil {
+		if _, err := r.bcpStg.FileStat(rsMeta.OplogName); err != nil {
 			return "", nil, errors.Errorf("failed to ensure oplog file %s: %v", rsMeta.OplogName, err)
 		}
 
@@ -664,7 +664,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 		return rsMeta.DumpName, chunks, nil
 	}
 
-	files, err := r.stg.List(rsMeta.OplogName, "")
+	files, err := r.bcpStg.List(rsMeta.OplogName, "")
 	if err != nil {
 		return "", nil, errors.Wrap(err, "failed to list oplog files")
 	}
@@ -742,7 +742,7 @@ func (r *Restore) RunSnapshot(
 
 	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
-		sr, err := r.stg.SourceReader(dump)
+		sr, err := r.bcpStg.SourceReader(dump)
 		if err != nil {
 			return errors.Wrapf(err, "get object %s for the storage", dump)
 		}
@@ -776,7 +776,7 @@ func (r *Restore) RunSnapshot(
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(&bcp.Store.Storage, r.log)
+				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
 				if err != nil {
 					return nil, errors.Wrap(err, "get storage")
 				}

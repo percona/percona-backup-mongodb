@@ -116,9 +116,9 @@ func (b *Backup) Init(
 		Namespaces:  bcp.Namespaces,
 		Compression: bcp.Compression,
 		Store: Storage{
-			Name:      b.config.Name,
-			IsProfile: b.config.IsProfile,
-			Storage:   b.config.Storage,
+			Name:        b.config.Name,
+			IsProfile:   b.config.IsProfile,
+			StorageConf: b.config.Storage,
 		},
 		StartTS:  time.Now().Unix(),
 		Status:   defs.StatusStarting,

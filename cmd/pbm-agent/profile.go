@@ -65,16 +65,16 @@ func (a *Agent) handleAddConfigProfile(
 
 	got, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
-		l.Error("acquiring lock: %v", err)
+		err = errors.Wrap(err, "acquiring lock")
 		return
 	}
 	if !got {
-		l.Error("lock not acquired")
+		err = errors.Wrap(err, "lock not acquired")
 		return
 	}
 	defer func() {
 		l.Debug("releasing lock")
-		err = lck.Release()
+		err := lck.Release()
 		if err != nil {
 			l.Error("unable to release lock %v: %v", lck, err)
 		}
@@ -82,7 +82,7 @@ func (a *Agent) handleAddConfigProfile(
 
 	err = cmd.Storage.Cast()
 	if err != nil {
-		l.Error("storage cast: %v", err)
+		err = errors.Wrap(err, "storage cast")
 		return
 	}
 
@@ -95,13 +95,13 @@ func (a *Agent) handleAddConfigProfile(
 	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {
 		if !errors.Is(err, storage.ErrUninitialized) {
-			l.Error("check read access: %v", err)
+			err = errors.Wrap(err, "check read access")
 			return
 		}
 
 		err = storage.Initialize(ctx, stg)
 		if err != nil {
-			l.Error("init storage: %v", err)
+			err = errors.Wrap(err, "init storage")
 			return
 		}
 	}
@@ -113,7 +113,7 @@ func (a *Agent) handleAddConfigProfile(
 	}
 	err = config.AddProfile(ctx, a.leadConn, profile)
 	if err != nil {
-		l.Error("add profile config: %v", err)
+		err = errors.Wrap(err, "add profile config")
 		return
 	}
 
@@ -169,16 +169,16 @@ func (a *Agent) handleRemoveConfigProfile(
 
 	got, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
-		l.Error("acquiring lock: %v", err)
+		err = errors.Wrap(err, "acquiring lock")
 		return
 	}
 	if !got {
-		l.Error("lock not acquired")
+		err = errors.New("lock not acquired")
 		return
 	}
 	defer func() {
 		l.Debug("releasing lock")
-		err = lck.Release()
+		err := lck.Release()
 		if err != nil {
 			l.Error("unable to release lock %v: %v", lck, err)
 		}
@@ -187,23 +187,23 @@ func (a *Agent) handleRemoveConfigProfile(
 	_, err = config.GetProfile(ctx, a.leadConn, cmd.Name)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			l.Warning("profile %q is not found", cmd.Name)
+			err = errors.Errorf("profile %q is not found", cmd.Name)
 			return
 		}
 
-		l.Error("get config profile: %v", err)
+		err = errors.Wrap(err, "get config profile")
 		return
 	}
 
 	err = resync.ClearBackupList(ctx, a.leadConn, cmd.Name)
 	if err != nil {
-		l.Error("clear backup list: %v", err)
+		err = errors.Wrap(err, "clear backup list")
 		return
 	}
 
 	err = config.RemoveProfile(ctx, a.leadConn, cmd.Name)
 	if err != nil {
-		l.Error("delete document", err)
+		err = errors.Wrap(err, "delete document")
 		return
 	}
 }

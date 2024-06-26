@@ -99,7 +99,7 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 
 // canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
 // Only physical backups (full, incremental, external) is allowed.
-func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.Storage) error {
+func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.StorageConf) error {
 	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return errors.Wrap(err, "get locks data")
@@ -132,13 +132,13 @@ func (a *Agent) pitr(ctx context.Context) error {
 			return errors.Wrap(err, "get conf")
 		}
 		cfg = &config.Config{
-			Oplog: &config.GlobalSlicer{},
+			PITR: &config.PITRConf{},
 		}
 	}
 
-	a.stopPitrOnOplogOnlyChange(cfg.Oplog.OplogOnly)
+	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 
-	if !cfg.Oplog.Enabled {
+	if !cfg.PITR.Enabled {
 		a.removePitr()
 		return nil
 	}
@@ -229,7 +229,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
 	s.SetSpan(slicerInterval)
 
-	if cfg.Oplog.OplogOnly {
+	if cfg.PITR.OplogOnly {
 		err = s.OplogOnlyCatchup(ctx)
 	} else {
 		err = s.Catchup(ctx)
@@ -262,8 +262,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		streamErr := s.Stream(ctx,
 			stopC,
 			w,
-			cfg.Oplog.Compression,
-			cfg.Oplog.CompressionLevel,
+			cfg.PITR.Compression,
+			cfg.PITR.CompressionLevel,
 			cfg.Backup.Timeouts)
 		if streamErr != nil {
 			out := l.Error

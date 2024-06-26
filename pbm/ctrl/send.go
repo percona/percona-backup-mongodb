@@ -70,7 +70,7 @@ func SendAddConfigProfile(
 	ctx context.Context,
 	m connect.Client,
 	name string,
-	storage config.Storage,
+	storage config.StorageConf,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdAddConfigProfile,

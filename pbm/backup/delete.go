@@ -74,7 +74,7 @@ func deleteBackupImpl(ctx context.Context, cc connect.Client, bcp *BackupMeta) e
 		return err
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -108,7 +108,7 @@ func deleteIncremetalChainImpl(ctx context.Context, cc connect.Client, bcp *Back
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.Storage, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}

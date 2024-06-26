@@ -86,7 +86,7 @@ type PhysRestore struct {
 	files     []files
 	restoreTS primitive.Timestamp
 
-	confOpts *config.Restore
+	confOpts *config.RestoreConf
 
 	mongod string // location of mongod used for internal restarts
 
@@ -2149,7 +2149,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.Storage, log.LogEventFromContext(ctx))
+	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}

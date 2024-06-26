@@ -3,9 +3,12 @@ package resync
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -23,7 +26,7 @@ import (
 //
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
-func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error {
+func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) error {
 	l := log.LogEventFromContext(ctx)
 
 	stg, err := util.StorageFromConfig(cfg, l)
@@ -49,19 +52,19 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.Storage) error
 		}
 	}
 
-	err = resyncPhysicalRestores(ctx, conn, stg)
-	if err != nil {
-		l.Error("resync physical restore metadata")
-	}
-
 	err = SyncBackupList(ctx, conn, cfg, "")
 	if err != nil {
-		l.Error("resync backup metadata")
+		l.Error("failed sync backup metadata: %v", err)
 	}
 
 	err = resyncOplogRange(ctx, conn, stg)
 	if err != nil {
-		l.Error("resync oplog range")
+		l.Error("failed sync oplog range: %v", err)
+	}
+
+	err = resyncPhysicalRestores(ctx, conn, stg)
+	if err != nil {
+		l.Error("failed sync physical restore metadata: %v", err)
 	}
 
 	return nil
@@ -92,7 +95,7 @@ func ClearBackupList(ctx context.Context, conn connect.Client, profile string) e
 func SyncBackupList(
 	ctx context.Context,
 	conn connect.Client,
-	cfg *config.Storage,
+	cfg *config.StorageConf,
 	profile string,
 ) error {
 	l := log.LogEventFromContext(ctx)
@@ -119,23 +122,67 @@ func SyncBackupList(
 	}
 
 	backupStore := backup.Storage{
-		Name:      profile,
-		IsProfile: profile != "",
-		Storage:   *cfg,
+		Name:        profile,
+		IsProfile:   profile != "",
+		StorageConf: *cfg,
 	}
 
-	docs := make([]any, len(backupList))
-	for i, m := range backupList {
-		l.Debug("bcp: %v", m.Name)
-
+	for i := range backupList {
 		// overwriting config allows PBM to download files from the current deployment
-		m.Store = backupStore
-		docs[i] = m
+		backupList[i].Store = backupStore
 	}
 
-	_, err = conn.BcpCollection().InsertMany(ctx, docs)
-	if err != nil {
-		return errors.Wrap(err, "write backups meta into db")
+	return insertBackupList(ctx, conn, backupList)
+}
+
+func insertBackupList(
+	ctx context.Context,
+	conn connect.Client,
+	backups []*backup.BackupMeta,
+) error {
+	concurrencyNumber := runtime.NumCPU()
+
+	inC := make(chan *backup.BackupMeta)
+	errC := make(chan error, concurrencyNumber)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(concurrencyNumber)
+	for range concurrencyNumber {
+		go func() {
+			defer wg.Done()
+			l := log.LogEventFromContext(ctx)
+
+			for bcp := range inC {
+				l.Debug("bcp: %v", bcp.Name)
+
+				_, err := conn.BcpCollection().InsertOne(ctx, bcp)
+				if err != nil {
+					if mongo.IsDuplicateKeyError(err) {
+						l.Warning("backup %q already exists", bcp.Name)
+						continue
+					}
+					errC <- errors.Wrapf(err, "backup %q", bcp.Name)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, bcp := range backups {
+			inC <- bcp
+		}
+
+		close(inC)
+		wg.Wait()
+		close(errC)
+	}()
+
+	var errs []error
+	for err := range errC {
+		errs = append(errs, err)
+	}
+	if len(errs) != 0 {
+		return errors.Errorf("write backup meta:\n%v", errors.Join(errs...))
 	}
 
 	return nil
