@@ -61,10 +61,12 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 }
 
 const (
-	pitrCheckPeriod          = 15 * time.Second
-	pitrRenominationFrame    = 30 * time.Second
-	pitrOpLockPollingCycle   = 15 * time.Second
-	pitrOpLockPollingTimeOut = 2 * time.Minute
+	pitrCheckPeriod              = 15 * time.Second
+	pitrRenominationFrame        = 5 * time.Second
+	pitrOpLockPollingCycle       = 15 * time.Second
+	pitrOpLockPollingTimeOut     = 2 * time.Minute
+	pitrNominationPollingCycle   = 2 * time.Second
+	pitrNominationPollingTimeOut = 2 * time.Minute
 )
 
 // PITR starts PITR processing routine
@@ -429,14 +431,23 @@ func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
 
 // waitNominationForPITR is used by potentional nominee to determinate if it
 // is nominated by the leader. It returns true if member receive nomination.
+// First, nominee needs to sync up about Ready status with cluster leader.
+// After cluster Ready status is reached, nomination process will start.
 // If nomination document is not found, nominee tries again on another tick.
 // If Ack is found in fetched fragment, that means that another member confirmed
 // nomination, so in that case current member lost nomination and false is returned.
 func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (bool, error) {
 	l := log.LogEventFromContext(ctx)
 
-	tk := time.NewTicker(time.Millisecond * 500)
+	err := a.confirmReadyStatus(ctx)
+	if err != nil {
+		return false, errors.Wrap(err, "confirming ready status")
+	}
+
+	tk := time.NewTicker(pitrNominationPollingCycle)
 	defer tk.Stop()
+	tout := time.NewTimer(pitrNominationPollingTimeOut)
+	defer tout.Stop()
 
 	l.Debug("waiting pitr nomination")
 	for {
@@ -458,7 +469,71 @@ func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (boo
 					return true, nil
 				}
 			}
+		case <-tout.C:
+			return false, nil
 		}
 	}
-	//todo: add timeout: e.g. 2 minutes
 }
+
+func (a *Agent) confirmReadyStatus(ctx context.Context) error {
+	l := log.LogEventFromContext(ctx)
+
+	tk := time.NewTicker(pitrNominationPollingCycle)
+	defer tk.Stop()
+	tout := time.NewTimer(pitrNominationPollingTimeOut)
+	defer tout.Stop()
+
+	l.Debug("waiting for cluster ready status")
+	for {
+		select {
+		case <-tk.C:
+			status, err := oplog.GetClusterStatus(ctx, a.leadConn)
+			if err != nil {
+				if errors.Is(err, errors.ErrNotFound) {
+					continue
+				}
+				return errors.Wrap(err, "getting cluser status")
+			}
+			if status == oplog.StatusReady {
+				err = oplog.SetReadyRSStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+				if err != nil {
+					return errors.Wrap(err, "setting ready status for RS")
+				}
+				return nil
+			}
+		case <-tout.C:
+			return errors.New("timeout while waiting for ready status")
+		}
+	}
+}
+
+func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentStat) error {
+	l := log.LogEventFromContext(ctx)
+
+	tk := time.NewTicker(pitrNominationPollingCycle)
+	defer tk.Stop()
+
+	tout := time.NewTimer(pitrNominationPollingTimeOut)
+	defer tout.Stop()
+
+	l.Debug("reconciling ready status from all agents")
+	for {
+		select {
+		case <-tk.C:
+			nodes, err := oplog.GetReadyReplSets(ctx, a.leadConn)
+			if err != nil {
+				if errors.Is(err, errors.ErrNotFound) {
+					continue
+				}
+				return errors.Wrap(err, "getting all nodes with ready status")
+			}
+			l.Debug("agents in ready: %d; waiting for agents: %d", len(nodes), len(agents))
+			if len(nodes) >= len(agents) {
+				return nil
+			}
+		case <-tout.C:
+			return errors.New("timeout while roconciling ready status")
+		}
+	}
+}
+
