@@ -364,7 +364,7 @@ func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {
 		rv[i].Node = locks[i].Node
 		rv[i].Heartbeat = locks[i].Heartbeat
 
-		if rv[i].Heartbeat.T+defs.StaleFrameSec > (clusterTime.T) {
+		if rv[i].Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
 			rv[i].err = ErrStaleHearbeat
 		}
 	}
