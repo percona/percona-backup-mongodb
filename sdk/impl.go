@@ -323,22 +323,6 @@ func (c *Client) Restore(ctx context.Context, backupName string, clusterTS Times
 	return NoOpID, ErrNotImplemented
 }
 
-type lockImpl struct {
-	lock.LockData
-}
-
-func (l lockImpl) Type() string {
-	return string(l.LockData.Type)
-}
-
-func (l lockImpl) CommandID() string {
-	return l.OPID
-}
-
-func (l lockImpl) Heartbeat() Timestamp {
-	return l.LockData.Heartbeat
-}
-
 var ErrStaleHearbeat = errors.New("stale heartbeat")
 
 func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {

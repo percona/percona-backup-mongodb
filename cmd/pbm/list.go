@@ -122,7 +122,7 @@ func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
 		return nil, errors.Wrap(err, "get locks")
 	}
 	if len(locks) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	var lck *sdk.OpLock

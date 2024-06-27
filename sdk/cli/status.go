@@ -179,7 +179,7 @@ func (g RSConfGetter) Get(ctx context.Context, host string) (*topo.RSConfig, err
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
-	defer conn.Disconnect(context.Background())
+	defer func() { _ = conn.Disconnect(context.Background()) }()
 
 	return topo.GetReplSetConfig(ctx, conn)
 }
