@@ -67,6 +67,7 @@ const (
 	pitrOpLockPollingTimeOut     = 2 * time.Minute
 	pitrNominationPollingCycle   = 2 * time.Second
 	pitrNominationPollingTimeOut = 2 * time.Minute
+	pitrWatchMonitorPollingCycle = 5 * time.Second
 )
 
 // PITR starts PITR processing routine
@@ -558,7 +559,7 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRCo
 	l := log.LogEventFromContext(ctx)
 	l.Debug("start pitr config monitor")
 
-	tk := time.NewTicker(5 * time.Second)
+	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
 
 	for {
@@ -600,3 +601,38 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRCo
 	}
 }
 
+// pitrErrorMonitor watches reported errors by agents on replica set(s)
+// which are running PITR.
+// In case of any reported error within pbmPITR collection, cluster status
+// Error is set.
+func (a *Agent) pitrErrorMonitor(ctx context.Context) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr error monitor")
+
+	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			replsets, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusError)
+			if err != nil {
+				l.Error("get error replsets", err)
+			}
+
+			if len(replsets) == 0 {
+				continue
+			}
+
+			l.Debug("error while executing pitr, pitr procedure will be restarted")
+			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusError)
+			if err != nil {
+				l.Error("error while setting cluster status Error: %v", err)
+			}
+			return
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
