@@ -507,13 +507,13 @@ func (s *S3) Delete(name string) error {
 	err := s.s3s.ListObjectsV2Pages(&s3.ListObjectsV2Input{
 		Bucket: aws.String(s.opts.Bucket),
 		Prefix: aws.String(path.Join(s.opts.Prefix, name)),
-	}, func(lovo *s3.ListObjectsV2Output, b bool) bool {
-		for _, obj := range lovo.Contents {
+	}, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+		for _, obj := range page.Contents {
 			allObjects = append(allObjects, &s3.ObjectIdentifier{
 				Key: aws.String(*obj.Key),
 			})
 		}
-		return !b
+		return !lastPage
 	})
 	if err != nil {
 		return errors.Wrapf(err, "list objects in '%s/%s' directory", s.opts.Bucket, name)
