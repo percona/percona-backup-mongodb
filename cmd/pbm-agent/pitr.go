@@ -453,7 +453,6 @@ func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (boo
 	for {
 		select {
 		case <-tk.C:
-
 			nm, err := oplog.GetPITRNominees(ctx, a.leadConn, rs)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
@@ -520,7 +519,7 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 	for {
 		select {
 		case <-tk.C:
-			nodes, err := oplog.GetReadyReplSets(ctx, a.leadConn)
+			nodes, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusReady)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
@@ -537,3 +536,17 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 	}
 }
 
+// isPITRClusterStatus checks within pbmPITR collection if cluster status
+// is set to specified status.
+func (a *Agent) isPITRClusterStatus(ctx context.Context, status oplog.Status) bool {
+	l := log.LogEventFromContext(ctx)
+
+	meta, err := oplog.GetMeta(ctx, a.leadConn)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			return false
+		}
+		l.Error("getting metta for reconfig status check: %v", err)
+	}
+	return meta.Status == status
+}
