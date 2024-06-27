@@ -131,20 +131,38 @@ func SetReadyRSStatus(ctx context.Context, conn connect.Client, rs, node string)
 	return errors.Wrap(err, "update pitr doc for RS ready status")
 }
 
-// GetReadyReplSets fetches all replicasets which reported Ready status
-func GetReadyReplSets(ctx context.Context, conn connect.Client) ([]PITRReplset, error) {
+// SetErrorRSStatus sets Error status for specified replicaset and includes error descrioption.
+func SetErrorRSStatus(ctx context.Context, conn connect.Client, rs, node, errText string) error {
+	repliset := PITRReplset{
+		Name:   rs,
+		Node:   node,
+		Status: StatusError,
+		Error:  errText,
+	}
+	_, err := conn.PITRCollection().
+		UpdateOne(
+			ctx,
+			bson.D{},
+			bson.D{{"$addToSet", bson.M{"replsets": repliset}}},
+			options.Update().SetUpsert(true),
+		)
+	return errors.Wrap(err, "update pitr doc for RS error status")
+}
+
+// GetReplSetsWithStatus fetches all replica sets which reported status specified with parameter.
+func GetReplSetsWithStatus(ctx context.Context, conn connect.Client, status Status) ([]PITRReplset, error) {
 	meta, err := GetMeta(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get meta")
 	}
 
-	readyReplsets := []PITRReplset{}
+	replSetsWithStatus := []PITRReplset{}
 	for _, rs := range meta.Replsets {
-		if rs.Status == StatusReady {
-			readyReplsets = append(readyReplsets, rs)
+		if rs.Status == status {
+			replSetsWithStatus = append(replSetsWithStatus, rs)
 		}
 	}
-	return readyReplsets, nil
+	return replSetsWithStatus, nil
 }
 
 // SetPITRNomination adds nomination fragment for specified RS within PITRMeta.
