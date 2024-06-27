@@ -280,6 +280,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 	err = oplog.SetPITRNomineeACK(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+	if err != nil {
+		l.Error("set nominee ack: %v", err)
+	}
 
 	stg, err := util.StorageFromConfig(cfg.Storage, l)
 	if err != nil {
@@ -335,13 +338,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
-		}
-
-		// Penalty to the failed node so healthy nodes would have priority on next try.
-		// But lock has to be released first. Otherwise, healthy nodes would wait for the lock release
-		// and the penalty won't have any sense.
-		if streamErr != nil {
-			time.Sleep(pitrCheckPeriod * 2)
 		}
 	}()
 
