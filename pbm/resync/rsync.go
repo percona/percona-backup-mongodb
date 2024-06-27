@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -152,15 +153,22 @@ func insertBackupList(
 			defer wg.Done()
 			l := log.LogEventFromContext(ctx)
 
+			var err error
 			for bcp := range inC {
 				l.Debug("bcp: %v", bcp.Name)
 
-				_, err := conn.BcpCollection().InsertOne(ctx, bcp)
-				if err != nil {
+				if bcp.Store.IsProfile {
+					_, err = conn.BcpCollection().InsertOne(ctx, bcp)
 					if mongo.IsDuplicateKeyError(err) {
-						l.Warning("backup %q already exists", bcp.Name)
 						continue
 					}
+				} else {
+					_, err = conn.BcpCollection().ReplaceOne(ctx,
+						bson.D{{"name", bcp.Name}},
+						bcp,
+						options.Replace().SetUpsert(true))
+				}
+				if err != nil {
 					errC <- errors.Wrapf(err, "backup %q", bcp.Name)
 				}
 			}
