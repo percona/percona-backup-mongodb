@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -36,6 +37,10 @@ func GetProfile(ctx context.Context, m connect.Client, name string) (*Config, er
 		{"name", name},
 	})
 	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, ErrMissedConfigProfile
+		}
+
 		return nil, errors.Wrap(err, "query")
 	}
 

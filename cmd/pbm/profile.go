@@ -110,16 +110,29 @@ func handleAddConfigProfile(
 		return nil, errors.Wrap(err, "parse config")
 	}
 
+	_, err = pbm.GetConfigProfile(ctx, opts.name)
+	if err != nil {
+		if !errors.Is(err, config.ErrMissedConfigProfile) {
+			return nil, errors.Wrap(err, "find saved profile")
+		}
+	} else {
+		cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
+		if err != nil {
+			return nil, errors.Wrap(err, "clear profile list")
+		}
+		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+		if err != nil {
+			return nil, errors.Wrap(err, "wait")
+		}
+	}
+
 	cid, err := pbm.AddConfigProfile(ctx, opts.name, cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "add config profile")
 	}
-
-	if opts.wait {
-		err = sdk.WaitForAddProfile(ctx, pbm, cid)
-		if err != nil {
-			return nil, errors.Wrap(err, "wait")
-		}
+	err = sdk.WaitForAddProfile(ctx, pbm, cid)
+	if err != nil {
+		return nil, errors.Wrap(err, "wait")
 	}
 
 	if opts.sync {
@@ -160,12 +173,9 @@ func handleRemoveConfigProfile(
 	if err != nil {
 		return nil, errors.Wrap(err, "sdk: remove config profile")
 	}
-
-	if opts.wait {
-		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
-		if err != nil {
-			return nil, errors.Wrap(err, "wait")
-		}
+	err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+	if err != nil {
+		return nil, errors.Wrap(err, "wait")
 	}
 
 	return &outMsg{"OK"}, nil
