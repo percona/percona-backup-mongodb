@@ -25,8 +25,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
-	sdk "github.com/percona/percona-backup-mongodb/v2"
-	"github.com/percona/percona-backup-mongodb/v2/cli"
+	"github.com/percona/percona-backup-mongodb/sdk"
+	"github.com/percona/percona-backup-mongodb/sdk/cli"
 )
 
 type statusOptions struct {

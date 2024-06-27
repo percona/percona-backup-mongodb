@@ -21,7 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
-	sdk "github.com/percona/percona-backup-mongodb/v2"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 const (

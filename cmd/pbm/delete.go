@@ -17,7 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	sdk "github.com/percona/percona-backup-mongodb/v2"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type deleteBcpOpts struct {

@@ -13,7 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
-	sdk "github.com/percona/percona-backup-mongodb/v2"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type LostAgentError struct {
