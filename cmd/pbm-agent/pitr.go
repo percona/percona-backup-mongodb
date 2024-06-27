@@ -550,3 +550,53 @@ func (a *Agent) isPITRClusterStatus(ctx context.Context, status oplog.Status) bo
 	}
 	return meta.Status == status
 }
+
+// pitrConfigMonitor watches changes in PITR section within PBM configuration.
+// If relevant changes are detected (e.g. priorities, oplogOnly), it sets
+// Reconfig cluster status, meaning that slicing process needs to be restarted.
+func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRConf) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr config monitor")
+
+	tk := time.NewTicker(5 * time.Second)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			cfg, err := config.GetConfig(ctx, a.leadConn)
+			if err != nil {
+				if !errors.Is(err, mongo.ErrNoDocuments) {
+					l.Error("error while monitoring for pitr conf change: %v", err)
+				}
+				continue
+			}
+
+			if !cfg.PITR.Enabled {
+				//todo check this
+				continue
+			}
+
+			oldP := currentConf.Priority
+			newP := cfg.PITR.Priority
+			//todo: add change chet for other config params
+			if newP == nil && oldP == nil {
+				continue
+			}
+			if maps.Equal(newP, oldP) {
+				continue
+			}
+
+			l.Info("pitr config has changed, re-config will be done")
+			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
+			if err != nil {
+				l.Error("error while setting cluster status reconfig: %v", err)
+			}
+			return
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
