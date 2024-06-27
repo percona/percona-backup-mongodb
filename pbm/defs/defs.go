@@ -57,11 +57,13 @@ const (
 
 type NodeState int
 
+// https://github.com/mongodb/mongo/blob/v8.0/src/mongo/db/repl/member_state.h#L52-L109
 const (
 	NodeStateStartup NodeState = iota
 	NodeStatePrimary
 	NodeStateSecondary
 	NodeStateRecovering
+	_NodeStateRSFatal // mongo::repl::MemberState::MS::OBSOLETE_RS_FATAL
 	NodeStateStartup2
 	NodeStateUnknown
 	NodeStateArbiter
