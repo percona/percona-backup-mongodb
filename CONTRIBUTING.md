@@ -23,7 +23,7 @@ Before submitting code contributions, we ask you to complete the following prere
 
 ### 1. Sign the CLA
 
-Before you can contribute, we kindly ask you to sign our [Contributor License Agreement](https://cla-assistant.percona.com/&lt;linktoCLA>) (CLA). You can do this in on click using your GitHub account.
+Before you can contribute, we kindly ask you to sign our [Contributor License Agreement](https://cla-assistant.percona.com/) (CLA). You can do this in on click using your GitHub account.
 
 **Note**:  You can sign it later, when submitting your first pull request. The CLA assistant validates the PR and asks you to sign the CLA to proceed.
 

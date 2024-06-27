@@ -503,16 +503,39 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	_, err := s.s3s.DeleteObject(&s3.DeleteObjectInput{
+	allObjects := []*s3.ObjectIdentifier{}
+	err := s.s3s.ListObjectsV2Pages(&s3.ListObjectsV2Input{
 		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+		Prefix: aws.String(path.Join(s.opts.Prefix, name)),
+	}, func(lovo *s3.ListObjectsV2Output, b bool) bool {
+		for _, obj := range lovo.Contents {
+			allObjects = append(allObjects, &s3.ObjectIdentifier{
+				Key: aws.String(*obj.Key),
+			})
+		}
+		return !b
+	})
+	if err != nil {
+		return errors.Wrapf(err, "list objects in '%s/%s' directory", s.opts.Bucket, name)
+	}
+
+	if len(allObjects) == 0 {
+		return storage.ErrNotExist
+	}
+
+	_, err = s.s3s.DeleteObjects(&s3.DeleteObjectsInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Delete: &s3.Delete{
+			Objects: allObjects,
+			Quiet:   aws.Bool(true),
+		},
 	})
 	if err != nil {
 		var aerr awserr.Error
 		if errors.As(err, &aerr) && aerr.Code() == s3.ErrCodeNoSuchKey {
 			return storage.ErrNotExist
 		}
-		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+		return errors.Wrapf(err, "delete '%s/%s' file(s) from S3", s.opts.Bucket, name)
 	}
 
 	return nil
