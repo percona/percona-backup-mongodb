@@ -15,7 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/sdk"
+	sdk "github.com/percona/percona-backup-mongodb/v2"
 )
 
 const resyncWaitDuration = 30 * time.Second

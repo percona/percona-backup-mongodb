@@ -31,6 +31,18 @@ type (
 	Timestamp   = primitive.Timestamp
 )
 
+const (
+	CmdBackup       = ctrl.CmdBackup
+	CmdRestore      = ctrl.CmdRestore
+	CmdReplay       = ctrl.CmdReplay
+	CmdCancelBackup = ctrl.CmdCancelBackup
+	CmdResync       = ctrl.CmdResync
+	CmdPITR         = ctrl.CmdPITR
+	CmdDeleteBackup = ctrl.CmdDeleteBackup
+	CmdDeletePITR   = ctrl.CmdDeletePITR
+	CmdCleanup      = ctrl.CmdCleanup
+)
+
 var NoOpID = CommandID(ctrl.NilOPID.String())
 
 type BackupType = defs.BackupType

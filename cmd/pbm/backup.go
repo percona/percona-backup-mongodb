@@ -24,7 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
-	"github.com/percona/percona-backup-mongodb/sdk"
+	sdk "github.com/percona/percona-backup-mongodb/v2"
 )
 
 type backupOpts struct {
