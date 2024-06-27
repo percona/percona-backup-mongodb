@@ -44,7 +44,7 @@ import (
 // would be allocated as some of the span slots may remain unused.
 
 const (
-	downloadChuckSizeDefault = 8 << 20
+	downloadChunkSizeDefault = 8 << 20
 	downloadRetries          = 10
 
 	ccSpanDefault = 32 << 20

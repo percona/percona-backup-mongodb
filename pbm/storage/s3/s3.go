@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	// GCSEndpointURL is the endpoint url for Google Clound Strage service
+	// GCSEndpointURL is the endpoint url for Google Clound Storage service
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
@@ -250,8 +250,8 @@ func New(opts Conf, l log.LogEvent) (*S3, error) {
 
 	s.d = &Download{
 		s3:       s,
-		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		spanSize: downloadChuckSizeDefault,
+		arenas:   []*arena{newArena(downloadChunkSizeDefault, downloadChunkSizeDefault)},
+		spanSize: downloadChunkSizeDefault,
 		cc:       1,
 	}
 
@@ -340,7 +340,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
 		// using minio client with GCS because it
-		// allows to disable chuncks muiltipertition for upload
+		// allows to disable chunks muiltipertition for upload
 		mc, err := minio.NewWithRegion(GCSEndpointURL,
 			s.opts.Credentials.AccessKeyID,
 			s.opts.Credentials.SecretAccessKey,
