@@ -240,10 +240,6 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/percona/percona-backup-mongodb/v2 v2.0.0-00010101000000-000000000000 => ./v2
-## explicit; go 1.22
-github.com/percona/percona-backup-mongodb/v2
-github.com/percona/percona-backup-mongodb/v2/cli
 # github.com/pierrec/lz4 v2.6.1+incompatible
 ## explicit
 github.com/pierrec/lz4
@@ -388,4 +384,3 @@ golang.org/x/text/unicode/norm
 gopkg.in/yaml.v2
 # gotest.tools/v3 v3.5.1
 ## explicit; go 1.17
-# github.com/percona/percona-backup-mongodb/v2 => ./v2

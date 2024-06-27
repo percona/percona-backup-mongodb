@@ -14,7 +14,6 @@ require (
 	github.com/klauspost/pgzip v1.2.6
 	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/mongodb/mongo-tools v0.0.0-20231117185435-bf0bef9e9f19
-	github.com/percona/percona-backup-mongodb/v2 v2.0.0-00010101000000-000000000000
 	github.com/pierrec/lz4 v2.6.1+incompatible
 	github.com/pkg/errors v0.9.1
 	go.mongodb.org/mongo-driver v1.13.0
@@ -66,5 +65,3 @@ require (
 	golang.org/x/time v0.5.0 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 )
-
-replace github.com/percona/percona-backup-mongodb/v2 => ./v2
