@@ -45,13 +45,13 @@ func (a *Agent) handleAddConfigProfile(
 		}
 	}()
 
-	nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
+	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		err = errors.Wrap(err, "get node info")
 		return
 	}
-	if !nodeInfo.IsLeader() {
-		l.Debug("not leader. skip")
+	if !nodeInfo.IsClusterLeader() {
+		l.Debug("not the leader. skip")
 		return
 	}
 
@@ -149,13 +149,13 @@ func (a *Agent) handleRemoveConfigProfile(
 		}
 	}()
 
-	nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
+	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		err = errors.Wrap(err, "get node info")
 		return
 	}
-	if !nodeInfo.IsLeader() {
-		l.Debug("not leader. skip")
+	if !nodeInfo.IsClusterLeader() {
+		l.Debug("not the leader. skip")
 		return
 	}
 
