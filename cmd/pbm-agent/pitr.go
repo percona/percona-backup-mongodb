@@ -209,49 +209,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	isClusterLeader := nodeInfo.IsClusterLeader()
-
-	if isClusterLeader {
-		l.Debug("checking locks in the whole cluster")
-		noLocks, err := a.waitAllOpLockRelease(ctx)
-		if err != nil {
-			l.Error("wait for all oplock release: %v", err)
-			return errors.Wrap(err, "wait all oplock release")
-		}
-		if !noLocks {
-			l.Debug("there are still working pitr members, members nomination will not be continued")
-			return nil
-		}
-
-		l.Debug("init pitr meta on the first usage")
-		oplog.InitMeta(ctx, a.leadConn)
-
-		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get agents list: %v", err)
-			return errors.Wrap(err, "list agents statuses")
-		}
-
-		nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.PITR.Priority, agents)
-		if err != nil {
-			l.Error("get nodes priority: %v", err)
-			return errors.Wrap(err, "get nodes priorities")
-		}
-
-		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
-		if err != nil {
-			l.Error("get cluster members: %v", err)
-			return errors.Wrap(err, "get cluster members")
-		}
-
-		for _, sh := range shards {
-			go func(rs string) {
-				if err := a.nominateRSForPITR(ctx, rs, nodes.RS(rs)); err != nil {
-					l.Error("nodes nomination error for %s: %v", rs, err)
-				}
-			}(sh.RS)
-		}
-	}
+	go a.leadNomination(ctx, nodeInfo, cfg)
 
 	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
@@ -342,6 +300,79 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// leadNomination does priority calculation and nomination part of PITR process.
+// It requires to be run in separate go routine on cluster leader.
+func (a *Agent) leadNomination(
+	ctx context.Context,
+	nodeInfo *topo.NodeInfo,
+	cfg *config.Config) {
+	l := log.LogEventFromContext(ctx)
+
+	if !nodeInfo.IsClusterLeader() {
+		return
+	}
+
+	l.Debug("checking locks in the whole cluster")
+	noLocks, err := a.waitAllOpLockRelease(ctx)
+	if err != nil {
+		l.Error("wait for all oplock release: %v", err)
+		return
+	}
+	if !noLocks {
+		l.Debug("there are still working pitr members, members nomination will not be continued")
+		return
+	}
+
+	l.Debug("init pitr meta on the first usage")
+	oplog.InitMeta(ctx, a.leadConn)
+
+	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get agents list: %v", err)
+		return
+	}
+
+	nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.PITR.Priority, agents)
+	if err != nil {
+		l.Error("get nodes priority: %v", err)
+		return
+	}
+
+	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
+	if err != nil {
+		l.Error("get cluster members: %v", err)
+		return
+	}
+
+	l.Debug("cluster is ready for nomination")
+	err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReady)
+	if err != nil {
+		l.Error("set cluster status ready: %v", err)
+		return
+	}
+
+	err = a.reconcileReadyStatus(ctx, agents)
+	if err != nil {
+		l.Error("reconciling ready status: %v", err)
+		return
+	}
+
+	l.Debug("cluster leader sets running status")
+	err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusRunning)
+	if err != nil {
+		l.Error("set running status: %v", err)
+		return
+	}
+
+	for _, sh := range shards {
+		go func(rs string) {
+			if err := a.nominateRSForPITR(ctx, rs, nodes.RS(rs)); err != nil {
+				l.Error("nodes nomination error for %s: %v", rs, err)
+			}
+		}(sh.RS)
+	}
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
