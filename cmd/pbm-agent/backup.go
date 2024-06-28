@@ -66,6 +66,10 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			"to make it compatible with PBM's backup method using the oplog")
 		return
 	}
+	if nodeInfo.ArbiterOnly {
+		l.Debug("arbiter node. skip")
+		return
+	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
