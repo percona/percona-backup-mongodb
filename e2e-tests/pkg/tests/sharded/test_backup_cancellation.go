@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -73,13 +74,24 @@ func checkNoBackupFiles(backupName, conf string) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	mc, err := minio.New(endopintURL, &minio.Options{
+		Creds: credentials.NewStaticV4(
+			stg.S3.Credentials.AccessKeyID,
+			stg.S3.Credentials.SessionToken,
+			stg.S3.Credentials.SecretAccessKey),
+		Secure: false,
+		Region: stg.S3.Region,
+	})
 	if err != nil {
 		log.Fatalln("Error: NewWithRegion:", err)
 	}
 
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
+	fileC := mc.ListObjects(context.Background(),
+		stg.S3.Bucket, minio.ListObjectsOptions{
+			Recursive: true,
+			Prefix:    stg.S3.Prefix,
+		})
+	for object := range fileC {
 		if object.Err != nil {
 			fmt.Println("Error: ListObjects: ", object.Err)
 			continue

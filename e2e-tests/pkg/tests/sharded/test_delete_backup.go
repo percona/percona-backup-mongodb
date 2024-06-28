@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
 	"gopkg.in/yaml.v2"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -197,13 +199,24 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	mc, err := minio.New(endopintURL, &minio.Options{
+		Creds: credentials.NewStaticV4(
+			stg.S3.Credentials.AccessKeyID,
+			stg.S3.Credentials.SessionToken,
+			stg.S3.Credentials.SecretAccessKey),
+		Secure: false,
+		Region: stg.S3.Region,
+	})
 	if err != nil {
 		log.Fatalln("ERROR: NewWithRegion:", err)
 	}
 
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
+	fileC := mc.ListObjects(context.Background(),
+		stg.S3.Bucket, minio.ListObjectsOptions{
+			Recursive: true,
+			Prefix:    stg.S3.Prefix,
+		})
+	for object := range fileC {
 		if strings.Contains(object.Key, defs.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
 			continue
 		}

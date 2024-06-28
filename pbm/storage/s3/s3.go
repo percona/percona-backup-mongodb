@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
@@ -27,8 +28,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/minio/minio-go"
-	"github.com/minio/minio-go/pkg/encrypt"
+	"github.com/minio/minio-go/v7"
+	minioCreds "github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/encrypt"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -411,11 +413,15 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	case S3ProviderGCS:
 		// using minio client with GCS because it
 		// allows to disable chuncks muiltipertition for upload
-		mc, err := minio.NewWithRegion(GCSEndpointURL,
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			true,
-			s.opts.Region)
+		mc, err := minio.New(GCSEndpointURL, &minio.Options{
+			Creds: minioCreds.NewStaticV4(
+				s.opts.Credentials.AccessKeyID,
+				s.opts.Credentials.SecretAccessKey,
+				s.opts.Credentials.SessionToken,
+			),
+			Secure: true,
+			Region: s.opts.Region,
+		})
 		if err != nil {
 			return errors.Wrap(err, "NewWithRegion")
 		}
@@ -424,8 +430,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}
 
 		// Enable server-side encryption if configured
-		sse := s.opts.ServerSideEncryption
-		if sse != nil {
+		if sse := s.opts.ServerSideEncryption; sse != nil {
 			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
 				sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
 				if err != nil {
@@ -446,7 +451,8 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			}
 		}
 
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
+		_, err = mc.PutObject(context.TODO(),
+			s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
 		return errors.Wrap(err, "upload to GCS")
 	}
 }
