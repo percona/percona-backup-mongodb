@@ -103,7 +103,7 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
-		return nil, errors.Wrap(err, "parse --with-users-and-roles-option")
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -395,16 +395,15 @@ func doRestore(
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
 		ep, _ := config.GetEpoch(ctx, conn)
-		logger := log.FromContext(ctx)
-		l := logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+
 		stg, err := util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
 		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
-			return restore.GetPhysRestoreMeta(name, stg,
-				logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS()))
+			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
@@ -573,7 +572,7 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(cfg.Storage, l)
+	return util.StorageFromConfig(&cfg.Storage, l)
 }
 
 func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {

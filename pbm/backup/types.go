@@ -41,7 +41,7 @@ type BackupMeta struct {
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
-	Store            config.StorageConf       `bson:"store" json:"store"`
+	Store            Storage                  `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
 	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version"`
 	FCV              string                   `bson:"fcv" json:"fcv"`
@@ -84,6 +84,18 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 		}
 	}
 	return nil
+}
+
+// Storage keeps storage configuration used during backup.
+//
+// If external configuration is used, IsProfile is `true` and Name is set.
+type Storage struct {
+	// Name is config profile name.
+	Name string `bson:"name,omitempty" json:"name,omitempty"`
+	// IsProfile is true when storage is non-main (external).
+	IsProfile bool `bson:"profile,omitempty" json:"profile,omitempty"`
+
+	config.StorageConf `bson:",inline" json:",inline"`
 }
 
 // BackupRsNomination is used to choose (nominate and elect) nodes for the backup

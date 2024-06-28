@@ -78,8 +78,30 @@ func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
 	return config.GetConfig(ctx, c.conn)
 }
 
-func (c *clientImpl) SetConfig(ctx context.Context, cfg Config) (CommandID, error) {
-	return NoOpID, config.SetConfig(ctx, c.conn, &cfg)
+func (c *clientImpl) GetAllConfigProfiles(ctx context.Context) ([]config.Config, error) {
+	return config.ListProfiles(ctx, c.conn)
+}
+
+func (c *clientImpl) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
+	profile, err := config.GetProfile(ctx, c.conn, name)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			err = config.ErrMissedConfigProfile
+		}
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (c *clientImpl) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
+	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) RemoveConfigProfile(ctx context.Context, name string) (CommandID, error) {
+	opid, err := ctrl.SendRemoveConfigProfile(ctx, c.conn, name)
+	return CommandID(opid.String()), err
 }
 
 func (c *clientImpl) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
@@ -127,7 +149,7 @@ func (c *clientImpl) GetBackupByName(
 	}
 
 	if options.FetchFilelist {
-		err = fillFilelistForBackup(ctx, c.conn, bcp)
+		err = fillFilelistForBackup(ctx, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -136,7 +158,7 @@ func (c *clientImpl) GetBackupByName(
 	return bcp, nil
 }
 
-func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMetadata) error {
+func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	var err error
 	var stg storage.Storage
 
@@ -144,7 +166,7 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.GetStorage(ctx, cc, nil)
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -177,7 +199,7 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 
 			if stg == nil {
 				// in case if it is the first backup made with filelist file
-				stg, err = getStorageForRead(ctx, cc)
+				stg, err = getStorageForRead(ctx, bcp)
 				if err != nil {
 					return errors.Wrap(err, "get storage")
 				}
@@ -202,17 +224,14 @@ func fillFilelistForBackup(ctx context.Context, cc connect.Client, bcp *BackupMe
 	return eg.Wait()
 }
 
-func getStorageForRead(ctx context.Context, cc connect.Client) (storage.Storage, error) {
-	stg, err := util.GetStorage(ctx, cc, nil)
+func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
-	ok, err := storage.HasReadAccess(ctx, stg)
-	if err != nil {
+	err = storage.HasReadAccess(ctx, stg)
+	if err != nil && !errors.Is(err, storage.ErrUninitialized) {
 		return nil, errors.Wrap(err, "check storage access")
-	}
-	if !ok {
-		return nil, errors.New("no read permission for configured storage")
 	}
 
 	return stg, nil
@@ -240,6 +259,34 @@ func (c *clientImpl) GetRestoreByName(ctx context.Context, name string) (*Restor
 
 func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendResync(ctx, c.conn)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+	if name == "" {
+		return NoOpID, errors.New("name is not provided")
+	}
+
+	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, name)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, "")
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+	if name == "" {
+		return NoOpID, errors.New("name is not provided")
+	}
+
+	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, name)
+	return CommandID(opid.String()), err
+}
+
+func (c *clientImpl) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, "")
 	return CommandID(opid.String()), err
 }
 

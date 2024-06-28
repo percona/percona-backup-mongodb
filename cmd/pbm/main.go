@@ -99,6 +99,69 @@ func main() {
 		Short('w').
 		BoolVar(&cfg.wait)
 
+	configProfileCmd := pbmCmd.
+		Command("profile", "Configuration profiles")
+
+	listConfigProfileCmd := configProfileCmd.
+		Command("list", "List configuration profiles").
+		Default()
+
+	showConfigProfileOpts := showConfigProfileOptions{}
+	showConfigProfileCmd := configProfileCmd.
+		Command("show", "Show configuration profile")
+	showConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&showConfigProfileOpts.name)
+
+	addConfigProfileOpts := addConfigProfileOptions{}
+	addConfigProfileCmd := configProfileCmd.
+		Command("add", "Save configuration profile")
+	addConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&addConfigProfileOpts.name)
+	addConfigProfileCmd.
+		Arg("file", "Path to configuration file").
+		Required().
+		FileVar(&addConfigProfileOpts.file)
+	addConfigProfileCmd.
+		Flag("sync", "Sync from the external storage").
+		BoolVar(&addConfigProfileOpts.sync)
+	addConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&addConfigProfileOpts.wait)
+
+	removeConfigProfileOpts := removeConfigProfileOptions{}
+	removeConfigProfileCmd := configProfileCmd.
+		Command("remove", "Remove configuration profile")
+	removeConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&removeConfigProfileOpts.name)
+	removeConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&removeConfigProfileOpts.wait)
+
+	syncConfigProfileOpts := syncConfigProfileOptions{}
+	syncConfigProfileCmd := configProfileCmd.
+		Command("sync", "Sync backup list from configuration profile")
+	syncConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		StringVar(&syncConfigProfileOpts.name)
+	syncConfigProfileCmd.
+		Flag("all", "Sync from all external storages").
+		BoolVar(&syncConfigProfileOpts.all)
+	syncConfigProfileCmd.
+		Flag("clear", "Clear backup list (can be used with profile name or --all)").
+		BoolVar(&syncConfigProfileOpts.clear)
+	syncConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&syncConfigProfileOpts.wait)
+
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backupOptions := backupOpts{}
 	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
@@ -125,6 +188,7 @@ func main() {
 			string(defs.ExternalBackup))
 	backupCmd.Flag("base", "Is this a base for incremental backups").
 		BoolVar(&backupOptions.base)
+	backupCmd.Flag("profile", "Config profile name").StringVar(&backupOptions.profile)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backupOptions.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
@@ -409,6 +473,16 @@ func main() {
 	switch cmd {
 	case configCmd.FullCommand():
 		out, err = runConfig(ctx, conn, pbm, &cfg)
+	case listConfigProfileCmd.FullCommand():
+		out, err = handleListConfigProfiles(ctx, pbm)
+	case showConfigProfileCmd.FullCommand():
+		out, err = handleShowConfigProfiles(ctx, pbm, showConfigProfileOpts)
+	case addConfigProfileCmd.FullCommand():
+		out, err = handleAddConfigProfile(ctx, pbm, addConfigProfileOpts)
+	case removeConfigProfileCmd.FullCommand():
+		out, err = handleRemoveConfigProfile(ctx, pbm, removeConfigProfileOpts)
+	case syncConfigProfileCmd.FullCommand():
+		out, err = handleSyncConfigProfile(ctx, pbm, syncConfigProfileOpts)
 	case backupCmd.FullCommand():
 		backupOptions.name = time.Now().UTC().Format(time.RFC3339)
 		out, err = runBackup(ctx, conn, pbm, &backupOptions, pbmOutF)
@@ -419,7 +493,7 @@ func main() {
 	case restoreFinishCmd.FullCommand():
 		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, conn, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(ctx, conn, &restore, pbmOutF)
 	case replayCmd.FullCommand():
@@ -567,9 +641,10 @@ func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, sho
 	outC, errC := log.Follow(ctx, conn, r, false)
 
 	var enc *json.Encoder
-	if f == outJSON {
+	switch f {
+	case outJSON:
 		enc = json.NewEncoder(os.Stdout)
-	} else if f == outJSONpretty {
+	case outJSONpretty:
 		enc = json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 	}
@@ -614,6 +689,7 @@ type snapshotStat struct {
 	PBMVersion string          `json:"pbmVersion"`
 	Type       defs.BackupType `json:"type"`
 	SrcBackup  string          `json:"src"`
+	StoreName  string          `json:"storage,omitempty"`
 }
 
 type pitrRange struct {
@@ -707,13 +783,11 @@ func findLock(ctx context.Context, conn connect.Client, fn findLockFn) (*lock.Lo
 		// But chances for that are quite low and on the next run of `pbm status` everything
 		//  would be ok. So no reason to complicate code to avoid that.
 		if lck != nil && l.OPID != lck.OPID {
-			if err != nil {
-				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
-					"This conflict may naturally resolve after 10 seconds",
-					l.Replset, l.Node, l.Type, l.OPID,
-					lck.Replset, lck.Node, lck.Type, lck.OPID,
-				)
-			}
+			return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
+				"This conflict may naturally resolve after 10 seconds",
+				l.Replset, l.Node, l.Type, l.OPID,
+				lck.Replset, lck.Node, lck.Type, lck.OPID,
+			)
 		}
 
 		l := l
@@ -727,16 +801,16 @@ type concurentOpError struct {
 	op *lock.LockHeader
 }
 
-func (e concurentOpError) Error() string {
+func (e *concurentOpError) Error() string {
 	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
 }
 
-func (e concurentOpError) As(err any) bool {
+func (e *concurentOpError) As(err any) bool {
 	if err == nil {
 		return false
 	}
 
-	er, ok := err.(concurentOpError)
+	er, ok := err.(*concurentOpError)
 	if !ok {
 		return false
 	}
@@ -745,7 +819,7 @@ func (e concurentOpError) As(err any) bool {
 	return true
 }
 
-func (e concurentOpError) MarshalJSON() ([]byte, error) {
+func (e *concurentOpError) MarshalJSON() ([]byte, error) {
 	s := make(map[string]interface{})
 	s["error"] = "another operation in progress"
 	s["operation"] = e.op
@@ -768,7 +842,7 @@ func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
-			return concurentOpError{&l.LockHeader}
+			return &concurentOpError{&l.LockHeader}
 		}
 	}
 

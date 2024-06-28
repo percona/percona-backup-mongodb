@@ -22,16 +22,16 @@ type currentBackup struct {
 }
 
 func (a *Agent) setBcp(b *currentBackup) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	a.bcp = b
 }
 
 // CancelBackup cancels current backup
 func (a *Agent) CancelBackup() {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	if a.bcp == nil {
 		return
@@ -59,13 +59,6 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("get node info: %v", err)
 		return
 	}
-	// TODO: do the check on the agent start only
-	if nodeInfo.IsStandalone() {
-		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. " +
-			"Please restart it as a primary in a single-node replicaset " +
-			"to make it compatible with PBM's backup method using the oplog")
-		return
-	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
@@ -87,6 +80,12 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		go a.sliceNow(opid)
 	}
 
+	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, cmd.Profile)
+	if err != nil {
+		l.Error("get profiled config: %v", err)
+		return
+	}
+
 	var bcp *backup.Backup
 	switch cmd.Type {
 	case defs.PhysicalBackup:
@@ -101,23 +100,14 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, a.dumpConns)
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
-	if err != nil {
-		l.Error("unable to get PBM config settings: " + err.Error())
-		return
-	}
-	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undef {
-		l.Error("backups cannot be saved because PBM storage configuration hasn't been set yet")
-		return
-	}
-
+	bcp.SetConfig(cfg)
 	bcp.SetMongoVersion(a.mongoVersion.VersionString)
 	bcp.SetSlicerInterval(cfg.BackupSlicerInterval())
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
 	if isClusterLeader {
 		balancer := topo.BalancerModeOff
-		if nodeInfo.IsSharded() {
+		if a.brief.Sharded {
 			bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
@@ -127,7 +117,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 				balancer = topo.BalancerModeOn
 			}
 		}
-		err = bcp.Init(ctx, cmd, opid, nodeInfo, cfg.Storage, balancer, l)
+		err = bcp.Init(ctx, cmd, opid, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
@@ -193,7 +183,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	nominated, err := a.waitNomination(ctx, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	nominated, err := a.waitNomination(ctx, cmd.Name)
 	if err != nil {
 		l.Error("wait for nomination: %v", err)
 	}
@@ -205,8 +195,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	epoch := ep.TS()
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdBackup,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
+		Replset: a.brief.SetName,
+		Node:    a.brief.Me,
 		OPID:    opid.String(),
 		Epoch:   &epoch,
 	})
@@ -290,7 +280,7 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 	return nil
 }
 
-func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool, error) {
+func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 	l := log.LogEventFromContext(ctx)
 
 	tk := time.NewTicker(time.Millisecond * 500)
@@ -302,7 +292,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 	for {
 		select {
 		case <-tk.C:
-			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, rs)
+			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, a.brief.SetName)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
@@ -313,7 +303,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 				return false, nil
 			}
 			for _, n := range nm.Nodes {
-				if n == node {
+				if n == a.brief.Me {
 					return true, nil
 				}
 			}

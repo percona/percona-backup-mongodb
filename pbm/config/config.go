@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strconv"
@@ -26,17 +27,16 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-var errMissedConfig = errors.New("missed config")
+var (
+	ErrUnkownStorageType   = errors.New("unknown storage type")
+	ErrMissedConfig        = errors.New("missed config")
+	ErrMissedConfigProfile = errors.New("missed config profile")
+)
 
 type confMap map[string]reflect.Kind
 
 // _confmap is a list of config's valid keys and its types
-var _confmap confMap
-
-//nolint:gochecknoinits
-func init() {
-	_confmap = keys(reflect.TypeOf(Config{}))
-}
+var _confmap confMap = keys(reflect.TypeOf(Config{}))
 
 func keys(t reflect.Type) confMap {
 	v := make(confMap)
@@ -66,35 +66,81 @@ func validateConfigKey(k string) bool {
 
 // Config is a pbm config
 type Config struct {
-	PITR    PITRConf            `bson:"pitr" json:"pitr" yaml:"pitr"`
-	Storage StorageConf         `bson:"storage" json:"storage" yaml:"storage"`
-	Restore RestoreConf         `bson:"restore" json:"restore,omitempty" yaml:"restore,omitempty"`
-	Backup  BackupConf          `bson:"backup" json:"backup,omitempty" yaml:"backup,omitempty"`
-	Epoch   primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
+	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty" yaml:"profile,omitempty"`
+
+	Storage StorageConf  `bson:"storage" json:"storage" yaml:"storage"`
+	PITR    *PITRConf    `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
+	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+
+	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
-func (c Config) String() string {
-	if c.Storage.S3.Credentials.AccessKeyID != "" {
-		c.Storage.S3.Credentials.AccessKeyID = "***"
+func Parse(r io.Reader) (*Config, error) {
+	cfg := &Config{}
+
+	dec := yaml.NewDecoder(r)
+	dec.SetStrict(true)
+	err := dec.Decode(cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "decode")
 	}
-	if c.Storage.S3.Credentials.SecretAccessKey != "" {
-		c.Storage.S3.Credentials.SecretAccessKey = "***"
+
+	err = cfg.Storage.Cast()
+	if err != nil {
+		return nil, errors.Wrap(err, "storage cast")
 	}
-	if c.Storage.S3.Credentials.SessionToken != "" {
-		c.Storage.S3.Credentials.SessionToken = "***"
+
+	return cfg, nil
+}
+
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
 	}
-	if c.Storage.S3.Credentials.Vault.Secret != "" {
-		c.Storage.S3.Credentials.Vault.Secret = "***"
+
+	rv := &Config{
+		Name:      c.Name,
+		IsProfile: c.IsProfile,
+		Storage:   *c.Storage.Clone(),
+		PITR:      c.PITR.Clone(),
+		Restore:   c.Restore.Clone(),
+		Backup:    c.Backup.Clone(),
+		Epoch:     c.Epoch,
 	}
-	if c.Storage.S3.Credentials.Vault.Token != "" {
-		c.Storage.S3.Credentials.Vault.Token = "***"
+
+	return rv
+}
+
+func (c *Config) String() string {
+	c = c.Clone()
+
+	if c.Storage.S3 != nil {
+		if c.Storage.S3.Credentials.AccessKeyID != "" {
+			c.Storage.S3.Credentials.AccessKeyID = "***"
+		}
+		if c.Storage.S3.Credentials.SecretAccessKey != "" {
+			c.Storage.S3.Credentials.SecretAccessKey = "***"
+		}
+		if c.Storage.S3.Credentials.SessionToken != "" {
+			c.Storage.S3.Credentials.SessionToken = "***"
+		}
+		if c.Storage.S3.Credentials.Vault.Secret != "" {
+			c.Storage.S3.Credentials.Vault.Secret = "***"
+		}
+		if c.Storage.S3.Credentials.Vault.Token != "" {
+			c.Storage.S3.Credentials.Vault.Token = "***"
+		}
+		if c.Storage.S3.ServerSideEncryption != nil &&
+			c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
+			c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
+		}
 	}
-	if c.Storage.S3.ServerSideEncryption != nil &&
-		c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
-		c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
-	}
-	if c.Storage.Azure.Credentials.Key != "" {
-		c.Storage.Azure.Credentials.Key = "***"
+	if c.Storage.Azure != nil {
+		if c.Storage.Azure.Credentials.Key != "" {
+			c.Storage.Azure.Credentials.Key = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
@@ -107,9 +153,9 @@ func (c Config) String() string {
 
 // OplogSlicerInterval returns interval for general oplog slicer routine.
 // If it is not configured, the function returns default (hardcoded) value 10 mins.
-func (c Config) OplogSlicerInterval() time.Duration {
-	if c.PITR.OplogSpanMin == 0 {
-		return defs.PITRdefaultSpan
+func (c *Config) OplogSlicerInterval() time.Duration {
+	if c.PITR == nil || c.PITR.OplogSpanMin == 0 {
+		return defs.DefaultPITRInterval
 	}
 
 	return time.Duration(c.PITR.OplogSpanMin * float64(time.Minute))
@@ -117,8 +163,8 @@ func (c Config) OplogSlicerInterval() time.Duration {
 
 // BackupSlicerInterval returns interval for backup slicer routine.
 // If it is not confugured, the function returns general oplog slicer interval.
-func (c Config) BackupSlicerInterval() time.Duration {
-	if c.Backup.OplogSpanMin == 0 {
+func (c *Config) BackupSlicerInterval() time.Duration {
+	if c.Backup == nil || c.Backup.OplogSpanMin == 0 {
 		return c.OplogSlicerInterval()
 	}
 
@@ -130,18 +176,88 @@ func (c Config) BackupSlicerInterval() time.Duration {
 //nolint:lll
 type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
-	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	OplogSpanMin     float64                  `bson:"oplogSpanMin,omitempty" json:"oplogSpanMin,omitempty" yaml:"oplogSpanMin,omitempty"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
 
+func (cfg *PITRConf) Clone() *PITRConf {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if cfg.CompressionLevel != nil {
+		a := *cfg.CompressionLevel
+		rv.CompressionLevel = &a
+	}
+
+	return &rv
+}
+
 // StorageConf is a configuration of the backup storage
 type StorageConf struct {
-	Type       storage.Type `bson:"type" json:"type" yaml:"type"`
-	S3         s3.Conf      `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
-	Azure      azure.Conf   `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
-	Filesystem fs.Conf      `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
+	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
+	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+}
+
+func (s *StorageConf) Clone() *StorageConf {
+	if s == nil {
+		return nil
+	}
+
+	rv := &StorageConf{
+		Type: s.Type,
+	}
+
+	switch s.Type {
+	case storage.Filesystem:
+		rv.Filesystem = s.Filesystem.Clone()
+	case storage.S3:
+		rv.S3 = s.S3.Clone()
+	case storage.Azure:
+		rv.Azure = s.Azure.Clone()
+	case storage.Blackhole: // no config
+	}
+
+	return rv
+}
+
+func (s *StorageConf) Equal(other *StorageConf) bool {
+	if s.Type != other.Type {
+		return false
+	}
+
+	switch s.Type {
+	case storage.S3:
+		return s.S3.Equal(other.S3)
+	case storage.Azure:
+		return s.Azure.Equal(other.Azure)
+	case storage.Filesystem:
+		return s.Filesystem.Equal(other.Filesystem)
+	case storage.Blackhole:
+		return true
+	}
+
+	return false
+}
+
+func (s *StorageConf) Cast() error {
+	switch s.Type {
+	case storage.Filesystem:
+		return s.Filesystem.Cast()
+	case storage.S3:
+		return s.S3.Cast()
+	case storage.Azure: // noop
+		return nil
+	case storage.Blackhole: // noop
+		return nil
+	}
+
+	return errors.Wrap(ErrUnkownStorageType, string(s.Type))
 }
 
 func (s *StorageConf) Typ() string {
@@ -152,9 +268,9 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.Filesystem:
 		return "FS"
-	case storage.BlackHole:
-		return "BlackHole"
-	case storage.Undef:
+	case storage.Blackhole:
+		return "blackhole"
+	case storage.Undefined:
 		fallthrough
 	default:
 		return "Unknown"
@@ -184,8 +300,6 @@ func (s *StorageConf) Path() string {
 		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
-	case storage.BlackHole:
-		path = "BlackHole"
 	}
 
 	return path
@@ -215,6 +329,22 @@ type RestoreConf struct {
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
 }
 
+func (cfg *RestoreConf) Clone() *RestoreConf {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if len(cfg.MongodLocationMap) != 0 {
+		rv.MongodLocationMap = make(map[string]string, len(cfg.MongodLocationMap))
+		for k, v := range cfg.MongodLocationMap {
+			rv.MongodLocationMap[k] = v
+		}
+	}
+
+	return &rv
+}
+
 //nolint:lll
 type BackupConf struct {
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
@@ -222,6 +352,33 @@ type BackupConf struct {
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+}
+
+func (cfg *BackupConf) Clone() *BackupConf {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	if len(cfg.Priority) != 0 {
+		rv.Priority = make(map[string]float64, len(cfg.Priority))
+		for k, v := range cfg.Priority {
+			rv.Priority[k] = v
+		}
+	}
+	if cfg.Timeouts != nil {
+		if cfg.Timeouts.Starting != nil {
+			rv.Timeouts = &BackupTimeouts{
+				Starting: cfg.Timeouts.Starting,
+			}
+		}
+	}
+	if cfg.CompressionLevel != nil {
+		a := *cfg.CompressionLevel
+		rv.CompressionLevel = &a
+	}
+
+	return &rv
 }
 
 type BackupTimeouts struct {
@@ -240,7 +397,7 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
-	res := m.ConfigCollection().FindOne(ctx, bson.D{})
+	res := m.ConfigCollection().FindOne(ctx, bson.D{{"profile", nil}})
 	if err := res.Err(); err != nil {
 		return nil, errors.Wrap(err, "get")
 	}
@@ -250,8 +407,18 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 		return nil, errors.Wrap(err, "decode")
 	}
 
+	if cfg.PITR == nil {
+		cfg.PITR = &PITRConf{}
+	}
+	if cfg.Backup == nil {
+		cfg.Backup = &BackupConf{}
+	}
+	if cfg.Restore == nil {
+		cfg.Restore = &RestoreConf{}
+	}
+
 	if cfg.Backup.Compression == "" {
-		cfg.Backup.Compression = compress.CompressionTypeS2
+		cfg.Backup.Compression = defs.DefaultCompression
 	}
 	if cfg.PITR.Compression == "" {
 		cfg.PITR.Compression = cfg.Backup.Compression
@@ -267,25 +434,20 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 // It also applies default storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.
 func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
-	switch cfg.Storage.Type {
-	case storage.S3:
-		err := cfg.Storage.S3.Cast()
-		if err != nil {
-			return errors.Wrap(err, "cast storage")
-		}
+	if err := cfg.Storage.Cast(); err != nil {
+		return errors.Wrap(err, "cast storage")
+	}
 
+	if cfg.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
 		// warning about unsupported levels will be printed
 		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
-	case storage.Filesystem:
-		err := cfg.Storage.Filesystem.Cast()
-		if err != nil {
-			return errors.Wrap(err, "check config")
-		}
 	}
 
-	if c := string(cfg.PITR.Compression); c != "" && !compress.IsValidCompressionType(c) {
-		return errors.Errorf("unsupported compression type: %q", c)
+	if cfg.PITR != nil {
+		if c := string(cfg.PITR.Compression); c != "" && !compress.IsValidCompressionType(c) {
+			return errors.Errorf("unsupported compression type: %q", c)
+		}
 	}
 
 	ct, err := topo.GetClusterTime(ctx, m)
@@ -299,12 +461,10 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	// TODO: struct tags to config opts `pbm:"resync,epoch"`?
 	_, _ = GetConfig(ctx, m)
 
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": *cfg},
-		options.Update().SetUpsert(true),
-	)
+	_, err = m.ConfigCollection().ReplaceOne(ctx,
+		bson.D{{"profile", nil}},
+		cfg,
+		options.Replace().SetUpsert(true))
 	return errors.Wrap(err, "mongo defs.ConfigCollection UpdateOne")
 }
 
@@ -348,7 +508,7 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 	// TODO: how to be with special case options like pitr.enabled
 	switch key {
 	case "pitr.enabled":
-		return errors.Wrap(confSetPITR(ctx, m, key, v.(bool)), "write to db")
+		return errors.Wrap(confSetPITR(ctx, m, v.(bool)), "write to db")
 	case "pitr.compression":
 		if c := v.(string); c != "" && !compress.IsValidCompressionType(c) {
 			return errors.Errorf("unsupported compression type: %q", c)
@@ -361,49 +521,26 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		s3.SDKLogLevel(v.(string), os.Stderr)
 	}
 
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{key: v}},
-	)
-
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{key: v}})
 	return errors.Wrap(err, "write to db")
 }
 
-func confSetPITR(ctx context.Context, m connect.Client, k string, v bool) error {
+func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
 	}
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{k: v, "pitr.changed": time.Now().Unix(), "epoch": ct}},
-	)
+
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{
+			"pitr.enabled": value,
+			"epoch":        ct,
+		}})
 
 	return err
-}
-
-func DeleteConfigVar(ctx context.Context, m connect.Client, key string) error {
-	if !validateConfigKey(key) {
-		return errors.New("invalid config key")
-	}
-
-	_, err := GetConfig(ctx, m)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return errors.New("config is not set")
-		}
-		return err
-	}
-
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$unset": bson.M{key: 1}},
-	)
-
-	return errors.Wrap(err, "write to db")
 }
 
 // GetConfigVar returns value of given config vaiable
@@ -412,7 +549,9 @@ func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{
 		return nil, errors.New("invalid config key")
 	}
 
-	bts, err := m.ConfigCollection().FindOne(ctx, bson.D{}).Raw()
+	bts, err := m.ConfigCollection().
+		FindOne(ctx, bson.D{{"profile", nil}}).
+		Raw()
 	if err != nil {
 		return nil, errors.Wrap(err, "get from db")
 	}
@@ -441,7 +580,7 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 	cfg, err := GetConfig(ctx, m)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			err = errMissedConfig
+			err = ErrMissedConfig
 		}
 
 		return false, false, errors.Wrap(err, "get config")
@@ -452,13 +591,33 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 
 type Epoch primitive.Timestamp
 
+func (e Epoch) TS() primitive.Timestamp {
+	return primitive.Timestamp(e)
+}
+
 func GetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
-	c, err := GetConfig(ctx, m)
-	if err != nil {
-		return Epoch{}, errors.Wrap(err, "get config")
+	opts := options.FindOne().SetProjection(bson.D{{"_id", 0}, {"epoch", 1}})
+	res := m.ConfigCollection().FindOne(ctx, bson.D{{"profile", nil}}, opts)
+	if err := res.Err(); err != nil {
+		return Epoch{}, errors.Wrap(err, "query")
 	}
 
-	return Epoch(c.Epoch), nil
+	raw, err := res.Raw()
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "read raw")
+	}
+
+	val, err := raw.LookupErr("epoch")
+	if err != nil {
+		return Epoch{}, errors.Wrap(err, "lookup")
+	}
+
+	t, i, ok := val.TimestampOK()
+	if !ok {
+		return Epoch{}, errors.Wrap(err, "not a timestamp")
+	}
+
+	return Epoch{T: t, I: i}, nil
 }
 
 func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
@@ -466,15 +625,9 @@ func ResetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {
 	if err != nil {
 		return Epoch{}, errors.Wrap(err, "get cluster time")
 	}
-	_, err = m.ConfigCollection().UpdateOne(
-		ctx,
-		bson.D{},
-		bson.M{"$set": bson.M{"epoch": ct}},
-	)
 
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{"epoch": ct}})
 	return Epoch(ct), err
-}
-
-func (e Epoch) TS() primitive.Timestamp {
-	return primitive.Timestamp(e)
 }

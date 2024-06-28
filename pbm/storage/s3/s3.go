@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ const (
 )
 
 //nolint:lll
-type Conf struct {
+type Config struct {
 	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
@@ -129,38 +130,107 @@ type AWSsse struct {
 	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
-func (c *Conf) Cast() error {
-	if c.Region == "" {
-		c.Region = defaultS3Region
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
 	}
-	if c.ForcePathStyle == nil {
-		c.ForcePathStyle = aws.Bool(true)
+
+	rv := *cfg
+	if cfg.ForcePathStyle != nil {
+		a := *cfg.ForcePathStyle
+		rv.ForcePathStyle = &a
 	}
-	if c.Provider == S3ProviderUndef {
-		c.Provider = S3ProviderAWS
-		if c.EndpointURL != "" {
-			eu, err := url.Parse(c.EndpointURL)
+	if cfg.ServerSideEncryption != nil {
+		a := *cfg.ServerSideEncryption
+		rv.ServerSideEncryption = &a
+	}
+	if cfg.Retryer != nil {
+		a := *cfg.Retryer
+		rv.Retryer = &a
+	}
+
+	return &rv
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Provider != other.Provider {
+		return false
+	}
+	if cfg.Region != other.Region {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	if cfg.StorageClass != other.StorageClass {
+		return false
+	}
+
+	lhs, rhs := true, true
+	if cfg.ForcePathStyle != nil {
+		lhs = *cfg.ForcePathStyle
+	}
+	if other.ForcePathStyle != nil {
+		rhs = *other.ForcePathStyle
+	}
+	if lhs != rhs {
+		return false
+	}
+
+	// TODO: check only required fields
+	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
+		return false
+	}
+	// TODO: check only required fields
+	if !reflect.DeepEqual(cfg.ServerSideEncryption, other.ServerSideEncryption) {
+		return false
+	}
+
+	return true
+}
+
+func (cfg *Config) Cast() error {
+	if cfg.Region == "" {
+		cfg.Region = defaultS3Region
+	}
+	if cfg.ForcePathStyle == nil {
+		cfg.ForcePathStyle = aws.Bool(true)
+	}
+	if cfg.Provider == S3ProviderUndef {
+		cfg.Provider = S3ProviderAWS
+		if cfg.EndpointURL != "" {
+			eu, err := url.Parse(cfg.EndpointURL)
 			if err != nil {
 				return errors.Wrap(err, "parse EndpointURL")
 			}
 			if eu.Host == GCSEndpointURL {
-				c.Provider = S3ProviderGCS
+				cfg.Provider = S3ProviderGCS
 			}
 		}
 	}
-	if c.MaxUploadParts <= 0 {
-		c.MaxUploadParts = s3manager.MaxUploadParts
+	if cfg.MaxUploadParts <= 0 {
+		cfg.MaxUploadParts = s3manager.MaxUploadParts
 	}
-	if c.StorageClass == "" {
-		c.StorageClass = s3.StorageClassStandard
+	if cfg.StorageClass == "" {
+		cfg.StorageClass = s3.StorageClassStandard
 	}
 
-	if c.Retryer != nil {
-		if c.Retryer.MinRetryDelay == 0 {
-			c.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+	if cfg.Retryer != nil {
+		if cfg.Retryer.MinRetryDelay == 0 {
+			cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
 		}
-		if c.Retryer.MaxRetryDelay == 0 {
-			c.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+		if cfg.Retryer.MaxRetryDelay == 0 {
+			cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
 		}
 	}
 
@@ -222,14 +292,14 @@ const (
 )
 
 type S3 struct {
-	opts Conf
+	opts *Config
 	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts Conf, l log.LogEvent) (*S3, error) {
+func New(opts *Config, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -480,8 +550,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 
 	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
-		var aerr awserr.Error
-		if errors.As(err, &aerr) && aerr.Code() == "NotFound" {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
 			return inf, storage.ErrNotExist
 		}
 
@@ -508,8 +577,7 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		var aerr awserr.Error
-		if errors.As(err, &aerr) && aerr.Code() == s3.ErrCodeNoSuchKey {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == s3.ErrCodeNoSuchKey {
 			return storage.ErrNotExist
 		}
 		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)

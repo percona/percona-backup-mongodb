@@ -184,6 +184,10 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 
 	stg := cfg.Storage
 
+	if stg.Type == "azure" || stg.Type == "filesystem" {
+		return
+	}
+
 	endopintURL := awsurl
 	if stg.S3.EndpointURL != "" {
 		eu, err := url.Parse(stg.S3.EndpointURL)

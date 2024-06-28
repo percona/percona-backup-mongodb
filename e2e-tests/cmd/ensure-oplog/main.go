@@ -19,6 +19,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -250,13 +251,17 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		return errors.Wrap(err, "get config")
 	}
 
-	stg, err := util.StorageFromConfig(cfg.Storage,
-		log.FromContext(ctx).NewDefaultEvent())
+	stg, err := util.StorageFromConfig(&cfg.Storage, log.FromContext(ctx).NewDefaultEvent())
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	compression := compress.CompressionType(cfg.PITR.Compression)
+	compression := defs.DefaultCompression
+	compressionLevel := (*int)(nil)
+	if cfg.PITR != nil {
+		compression = compress.CompressionType(cfg.PITR.Compression)
+		compressionLevel = cfg.PITR.CompressionLevel
+	}
 
 	for _, t := range missedChunks {
 		logger.Printf("[%s] ensure missed chunk: %s - %s",
@@ -266,7 +271,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 
-		n, err := storage.Upload(ctx, o, stg, compression, cfg.PITR.CompressionLevel, filename, -1)
+		n, err := storage.Upload(ctx, o, stg, compression, compressionLevel, filename, -1)
 		if err != nil {
 			return errors.Wrapf(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))
