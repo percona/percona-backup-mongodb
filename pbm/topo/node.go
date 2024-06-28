@@ -21,6 +21,16 @@ const (
 	RoleConfigSrv ReplsetRole = "configsrv"
 )
 
+type NodeRole string
+
+const (
+	RolePrimary   NodeRole = "P"
+	RoleSecondary NodeRole = "S"
+	RoleArbiter   NodeRole = "A"
+	RoleHidden    NodeRole = "H"
+	RoleDelayed   NodeRole = "D"
+)
+
 type OpTime struct {
 	TS   primitive.Timestamp `bson:"ts" json:"ts"`
 	Term int64               `bson:"t" json:"t"`
@@ -276,6 +286,23 @@ type RSMember struct {
 	SecondaryDelayOld  int64             `bson:"slaveDelay,omitempty"`
 	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs,omitempty"`
 	Votes              int               `bson:"votes" json:"votes"`
+}
+
+func (m *RSMember) IsDelayed() bool {
+	return m.SecondaryDelayOld != 0 || m.SecondaryDelaySecs != 0
+}
+
+func (m *RSMember) Role() NodeRole {
+	switch {
+	case m.ArbiterOnly:
+		return RoleArbiter
+	case m.IsDelayed():
+		return RoleDelayed
+	case m.Hidden:
+		return RoleHidden
+	}
+
+	return ""
 }
 
 func GetReplSetConfig(ctx context.Context, m *mongo.Client) (*RSConfig, error) {

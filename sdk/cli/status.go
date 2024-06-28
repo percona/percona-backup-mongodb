@@ -24,14 +24,14 @@ func (e LostAgentError) Error() string {
 	return fmt.Sprintf("lost agent, last heartbeat: %v", e.heartbeat.T)
 }
 
-type RSRole string
+type RSRole = topo.NodeRole
 
 const (
-	RolePrimary   RSRole = "P"
-	RoleSecondary RSRole = "S"
-	RoleArbiter   RSRole = "A"
-	RoleHidden    RSRole = "H"
-	RoleDelayed   RSRole = "D"
+	RolePrimary   = topo.RolePrimary
+	RoleSecondary = topo.RoleSecondary
+	RoleArbiter   = topo.RoleArbiter
+	RoleHidden    = topo.RoleHidden
+	RoleDelayed   = topo.RoleDelayed
 )
 
 type Node struct {
@@ -106,10 +106,12 @@ func ClusterStatus(
 
 				rsAgents := agentMap[c.RS]
 				if rsAgents == nil {
+					node.Role = member.Role()
 					continue
 				}
 				agent := rsAgents[member.Host]
 				if agent == nil {
+					node.Role = member.Role()
 					continue
 				}
 
