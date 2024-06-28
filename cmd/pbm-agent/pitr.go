@@ -26,8 +26,8 @@ type currentPitr struct {
 }
 
 func (a *Agent) setPitr(p *currentPitr) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	if a.pitrjob != nil {
 		a.pitrjob.cancel()
@@ -41,15 +41,15 @@ func (a *Agent) removePitr() {
 }
 
 func (a *Agent) getPitr() *currentPitr {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	return a.pitrjob
 }
 
 func (a *Agent) sliceNow(opid ctrl.OPID) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	if a.pitrjob == nil {
 		return

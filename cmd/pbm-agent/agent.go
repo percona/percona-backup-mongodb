@@ -28,7 +28,8 @@ type Agent struct {
 	nodeConn *mongo.Client
 	bcp      *currentBackup
 	pitrjob  *currentPitr
-	mx       sync.Mutex
+	slicerMx sync.Mutex
+	bcpMx    sync.Mutex
 
 	brief topo.NodeBrief
 

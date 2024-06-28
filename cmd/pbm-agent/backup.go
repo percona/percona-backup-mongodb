@@ -22,16 +22,16 @@ type currentBackup struct {
 }
 
 func (a *Agent) setBcp(b *currentBackup) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	a.bcp = b
 }
 
 // CancelBackup cancels current backup
 func (a *Agent) CancelBackup() {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	if a.bcp == nil {
 		return
