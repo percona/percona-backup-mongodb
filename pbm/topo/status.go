@@ -38,6 +38,10 @@ type NodeStatus struct {
 	SyncingTo         string              `bson:"syncingTo,omitempty" json:"syncingTo,omitempty"`
 }
 
+func (s *NodeStatus) IsArbiter() bool {
+	return s.State == defs.NodeStateArbiter
+}
+
 type StatusOpTimes struct {
 	LastCommittedOpTime       *OpTime `bson:"lastCommittedOpTime" json:"lastCommittedOpTime"`
 	ReadConcernMajorityOpTime *OpTime `bson:"readConcernMajorityOpTime" json:"readConcernMajorityOpTime"`

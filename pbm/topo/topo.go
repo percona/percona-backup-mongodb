@@ -156,6 +156,9 @@ func NodeSuits(ctx context.Context, m *mongo.Client, inf *NodeInfo) (bool, error
 	if err != nil {
 		return false, errors.Wrap(err, "get node status")
 	}
+	if status.IsArbiter() {
+		return false, nil
+	}
 
 	replLag, err := ReplicationLag(ctx, m, inf.Me)
 	if err != nil {
