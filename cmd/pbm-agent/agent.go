@@ -76,6 +76,11 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 	return a, nil
 }
 
+var (
+	ErrArbiterNode = errors.New("arbiter")
+	ErrDelayedNode = errors.New("delayed")
+)
+
 func (a *Agent) CanStart(ctx context.Context) error {
 	info, err := topo.GetNodeInfo(ctx, a.nodeConn)
 	if err != nil {
@@ -84,6 +89,12 @@ func (a *Agent) CanStart(ctx context.Context) error {
 
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
+	}
+	if info.ArbiterOnly {
+		return ErrArbiterNode
+	}
+	if info.IsDelayed() {
+		return ErrDelayedNode
 	}
 
 	ver, err := version.GetMongoVersion(ctx, a.leadConn.MongoClient())

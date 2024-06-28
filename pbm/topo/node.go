@@ -83,6 +83,10 @@ type NodeInfo struct {
 	Opts                         MongodOpts           `bson:"-"`
 }
 
+func (i *NodeInfo) IsDelayed() bool {
+	return i.SecondaryDelayOld != 0 || i.SecondaryDelaySecs != 0
+}
+
 // IsSharded returns true is replset is part sharded cluster
 func (i *NodeInfo) IsMongos() bool {
 	return i.Msg == "isdbgrid"
