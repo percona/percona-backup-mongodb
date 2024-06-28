@@ -454,7 +454,6 @@ func (s *Slicer) upload(
 	compression compress.CompressionType,
 	level *int,
 ) error {
-	originalStart, originalEnd := s.oplog.GetTailingSpan()
 	s.oplog.SetTailingSpan(from, to)
 	fname := oplog.FormatChunkFilepath(s.rs, from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
@@ -464,7 +463,6 @@ func (s *Slicer) upload(
 		// wrong during the data read we may end up with an already created file. Although
 		// the failed range won't be saved in db as the available for restore. It would get
 		// in there after the storage resync. see: https://jira.percona.com/browse/PBM-602
-		s.oplog.SetTailingSpan(originalStart, originalEnd)
 		s.l.Debug("remove %s due to upload errors", fname)
 		derr := s.storage.Delete(fname)
 		if derr != nil {

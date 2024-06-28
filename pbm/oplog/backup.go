@@ -41,11 +41,6 @@ func NewOplogBackup(m *mongo.Client) *OplogBackup {
 	return &OplogBackup{cl: m}
 }
 
-// GetTailingSpan returns oplog tailing window
-func (ot *OplogBackup) GetTailingSpan() (primitive.Timestamp, primitive.Timestamp) {
-	return ot.start, ot.end
-}
-
 // SetTailingSpan sets oplog tailing window
 func (ot *OplogBackup) SetTailingSpan(start, end primitive.Timestamp) {
 	ot.start = start
