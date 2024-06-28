@@ -150,12 +150,12 @@ func skipCtl(str string) []byte {
 
 func (c *Ctl) CheckRestore(bcpName string, waitFor time.Duration) error {
 	type rlist struct {
-		Start    int
-		Status   defs.Status
-		Type     string
-		Name     string
-		Snapshot string
-		Error    string
+		Start    int         `json:"Start"`
+		Status   defs.Status `json:"Status"`
+		Type     string      `json:"Type"`
+		Name     string      `json:"Name"`
+		Snapshot string      `json:"Snapshot"`
+		Error    string      `json:"Error"`
 	}
 	tmr := time.NewTimer(waitFor)
 	tkr := time.NewTicker(500 * time.Millisecond)

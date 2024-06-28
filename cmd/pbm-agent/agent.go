@@ -76,14 +76,25 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 	return a, nil
 }
 
+var (
+	ErrArbiterNode = errors.New("arbiter")
+	ErrDelayedNode = errors.New("delayed")
+)
+
 func (a *Agent) CanStart(ctx context.Context) error {
-	info, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	info, err := topo.GetNodeInfo(ctx, a.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get node info")
 	}
 
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
+	}
+	if info.ArbiterOnly {
+		return ErrArbiterNode
+	}
+	if info.IsDelayed() {
+		return ErrDelayedNode
 	}
 
 	ver, err := version.GetMongoVersion(ctx, a.leadConn.MongoClient())
@@ -325,22 +336,10 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		}
 
 		hb.Err = ""
-
-		hb.State = defs.NodeStateUnknown
-		hb.StateStr = "unknown"
-		n, err := topo.GetNodeStatus(ctx, a.nodeConn, a.brief.Me)
-		if err != nil {
-			l.Error("get replSetGetStatus: %v", err)
-			hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
-		} else {
-			hb.State = n.State
-			hb.StateStr = n.StateStr
-		}
-
 		hb.Hidden = false
 		hb.Passive = false
 
-		inf, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+		inf, err := topo.GetNodeInfo(ctx, a.nodeConn)
 		if err != nil {
 			l.Error("get NodeInfo: %v", err)
 			hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
@@ -348,6 +347,27 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			hb.Hidden = inf.Hidden
 			hb.Passive = inf.Passive
 			hb.Arbiter = inf.ArbiterOnly
+			if inf.SecondaryDelayOld != 0 {
+				hb.DelaySecs = inf.SecondaryDelayOld
+			} else {
+				hb.DelaySecs = inf.SecondaryDelaySecs
+			}
+		}
+
+		if inf.ArbiterOnly {
+			hb.State = defs.NodeStateArbiter
+			hb.StateStr = "ARBITER"
+		} else {
+			n, err := topo.GetNodeStatus(ctx, a.nodeConn, a.brief.Me)
+			if err != nil {
+				l.Error("get replSetGetStatus: %v", err)
+				hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
+				hb.State = defs.NodeStateUnknown
+				hb.StateStr = "UNKNOWN"
+			} else {
+				hb.State = n.State
+				hb.StateStr = n.StateStr
+			}
 		}
 
 		err = topo.SetAgentStatus(ctx, a.leadConn, hb)

@@ -40,6 +40,10 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 		l.Info("node in not suitable for restore")
 		return
 	}
+	if nodeInfo.ArbiterOnly {
+		l.Debug("arbiter node. skip")
+		return
+	}
 
 	epoch := ep.TS()
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{

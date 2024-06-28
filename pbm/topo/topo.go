@@ -117,9 +117,7 @@ func collectTopoCheckErrors(
 				errs = append(errs, errors.New(a.Err))
 			}
 			if ok, estrs := a.OK(); !ok {
-				for _, e := range estrs {
-					errs = append(errs, errors.New(e))
-				}
+				errs = append(errs, estrs...)
 			}
 
 			const maxReplicationLag uint32 = 35
@@ -157,6 +155,9 @@ func NodeSuits(ctx context.Context, m *mongo.Client, inf *NodeInfo) (bool, error
 	status, err := GetNodeStatus(ctx, m, inf.Me)
 	if err != nil {
 		return false, errors.Wrap(err, "get node status")
+	}
+	if status.IsArbiter() {
+		return false, nil
 	}
 
 	replLag, err := ReplicationLag(ctx, m, inf.Me)

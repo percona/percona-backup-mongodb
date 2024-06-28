@@ -49,7 +49,7 @@ func (c confVals) String() string {
 	return s
 }
 
-func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *configOpts) (fmt.Stringer, error) {
+func runConfig(ctx context.Context, conn connect.Client, pbm *sdk.Client, c *configOpts) (fmt.Stringer, error) {
 	switch {
 	case len(c.set) > 0:
 		var o confVals

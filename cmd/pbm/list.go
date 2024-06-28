@@ -15,7 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -97,25 +96,64 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.list)
 }
 
-func runList(ctx context.Context, conn connect.Client, pbm sdk.Client, l *listOpts) (fmt.Stringer, error) {
+func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listOpts) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
+	// show message and skip when resync is running
+	lk, err := findLock(ctx, pbm)
+	if err == nil && lk != nil && lk.Cmd == ctrl.CmdResync {
+		const msg = "Storage resync is running. Backups list will be available after sync finishes."
+		return outMsg{msg}, nil
+	}
+
 	if l.restore {
 		return restoreList(ctx, conn, pbm, int64(l.size))
-	}
-	// show message and skip when resync is running
-	lk, err := findLock(ctx, conn, lock.GetLocks)
-	if err == nil && lk != nil && lk.Type == ctrl.CmdResync {
-		return outMsg{"Storage resync is running. Backups list will be available after sync finishes."}, nil
 	}
 
 	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
 }
 
-func restoreList(ctx context.Context, conn connect.Client, pbm sdk.Client, limit int64) (*restoreListOut, error) {
+func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
+	locks, err := pbm.OpLocks(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return nil, nil //nolint:nilnil
+	}
+
+	var lck *sdk.OpLock
+	for _, l := range locks {
+		if err := l.Err(); err != nil {
+			continue
+		}
+
+		// Just check if all locks are for the same op
+		//
+		// It could happen that the healthy `lk` became stale by the time of this check
+		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
+		// would be true but for the legit reason (no error).
+		// But chances for that are quite low and on the next run of `pbm status` everything
+		//  would be ok. So no reason to complicate code to avoid that.
+		if lck != nil && l.OpID != lck.OpID {
+			return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
+				"This conflict may naturally resolve after 10 seconds",
+				l.Replset, l.Node, l.Cmd, l.OpID,
+				lck.Replset, lck.Node, lck.Cmd, lck.OpID,
+			)
+		}
+
+		l := l
+		lck = &l
+	}
+
+	return lck, nil
+}
+
+func restoreList(ctx context.Context, conn connect.Client, pbm *sdk.Client, limit int64) (*restoreListOut, error) {
 	opts := sdk.GetAllRestoresOptions{Limit: limit}
 	rlist, err := pbm.GetAllRestores(ctx, conn, opts)
 	if err != nil {
