@@ -49,6 +49,32 @@ func (a *Agent) getPitr() *currentPitr {
 	return a.pitrjob
 }
 
+// startMon starts monitor (watcher) jobs only on cluster leader.
+func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *config.Config) {
+
+	if !nodeInfo.IsClusterLeader() {
+		return
+	}
+	if a.monStarted {
+		return
+	}
+	a.monStopSig = make(chan struct{})
+
+	go a.pitrConfigMonitor(ctx, cfg)
+	go a.pitrErrorMonitor(ctx)
+
+	a.monStarted = true
+}
+
+// stopMon stops monitor (watcher) jobs
+func (a *Agent) stopMon() {
+	if !a.monStarted {
+		return
+	}
+	close(a.monStopSig)
+	a.monStarted = false
+}
+
 func (a *Agent) sliceNow(opid ctrl.OPID) {
 	a.mx.Lock()
 	defer a.mx.Unlock()
@@ -147,6 +173,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	if !cfg.PITR.Enabled {
 		a.removePitr()
+		a.stopMon()
 		return nil
 	}
 
@@ -209,6 +236,10 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
+	// start monitor jobs on cluster leader
+	a.startMon(ctx, nodeInfo, cfg)
+
+	// start nomination process on cluster leader
 	go a.leadNomination(ctx, nodeInfo, cfg)
 
 	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
@@ -373,6 +404,7 @@ func (a *Agent) leadNomination(
 			}
 		}(sh.RS)
 	}
+
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
@@ -581,13 +613,20 @@ func (a *Agent) isPITRClusterStatus(ctx context.Context, status oplog.Status) bo
 
 // pitrConfigMonitor watches changes in PITR section within PBM configuration.
 // If relevant changes are detected (e.g. priorities, oplogOnly), it sets
-// Reconfig cluster status, meaning that slicing process needs to be restarted.
-func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRConf) {
+// Reconfig cluster status, which means that slicing process needs to be restarted.
+func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config) {
 	l := log.LogEventFromContext(ctx)
 	l.Debug("start pitr config monitor")
+	defer l.Debug("stop pitr config monitor")
 
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
+
+	updateCurrConf := func(c *config.Config) (config.PITRConf, primitive.Timestamp) {
+		return c.PITR, c.Epoch
+	}
+
+	currConf, currEpoh := updateCurrConf(firstConf)
 
 	for {
 		select {
@@ -600,18 +639,27 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRCo
 				continue
 			}
 
-			if !cfg.PITR.Enabled {
-				//todo check this
+			if currEpoh == cfg.Epoch {
 				continue
 			}
 
-			oldP := currentConf.Priority
-			newP := cfg.PITR.Priority
+			if !cfg.PITR.Enabled {
+				// If pitr is disabled, there is no need to check its properties.
+				// Enable/disbale change is handled out of the monitor logic (in pitr main loop).
+				currConf, currEpoh = updateCurrConf(cfg)
+				continue
+			}
+
 			//todo: add change chet for other config params
+
+			oldP := currConf.Priority
+			newP := cfg.PITR.Priority
 			if newP == nil && oldP == nil {
+				currConf, currEpoh = updateCurrConf(cfg)
 				continue
 			}
 			if maps.Equal(newP, oldP) {
+				currConf, currEpoh = updateCurrConf(cfg)
 				continue
 			}
 
@@ -620,9 +668,12 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRCo
 			if err != nil {
 				l.Error("error while setting cluster status reconfig: %v", err)
 			}
-			return
+			currConf, currEpoh = updateCurrConf(cfg)
 
 		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
 			return
 		}
 	}
@@ -630,11 +681,12 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, currentConf config.PITRCo
 
 // pitrErrorMonitor watches reported errors by agents on replica set(s)
 // which are running PITR.
-// In case of any reported error within pbmPITR collection, cluster status
-// Error is set.
+// In case of any reported error within pbmPITR collection (replicaset subdoc),
+// cluster status Error is set.
 func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 	l := log.LogEventFromContext(ctx)
 	l.Debug("start pitr error monitor")
+	defer l.Debug("stop pitr error monitor")
 
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
@@ -644,6 +696,9 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 		case <-tk.C:
 			replsets, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusError)
 			if err != nil {
+				if errors.Is(err, errors.ErrNotFound) {
+					continue
+				}
 				l.Error("get error replsets", err)
 			}
 
@@ -656,9 +711,11 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 			if err != nil {
 				l.Error("error while setting cluster status Error: %v", err)
 			}
-			return
 
 		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
 			return
 		}
 	}
