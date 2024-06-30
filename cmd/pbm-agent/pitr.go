@@ -273,9 +273,17 @@ func (a *Agent) pitr(ctx context.Context) error {
 		l.Error("set nominee ack: %v", err)
 	}
 
+	defer func() {
+		if err != nil {
+			l.Debug("setting RS error status: %v", err)
+			oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error())
+		}
+	}()
+
 	stg, err := util.StorageFromConfig(cfg.Storage, l)
 	if err != nil {
-		return errors.Wrap(err, "unable to get storage configuration")
+		err = errors.Wrap(err, "unable to get storage configuration")
+		return err
 	}
 
 	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
@@ -290,7 +298,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "catchup")
+		err = errors.Wrap(err, "catchup")
+		return err
 	}
 
 	go func() {
@@ -322,7 +331,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 			if errors.Is(streamErr, slicer.OpMovedError{}) {
 				out = l.Info
 			}
-			out("streaming oplog: %v", streamErr)
+			retErr := errors.Wrap(streamErr, "streaming oplog: %v")
+			oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error())
+			out(retErr.Error())
 		}
 
 		if err := lck.Release(); err != nil {
