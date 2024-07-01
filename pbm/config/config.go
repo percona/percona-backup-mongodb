@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"reflect"
 	"strconv"
@@ -193,6 +194,7 @@ func (cfg *PITRConf) Clone() *PITRConf {
 	}
 
 	rv := *cfg
+	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.CompressionLevel != nil {
 		a := *cfg.CompressionLevel
 		rv.CompressionLevel = &a
@@ -365,12 +367,8 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	}
 
 	rv := *cfg
-	if len(cfg.Priority) != 0 {
-		rv.Priority = make(map[string]float64, len(cfg.Priority))
-		for k, v := range cfg.Priority {
-			rv.Priority[k] = v
-		}
-	}
+
+	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.Timeouts != nil {
 		if cfg.Timeouts.Starting != nil {
 			rv.Timeouts = &BackupTimeouts{
