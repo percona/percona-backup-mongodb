@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 // PITRMeta contains all operational data about PITR execution process.
@@ -81,7 +82,7 @@ func GetMeta(
 
 	meta := &PITRMeta{}
 	if err := res.Decode(meta); err != nil {
-		errors.Wrap(err, "decode")
+		return nil, errors.Wrap(err, "decode")
 	}
 	return meta, nil
 }
@@ -192,7 +193,7 @@ func GetPITRNominees(
 ) (*PITRNomination, error) {
 	meta, err := GetMeta(ctx, conn)
 	if err != nil {
-		errors.Wrap(err, "get meta")
+		return nil, errors.Wrap(err, "get meta")
 	}
 
 	for _, n := range meta.Nomination {

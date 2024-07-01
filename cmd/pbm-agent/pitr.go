@@ -53,7 +53,6 @@ func (a *Agent) getPitr() *currentPitr {
 
 // startMon starts monitor (watcher) jobs only on cluster leader.
 func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *config.Config) {
-
 	if !nodeInfo.IsClusterLeader() {
 		return
 	}
@@ -194,8 +193,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	if p := a.getPitr(); p != nil {
+		// todo: remove this span changing detaction to leader
 		// already do the job
-		//todo: remove this span changing detaction to leader
 		currInterval := p.slicer.GetSpan()
 		if currInterval != slicerInterval {
 			p.slicer.SetSpan(slicerInterval)
@@ -279,7 +278,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 	defer func() {
 		if err != nil {
 			l.Debug("setting RS error status for err: %v", err)
-			oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error())
+			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error()); err != nil {
+				l.Error("error while setting error status: %v", err)
+			}
 		}
 	}()
 
@@ -362,7 +363,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 				out = l.Info
 			}
 			retErr := errors.Wrap(streamErr, "streaming oplog: %v")
-			oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error())
+			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
+				l.Error("setting RS status to status error, err = %v", err)
+			}
 			out(retErr.Error())
 		}
 
@@ -379,7 +382,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 func (a *Agent) leadNomination(
 	ctx context.Context,
 	nodeInfo *topo.NodeInfo,
-	cfg *config.Config) {
+	cfg *config.Config,
+) {
 	l := log.LogEventFromContext(ctx)
 
 	if !nodeInfo.IsClusterLeader() {
@@ -398,7 +402,10 @@ func (a *Agent) leadNomination(
 	}
 
 	l.Debug("init pitr meta on the first usage")
-	oplog.InitMeta(ctx, a.leadConn)
+	err = oplog.InitMeta(ctx, a.leadConn)
+	if err != nil {
+		l.Error("init meta: %v", err)
+	}
 
 	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
 	if err != nil {
@@ -445,7 +452,6 @@ func (a *Agent) leadNomination(
 			}
 		}(sh.RS)
 	}
-
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
@@ -692,12 +698,12 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 
 			if !cfg.PITR.Enabled {
 				// If pitr is disabled, there is no need to check its properties.
-				// Enable/disbale change is handled out of the monitor logic (in pitr main loop).
+				// Enable/disable change is handled out of the monitor logic (in pitr main loop).
 				currConf, currEpoh = updateCurrConf(cfg)
 				continue
 			}
 
-			//todo: add change chet for other config params
+			// todo: add change detection for other config params
 
 			oldP := currConf.Priority
 			newP := cfg.PITR.Priority
