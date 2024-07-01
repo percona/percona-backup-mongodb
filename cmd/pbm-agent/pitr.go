@@ -115,20 +115,6 @@ func (a *Agent) PITR(ctx context.Context) {
 	}
 }
 
-func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
-	if a.prevOO == nil {
-		a.prevOO = &currOO
-		return
-	}
-
-	if *a.prevOO == currOO {
-		return
-	}
-
-	a.prevOO = &currOO
-	a.removePitr()
-}
-
 // canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
 // Only physical backups (full, incremental, external) is allowed.
 func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.StorageConf) error {
@@ -179,8 +165,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 		a.stopMon()
 		return nil
 	}
-
-	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 
 	if err := canSlicingNow(ctx, a.leadConn, &cfg.Storage); err != nil {
 		e := lock.ConcurrentOpError{}
