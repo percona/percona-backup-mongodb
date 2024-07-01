@@ -223,6 +223,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	stg, err := util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
+		if err := lck.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
 		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
