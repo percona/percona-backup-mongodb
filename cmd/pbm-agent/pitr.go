@@ -219,7 +219,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	// should be after the lock pre-check
-	//
 	// if node failing, then some other agent with healthy node will hopefully catch up
 	// so this code won't be reached and will not pollute log with "pitr" errors while
 	// the other node does successfully slice
@@ -603,6 +602,8 @@ func (a *Agent) confirmReadyStatus(ctx context.Context) error {
 	}
 }
 
+// reconcileReadyStatus waits all members to confirm Ready status.
+// In case of timeout Ready status will be removed.
 func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentStat) error {
 	l := log.LogEventFromContext(ctx)
 
@@ -628,6 +629,10 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 				return nil
 			}
 		case <-tout.C:
+			// clean up cluster Ready status to not have an issue in next run
+			if err := oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusUnset); err != nil {
+				l.Error("error while cleaning cluster status: %v", err)
+			}
 			return errors.New("timeout while roconciling ready status")
 		}
 	}
