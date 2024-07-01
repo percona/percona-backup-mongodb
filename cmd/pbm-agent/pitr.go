@@ -678,6 +678,22 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 	updateCurrConf := func(c *config.Config) (*config.PITRConf, primitive.Timestamp) {
 		return c.PITR, c.Epoch
 	}
+	equal := func(c1 *config.PITRConf, c2 *config.PITRConf) bool {
+		if c1 == nil || c2 == nil {
+			return c1 == c2
+		}
+		if c1.OplogOnly != c2.OplogOnly {
+			return false
+		}
+		if c1.OplogSpanMin != c2.OplogSpanMin {
+			return false
+		}
+		if !maps.Equal(c1.Priority, c2.Priority) {
+			return false
+		}
+
+		return true
+	}
 
 	currConf, currEpoh := updateCurrConf(firstConf)
 
@@ -695,26 +711,18 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 			if currEpoh == cfg.Epoch {
 				continue
 			}
-
 			if !cfg.PITR.Enabled {
 				// If pitr is disabled, there is no need to check its properties.
 				// Enable/disable change is handled out of the monitor logic (in pitr main loop).
 				currConf, currEpoh = updateCurrConf(cfg)
 				continue
 			}
-
-			// todo: add change detection for other config params
-
-			oldP := currConf.Priority
-			newP := cfg.PITR.Priority
-			if newP == nil && oldP == nil {
-				currConf, currEpoh = updateCurrConf(cfg)
+			if equal(cfg.PITR, currConf) {
 				continue
 			}
-			if maps.Equal(newP, oldP) {
-				currConf, currEpoh = updateCurrConf(cfg)
-				continue
-			}
+
+			// there are differences between privious and new config in following
+			// fields: OplogOnly, OplogSpanMin, Priority
 
 			l.Info("pitr config has changed, re-config will be done")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
