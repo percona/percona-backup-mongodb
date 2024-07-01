@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"maps"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -275,7 +277,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	defer func() {
 		if err != nil {
-			l.Debug("setting RS error status: %v", err)
+			l.Debug("setting RS error status for err: %v", err)
 			oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error())
 		}
 	}()
@@ -318,6 +320,30 @@ func (a *Agent) pitr(ctx context.Context) error {
 			<-stopSlicingCtx.Done()
 			close(stopC)
 			a.removePitr()
+		}()
+
+		go func() {
+			tk := time.NewTicker(5 * time.Second)
+			defer tk.Stop()
+
+			for {
+				select {
+				case <-tk.C:
+					if reconf := a.isPITRClusterStatus(ctx, oplog.StatusReconfig); reconf {
+						l.Debug("stop slicing because of reconfig")
+						stopSlicing()
+						return
+					}
+					if pitrErr := a.isPITRClusterStatus(ctx, oplog.StatusError); pitrErr {
+						l.Debug("stop slicing because of error")
+						stopSlicing()
+						return
+					}
+
+				case <-stopSlicingCtx.Done():
+					return
+				}
+			}
 		}()
 
 		streamErr := s.Stream(ctx,
