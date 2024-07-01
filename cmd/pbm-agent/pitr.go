@@ -463,6 +463,14 @@ func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]stri
 	}
 
 	for _, n := range nodes {
+		err = oplog.SetPITRNominees(ctx, a.leadConn, rs, n)
+		if err != nil {
+			return errors.Wrap(err, "set pitr nominees")
+		}
+		l.Debug("pitr nomination %s, set candidates %v", rs, n)
+
+		time.Sleep(pitrRenominationFrame)
+
 		nms, err := oplog.GetPITRNominees(ctx, a.leadConn, rs)
 		if err != nil && !errors.Is(err, errors.ErrNotFound) {
 			return errors.Wrap(err, "get pitr nominees")
@@ -471,14 +479,6 @@ func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]stri
 			l.Debug("pitr nomination: %s won by %s", rs, nms.Ack)
 			return nil
 		}
-
-		err = oplog.SetPITRNominees(ctx, a.leadConn, rs, n)
-		if err != nil {
-			return errors.Wrap(err, "set pitr nominees")
-		}
-		l.Debug("pitr nomination %s, set candidates %v", rs, n)
-
-		time.Sleep(pitrRenominationFrame)
 	}
 
 	return nil
