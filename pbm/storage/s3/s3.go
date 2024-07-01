@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	// GCSEndpointURL is the endpoint url for Google Clound Strage service
+	// GCSEndpointURL is the endpoint url for Google Clound Storage service
 	GCSEndpointURL = "storage.googleapis.com"
 
 	defaultS3Region = "us-east-1"
@@ -320,8 +320,8 @@ func New(opts *Config, l log.LogEvent) (*S3, error) {
 
 	s.d = &Download{
 		s3:       s,
-		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		spanSize: downloadChuckSizeDefault,
+		arenas:   []*arena{newArena(downloadChunkSizeDefault, downloadChunkSizeDefault)},
+		spanSize: downloadChunkSizeDefault,
 		cc:       1,
 	}
 
@@ -410,7 +410,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		return errors.Wrap(err, "upload to S3")
 	case S3ProviderGCS:
 		// using minio client with GCS because it
-		// allows to disable chuncks muiltipertition for upload
+		// allows to disable chunks muiltipertition for upload
 		mc, err := minio.NewWithRegion(GCSEndpointURL,
 			s.opts.Credentials.AccessKeyID,
 			s.opts.Credentials.SecretAccessKey,
@@ -572,15 +572,38 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	_, err := s.s3s.DeleteObject(&s3.DeleteObjectInput{
+	allObjects := []*s3.ObjectIdentifier{}
+	err := s.s3s.ListObjectsV2Pages(&s3.ListObjectsV2Input{
 		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+		Prefix: aws.String(path.Join(s.opts.Prefix, name)),
+	}, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+		for _, obj := range page.Contents {
+			allObjects = append(allObjects, &s3.ObjectIdentifier{
+				Key: aws.String(*obj.Key),
+			})
+		}
+		return !lastPage
+	})
+	if err != nil {
+		return errors.Wrapf(err, "list objects in '%s/%s' directory", s.opts.Bucket, name)
+	}
+
+	if len(allObjects) == 0 {
+		return storage.ErrNotExist
+	}
+
+	_, err = s.s3s.DeleteObjects(&s3.DeleteObjectsInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Delete: &s3.Delete{
+			Objects: allObjects,
+			Quiet:   aws.Bool(true),
+		},
 	})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == s3.ErrCodeNoSuchKey {
 			return storage.ErrNotExist
 		}
-		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
+		return errors.Wrapf(err, "delete '%s/%s' file(s) from S3", s.opts.Bucket, name)
 	}
 
 	return nil
