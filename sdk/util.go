@@ -56,8 +56,14 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 	for {
 		select {
 		case entry := <-outC:
-			if entry != nil && entry.Msg == "succeed" {
+			if entry == nil {
+				continue
+			}
+			if entry.Msg == "succeed" {
 				return nil
+			}
+			if entry.Severity == log.Error {
+				return errors.New(entry.Msg)
 			}
 		case err := <-errC:
 			return err

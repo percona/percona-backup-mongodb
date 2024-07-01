@@ -1,6 +1,10 @@
 package defs
 
-import "time"
+import (
+	"time"
+
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
+)
 
 const (
 	// DB is a name of the PBM database
@@ -141,8 +145,10 @@ const (
 )
 
 const (
-	// PITRdefaultSpan oplog slicing time span
-	PITRdefaultSpan = time.Minute * 10
+	// DefaultPITRInterval oplog slicing time span
+	DefaultPITRInterval = time.Minute * 10
 	// PITRfsPrefix is a prefix (folder) for PITR chunks on the storage
 	PITRfsPrefix = "pbmPitr"
 )
+
+const DefaultCompression = compress.CompressionTypeS2

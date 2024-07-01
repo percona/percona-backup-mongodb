@@ -30,8 +30,8 @@ type currentPitr struct {
 }
 
 func (a *Agent) setPitr(p *currentPitr) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	if a.pitrjob != nil {
 		a.pitrjob.cancel()
@@ -45,8 +45,8 @@ func (a *Agent) removePitr() {
 }
 
 func (a *Agent) getPitr() *currentPitr {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	return a.pitrjob
 }
@@ -78,8 +78,8 @@ func (a *Agent) stopMon() {
 }
 
 func (a *Agent) sliceNow(opid ctrl.OPID) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.slicerMx.Lock()
+	defer a.slicerMx.Unlock()
 
 	if a.pitrjob == nil {
 		return
@@ -132,7 +132,7 @@ func (a *Agent) stopPitrOnOplogOnlyChange(currOO bool) {
 
 // canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
 // Only physical backups (full, incremental, external) is allowed.
-func canSlicingNow(ctx context.Context, conn connect.Client) error {
+func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.StorageConf) error {
 	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return errors.Wrap(err, "get locks data")
@@ -150,7 +150,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client) error {
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type == defs.LogicalBackup {
+		if bcp.Type == defs.LogicalBackup && bcp.Store.Equal(stgCfg) {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}
@@ -164,7 +164,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if !errors.Is(err, mongo.ErrNoDocuments) {
 			return errors.Wrap(err, "get conf")
 		}
-		cfg = &config.Config{}
+		cfg = &config.Config{
+			PITR: &config.PITRConf{},
+		}
 	}
 
 	slicerInterval := cfg.OplogSlicerInterval()
@@ -181,7 +183,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	a.stopPitrOnOplogOnlyChange(cfg.PITR.OplogOnly)
 
-	if err := canSlicingNow(ctx, a.leadConn); err != nil {
+	if err := canSlicingNow(ctx, a.leadConn, &cfg.Storage); err != nil {
 		e := lock.ConcurrentOpError{}
 		if errors.As(err, &e) {
 			l.Info("oplog slicer is paused for lock [%s, opid: %s]", e.Lock.Type, e.Lock.OPID)
@@ -281,8 +283,11 @@ func (a *Agent) pitr(ctx context.Context) error {
 		}
 	}()
 
-	stg, err := util.StorageFromConfig(cfg.Storage, l)
+	stg, err := util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
+		if err := lck.Release(); err != nil {
+			l.Error("release lock: %v", err)
+		}
 		err = errors.Wrap(err, "unable to get storage configuration")
 		return err
 	}
@@ -664,7 +669,7 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
 
-	updateCurrConf := func(c *config.Config) (config.PITRConf, primitive.Timestamp) {
+	updateCurrConf := func(c *config.Config) (*config.PITRConf, primitive.Timestamp) {
 		return c.PITR, c.Epoch
 	}
 

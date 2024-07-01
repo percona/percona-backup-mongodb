@@ -35,7 +35,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
@@ -82,11 +81,12 @@ type PhysRestore struct {
 	opid      string
 	nodeInfo  *topo.NodeInfo
 	stg       storage.Storage
+	bcpStg    storage.Storage
 	bcp       *backup.BackupMeta
 	files     []files
 	restoreTS primitive.Timestamp
 
-	confOpts config.RestoreConf
+	confOpts *config.RestoreConf
 
 	mongod string // location of mongod used for internal restarts
 
@@ -762,12 +762,14 @@ func (r *PhysRestore) Snapshot(
 		meta.Type = r.bcp.Type
 	}
 
-	var opChunks []oplog.OplogChunk
+	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
-		opChunks, err = chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
+		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
+
+		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: r.stg})
 	}
 
 	if meta.Type == defs.IncrementalBackup {
@@ -925,7 +927,7 @@ func (r *PhysRestore) Snapshot(
 
 	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
 		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, opChunks, &stats)
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, &stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}
@@ -1037,7 +1039,7 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 		r.log.Warning("meta `%s` already exists, trying write %s status with '%s'", name, s, msg)
 		return nil
 	}
-	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+	if !errors.Is(err, storage.ErrNotExist) {
 		return errors.Wrapf(err, "check restore meta `%s`", name)
 	}
 
@@ -1080,8 +1082,8 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 
 func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	var stat *s3.DownloadStat
-	readFn := r.stg.SourceReader
-	if t, ok := r.stg.(*s3.S3); ok {
+	readFn := r.bcpStg.SourceReader
+	if t, ok := r.bcpStg.(*s3.S3); ok {
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
 
@@ -1292,8 +1294,9 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) replayOplog(
-	from, to primitive.Timestamp,
-	opChunks []oplog.OplogChunk,
+	from primitive.Timestamp,
+	to primitive.Timestamp,
+	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
 	err := r.startMongo("--dbpath", r.dbpath,
@@ -1302,13 +1305,13 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
 	ctx := context.Background()
-	_, err = c.Database("local").Collection("system.replset").InsertOne(ctx,
+	_, err = nodeConn.Database("local").Collection("system.replset").InsertOne(ctx,
 		topo.RSConfig{
 			ID:      r.rsConf.ID,
 			CSRS:    r.nodeInfo.IsConfigSrv(),
@@ -1326,7 +1329,7 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
 	}
 
-	err = shutdown(c, r.dbpath)
+	err = shutdown(nodeConn, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -1345,12 +1348,12 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "start mongo as rs")
 	}
 
-	c, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	nodeConn, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo rs")
 	}
 
-	mgoV, err := version.GetMongoVersion(ctx, c)
+	mgoV, err := version.GetMongoVersion(ctx, nodeConn)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
 	}
@@ -1360,9 +1363,16 @@ func (r *PhysRestore) replayOplog(
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(ctx, c, opChunks, &oplogOption, r.nodeInfo.IsSharded(),
-		nil, r.setcommittedTxn, r.getcommittedTxn, &stat.Txn,
-		&mgoV, r.stg, r.log)
+	partial, err := applyOplog(ctx,
+		nodeConn,
+		oplogRanges,
+		&oplogOption,
+		r.nodeInfo.IsSharded(),
+		nil,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		&stat.Txn,
+		&mgoV)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}
@@ -1383,7 +1393,7 @@ func (r *PhysRestore) replayOplog(
 		}
 	}
 
-	err = shutdown(c, r.dbpath)
+	err = shutdown(nodeConn, r.dbpath)
 	if err != nil {
 		return errors.Wrap(err, "shutdown mongo")
 	}
@@ -1777,7 +1787,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(cfg.Storage, l)
+	r.stg, err = util.StorageFromConfig(&cfg.Storage, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -1987,7 +1997,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
 		filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
-		rdr, err := r.stg.SourceReader(filelistPath)
+		rdr, err := r.bcpStg.SourceReader(filelistPath)
 		if err != nil {
 			return errors.Wrapf(err, "open filelist %q", filelistPath)
 		}
@@ -2045,7 +2055,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 
 		if version.HasFilelistFile(bcp.PBMVersion) {
 			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
-			rdr, err := r.stg.SourceReader(filelistPath)
+			rdr, err := r.bcpStg.SourceReader(filelistPath)
 			if err != nil {
 				return errors.Wrapf(err, "open filelist %q", filelistPath)
 			}
@@ -2137,6 +2147,11 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 	if err != nil {
 		return errors.Wrap(err, "get backup metadata")
+	}
+
+	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	if err != nil {
+		return errors.Wrap(err, "get backup storage")
 	}
 
 	if r.bcp == nil {

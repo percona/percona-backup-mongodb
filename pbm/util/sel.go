@@ -44,9 +44,7 @@ func ContainsColl(ns string) bool {
 
 // ContainsSpecifiedColl inspects if any collection exists for multi-ns
 func ContainsSpecifiedColl(nss []string) bool {
-	return slices.ContainsFunc(nss, func(ns string) bool {
-		return ContainsColl(ns)
-	})
+	return slices.ContainsFunc(nss, ContainsColl)
 }
 
 func MakeSelectedPred(nss []string) archive.NSFilterFn {
@@ -88,7 +86,7 @@ type ChunkSelector interface {
 
 type nsChunkMap map[string]struct{}
 
-func NewNSChunkSelector() ChunkSelector {
+func NewNSChunkSelector() nsChunkMap {
 	return make(nsChunkMap)
 }
 
@@ -114,7 +112,7 @@ func (s nsChunkMap) BuildFilter() bson.D {
 
 type uuidChunkMap map[string]struct{}
 
-func NewUUIDChunkSelector() ChunkSelector {
+func NewUUIDChunkSelector() uuidChunkMap {
 	return make(uuidChunkMap)
 }
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -18,7 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/resync"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -30,7 +28,8 @@ type Agent struct {
 	nodeConn *mongo.Client
 	bcp      *currentBackup
 	pitrjob  *currentPitr
-	mx       sync.Mutex
+	slicerMx sync.Mutex
+	bcpMx    sync.Mutex
 
 	brief topo.NodeBrief
 
@@ -74,6 +73,7 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 			URI:     uri,
 			SetName: info.SetName,
 			Me:      info.Me,
+			Sharded: info.IsSharded(),
 		},
 		mongoVersion: mongoVersion,
 		dumpConns:    dumpConns,
@@ -82,11 +82,17 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 }
 
 func (a *Agent) CanStart(ctx context.Context) error {
-	info, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	info, err := topo.GetNodeInfo(ctx, a.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get node info")
 	}
 
+	if info.IsStandalone() {
+		return errors.New("mongod node can not be used to fetch a consistent " +
+			"backup because it has no oplog. Please restart it as a primary " +
+			"in a single-node replicaset to make it compatible with PBM's " +
+			"backup method using the oplog")
+	}
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
 	}
@@ -144,8 +150,12 @@ func (a *Agent) Start(ctx context.Context) error {
 				a.Restore(ctx, cmd.Restore, cmd.OPID, ep)
 			case ctrl.CmdReplay:
 				a.OplogReplay(ctx, cmd.Replay, cmd.OPID, ep)
+			case ctrl.CmdAddConfigProfile:
+				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+			case ctrl.CmdRemoveConfigProfile:
+				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdResync:
-				a.Resync(ctx, cmd.OPID, ep)
+				a.Resync(ctx, cmd.Resync, cmd.OPID, ep)
 			case ctrl.CmdDeleteBackup:
 				a.Delete(ctx, cmd.Delete, cmd.OPID, ep)
 			case ctrl.CmdDeletePITR:
@@ -167,68 +177,6 @@ func (a *Agent) Start(ctx context.Context) error {
 			logger.Error("", "", "", ep.TS(), "listening commands: %v", err)
 		}
 	}
-}
-
-// Resync uploads a backup list from the remote store
-func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
-	logger := log.FromContext(ctx)
-	l := logger.NewEvent(string(ctrl.CmdResync), "", opid.String(), ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
-
-	a.HbResume()
-	logger.ResumeMgo()
-
-	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
-	if err != nil {
-		l.Error("get node info data: %v", err)
-		return
-	}
-
-	if !nodeInfo.IsLeader() {
-		l.Info("not a member of the leader rs")
-		return
-	}
-
-	epts := ep.TS()
-	lock := lock.NewLock(a.leadConn, lock.LockHeader{
-		Type:    ctrl.CmdResync,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
-		OPID:    opid.String(),
-		Epoch:   &epts,
-	})
-
-	got, err := a.acquireLock(ctx, lock, l)
-	if err != nil {
-		l.Error("acquiring lock: %v", err)
-		return
-	}
-	if !got {
-		l.Debug("lock not acquired")
-		return
-	}
-
-	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("release lock %v: %v", lock, err)
-		}
-	}()
-
-	l.Info("started")
-	err = resync.ResyncStorage(ctx, a.leadConn, l)
-	if err != nil {
-		l.Error("%v", err)
-		return
-	}
-	l.Info("succeed")
-
-	epch, err := config.ResetEpoch(ctx, a.leadConn)
-	if err != nil {
-		l.Error("reset epoch: %v", err)
-		return
-	}
-
-	l.Debug("epoch set to %v", epch)
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock
@@ -396,16 +344,13 @@ func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStor
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(defs.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
-		if err != nil {
-			return topo.SubsysStatus{
-				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),
-			}
-		}
-	} else if err != nil {
-		return topo.SubsysStatus{Err: fmt.Sprintf("storage check failed with: %v", err)}
+	ok, err := storage.IsInitialized(ctx, stg)
+	if err != nil {
+		errStr := fmt.Sprintf("storage check failed with: %v", err)
+		return topo.SubsysStatus{Err: errStr}
+	}
+	if !ok {
+		log.Warning("storage is not initialized")
 	}
 
 	return topo.SubsysStatus{OK: true}

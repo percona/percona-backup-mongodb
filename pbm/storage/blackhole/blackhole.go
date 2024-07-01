@@ -8,12 +8,14 @@ import (
 
 type Blackhole struct{}
 
+var _ storage.Storage = &Blackhole{}
+
 func New() *Blackhole {
 	return &Blackhole{}
 }
 
 func (*Blackhole) Type() storage.Type {
-	return storage.BlackHole
+	return storage.Blackhole
 }
 
 func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {

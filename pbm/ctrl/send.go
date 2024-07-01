@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -65,8 +66,65 @@ func SendCleanup(
 	return sendCommand(ctx, m, cmd)
 }
 
+func SendAddConfigProfile(
+	ctx context.Context,
+	m connect.Client,
+	name string,
+	storage config.StorageConf,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdAddConfigProfile,
+		Profile: &ProfileCmd{
+			Name:      name,
+			IsProfile: true,
+			Storage:   storage,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendRemoveConfigProfile(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdRemoveConfigProfile,
+		Profile: &ProfileCmd{
+			Name: name,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
 func SendResync(ctx context.Context, m connect.Client) (OPID, error) {
 	return sendCommand(ctx, m, Cmd{Cmd: CmdResync})
+}
+
+func SendSyncMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	opts := &ResyncCmd{}
+	if name != "" {
+		opts.Name = name
+	} else {
+		opts.All = true
+	}
+
+	cmd := Cmd{
+		Cmd:    CmdResync,
+		Resync: opts,
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendClearMetaFrom(ctx context.Context, m connect.Client, name string) (OPID, error) {
+	opts := &ResyncCmd{Clear: true}
+	if name != "" {
+		opts.Name = name
+	} else {
+		opts.All = true
+	}
+
+	cmd := Cmd{
+		Cmd:    CmdResync,
+		Resync: opts,
+	}
+	return sendCommand(ctx, m, cmd)
 }
 
 func SendCancelBackup(ctx context.Context, m connect.Client) (OPID, error) {

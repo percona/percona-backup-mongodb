@@ -41,6 +41,6 @@ func Cause(err error) error {
 	return gerrs.Cause(err)
 }
 
-// func Join(errs ...error) error {
-// 	return stderrors.Join(errs...)
-// }
+func Join(errs ...error) error {
+	return stderrors.Join(errs...)
+}
