@@ -662,16 +662,17 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 	updateCurrConf := func(c *config.Config) (*config.PITRConf, primitive.Timestamp) {
 		return c.PITR, c.Epoch
 	}
-	equal := func(c1 *config.PITRConf, c2 *config.PITRConf) bool {
+	equal := func(c1, c2 *config.PITRConf) bool {
 		if c1 == nil || c2 == nil {
 			return c1 == c2
 		}
 		if c1.OplogOnly != c2.OplogOnly {
 			return false
 		}
-		if c1.OplogSpanMin != c2.OplogSpanMin {
-			return false
-		}
+		// OplogSpanMin is compared and updated in the main pitr loop for now
+		// if c1.OplogSpanMin != c2.OplogSpanMin {
+		// 	return false
+		// }
 		if !maps.Equal(c1.Priority, c2.Priority) {
 			return false
 		}
