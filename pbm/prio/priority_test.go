@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -175,7 +176,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		testCases := []struct {
 			desc    string
 			agents  []topo.AgentStat
-			expPrio map[string]float64
+			expPrio config.Priority
 			res     [][]string
 		}{
 			{
@@ -185,7 +186,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("rs0", "rs02"),
 					newS("rs0", "rs03"),
 				},
-				expPrio: map[string]float64{
+				expPrio: config.Priority{
 					"rs01": 2.0,
 					"rs02": 3.0,
 					"rs03": 1.0,
@@ -205,7 +206,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("rs0", "rs04"),
 					newS("rs0", "rs05"),
 				},
-				expPrio: map[string]float64{
+				expPrio: config.Priority{
 					"rs01": 2.0,
 					"rs02": 3.0,
 					"rs03": 1.0,
@@ -225,7 +226,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("rs0", "rs02"),
 					newS("rs0", "rs03"),
 				},
-				expPrio: map[string]float64{
+				expPrio: config.Priority{
 					"rs01": 0.5,
 				},
 				res: [][]string{
@@ -240,7 +241,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("rs0", "rs02"),
 					newS("rs0", "rs03"),
 				},
-				expPrio: map[string]float64{},
+				expPrio: config.Priority{},
 				res: [][]string{
 					{"rs01", "rs02", "rs03"},
 				},
@@ -279,7 +280,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		testCases := []struct {
 			desc    string
 			agents  []topo.AgentStat
-			expPrio map[string]float64
+			expPrio config.Priority
 			res     [][]string
 			resCfg  [][]string
 			resRS0  [][]string
@@ -298,7 +299,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("cfg", "cfg2"),
 					newP("cfg", "cfg3"),
 				},
-				expPrio: map[string]float64{
+				expPrio: config.Priority{
 					"rs01": 2.0,
 					"rs02": 3.0,
 					"rs03": 1.0,
@@ -335,7 +336,7 @@ func TestCalcNodesPriority(t *testing.T) {
 					newS("cfg", "cfg2"),
 					newP("cfg", "cfg3"),
 				},
-				expPrio: map[string]float64{
+				expPrio: config.Priority{
 					"rs01": 0.5,
 					"rs12": 0.5,
 					"cfg3": 0.5,

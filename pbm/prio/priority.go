@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -46,7 +47,7 @@ type agentScore func(topo.AgentStat) float64
 func CalcNodesPriority(
 	ctx context.Context,
 	c map[string]float64,
-	cfgPrio map[string]float64,
+	cfgPrio config.Priority,
 	agents []topo.AgentStat,
 ) (*NodesPriority, error) {
 	// if config level priorities (cfgPrio) aren't set, apply defaults
