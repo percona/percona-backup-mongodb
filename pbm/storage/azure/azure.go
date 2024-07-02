@@ -31,7 +31,7 @@ const (
 	maxBlocks = 50_000
 )
 
-type Conf struct {
+type Config struct {
 	Account     string      `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
 	Container   string      `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
 	EndpointURL string      `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
@@ -39,18 +39,51 @@ type Conf struct {
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 }
 
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	return &rv
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Account != other.Account {
+		return false
+	}
+	if cfg.Container != other.Container {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	if cfg.Credentials.Key != other.Credentials.Key {
+		return false
+	}
+
+	return true
+}
+
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
 type Blob struct {
-	opts Conf
+	opts *Config
 	log  log.LogEvent
 	// url  *url.URL
 	c *azblob.Client
 }
 
-func New(opts Conf, l log.LogEvent) (*Blob, error) {
+func New(opts *Config, l log.LogEvent) (*Blob, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}

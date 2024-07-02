@@ -50,6 +50,7 @@ type NodeBrief struct {
 	URI     string
 	SetName string
 	Me      string
+	Sharded bool
 }
 
 // NodeInfo represents the mongo's node info

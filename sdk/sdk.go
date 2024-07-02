@@ -109,6 +109,10 @@ type Client interface {
 	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
 
 	GetConfig(ctx context.Context) (*Config, error)
+	GetAllConfigProfiles(ctx context.Context) ([]config.Config, error)
+	GetConfigProfile(ctx context.Context, name string) (*config.Config, error)
+	AddConfigProfile(ctx context.Context, name string, cfg *config.Config) (CommandID, error)
+	RemoveConfigProfile(ctx context.Context, name string) (CommandID, error)
 
 	GetAllBackups(ctx context.Context) ([]BackupMetadata, error)
 	GetBackupByName(ctx context.Context, name string, options GetBackupByNameOptions) (*BackupMetadata, error)
@@ -127,15 +131,29 @@ type Client interface {
 	RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error)
 
 	SyncFromStorage(ctx context.Context) (CommandID, error)
+	SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
+	SyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
+	ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
+	ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
 }
 
-func NewClient(ctx context.Context, uri string) (Client, error) {
+func NewClient(ctx context.Context, uri string) (*clientImpl, error) {
 	conn, err := connect.Connect(ctx, uri, "sdk")
 	if err != nil {
 		return nil, err
 	}
 
 	return &clientImpl{conn: conn}, nil
+}
+
+func WaitForAddProfile(ctx context.Context, client Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdAddConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.(*clientImpl).conn, lck)
+}
+
+func WaitForRemoveProfile(ctx context.Context, client Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdRemoveConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.(*clientImpl).conn, lck)
 }
 
 func WaitForCleanup(ctx context.Context, client Client) error {
