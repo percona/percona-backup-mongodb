@@ -53,6 +53,9 @@ func (a *Agent) getPitr() *currentPitr {
 
 // startMon starts monitor (watcher) jobs only on cluster leader.
 func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *config.Config) {
+	a.monMx.Lock()
+	defer a.monMx.Unlock()
+
 	if !nodeInfo.IsClusterLeader() {
 		return
 	}
@@ -63,12 +66,16 @@ func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *conf
 
 	go a.pitrConfigMonitor(ctx, cfg)
 	go a.pitrErrorMonitor(ctx)
+	go a.pitrTopoMonitor(ctx)
 
 	a.monStarted = true
 }
 
 // stopMon stops monitor (watcher) jobs
 func (a *Agent) stopMon() {
+	a.monMx.Lock()
+	defer a.monMx.Unlock()
+
 	if !a.monStarted {
 		return
 	}
@@ -95,6 +102,7 @@ const (
 	pitrNominationPollingCycle   = 2 * time.Second
 	pitrNominationPollingTimeOut = 2 * time.Minute
 	pitrWatchMonitorPollingCycle = 5 * time.Second
+	pitrTopoMonitorPollingCycle  = 2 * time.Minute
 )
 
 // PITR starts PITR processing routine
@@ -715,6 +723,47 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 				l.Error("error while setting cluster status reconfig: %v", err)
 			}
 			currConf, currEpoh = updateCurrConf(cfg)
+
+		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
+			return
+		}
+	}
+}
+
+func (a *Agent) pitrTopoMonitor(ctx context.Context) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr topo monitor")
+	defer l.Debug("stop pitr topo monitor")
+
+	tk := time.NewTicker(pitrTopoMonitorPollingCycle)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
+			if err != nil {
+				l.Error("topo monitor node info error", err)
+				continue
+			}
+
+			if nodeInfo.IsClusterLeader() {
+				continue
+			}
+
+			l.Info("topo/cluster leader has changed, re-configuring pitr members")
+			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
+			if err != nil {
+				l.Error("topo monitor reconfig status set", err)
+				continue
+			}
+			a.removePitr()
+			a.stopMon()
+
+			return
 
 		case <-ctx.Done():
 			return
