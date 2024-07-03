@@ -23,6 +23,17 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
+const (
+	pitrCheckPeriod              = 15 * time.Second
+	pitrRenominationFrame        = 5 * time.Second
+	pitrOpLockPollingCycle       = 15 * time.Second
+	pitrOpLockPollingTimeOut     = 2 * time.Minute
+	pitrNominationPollingCycle   = 2 * time.Second
+	pitrNominationPollingTimeOut = 2 * time.Minute
+	pitrWatchMonitorPollingCycle = 15 * time.Second
+	pitrTopoMonitorPollingCycle  = 2 * time.Minute
+)
+
 type currentPitr struct {
 	slicer *slicer.Slicer
 	w      chan ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
@@ -93,17 +104,6 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 
 	a.pitrjob.w <- opid
 }
-
-const (
-	pitrCheckPeriod              = 15 * time.Second
-	pitrRenominationFrame        = 5 * time.Second
-	pitrOpLockPollingCycle       = 15 * time.Second
-	pitrOpLockPollingTimeOut     = 2 * time.Minute
-	pitrNominationPollingCycle   = 2 * time.Second
-	pitrNominationPollingTimeOut = 2 * time.Minute
-	pitrWatchMonitorPollingCycle = 5 * time.Second
-	pitrTopoMonitorPollingCycle  = 2 * time.Minute
-)
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
