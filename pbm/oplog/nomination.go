@@ -2,6 +2,7 @@ package oplog
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -243,4 +244,24 @@ func SetPITRNomineeACK(
 	)
 
 	return errors.Wrap(err, "update pitr nominee ack")
+}
+
+// GetAgentsWithACK returns the list of all acknowledged agents.
+func GetAgentsWithACK(ctx context.Context, conn connect.Client) ([]string, error) {
+	agents := []string{}
+	meta, err := GetMeta(ctx, conn)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			return agents, err
+		}
+		return agents, errors.Wrap(err, "getting meta")
+	}
+
+	for _, n := range meta.Nomination {
+		if len(n.Ack) > 0 {
+			agents = append(agents, fmt.Sprintf("%s/%s", n.RS, n.Ack))
+		}
+	}
+
+	return agents, nil
 }

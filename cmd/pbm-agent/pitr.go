@@ -24,14 +24,15 @@ import (
 )
 
 const (
-	pitrCheckPeriod              = 15 * time.Second
-	pitrRenominationFrame        = 5 * time.Second
-	pitrOpLockPollingCycle       = 15 * time.Second
-	pitrOpLockPollingTimeOut     = 2 * time.Minute
-	pitrNominationPollingCycle   = 2 * time.Second
-	pitrNominationPollingTimeOut = 2 * time.Minute
-	pitrWatchMonitorPollingCycle = 15 * time.Second
-	pitrTopoMonitorPollingCycle  = 2 * time.Minute
+	pitrCheckPeriod                 = 15 * time.Second
+	pitrRenominationFrame           = 5 * time.Second
+	pitrOpLockPollingCycle          = 15 * time.Second
+	pitrOpLockPollingTimeOut        = 2 * time.Minute
+	pitrNominationPollingCycle      = 2 * time.Second
+	pitrNominationPollingTimeOut    = 2 * time.Minute
+	pitrWatchMonitorPollingCycle    = 15 * time.Second
+	pitrTopoMonitorPollingCycle     = 2 * time.Minute
+	pitrActivityMonitorPollingCycle = 2 * time.Minute
 )
 
 type currentPitr struct {
@@ -78,6 +79,7 @@ func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *conf
 	go a.pitrConfigMonitor(ctx, cfg)
 	go a.pitrErrorMonitor(ctx)
 	go a.pitrTopoMonitor(ctx)
+	go a.pitrActivityMonitor(ctx)
 
 	a.monStarted = true
 }
@@ -758,6 +760,67 @@ func (a *Agent) pitrTopoMonitor(ctx context.Context) {
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
 			if err != nil {
 				l.Error("topo monitor reconfig status set", err)
+				continue
+			}
+			a.removePitr()
+			a.stopMon()
+
+			return
+
+		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
+			return
+		}
+	}
+}
+
+func (a *Agent) pitrActivityMonitor(ctx context.Context) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr agent activity monitor")
+	defer l.Debug("stop pitr agent activity monitor")
+
+	tk := time.NewTicker(pitrActivityMonitorPollingCycle)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			status, err := oplog.GetClusterStatus(ctx, a.leadConn)
+			if err != nil {
+				if errors.Is(err, errors.ErrNotFound) {
+					continue
+				}
+				l.Error("agent activity get cluster status", err)
+				continue
+			}
+			if status != oplog.StatusRunning {
+				continue
+			}
+
+			ackedAgents, err := oplog.GetAgentsWithACK(ctx, a.leadConn)
+			if err != nil {
+				l.Error("activity get acked agents", err)
+				continue
+			}
+
+			activeLocks, err := oplog.FetchSlicersWithActiveLocks(ctx, a.leadConn)
+			if err != nil {
+				l.Error("fetching active pitr locks", err)
+				continue
+			}
+
+			if len(ackedAgents) == len(activeLocks) {
+				continue
+			}
+
+			l.Debug("expected agents: %v; working agents: %v", ackedAgents, activeLocks)
+
+			l.Info("not all ack agents are working, re-configuring pitr members")
+			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
+			if err != nil {
+				l.Error("activity monitor reconfig status set", err)
 				continue
 			}
 			a.removePitr()

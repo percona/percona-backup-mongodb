@@ -2,6 +2,7 @@ package oplog
 
 import (
 	"context"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -97,4 +98,31 @@ func IsOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// FetchSlicersWithActiveLocks fetches the list of slicers (agents)
+// that are holding active OpLock.
+func FetchSlicersWithActiveLocks(ctx context.Context, conn connect.Client) ([]string, error) {
+	res := []string{}
+
+	locks, err := lock.GetOpLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
+	if err != nil {
+		return res, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return res, nil
+	}
+
+	ct, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return res, errors.Wrap(err, "get cluster time")
+	}
+
+	for _, lock := range locks {
+		if lock.Heartbeat.T+defs.StaleFrameSec >= ct.T {
+			res = append(res, fmt.Sprintf("%s/%s", lock.Replset, lock.Node))
+		}
+	}
+
+	return res, nil
 }
