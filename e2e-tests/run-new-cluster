@@ -47,7 +47,7 @@ users_og=$(mongo_run 'db.getSiblingDB("admin").system.users.find({}, {_id: 1}).s
 
 date
 desc 'Destroy cluster'
-docker-compose -f ${test_dir}/docker/docker-compose.yaml down
+docker compose -f ${test_dir}/docker/docker-compose.yaml down
 desc 'Removing PSMDB volumes'
 docker volume rm $(docker volume ls --filter name=data -q)
 
