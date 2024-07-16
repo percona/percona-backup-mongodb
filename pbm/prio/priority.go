@@ -1,7 +1,6 @@
 package prio
 
 import (
-	"context"
 	"sort"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -45,7 +44,6 @@ type agentScore func(topo.AgentStat) float64
 // Custom coefficients might be passed. These will be ignored though
 // if the config is set.
 func CalcNodesPriority(
-	ctx context.Context,
 	c map[string]float64,
 	cfgPrio config.Priority,
 	agents []topo.AgentStat,

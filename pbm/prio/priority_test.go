@@ -1,7 +1,6 @@
 package prio
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
@@ -72,7 +71,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(context.Background(), nil, nil, tC.agents)
+				np, err := CalcNodesPriority(nil, nil, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
 				}
@@ -150,7 +149,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(context.Background(), nil, nil, tC.agents)
+				np, err := CalcNodesPriority(nil, nil, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
 				}
@@ -262,7 +261,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(context.Background(), nil, tC.expPrio, tC.agents)
+				np, err := CalcNodesPriority(nil, tC.expPrio, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
 				}
@@ -357,7 +356,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(context.Background(), nil, tC.expPrio, tC.agents)
+				np, err := CalcNodesPriority(nil, tC.expPrio, tC.agents)
 				if err != nil {
 					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
 				}
@@ -394,7 +393,7 @@ func TestCalcNodesPriority(t *testing.T) {
 			"rs03": 3.0,
 		}
 
-		np, err := CalcNodesPriority(context.Background(), c, nil, agents)
+		np, err := CalcNodesPriority(c, nil, agents)
 		if err != nil {
 			t.Fatalf("unexpected error while calculating nodes priority: %v", err)
 		}

@@ -407,7 +407,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	nodes, err := prio.CalcNodesPriority(ctx, nil, cfg.PITR.Priority, agents)
+	nodes, err := prio.CalcNodesPriority(nil, cfg.PITR.Priority, agents)
 	if err != nil {
 		l.Error("get nodes priority: %v", err)
 		return
