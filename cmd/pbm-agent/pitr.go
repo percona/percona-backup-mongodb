@@ -71,7 +71,7 @@ func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *conf
 	if !nodeInfo.IsClusterLeader() {
 		return
 	}
-	if a.monStarted {
+	if a.monStopSig != nil {
 		return
 	}
 	a.monStopSig = make(chan struct{})
@@ -80,8 +80,6 @@ func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *conf
 	go a.pitrErrorMonitor(ctx)
 	go a.pitrTopoMonitor(ctx)
 	go a.pitrActivityMonitor(ctx)
-
-	a.monStarted = true
 }
 
 // stopMon stops monitor (watcher) jobs
@@ -89,11 +87,11 @@ func (a *Agent) stopMon() {
 	a.monMx.Lock()
 	defer a.monMx.Unlock()
 
-	if !a.monStarted {
+	if a.monStopSig == nil {
 		return
 	}
 	close(a.monStopSig)
-	a.monStarted = false
+	a.monStopSig = nil
 }
 
 func (a *Agent) sliceNow(opid ctrl.OPID) {

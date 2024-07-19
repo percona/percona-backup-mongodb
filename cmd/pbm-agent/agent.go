@@ -41,9 +41,7 @@ type Agent struct {
 	pauseHB  int32
 
 	monMx sync.Mutex
-	// pitr monitor (watcher) jobs are started
-	monStarted bool
-	// signal for stoppint pitr monitor jobs
+	// signal for stopping pitr monitor jobs and flag that jobs are started/stopped
 	monStopSig chan struct{}
 }
 
