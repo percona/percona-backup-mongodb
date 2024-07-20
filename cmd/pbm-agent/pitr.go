@@ -64,13 +64,10 @@ func (a *Agent) getPitr() *currentPitr {
 }
 
 // startMon starts monitor (watcher) jobs only on cluster leader.
-func (a *Agent) startMon(ctx context.Context, nodeInfo *topo.NodeInfo, cfg *config.Config) {
+func (a *Agent) startMon(ctx context.Context, cfg *config.Config) {
 	a.monMx.Lock()
 	defer a.monMx.Unlock()
 
-	if !nodeInfo.IsClusterLeader() {
-		return
-	}
 	if a.monStopSig != nil {
 		return
 	}
@@ -230,11 +227,13 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
-	// start monitor jobs on cluster leader
-	a.startMon(ctx, nodeInfo, cfg)
+	if nodeInfo.IsClusterLeader() {
+		// start monitor jobs on cluster leader
+		a.startMon(ctx, cfg)
 
-	// start nomination process on cluster leader
-	go a.leadNomination(ctx, nodeInfo, cfg)
+		// start nomination process on cluster leader
+		go a.leadNomination(ctx, cfg.PITR.Priority)
+	}
 
 	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
@@ -373,14 +372,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 // It requires to be run in separate go routine on cluster leader.
 func (a *Agent) leadNomination(
 	ctx context.Context,
-	nodeInfo *topo.NodeInfo,
-	cfg *config.Config,
+	cfgPrio config.Priority,
 ) {
 	l := log.LogEventFromContext(ctx)
-
-	if !nodeInfo.IsClusterLeader() {
-		return
-	}
 
 	l.Debug("checking locks in the whole cluster")
 	noLocks, err := a.waitAllOpLockRelease(ctx)
@@ -405,7 +399,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	nodes, err := prio.CalcNodesPriority(nil, cfg.PITR.Priority, agents)
+	nodes, err := prio.CalcNodesPriority(nil, cfgPrio, agents)
 	if err != nil {
 		l.Error("get nodes priority: %v", err)
 		return
