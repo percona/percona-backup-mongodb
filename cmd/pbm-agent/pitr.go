@@ -320,12 +320,13 @@ func (a *Agent) pitr(ctx context.Context) error {
 			for {
 				select {
 				case <-tk.C:
-					if reconf := a.isPITRClusterStatus(ctx, oplog.StatusReconfig); reconf {
+					cStatus := a.getPITRClusterStatus(ctx)
+					if cStatus == oplog.StatusReconfig {
 						l.Debug("stop slicing because of reconfig")
 						stopSlicing()
 						return
 					}
-					if pitrErr := a.isPITRClusterStatus(ctx, oplog.StatusError); pitrErr {
+					if cStatus == oplog.StatusError {
 						l.Debug("stop slicing because of error")
 						stopSlicing()
 						return
@@ -630,19 +631,19 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 	}
 }
 
-// isPITRClusterStatus checks within pbmPITR collection if cluster status
-// is set to specified status.
-func (a *Agent) isPITRClusterStatus(ctx context.Context, status oplog.Status) bool {
+// getPITRClusterStatus gets cluster status from pbmPITR collection.
+// In case of error, it returns StatusUnset and log the error.
+func (a *Agent) getPITRClusterStatus(ctx context.Context) oplog.Status {
 	l := log.LogEventFromContext(ctx)
 
 	meta, err := oplog.GetMeta(ctx, a.leadConn)
 	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			return false
+		if !errors.Is(err, errors.ErrNotFound) {
+			l.Error("getting metta for reconfig status check: %v", err)
 		}
-		l.Error("getting metta for reconfig status check: %v", err)
+		return oplog.StatusUnset
 	}
-	return meta.Status == status
+	return meta.Status
 }
 
 // pitrConfigMonitor watches changes in PITR section within PBM configuration.
