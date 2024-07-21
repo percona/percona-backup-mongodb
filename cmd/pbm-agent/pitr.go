@@ -5,7 +5,6 @@ import (
 	"maps"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -661,28 +660,7 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
 
-	updateCurrConf := func(c *config.Config) (*config.PITRConf, primitive.Timestamp) {
-		return c.PITR, c.Epoch
-	}
-	equal := func(c1, c2 *config.PITRConf) bool {
-		if c1 == nil || c2 == nil {
-			return c1 == c2
-		}
-		if c1.OplogOnly != c2.OplogOnly {
-			return false
-		}
-		// OplogSpanMin is compared and updated in the main pitr loop for now
-		// if c1.OplogSpanMin != c2.OplogSpanMin {
-		// 	return false
-		// }
-		if !maps.Equal(c1.Priority, c2.Priority) {
-			return false
-		}
-
-		return true
-	}
-
-	currConf, currEpoh := updateCurrConf(firstConf)
+	currConf, currEpoh := firstConf.PITR, firstConf.Epoch
 
 	for {
 		select {
@@ -701,22 +679,21 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 			if !cfg.PITR.Enabled {
 				// If pitr is disabled, there is no need to check its properties.
 				// Enable/disable change is handled out of the monitor logic (in pitr main loop).
-				currConf, currEpoh = updateCurrConf(cfg)
+				currConf, currEpoh = cfg.PITR, cfg.Epoch
 				continue
 			}
-			if equal(cfg.PITR, currConf) {
+			if isPITRConfigChanged(cfg.PITR, currConf) {
 				continue
 			}
 
 			// there are differences between privious and new config in following
-			// fields: OplogOnly, OplogSpanMin, Priority
-
+			// fields: Priority, OplogOnly, (OplogSpanMin)
 			l.Info("pitr config has changed, re-config will be done")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
 			if err != nil {
 				l.Error("error while setting cluster status reconfig: %v", err)
 			}
-			currConf, currEpoh = updateCurrConf(cfg)
+			currConf, currEpoh = cfg.PITR, cfg.Epoch
 
 		case <-ctx.Done():
 			return
@@ -725,6 +702,24 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 			return
 		}
 	}
+}
+
+func isPITRConfigChanged(c1, c2 *config.PITRConf) bool {
+	if c1 == nil || c2 == nil {
+		return c1 == c2
+	}
+	if c1.OplogOnly != c2.OplogOnly {
+		return false
+	}
+	// OplogSpanMin is compared and updated in the main pitr loop for now
+	// if c1.OplogSpanMin != c2.OplogSpanMin {
+	// 	return false
+	// }
+	if !maps.Equal(c1.Priority, c2.Priority) {
+		return false
+	}
+
+	return true
 }
 
 func (a *Agent) pitrTopoMonitor(ctx context.Context) {
