@@ -177,7 +177,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			return nil
 		}
 
-		return err
+		return errors.Wrap(err, "can slicing now")
 	}
 
 	if p := a.getPitr(); p != nil {
@@ -213,7 +213,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 	// the other node does successfully slice
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("get node info: %v", err)
 		return errors.Wrap(err, "get node info")
 	}
 
@@ -236,7 +235,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
-		l.Error("wait for pitr nomination: %v", err)
 		return errors.Wrap(err, "wait nomination for pitr")
 	}
 	if !nominated {
@@ -279,8 +277,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		err = errors.Wrap(err, "unable to get storage configuration")
-		return err
+		return errors.Wrap(err, "unable to get storage configuration")
 	}
 
 	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
@@ -295,8 +292,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		err = errors.Wrap(err, "catchup")
-		return err
+		return errors.Wrap(err, "catchup")
 	}
 
 	go func() {
