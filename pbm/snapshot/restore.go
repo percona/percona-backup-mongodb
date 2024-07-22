@@ -28,6 +28,7 @@ var ExcludeFromRestore = []string{
 	defs.DB + "." + defs.LockCollection,
 	defs.DB + "." + defs.LockOpCollection,
 	defs.DB + "." + defs.PITRChunksCollection,
+	defs.DB + "." + defs.PITRCollection,
 	defs.DB + "." + defs.AgentsStatusCollection,
 	defs.DB + "." + defs.PBMOpLogCollection,
 	"admin.system.version",

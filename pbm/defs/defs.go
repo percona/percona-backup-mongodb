@@ -28,6 +28,8 @@ const (
 	CmdStreamCollection = "pbmCmd"
 	// PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
+	// pbmPITR is a collection for PITR operational data
+	PITRCollection = "pbmPITR"
 	// PBMOpLogCollection contains log of acquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
 	// AgentsStatusCollection is an agents registry with its status/health checks

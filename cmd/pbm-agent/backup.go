@@ -163,7 +163,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			validCandidates = append(validCandidates, s)
 		}
 
-		nodes, err := prio.CalcNodesPriority(ctx, c, cfg.Backup.Priority, validCandidates)
+		nodes, err := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
 		if err != nil {
 			l.Error("get nodes priority: %v", err)
 			return

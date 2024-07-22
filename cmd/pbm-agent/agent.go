@@ -40,8 +40,9 @@ type Agent struct {
 	closeCMD chan struct{}
 	pauseHB  int32
 
-	// prevOO is previous pitr.oplogOnly value
-	prevOO *bool
+	monMx sync.Mutex
+	// signal for stopping pitr monitor jobs and flag that jobs are started/stopped
+	monStopSig chan struct{}
 }
 
 func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {

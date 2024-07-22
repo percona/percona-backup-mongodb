@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"reflect"
 	"strconv"
@@ -171,6 +172,10 @@ func (c *Config) BackupSlicerInterval() time.Duration {
 	return time.Duration(c.Backup.OplogSpanMin * float64(time.Minute))
 }
 
+// Priority contains priority values for cluster members.
+// It is used for specifying Backup and PITR configuration priorities.
+type Priority map[string]float64
+
 // PITRConf is a Point-In-Time Recovery options
 //
 //nolint:lll
@@ -178,6 +183,7 @@ type PITRConf struct {
 	Enabled          bool                     `bson:"enabled" json:"enabled" yaml:"enabled"`
 	OplogSpanMin     float64                  `bson:"oplogSpanMin,omitempty" json:"oplogSpanMin,omitempty" yaml:"oplogSpanMin,omitempty"`
 	OplogOnly        bool                     `bson:"oplogOnly,omitempty" json:"oplogOnly,omitempty" yaml:"oplogOnly,omitempty"`
+	Priority         Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 }
@@ -188,6 +194,7 @@ func (cfg *PITRConf) Clone() *PITRConf {
 	}
 
 	rv := *cfg
+	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.CompressionLevel != nil {
 		a := *cfg.CompressionLevel
 		rv.CompressionLevel = &a
@@ -348,7 +355,7 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 //nolint:lll
 type BackupConf struct {
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	Priority         map[string]float64       `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Priority         Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
@@ -360,12 +367,8 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	}
 
 	rv := *cfg
-	if len(cfg.Priority) != 0 {
-		rv.Priority = make(map[string]float64, len(cfg.Priority))
-		for k, v := range cfg.Priority {
-			rv.Priority[k] = v
-		}
-	}
+
+	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.Timeouts != nil {
 		if cfg.Timeouts.Starting != nil {
 			rv.Timeouts = &BackupTimeouts{

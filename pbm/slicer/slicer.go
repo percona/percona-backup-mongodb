@@ -406,21 +406,6 @@ func (s *Slicer) Stream(
 			}
 		}
 
-		// if this is the last slice, epoch probably already changed (e.g. due to config changes) and that's ok
-		if !lastSlice {
-			cep, err := config.GetEpoch(ctx, s.leadClient)
-			if err != nil {
-				return errors.Wrap(err, "get epoch")
-			}
-
-			if !s.cfg.Epoch.Equal(cep.TS()) {
-				return errors.Errorf(
-					"epoch mismatch. Got sleep in %v, woke up in %v. Too old for that stuff.",
-					s.cfg.Epoch, cep.TS(),
-				)
-			}
-		}
-
 		err = s.upload(ctx, s.lastTS, sliceTo, compression, level)
 		if err != nil {
 			return err
