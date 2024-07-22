@@ -24,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -187,11 +188,13 @@ const (
 )
 
 type node struct {
-	Host string   `json:"host"`
-	Ver  string   `json:"agent"`
-	Role RSRole   `json:"role"`
-	OK   bool     `json:"ok"`
-	Errs []string `json:"errors,omitempty"`
+	Host     string   `json:"host"`
+	Ver      string   `json:"agent"`
+	Role     RSRole   `json:"role"`
+	PrioPITR float64  `json:"prio_pitr"`
+	PrioBcp  float64  `json:"prio_backup"`
+	OK       bool     `json:"ok"`
+	Errs     []string `json:"errors,omitempty"`
 }
 
 func (n node) String() string {
@@ -204,7 +207,7 @@ func (n node) String() string {
 		role = RoleSecondary
 	}
 
-	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
+	s := fmt.Sprintf("%s [%s], Bkp Prio: [%.1f], PITR Prio: [%.1f]: pbm-agent [%s]", n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
 	if n.OK {
 		s += " OK"
 		return s
@@ -237,6 +240,11 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
+	}
+
+	cfg, err := config.GetConfig(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "fetch config")
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -294,6 +302,8 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 				}
 				nd.Ver = "v" + stat.AgentVer
 				nd.OK, nd.Errs = stat.OK()
+				nd.PrioBcp = prio.CalcPriorityForAgent(stat, cfg.Backup.Priority, nil)
+				nd.PrioPITR = prio.CalcPriorityForAgent(stat, cfg.PITR.Priority, nil)
 			}
 
 			m.Lock()
