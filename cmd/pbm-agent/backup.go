@@ -163,11 +163,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			validCandidates = append(validCandidates, s)
 		}
 
-		nodes, err := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
-		if err != nil {
-			l.Error("get nodes priority: %v", err)
-			return
-		}
+		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
+
 		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 		if err != nil {
 			l.Error("get cluster members: %v", err)

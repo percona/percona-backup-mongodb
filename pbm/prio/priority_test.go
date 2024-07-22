@@ -71,10 +71,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(nil, nil, tC.agents)
-				if err != nil {
-					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
-				}
+				np := CalcNodesPriority(nil, nil, tC.agents)
 
 				prioByScore := np.RS(tC.agents[0].RS)
 
@@ -149,10 +146,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(nil, nil, tC.agents)
-				if err != nil {
-					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
-				}
+				np := CalcNodesPriority(nil, nil, tC.agents)
 
 				prioByScoreCfg := np.RS("cfg")
 				prioByScoreRs0 := np.RS("rs0")
@@ -261,10 +255,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(nil, tC.expPrio, tC.agents)
-				if err != nil {
-					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
-				}
+				np := CalcNodesPriority(nil, tC.expPrio, tC.agents)
 
 				prioByScore := np.RS(tC.agents[0].RS)
 
@@ -356,10 +347,7 @@ func TestCalcNodesPriority(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				np, err := CalcNodesPriority(nil, tC.expPrio, tC.agents)
-				if err != nil {
-					t.Fatalf("unexpected error while calculating nodes priority: %v", err)
-				}
+				np := CalcNodesPriority(nil, tC.expPrio, tC.agents)
 
 				prioByScoreCfg := np.RS("cfg")
 				prioByScoreRs0 := np.RS("rs0")
@@ -393,10 +381,7 @@ func TestCalcNodesPriority(t *testing.T) {
 			"rs03": 3.0,
 		}
 
-		np, err := CalcNodesPriority(c, nil, agents)
-		if err != nil {
-			t.Fatalf("unexpected error while calculating nodes priority: %v", err)
-		}
+		np := CalcNodesPriority(c, nil, agents)
 
 		prioByScore := np.RS(agents[0].RS)
 		if !reflect.DeepEqual(prioByScore, res) {
