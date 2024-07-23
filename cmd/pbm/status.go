@@ -212,7 +212,8 @@ func (n node) String() string {
 	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
 		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
 	} else {
-		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]", n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
+			n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
 	}
 	if n.OK {
 		s += " OK"
@@ -400,7 +401,7 @@ func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, erro
 
 	if p.InConf && p.Running {
 		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, conn)
-		if err != nil && err != errors.ErrNotFound {
+		if err != nil && !errors.Is(err, errors.ErrNotFound) {
 			return p, errors.Wrap(err, "unable to fetch PITR running nodes")
 		}
 	}
