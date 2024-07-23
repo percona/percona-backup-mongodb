@@ -37,6 +37,7 @@ import (
 type statusOptions struct {
 	rsMap    string
 	sections []string
+	priority bool
 }
 
 type statusOut struct {
@@ -119,7 +120,7 @@ func status(
 			{
 				"cluster", "Cluster", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, conn, curi)
+					return clusterStatus(ctx, conn, curi, opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -191,8 +192,8 @@ type node struct {
 	Host     string   `json:"host"`
 	Ver      string   `json:"agent"`
 	Role     RSRole   `json:"role"`
-	PrioPITR float64  `json:"prio_pitr"`
-	PrioBcp  float64  `json:"prio_backup"`
+	PrioPITR string   `json:"prio_pitr"`
+	PrioBcp  string   `json:"prio_backup"`
 	OK       bool     `json:"ok"`
 	Errs     []string `json:"errors,omitempty"`
 }
@@ -207,7 +208,12 @@ func (n node) String() string {
 		role = RoleSecondary
 	}
 
-	s := fmt.Sprintf("%s [%s], Bkp Prio: [%.1f], PITR Prio: [%.1f]: pbm-agent [%s]", n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+	var s string
+	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
+		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
+	} else {
+		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]", n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+	}
 	if n.OK {
 		s += " OK"
 		return s
@@ -231,7 +237,7 @@ func (c cluster) String() string {
 	return s
 }
 
-func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.Stringer, error) {
+func clusterStatus(ctx context.Context, conn connect.Client, uri string, prioOpt bool) (fmt.Stringer, error) {
 	clstr, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -302,8 +308,10 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 				}
 				nd.Ver = "v" + stat.AgentVer
 				nd.OK, nd.Errs = stat.OK()
-				nd.PrioBcp = prio.CalcPriorityForAgent(stat, cfg.Backup.Priority, nil)
-				nd.PrioPITR = prio.CalcPriorityForAgent(stat, cfg.PITR.Priority, nil)
+				if prioOpt {
+					nd.PrioBcp = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.Backup.Priority, nil))
+					nd.PrioPITR = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.PITR.Priority, nil))
+				}
 			}
 
 			m.Lock()
