@@ -352,9 +352,10 @@ func directConnect(ctx context.Context, uri, hosts string) (*mongo.Client, error
 }
 
 type pitrStat struct {
-	InConf  bool   `json:"conf"`
-	Running bool   `json:"run"`
-	Err     string `json:"error,omitempty"`
+	InConf       bool     `json:"conf"`
+	Running      bool     `json:"run"`
+	RunningNodes []string `json:"nodes"`
+	Err          string   `json:"error,omitempty"`
 }
 
 func (p pitrStat) String() string {
@@ -363,6 +364,13 @@ func (p pitrStat) String() string {
 		status = "ON"
 	}
 	s := fmt.Sprintf("Status [%s]", status)
+	runningNodes := ""
+	for _, n := range p.RunningNodes {
+		runningNodes += fmt.Sprintf("%s; ", n)
+	}
+	if len(runningNodes) != 0 {
+		s += fmt.Sprintf("\nRunning members: %s", runningNodes)
+	}
 	if p.Err != "" {
 		s += fmt.Sprintf("\n! ERROR while running PITR backup: %s", p.Err)
 	}
@@ -380,6 +388,13 @@ func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, erro
 	p.Running, err = oplog.IsOplogSlicing(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
+	}
+
+	if p.InConf && p.Running {
+		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, conn)
+		if err != nil && err != errors.ErrNotFound {
+			return p, errors.Wrap(err, "unable to fetch PITR running nodes")
+		}
 	}
 
 	p.Err, err = getPitrErr(ctx, conn)
