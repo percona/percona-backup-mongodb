@@ -395,11 +395,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	nodes, err := prio.CalcNodesPriority(nil, cfgPrio, agents)
-	if err != nil {
-		l.Error("get nodes priority: %v", err)
-		return
-	}
+	nodes := prio.CalcNodesPriority(nil, cfgPrio, agents)
 
 	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 	if err != nil {

@@ -401,6 +401,10 @@ func main() {
 	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").
 		Short('s').
 		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
+	statusCmd.Flag("priority", "Show backup and PITR priorities").
+		Short('p').
+		Default("false").
+		BoolVar(&statusOpts.priority)
 
 	describeRestoreCmd := pbmCmd.Command("describe-restore", "Describe restore")
 	describeRestoreOpts := descrRestoreOpts{}

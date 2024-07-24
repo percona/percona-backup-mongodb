@@ -24,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -36,6 +37,7 @@ import (
 type statusOptions struct {
 	rsMap    string
 	sections []string
+	priority bool
 }
 
 type statusOut struct {
@@ -118,7 +120,7 @@ func status(
 			{
 				"cluster", "Cluster", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, conn, curi)
+					return clusterStatus(ctx, conn, curi, opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -187,11 +189,13 @@ const (
 )
 
 type node struct {
-	Host string   `json:"host"`
-	Ver  string   `json:"agent"`
-	Role RSRole   `json:"role"`
-	OK   bool     `json:"ok"`
-	Errs []string `json:"errors,omitempty"`
+	Host     string   `json:"host"`
+	Ver      string   `json:"agent"`
+	Role     RSRole   `json:"role"`
+	PrioPITR string   `json:"prio_pitr"`
+	PrioBcp  string   `json:"prio_backup"`
+	OK       bool     `json:"ok"`
+	Errs     []string `json:"errors,omitempty"`
 }
 
 func (n node) String() string {
@@ -204,7 +208,13 @@ func (n node) String() string {
 		role = RoleSecondary
 	}
 
-	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, n.Ver)
+	var s string
+	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
+		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
+	} else {
+		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
+			n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+	}
 	if n.OK {
 		s += " OK"
 		return s
@@ -228,7 +238,7 @@ func (c cluster) String() string {
 	return s
 }
 
-func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.Stringer, error) {
+func clusterStatus(ctx context.Context, conn connect.Client, uri string, prioOpt bool) (fmt.Stringer, error) {
 	clstr, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -237,6 +247,11 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
+	}
+
+	cfg, err := config.GetConfig(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "fetch config")
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -294,6 +309,10 @@ func clusterStatus(ctx context.Context, conn connect.Client, uri string) (fmt.St
 				}
 				nd.Ver = "v" + stat.AgentVer
 				nd.OK, nd.Errs = stat.OK()
+				if prioOpt {
+					nd.PrioBcp = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.Backup.Priority, nil))
+					nd.PrioPITR = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.PITR.Priority, nil))
+				}
 			}
 
 			m.Lock()
@@ -342,9 +361,10 @@ func directConnect(ctx context.Context, uri, hosts string) (*mongo.Client, error
 }
 
 type pitrStat struct {
-	InConf  bool   `json:"conf"`
-	Running bool   `json:"run"`
-	Err     string `json:"error,omitempty"`
+	InConf       bool     `json:"conf"`
+	Running      bool     `json:"run"`
+	RunningNodes []string `json:"nodes"`
+	Err          string   `json:"error,omitempty"`
 }
 
 func (p pitrStat) String() string {
@@ -353,6 +373,13 @@ func (p pitrStat) String() string {
 		status = "ON"
 	}
 	s := fmt.Sprintf("Status [%s]", status)
+	runningNodes := ""
+	for _, n := range p.RunningNodes {
+		runningNodes += fmt.Sprintf("%s; ", n)
+	}
+	if len(runningNodes) != 0 {
+		s += fmt.Sprintf("\nRunning members: %s", runningNodes)
+	}
 	if p.Err != "" {
 		s += fmt.Sprintf("\n! ERROR while running PITR backup: %s", p.Err)
 	}
@@ -370,6 +397,13 @@ func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, erro
 	p.Running, err = oplog.IsOplogSlicing(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
+	}
+
+	if p.InConf && p.Running {
+		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, conn)
+		if err != nil && !errors.Is(err, errors.ErrNotFound) {
+			return p, errors.Wrap(err, "unable to fetch PITR running nodes")
+		}
 	}
 
 	p.Err, err = getPitrErr(ctx, conn)
