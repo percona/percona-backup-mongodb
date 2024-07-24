@@ -89,7 +89,7 @@ func CalcPriorityForAgent(
 	cfgPrio config.Priority,
 	coeffRules map[string]float64,
 ) float64 {
-	if cfgPrio != nil || len(cfgPrio) > 0 {
+	if len(cfgPrio) > 0 {
 		// apply config level priorities
 		return explicitPrioCalc(agent, cfgPrio)
 	}

@@ -228,18 +228,6 @@ func TestCalcNodesPriority(t *testing.T) {
 				},
 			},
 			{
-				desc: "all defaults",
-				agents: []topo.AgentStat{
-					newP("rs0", "rs01"),
-					newS("rs0", "rs02"),
-					newS("rs0", "rs03"),
-				},
-				expPrio: config.Priority{},
-				res: [][]string{
-					{"rs01", "rs02", "rs03"},
-				},
-			},
-			{
 				desc: "priorities are not defined -> implicit are applied",
 				agents: []topo.AgentStat{
 					newP("rs0", "rs01"),
