@@ -101,7 +101,7 @@ func CalcPriorityForAgent(
 
 // implicitPrioCalc provides priority calculation based on topology rules.
 // Instead of using explicitly specified priority numbers, topology rules are
-// allied for primary, secondary and hidden member.
+// applied for primary, secondary and hidden member.
 func implicitPrioCalc(a topo.AgentStat, rule map[string]float64) float64 {
 	if coeff, ok := rule[a.Node]; ok && rule != nil {
 		return defaultScore * coeff
