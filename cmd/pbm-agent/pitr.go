@@ -345,15 +345,11 @@ func (a *Agent) pitr(ctx context.Context) error {
 			cfg.PITR.CompressionLevel,
 			cfg.Backup.Timeouts)
 		if streamErr != nil {
-			out := l.Error
-			if errors.Is(streamErr, slicer.OpMovedError{}) {
-				out = l.Info
-			}
-			retErr := errors.Wrap(streamErr, "streaming oplog: %v")
+			l.Error("streaming oplog: %v", streamErr)
+			retErr := errors.Wrap(streamErr, "streaming oplog")
 			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-				l.Error("setting RS status to status error, err = %v", err)
+				l.Error("setting RS status to StatusError: %v", err)
 			}
-			out(retErr.Error())
 		}
 
 		if err := lck.Release(); err != nil {
