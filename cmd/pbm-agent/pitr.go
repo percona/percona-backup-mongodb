@@ -338,12 +338,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 			}
 		}()
 
-		streamErr := s.Stream(ctx,
+		streamErr := s.Stream(
+			ctx,
+			nodeInfo,
 			stopC,
 			w,
 			cfg.PITR.Compression,
 			cfg.PITR.CompressionLevel,
-			cfg.Backup.Timeouts)
+			cfg.Backup.Timeouts,
+		)
 		if streamErr != nil {
 			l.Error("streaming oplog: %v", streamErr)
 			retErr := errors.Wrap(streamErr, "streaming oplog")
