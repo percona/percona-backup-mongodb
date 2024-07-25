@@ -104,6 +104,18 @@ func CalcPriorityForAgent(
 	return implicitPrioCalc(agent, coeffRules)
 }
 
+// CalcPriorityForNode returns implicit priority based on node info.
+func CalcPriorityForNode(node *topo.NodeInfo) float64 {
+	if node.IsPrimary {
+		return scoreForPrimary
+	} else if node.Secondary {
+		return scoreForSecondary
+	} else if node.Hidden {
+		return scoreForHidden
+	}
+	return defaultScore
+}
+
 // implicitPrioCalc provides priority calculation based on topology rules.
 // Instead of using explicitly specified priority numbers, topology rules are
 // applied for primary, secondary and hidden member.
