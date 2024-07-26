@@ -203,7 +203,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return errors.Wrap(err, "check if already run")
 	}
 	if !moveOn {
-		l.Debug("pitr running on another RS member")
 		return nil
 	}
 
