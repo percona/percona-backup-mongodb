@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -11,8 +13,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -146,14 +148,21 @@ func NewClient(ctx context.Context, uri string) (*clientImpl, error) {
 	return &clientImpl{conn: conn}, nil
 }
 
-func WaitForAddProfile(ctx context.Context, client Client, cid CommandID) error {
-	lck := &lock.LockHeader{Type: ctrl.CmdAddConfigProfile, OPID: string(cid)}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
-}
+func WaitForCommandWithErrorLog(ctx context.Context, client Client, cid CommandID) error {
+	err := waitOp(ctx, client.(*clientImpl).conn, &lock.LockHeader{OPID: string(cid)})
+	if err != nil {
+		return err
+	}
 
-func WaitForRemoveProfile(ctx context.Context, client Client, cid CommandID) error {
-	lck := &lock.LockHeader{Type: ctrl.CmdRemoveConfigProfile, OPID: string(cid)}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	errorMessage, err := log.CommandLastError(ctx, client.(*clientImpl).conn, string(cid))
+	if err != nil {
+		return fmt.Errorf("read error log: %w", err)
+	}
+	if errorMessage != "" {
+		return errors.New(errorMessage)
+	}
+
+	return nil
 }
 
 func WaitForCleanup(ctx context.Context, client Client) error {
