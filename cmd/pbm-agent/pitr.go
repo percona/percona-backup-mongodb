@@ -277,7 +277,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "unable to get storage configuration")
+		err = errors.Wrap(err, "unable to get storage configuration")
+		return err
 	}
 
 	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
@@ -292,7 +293,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "catchup")
+		err = errors.Wrap(err, "catchup")
+		return err
 	}
 
 	go func() {
