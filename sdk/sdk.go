@@ -159,7 +159,7 @@ func WaitForCommandWithErrorLog(ctx context.Context, client Client, cid CommandI
 		return fmt.Errorf("read error log: %w", err)
 	}
 	if errorMessage != "" {
-		return errors.New(errorMessage)
+		return errors.New(errorMessage) //nolint:err113
 	}
 
 	return nil
