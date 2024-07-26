@@ -108,11 +108,10 @@ func CalcPriorityForAgent(
 func CalcPriorityForNode(node *topo.NodeInfo) float64 {
 	if node.IsPrimary {
 		return scoreForPrimary
-	} else if node.Secondary {
-		return scoreForSecondary
 	} else if node.Hidden {
 		return scoreForHidden
 	}
+
 	return defaultScore
 }
 
