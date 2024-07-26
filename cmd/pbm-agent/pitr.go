@@ -338,6 +338,9 @@ func (a *Agent) pitr(ctx context.Context) error {
 			}
 		}()
 
+		// monitor implicit priority changes (secondary->primary)
+		monitorPrio := cfg.PITR.Priority == nil
+
 		streamErr := s.Stream(
 			ctx,
 			nodeInfo,
@@ -346,6 +349,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			cfg.PITR.Compression,
 			cfg.PITR.CompressionLevel,
 			cfg.Backup.Timeouts,
+			monitorPrio,
 		)
 		if streamErr != nil {
 			l.Error("streaming oplog: %v", streamErr)
