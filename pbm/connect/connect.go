@@ -239,7 +239,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 
 	curi, err := url.Parse(uri)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
+		return nil, errors.Wrap(err, "parse mongo-uri")
 	}
 
 	// Preserving the `replicaSet` parameter will cause an error
@@ -247,7 +247,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 	curi.Host = chost[1]
 	client, err = MongoConnect(ctx, curi.String(), AppName(appName), NoRS())
 	if err != nil {
-		return nil, errors.Wrapf(err, "create mongo connection to configsvr with connection string '%s'", curi)
+		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
 
 	return &clientImpl{

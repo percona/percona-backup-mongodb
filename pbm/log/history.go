@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -179,6 +180,28 @@ func fetch(
 	}
 
 	return e, nil
+}
+
+func CommandLastError(ctx context.Context, cc connect.Client, cid string) (string, error) {
+	filter := buildLogFilter(&LogRequest{LogKeys: LogKeys{OPID: cid, Severity: Error}}, false)
+	opts := options.FindOne().
+		SetSort(bson.D{{"$natural", -1}}).
+		SetProjection(bson.D{{"msg", 1}})
+	res := cc.LogCollection().FindOne(ctx, filter, opts)
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", nil
+		}
+		return "", errors.Wrap(err, "find one")
+	}
+
+	l := Entry{}
+	err := res.Decode(&l)
+	if err != nil {
+		return "", errors.Wrap(err, "message decode")
+	}
+
+	return l.Msg, nil
 }
 
 func Follow(
