@@ -19,6 +19,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -277,11 +278,13 @@ const LogStartMsg = "start_ok"
 // Stream streaming (saving) chunks of the oplog to the given storage
 func (s *Slicer) Stream(
 	ctx context.Context,
+	startingNode *topo.NodeInfo,
 	stopC <-chan struct{},
 	backupSig <-chan ctrl.OPID,
 	compression compress.CompressionType,
 	level *int,
 	timeouts *config.BackupTimeouts,
+	monitorPrio bool,
 ) error {
 	if s.lastTS.T == 0 {
 		return errors.New("no starting point defined")
@@ -291,11 +294,6 @@ func (s *Slicer) Stream(
 	cspan := s.GetSpan()
 	tk := time.NewTicker(cspan)
 	defer tk.Stop()
-
-	nodeInfo, err := topo.GetNodeInfoExt(ctx, s.node)
-	if err != nil {
-		return errors.Wrap(err, "get NodeInfo data")
-	}
 
 	// early check for the log sufficiency to display error
 	// before the timer clicks (not to wait minutes to report)
@@ -392,8 +390,14 @@ func (s *Slicer) Stream(
 		if ld.Type != ctrl.CmdPITR {
 			return errors.Errorf("another operation is running: %v", ld)
 		}
-		if ld.Node != nodeInfo.Me {
+		if ld.Node != startingNode.Me {
 			return OpMovedError{ld.Node}
+		}
+		if monitorPrio &&
+			prio.CalcPriorityForNode(startingNode) > prio.CalcPriorityForNode(ninf) {
+			return errors.Errorf("node priority has changed %.1f->%.1f",
+				prio.CalcPriorityForNode(startingNode),
+				prio.CalcPriorityForNode(ninf))
 		}
 		if sliceTo.IsZero() {
 			majority, err := topo.IsWriteMajorityRequested(ctx, s.node, s.leadClient.MongoOptions().WriteConcern)

@@ -203,7 +203,6 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return errors.Wrap(err, "check if already run")
 	}
 	if !moveOn {
-		l.Debug("pitr running on another RS member")
 		return nil
 	}
 
@@ -277,7 +276,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "unable to get storage configuration")
+		err = errors.Wrap(err, "unable to get storage configuration")
+		return err
 	}
 
 	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
@@ -292,7 +292,8 @@ func (a *Agent) pitr(ctx context.Context) error {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
-		return errors.Wrap(err, "catchup")
+		err = errors.Wrap(err, "catchup")
+		return err
 	}
 
 	go func() {
@@ -338,22 +339,25 @@ func (a *Agent) pitr(ctx context.Context) error {
 			}
 		}()
 
-		streamErr := s.Stream(ctx,
+		// monitor implicit priority changes (secondary->primary)
+		monitorPrio := cfg.PITR.Priority == nil
+
+		streamErr := s.Stream(
+			ctx,
+			nodeInfo,
 			stopC,
 			w,
 			cfg.PITR.Compression,
 			cfg.PITR.CompressionLevel,
-			cfg.Backup.Timeouts)
+			cfg.Backup.Timeouts,
+			monitorPrio,
+		)
 		if streamErr != nil {
-			out := l.Error
-			if errors.Is(streamErr, slicer.OpMovedError{}) {
-				out = l.Info
-			}
-			retErr := errors.Wrap(streamErr, "streaming oplog: %v")
+			l.Error("streaming oplog: %v", streamErr)
+			retErr := errors.Wrap(streamErr, "streaming oplog")
 			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-				l.Error("setting RS status to status error, err = %v", err)
+				l.Error("setting RS status to StatusError: %v", err)
 			}
-			out(retErr.Error())
 		}
 
 		if err := lck.Release(); err != nil {

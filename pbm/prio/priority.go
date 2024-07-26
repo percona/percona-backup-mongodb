@@ -8,7 +8,12 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-const defaultScore = 1.0
+const (
+	defaultScore      = 1.0
+	scoreForPrimary   = defaultScore / 2
+	scoreForSecondary = defaultScore * 1
+	scoreForHidden    = defaultScore * 2
+)
 
 // NodesPriority groups nodes by priority according to
 // provided scores. Basically nodes are grouped and sorted by
@@ -99,6 +104,18 @@ func CalcPriorityForAgent(
 	return implicitPrioCalc(agent, coeffRules)
 }
 
+// CalcPriorityForNode returns implicit priority based on node info.
+func CalcPriorityForNode(node *topo.NodeInfo) float64 {
+	if node.IsPrimary {
+		return scoreForPrimary
+	} else if node.Secondary {
+		return scoreForSecondary
+	} else if node.Hidden {
+		return scoreForHidden
+	}
+	return defaultScore
+}
+
 // implicitPrioCalc provides priority calculation based on topology rules.
 // Instead of using explicitly specified priority numbers, topology rules are
 // applied for primary, secondary and hidden member.
@@ -106,9 +123,9 @@ func implicitPrioCalc(a topo.AgentStat, rule map[string]float64) float64 {
 	if coeff, ok := rule[a.Node]; ok && rule != nil {
 		return defaultScore * coeff
 	} else if a.State == defs.NodeStatePrimary {
-		return defaultScore / 2
+		return scoreForPrimary
 	} else if a.Hidden {
-		return defaultScore * 2
+		return scoreForHidden
 	}
 	return defaultScore
 }
