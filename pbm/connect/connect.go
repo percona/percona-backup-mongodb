@@ -183,7 +183,7 @@ type clientImpl struct {
 	options *options.ClientOptions
 }
 
-func UnsafeClient(m *mongo.Client) Client {
+func UnsafeClient(m *mongo.Client) *clientImpl {
 	return &clientImpl{
 		client:  m,
 		options: options.Client(),
@@ -193,7 +193,7 @@ func UnsafeClient(m *mongo.Client) Client {
 // Connect resolves MongoDB connection to Primary member and wraps it within Client object.
 // In case of replica set it returns connection to Primary member,
 // while in case of sharded cluster it returns connection to Config RS Primary member.
-func Connect(ctx context.Context, uri, appName string) (Client, error) {
+func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 	client, opts, err := MongoConnectWithOpts(ctx, uri, AppName(appName))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection")
@@ -327,6 +327,10 @@ func (l *clientImpl) PITRChunksCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PITRChunksCollection)
 }
 
+func (l *clientImpl) PITRCollection() *mongo.Collection {
+	return l.client.Database(defs.DB).Collection(defs.PITRCollection)
+}
+
 func (l *clientImpl) PBMOpLogCollection() *mongo.Collection {
 	return l.client.Database(defs.DB).Collection(defs.PBMOpLogCollection)
 }
@@ -376,6 +380,7 @@ type Client interface {
 	RestoresCollection() *mongo.Collection
 	CmdStreamCollection() *mongo.Collection
 	PITRChunksCollection() *mongo.Collection
+	PITRCollection() *mongo.Collection
 	PBMOpLogCollection() *mongo.Collection
 	AgentsStatusCollection() *mongo.Collection
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
@@ -139,6 +138,16 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 	return &Client{conn: conn}, nil
 }
 
+func WaitForAddProfile(ctx context.Context, client *Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdAddConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.conn, lck)
+}
+
+func WaitForRemoveProfile(ctx context.Context, client *Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdRemoveConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.conn, lck)
+}
+
 func WaitForCleanup(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdCleanup}
 	return waitOp(ctx, client.conn, lck)
@@ -156,32 +165,6 @@ func WaitForDeleteOplogRange(ctx context.Context, client *Client) error {
 
 func WaitForErrorLog(ctx context.Context, client *Client, cmd *Command) (string, error) {
 	return lastLogErr(ctx, client.conn, cmd.Cmd, cmd.TS)
-}
-
-func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	r := &log.LogRequest{
-		LogKeys: log.LogKeys{
-			Event:    string(ctrl.CmdResync),
-			OPID:     string(cid),
-			Severity: log.Info,
-		},
-	}
-
-	outC, errC := log.Follow(ctx, c.conn, r, false)
-
-	for {
-		select {
-		case entry := <-outC:
-			if entry != nil && entry.Msg == "succeed" {
-				return nil
-			}
-		case err := <-errC:
-			return err
-		}
-	}
 }
 
 func CanDeleteBackup(ctx context.Context, client *Client, bcp *BackupMetadata) error {

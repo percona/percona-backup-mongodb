@@ -28,9 +28,9 @@ $ MONGODB_VERSION=4.4 ./start-cluster
 
 You need to set up PBM though:
 ```
-$ docker-compose -f ./docker/docker-compose.yaml exec agent-rs101 pbm config --file=/etc/pbm/minio.yaml
+$ docker compose -f ./docker/docker-compose.yaml exec agent-rs101 pbm config --file=/etc/pbm/minio.yaml
 ```
 Run pbm commands:
 ```
-$ docker-compose -f ./docker/docker-compose.yaml exec agent-rs101 pbm list
+$ docker compose -f ./docker/docker-compose.yaml exec agent-rs101 pbm list
 ```

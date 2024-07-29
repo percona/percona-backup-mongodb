@@ -6,8 +6,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -52,4 +54,36 @@ func ClusterMembers(ctx context.Context, client *Client) ([]ReplsetInfo, error) 
 // AgentStatuses returns list of all PBM Agents statuses.
 func AgentStatuses(ctx context.Context, client *Client) ([]AgentStatus, error) {
 	return topo.ListAgents(ctx, client.conn)
+}
+
+func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	r := &log.LogRequest{
+		LogKeys: log.LogKeys{
+			Event:    string(ctrl.CmdResync),
+			OPID:     string(cid),
+			Severity: log.Info,
+		},
+	}
+
+	outC, errC := log.Follow(ctx, c.conn, r, false)
+
+	for {
+		select {
+		case entry := <-outC:
+			if entry == nil {
+				continue
+			}
+			if entry.Msg == "succeed" {
+				return nil
+			}
+			if entry.Severity == log.Error {
+				return errors.New(entry.Msg)
+			}
+		case err := <-errC:
+			return err
+		}
+	}
 }

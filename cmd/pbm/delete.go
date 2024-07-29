@@ -59,7 +59,7 @@ func deleteBackup(
 	}
 
 	if d.dryRun {
-		return nil, nil //nolint:nilnil
+		return &outMsg{"running an agent"}, nil
 	}
 
 	return waitForDelete(ctx, conn, pbm, cid)
@@ -198,7 +198,7 @@ func deletePITR(
 	printDeleteInfoTo(os.Stdout, nil, chunks)
 
 	if d.dryRun {
-		return nil, nil //nolint:nilnil
+		return &outMsg{"running an agent"}, nil
 	}
 	if !d.yes {
 		q := "Are you sure you want to delete chunks?"
@@ -254,7 +254,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 	printDeleteInfoTo(os.Stdout, info.Backups, info.Chunks)
 
 	if d.dryRun {
-		return nil, nil //nolint:nilnil
+		return &outMsg{"running an agent"}, nil
 	}
 	if !d.yes {
 		if err := askConfirmation("Are you sure you want to delete?"); err != nil {

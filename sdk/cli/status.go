@@ -12,6 +12,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -35,11 +36,13 @@ const (
 )
 
 type Node struct {
-	Host string
-	Ver  string
-	Role RSRole
-	OK   bool
-	Errs []error
+	Host     string
+	Ver      string
+	Role     RSRole
+	PrioPITR float64
+	PrioBcp  float64
+	OK       bool
+	Errs     []error
 }
 
 func (n Node) IsAgentLost() bool {
@@ -62,6 +65,10 @@ func ClusterStatus(
 	pbm *sdk.Client,
 	confGetter RSConfGetter,
 ) (map[string][]Node, error) {
+	cfg, err := pbm.GetConfig(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "get config")
+	}
 	clusterMembers, err := sdk.ClusterMembers(ctx, pbm)
 	if err != nil {
 		return nil, errors.Wrap(err, "get agent statuses")
@@ -116,6 +123,8 @@ func ClusterStatus(
 				}
 
 				node.Ver = "v" + agent.AgentVer
+				node.PrioBcp = prio.CalcPriorityForAgent(agent, cfg.Backup.Priority, nil)
+				node.PrioPITR = prio.CalcPriorityForAgent(agent, cfg.PITR.Priority, nil)
 
 				switch {
 				case agent.State == 1: // agent.StateStr == "PRIMARY"

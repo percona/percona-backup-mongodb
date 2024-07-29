@@ -74,7 +74,7 @@ func deleteBackupImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta)
 		return err
 	}
 
-	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -108,7 +108,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -365,11 +365,12 @@ func ListDeleteBackupBefore(
 	}
 
 	pred := func(m *BackupMeta) bool { return m.Type == bcpType }
-	if bcpType == defs.LogicalBackup {
+	switch bcpType {
+	case defs.LogicalBackup:
 		pred = func(m *BackupMeta) bool {
 			return m.Type == defs.LogicalBackup && !util.IsSelective(m.Namespaces)
 		}
-	} else if bcpType == SelectiveBackup {
+	case SelectiveBackup:
 		pred = func(m *BackupMeta) bool { return util.IsSelective(m.Namespaces) }
 	}
 
@@ -489,9 +490,14 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 }
 
-// listBackupsBefore returns backups with restore cluster time less than or equals to ts
+// listBackupsBefore returns backups with restore cluster time less than or equals to ts.
+//
+// It does not include backups stored on an external storages.
 func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]BackupMeta, error) {
-	f := bson.D{{"last_write_ts", bson.M{"$lt": ts}}}
+	f := bson.D{
+		{"store.profile", nil},
+		{"last_write_ts", bson.M{"$lt": ts}},
+	}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)
 	if err != nil {

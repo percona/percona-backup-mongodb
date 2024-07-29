@@ -18,7 +18,7 @@ import (
 var ErrStorageUndefined = errors.New("storage undefined")
 
 // StorageFromConfig creates and returns a storage object based on a given config
-func StorageFromConfig(cfg config.StorageConf, l log.LogEvent) (storage.Storage, error) {
+func StorageFromConfig(cfg *config.StorageConf, l log.LogEvent) (storage.Storage, error) {
 	switch cfg.Type {
 	case storage.S3:
 		return s3.New(cfg.S3, l)
@@ -26,9 +26,9 @@ func StorageFromConfig(cfg config.StorageConf, l log.LogEvent) (storage.Storage,
 		return azure.New(cfg.Azure, l)
 	case storage.Filesystem:
 		return fs.New(cfg.Filesystem)
-	case storage.BlackHole:
+	case storage.Blackhole:
 		return blackhole.New(), nil
-	case storage.Undef:
+	case storage.Undefined:
 		return nil, ErrStorageUndefined
 	default:
 		return nil, errors.Errorf("unknown storage type %s", cfg.Type)
@@ -43,5 +43,5 @@ func GetStorage(ctx context.Context, m connect.Client, l log.LogEvent) (storage.
 		return nil, errors.Wrap(err, "get config")
 	}
 
-	return StorageFromConfig(c.Storage, l)
+	return StorageFromConfig(&c.Storage, l)
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
@@ -32,6 +31,7 @@ import (
 type statusOptions struct {
 	rsMap    string
 	sections []string
+	priority bool
 }
 
 type statusOut struct {
@@ -110,7 +110,7 @@ func status(
 			{
 				"cluster", "Cluster", nil,
 				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi))
+					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi), opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
@@ -179,11 +179,13 @@ type rs struct {
 }
 
 type node struct {
-	Host string     `json:"host"`
-	Ver  string     `json:"agent"`
-	Role cli.RSRole `json:"role"`
-	OK   bool       `json:"ok"`
-	Errs []string   `json:"errors,omitempty"`
+	Host     string     `json:"host"`
+	Ver      string     `json:"agent"`
+	Role     cli.RSRole `json:"role"`
+	PrioPITR string     `json:"prio_pitr"`
+	PrioBcp  string     `json:"prio_backup"`
+	OK       bool       `json:"ok"`
+	Errs     []string   `json:"errors,omitempty"`
 }
 
 func (n node) String() string {
@@ -199,7 +201,14 @@ func (n node) String() string {
 	if ver == "" {
 		ver = "NOT FOUND"
 	}
-	s := fmt.Sprintf("%s [%s]: pbm-agent %v", n.Host, role, ver)
+
+	var s string
+	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
+		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
+	} else {
+		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
+			n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+	}
 	if n.OK {
 		s += " OK"
 		return s
@@ -231,6 +240,7 @@ func clusterStatus(
 	ctx context.Context,
 	pbm *sdk.Client,
 	confGetter cli.RSConfGetter,
+	prioOpt bool,
 ) (fmt.Stringer, error) {
 	status, err := cli.ClusterStatus(ctx, pbm, confGetter)
 	if err != nil {
@@ -253,6 +263,11 @@ func clusterStatus(
 					node.Errs[j] = e.Error()
 				}
 			}
+
+			if prioOpt {
+				node.PrioPITR = fmt.Sprintf("%.1f", agent.PrioPITR)
+				node.PrioBcp = fmt.Sprintf("%.1f", agent.PrioBcp)
+			}
 		}
 		rv = append(rv, rs{
 			Name:  rsName,
@@ -264,9 +279,10 @@ func clusterStatus(
 }
 
 type pitrStat struct {
-	InConf  bool   `json:"conf"`
-	Running bool   `json:"run"`
-	Err     string `json:"error,omitempty"`
+	InConf       bool     `json:"conf"`
+	Running      bool     `json:"run"`
+	RunningNodes []string `json:"nodes"`
+	Err          string   `json:"error,omitempty"`
 }
 
 func (p pitrStat) String() string {
@@ -275,35 +291,17 @@ func (p pitrStat) String() string {
 		status = "ON"
 	}
 	s := fmt.Sprintf("Status [%s]", status)
+	runningNodes := ""
+	for _, n := range p.RunningNodes {
+		runningNodes += fmt.Sprintf("%s; ", n)
+	}
+	if len(runningNodes) != 0 {
+		s += fmt.Sprintf("\nRunning members: %s", runningNodes)
+	}
 	if p.Err != "" {
 		s += fmt.Sprintf("\n! ERROR while running PITR backup: %s", p.Err)
 	}
 	return s
-}
-
-// isOplogSlicing checks if PITR slicing is running. It looks for PITR locks
-// and returns true if there is at least one not stale.
-func isOplogSlicing(ctx context.Context, conn connect.Client) (bool, error) {
-	locks, err := lock.GetOpLocks(ctx, conn, &lock.LockHeader{Type: ctrl.CmdPITR})
-	if err != nil {
-		return false, errors.Wrap(err, "get locks")
-	}
-	if len(locks) == 0 {
-		return false, nil
-	}
-
-	ct, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return false, errors.Wrap(err, "get cluster time")
-	}
-
-	for i := range locks {
-		if locks[i].Heartbeat.T+defs.StaleFrameSec >= ct.T {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
@@ -314,9 +312,16 @@ func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, erro
 		return p, errors.Wrap(err, "unable check PITR config status")
 	}
 
-	p.Running, err = isOplogSlicing(ctx, conn)
+	p.Running, err = oplog.IsOplogSlicing(ctx, conn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
+	}
+
+	if p.InConf && p.Running {
+		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, conn)
+		if err != nil && !errors.Is(err, errors.ErrNotFound) {
+			return p, errors.Wrap(err, "unable to fetch PITR running nodes")
+		}
 	}
 
 	p.Err, err = getPitrErr(ctx, conn)
@@ -512,6 +517,9 @@ func (s storageStat) String() string {
 		} else if ss.Type == defs.IncrementalBackup && ss.SrcBackup == "" {
 			t += ", base"
 		}
+		if ss.StoreName != "" {
+			t += ", *"
+		}
 		ret += fmt.Sprintf("    %s %s <%s> %s\n", ss.Name, fmtSize(ss.Size), t, status)
 	}
 
@@ -609,6 +617,7 @@ func getStorageStat(
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
+			StoreName:  bcp.Store.Name,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err
