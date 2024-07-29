@@ -7,7 +7,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -16,8 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
-
-const resyncWaitDuration = 30 * time.Second
 
 type configOpts struct {
 	rsync bool
@@ -87,14 +84,8 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 			return outMsg{"Storage resync started"}, nil
 		}
 
-		ctx, cancel := context.WithTimeout(ctx, resyncWaitDuration)
-		defer cancel()
-
 		err = sdk.WaitForResync(ctx, pbm, cid)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = errors.New("timeout")
-			}
 			return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
 		}
 

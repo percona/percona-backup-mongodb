@@ -66,6 +66,8 @@ func main() {
 			"MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").
 			Envar("PBM_MONGODB_URI").
 			String()
+		commandTimeout = pbmCmd.Flag("timeout", "Command timeout").Duration()
+
 		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").
 				Short('o').
 				Default(string(outText)).
@@ -444,7 +446,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	cmdTimeout := *commandTimeout
+	if cmdTimeout == 0 {
+		switch cmd {
+		case backupCmd.FullCommand(),
+			restoreCmd.FullCommand(),
+			replayCmd.FullCommand():
+			cmdTimeout = 24 * time.Hour
+		default:
+			cmdTimeout = 5 * time.Minute
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
 	var conn connect.Client
@@ -519,6 +533,9 @@ func main() {
 	}
 
 	if err != nil {
+		if errors.Is(err, ctx.Err()) {
+			err = errors.New("The operation is still in progress. Check pbm status and logs")
+		}
 		exitErr(err, pbmOutF)
 	}
 

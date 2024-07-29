@@ -401,7 +401,7 @@ func askConfirmation(question string) error {
 }
 
 func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
-	progressCtx, stopProgress := context.WithCancel(ctx)
+	commandCtx, stopProgress := context.WithCancel(ctx)
 	defer stopProgress()
 
 	go func() {
@@ -411,13 +411,13 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 			select {
 			case <-tick.C:
 				fmt.Print(".")
-			case <-progressCtx.Done():
+			case <-commandCtx.Done():
 				return
 			}
 		}
 	}()
 
-	cmd, err := pbm.CommandInfo(progressCtx, cid)
+	cmd, err := pbm.CommandInfo(commandCtx, cid)
 	if err != nil {
 		return nil, errors.Wrap(err, "get command info")
 	}
@@ -434,17 +434,13 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 		return nil, errors.New("wrong command")
 	}
 
-	waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-	err = waitFn(waitCtx, pbm)
-	stopWaiting()
+	err = waitFn(commandCtx, pbm)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
 
-		waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-		msg, err := sdk.WaitForErrorLog(waitCtx, pbm, cmd)
-		stopWaiting()
+		msg, err := sdk.WaitForErrorLog(ctx, pbm, cmd)
 		if err != nil {
 			return nil, errors.Wrap(err, "read agents log")
 		}
