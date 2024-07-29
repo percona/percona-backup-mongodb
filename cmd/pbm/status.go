@@ -204,10 +204,10 @@ func (n node) String() string {
 
 	var s string
 	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
-		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
+		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, ver)
 	} else {
 		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
-			n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+			n.Host, role, n.PrioBcp, n.PrioPITR, ver)
 	}
 	if n.OK {
 		s += " OK"
