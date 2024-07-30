@@ -33,6 +33,7 @@ type restoreOpts struct {
 	pitr          string
 	pitrBase      string
 	wait          bool
+	waitTime      time.Duration
 	extern        bool
 	ns            string
 	usersAndRoles bool
@@ -141,6 +142,12 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		}, nil
 	}
 
+	if o.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.waitTime)
+		defer cancel()
+	}
+
 	typ := " logical restore.\nWaiting to finish"
 	if m.Type == defs.PhysicalBackup {
 		typ = " physical restore.\nWaiting to finish"
@@ -157,6 +164,9 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 
 	if errors.Is(err, restoreFailedError{}) {
 		return restoreRet{err: err.Error()}, nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
 	}
 	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 }

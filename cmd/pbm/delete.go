@@ -153,6 +153,7 @@ type deletePitrOpts struct {
 	yes       bool
 	all       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
@@ -222,13 +223,24 @@ func deletePITR(
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
@@ -274,7 +286,17 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *clea
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 func parseOlderThan(s string) (primitive.Timestamp, error) {

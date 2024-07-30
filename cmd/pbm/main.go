@@ -66,7 +66,6 @@ func main() {
 			"MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").
 			Envar("PBM_MONGODB_URI").
 			String()
-		commandTimeout = pbmCmd.Flag("timeout", "Command timeout").Duration()
 
 		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").
 				Short('o').
@@ -100,6 +99,8 @@ func main() {
 	configCmd.Flag("wait", "Wait for finish").
 		Short('w').
 		BoolVar(&cfg.wait)
+	configCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&cfg.waitTime)
 
 	configProfileCmd := pbmCmd.
 		Command("profile", "Configuration profiles")
@@ -134,6 +135,8 @@ func main() {
 		Flag("wait", "Wait for done by agents").
 		Short('w').
 		BoolVar(&addConfigProfileOpts.wait)
+	addConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&addConfigProfileOpts.waitTime)
 
 	removeConfigProfileOpts := removeConfigProfileOptions{}
 	removeConfigProfileCmd := configProfileCmd.
@@ -146,6 +149,8 @@ func main() {
 		Flag("wait", "Wait for done by agents").
 		Short('w').
 		BoolVar(&removeConfigProfileOpts.wait)
+	removeConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&removeConfigProfileOpts.waitTime)
 
 	syncConfigProfileOpts := syncConfigProfileOptions{}
 	syncConfigProfileCmd := configProfileCmd.
@@ -163,6 +168,8 @@ func main() {
 		Flag("wait", "Wait for done by agents").
 		Short('w').
 		BoolVar(&syncConfigProfileOpts.wait)
+	syncConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&syncConfigProfileOpts.waitTime)
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backupOptions := backupOpts{}
@@ -198,6 +205,8 @@ func main() {
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
 		BoolVar(&backupOptions.wait)
+	backupCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&backupOptions.waitTime)
 	backupCmd.Flag("list-files", "Shows the list of files per node to copy (only for external backups)").
 		Short('l').
 		BoolVar(&backupOptions.externList)
@@ -241,6 +250,8 @@ func main() {
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').
 		BoolVar(&restore.wait)
+	restoreCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&restore.waitTime)
 	restoreCmd.Flag("external", "External restore.").
 		Short('x').
 		BoolVar(&restore.extern)
@@ -265,6 +276,8 @@ func main() {
 	replayCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').
 		BoolVar(&replayOpts.wait)
+	replayCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&replayOpts.waitTime)
 	replayCmd.Flag(RSMappingFlag, RSMappingDoc).
 		Envar(RSMappingEnvVar).
 		StringVar(&replayOpts.rsMap)
@@ -343,6 +356,8 @@ func main() {
 	deletePitrCmd.Flag("wait", "Wait for deletion done").
 		Short('w').
 		BoolVar(&deletePitr.wait)
+	deletePitrCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&deletePitr.waitTime)
 	deletePitrCmd.Flag("dry-run", "Report but do not delete").
 		BoolVar(&deletePitr.dryRun)
 
@@ -359,6 +374,8 @@ func main() {
 	cleanupCmd.Flag("wait", "Wait for deletion done").
 		Short('w').
 		BoolVar(&cleanupOpts.wait)
+	cleanupCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&cleanupOpts.waitTime)
 	cleanupCmd.Flag("dry-run", "Report but do not delete").
 		BoolVar(&cleanupOpts.dryRun)
 
@@ -446,19 +463,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmdTimeout := *commandTimeout
-	if cmdTimeout == 0 {
-		switch cmd {
-		case backupCmd.FullCommand(),
-			restoreCmd.FullCommand(),
-			replayCmd.FullCommand():
-			cmdTimeout = 24 * time.Hour
-		default:
-			cmdTimeout = 5 * time.Minute
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var conn connect.Client

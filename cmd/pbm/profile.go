@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -18,22 +19,25 @@ type showConfigProfileOptions struct {
 }
 
 type addConfigProfileOptions struct {
-	name string
-	file *os.File
-	sync bool
-	wait bool
+	name     string
+	file     *os.File
+	sync     bool
+	wait     bool
+	waitTime time.Duration
 }
 
 type removeConfigProfileOptions struct {
-	name string
-	wait bool
+	name     string
+	wait     bool
+	waitTime time.Duration
 }
 
 type syncConfigProfileOptions struct {
-	name  string
-	all   bool
-	clear bool
-	wait  bool
+	name     string
+	all      bool
+	clear    bool
+	wait     bool
+	waitTime time.Duration
 }
 
 type configProfileList struct {
@@ -142,8 +146,18 @@ func handleAddConfigProfile(
 		}
 
 		if opts.wait {
+			if opts.waitTime > time.Second {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, opts.waitTime)
+				defer cancel()
+			}
+
 			err = sdk.WaitForResync(ctx, pbm, cid)
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = errWaitTimeout
+				}
+
 				return nil, errors.Wrap(err, "wait")
 			}
 		}
@@ -173,9 +187,22 @@ func handleRemoveConfigProfile(
 	if err != nil {
 		return nil, errors.Wrap(err, "sdk: remove config profile")
 	}
-	err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
-	if err != nil {
-		return nil, errors.Wrap(err, "wait")
+
+	if opts.wait {
+		if opts.waitTime > time.Second {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, opts.waitTime)
+			defer cancel()
+		}
+
+		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = errWaitTimeout
+			}
+
+			return nil, errors.Wrap(err, "wait")
+		}
 	}
 
 	return &outMsg{"OK"}, nil
@@ -214,8 +241,18 @@ func handleSyncConfigProfile(
 	}
 
 	if opts.wait {
+		if opts.waitTime > time.Second {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, opts.waitTime)
+			defer cancel()
+		}
+
 		err = sdk.WaitForResync(ctx, pbm, cid)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = errWaitTimeout
+			}
+
 			return nil, errors.Wrap(err, "wait")
 		}
 	}

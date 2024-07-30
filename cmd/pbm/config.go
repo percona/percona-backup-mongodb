@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -17,12 +18,13 @@ import (
 )
 
 type configOpts struct {
-	rsync bool
-	wait  bool
-	list  bool
-	file  string
-	set   map[string]string
-	key   string
+	rsync    bool
+	wait     bool
+	waitTime time.Duration
+	list     bool
+	file     string
+	set      map[string]string
+	key      string
 }
 
 type confKV struct {
@@ -84,8 +86,18 @@ func runConfig(ctx context.Context, conn connect.Client, pbm sdk.Client, c *conf
 			return outMsg{"Storage resync started"}, nil
 		}
 
+		if c.waitTime > time.Second {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.waitTime)
+			defer cancel()
+		}
+
 		err = sdk.WaitForResync(ctx, pbm, cid)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = errWaitTimeout
+			}
+
 			return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
 		}
 
