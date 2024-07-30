@@ -66,7 +66,6 @@ func main() {
 			"MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").
 			Envar("PBM_MONGODB_URI").
 			String()
-
 		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").
 				Short('o').
 				Default(string(outText)).
@@ -538,9 +537,6 @@ func main() {
 	}
 
 	if err != nil {
-		if errors.Is(err, ctx.Err()) {
-			err = errors.New("The operation is still in progress. Check pbm status and logs")
-		}
 		exitErr(err, pbmOutF)
 	}
 
