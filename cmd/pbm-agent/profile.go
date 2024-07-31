@@ -69,7 +69,7 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 	if !got {
-		err = errors.Wrap(err, "lock not acquired")
+		err = errors.New("lock not acquired")
 		return
 	}
 	defer func() {
