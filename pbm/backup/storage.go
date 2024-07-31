@@ -259,6 +259,12 @@ func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
+		if version.HasFilelistFile(meta.PBMVersion) {
+			err := stg.Delete(path.Join(meta.Name, r.Name, FilelistName))
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return errors.Wrapf(err, "delete %s", path.Join(meta.Name, r.Name, FilelistName))
+			}
+		}
 	}
 
 	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
