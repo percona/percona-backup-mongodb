@@ -124,7 +124,7 @@ func handleAddConfigProfile(
 		if err != nil {
 			return nil, errors.Wrap(err, "clear profile list")
 		}
-		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+		err = sdk.WaitForCommandWithErrorLog(ctx, pbm, cid)
 		if err != nil {
 			return nil, errors.Wrap(err, "wait")
 		}
@@ -134,7 +134,7 @@ func handleAddConfigProfile(
 	if err != nil {
 		return nil, errors.Wrap(err, "add config profile")
 	}
-	err = sdk.WaitForAddProfile(ctx, pbm, cid)
+	err = sdk.WaitForCommandWithErrorLog(ctx, pbm, cid)
 	if err != nil {
 		return nil, errors.Wrap(err, "wait")
 	}
@@ -195,7 +195,7 @@ func handleRemoveConfigProfile(
 			defer cancel()
 		}
 
-		err = sdk.WaitForRemoveProfile(ctx, pbm, cid)
+		err = sdk.WaitForCommandWithErrorLog(ctx, pbm, cid)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				err = errWaitTimeout
