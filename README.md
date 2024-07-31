@@ -30,7 +30,7 @@ Percona Backup for MongoDB consists of the following components:
 - **PBM Control collections** are special collections in MongoDB that store the configuration data and backup states
 - Remote backup storage as either s3-compatible or filesystem type storage
 
-![Architecture](https://github.com/percona/pbm-docs/blob/main/docs/_images/pbm-architecture.png)
+![Architecture](pbm-architecture.png)
 
 [Read more about PBM architecture](https://docs.percona.com/percona-backup-mongodb/details/architecture.html).
 
