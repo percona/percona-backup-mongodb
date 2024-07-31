@@ -12,8 +12,8 @@ Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achie
 
 You can contribute in one of the following ways:
 
-1. Reach us on our [Forums](https://forums.percona.com) and [Discord]([https://discord.gg/mQEyGPkNbR](https://discord.gg/mQEyGPkNbR)).
-2. [Submit a bug report or a feature request](https://github.com/percona/percona-backup-mongodb/blob/main/README.md)
+1. Reach us on our [Forums](https://forums.percona.com/c/mongodb/percona-backup-for-mongodb).
+2. [Submit a bug report or a feature request](https://jira.percona.com/projects/PBM)
 3. Submit a pull request (PR) with the code patch
 4. Contribute to documentation
 
@@ -23,7 +23,7 @@ Before submitting code contributions, we ask you to complete the following prere
 
 ### 1. Sign the CLA
 
-Before you can contribute, we kindly ask you to sign our [Contributor License Agreement](https://cla-assistant.percona.com/&lt;linktoCLA>) (CLA). You can do this in on click using your GitHub account.
+Before you can contribute, we kindly ask you to sign our [Contributor License Agreement](https://cla-assistant.percona.com/percona/percona-backup-mongodb) (CLA). You can do this in on click using your GitHub account.
 
 **Note**:  You can sign it later, when submitting your first pull request. The CLA assistant validates the PR and asks you to sign the CLA to proceed.
 
@@ -53,7 +53,7 @@ Otherwise, we will contact you for additional information or with the request to
 
 To build Percona Backup for MongoDB from source code, you require the following:
 
-* Go 1.11 or above. See [Installing and setting up Go tools](
+* Go 1.22 or above. See [Installing and setting up Go tools](
 https://golang.org/doc/install) for more information
 * make
 * ``krb5-devel`` for Red Hat Enterprise Linux / CentOS or ``libkrb5-dev`` for Debian / Ubuntu. This package is required for Kerberos authentication in Percona Server for MongoDB.
@@ -116,11 +116,11 @@ You can run tests on your local machine with whatever operating system you have.
 
 ## Contributing to documentation
 
-We welcome contributions to our [documentation](https://docs.percona.com/percona-backup-mongodb/index.html).
+We welcome contributions to our [documentation](https://docs.percona.com/percona-backup-mongodb).
 
 Documentation source files are in the [dedicated docs repository](https://github.com/percona/pbm-docs). The contents of the `doc` folder is outdated and will be removed.
 
-Please follow the [Docs contributing guidelines](https://github.com/percona/pbm-docs/CONTRBUTING.md) for how to contribute to documentation.
+Please follow the [Docs contributing guidelines](https://github.com/percona/pbm-docs/blob/main/CONTRIBUTING.md) for how to contribute to documentation.
 
 ## After your pull request is merged
 
