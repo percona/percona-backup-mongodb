@@ -61,8 +61,8 @@ As a general rule of thumb, please try to create bug reports that are:
 
 When submitting a bug report or a feature, please attach the following information:
 
-- The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/status.htm) command
-- The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/running.html#pbm-logs) command. Use the following filters:
+- The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/reference/pbm-commands.html#pbm-status) command
+- The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/reference/pbm-commands.html#pbm-logs) command. Use the following filters:
 
    ```sh
    $ pbm logs -x -s D -t 0
