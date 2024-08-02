@@ -150,7 +150,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 				return err
 			}
 
-			s.l.Error("skip chunk %s - %s: %v",
+			s.l.Warning("skip chunk %s - %s: %v",
 				formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS), rangeErr)
 		} else {
 			s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
