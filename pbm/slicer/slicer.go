@@ -145,11 +145,17 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 			cfg.PITR.Compression,
 			cfg.PITR.CompressionLevel)
 		if err != nil {
-			return err
-		}
+			var rangeErr oplog.InsuffRangeError
+			if !errors.As(err, &rangeErr) {
+				return err
+			}
 
-		s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
-		s.lastTS = rs.FirstWriteTS
+			s.l.Error("skip chunk %s - %s: %v",
+				formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS), rangeErr)
+		} else {
+			s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
+			s.lastTS = rs.FirstWriteTS
+		}
 	}
 
 	err = s.copyReplsetOplog(ctx, rs)

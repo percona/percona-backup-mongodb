@@ -172,6 +172,19 @@ func (rwe rwError) Error() string {
 	return r
 }
 
+func (rwe rwError) Unwrap() error {
+	if rwe.read != nil {
+		return rwe.read
+	}
+	if rwe.write != nil {
+		return rwe.write
+	}
+	if rwe.compress != nil {
+		return rwe.compress
+	}
+	return nil
+}
+
 func (rwe rwError) nil() bool {
 	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
 }
