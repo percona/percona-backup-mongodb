@@ -24,7 +24,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
+        - MONGODB_VERSION=${MONGODB_VERSION:-5.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     hostname: rs101
     labels:
@@ -35,7 +35,7 @@ services:
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
       - SINGLE_NODE=true
-      - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
+      - MONGODB_VERSION=${MONGODB_VERSION:-5.0}
     command: mongod --replSet rs1 --port 27017 --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
@@ -55,7 +55,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-4.4}
+        - MONGODB_VERSION=${MONGODB_VERSION:-5.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-percona/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm

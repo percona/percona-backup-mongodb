@@ -4,7 +4,7 @@
 ![PBM logo](backup-mongo.jpeg)
 
 Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achieving
-consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v4.4 and higher.
+consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v5.0 and higher.
 
 For more information about PBM components and how to use it, see
 [Percona Backup for MongoDB documentation](https://docs.percona.com/percona-backup-mongodb/)
@@ -30,7 +30,7 @@ Percona Backup for MongoDB consists of the following components:
 - **PBM Control collections** are special collections in MongoDB that store the configuration data and backup states
 - Remote backup storage as either s3-compatible or filesystem type storage
 
-![Architecture](https://github.com/percona/pbm-docs/blob/main/docs/_images/pbm-architecture.png)
+![Architecture](pbm-architecture.png)
 
 [Read more about PBM architecture](https://docs.percona.com/percona-backup-mongodb/details/architecture.html).
 
@@ -61,8 +61,8 @@ As a general rule of thumb, please try to create bug reports that are:
 
 When submitting a bug report or a feature, please attach the following information:
 
-- The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/status.htm) command
-- The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/running.html#pbm-logs) command. Use the following filters:
+- The output of the [`pbm status`](https://docs.percona.com/percona-backup-mongodb/reference/pbm-commands.html#pbm-status) command
+- The output of the [`pbm logs`](https://docs.percona.com/percona-backup-mongodb/reference/pbm-commands.html#pbm-logs) command. Use the following filters:
 
    ```sh
    $ pbm logs -x -s D -t 0
