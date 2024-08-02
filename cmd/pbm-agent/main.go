@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/kingpin"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 
+	_ "net/http/pprof"
+
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -22,6 +27,42 @@ import (
 const mongoConnFlag = "mongodb-uri"
 
 func main() {
+	hostname := os.Getenv("HOSTNAME")
+	dc := os.Getenv("DC_NAME")
+	prometheusExportUrl := os.Getenv("PROMETHEUS_EXPORT_URL")
+	expose_metrics, err := strconv.ParseBool(os.Getenv("EXPOSE_METRICS"))
+	if err != nil {
+		expose_metrics = false
+	}
+
+	metrics.RegisterMetricsWriter(metrics.WriteFDMetrics)
+	if prometheusExportUrl != "" && expose_metrics {
+		prometheusExportIntervalField := os.Getenv("PROMETHEUS_EXPORT_INTERVAL")
+		prometheusExportInterval, err := strconv.Atoi(prometheusExportIntervalField)
+		if err != nil {
+			prometheusExportInterval = 10
+		}
+		metricsLabels := fmt.Sprintf(`instance="%s",dc="%s"`, hostname, dc)
+
+		stdlog.Println("Initalizing metrics")
+		// metrics.WriteFDMetrics()
+		metrics.InitPush(
+			prometheusExportUrl,
+			time.Duration(prometheusExportInterval)*time.Second,
+			metricsLabels,
+			true,
+		)
+	}
+
+	if expose_metrics {
+		go func() {
+			http.HandleFunc("/metrics", func(w http.ResponseWriter, req *http.Request) {
+				metrics.WritePrometheus(w, true)
+			})
+			stdlog.Println(http.ListenAndServe(":6060", nil))
+		}()
+	}
+
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").
