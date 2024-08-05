@@ -13,10 +13,11 @@ import (
 )
 
 type replayOptions struct {
-	start string
-	end   string
-	wait  bool
-	rsMap string
+	start    string
+	end      string
+	wait     bool
+	waitTime time.Duration
+	rsMap    string
 }
 
 type oplogReplayResult struct {
@@ -91,10 +92,20 @@ func replayOplog(ctx context.Context, conn connect.Client, o replayOptions, outf
 		return oplogReplayResult{Name: name}, nil
 	}
 
+	if o.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.waitTime)
+		defer cancel()
+	}
+
 	fmt.Print("Started.\nWaiting to finish")
 	err = waitRestore(ctx, conn, m, defs.StatusDone, 0)
 	if err != nil {
-		return oplogReplayResult{err: err.Error()}, nil //nolint:nilerr
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errWaitTimeout
+		}
+
+		return oplogReplayResult{err: err.Error()}, nil
 	}
 
 	return oplogReplayResult{Name: name, done: true}, nil
