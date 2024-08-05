@@ -303,7 +303,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			}
 		}
 
-		if inf.ArbiterOnly {
+		if inf != nil && inf.ArbiterOnly {
 			hb.State = defs.NodeStateArbiter
 			hb.StateStr = "ARBITER"
 		} else {
