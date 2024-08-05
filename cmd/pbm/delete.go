@@ -153,6 +153,7 @@ type deletePitrOpts struct {
 	yes       bool
 	all       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
@@ -222,13 +223,24 @@ func deletePITR(
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
@@ -274,7 +286,17 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 func parseOlderThan(s string) (primitive.Timestamp, error) {
@@ -400,8 +422,13 @@ func askConfirmation(question string) error {
 	return errUserCanceled
 }
 
-func waitForDelete(ctx context.Context, conn connect.Client, pbm *sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
-	progressCtx, stopProgress := context.WithCancel(ctx)
+func waitForDelete(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	cid sdk.CommandID,
+) (fmt.Stringer, error) {
+	commandCtx, stopProgress := context.WithCancel(ctx)
 	defer stopProgress()
 
 	go func() {
@@ -411,13 +438,13 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm *sdk.Client, ci
 			select {
 			case <-tick.C:
 				fmt.Print(".")
-			case <-progressCtx.Done():
+			case <-commandCtx.Done():
 				return
 			}
 		}
 	}()
 
-	cmd, err := pbm.CommandInfo(progressCtx, cid)
+	cmd, err := pbm.CommandInfo(commandCtx, cid)
 	if err != nil {
 		return nil, errors.Wrap(err, "get command info")
 	}
@@ -434,17 +461,13 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm *sdk.Client, ci
 		return nil, errors.New("wrong command")
 	}
 
-	waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-	err = waitFn(waitCtx, pbm)
-	stopWaiting()
+	err = waitFn(commandCtx, pbm)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
 
-		waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-		msg, err := sdk.WaitForErrorLog(waitCtx, pbm, cmd)
-		stopWaiting()
+		msg, err := sdk.WaitForErrorLog(ctx, pbm, cmd)
 		if err != nil {
 			return nil, errors.Wrap(err, "read agents log")
 		}

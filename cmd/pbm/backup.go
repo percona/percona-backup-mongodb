@@ -36,6 +36,7 @@ type backupOpts struct {
 	profile          string
 	ns               string
 	wait             bool
+	waitTime         time.Duration
 	externList       bool
 }
 
@@ -191,10 +192,19 @@ func runBackup(
 	}
 
 	if b.wait {
+		if b.waitTime > time.Second {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, b.waitTime)
+			defer cancel()
+		}
+
 		fmt.Printf("\nWaiting for '%s' backup...", b.name)
 		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone)
 		if s != nil {
 			fmt.Printf(" %s\n", *s)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errWaitTimeout
 		}
 		return outMsg{}, err
 	}
