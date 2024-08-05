@@ -378,6 +378,42 @@ func TestCalcNodesPriority(t *testing.T) {
 	})
 }
 
+func TestCalcPriorityForNode(t *testing.T) {
+	t.Run("for primary", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			IsPrimary: true,
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForPrimary {
+			t.Errorf("wrong priority for primary: want=%v, got=%v", scoreForPrimary, p)
+		}
+	})
+
+	t.Run("for secondary", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			Secondary: true,
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForSecondary {
+			t.Errorf("wrong priority for secondary: want=%v, got=%v", scoreForSecondary, p)
+		}
+	})
+
+	t.Run("for hidden", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			Hidden:    true,
+			Secondary: true, // hidden is also secondary
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForHidden {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForHidden, p)
+		}
+	})
+}
+
 func newP(rs, node string) topo.AgentStat {
 	return newAgent(rs, node, defs.NodeStatePrimary, false)
 }
