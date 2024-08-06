@@ -555,6 +555,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 
 	h, err := s.s3s.HeadObject(headOpts)
 	if err != nil {
+		//nolint:errorlint
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
 			return inf, storage.ErrNotExist
 		}
@@ -582,6 +583,7 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
+		//nolint:errorlint
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == s3.ErrCodeNoSuchKey {
 			return storage.ErrNotExist
 		}

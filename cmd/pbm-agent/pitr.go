@@ -122,6 +122,11 @@ func (a *Agent) PITR(ctx context.Context) {
 // canSlicingNow returns lock.ConcurrentOpError if there is a parallel operation.
 // Only physical backups (full, incremental, external) is allowed.
 func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.StorageConf) error {
+	ts, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
 	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
 	if err != nil {
 		return errors.Wrap(err, "get locks data")
@@ -129,6 +134,11 @@ func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.Stor
 
 	for i := range locks {
 		l := &locks[i]
+
+		if l.Heartbeat.T+defs.StaleFrameSec < ts.T {
+			// lock is stale, PITR can ignore it
+			continue
+		}
 
 		if l.Type != ctrl.CmdBackup {
 			return lock.ConcurrentOpError{l.LockHeader}

@@ -79,9 +79,7 @@ func (*FS) Type() storage.Type {
 	return storage.Filesystem
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
-	filepath := path.Join(fs.root, name)
-
+func WriteSync(filepath string, data io.Reader) error {
 	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
@@ -103,7 +101,23 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 		return errors.Wrapf(err, "copy file <%s>", filepath)
 	}
 
-	return errors.Wrap(fw.Sync(), "write to file")
+	err = fw.Sync()
+	return errors.Wrapf(err, "sync file <%s>", filepath)
+}
+
+
+func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+	filepath := path.Join(fs.root, name+".tmp")
+	finalpath := path.Join(fs.root, name)
+
+	err := WriteSync(filepath, data)
+	if err != nil {
+		os.Remove(filepath)
+		return errors.Wrapf(err, "write-sync %s", path.Dir(filepath))
+	}
+
+	err = os.Rename(filepath, finalpath)
+	return errors.Wrapf(err, "rename <%s> to <%s>", filepath, finalpath)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -174,18 +188,17 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	destFilename := path.Join(fs.root, dst)
-	err = os.MkdirAll(path.Dir(destFilename), os.ModeDir|0o755)
+	destFilename := path.Join(fs.root, dst+".tmp")
+	finalFilename := path.Join(fs.root, dst)
+
+	err = WriteSync(destFilename, from)
 	if err != nil {
-		return errors.Wrap(err, "create dst dir")
+		os.Remove(destFilename)
+		return errors.Wrapf(err, "write-sync %s", path.Dir(destFilename))
 	}
 
-	to, err := os.Create(destFilename)
-	if err != nil {
-		return errors.Wrap(err, "create dst")
-	}
-	_, err = io.Copy(to, from)
-	return err
+	err = os.Rename(destFilename, finalFilename)
+	return errors.Wrapf(err, "rename <%s> to <%s>", destFilename, finalFilename)
 }
 
 // Delete deletes given file from FS.
