@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	defaultScore      = 1.0
-	scoreForPrimary   = defaultScore / 2
-	scoreForSecondary = defaultScore * 1
-	scoreForHidden    = defaultScore * 2
+	defaultScore    = 1.0
+	scoreForPrimary = defaultScore / 2
+	scoreForHidden  = defaultScore * 2
 )
 
 // NodesPriority groups nodes by priority according to

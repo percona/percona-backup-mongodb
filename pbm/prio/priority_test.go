@@ -396,8 +396,8 @@ func TestCalcPriorityForNode(t *testing.T) {
 		}
 
 		p := CalcPriorityForNode(nodeInfo)
-		if p != scoreForSecondary {
-			t.Errorf("wrong priority for secondary: want=%v, got=%v", scoreForSecondary, p)
+		if p != defaultScore {
+			t.Errorf("wrong priority for secondary: want=%v, got=%v", defaultScore, p)
 		}
 	})
 
