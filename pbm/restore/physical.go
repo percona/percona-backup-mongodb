@@ -1537,6 +1537,8 @@ func (r *PhysRestore) resetRS() error {
 		if err != nil {
 			return errors.Wrap(err, "turn off pitr")
 		}
+
+		r.dropPBMCollections(ctx, c)
 	}
 
 	err = shutdown(c, r.dbpath)
@@ -1545,6 +1547,40 @@ func (r *PhysRestore) resetRS() error {
 	}
 
 	return nil
+}
+
+func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
+	pbmCollections := []string{
+		defs.LockCollection,
+		defs.LogCollection,
+		// defs.ConfigCollection,
+		defs.LockCollection,
+		defs.LockOpCollection,
+		defs.BcpCollection,
+		defs.RestoresCollection,
+		defs.CmdStreamCollection,
+		defs.PITRChunksCollection,
+		defs.PITRCollection,
+		defs.PBMOpLogCollection,
+		defs.AgentsStatusCollection,
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(len(pbmCollections))
+
+	for _, coll := range pbmCollections {
+		go func() {
+			defer wg.Done()
+
+			r.log.Debug("dropping 'admin.%s'", coll)
+			err := c.Database(defs.DB).Collection(coll).Drop(ctx)
+			if err != nil {
+				r.log.Warning("failed to drop 'admin.%s': %v", coll, err)
+			}
+		}()
+	}
+
+	wg.Wait()
 }
 
 func (r *PhysRestore) getShardMapping(bcp *backup.BackupMeta) map[string]string {
