@@ -53,6 +53,8 @@ const (
 
 	tryConnCount   = 5
 	tryConnTimeout = 5 * time.Minute
+
+	maxShutdownTriesOnStandaloneRecovery = 10
 )
 
 type files struct {
@@ -1259,7 +1261,17 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func shutdown(c *mongo.Client, dbpath string) error {
-	err := c.Database("admin").RunCommand(context.TODO(), bson.D{{"shutdown", 1}}).Err()
+	return shutdownImpl(c, dbpath, false)
+}
+
+func forceShutdown(c *mongo.Client, dbpath string) error {
+	return shutdownImpl(c, dbpath, true)
+}
+
+func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
+	res := c.Database("admin").RunCommand(context.TODO(),
+		bson.D{{"shutdown", 1}, {"force", force}})
+	err := res.Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
 		return err
 	}
@@ -1285,12 +1297,24 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	err = shutdown(c, r.dbpath)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
+	for i := 0; i != maxShutdownTriesOnStandaloneRecovery; i++ {
+		err = shutdown(c, r.dbpath)
+		if err == nil {
+			return nil // OK
+		}
+
+		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
+			r.log.Warning("retry shutdown in 5 seconds. reason: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		return errors.Wrap(err, "shutdown mongo") // unexpected
 	}
 
-	return nil
+	r.log.Debug("force shutdown")
+	err = forceShutdown(c, r.dbpath)
+	return errors.Wrap(err, "force shutdown mongo")
 }
 
 func (r *PhysRestore) replayOplog(
