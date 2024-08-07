@@ -94,7 +94,11 @@ func (e *Entries) SetLocation(l string) error {
 }
 
 func (e Entries) MarshalJSON() ([]byte, error) {
-	return json.Marshal(e.Data)
+	data := e.Data
+	if data == nil {
+		data = []Entry{}
+	}
+	return json.Marshal(data)
 }
 
 func (e Entries) String() string {
