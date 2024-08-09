@@ -10,6 +10,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 // ReplsetRole is a replicaset role in sharded cluster
@@ -57,10 +58,12 @@ type ConfigServerState struct {
 }
 
 type NodeBrief struct {
-	URI     string
-	SetName string
-	Me      string
-	Sharded bool
+	URI       string
+	SetName   string
+	Me        string
+	Sharded   bool
+	ConfigSvr bool
+	Version   version.MongoVersion
 }
 
 // NodeInfo represents the mongo's node info
