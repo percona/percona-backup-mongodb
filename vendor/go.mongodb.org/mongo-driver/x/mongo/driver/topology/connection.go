@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.mongodb.org/mongo-driver/internal/csot"
 	"go.mongodb.org/mongo-driver/mongo/address"
 	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
@@ -77,6 +78,10 @@ type connection struct {
 	// TODO(GODRIVER-2824): change driverConnectionID type to int64.
 	driverConnectionID uint64
 	generation         uint64
+
+	// awaitingResponse indicates that the server response was not completely
+	// read before returning the connection to the pool.
+	awaitingResponse bool
 }
 
 // newConnection handles the creation of a connection. It does not connect the connection.
@@ -314,8 +319,8 @@ func transformNetworkError(ctx context.Context, originalError error, contextDead
 	}
 
 	// If there was an error and the context was cancelled, we assume it happened due to the cancellation.
-	if ctx.Err() == context.Canceled {
-		return context.Canceled
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ctx.Err()
 	}
 
 	// If there was a timeout error and the context deadline was used, we convert the error into
@@ -324,7 +329,7 @@ func transformNetworkError(ctx context.Context, originalError error, contextDead
 		return originalError
 	}
 	if netErr, ok := originalError.(net.Error); ok && netErr.Timeout() {
-		return context.DeadlineExceeded
+		return fmt.Errorf("%w: %s", context.DeadlineExceeded, originalError.Error())
 	}
 
 	return originalError
@@ -337,7 +342,10 @@ func (c *connection) cancellationListenerCallback() {
 func (c *connection) writeWireMessage(ctx context.Context, wm []byte) error {
 	var err error
 	if atomic.LoadInt64(&c.state) != connConnected {
-		return ConnectionError{ConnectionID: c.id, message: "connection is closed"}
+		return ConnectionError{
+			ConnectionID: c.id,
+			message:      "connection is closed",
+		}
 	}
 
 	var deadline time.Time
@@ -388,7 +396,10 @@ func (c *connection) write(ctx context.Context, wm []byte) (err error) {
 // readWireMessage reads a wiremessage from the connection. The dst parameter will be overwritten.
 func (c *connection) readWireMessage(ctx context.Context) ([]byte, error) {
 	if atomic.LoadInt64(&c.state) != connConnected {
-		return nil, ConnectionError{ConnectionID: c.id, message: "connection is closed"}
+		return nil, ConnectionError{
+			ConnectionID: c.id,
+			message:      "connection is closed",
+		}
 	}
 
 	var deadline time.Time
@@ -408,10 +419,19 @@ func (c *connection) readWireMessage(ctx context.Context) ([]byte, error) {
 
 	dst, errMsg, err := c.read(ctx)
 	if err != nil {
-		// We closeConnection the connection because we don't know if there are other bytes left to read.
-		c.close()
+		if nerr := net.Error(nil); errors.As(err, &nerr) && nerr.Timeout() && csot.IsTimeoutContext(ctx) {
+			// If the error was a timeout error and CSOT is enabled, instead of
+			// closing the connection mark it as awaiting response so the pool
+			// can read the response before making it available to other
+			// operations.
+			c.awaitingResponse = true
+		} else {
+			// Otherwise, use the pre-CSOT behavior and close the connection
+			// because we don't know if there are other bytes left to read.
+			c.close()
+		}
 		message := errMsg
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			message = "socket was unexpectedly closed"
 		}
 		return nil, ConnectionError{
@@ -858,7 +878,7 @@ func newCancellListener() *cancellListener {
 
 // Listen blocks until the provided context is cancelled or listening is aborted
 // via the StopListening function. If this detects that the context has been
-// cancelled (i.e. ctx.Err() == context.Canceled), the provided callback is
+// cancelled (i.e. errors.Is(ctx.Err(), context.Canceled), the provided callback is
 // called to abort in-progress work. Even if the context expires, this function
 // will block until StopListening is called.
 func (c *cancellListener) Listen(ctx context.Context, abortFn func()) {
@@ -866,7 +886,7 @@ func (c *cancellListener) Listen(ctx context.Context, abortFn func()) {
 
 	select {
 	case <-ctx.Done():
-		if ctx.Err() == context.Canceled {
+		if errors.Is(ctx.Err(), context.Canceled) {
 			c.aborted = true
 			abortFn()
 		}

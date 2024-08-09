@@ -35,20 +35,16 @@ var (
 	ErrBaseForPITR          = backup.ErrBaseForPITR
 )
 
-type clientImpl struct {
+type Client struct {
 	conn connect.Client
 }
 
-func (c *clientImpl) Close(ctx context.Context) error {
+func (c *Client) Close(ctx context.Context) error {
 	return c.conn.Disconnect(ctx)
 }
 
-func (c *clientImpl) ClusterMembers(ctx context.Context) ([]topo.Shard, error) {
-	return topo.ClusterMembers(ctx, c.conn.MongoClient())
-}
-
-func (c *clientImpl) CommandInfo(ctx context.Context, id CommandID) (*Command, error) {
-	opid, err := ctrl.OPIDfromStr(string(id))
+func (c *Client) CommandInfo(ctx context.Context, id CommandID) (*Command, error) {
+	opid, err := ctrl.ParseOPID(string(id))
 	if err != nil {
 		return nil, ErrInvalidCommandID
 	}
@@ -70,19 +66,19 @@ func (c *clientImpl) CommandInfo(ctx context.Context, id CommandID) (*Command, e
 	return cmd, nil
 }
 
-func (c *clientImpl) CurrentLocks(ctx context.Context) ([]Lock, error) {
-	return nil, ErrNotImplemented
-}
-
-func (c *clientImpl) GetConfig(ctx context.Context) (*Config, error) {
+func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
 	return config.GetConfig(ctx, c.conn)
 }
 
-func (c *clientImpl) GetAllConfigProfiles(ctx context.Context) ([]config.Config, error) {
+func (c *Client) SetConfig(ctx context.Context, cfg Config) (CommandID, error) {
+	return NoOpID, config.SetConfig(ctx, c.conn, &cfg)
+}
+
+func (c *Client) GetAllConfigProfiles(ctx context.Context) ([]config.Config, error) {
 	return config.ListProfiles(ctx, c.conn)
 }
 
-func (c *clientImpl) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
+func (c *Client) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
 	profile, err := config.GetProfile(ctx, c.conn, name)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -94,21 +90,21 @@ func (c *clientImpl) GetConfigProfile(ctx context.Context, name string) (*config
 	return profile, nil
 }
 
-func (c *clientImpl) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
+func (c *Client) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
 	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) RemoveConfigProfile(ctx context.Context, name string) (CommandID, error) {
+func (c *Client) RemoveConfigProfile(ctx context.Context, name string) (CommandID, error) {
 	opid, err := ctrl.SendRemoveConfigProfile(ctx, c.conn, name)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
+func (c *Client) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
 	return backup.BackupsList(ctx, c.conn, 0)
 }
 
-func (c *clientImpl) GetAllRestores(
+func (c *Client) GetAllRestores(
 	ctx context.Context,
 	m connect.Client,
 	options GetAllRestoresOptions,
@@ -120,16 +116,37 @@ func (c *clientImpl) GetAllRestores(
 	return restore.RestoreList(ctx, c.conn, limit)
 }
 
-func (c *clientImpl) GetBackupByName(
+func (c *Client) GetBackupByName(
 	ctx context.Context,
 	name string,
 	options GetBackupByNameOptions,
 ) (*BackupMetadata, error) {
 	bcp, err := backup.NewDBManager(c.conn).GetBackupByName(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get backup meta")
 	}
 
+	return c.getBackupHelper(ctx, bcp, options)
+}
+
+func (c *Client) GetBackupByOpID(
+	ctx context.Context,
+	opid string,
+	options GetBackupByNameOptions,
+) (*BackupMetadata, error) {
+	bcp, err := backup.NewDBManager(c.conn).GetBackupByOpID(ctx, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get backup meta")
+	}
+
+	return c.getBackupHelper(ctx, bcp, options)
+}
+
+func (c *Client) getBackupHelper(
+	ctx context.Context,
+	bcp *BackupMetadata,
+	options GetBackupByNameOptions,
+) (*BackupMetadata, error) {
 	if options.FetchIncrements && bcp.Type == IncrementalBackup {
 		if bcp.SrcBackup != "" {
 			return nil, ErrNotBaseIncrement
@@ -149,7 +166,7 @@ func (c *clientImpl) GetBackupByName(
 	}
 
 	if options.FetchFilelist {
-		err = fillFilelistForBackup(ctx, bcp)
+		err := fillFilelistForBackup(ctx, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -253,16 +270,20 @@ func getFilelistForReplset(stg storage.Storage, bcpName, rsName string) (backup.
 	return filelist, nil
 }
 
-func (c *clientImpl) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {
+func (c *Client) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {
 	return restore.GetRestoreMeta(ctx, c.conn, name)
 }
 
-func (c *clientImpl) SyncFromStorage(ctx context.Context) (CommandID, error) {
+func (c *Client) GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMetadata, error) {
+	return restore.GetRestoreMetaByOPID(ctx, c.conn, opid)
+}
+
+func (c *Client) SyncFromStorage(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendResync(ctx, c.conn)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+func (c *Client) SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
 	if name == "" {
 		return NoOpID, errors.New("name is not provided")
 	}
@@ -271,12 +292,12 @@ func (c *clientImpl) SyncFromExternalStorage(ctx context.Context, name string) (
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+func (c *Client) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, "")
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
+func (c *Client) ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error) {
 	if name == "" {
 		return NoOpID, errors.New("name is not provided")
 	}
@@ -285,12 +306,12 @@ func (c *clientImpl) ClearSyncFromExternalStorage(ctx context.Context, name stri
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
+func (c *Client) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, "")
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (CommandID, error) {
+func (c *Client) DeleteBackupByName(ctx context.Context, name string) (CommandID, error) {
 	opts := GetBackupByNameOptions{FetchIncrements: true}
 	bcp, err := c.GetBackupByName(ctx, name, opts)
 	if err != nil {
@@ -309,7 +330,7 @@ func (c *clientImpl) DeleteBackupByName(ctx context.Context, name string) (Comma
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) DeleteBackupBefore(
+func (c *Client) DeleteBackupBefore(
 	ctx context.Context,
 	beforeTS Timestamp,
 	options DeleteBackupBeforeOptions,
@@ -318,76 +339,70 @@ func (c *clientImpl) DeleteBackupBefore(
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error) {
+func (c *Client) DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error) {
 	opid, err := ctrl.SendDeleteOplogRangeBefore(ctx, c.conn, until)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error) {
+func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error) {
 	return backup.MakeCleanupInfo(ctx, c.conn, beforeTS)
 }
 
-func (c *clientImpl) RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
+func (c *Client) RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
 	opid, err := ctrl.SendCleanup(ctx, c.conn, beforeTS)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) CancelBackup(ctx context.Context) (CommandID, error) {
+func (c *Client) CancelBackup(ctx context.Context) (CommandID, error) {
 	opid, err := ctrl.SendCancelBackup(ctx, c.conn)
 	return CommandID(opid.String()), err
 }
 
-func (c *clientImpl) RunLogicalBackup(ctx context.Context, options LogicalBackupOptions) (CommandID, error) {
+func (c *Client) RunLogicalBackup(ctx context.Context, options LogicalBackupOptions) (CommandID, error) {
 	return NoOpID, ErrNotImplemented
 }
 
-func (c *clientImpl) RunPhysicalBackup(ctx context.Context, options PhysicalBackupOptions) (CommandID, error) {
+func (c *Client) RunPhysicalBackup(ctx context.Context, options PhysicalBackupOptions) (CommandID, error) {
 	return NoOpID, ErrNotImplemented
 }
 
-func (c *clientImpl) RunIncrementalBackup(ctx context.Context, options IncrementalBackupOptions) (CommandID, error) {
+func (c *Client) RunIncrementalBackup(ctx context.Context, options IncrementalBackupOptions) (CommandID, error) {
 	return NoOpID, ErrNotImplemented
 }
 
-func (c *clientImpl) Restore(ctx context.Context, backupName string, clusterTS Timestamp) (CommandID, error) {
+func (c *Client) Restore(ctx context.Context, backupName string, clusterTS Timestamp) (CommandID, error) {
 	return NoOpID, ErrNotImplemented
 }
 
-type lockImpl struct {
-	lock.LockData
-}
+var ErrStaleHearbeat = errors.New("stale heartbeat")
 
-func (l lockImpl) Type() string {
-	return string(l.LockData.Type)
-}
-
-func (l lockImpl) CommandID() string {
-	return l.OPID
-}
-
-func (l lockImpl) Heartbeat() Timestamp {
-	return l.LockData.Heartbeat
-}
-
-func (c *clientImpl) CurrentOperations(ctx context.Context) ([]Lock, error) {
-	rv := []Lock{}
-
+func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {
 	locks, err := lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "get locks")
 	}
-	for _, l := range locks {
-		rv = append(rv, lockImpl{l})
+	if len(locks) == 0 {
+		// no current op
+		return nil, nil
 	}
 
-	locks, err = lock.GetOpLocks(ctx, c.conn, &lock.LockHeader{})
+	clusterTime, err := ClusterTime(ctx, c)
 	if err != nil {
-		return nil, err
-	}
-	for _, l := range locks {
-		rv = append(rv, lockImpl{l})
+		return nil, errors.Wrap(err, "get cluster time")
 	}
 
+	rv := make([]OpLock, len(locks))
+	for i := range locks {
+		rv[i].OpID = CommandID(locks[i].OPID)
+		rv[i].Cmd = locks[i].Type
+		rv[i].Replset = locks[i].Replset
+		rv[i].Node = locks[i].Node
+		rv[i].Heartbeat = locks[i].Heartbeat
+
+		if rv[i].Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+			rv[i].err = ErrStaleHearbeat
+		}
+	}
 	return rv, nil
 }
 
@@ -423,7 +438,12 @@ func waitOp(ctx context.Context, conn connect.Client, lck *lock.LockHeader) erro
 	}
 }
 
-func lastLogErr(ctx context.Context, cc connect.Client, op ctrl.Command, after int64) (string, error) {
+func lastLogErr(
+	ctx context.Context,
+	conn connect.Client,
+	op ctrl.Command,
+	after int64,
+) (string, error) {
 	r := &log.LogRequest{
 		LogKeys: log.LogKeys{
 			Severity: log.Error,
@@ -432,7 +452,7 @@ func lastLogErr(ctx context.Context, cc connect.Client, op ctrl.Command, after i
 		TimeMin: time.Unix(after, 0),
 	}
 
-	outC, errC := log.Follow(ctx, cc, r, false)
+	outC, errC := log.Follow(ctx, conn, r, false)
 
 	for {
 		select {

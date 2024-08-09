@@ -5,15 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	stdlog "log"
-	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -21,17 +17,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/prio"
-	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
+	"github.com/percona/percona-backup-mongodb/sdk/cli"
 )
 
 type statusOptions struct {
@@ -101,7 +95,7 @@ func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[str
 func status(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	curi string,
 	opts statusOptions,
 	pretty bool,
@@ -111,21 +105,27 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
-	storageStatFn := func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-		return getStorageStat(ctx, conn, pbm, rsMap)
-	}
-
 	out := statusOut{
 		data: []*statusSect{
 			{
 				"cluster", "Cluster", nil,
-				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return clusterStatus(ctx, conn, curi, opts.priority)
+				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi), opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
-			{"running", "Currently running", nil, getCurrOps},
-			{"backups", "Backups", nil, storageStatFn},
+			{
+				"running", "Currently running", nil,
+				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+					return getCurrOps(ctx, pbm)
+				},
+			},
+			{
+				"backups", "Backups", nil,
+				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
+					return getStorageStat(ctx, conn, pbm, rsMap)
+				},
+			},
 		},
 		pretty: pretty,
 	}
@@ -178,47 +178,45 @@ type rs struct {
 	Nodes []node `json:"nodes"`
 }
 
-type RSRole string
-
-const (
-	RolePrimary   RSRole = "P"
-	RoleSecondary RSRole = "S"
-	RoleArbiter   RSRole = "A"
-	RoleHidden    RSRole = "H"
-	RoleDelayed   RSRole = "D"
-)
-
 type node struct {
-	Host     string   `json:"host"`
-	Ver      string   `json:"agent"`
-	Role     RSRole   `json:"role"`
-	PrioPITR string   `json:"prio_pitr"`
-	PrioBcp  string   `json:"prio_backup"`
-	OK       bool     `json:"ok"`
-	Errs     []string `json:"errors,omitempty"`
+	Host     string     `json:"host"`
+	Ver      string     `json:"agent"`
+	Role     cli.RSRole `json:"role"`
+	PrioPITR string     `json:"prio_pitr"`
+	PrioBcp  string     `json:"prio_backup"`
+	OK       bool       `json:"ok"`
+	Errs     []string   `json:"errors,omitempty"`
 }
 
 func (n node) String() string {
-	if n.Role == RoleArbiter {
+	if n.Role == cli.RoleArbiter {
 		return fmt.Sprintf("%s [!Arbiter]: arbiter node is not supported", n.Host)
 	}
 
 	role := n.Role
-	if role != RolePrimary && role != RoleSecondary {
-		role = RoleSecondary
+	if role == "" {
+		role = " "
+	}
+	ver := n.Ver
+	if ver == "" {
+		ver = "NOT FOUND"
 	}
 
 	var s string
 	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
-		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, n.Ver)
+		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, ver)
 	} else {
 		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
-			n.Host, role, n.PrioBcp, n.PrioPITR, n.Ver)
+			n.Host, role, n.PrioBcp, n.PrioPITR, ver)
 	}
 	if n.OK {
 		s += " OK"
 		return s
 	}
+	if len(n.Errs) == 0 {
+		return s
+	}
+
 	s += " FAILED status:"
 	for _, e := range n.Errs {
 		s += fmt.Sprintf("\n      > ERROR with %s", e)
@@ -238,126 +236,46 @@ func (c cluster) String() string {
 	return s
 }
 
-func clusterStatus(ctx context.Context, conn connect.Client, uri string, prioOpt bool) (fmt.Stringer, error) {
-	clstr, err := topo.ClusterMembers(ctx, conn.MongoClient())
+func clusterStatus(
+	ctx context.Context,
+	pbm *sdk.Client,
+	confGetter cli.RSConfGetter,
+	prioOpt bool,
+) (fmt.Stringer, error) {
+	status, err := cli.ClusterStatus(ctx, pbm, confGetter)
 	if err != nil {
-		return nil, errors.Wrap(err, "get cluster members")
+		return nil, errors.Wrap(err, "get cluster status")
 	}
 
-	clusterTime, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "read cluster time")
-	}
+	rv := make(cluster, 0, len(status))
+	for rsName, rsMembers := range status {
+		nodes := make([]node, len(rsMembers))
+		for i, agent := range rsMembers {
+			node := &nodes[i]
+			node.Host = agent.Host
+			node.Ver = agent.Ver
+			node.Role = agent.Role
+			node.OK = agent.OK
 
-	cfg, err := config.GetConfig(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "fetch config")
-	}
-
-	eg, ctx := errgroup.WithContext(ctx)
-	m := sync.Mutex{}
-
-	var ret cluster
-	for _, c := range clstr {
-		c := c
-
-		eg.Go(func() error {
-			client, err := directConnect(ctx, uri, c.Host)
-			if err != nil {
-				return errors.Wrapf(err, "connect to `%s` [%s]", c.RS, c.Host)
-			}
-
-			rsConfig, err := topo.GetReplSetConfig(ctx, client)
-			if err != nil {
-				_ = client.Disconnect(ctx)
-				return errors.Wrapf(err, "get replset status for `%s`", c.RS)
-			}
-			info, err := topo.GetNodeInfo(ctx, client)
-			// don't need the connection anymore despite the result
-			_ = client.Disconnect(ctx)
-			if err != nil {
-				return errors.Wrap(err, "get node info")
-			}
-
-			lrs := rs{Name: c.RS}
-			for i, n := range rsConfig.Members {
-				lrs.Nodes = append(lrs.Nodes, node{Host: c.RS + "/" + n.Host})
-
-				nd := &lrs.Nodes[i]
-				switch {
-				case n.Host == info.Primary:
-					nd.Role = RolePrimary
-				case n.ArbiterOnly:
-					nd.Role = RoleArbiter
-				case n.SecondaryDelayOld != 0 || n.SecondaryDelaySecs != 0:
-					nd.Role = RoleDelayed
-				case n.Hidden:
-					nd.Role = RoleHidden
-				}
-
-				stat, err := topo.GetAgentStatus(ctx, conn, c.RS, n.Host)
-				if errors.Is(err, mongo.ErrNoDocuments) {
-					nd.Ver = "NOT FOUND"
-					continue
-				} else if err != nil {
-					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: get agent status: %v", err))
-					continue
-				}
-				if stat.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
-					nd.Errs = append(nd.Errs, fmt.Sprintf("ERROR: lost agent, last heartbeat: %v", stat.Heartbeat.T))
-					continue
-				}
-				nd.Ver = "v" + stat.AgentVer
-				nd.OK, nd.Errs = stat.OK()
-				if prioOpt {
-					nd.PrioBcp = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.Backup.Priority, nil))
-					nd.PrioPITR = fmt.Sprintf("%.1f", prio.CalcPriorityForAgent(stat, cfg.PITR.Priority, nil))
+			if len(agent.Errs) != 0 {
+				node.Errs = make([]string, len(agent.Errs))
+				for j, e := range agent.Errs {
+					node.Errs[j] = e.Error()
 				}
 			}
 
-			m.Lock()
-			ret = append(ret, lrs)
-			m.Unlock()
-			return nil
+			if prioOpt {
+				node.PrioPITR = fmt.Sprintf("%.1f", agent.PrioPITR)
+				node.PrioBcp = fmt.Sprintf("%.1f", agent.PrioBcp)
+			}
+		}
+		rv = append(rv, rs{
+			Name:  rsName,
+			Nodes: nodes,
 		})
 	}
 
-	err = eg.Wait()
-	return ret, err
-}
-
-func directConnect(ctx context.Context, uri, hosts string) (*mongo.Client, error) {
-	var host string
-	chost := strings.Split(hosts, "/")
-	if len(chost) > 1 {
-		host = chost[1]
-	} else {
-		host = chost[0]
-	}
-
-	curi, err := url.Parse("mongodb://" + strings.Replace(uri, "mongodb://", "", 1))
-	if err != nil {
-		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", uri)
-	}
-
-	// Preserving the `replicaSet` parameter will cause an error
-	// while connecting to the ConfigServer (mismatched replicaset names)
-	query := curi.Query()
-	query.Del("replicaSet")
-	curi.RawQuery = query.Encode()
-	curi.Host = host
-
-	conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-status"))
-	if err != nil {
-		return nil, errors.Wrap(err, "connect")
-	}
-
-	err = conn.Ping(ctx, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "ping")
-	}
-
-	return conn, nil
+	return rv, nil
 }
 
 type pitrStat struct {
@@ -473,10 +391,10 @@ LOOP:
 
 type currOp struct {
 	Type    ctrl.Command `json:"type,omitempty"`
+	OPID    string       `json:"opID,omitempty"`
 	Name    string       `json:"name,omitempty"`
 	StartTS int64        `json:"startTS,omitempty"`
 	Status  string       `json:"status,omitempty"`
-	OPID    string       `json:"opID,omitempty"`
 }
 
 func (c currOp) String() string {
@@ -495,62 +413,54 @@ func (c currOp) String() string {
 	}
 }
 
-func getCurrOps(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-	var r currOp
-
-	// check for ops
-	lk, err := findLock(ctx, conn, lock.GetLocks)
+func getCurrOps(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
+	locks, err := pbm.OpLocks(ctx)
 	if err != nil {
-		return r, errors.Wrap(err, "get ops")
+		return nil, errors.Wrap(err, "get locks")
+	}
+	if len(locks) == 0 {
+		return currOp{}, nil
 	}
 
-	if lk == nil {
-		// check for delete ops
-		lk, err = findLock(ctx, conn, lock.GetOpLocks)
-		if err != nil {
-			return r, errors.Wrap(err, "get delete ops")
-		}
+	r := currOp{
+		Type: locks[0].Cmd,
+		OPID: string(locks[0].OpID),
 	}
 
-	if lk == nil {
-		return r, nil
-	}
-
-	r = currOp{
-		Type: lk.Type,
-		OPID: lk.OPID,
-	}
-
-	// reaching here means no conflict operation, hence all locks are the same,
-	// hence any lock in `lk` contains info on the current op
-	switch r.Type {
+	switch locks[0].Cmd {
 	case ctrl.CmdBackup:
-		bcp, err := backup.GetBackupByOPID(ctx, conn, r.OPID)
+		bcp, err := pbm.GetBackupByOpID(ctx, r.OPID, sdk.GetBackupByNameOptions{})
 		if err != nil {
 			return r, errors.Wrap(err, "get backup info")
 		}
+
 		r.Name = bcp.Name
 		r.StartTS = bcp.StartTS
-		r.Status = string(bcp.Status)
+
 		switch bcp.Status {
 		case defs.StatusRunning:
 			r.Status = "snapshot backup"
 		case defs.StatusDumpDone:
 			r.Status = "oplog backup"
+		default:
+			r.Status = string(bcp.Status)
 		}
 	case ctrl.CmdRestore:
-		rst, err := restore.GetRestoreMetaByOPID(ctx, conn, r.OPID)
+		rst, err := pbm.GetRestoreByOpID(ctx, r.OPID)
 		if err != nil {
 			return r, errors.Wrap(err, "get restore info")
 		}
+
 		r.Name = rst.Backup
 		r.StartTS = rst.StartTS
-		r.Status = string(rst.Status)
+
 		switch rst.Status {
 		case defs.StatusRunning:
 			r.Status = "snapshot restore"
 		case defs.StatusDumpDone:
 			r.Status = "oplog restore"
+		default:
+			r.Status = string(rst.Status)
 		}
 	}
 
@@ -642,7 +552,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat

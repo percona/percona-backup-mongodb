@@ -5,7 +5,7 @@
 // a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 //
 // Based on github.com/golang/go by The Go Authors
-// See THIRD-PARTY-NOTICES for original license terms.
+// See cyclonedx.sbom.json for original license terms.
 
 // Package json implements encoding and decoding of JSON objects as defined in
 // RFC 4627. The mapping between JSON objects and Go values is described
@@ -241,6 +241,9 @@ func (e *MarshalerError) Error() string {
 
 var hex = "0123456789abcdef"
 
+// Any write on the encodeState cannot fail because we're writing to a
+// `bytes.Buffer`, which never fails.
+//
 // An encodeState encodes JSON into a bytes.Buffer.
 type encodeState struct {
 	bytes.Buffer // accumulated output

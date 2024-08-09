@@ -35,6 +35,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		l.Error("get node info: %v", err)
 		return
 	}
+	if nodeInfo.ArbiterOnly {
+		l.Debug("arbiter node. skip")
+		return
+	}
 
 	var lck *lock.Lock
 	if nodeInfo.IsPrimary {

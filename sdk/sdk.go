@@ -17,7 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
-	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 var (
@@ -27,8 +26,22 @@ var (
 )
 
 type (
-	CommandID string
-	Timestamp = primitive.Timestamp
+	Command     = ctrl.Cmd
+	CommandID   string
+	CommandType = ctrl.Command
+	Timestamp   = primitive.Timestamp
+)
+
+const (
+	CmdBackup       = ctrl.CmdBackup
+	CmdRestore      = ctrl.CmdRestore
+	CmdReplay       = ctrl.CmdReplay
+	CmdCancelBackup = ctrl.CmdCancelBackup
+	CmdResync       = ctrl.CmdResync
+	CmdPITR         = ctrl.CmdPITR
+	CmdDeleteBackup = ctrl.CmdDeleteBackup
+	CmdDeletePITR   = ctrl.CmdDeletePITR
+	CmdCleanup      = ctrl.CmdCleanup
 )
 
 var NoOpID = CommandID(ctrl.NilOPID.String())
@@ -66,11 +79,6 @@ type (
 	CleanupReport   = backup.CleanupInfo
 )
 
-type Lock interface {
-	Type() string
-	CommandID() string
-}
-
 type LogicalBackupOptions struct {
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
@@ -101,60 +109,54 @@ type DeleteBackupBeforeOptions struct {
 	Type BackupType
 }
 
-type Command = ctrl.Cmd
+// OpLock represents internal PBM lock.
+//
+// Some commands can have many locks (one lock per replset).
+type OpLock struct {
+	// OpID is its command id.
+	OpID CommandID `json:"opid,omitempty"`
+	// Cmd is the type of command
+	Cmd CommandType `json:"cmd,omitempty"`
+	// Replset is name of a replset that acquired the lock.
+	Replset string `json:"rs,omitempty"`
+	// Node is `host:port` pair of an agent that acquired the lock.
+	Node string `json:"node,omitempty"`
+	// Heartbeat is the last cluster time seen by an agent that acquired the lock.
+	Heartbeat primitive.Timestamp `json:"hb"`
 
-type Client interface {
-	Close(ctx context.Context) error
-
-	ClusterMembers(ctx context.Context) ([]topo.Shard, error)
-
-	CommandInfo(ctx context.Context, id CommandID) (*Command, error)
-
-	GetConfig(ctx context.Context) (*Config, error)
-	GetAllConfigProfiles(ctx context.Context) ([]config.Config, error)
-	GetConfigProfile(ctx context.Context, name string) (*config.Config, error)
-	AddConfigProfile(ctx context.Context, name string, cfg *config.Config) (CommandID, error)
-	RemoveConfigProfile(ctx context.Context, name string) (CommandID, error)
-
-	GetAllBackups(ctx context.Context) ([]BackupMetadata, error)
-	GetBackupByName(ctx context.Context, name string, options GetBackupByNameOptions) (*BackupMetadata, error)
-
-	GetAllRestores(ctx context.Context, m connect.Client, options GetAllRestoresOptions) ([]RestoreMetadata, error)
-	GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error)
-
-	CancelBackup(ctx context.Context) (CommandID, error)
-
-	DeleteBackupByName(ctx context.Context, name string) (CommandID, error)
-	DeleteBackupBefore(ctx context.Context, beforeTS Timestamp, options DeleteBackupBeforeOptions) (CommandID, error)
-
-	DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error)
-
-	CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error)
-	RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error)
-
-	SyncFromStorage(ctx context.Context) (CommandID, error)
-	SyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
-	SyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
-	ClearSyncFromExternalStorage(ctx context.Context, name string) (CommandID, error)
-	ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error)
+	err error
 }
 
-func NewClient(ctx context.Context, uri string) (*clientImpl, error) {
+func (l *OpLock) Err() error {
+	return l.err
+}
+
+func NewClient(ctx context.Context, uri string) (*Client, error) {
 	conn, err := connect.Connect(ctx, uri, "sdk")
 	if err != nil {
 		return nil, err
 	}
 
-	return &clientImpl{conn: conn}, nil
+	return &Client{conn: conn}, nil
 }
 
-func WaitForCommandWithErrorLog(ctx context.Context, client Client, cid CommandID) error {
-	err := waitOp(ctx, client.(*clientImpl).conn, &lock.LockHeader{OPID: string(cid)})
+func WaitForAddProfile(ctx context.Context, client *Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdAddConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.conn, lck)
+}
+
+func WaitForRemoveProfile(ctx context.Context, client *Client, cid CommandID) error {
+	lck := &lock.LockHeader{Type: ctrl.CmdRemoveConfigProfile, OPID: string(cid)}
+	return waitOp(ctx, client.conn, lck)
+}
+
+func WaitForCommandWithErrorLog(ctx context.Context, client *Client, cid CommandID) error {
+	err := waitOp(ctx, client.conn, &lock.LockHeader{OPID: string(cid)})
 	if err != nil {
 		return err
 	}
 
-	errorMessage, err := log.CommandLastError(ctx, client.(*clientImpl).conn, string(cid))
+	errorMessage, err := log.CommandLastError(ctx, client.conn, string(cid))
 	if err != nil {
 		return fmt.Errorf("read error log: %w", err)
 	}
@@ -165,21 +167,56 @@ func WaitForCommandWithErrorLog(ctx context.Context, client Client, cid CommandI
 	return nil
 }
 
-func WaitForCleanup(ctx context.Context, client Client) error {
+func WaitForCleanup(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdCleanup}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForDeleteBackup(ctx context.Context, client Client) error {
+func WaitForDeleteBackup(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdDeleteBackup}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForDeleteOplogRange(ctx context.Context, client Client) error {
+func WaitForDeleteOplogRange(ctx context.Context, client *Client) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdDeletePITR}
-	return waitOp(ctx, client.(*clientImpl).conn, lck)
+	return waitOp(ctx, client.conn, lck)
 }
 
-func WaitForErrorLog(ctx context.Context, client Client, cmd *Command) (string, error) {
-	return lastLogErr(ctx, client.(*clientImpl).conn, cmd.Cmd, cmd.TS)
+func WaitForErrorLog(ctx context.Context, client *Client, cmd *Command) (string, error) {
+	return lastLogErr(ctx, client.conn, cmd.Cmd, cmd.TS)
+}
+
+func CanDeleteBackup(ctx context.Context, client *Client, bcp *BackupMetadata) error {
+	return backup.CanDeleteBackup(ctx, client.conn, bcp)
+}
+
+func CanDeleteIncrementalBackup(
+	ctx context.Context,
+	client *Client,
+	bcp *BackupMetadata,
+	increments [][]*BackupMetadata,
+) error {
+	return backup.CanDeleteIncrementalChain(ctx, client.conn, bcp, increments)
+}
+
+func ListDeleteBackupBefore(
+	ctx context.Context,
+	client *Client,
+	ts primitive.Timestamp,
+	bcpType BackupType,
+) ([]BackupMetadata, error) {
+	return backup.ListDeleteBackupBefore(ctx, client.conn, ts, bcpType)
+}
+
+func ListDeleteChunksBefore(
+	ctx context.Context,
+	client *Client,
+	ts primitive.Timestamp,
+) ([]OplogChunk, error) {
+	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts)
+	return r.Chunks, err
+}
+
+func ParseDeleteBackupType(s string) (BackupType, error) {
+	return backup.ParseDeleteBackupType(s)
 }
