@@ -57,7 +57,7 @@ func CalcNodesPriority(
 			continue
 		}
 
-		scores.Add(a.RS, a.Node, CalcPriorityForAgent(a, cfgPrio, c))
+		scores.Add(a.RS, a.Node, CalcPriorityForAgent(&a, cfgPrio, c))
 	}
 
 	return scores
@@ -89,7 +89,7 @@ func (s nodeScores) list() [][]string {
 
 // CalcPriorityForAgent calculates priority for the specified agent.
 func CalcPriorityForAgent(
-	agent topo.AgentStat,
+	agent *topo.AgentStat,
 	cfgPrio config.Priority,
 	coeffRules map[string]float64,
 ) float64 {
@@ -117,7 +117,7 @@ func CalcPriorityForNode(node *topo.NodeInfo) float64 {
 // implicitPrioCalc provides priority calculation based on topology rules.
 // Instead of using explicitly specified priority numbers, topology rules are
 // applied for primary, secondary and hidden member.
-func implicitPrioCalc(a topo.AgentStat, rule map[string]float64) float64 {
+func implicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 	if coeff, ok := rule[a.Node]; ok && rule != nil {
 		return defaultScore * coeff
 	} else if a.State == defs.NodeStatePrimary {
@@ -131,7 +131,7 @@ func implicitPrioCalc(a topo.AgentStat, rule map[string]float64) float64 {
 // explicitPrioCalc uses priority numbers from configuration to calculate
 // priority for the specified agent.
 // In case when priority is not specified, default one is used instead.
-func explicitPrioCalc(a topo.AgentStat, rule map[string]float64) float64 {
+func explicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 	sc, ok := rule[a.Node]
 	if !ok || sc < 0 {
 		return defaultScore

@@ -83,7 +83,7 @@ type descBcp struct {
 func runBackup(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	b *backupOpts,
 	outf outFormat,
 ) (fmt.Stringer, error) {
@@ -364,7 +364,7 @@ func byteCountIEC(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func describeBackup(ctx context.Context, pbm sdk.Client, b *descBcp) (fmt.Stringer, error) {
+func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Stringer, error) {
 	bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup meta")

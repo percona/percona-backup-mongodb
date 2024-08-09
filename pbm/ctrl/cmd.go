@@ -62,7 +62,7 @@ func (c Command) String() string {
 
 type OPID primitive.ObjectID
 
-func OPIDfromStr(s string) (OPID, error) {
+func ParseOPID(s string) (OPID, error) {
 	o, err := primitive.ObjectIDFromHex(s)
 	if err != nil {
 		return OPID(primitive.NilObjectID), err

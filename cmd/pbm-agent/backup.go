@@ -69,6 +69,10 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("get node info: %v", err)
 		return
 	}
+	if nodeInfo.ArbiterOnly {
+		l.Debug("arbiter node. skip")
+		return
+	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
 

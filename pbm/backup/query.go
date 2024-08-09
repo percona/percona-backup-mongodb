@@ -279,19 +279,19 @@ func getRecentBackup(
 
 func FindBaseSnapshotLWAfter(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	lw primitive.Timestamp,
 ) (primitive.Timestamp, error) {
-	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$gt": lw}, 1)
+	return findBaseSnapshotLWImpl(ctx, conn, bson.M{"$gt": lw}, 1)
 }
 
 func FindBaseSnapshotLWBefore(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	lw primitive.Timestamp,
 	exclude primitive.Timestamp,
 ) (primitive.Timestamp, error) {
-	return findBaseSnapshotLWImpl(ctx, cc, bson.M{"$lt": lw, "$ne": exclude}, -1)
+	return findBaseSnapshotLWImpl(ctx, conn, bson.M{"$lt": lw, "$ne": exclude}, -1)
 }
 
 func findBaseSnapshotLWImpl(

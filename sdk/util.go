@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -14,21 +13,22 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
+type (
+	ReplsetInfo = topo.Shard
+	AgentStatus = topo.AgentStat
+)
+
 var (
 	ErrMissedClusterTime       = errors.New("missed cluster time")
 	ErrInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
 )
 
-func ParseDeleteBackupType(s string) (BackupType, error) {
-	return backup.ParseDeleteBackupType(s)
-}
-
 func IsHeartbeatStale(clusterTime, other Timestamp) bool {
 	return clusterTime.T >= other.T+defs.StaleFrameSec
 }
 
-func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
-	info, err := topo.GetNodeInfo(ctx, m)
+func ClusterTime(ctx context.Context, client *Client) (Timestamp, error) {
+	info, err := topo.GetNodeInfo(ctx, client.conn.MongoClient())
 	if err != nil {
 		return primitive.Timestamp{}, err
 	}
@@ -39,7 +39,24 @@ func GetClusterTime(ctx context.Context, m *mongo.Client) (Timestamp, error) {
 	return info.ClusterTime.ClusterTime, nil
 }
 
-func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
+// ClusterMembers returns list of replsets in the cluster.
+//
+// For sharded cluster: the configsvr (with ID `config`) and all shards.
+// For non-sharded cluster: the replset.
+func ClusterMembers(ctx context.Context, client *Client) ([]ReplsetInfo, error) {
+	shards, err := topo.ClusterMembers(ctx, client.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "topo")
+	}
+	return shards, nil
+}
+
+// AgentStatuses returns list of all PBM Agents statuses.
+func AgentStatuses(ctx context.Context, client *Client) ([]AgentStatus, error) {
+	return topo.ListAgents(ctx, client.conn)
+}
+
+func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -51,7 +68,7 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 		},
 	}
 
-	outC, errC := log.Follow(ctx, c.(*clientImpl).conn, r, false)
+	outC, errC := log.Follow(ctx, c.conn, r, false)
 
 	for {
 		select {
@@ -69,35 +86,4 @@ func WaitForResync(ctx context.Context, c Client, cid CommandID) error {
 			return err
 		}
 	}
-}
-
-func CanDeleteBackup(ctx context.Context, sc Client, bcp *BackupMetadata) error {
-	return backup.CanDeleteBackup(ctx, sc.(*clientImpl).conn, bcp)
-}
-
-func CanDeleteIncrementalBackup(
-	ctx context.Context,
-	sc Client,
-	bcp *BackupMetadata,
-	increments [][]*BackupMetadata,
-) error {
-	return backup.CanDeleteIncrementalChain(ctx, sc.(*clientImpl).conn, bcp, increments)
-}
-
-func ListDeleteBackupBefore(
-	ctx context.Context,
-	sc Client,
-	ts primitive.Timestamp,
-	bcpType BackupType,
-) ([]BackupMetadata, error) {
-	return backup.ListDeleteBackupBefore(ctx, sc.(*clientImpl).conn, ts, bcpType)
-}
-
-func ListDeleteChunksBefore(
-	ctx context.Context,
-	sc Client,
-	ts primitive.Timestamp,
-) ([]OplogChunk, error) {
-	r, err := backup.MakeCleanupInfo(ctx, sc.(*clientImpl).conn, ts)
-	return r.Chunks, err
 }

@@ -234,22 +234,12 @@ func GetOpLocks(ctx context.Context, m connect.Client, lh *LockHeader) ([]LockDa
 }
 
 func getLocks(ctx context.Context, lh *LockHeader, cl *mongo.Collection) ([]LockData, error) {
-	var locks []LockData
-
 	cur, err := cl.Find(ctx, lh)
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
 	}
 
-	for cur.Next(ctx) {
-		var l LockData
-		err := cur.Decode(&l)
-		if err != nil {
-			return nil, errors.Wrap(err, "lock decode")
-		}
-
-		locks = append(locks, l)
-	}
-
-	return locks, cur.Err()
+	var locks []LockData
+	err = cur.All(ctx, &locks)
+	return locks, err
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -466,7 +465,7 @@ func main() {
 	defer cancel()
 
 	var conn connect.Client
-	var pbm sdk.Client
+	var pbm *sdk.Client
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -757,7 +756,7 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func cancelBcp(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+func cancelBcp(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	if _, err := pbm.CancelBackup(ctx); err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}
@@ -775,48 +774,6 @@ func parseDateT(v string) (time.Time, error) {
 	}
 
 	return time.Time{}, errInvalidFormat
-}
-
-type findLockFn = func(ctx context.Context, conn connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
-
-func findLock(ctx context.Context, conn connect.Client, fn findLockFn) (*lock.LockData, error) {
-	locks, err := fn(ctx, conn, &lock.LockHeader{})
-	if err != nil {
-		return nil, errors.Wrap(err, "get locks")
-	}
-
-	ct, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster time")
-	}
-
-	var lck *lock.LockData
-	for _, l := range locks {
-		// We don't care about the PITR slicing here. It is a subject of other status sections
-		if l.Type == ctrl.CmdPITR || l.Heartbeat.T+defs.StaleFrameSec < ct.T {
-			continue
-		}
-
-		// Just check if all locks are for the same op
-		//
-		// It could happen that the healthy `lk` became stale by the time of this check
-		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
-		// would be true but for the legit reason (no error).
-		// But chances for that are quite low and on the next run of `pbm status` everything
-		//  would be ok. So no reason to complicate code to avoid that.
-		if lck != nil && l.OPID != lck.OPID {
-			return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
-				"This conflict may naturally resolve after 10 seconds",
-				l.Replset, l.Node, l.Type, l.OPID,
-				lck.Replset, lck.Node, lck.Type, lck.OPID,
-			)
-		}
-
-		l := l
-		lck = &l
-	}
-
-	return lck, nil
 }
 
 type concurentOpError struct {

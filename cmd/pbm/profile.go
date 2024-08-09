@@ -59,7 +59,7 @@ func (l configProfileList) String() string {
 	return sb.String()
 }
 
-func handleListConfigProfiles(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+func handleListConfigProfiles(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	profiles, err := pbm.GetAllConfigProfiles(ctx)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func handleListConfigProfiles(ctx context.Context, pbm sdk.Client) (fmt.Stringer
 
 func handleShowConfigProfiles(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	opts showConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
@@ -94,7 +94,7 @@ func handleShowConfigProfiles(
 
 func handleAddConfigProfile(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	opts addConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
@@ -168,7 +168,7 @@ func handleAddConfigProfile(
 
 func handleRemoveConfigProfile(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	opts removeConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if opts.name == "" {
@@ -210,7 +210,7 @@ func handleRemoveConfigProfile(
 
 func handleSyncConfigProfile(
 	ctx context.Context,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	opts syncConfigProfileOptions,
 ) (fmt.Stringer, error) {
 	if !opts.all && opts.name == "" {

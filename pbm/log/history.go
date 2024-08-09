@@ -210,7 +210,7 @@ func CommandLastError(ctx context.Context, cc connect.Client, cid string) (strin
 
 func Follow(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	r *LogRequest,
 	exactSeverity bool,
 ) (<-chan *Entry, <-chan error) {
@@ -223,7 +223,7 @@ func Follow(
 
 		opt := options.Find().SetCursorType(options.TailableAwait)
 
-		cur, err := cc.LogCollection().Find(ctx, filter, opt)
+		cur, err := conn.LogCollection().Find(ctx, filter, opt)
 		if err != nil {
 			errC <- errors.Wrap(err, "query")
 			return
