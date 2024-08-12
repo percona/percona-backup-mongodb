@@ -32,6 +32,7 @@ const (
 	pitrWatchMonitorPollingCycle    = 15 * time.Second
 	pitrTopoMonitorPollingCycle     = 2 * time.Minute
 	pitrActivityMonitorPollingCycle = 2 * time.Minute
+	pitrHb                          = 5 * time.Second
 )
 
 type currentPitr struct {
@@ -76,6 +77,8 @@ func (a *Agent) startMon(ctx context.Context, cfg *config.Config) {
 	go a.pitrErrorMonitor(ctx)
 	go a.pitrTopoMonitor(ctx)
 	go a.pitrActivityMonitor(ctx)
+
+	go a.pitrHb(ctx)
 }
 
 // stopMon stops monitor (watcher) jobs
@@ -862,6 +865,31 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusError)
 			if err != nil {
 				l.Error("error while setting cluster status Error: %v", err)
+			}
+
+		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
+			return
+		}
+	}
+}
+
+func (a *Agent) pitrHb(ctx context.Context) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr hb")
+	defer l.Debug("stop pitr hb")
+
+	tk := time.NewTicker(pitrHb)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			err := oplog.SetHbForPITR(ctx, a.leadConn)
+			if err != nil {
+				l.Error("error while setting hb for pitr: %v", err)
 			}
 
 		case <-ctx.Done():
