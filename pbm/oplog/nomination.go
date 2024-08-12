@@ -6,19 +6,22 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 // PITRMeta contains all operational data about PITR execution process.
 type PITRMeta struct {
-	StartTS    int64            `bson:"start_ts" json:"start_ts"`
-	Status     Status           `bson:"status" json:"status"`
-	Nomination []PITRNomination `bson:"n" json:"n"`
-	Replsets   []PITRReplset    `bson:"replsets" json:"replsets"`
+	StartTS    int64               `bson:"start_ts" json:"start_ts"`
+	Hb         primitive.Timestamp `bson:"hb" json:"hb"`
+	Status     Status              `bson:"status" json:"status"`
+	Nomination []PITRNomination    `bson:"n" json:"n"`
+	Replsets   []PITRReplset       `bson:"replsets" json:"replsets"`
 }
 
 // PITRNomination is used to choose (nominate and elect) member(s)
@@ -264,4 +267,21 @@ func GetAgentsWithACK(ctx context.Context, conn connect.Client) ([]string, error
 	}
 
 	return agents, nil
+}
+
+func SetHbForPITR(ctx context.Context, conn connect.Client) error {
+	ts, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+
+	_, err = conn.PITRCollection().UpdateOne(
+		ctx,
+		bson.D{},
+		bson.D{
+			{"$set", bson.M{"hb": ts}},
+		},
+	)
+
+	return errors.Wrap(err, "update pbmPITR")
 }
