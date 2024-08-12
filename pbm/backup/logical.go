@@ -36,8 +36,10 @@ func (b *Backup) doLogical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	if err := b.checkForTimeseries(ctx, bcp.Namespaces); err != nil {
-		return errors.Wrap(err, "check for timeseries")
+	if b.brief.ConfigSvr {
+		if err := b.checkForTimeseries(ctx, bcp.Namespaces); err != nil {
+			return errors.Wrap(err, "check for timeseries")
+		}
 	}
 
 	var db, coll string
@@ -447,7 +449,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
-	if !b.brief.Version.IsShardedTimeseriesSupported() {
+	if !b.brief.Version.IsShardedTimeseriesSupported() && b.brief.Sharded {
 		return nil
 	}
 
