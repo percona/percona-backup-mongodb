@@ -449,7 +449,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
-	if !b.brief.Version.IsShardedTimeseriesSupported() && b.brief.Sharded {
+	if !b.brief.Version.IsShardedTimeseriesSupported() || !b.brief.Sharded {
 		return nil
 	}
 
