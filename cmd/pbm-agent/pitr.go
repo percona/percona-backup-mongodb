@@ -334,7 +334,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			for {
 				select {
 				case <-tk.C:
-					cStatus := a.getPITRClusterStatus(ctx)
+					cStatus, isHbStale := a.getPITRClusterAndStaleStatus(ctx)
 					if cStatus == oplog.StatusReconfig {
 						l.Debug("stop slicing because of reconfig")
 						stopSlicing()
@@ -342,6 +342,11 @@ func (a *Agent) pitr(ctx context.Context) error {
 					}
 					if cStatus == oplog.StatusError {
 						l.Debug("stop slicing because of error")
+						stopSlicing()
+						return
+					}
+					if isHbStale {
+						l.Debug("stop slicing because PITR heartbeat is stale")
 						stopSlicing()
 						return
 					}
@@ -644,19 +649,28 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 	}
 }
 
-// getPITRClusterStatus gets cluster status from pbmPITR collection.
-// In case of error, it returns StatusUnset and log the error.
-func (a *Agent) getPITRClusterStatus(ctx context.Context) oplog.Status {
+// getPITRClusterAndStaleStatus gets cluster and heartbeat stale status from pbmPITR collection.
+// In case of error, it returns StatusUnset and HB non stale status, and logs the error.
+func (a *Agent) getPITRClusterAndStaleStatus(ctx context.Context) (oplog.Status, bool) {
 	l := log.LogEventFromContext(ctx)
+	isStale := false
 
 	meta, err := oplog.GetMeta(ctx, a.leadConn)
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
 			l.Error("getting metta for reconfig status check: %v", err)
 		}
-		return oplog.StatusUnset
+		return oplog.StatusUnset, isStale
 	}
-	return meta.Status
+
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		l.Error("read cluster time for pitr stale check: %v", err)
+		return meta.Status, isStale
+	}
+	isStale = meta.Hb.T+defs.StaleFrameSec < ts.T
+
+	return meta.Status, isStale
 }
 
 // pitrConfigMonitor watches changes in PITR section within PBM configuration.
