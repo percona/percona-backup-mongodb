@@ -239,7 +239,7 @@ func ListShardedTimeseries(ctx context.Context, conn connect.Client) ([]string, 
 	if err != nil {
 		return nil, errors.Wrap(err, "find")
 	}
-	defer cur.Close(context.Background())
+	defer cur.Close(ctx)
 
 	nss := []string{}
 	for cur.Next(ctx) {
