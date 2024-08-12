@@ -63,7 +63,7 @@ func (a *Agent) getPitr() *currentPitr {
 	return a.pitrjob
 }
 
-// startMon starts monitor (watcher) jobs only on cluster leader.
+// startMon starts monitor (watcher) and heartbeat jobs only on cluster leader.
 func (a *Agent) startMon(ctx context.Context, cfg *config.Config) {
 	a.monMx.Lock()
 	defer a.monMx.Unlock()
@@ -409,6 +409,7 @@ func (a *Agent) leadNomination(
 	err = oplog.InitMeta(ctx, a.leadConn)
 	if err != nil {
 		l.Error("init meta: %v", err)
+		return
 	}
 
 	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
@@ -890,6 +891,7 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 	}
 }
 
+// pitrHB job sets PITR heartbeat.
 func (a *Agent) pitrHb(ctx context.Context) {
 	l := log.LogEventFromContext(ctx)
 	l.Debug("start pitr hb")

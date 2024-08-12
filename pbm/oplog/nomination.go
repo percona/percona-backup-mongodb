@@ -56,12 +56,18 @@ const (
 
 // Init add initial PITR document.
 func InitMeta(ctx context.Context, conn connect.Client) error {
+	ts, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "init pitr meta, read cluster time")
+	}
+
 	pitrMeta := PITRMeta{
 		StartTS:    time.Now().Unix(),
 		Nomination: []PITRNomination{},
 		Replsets:   []PITRReplset{},
+		Hb:         ts,
 	}
-	_, err := conn.PITRCollection().ReplaceOne(
+	_, err = conn.PITRCollection().ReplaceOne(
 		ctx,
 		bson.D{},
 		pitrMeta,
