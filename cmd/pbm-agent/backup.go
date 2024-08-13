@@ -54,16 +54,6 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	l := logger.NewEvent(string(ctrl.CmdBackup), cmd.Name, opid.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
-	moveOn, err := a.startBcpLockCheck(ctx)
-	if err != nil {
-		l.Error("start backup lock check: %v", err)
-		return
-	}
-	if !moveOn {
-		l.Error("unable to proceed with the backup, active lock is present")
-		return
-	}
-
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		l.Error("get node info: %v", err)
@@ -75,6 +65,18 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
+
+	if isClusterLeader {
+		moveOn, err := a.startBcpLockCheck(ctx)
+		if err != nil {
+			l.Error("start backup lock check: %v", err)
+			return
+		}
+		if !moveOn {
+			l.Error("unable to proceed with the backup, active lock is present")
+			return
+		}
+	}
 
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
 	if err != nil {
