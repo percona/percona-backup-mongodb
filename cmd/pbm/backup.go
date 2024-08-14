@@ -232,7 +232,13 @@ func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Str
 		backup.ChangeBackupState(conn, bcp, defs.StatusCopyDone, "")
 }
 
-func waitBackup(ctx context.Context, conn connect.Client, name string, status defs.Status, showProgress bool) (*defs.Status, error) {
+func waitBackup(
+	ctx context.Context,
+	conn connect.Client,
+	name string,
+	status defs.Status,
+	showProgress bool,
+) (*defs.Status, error) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
