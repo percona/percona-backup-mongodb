@@ -7,7 +7,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.1
 	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/aws/aws-sdk-go v1.55.1
-	github.com/docker/docker v26.1.2+incompatible
+	github.com/docker/docker v27.1.1+incompatible
 	github.com/golang/snappy v0.0.4
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.17.8

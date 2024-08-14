@@ -189,6 +189,10 @@ func (v MongoVersion) Major() int {
 	return v.Version[0]
 }
 
+func (v MongoVersion) IsShardedTimeseriesSupported() bool {
+	return v.Version[0] >= 6 // sharded timeseries introduced in 5.1
+}
+
 func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"buildInfo", 1}})
 	if err := res.Err(); err != nil {

@@ -105,7 +105,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	bcp.SetConfig(cfg)
-	bcp.SetMongoVersion(a.mongoVersion.VersionString)
+	bcp.SetMongoVersion(a.brief.Version.VersionString)
 	bcp.SetSlicerInterval(cfg.BackupSlicerInterval())
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
