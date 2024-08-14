@@ -32,6 +32,7 @@ const (
 	pitrWatchMonitorPollingCycle    = 15 * time.Second
 	pitrTopoMonitorPollingCycle     = 2 * time.Minute
 	pitrActivityMonitorPollingCycle = 2 * time.Minute
+	pitrHb                          = 5 * time.Second
 )
 
 type currentPitr struct {
@@ -62,7 +63,7 @@ func (a *Agent) getPitr() *currentPitr {
 	return a.pitrjob
 }
 
-// startMon starts monitor (watcher) jobs only on cluster leader.
+// startMon starts monitor (watcher) and heartbeat jobs only on cluster leader.
 func (a *Agent) startMon(ctx context.Context, cfg *config.Config) {
 	a.monMx.Lock()
 	defer a.monMx.Unlock()
@@ -76,6 +77,8 @@ func (a *Agent) startMon(ctx context.Context, cfg *config.Config) {
 	go a.pitrErrorMonitor(ctx)
 	go a.pitrTopoMonitor(ctx)
 	go a.pitrActivityMonitor(ctx)
+
+	go a.pitrHb(ctx)
 }
 
 // stopMon stops monitor (watcher) jobs
@@ -331,7 +334,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 			for {
 				select {
 				case <-tk.C:
-					cStatus := a.getPITRClusterStatus(ctx)
+					cStatus, isHbStale := a.getPITRClusterAndStaleStatus(ctx)
 					if cStatus == oplog.StatusReconfig {
 						l.Debug("stop slicing because of reconfig")
 						stopSlicing()
@@ -339,6 +342,11 @@ func (a *Agent) pitr(ctx context.Context) error {
 					}
 					if cStatus == oplog.StatusError {
 						l.Debug("stop slicing because of error")
+						stopSlicing()
+						return
+					}
+					if isHbStale {
+						l.Debug("stop slicing because PITR heartbeat is stale")
 						stopSlicing()
 						return
 					}
@@ -401,6 +409,7 @@ func (a *Agent) leadNomination(
 	err = oplog.InitMeta(ctx, a.leadConn)
 	if err != nil {
 		l.Error("init meta: %v", err)
+		return
 	}
 
 	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
@@ -641,19 +650,28 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 	}
 }
 
-// getPITRClusterStatus gets cluster status from pbmPITR collection.
-// In case of error, it returns StatusUnset and log the error.
-func (a *Agent) getPITRClusterStatus(ctx context.Context) oplog.Status {
+// getPITRClusterAndStaleStatus gets cluster and heartbeat stale status from pbmPITR collection.
+// In case of error, it returns StatusUnset and HB non stale status, and logs the error.
+func (a *Agent) getPITRClusterAndStaleStatus(ctx context.Context) (oplog.Status, bool) {
 	l := log.LogEventFromContext(ctx)
+	isStale := false
 
 	meta, err := oplog.GetMeta(ctx, a.leadConn)
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
 			l.Error("getting metta for reconfig status check: %v", err)
 		}
-		return oplog.StatusUnset
+		return oplog.StatusUnset, isStale
 	}
-	return meta.Status
+
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		l.Error("read cluster time for pitr stale check: %v", err)
+		return meta.Status, isStale
+	}
+	isStale = meta.Hb.T+defs.StaleFrameSec < ts.T
+
+	return meta.Status, isStale
 }
 
 // pitrConfigMonitor watches changes in PITR section within PBM configuration.
@@ -862,6 +880,32 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusError)
 			if err != nil {
 				l.Error("error while setting cluster status Error: %v", err)
+			}
+
+		case <-ctx.Done():
+			return
+
+		case <-a.monStopSig:
+			return
+		}
+	}
+}
+
+// pitrHB job sets PITR heartbeat.
+func (a *Agent) pitrHb(ctx context.Context) {
+	l := log.LogEventFromContext(ctx)
+	l.Debug("start pitr hb")
+	defer l.Debug("stop pitr hb")
+
+	tk := time.NewTicker(pitrHb)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			err := oplog.SetHbForPITR(ctx, a.leadConn)
+			if err != nil {
+				l.Error("error while setting hb for pitr: %v", err)
 			}
 
 		case <-ctx.Done():
