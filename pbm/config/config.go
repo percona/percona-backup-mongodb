@@ -288,11 +288,11 @@ func (s *StorageConf) Path() string {
 	path := ""
 	switch s.Type {
 	case storage.S3:
-		path = "s3://"
-		if s.S3.EndpointURL != "" {
-			path += s.S3.EndpointURL + "/"
+		path = s.S3.EndpointURL
+		if !strings.Contains(path, "://") {
+			path = "s3://" + path
 		}
-		path += s.S3.Bucket
+		path += "/" + s.S3.Bucket
 		if s.S3.Prefix != "" {
 			path += "/" + s.S3.Prefix
 		}

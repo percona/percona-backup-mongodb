@@ -36,6 +36,12 @@ func (b *Backup) doLogical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
+	if b.brief.ConfigSvr {
+		if err := b.checkForTimeseries(ctx, bcp.Namespaces); err != nil {
+			return errors.Wrap(err, "check for timeseries")
+		}
+	}
+
 	var db, coll string
 	if util.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.
@@ -440,4 +446,33 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
+}
+
+func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
+	if !b.brief.Version.IsShardedTimeseriesSupported() || !b.brief.Sharded {
+		return nil
+	}
+
+	tss, err := topo.ListShardedTimeseries(ctx, b.leadConn)
+	if err != nil {
+		return errors.Wrap(err, "list sharded timeseries")
+	}
+
+	if util.IsSelective(nss) {
+		selected := util.MakeSelectedPred(nss)
+		origTSs := tss
+		tss = make([]string, 0, len(tss))
+		for _, ts := range origTSs {
+			if selected(ts) {
+				tss = append(tss, ts)
+			}
+		}
+	}
+
+	if len(tss) != 0 {
+		return errors.Errorf("cannot backup following sharded timeseries: %s",
+			strings.Join(tss, ", "))
+	}
+
+	return nil
 }

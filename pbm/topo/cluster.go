@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -227,4 +228,28 @@ func GetBalancerStatus(ctx context.Context, m connect.Client) (*BalancerStatus, 
 		return nil, errors.Wrap(err, "run mongo command")
 	}
 	return inf, nil
+}
+
+func ListShardedTimeseries(ctx context.Context, conn connect.Client) ([]string, error) {
+	cur, err := conn.MongoClient().
+		Database("config").Collection("collections").
+		Find(ctx,
+			bson.D{{"timeseriesFields", bson.M{"$exists": 1}}},
+			options.Find().SetProjection(bson.D{{"_id", 1}}))
+	if err != nil {
+		return nil, errors.Wrap(err, "find")
+	}
+	defer cur.Close(ctx)
+
+	nss := []string{}
+	for cur.Next(ctx) {
+		ns, _ := cur.Current.Lookup("_id").StringValueOK()
+		db, coll, _ := strings.Cut(ns, ".system.buckets.")
+		nss = append(nss, db+"."+coll)
+	}
+	if err := cur.Err(); err != nil {
+		return nil, errors.Wrap(err, "cursor")
+	}
+
+	return nss, nil
 }

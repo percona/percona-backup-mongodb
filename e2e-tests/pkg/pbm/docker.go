@@ -208,7 +208,7 @@ func (d *Docker) RunOnReplSet(rsName string, wait time.Duration, cmd ...string) 
 }
 
 func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (string, error) {
-	execConf := types.ExecConfig{
+	execConf := container.ExecOptions{
 		User:         "root",
 		Cmd:          cmd,
 		Privileged:   true,
@@ -220,7 +220,7 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, types.ExecStartCheck{})
+	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, container.ExecStartOptions{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}

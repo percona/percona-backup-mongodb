@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,8 +33,6 @@ type Agent struct {
 	bcpMx    sync.Mutex
 
 	brief topo.NodeBrief
-
-	mongoVersion version.MongoVersion
 
 	dumpConns int
 
@@ -66,13 +65,14 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 		closeCMD: make(chan struct{}),
 		nodeConn: nodeConn,
 		brief: topo.NodeBrief{
-			URI:     uri,
-			SetName: info.SetName,
-			Me:      info.Me,
-			Sharded: info.IsSharded(),
+			URI:       uri,
+			SetName:   info.SetName,
+			Me:        info.Me,
+			Sharded:   info.IsSharded(),
+			ConfigSvr: info.IsConfigSrv(),
+			Version:   mongoVersion,
 		},
-		mongoVersion: mongoVersion,
-		dumpConns:    dumpConns,
+		dumpConns: dumpConns,
 	}
 	return a, nil
 }
@@ -111,6 +111,20 @@ func (a *Agent) CanStart(ctx context.Context) error {
 	if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
 		log.FromContext(ctx).
 			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
+	}
+
+	if ver.IsShardedTimeseriesSupported() {
+		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
+		if err != nil {
+			log.FromContext(ctx).
+				Error("", "", "", primitive.Timestamp{},
+					"failed to list sharded timeseries: %v", err)
+		} else if len(tss) != 0 {
+			log.FromContext(ctx).
+				Warning("", "", "", primitive.Timestamp{},
+					"WARNING: cannot backup following sharded timeseries: %s",
+					strings.Join(tss, ", "))
+		}
 	}
 
 	return nil
