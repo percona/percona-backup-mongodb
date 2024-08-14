@@ -65,6 +65,19 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
+
+	if isClusterLeader {
+		moveOn, err := a.startBcpLockCheck(ctx)
+		if err != nil {
+			l.Error("start backup lock check: %v", err)
+			return
+		}
+		if !moveOn {
+			l.Error("unable to proceed with the backup, active lock is present")
+			return
+		}
+	}
+
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
 	if err != nil {
 		l.Error("node check: %v", err)
@@ -313,4 +326,33 @@ func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 			return false, nil
 		}
 	}
+}
+
+// startBcpLockCheck checks if there is any active lock.
+// It fetches all existing pbm locks, and if any exists, it is also
+// checked for staleness.
+// false is returned in case a single active lock exists or error happens.
+// true means that there's no active locks.
+func (a *Agent) startBcpLockCheck(ctx context.Context) (bool, error) {
+	locks, err := lock.GetLocks(ctx, a.leadConn, &lock.LockHeader{})
+	if err != nil {
+		return false, errors.Wrap(err, "get all locks for backup start")
+	}
+	if len(locks) == 0 {
+		return true, nil
+	}
+
+	// stale lock check
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		return false, errors.Wrap(err, "read cluster time")
+	}
+
+	for _, l := range locks {
+		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
