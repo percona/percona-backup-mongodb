@@ -2,18 +2,23 @@ package sharded
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	awsS3 "github.com/aws/aws-sdk-go/service/s3"
+
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
@@ -72,20 +77,40 @@ func checkNoBackupFiles(backupName, conf string) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	ss, err := newS3Client(endopintURL, stg.S3.Region, &stg.S3.Credentials)
 	if err != nil {
-		log.Fatalln("Error: NewWithRegion:", err)
+		log.Fatalf("create S3 client: %v", err)
 	}
 
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if object.Err != nil {
-			fmt.Println("Error: ListObjects: ", object.Err)
-			continue
-		}
+	res, err := ss.ListObjectsV2(&awsS3.ListObjectsV2Input{
+		Bucket: &stg.S3.Bucket,
+		Prefix: &stg.S3.Prefix,
+	})
+	if err != nil {
+		log.Fatalf("list files on S3: %v", err)
+	}
 
-		if strings.Contains(object.Key, backupName) {
+	for _, object := range res.Contents {
+		s := object.String()
+		if strings.Contains(s, backupName) {
 			log.Fatalln("Error: failed to delete lefover", object.Key)
 		}
 	}
+}
+
+func newS3Client(uri, region string, creds *s3.Credentials) (*awsS3.S3, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region:   &region,
+		Endpoint: &uri,
+		Credentials: credentials.NewStaticCredentials(
+			creds.AccessKeyID,
+			creds.SecretAccessKey,
+			creds.SessionToken,
+		),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "create AWS session")
+	}
+
+	return awsS3.New(sess), nil
 }

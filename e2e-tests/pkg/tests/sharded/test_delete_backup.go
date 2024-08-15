@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
+	awsS3 "github.com/aws/aws-sdk-go/service/s3"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -197,30 +197,34 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 		endopintURL = eu.Host
 	}
 
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
+	ss, err := newS3Client(endopintURL, stg.S3.Region, &stg.S3.Credentials)
 	if err != nil {
-		log.Fatalln("ERROR: NewWithRegion:", err)
+		log.Fatalf("create S3 client: %v", err)
 	}
 
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if strings.Contains(object.Key, defs.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
-			continue
-		}
-		if object.Err != nil {
-			fmt.Println("ERROR: ListObjects: ", object.Err)
+	res, err := ss.ListObjectsV2(&awsS3.ListObjectsV2Input{
+		Bucket: &stg.S3.Bucket,
+		Prefix: &stg.S3.Prefix,
+	})
+	if err != nil {
+		log.Fatalf("list files on S3: %v", err)
+	}
+
+	for _, object := range res.Contents {
+		objectKey := *object.Key
+		if strings.Contains(objectKey, defs.StorInitFile) || strings.Contains(objectKey, "/pbmPitr/") {
 			continue
 		}
 
 		var ok bool
 		for b := range shouldStay {
-			if strings.Contains(object.Key, b) {
+			if strings.Contains(objectKey, b) {
 				ok = true
 				break
 			}
 		}
 		if !ok {
-			log.Fatalln("ERROR: failed to delete lefover", object.Key)
+			log.Fatalln("ERROR: failed to delete lefover", objectKey)
 		}
 	}
 }
