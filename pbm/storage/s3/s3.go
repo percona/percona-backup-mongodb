@@ -392,8 +392,12 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}
 
 		if s.log != nil {
-			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
-			s.log.Info("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
+			s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
+				name,
+				sizeb,
+				storage.PrettySize(sizeb),
+				partSize,
+				storage.PrettySize(partSize))
 		}
 
 		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {

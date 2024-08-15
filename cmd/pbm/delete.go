@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
@@ -355,7 +356,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 
 			restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
 			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]\n",
-				bcp.Name, fmtSize(bcp.Size), t, restoreTime)
+				bcp.Name, storage.PrettySize(bcp.Size), t, restoreTime)
 		}
 	}
 

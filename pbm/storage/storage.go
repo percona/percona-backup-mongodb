@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -252,4 +253,32 @@ func Upload(
 	}
 
 	return n, nil
+}
+
+func PrettySize(size int64) string {
+	const (
+		_          = iota
+		KB float64 = 1 << (10 * iota)
+		MB
+		GB
+		TB
+	)
+
+	if size < 0 {
+		return "unknown"
+	}
+
+	s := float64(size)
+
+	switch {
+	case s >= TB:
+		return fmt.Sprintf("%.2fTB", s/TB)
+	case s >= GB:
+		return fmt.Sprintf("%.2fGB", s/GB)
+	case s >= MB:
+		return fmt.Sprintf("%.2fMB", s/MB)
+	case s >= KB:
+		return fmt.Sprintf("%.2fKB", s/KB)
+	}
+	return fmt.Sprintf("%.2fB", s)
 }
