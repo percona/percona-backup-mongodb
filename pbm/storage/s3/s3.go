@@ -355,9 +355,9 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 
 		sse := s.opts.ServerSideEncryption
 		if sse != nil {
-                       if sse.SseAlgorithm == s3.ServerSideEncryptionAes256 {
-                                uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-                        } else if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			if sse.SseAlgorithm == s3.ServerSideEncryptionAes256 {
+				uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+			} else if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
 				uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
 				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 			} else if sse.SseCustomerAlgorithm != "" {
