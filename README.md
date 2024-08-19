@@ -89,7 +89,7 @@ We encourage contributions and are always looking for new members who are as ded
 The [Contributing Guide](https://github.com/percona/percona-backup-mongodb/blob/main/CONTRIBUTING.md) contains the guidelines for contributing.
 
 ## Join Percona Squad!
-Participate in monthly SWAG raffles, get early access to new product features, and invite-only ”ask me anything” sessions with database performance experts. Interested? Fill in the form at squad.percona.com/mongodb
+Participate in monthly SWAG raffles, get early access to new product features, and invite-only ”ask me anything” sessions with database performance experts. Interested? Fill in the form at [squad.percona.com/mongodb](https://squad.percona.com/mongodb)
 ```
                     %                        _____
                    %%%                      |  __ \
