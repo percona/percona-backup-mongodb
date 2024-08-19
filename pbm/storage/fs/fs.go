@@ -24,6 +24,8 @@ func IsRetryableError(err error) bool {
 	return errors.As(err, &e)
 }
 
+const tmpFileSuffix = ".tmp"
+
 type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
@@ -94,7 +96,7 @@ func (*FS) Type() storage.Type {
 
 //nolint:nonamedreturns
 func writeSync(finalpath string, data io.Reader) (err error) {
-	filepath := finalpath + ".tmp"
+	filepath := finalpath + tmpFileSuffix
 
 	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
@@ -205,6 +207,11 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		}
 		if f[0] == '/' {
 			f = f[1:]
+		}
+
+		// ignore temp file unless it is not requested explicitly
+		if suffix == "" && strings.HasSuffix(f, tmpFileSuffix) {
+			return nil
 		}
 		if strings.HasSuffix(f, suffix) {
 			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
