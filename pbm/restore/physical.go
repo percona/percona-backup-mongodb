@@ -53,8 +53,6 @@ const (
 
 	tryConnCount   = 5
 	tryConnTimeout = 5 * time.Minute
-
-	maxShutdownTriesOnStandaloneRecovery = 10
 )
 
 type files struct {
@@ -1198,12 +1196,8 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return ts, errors.Errorf("get the timestamp of record %v", rb)
 	}
 
-	err = shutdown(c, r.dbpath)
-	if err != nil {
-		return ts, errors.Wrap(err, "shutdown mongo")
-	}
-
-	return ts, nil
+	err = r.shutdown(c)
+	return ts, err
 }
 
 func (r *PhysRestore) prepareData() error {
@@ -1252,20 +1246,22 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
 	}
 
-	err = shutdown(c, r.dbpath)
+	return r.shutdown(c)
+}
+
+func (r *PhysRestore) shutdown(c *mongo.Client) error {
+	err := shutdownImpl(c, r.dbpath, false)
 	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
+		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
+			r.log.Warning("try force shutdown. reason: %v", err)
+			err = shutdownImpl(c, r.dbpath, true)
+			return errors.Wrap(err, "force shutdown mongo")
+		}
+
+		return errors.Wrap(err, "shutdown mongo") // unexpected
 	}
 
 	return nil
-}
-
-func shutdown(c *mongo.Client, dbpath string) error {
-	return shutdownImpl(c, dbpath, false)
-}
-
-func forceShutdown(c *mongo.Client, dbpath string) error {
-	return shutdownImpl(c, dbpath, true)
 }
 
 func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
@@ -1273,12 +1269,12 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
-		return err
+		return errors.Wrapf(err, "run shutdown (force: %v)", force)
 	}
 
 	err = waitMgoShutdown(dbpath)
 	if err != nil {
-		return errors.Wrap(err, "shutdown")
+		return errors.Wrap(err, "wait")
 	}
 
 	return nil
@@ -1297,24 +1293,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	for i := 0; i != maxShutdownTriesOnStandaloneRecovery; i++ {
-		err = shutdown(c, r.dbpath)
-		if err == nil {
-			return nil // OK
-		}
-
-		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
-			r.log.Warning("retry shutdown in 5 seconds. reason: %v", err)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		return errors.Wrap(err, "shutdown mongo") // unexpected
-	}
-
-	r.log.Debug("force shutdown")
-	err = forceShutdown(c, r.dbpath)
-	return errors.Wrap(err, "force shutdown mongo")
+	return r.shutdown(c)
 }
 
 func (r *PhysRestore) replayOplog(
@@ -1350,12 +1329,12 @@ func (r *PhysRestore) replayOplog(
 		},
 	)
 	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
 	}
 
-	err = shutdown(nodeConn, r.dbpath)
+	err = r.shutdown(nodeConn)
 	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
+		return errors.Wrap(err, "after update member host")
 	}
 
 	flags := []string{
@@ -1417,12 +1396,7 @@ func (r *PhysRestore) replayOplog(
 		}
 	}
 
-	err = shutdown(nodeConn, r.dbpath)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
-	}
-
-	return nil
+	return r.shutdown(nodeConn)
 }
 
 func (r *PhysRestore) resetRS() error {
@@ -1565,12 +1539,7 @@ func (r *PhysRestore) resetRS() error {
 		r.dropPBMCollections(ctx, c)
 	}
 
-	err = shutdown(c, r.dbpath)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
-	}
-
-	return nil
+	return r.shutdown(c)
 }
 
 func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
