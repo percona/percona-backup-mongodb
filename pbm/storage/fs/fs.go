@@ -11,6 +11,19 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+type RetryableError struct {
+	Err error
+}
+
+func (e *RetryableError) Error() string {
+	return e.Err.Error()
+}
+
+func IsRetryableError(err error) bool {
+	var e *RetryableError
+	return errors.As(err, &e)
+}
+
 type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
@@ -97,7 +110,13 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 			if fw != nil {
 				fw.Close()
 			}
-			os.Remove(filepath)
+
+			if os.IsNotExist(err) {
+				err = &RetryableError{Err: err}
+			} else {
+				os.Remove(filepath)
+			}
+
 		}
 	}()
 

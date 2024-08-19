@@ -99,7 +99,7 @@ func (a *Agent) handleAddConfigProfile(
 			return
 		}
 
-		err = storage.Initialize(ctx, stg)
+		err = util.Initialize(ctx, stg)
 		if err != nil {
 			err = errors.Wrap(err, "init storage")
 			return
