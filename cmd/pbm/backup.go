@@ -46,7 +46,7 @@ type backupOut struct {
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
+	return fmt.Sprintf("Backup '%s' to remote store '%s'", b.Name, b.Storage)
 }
 
 type externBcpOut struct {
