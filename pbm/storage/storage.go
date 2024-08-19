@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 var (
@@ -125,30 +123,6 @@ func HasReadAccess(ctx context.Context, stg Storage) error {
 	}
 
 	return nil
-}
-
-// Initialize write current PBM version to PBM init file.
-//
-// It does not handle "file already exists" error.
-func Initialize(ctx context.Context, stg Storage) error {
-	err := stg.Save(defs.StorInitFile, strings.NewReader(version.Current().Version), 0)
-	if err != nil {
-		return errors.Wrap(err, "write init file")
-	}
-
-	return nil
-}
-
-// Reinitialize delete existing PBM init file and create new once with current PBM version.
-//
-// It expects that the file exists.
-func Reinitialize(ctx context.Context, stg Storage) error {
-	err := stg.Delete(defs.StorInitFile)
-	if err != nil {
-		return errors.Wrap(err, "delete init file")
-	}
-
-	return Initialize(ctx, stg)
 }
 
 // rwError multierror for the read/compress/write-to-store operations set
