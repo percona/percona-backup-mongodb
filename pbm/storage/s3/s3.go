@@ -400,7 +400,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		prfx += "/"
 	}
 
-	lparams := &s3.ListObjectsInput{
+	lparams := &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.opts.Bucket),
 	}
 
@@ -409,8 +409,8 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	}
 
 	var files []storage.FileInfo
-	err := s.s3s.ListObjectsPages(lparams,
-		func(page *s3.ListObjectsOutput, lastPage bool) bool {
+	err := s.s3s.ListObjectsV2Pages(lparams,
+		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
 				f = strings.TrimPrefix(f, aws.StringValue(lparams.Prefix))
