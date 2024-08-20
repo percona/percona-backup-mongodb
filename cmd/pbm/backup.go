@@ -46,7 +46,7 @@ type backupOut struct {
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
+	return fmt.Sprintf("Backup '%s' to remote store '%s'", b.Name, b.Storage)
 }
 
 type externBcpOut struct {
@@ -151,20 +151,20 @@ func runBackup(
 		return nil, errors.Wrap(err, "send command")
 	}
 
-	if outf != outText {
-		return backupOut{b.name, cfg.Storage.Path()}, nil
-	}
+	showProgress := outf == outText
 
-	fmt.Printf("Starting backup '%s'", b.name)
+	if showProgress {
+		fmt.Printf("Starting backup '%s'", b.name)
+	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name)
+	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
 	if err != nil {
 		return nil, err
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady)
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady, showProgress)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -198,15 +198,19 @@ func runBackup(
 			defer cancel()
 		}
 
-		fmt.Printf("\nWaiting for '%s' backup...", b.name)
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone)
-		if s != nil {
+		if showProgress {
+			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+		}
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
+		if s != nil && showProgress {
 			fmt.Printf(" %s\n", *s)
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout
 		}
-		return outMsg{}, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return backupOut{b.name, cfg.Storage.Path()}, nil
@@ -228,7 +232,13 @@ func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Str
 		backup.ChangeBackupState(conn, bcp, defs.StatusCopyDone, "")
 }
 
-func waitBackup(ctx context.Context, conn connect.Client, name string, status defs.Status) (*defs.Status, error) {
+func waitBackup(
+	ctx context.Context,
+	conn connect.Client,
+	name string,
+	status defs.Status,
+	showProgress bool,
+) (*defs.Status, error) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
@@ -250,11 +260,13 @@ func waitBackup(ctx context.Context, conn connect.Client, name string, status de
 			}
 		}
 
-		fmt.Print(".")
+		if showProgress {
+			fmt.Print(".")
+		}
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) error {
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
@@ -262,7 +274,9 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) 
 	for {
 		select {
 		case <-tk.C:
-			fmt.Print(".")
+			if showProgress {
+				fmt.Print(".")
+			}
 			var err error
 			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
