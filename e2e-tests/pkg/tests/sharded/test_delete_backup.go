@@ -4,15 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	awsS3 "github.com/aws/aws-sdk-go/service/s3"
-	"gopkg.in/yaml.v2"
-
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -165,66 +160,33 @@ func (c *Cluster) BackupDelete(storage string) {
 	checkData()
 }
 
-const awsurl = "s3.amazonaws.com"
-
 // checkArtefacts checks if all backups artifacts removed
 // except for the shouldStay
 func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artifacts deleted excepts backup's", shouldStay)
-	buf, err := os.ReadFile(conf)
+
+	files, err := listAllFiles(conf)
 	if err != nil {
-		log.Fatalln("ERROR: unable to read config file:", err)
+		log.Fatalln("ERROR: list files:", err)
 	}
 
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("ERROR: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	if stg.Type == "azure" || stg.Type == "filesystem" {
-		return
-	}
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("ERROR: parse EndpointURL:", err)
+	for _, file := range files {
+		if strings.Contains(file.Name, defs.StorInitFile) {
+			continue
 		}
-		endopintURL = eu.Host
-	}
-
-	ss, err := newS3Client(endopintURL, stg.S3.Region, &stg.S3.Credentials)
-	if err != nil {
-		log.Fatalf("create S3 client: %v", err)
-	}
-
-	res, err := ss.ListObjectsV2(&awsS3.ListObjectsV2Input{
-		Bucket: &stg.S3.Bucket,
-		Prefix: &stg.S3.Prefix,
-	})
-	if err != nil {
-		log.Fatalf("list files on S3: %v", err)
-	}
-
-	for _, object := range res.Contents {
-		objectKey := *object.Key
-		if strings.Contains(objectKey, defs.StorInitFile) || strings.Contains(objectKey, "/pbmPitr/") {
+		if strings.Contains(file.Name, defs.PITRfsPrefix) {
 			continue
 		}
 
 		var ok bool
 		for b := range shouldStay {
-			if strings.Contains(objectKey, b) {
+			if strings.Contains(file.Name, b) {
 				ok = true
 				break
 			}
 		}
 		if !ok {
-			log.Fatalln("ERROR: failed to delete lefover", objectKey)
+			log.Fatalln("ERROR: failed to delete lefover", file.Name)
 		}
 	}
 }
