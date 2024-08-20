@@ -1,24 +1,18 @@
 package sharded
 
 import (
+	"bytes"
 	"context"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	awsS3 "github.com/aws/aws-sdk-go/service/s3"
-
-	"gopkg.in/yaml.v2"
-
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
@@ -55,62 +49,39 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 func checkNoBackupFiles(backupName, conf string) {
 	log.Println("check no artifacts left for backup", backupName)
-	buf, err := os.ReadFile(conf)
+
+	files, err := listAllFiles(conf)
 	if err != nil {
-		log.Fatalln("Error: unable to read config file:", err)
+		log.Fatalln("ERROR: list files:", err)
 	}
 
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("Error: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("Error: parse EndpointURL:", err)
-		}
-		endopintURL = eu.Host
-	}
-
-	ss, err := newS3Client(endopintURL, stg.S3.Region, &stg.S3.Credentials)
-	if err != nil {
-		log.Fatalf("create S3 client: %v", err)
-	}
-
-	res, err := ss.ListObjectsV2(&awsS3.ListObjectsV2Input{
-		Bucket: &stg.S3.Bucket,
-		Prefix: &stg.S3.Prefix,
-	})
-	if err != nil {
-		log.Fatalf("list files on S3: %v", err)
-	}
-
-	for _, object := range res.Contents {
-		s := object.String()
-		if strings.Contains(s, backupName) {
-			log.Fatalln("Error: failed to delete lefover", object.Key)
+	for _, file := range files {
+		if strings.Contains(file.Name, backupName) {
+			log.Fatalln("ERROR: failed to delete lefover", file.Name)
 		}
 	}
 }
 
-func newS3Client(uri, region string, creds *s3.Credentials) (*awsS3.S3, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region:   &region,
-		Endpoint: &uri,
-		Credentials: credentials.NewStaticCredentials(
-			creds.AccessKeyID,
-			creds.SecretAccessKey,
-			creds.SessionToken,
-		),
-	})
+func listAllFiles(confFilepath string) ([]storage.FileInfo, error) {
+	buf, err := os.ReadFile(confFilepath)
 	if err != nil {
-		return nil, errors.Wrap(err, "create AWS session")
+		return nil, errors.Wrap(err, "read config file")
 	}
 
-	return awsS3.New(sess), nil
+	cfg, err := config.Parse(bytes.NewBuffer(buf))
+	if err != nil {
+		return nil, errors.Wrap(err, "parse config")
+	}
+
+	stg, err := util.StorageFromConfig(&cfg.Storage, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "storage from config")
+	}
+
+	files, err := stg.List("", "")
+	if err != nil {
+		return nil, errors.Wrap(err, "list files")
+	}
+
+	return files, nil
 }
