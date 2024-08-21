@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -429,11 +428,10 @@ func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
 	}
 
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
-	return outMsg{"Command sent. Check `pbm describe-restore ...` for the result."},
-		stg.Save(path+"."+string(defs.StatusCopyDone),
-			bytes.NewReader([]byte(
-				fmt.Sprintf("%d", time.Now().Unix()),
-			)), -1)
+	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
+	err = stg.Save(path+"."+string(defs.StatusCopyDone),
+		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
+	return msg, err
 }
 
 func parseTS(t string) (primitive.Timestamp, error) {

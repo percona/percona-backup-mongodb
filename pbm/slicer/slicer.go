@@ -118,13 +118,6 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	if lastBackup.Type != defs.LogicalBackup {
-		// the backup does not contain complete oplog to copy from
-		// NOTE: the chunk' last op can be later than backup' first write ts
-		s.lastTS = lastChunk.EndTS
-		return nil
-	}
-
 	if !lastChunk.EndTS.Before(rs.LastWriteTS) {
 		// no need to copy oplog from backup
 		s.lastTS = lastChunk.EndTS
@@ -150,18 +143,20 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 				return err
 			}
 
-			s.l.Warning("skip chunk %s - %s: %v",
-				formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS), rangeErr)
+			s.l.Warning("skip chunk %s - %s: oplog has insufficient range",
+				formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
 		} else {
 			s.l.Info("uploaded chunk %s - %s", formatts(lastChunk.EndTS), formatts(rs.FirstWriteTS))
 			s.lastTS = rs.FirstWriteTS
 		}
 	}
 
-	err = s.copyReplsetOplog(ctx, rs)
-	if err != nil {
-		s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
-		return nil
+	if lastBackup.Type == defs.LogicalBackup {
+		err = s.copyReplsetOplog(ctx, rs)
+		if err != nil {
+			s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
+			return nil
+		}
 	}
 	s.lastTS = rs.LastWriteTS
 

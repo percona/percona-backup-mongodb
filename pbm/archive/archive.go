@@ -397,16 +397,27 @@ func (c *consumer) BodyBSON(data []byte) error {
 }
 
 func (c *consumer) End() error {
-	eg := errgroup.Group{}
+	errs := []error{}
 
+	wg := &sync.WaitGroup{}
+	mu := &sync.Mutex{}
+
+	wg.Add(len(c.nss))
 	for ns, w := range c.nss {
-		ns, w := ns, w
-		eg.Go(func() error {
-			return errors.Wrapf(w.Close(), "close: %q", ns)
-		})
+		go func() {
+			defer wg.Done()
+
+			err := w.Close()
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, errors.Wrapf(err, "close: %q", ns))
+				mu.Unlock()
+			}
+		}()
 	}
 
-	return eg.Wait()
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 func SecureWrite(w io.Writer, data []byte) error {

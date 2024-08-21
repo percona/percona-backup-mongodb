@@ -143,30 +143,6 @@ func status(
 	return out, err
 }
 
-func fmtSize(size int64) string {
-	const (
-		_          = iota
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
-
-	s := float64(size)
-
-	switch {
-	case s >= TB:
-		return fmt.Sprintf("%.2fTB", s/TB)
-	case s >= GB:
-		return fmt.Sprintf("%.2fGB", s/GB)
-	case s >= MB:
-		return fmt.Sprintf("%.2fMB", s/MB)
-	case s >= KB:
-		return fmt.Sprintf("%.2fKB", s/KB)
-	}
-	return fmt.Sprintf("%.2fB", s)
-}
-
 func sprinth(s string) string {
 	return fmt.Sprintf("%s:\n%s", s, strings.Repeat("=", len(s)+1))
 }
@@ -520,14 +496,14 @@ func (s storageStat) String() string {
 		if ss.StoreName != "" {
 			t += ", *"
 		}
-		ret += fmt.Sprintf("    %s %s <%s> %s\n", ss.Name, fmtSize(ss.Size), t, status)
+		ret += fmt.Sprintf("    %s %s <%s> %s\n", ss.Name, storage.PrettySize(ss.Size), t, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
 		return ret
 	}
 
-	ret += fmt.Sprintf("  PITR chunks [%s]:\n", fmtSize(s.PITR.Size))
+	ret += fmt.Sprintf("  PITR chunks [%s]:\n", storage.PrettySize(s.PITR.Size))
 
 	sort.Slice(s.PITR.Ranges, func(i, j int) bool {
 		a, b := s.PITR.Ranges[i], s.PITR.Ranges[j]
