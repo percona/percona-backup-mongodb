@@ -271,7 +271,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		}
 
 		if inf.IsLeader() {
-			err = storage.Initialize(ctx, stg)
+			err = util.Initialize(ctx, stg)
 			if err != nil {
 				return errors.Wrap(err, "init storage")
 			}

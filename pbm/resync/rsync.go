@@ -41,13 +41,13 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) e
 			return errors.Wrap(err, "check read access")
 		}
 
-		err = storage.Initialize(ctx, stg)
+		err = util.Initialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "init storage")
 		}
 	} else {
 		// check write permission and update PBM version
-		err = storage.Reinitialize(ctx, stg)
+		err = util.Reinitialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "reinit storage")
 		}
