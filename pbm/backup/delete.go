@@ -497,6 +497,11 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 	f := bson.D{
 		{"store.profile", nil},
 		{"last_write_ts", bson.M{"$lt": ts}},
+		{"status", bson.M{"$in": bson.A{
+			defs.StatusDone,
+			defs.StatusCancelled,
+			defs.StatusError,
+		}}},
 	}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)
