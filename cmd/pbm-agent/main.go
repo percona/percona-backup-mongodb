@@ -72,6 +72,8 @@ func main() {
 
 	hidecreds()
 
+	fmt.Print(perconaSquadNotice)
+
 	err = runAgent(url, *dumpConns)
 	stdlog.Println("Exit:", err)
 	if err != nil {
