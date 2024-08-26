@@ -249,7 +249,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 }
 
-// getValidCandidates filter out all agents that are not suitable for the backup.
+// getValidCandidates filters out all agents that are not suitable for the backup.
 func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.BackupType) []topo.AgentStat {
 	validCandidates := []topo.AgentStat{}
 	for _, a := range agents {

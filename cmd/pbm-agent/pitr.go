@@ -412,13 +412,15 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+	agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
 	if err != nil {
 		l.Error("get agents list: %v", err)
 		return
 	}
 
-	nodes := prio.CalcNodesPriority(nil, cfgPrio, agents)
+	candidates := a.getValidCandidatesForPITR(agents)
+
+	nodes := prio.CalcNodesPriority(nil, cfgPrio, candidates)
 
 	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 	if err != nil {
@@ -433,7 +435,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	err = a.reconcileReadyStatus(ctx, agents)
+	err = a.reconcileReadyStatus(ctx, candidates)
 	if err != nil {
 		l.Error("reconciling ready status: %v", err)
 		return
@@ -453,6 +455,18 @@ func (a *Agent) leadNomination(
 			}
 		}(sh.RS)
 	}
+}
+
+// getValidCandidatesForPITR filters out all agents that are not suitable for the PITR.
+func (a *Agent) getValidCandidatesForPITR(agents []topo.AgentStat) []topo.AgentStat {
+	validCandidates := []topo.AgentStat{}
+	for _, a := range agents {
+		if a.Arbiter || a.DelaySecs > 0 {
+			continue
+		}
+		validCandidates = append(validCandidates, a)
+	}
+	return validCandidates
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
