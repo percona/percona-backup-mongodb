@@ -165,7 +165,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			}
 		}
 
-		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+		agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
 		if err != nil {
 			l.Error("get agents list: %v", err)
 			return
