@@ -171,14 +171,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			return
 		}
 
-		validCandidates := make([]topo.AgentStat, 0, len(agents))
-		for _, s := range agents {
-			if version.FeatureSupport(s.MongoVersion()).BackupType(cmd.Type) != nil {
-				continue
-			}
-
-			validCandidates = append(validCandidates, s)
-		}
+		validCandidates := a.getValidCandidates(agents, cmd.Type)
 
 		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
 
@@ -254,6 +247,22 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	} else {
 		l.Info("backup finished")
 	}
+}
+
+// getValidCandidates filter out all agents that are not suitable for the backup.
+func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.BackupType) []topo.AgentStat {
+	validCandidates := []topo.AgentStat{}
+	for _, a := range agents {
+		if version.FeatureSupport(a.MongoVersion()).BackupType(backupType) != nil {
+			continue
+		}
+		if a.Arbiter {
+			continue
+		}
+
+		validCandidates = append(validCandidates, a)
+	}
+	return validCandidates
 }
 
 const renominationFrame = 5 * time.Second
