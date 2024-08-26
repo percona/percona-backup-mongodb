@@ -659,7 +659,7 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 			if err := oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusUnset); err != nil {
 				l.Error("error while cleaning cluster status: %v", err)
 			}
-			return errors.New("timeout while roconciling ready status")
+			return errors.New("timeout while reconciling ready status")
 		}
 	}
 }
