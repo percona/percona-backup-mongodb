@@ -192,6 +192,23 @@ func ListAgentStatuses(ctx context.Context, m connect.Client) ([]AgentStat, erro
 	return ListAgents(ctx, m)
 }
 
+// ListSteadyAgents returns agents which are in steady state for backup or pitr.
+func ListSteadyAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
+	agents, err := ListAgentStatuses(ctx, m)
+	if err != nil {
+		return nil, errors.Wrap(err, "listing agents")
+	}
+	steadyAgents := []AgentStat{}
+	for _, a := range agents {
+		if a.State == defs.NodeStatePrimary ||
+			a.State == defs.NodeStateSecondary {
+			steadyAgents = append(steadyAgents, a)
+		}
+	}
+
+	return steadyAgents, nil
+}
+
 func ListAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
 	cur, err := m.AgentsStatusCollection().Find(ctx, bson.D{})
 	if err != nil {
