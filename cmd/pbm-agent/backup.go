@@ -252,16 +252,19 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 // getValidCandidates filters out all agents that are not suitable for the backup.
 func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.BackupType) []topo.AgentStat {
 	validCandidates := []topo.AgentStat{}
-	for _, a := range agents {
-		if version.FeatureSupport(a.MongoVersion()).BackupType(backupType) != nil {
+	for _, agent := range agents {
+		if version.FeatureSupport(agent.MongoVersion()).BackupType(backupType) != nil {
 			continue
 		}
-		if a.Arbiter {
+		if agent.Arbiter || agent.DelaySecs > 0 {
 			continue
 		}
-
-		validCandidates = append(validCandidates, a)
+		if agent.ReplicationLag >= defs.MaxReplicationLagTimeSec {
+			continue
+		}
+		validCandidates = append(validCandidates, agent)
 	}
+
 	return validCandidates
 }
 
