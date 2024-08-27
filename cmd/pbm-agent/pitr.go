@@ -412,13 +412,11 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
+	candidates, err := topo.ListSteadyAgents(ctx, a.leadConn)
 	if err != nil {
 		l.Error("get agents list: %v", err)
 		return
 	}
-
-	candidates := a.getValidCandidatesForPITR(agents)
 
 	nodes := prio.CalcNodesPriority(nil, cfgPrio, candidates)
 
@@ -455,22 +453,6 @@ func (a *Agent) leadNomination(
 			}
 		}(sh.RS)
 	}
-}
-
-// getValidCandidatesForPITR filters out all agents that are not suitable for the PITR.
-func (a *Agent) getValidCandidatesForPITR(agents []topo.AgentStat) []topo.AgentStat {
-	validCandidates := []topo.AgentStat{}
-	for _, agent := range agents {
-		if agent.Arbiter || agent.DelaySecs > 0 {
-			continue
-		}
-		if agent.ReplicationLag >= defs.MaxReplicationLagTimeSec {
-			continue
-		}
-		validCandidates = append(validCandidates, agent)
-	}
-
-	return validCandidates
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {

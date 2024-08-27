@@ -171,9 +171,9 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			return
 		}
 
-		validCandidates := a.getValidCandidates(agents, cmd.Type)
+		candidates := a.getValidCandidates(agents, cmd.Type)
 
-		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
+		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, candidates)
 
 		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 		if err != nil {
@@ -254,12 +254,6 @@ func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.Back
 	validCandidates := []topo.AgentStat{}
 	for _, agent := range agents {
 		if version.FeatureSupport(agent.MongoVersion()).BackupType(backupType) != nil {
-			continue
-		}
-		if agent.Arbiter || agent.DelaySecs > 0 {
-			continue
-		}
-		if agent.ReplicationLag >= defs.MaxReplicationLagTimeSec {
 			continue
 		}
 		validCandidates = append(validCandidates, agent)
