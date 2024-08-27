@@ -460,12 +460,16 @@ func (a *Agent) leadNomination(
 // getValidCandidatesForPITR filters out all agents that are not suitable for the PITR.
 func (a *Agent) getValidCandidatesForPITR(agents []topo.AgentStat) []topo.AgentStat {
 	validCandidates := []topo.AgentStat{}
-	for _, a := range agents {
-		if a.Arbiter || a.DelaySecs > 0 {
+	for _, agent := range agents {
+		if agent.Arbiter || agent.DelaySecs > 0 {
 			continue
 		}
-		validCandidates = append(validCandidates, a)
+		if agent.ReplicationLag >= defs.MaxReplicationLagTimeSec {
+			continue
+		}
+		validCandidates = append(validCandidates, agent)
 	}
+
 	return validCandidates
 }
 
