@@ -412,13 +412,13 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+	candidates, err := topo.ListSteadyAgents(ctx, a.leadConn)
 	if err != nil {
 		l.Error("get agents list: %v", err)
 		return
 	}
 
-	nodes := prio.CalcNodesPriority(nil, cfgPrio, agents)
+	nodes := prio.CalcNodesPriority(nil, cfgPrio, candidates)
 
 	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 	if err != nil {
@@ -433,7 +433,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	err = a.reconcileReadyStatus(ctx, agents)
+	err = a.reconcileReadyStatus(ctx, candidates)
 	if err != nil {
 		l.Error("reconciling ready status: %v", err)
 		return
@@ -645,7 +645,7 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 			if err := oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusUnset); err != nil {
 				l.Error("error while cleaning cluster status: %v", err)
 			}
-			return errors.New("timeout while roconciling ready status")
+			return errors.New("timeout while reconciling ready status")
 		}
 	}
 }

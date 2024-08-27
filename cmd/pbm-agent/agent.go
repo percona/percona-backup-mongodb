@@ -330,6 +330,13 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			} else {
 				hb.State = n.State
 				hb.StateStr = n.StateStr
+
+				rLag, err := topo.ReplicationLag(ctx, a.nodeConn, a.brief.Me)
+				if err != nil {
+					l.Error("get replication lag: %v", err)
+					hb.Err += fmt.Sprintf("get replication lag: %v", err)
+				}
+				hb.ReplicationLag = rLag
 			}
 		}
 

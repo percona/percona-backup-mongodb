@@ -45,6 +45,9 @@ type AgentStat struct {
 	// DelaySecs is the node configured replication delay (lag).
 	DelaySecs int32 `bson:"delay"`
 
+	// Replication lag for mongod.
+	ReplicationLag int `bson:"repl_lag"`
+
 	// AgentVer has the PBM Agent version (looks like `v2.3.4`)
 	AgentVer string `bson:"v"`
 
@@ -190,6 +193,31 @@ func ListAgentStatuses(ctx context.Context, m connect.Client) ([]AgentStat, erro
 	}
 
 	return ListAgents(ctx, m)
+}
+
+// ListSteadyAgents returns agents which are in steady state for backup or PITR.
+func ListSteadyAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
+	agents, err := ListAgentStatuses(ctx, m)
+	if err != nil {
+		return nil, errors.Wrap(err, "listing agents")
+	}
+	steadyAgents := []AgentStat{}
+	for _, a := range agents {
+		if a.State != defs.NodeStatePrimary &&
+			a.State != defs.NodeStateSecondary {
+			continue
+		}
+		if a.Arbiter || a.DelaySecs > 0 {
+			continue
+		}
+		if a.ReplicationLag >= defs.MaxReplicationLagTimeSec {
+			continue
+		}
+
+		steadyAgents = append(steadyAgents, a)
+	}
+
+	return steadyAgents, nil
 }
 
 func ListAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {

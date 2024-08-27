@@ -148,8 +148,6 @@ func collectTopoCheckErrors(
 	return nil
 }
 
-const maxReplicationLagTimeSec = 21
-
 // NodeSuits checks if node can perform backup
 func NodeSuits(ctx context.Context, m *mongo.Client, inf *NodeInfo) (bool, error) {
 	status, err := GetNodeStatus(ctx, m, inf.Me)
@@ -165,7 +163,7 @@ func NodeSuits(ctx context.Context, m *mongo.Client, inf *NodeInfo) (bool, error
 		return false, errors.Wrap(err, "get node replication lag")
 	}
 
-	return replLag < maxReplicationLagTimeSec && status.Health == defs.NodeHealthUp &&
+	return replLag < defs.MaxReplicationLagTimeSec && status.Health == defs.NodeHealthUp &&
 			(status.State == defs.NodeStatePrimary || status.State == defs.NodeStateSecondary),
 		nil
 }
