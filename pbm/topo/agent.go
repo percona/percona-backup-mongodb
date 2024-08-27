@@ -45,6 +45,9 @@ type AgentStat struct {
 	// DelaySecs is the node configured replication delay (lag).
 	DelaySecs int32 `bson:"delay"`
 
+	// Replication lag for mongod.
+	ReplicationLag int `bson:"repl_lag"`
+
 	// AgentVer has the PBM Agent version (looks like `v2.3.4`)
 	AgentVer string `bson:"v"`
 
