@@ -113,10 +113,17 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Info("This node is not the primary. Check pbm agent on the primary for restore progress")
 			return
 		}
+
+		var numParallelColls int
+		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
+			numParallelColls = int(*r.NumParallelColls)
+		}
+
+		rr := restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap, numParallelColls)
 		if r.OplogTS.IsZero() {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).Snapshot(ctx, r, opid, bcp)
+			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, bcp)
+			err = rr.PITR(ctx, r, opid, bcp)
 		}
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
 		if lck != nil {

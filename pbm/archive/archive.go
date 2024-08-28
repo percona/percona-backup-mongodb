@@ -82,10 +82,16 @@ func Decompose(r io.Reader, newWriter NewWriter, nsFilter NSFilterFn, docFilter 
 	return errors.Wrap(err, "metadata")
 }
 
-func Compose(w io.Writer, nsFilter NSFilterFn, newReader NewReader) error {
+func Compose(w io.Writer, newReader NewReader, nsFilter NSFilterFn, concurrency int) error {
 	meta, err := readMetadata(newReader)
 	if err != nil {
 		return errors.Wrap(err, "metadata")
+	}
+
+	if concurrency > 0 {
+		// mongorestore uses this field as a number of
+		// concurrent collections to restore at a moment
+		meta.Header.ConcurrentCollections = int32(concurrency)
 	}
 
 	nss := make([]*Namespace, 0, len(meta.Namespaces))

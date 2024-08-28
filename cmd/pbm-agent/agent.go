@@ -34,7 +34,7 @@ type Agent struct {
 
 	brief topo.NodeBrief
 
-	dumpConns int
+	numParallelColls int
 
 	closeCMD chan struct{}
 	pauseHB  int32
@@ -44,7 +44,12 @@ type Agent struct {
 	monStopSig chan struct{}
 }
 
-func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
+func newAgent(
+	ctx context.Context,
+	leadConn connect.Client,
+	uri string,
+	numParallelColls int,
+) (*Agent, error) {
 	nodeConn, err := connect.MongoConnect(ctx, uri, connect.Direct(true))
 	if err != nil {
 		return nil, err
@@ -72,7 +77,7 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 			ConfigSvr: info.IsConfigSrv(),
 			Version:   mongoVersion,
 		},
-		dumpConns: dumpConns,
+		numParallelColls: numParallelColls,
 	}
 	return a, nil
 }
