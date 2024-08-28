@@ -133,6 +133,7 @@ type BackupCmd struct {
 	Namespaces       []string                 `bson:"nss,omitempty"`
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
+	NumParallelColls *int32                   `bson:"numParallelColls,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`
 	Profile          string                   `bson:"profile,omitempty"`
 }
@@ -153,6 +154,8 @@ type RestoreCmd struct {
 	Namespaces    []string          `bson:"nss,omitempty"`
 	UsersAndRoles bool              `bson:"usersAndRoles,omitempty"`
 	RSMap         map[string]string `bson:"rsMap,omitempty"`
+
+	NumParallelColls *int32 `bson:"numParallelColls,omitempty"`
 
 	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
 

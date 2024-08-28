@@ -32,7 +32,8 @@ func main() {
 			Envar("PBM_MONGODB_URI").
 			Required().
 			String()
-		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").
+		dumpConns = pbmAgentCmd.
+				Flag("dump-parallel-collections", "Number of collections to dump in parallel").
 				Envar("PBM_DUMP_PARALLEL_COLLECTIONS").
 				Default(strconv.Itoa(runtime.NumCPU() / 2)).
 				Int()
