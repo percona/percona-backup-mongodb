@@ -47,7 +47,18 @@ func (c confVals) String() string {
 	return s
 }
 
-func runConfig(ctx context.Context, conn connect.Client, pbm *sdk.Client, c *configOpts) (fmt.Stringer, error) {
+func runConfig(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	c *configOpts,
+) (fmt.Stringer, error) {
+	if len(c.set) != 0 || c.rsync || c.file != "" {
+		if err := checkForAnotherOperation(ctx, pbm); err != nil {
+			return nil, err
+		}
+	}
+
 	switch {
 	case len(c.set) > 0:
 		var o confVals

@@ -102,15 +102,8 @@ func runBackup(
 		return nil, errors.Wrap(err, "backup pre-check")
 	}
 
-	if err := checkConcurrentOp(ctx, conn); err != nil {
-		// PITR slicing can be run along with the backup start - agents will resolve it.
-		var e *concurentOpError
-		if !errors.As(err, &e) {
-			return nil, err
-		}
-		if e.op.Type != ctrl.CmdPITR {
-			return nil, err
-		}
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
 	}
 
 	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
