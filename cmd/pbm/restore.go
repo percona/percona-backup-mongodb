@@ -25,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type restoreOpts struct {
@@ -97,7 +98,13 @@ func (r externRestoreRet) String() string {
 		r.Name, r.Name)
 }
 
-func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
+func runRestore(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	o *restoreOpts,
+	outf outFormat,
+) (fmt.Stringer, error) {
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -113,6 +120,10 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 
 	if o.pitr != "" && o.bcp != "" {
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
+	}
+
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
 	}
 
 	clusterTime, err := topo.GetClusterTime(ctx, conn)
@@ -315,10 +326,6 @@ func doRestore(
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
-	if err != nil {
-		return nil, err
-	}
-	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
 	}

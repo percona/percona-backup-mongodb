@@ -16,10 +16,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -516,9 +514,9 @@ func main() {
 	case descBcpCmd.FullCommand():
 		out, err = describeBackup(ctx, pbm, &descBcp)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, pbm, &restore, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, pbm, replayOpts, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():
@@ -774,56 +772,4 @@ func parseDateT(v string) (time.Time, error) {
 	}
 
 	return time.Time{}, errInvalidFormat
-}
-
-type concurentOpError struct {
-	op *lock.LockHeader
-}
-
-func (e *concurentOpError) Error() string {
-	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
-}
-
-func (e *concurentOpError) As(err any) bool {
-	if err == nil {
-		return false
-	}
-
-	er, ok := err.(*concurentOpError)
-	if !ok {
-		return false
-	}
-
-	er.op = e.op
-	return true
-}
-
-func (e *concurentOpError) MarshalJSON() ([]byte, error) {
-	s := make(map[string]interface{})
-	s["error"] = "another operation in progress"
-	s["operation"] = e.op
-	return json.Marshal(s)
-}
-
-func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
-	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
-	if err != nil {
-		return errors.Wrap(err, "get locks")
-	}
-
-	ts, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-
-	// Stop if there is some live operation.
-	// But in case of stale lock just move on
-	// and leave it for agents to deal with.
-	for _, l := range locks {
-		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
-			return &concurentOpError{&l.LockHeader}
-		}
-	}
-
-	return nil
 }
