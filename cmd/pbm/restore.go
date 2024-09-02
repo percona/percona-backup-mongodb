@@ -532,6 +532,7 @@ type describeRestoreResult struct {
 	Namespaces         []string         `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	StartTS            *int64           `json:"start_ts,omitempty" yaml:"-"`
 	StartTime          *string          `json:"start,omitempty" yaml:"start,omitempty"`
+	FinishTime         *string          `json:"finish,omitempty" yaml:"finish,omitempty"`
 	PITR               *int64           `json:"ts_to_restore,omitempty" yaml:"-"`
 	PITRTime           *string          `json:"time_to_restore,omitempty" yaml:"time_to_restore,omitempty"`
 	LastTransitionTS   int64            `json:"last_transition_ts" yaml:"-"`
@@ -618,6 +619,8 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	res.OPID = meta.OPID
 	res.LastTransitionTS = meta.LastTransitionTS
 	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).UTC().Format(time.RFC3339)
+	res.StartTime = util.Ref(time.Unix(meta.StartTS, 0).UTC().Format(time.RFC3339))
+	res.FinishTime = util.Ref(time.Unix(meta.LastTransitionTS, 0).UTC().Format(time.RFC3339))
 	if meta.Status == defs.StatusError {
 		res.Error = &meta.Error
 	}
