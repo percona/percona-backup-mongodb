@@ -624,15 +624,9 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	if meta.Status == defs.StatusError {
 		res.Error = &meta.Error
 	}
-	if meta.StartPITR != 0 {
-		res.StartTS = &meta.StartPITR
-		s := time.Unix(meta.StartPITR, 0).UTC().Format(time.RFC3339)
-		res.StartTime = &s
-	}
 	if meta.PITR != 0 {
 		res.PITR = &meta.PITR
-		s := time.Unix(meta.PITR, 0).UTC().Format(time.RFC3339)
-		res.PITRTime = &s
+		res.PITRTime = util.Ref(time.Unix(meta.PITR, 0).UTC().Format(time.RFC3339))
 	}
 
 	for _, rs := range meta.Replsets {
