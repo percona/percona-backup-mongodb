@@ -72,6 +72,8 @@ func main() {
 
 	hidecreds()
 
+	fmt.Print(perconaSquadNotice)
+
 	err = runAgent(url, *dumpConns)
 	stdlog.Println("Exit:", err)
 	if err != nil {
@@ -101,8 +103,13 @@ func runAgent(mongoURI string, dumpConns int) error {
 
 	ctx = log.SetLoggerToContext(ctx, logger)
 
+	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {
-		return errors.Wrap(err, "pre-start check")
+		if errors.Is(err, ErrArbiterNode) || errors.Is(err, ErrDelayedNode) {
+			canRunSlicer = false
+		} else {
+			return errors.Wrap(err, "pre-start check")
+		}
 	}
 
 	err = setupNewDB(ctx, agent.leadConn)
@@ -110,7 +117,9 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "setup pbm collections")
 	}
 
-	go agent.PITR(ctx)
+	if canRunSlicer {
+		go agent.PITR(ctx)
+	}
 	go agent.HbStatus(ctx)
 
 	return errors.Wrap(agent.Start(ctx), "listen the commands stream")

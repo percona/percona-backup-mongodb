@@ -1,6 +1,10 @@
 package defs
 
-import "time"
+import (
+	"time"
+
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
+)
 
 const (
 	// DB is a name of the PBM database
@@ -24,6 +28,8 @@ const (
 	CmdStreamCollection = "pbmCmd"
 	// PITRChunksCollection contains index metadata of PITR chunks
 	PITRChunksCollection = "pbmPITRChunks"
+	// pbmPITR is a collection for PITR operational data
+	PITRCollection = "pbmPITR"
 	// PBMOpLogCollection contains log of acquired locks (hence run ops)
 	PBMOpLogCollection = "pbmOpLog"
 	// AgentsStatusCollection is an agents registry with its status/health checks
@@ -57,11 +63,13 @@ const (
 
 type NodeState int
 
+// https://github.com/mongodb/mongo/blob/v8.0/src/mongo/db/repl/member_state.h#L52-L109
 const (
 	NodeStateStartup NodeState = iota
 	NodeStatePrimary
 	NodeStateSecondary
 	NodeStateRecovering
+	_NodeStateRSFatal // mongo::repl::MemberState::MS::OBSOLETE_RS_FATAL
 	NodeStateStartup2
 	NodeStateUnknown
 	NodeStateArbiter
@@ -128,6 +136,8 @@ const (
 
 const StaleFrameSec uint32 = 30
 
+const MaxReplicationLagTimeSec = 21
+
 const (
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"
@@ -139,8 +149,10 @@ const (
 )
 
 const (
-	// PITRdefaultSpan oplog slicing time span
-	PITRdefaultSpan = time.Minute * 10
+	// DefaultPITRInterval oplog slicing time span
+	DefaultPITRInterval = time.Minute * 10
 	// PITRfsPrefix is a prefix (folder) for PITR chunks on the storage
 	PITRfsPrefix = "pbmPitr"
 )
+
+const DefaultCompression = compress.CompressionTypeS2

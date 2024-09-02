@@ -10,6 +10,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 // ReplsetRole is a replicaset role in sharded cluster
@@ -19,6 +20,16 @@ const (
 	RoleUnknown   ReplsetRole = "unknown"
 	RoleShard     ReplsetRole = "shard"
 	RoleConfigSrv ReplsetRole = "configsrv"
+)
+
+type NodeRole string
+
+const (
+	RolePrimary   NodeRole = "P"
+	RoleSecondary NodeRole = "S"
+	RoleArbiter   NodeRole = "A"
+	RoleHidden    NodeRole = "H"
+	RoleDelayed   NodeRole = "D"
 )
 
 type OpTime struct {
@@ -47,9 +58,12 @@ type ConfigServerState struct {
 }
 
 type NodeBrief struct {
-	URI     string
-	SetName string
-	Me      string
+	URI       string
+	SetName   string
+	Me        string
+	Sharded   bool
+	ConfigSvr bool
+	Version   version.MongoVersion
 }
 
 // NodeInfo represents the mongo's node info
@@ -72,8 +86,8 @@ type NodeInfo struct {
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	Passive                      bool                 `bson:"passive,omitempty"`
 	ArbiterOnly                  bool                 `bson:"arbiterOnly"`
-	SecondaryDelayOld            int                  `bson:"slaveDelay"`
-	SecondaryDelaySecs           int                  `bson:"secondaryDelaySecs"`
+	SecondaryDelayOld            int32                `bson:"slaveDelay"`
+	SecondaryDelaySecs           int32                `bson:"secondaryDelaySecs"`
 	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
 	Me                           string               `bson:"me"`
 	LastWrite                    MongoLastWrite       `bson:"lastWrite"`
@@ -81,6 +95,10 @@ type NodeInfo struct {
 	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
 	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
 	Opts                         MongodOpts           `bson:"-"`
+}
+
+func (i *NodeInfo) IsDelayed() bool {
+	return i.SecondaryDelayOld != 0 || i.SecondaryDelaySecs != 0
 }
 
 // IsSharded returns true is replset is part sharded cluster
@@ -272,6 +290,23 @@ type RSMember struct {
 	SecondaryDelayOld  int64             `bson:"slaveDelay,omitempty"`
 	SecondaryDelaySecs int64             `bson:"secondaryDelaySecs,omitempty"`
 	Votes              int               `bson:"votes" json:"votes"`
+}
+
+func (m *RSMember) IsDelayed() bool {
+	return m.SecondaryDelayOld != 0 || m.SecondaryDelaySecs != 0
+}
+
+func (m *RSMember) Role() NodeRole {
+	switch {
+	case m.ArbiterOnly:
+		return RoleArbiter
+	case m.IsDelayed():
+		return RoleDelayed
+	case m.Hidden:
+		return RoleHidden
+	}
+
+	return ""
 }
 
 func GetReplSetConfig(ctx context.Context, m *mongo.Client) (*RSConfig, error) {

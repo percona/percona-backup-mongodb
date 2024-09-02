@@ -7,18 +7,34 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
-// Shard represent config.shard https://docs.mongodb.com/manual/reference/config-database/#config.shards
-// _id may differ from the rs name, so extract rs name from the host (format like "rs2/localhost:27017")
-// see https://jira.percona.com/browse/PBM-595
+// Shard represent a config.shard document.
+//
+// https://docs.mongodb.com/manual/reference/config-database/#config.shards
 type Shard struct {
-	ID   string `bson:"_id"`
-	RS   string `bson:"-"`
+	// ID is the shard ID.
+	//
+	// Usual it is the same as replset name. Except for configsvr - it is always `config`.
+	// Can be customized by name param in `addShard` command.
+	//
+	// https://www.mongodb.com/docs/manual/reference/command/addShard/
+	ID string `bson:"_id"`
+
+	// RS is the replset name.
+	RS string `bson:"-"`
+
+	// Host is a node URI.
+	//
+	// Looks like `rs0/rs00:27018` where
+	// - `rs0` is a replset name
+	// - `rs00` is a hostname or IP
+	// - `27018` is a port
 	Host string `bson:"host"`
 }
 
@@ -93,9 +109,10 @@ func IsWriteMajorityRequested(
 	return w >= s.WriteMajorityCount, nil
 }
 
-// ClusterMembers returns list of replicasets current cluster consists of
-// (shards + configserver). The list would consist of on rs if cluster is
-// a non-sharded rs.
+// ClusterMembers returns list of replsets in the cluster.
+//
+// For sharded cluster: configsvr (with `config` id) and all shards.
+// For non-sharded cluster: the replset.
 func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 	// it would be a config server in sharded cluster
 	inf, err := GetNodeInfo(ctx, m)
@@ -211,4 +228,28 @@ func GetBalancerStatus(ctx context.Context, m connect.Client) (*BalancerStatus, 
 		return nil, errors.Wrap(err, "run mongo command")
 	}
 	return inf, nil
+}
+
+func ListShardedTimeseries(ctx context.Context, conn connect.Client) ([]string, error) {
+	cur, err := conn.MongoClient().
+		Database("config").Collection("collections").
+		Find(ctx,
+			bson.D{{"timeseriesFields", bson.M{"$exists": 1}}},
+			options.Find().SetProjection(bson.D{{"_id", 1}}))
+	if err != nil {
+		return nil, errors.Wrap(err, "find")
+	}
+	defer cur.Close(ctx)
+
+	nss := []string{}
+	for cur.Next(ctx) {
+		ns, _ := cur.Current.Lookup("_id").StringValueOK()
+		db, coll, _ := strings.Cut(ns, ".system.buckets.")
+		nss = append(nss, db+"."+coll)
+	}
+	if err := cur.Err(); err != nil {
+		return nil, errors.Wrap(err, "cursor")
+	}
+
+	return nss, nil
 }

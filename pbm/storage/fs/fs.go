@@ -11,12 +11,43 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-type Conf struct {
+type RetryableError struct {
+	Err error
+}
+
+func (e *RetryableError) Error() string {
+	return e.Err.Error()
+}
+
+func IsRetryableError(err error) bool {
+	var e *RetryableError
+	return errors.As(err, &e)
+}
+
+const tmpFileSuffix = ".tmp"
+
+type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
 
-func (c *Conf) Cast() error {
-	if c.Path == "" {
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	return &Config{Path: cfg.Path}
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	return cfg.Path == other.Path
+}
+
+func (cfg *Config) Cast() error {
+	if cfg.Path == "" {
 		return errors.New("path can't be empty")
 	}
 
@@ -27,7 +58,7 @@ type FS struct {
 	root string
 }
 
-func New(opts Conf) (*FS, error) {
+func New(opts *Config) (*FS, error) {
 	info, err := os.Lstat(opts.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -63,10 +94,11 @@ func (*FS) Type() storage.Type {
 	return storage.Filesystem
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
-	filepath := path.Join(fs.root, name)
+//nolint:nonamedreturns
+func writeSync(finalpath string, data io.Reader) (err error) {
+	filepath := finalpath + tmpFileSuffix
 
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
+	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -75,7 +107,20 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 	if err != nil {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
-	defer fw.Close()
+	defer func() {
+		if err != nil {
+			if fw != nil {
+				fw.Close()
+			}
+
+			if os.IsNotExist(err) {
+				err = &RetryableError{Err: err}
+			} else {
+				os.Remove(filepath)
+			}
+
+		}
+	}()
 
 	err = os.Chmod(filepath, 0o644)
 	if err != nil {
@@ -87,7 +132,27 @@ func (fs *FS) Save(name string, data io.Reader, _ int64) error {
 		return errors.Wrapf(err, "copy file <%s>", filepath)
 	}
 
-	return errors.Wrap(fw.Sync(), "write to file")
+	err = fw.Sync()
+	if err != nil {
+		return errors.Wrapf(err, "sync file <%s>", filepath)
+	}
+
+	err = fw.Close()
+	if err != nil {
+		return errors.Wrapf(err, "close file <%s>", filepath)
+	}
+	fw = nil
+
+	err = os.Rename(filepath, finalpath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+	return writeSync(path.Join(fs.root, name), data)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -143,6 +208,11 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		if f[0] == '/' {
 			f = f[1:]
 		}
+
+		// ignore temp file unless it is not requested explicitly
+		if suffix == "" && strings.HasSuffix(f, tmpFileSuffix) {
+			return nil
+		}
 		if strings.HasSuffix(f, suffix) {
 			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
 		}
@@ -158,18 +228,7 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	destFilename := path.Join(fs.root, dst)
-	err = os.MkdirAll(path.Dir(destFilename), os.ModeDir|0o755)
-	if err != nil {
-		return errors.Wrap(err, "create dst dir")
-	}
-
-	to, err := os.Create(destFilename)
-	if err != nil {
-		return errors.Wrap(err, "create dst")
-	}
-	_, err = io.Copy(to, from)
-	return err
+	return writeSync(path.Join(fs.root, dst), from)
 }
 
 // Delete deletes given file from FS.

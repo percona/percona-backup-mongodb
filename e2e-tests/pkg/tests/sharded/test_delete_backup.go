@@ -4,15 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
-	"gopkg.in/yaml.v2"
-
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -165,58 +160,33 @@ func (c *Cluster) BackupDelete(storage string) {
 	checkData()
 }
 
-const awsurl = "s3.amazonaws.com"
-
 // checkArtefacts checks if all backups artifacts removed
 // except for the shouldStay
 func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	log.Println("check all artifacts deleted excepts backup's", shouldStay)
-	buf, err := os.ReadFile(conf)
+
+	files, err := listAllFiles(conf)
 	if err != nil {
-		log.Fatalln("ERROR: unable to read config file:", err)
+		log.Fatalln("ERROR: list files:", err)
 	}
 
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("ERROR: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("ERROR: parse EndpointURL:", err)
-		}
-		endopintURL = eu.Host
-	}
-
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
-	if err != nil {
-		log.Fatalln("ERROR: NewWithRegion:", err)
-	}
-
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if strings.Contains(object.Key, defs.StorInitFile) || strings.Contains(object.Key, "/pbmPitr/") {
+	for _, file := range files {
+		if strings.Contains(file.Name, defs.StorInitFile) {
 			continue
 		}
-		if object.Err != nil {
-			fmt.Println("ERROR: ListObjects: ", object.Err)
+		if strings.Contains(file.Name, defs.PITRfsPrefix) {
 			continue
 		}
 
 		var ok bool
 		for b := range shouldStay {
-			if strings.Contains(object.Key, b) {
+			if strings.Contains(file.Name, b) {
 				ok = true
 				break
 			}
 		}
 		if !ok {
-			log.Fatalln("ERROR: failed to delete lefover", object.Key)
+			log.Fatalln("ERROR: failed to delete lefover", file.Name)
 		}
 	}
 }

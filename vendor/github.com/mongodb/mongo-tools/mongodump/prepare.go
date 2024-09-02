@@ -24,7 +24,6 @@ import (
 	"github.com/mongodb/mongo-tools/common/intents"
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/util"
-
 	"golang.org/x/exp/slices"
 )
 
@@ -223,6 +222,7 @@ func (dump *MongoDump) outputPath(dbName, colName string) string {
 	escapedColName := util.EscapeCollectionName(colName)
 	if len(escapedColName) > 238 {
 		colNameTruncated := escapedColName[:208]
+		// #nosec G401 -- we do not use this digest algorithm in a security-sensitive way.
 		colNameHashBytes := sha1.Sum([]byte(colName))
 		colNameHashBase64 := base64.RawURLEncoding.EncodeToString(colNameHashBytes[:])
 

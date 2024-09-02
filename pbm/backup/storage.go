@@ -24,11 +24,11 @@ type StorageManager interface {
 }
 
 type storageManagerImpl struct {
-	cfg config.StorageConf
+	cfg *config.StorageConf
 	stg storage.Storage
 }
 
-func NewStorageManager(ctx context.Context, cfg config.StorageConf) (*storageManagerImpl, error) {
+func NewStorageManager(ctx context.Context, cfg *config.StorageConf) (*storageManagerImpl, error) {
 	stg, err := util.StorageFromConfig(cfg, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backup store")
@@ -259,14 +259,20 @@ func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
 				return errors.Wrapf(err, "delete %s", fname)
 			}
 		}
+		if version.HasFilelistFile(meta.PBMVersion) {
+			err := stg.Delete(path.Join(meta.Name, r.Name, FilelistName))
+			if err != nil && !errors.Is(err, storage.ErrNotExist) {
+				return errors.Wrapf(err, "delete %s", path.Join(meta.Name, r.Name, FilelistName))
+			}
+		}
 	}
 
 	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
-	if errors.Is(err, storage.ErrNotExist) {
-		return nil
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+		return errors.Wrap(err, "delete metadata file from storage")
 	}
 
-	return errors.Wrap(err, "delete metadata file from storage")
+	return nil
 }
 
 // deleteLogicalBackupFiles removes backup's artifacts from storage
@@ -320,9 +326,9 @@ func deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error
 	}
 
 	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
-	if errors.Is(err, storage.ErrNotExist) {
-		return nil
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+		return errors.Wrap(err, "delete metadata file from storage")
 	}
 
-	return errors.Wrap(err, "delete metadata file from storage")
+	return nil
 }

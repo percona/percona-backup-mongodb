@@ -15,7 +15,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -37,6 +36,12 @@ func (b *Backup) doLogical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
+	if b.brief.ConfigSvr {
+		if err := b.checkForTimeseries(ctx, bcp.Namespaces); err != nil {
+			return errors.Wrap(err, "check for timeseries")
+		}
+	}
+
 	var db, coll string
 	if util.IsSelective(bcp.Namespaces) {
 		// for selective backup, configsvr does not hold any data.
@@ -67,7 +72,8 @@ func (b *Backup) doLogical(
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusRunning, ref(b.timeouts.StartingStatus()))
+		err := b.reconcileStatus(ctx,
+			bcp.Name, opid.String(), defs.StatusRunning, util.Ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -135,11 +141,6 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	cfg, err := config.GetConfig(ctx, b.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
 	if inf.IsConfigSrv() && util.IsSelective(bcp.Namespaces) {
@@ -155,7 +156,7 @@ func (b *Backup) doLogical(
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(cfg.Storage, l)
+			stg, err := util.StorageFromConfig(&b.config.Storage, l)
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}
@@ -445,4 +446,33 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 
 	err = eg.Wait()
 	return rv, err
+}
+
+func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
+	if !b.brief.Version.IsShardedTimeseriesSupported() || !b.brief.Sharded {
+		return nil
+	}
+
+	tss, err := topo.ListShardedTimeseries(ctx, b.leadConn)
+	if err != nil {
+		return errors.Wrap(err, "list sharded timeseries")
+	}
+
+	if util.IsSelective(nss) {
+		selected := util.MakeSelectedPred(nss)
+		origTSs := tss
+		tss = make([]string, 0, len(tss))
+		for _, ts := range origTSs {
+			if selected(ts) {
+				tss = append(tss, ts)
+			}
+		}
+	}
+
+	if len(tss) != 0 {
+		return errors.Errorf("cannot backup following sharded timeseries: %s",
+			strings.Join(tss, ", "))
+	}
+
+	return nil
 }

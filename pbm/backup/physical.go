@@ -25,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 const cursorCreateRetries = 10
@@ -231,6 +232,11 @@ func (b *Backup) doPhysical(
 				}
 			}
 
+			if !b.config.Storage.Equal(&src.Store.StorageConf) {
+				return errors.New("cannot use the configured storage: " +
+					"source backup is stored on a different storage")
+			}
+
 			// realSrcID is actual thisBackupName of the replset
 			var realSrcID string
 			for _, rs := range src.Replsets {
@@ -306,7 +312,8 @@ func (b *Backup) doPhysical(
 	}
 
 	if inf.IsLeader() {
-		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusRunning, ref(b.timeouts.StartingStatus()))
+		err := b.reconcileStatus(ctx,
+			bcp.Name, opid.String(), defs.StatusRunning, util.Ref(b.timeouts.StartingStatus()))
 		if err != nil {
 			if errors.Is(err, errConvergeTimeOut) {
 				return errors.Wrap(err, "couldn't get response from all shards")
@@ -517,7 +524,7 @@ func (b *Backup) uploadPhysical(
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
-	l.Info("uploaded: %q %s", filelistPath, fmtSize(flSize))
+	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
 	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
 	if err != nil {
@@ -683,7 +690,6 @@ func writeFile(
 		}
 		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
 	}
-	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
 	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
@@ -703,28 +709,4 @@ func writeFile(
 		Off:     src.Off,
 		Len:     src.Len,
 	}, nil
-}
-
-func fmtSize(size int64) string {
-	const (
-		_          = iota
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
-
-	s := float64(size)
-
-	switch {
-	case s >= TB:
-		return fmt.Sprintf("%.2fTB", s/TB)
-	case s >= GB:
-		return fmt.Sprintf("%.2fGB", s/GB)
-	case s >= MB:
-		return fmt.Sprintf("%.2fMB", s/MB)
-	case s >= KB:
-		return fmt.Sprintf("%.2fKB", s/KB)
-	}
-	return fmt.Sprintf("%.2fB", s)
 }

@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -93,7 +94,11 @@ func (e *Entries) SetLocation(l string) error {
 }
 
 func (e Entries) MarshalJSON() ([]byte, error) {
-	return json.Marshal(e.Data)
+	data := e.Data
+	if data == nil {
+		data = []Entry{}
+	}
+	return json.Marshal(data)
 }
 
 func (e Entries) String() string {
@@ -181,9 +186,31 @@ func fetch(
 	return e, nil
 }
 
+func CommandLastError(ctx context.Context, cc connect.Client, cid string) (string, error) {
+	filter := buildLogFilter(&LogRequest{LogKeys: LogKeys{OPID: cid, Severity: Error}}, false)
+	opts := options.FindOne().
+		SetSort(bson.D{{"$natural", -1}}).
+		SetProjection(bson.D{{"msg", 1}})
+	res := cc.LogCollection().FindOne(ctx, filter, opts)
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", nil
+		}
+		return "", errors.Wrap(err, "find one")
+	}
+
+	l := Entry{}
+	err := res.Decode(&l)
+	if err != nil {
+		return "", errors.Wrap(err, "message decode")
+	}
+
+	return l.Msg, nil
+}
+
 func Follow(
 	ctx context.Context,
-	cc connect.Client,
+	conn connect.Client,
 	r *LogRequest,
 	exactSeverity bool,
 ) (<-chan *Entry, <-chan error) {
@@ -196,7 +223,7 @@ func Follow(
 
 		opt := options.Find().SetCursorType(options.TailableAwait)
 
-		cur, err := cc.LogCollection().Find(ctx, filter, opt)
+		cur, err := conn.LogCollection().Find(ctx, filter, opt)
 		if err != nil {
 			errC <- errors.Wrap(err, "query")
 			return

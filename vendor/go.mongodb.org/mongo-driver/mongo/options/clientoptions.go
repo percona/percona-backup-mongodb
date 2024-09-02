@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -237,7 +238,6 @@ type ClientOptions struct {
 	ZstdLevel                *int
 
 	err error
-	uri string
 	cs  *connstring.ConnString
 
 	// AuthenticateToAnything skips server type checks when deciding if authentication is possible.
@@ -338,7 +338,10 @@ func (c *ClientOptions) validate() error {
 // GetURI returns the original URI used to configure the ClientOptions instance. If ApplyURI was not called during
 // construction, this returns "".
 func (c *ClientOptions) GetURI() string {
-	return c.uri
+	if c.cs == nil {
+		return ""
+	}
+	return c.cs.Original
 }
 
 // ApplyURI parses the given URI and sets options accordingly. The URI can contain host names, IPv4/IPv6 literals, or
@@ -360,13 +363,12 @@ func (c *ClientOptions) ApplyURI(uri string) *ClientOptions {
 		return c
 	}
 
-	c.uri = uri
 	cs, err := connstring.ParseAndValidate(uri)
 	if err != nil {
 		c.err = err
 		return c
 	}
-	c.cs = &cs
+	c.cs = cs
 
 	if cs.AppName != "" {
 		c.AppName = &cs.AppName
@@ -1134,9 +1136,6 @@ func MergeClientOptions(opts ...*ClientOptions) *ClientOptions {
 		if opt.err != nil {
 			c.err = opt.err
 		}
-		if opt.uri != "" {
-			c.uri = opt.uri
-		}
 		if opt.cs != nil {
 			c.cs = opt.cs
 		}
@@ -1179,7 +1178,19 @@ func addClientCertFromSeparateFiles(cfg *tls.Config, keyFile, certFile, keyPassw
 		return "", err
 	}
 
-	data := make([]byte, 0, len(keyData)+len(certData)+1)
+	keySize := len(keyData)
+	if keySize > 64*1024*1024 {
+		return "", errors.New("X.509 key must be less than 64 MiB")
+	}
+	certSize := len(certData)
+	if certSize > 64*1024*1024 {
+		return "", errors.New("X.509 certificate must be less than 64 MiB")
+	}
+	dataSize := keySize + certSize + 1
+	if dataSize > math.MaxInt {
+		return "", errors.New("size overflow")
+	}
+	data := make([]byte, 0, dataSize)
 	data = append(data, keyData...)
 	data = append(data, '\n')
 	data = append(data, certData...)

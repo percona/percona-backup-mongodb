@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,6 +32,7 @@ type restoreOpts struct {
 	pitr          string
 	pitrBase      string
 	wait          bool
+	waitTime      time.Duration
 	extern        bool
 	ns            string
 	usersAndRoles bool
@@ -103,7 +103,7 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
-		return nil, errors.Wrap(err, "parse --with-users-and-roles-option")
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -141,6 +141,12 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		}, nil
 	}
 
+	if o.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.waitTime)
+		defer cancel()
+	}
+
 	typ := " logical restore.\nWaiting to finish"
 	if m.Type == defs.PhysicalBackup {
 		typ = " physical restore.\nWaiting to finish"
@@ -157,6 +163,9 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 
 	if errors.Is(err, restoreFailedError{}) {
 		return restoreRet{err: err.Error()}, nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
 	}
 	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
 }
@@ -395,16 +404,15 @@ func doRestore(
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
 		ep, _ := config.GetEpoch(ctx, conn)
-		logger := log.FromContext(ctx)
-		l := logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
+
 		stg, err := util.GetStorage(ctx, conn, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
 		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
-			return restore.GetPhysRestoreMeta(name, stg,
-				logger.NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS()))
+			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
@@ -420,11 +428,10 @@ func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
 	}
 
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
-	return outMsg{"Command sent. Check `pbm describe-restore ...` for the result."},
-		stg.Save(path+"."+string(defs.StatusCopyDone),
-			bytes.NewReader([]byte(
-				fmt.Sprintf("%d", time.Now().Unix()),
-			)), -1)
+	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
+	err = stg.Save(path+"."+string(defs.StatusCopyDone),
+		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
+	return msg, err
 }
 
 func parseTS(t string) (primitive.Timestamp, error) {
@@ -573,7 +580,7 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(cfg.Storage, l)
+	return util.StorageFromConfig(&cfg.Storage, l)
 }
 
 func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {

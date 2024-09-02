@@ -32,11 +32,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        psmdb: ["4.4", "5.0", "6.0", "7.0"]
+        psmdb: ["5.0", "6.0", "7.0"]
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
-      GO_VER: ${{ github.event.inputs.go_ver || 'bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || '1.22-bullseye' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
 
     steps:

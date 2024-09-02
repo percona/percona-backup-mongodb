@@ -190,7 +190,7 @@ type partReader struct {
 
 	getSess func() (*s3.S3, error)
 	l       log.LogEvent
-	opts    *Conf
+	opts    *Config
 	buf     []byte // preallocated buf for io.Copy
 
 	taskq   chan chunkMeta
@@ -203,7 +203,7 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader
 	return &partReader{
 		l:         s.log,
 		buf:       make([]byte, 32*1024),
-		opts:      &s.opts,
+		opts:      s.opts,
 		fname:     fname,
 		fsize:     fsize,
 		chunkSize: int64(chunkSize),
@@ -448,10 +448,11 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
-		var er awserr.RequestFailure
-		if errors.As(err, &er) && er.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
+		rerr, ok := err.(awserr.RequestFailure) //nolint:errorlint
+		if ok && rerr.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
 			return nil, io.EOF
 		}
+
 		pr.l.Warning("errGetObj Err: %v", err)
 		return nil, getObjError{err}
 	}

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +18,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/resync"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -30,19 +29,19 @@ type Agent struct {
 	nodeConn *mongo.Client
 	bcp      *currentBackup
 	pitrjob  *currentPitr
-	mx       sync.Mutex
+	slicerMx sync.Mutex
+	bcpMx    sync.Mutex
 
 	brief topo.NodeBrief
-
-	mongoVersion version.MongoVersion
 
 	dumpConns int
 
 	closeCMD chan struct{}
 	pauseHB  int32
 
-	// prevOO is previous pitr.oplogOnly value
-	prevOO *bool
+	monMx sync.Mutex
+	// signal for stopping pitr monitor jobs and flag that jobs are started/stopped
+	monStopSig chan struct{}
 }
 
 func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
@@ -66,24 +65,43 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 		closeCMD: make(chan struct{}),
 		nodeConn: nodeConn,
 		brief: topo.NodeBrief{
-			URI:     uri,
-			SetName: info.SetName,
-			Me:      info.Me,
+			URI:       uri,
+			SetName:   info.SetName,
+			Me:        info.Me,
+			Sharded:   info.IsSharded(),
+			ConfigSvr: info.IsConfigSrv(),
+			Version:   mongoVersion,
 		},
-		mongoVersion: mongoVersion,
-		dumpConns:    dumpConns,
+		dumpConns: dumpConns,
 	}
 	return a, nil
 }
 
+var (
+	ErrArbiterNode = errors.New("arbiter")
+	ErrDelayedNode = errors.New("delayed")
+)
+
 func (a *Agent) CanStart(ctx context.Context) error {
-	info, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	info, err := topo.GetNodeInfo(ctx, a.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get node info")
 	}
 
+	if info.IsStandalone() {
+		return errors.New("mongod node can not be used to fetch a consistent " +
+			"backup because it has no oplog. Please restart it as a primary " +
+			"in a single-node replicaset to make it compatible with PBM's " +
+			"backup method using the oplog")
+	}
 	if info.Msg == "isdbgrid" {
 		return errors.New("mongos is not supported")
+	}
+	if info.ArbiterOnly {
+		return ErrArbiterNode
+	}
+	if info.IsDelayed() {
+		return ErrDelayedNode
 	}
 
 	ver, err := version.GetMongoVersion(ctx, a.leadConn.MongoClient())
@@ -93,6 +111,20 @@ func (a *Agent) CanStart(ctx context.Context) error {
 	if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
 		log.FromContext(ctx).
 			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
+	}
+
+	if ver.IsShardedTimeseriesSupported() {
+		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
+		if err != nil {
+			log.FromContext(ctx).
+				Error("", "", "", primitive.Timestamp{},
+					"failed to list sharded timeseries: %v", err)
+		} else if len(tss) != 0 {
+			log.FromContext(ctx).
+				Warning("", "", "", primitive.Timestamp{},
+					"WARNING: cannot backup following sharded timeseries: %s",
+					strings.Join(tss, ", "))
+		}
 	}
 
 	return nil
@@ -139,8 +171,12 @@ func (a *Agent) Start(ctx context.Context) error {
 				a.Restore(ctx, cmd.Restore, cmd.OPID, ep)
 			case ctrl.CmdReplay:
 				a.OplogReplay(ctx, cmd.Replay, cmd.OPID, ep)
+			case ctrl.CmdAddConfigProfile:
+				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+			case ctrl.CmdRemoveConfigProfile:
+				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdResync:
-				a.Resync(ctx, cmd.OPID, ep)
+				a.Resync(ctx, cmd.Resync, cmd.OPID, ep)
 			case ctrl.CmdDeleteBackup:
 				a.Delete(ctx, cmd.Delete, cmd.OPID, ep)
 			case ctrl.CmdDeletePITR:
@@ -162,68 +198,6 @@ func (a *Agent) Start(ctx context.Context) error {
 			logger.Error("", "", "", ep.TS(), "listening commands: %v", err)
 		}
 	}
-}
-
-// Resync uploads a backup list from the remote store
-func (a *Agent) Resync(ctx context.Context, opid ctrl.OPID, ep config.Epoch) {
-	logger := log.FromContext(ctx)
-	l := logger.NewEvent(string(ctrl.CmdResync), "", opid.String(), ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
-
-	a.HbResume()
-	logger.ResumeMgo()
-
-	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
-	if err != nil {
-		l.Error("get node info data: %v", err)
-		return
-	}
-
-	if !nodeInfo.IsLeader() {
-		l.Info("not a member of the leader rs")
-		return
-	}
-
-	epts := ep.TS()
-	lock := lock.NewLock(a.leadConn, lock.LockHeader{
-		Type:    ctrl.CmdResync,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
-		OPID:    opid.String(),
-		Epoch:   &epts,
-	})
-
-	got, err := a.acquireLock(ctx, lock, l)
-	if err != nil {
-		l.Error("acquiring lock: %v", err)
-		return
-	}
-	if !got {
-		l.Debug("lock not acquired")
-		return
-	}
-
-	defer func() {
-		if err := lock.Release(); err != nil {
-			l.Error("release lock %v: %v", lock, err)
-		}
-	}()
-
-	l.Info("started")
-	err = resync.ResyncStorage(ctx, a.leadConn, l)
-	if err != nil {
-		l.Error("%v", err)
-		return
-	}
-	l.Info("succeed")
-
-	epch, err := config.ResetEpoch(ctx, a.leadConn)
-	if err != nil {
-		l.Error("reset epoch: %v", err)
-		return
-	}
-
-	l.Debug("epoch set to %v", epch)
 }
 
 // acquireLock tries to acquire the lock. If there is a stale lock
@@ -325,22 +299,10 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		}
 
 		hb.Err = ""
-
-		hb.State = defs.NodeStateUnknown
-		hb.StateStr = "unknown"
-		n, err := topo.GetNodeStatus(ctx, a.nodeConn, a.brief.Me)
-		if err != nil {
-			l.Error("get replSetGetStatus: %v", err)
-			hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
-		} else {
-			hb.State = n.State
-			hb.StateStr = n.StateStr
-		}
-
 		hb.Hidden = false
 		hb.Passive = false
 
-		inf, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+		inf, err := topo.GetNodeInfo(ctx, a.nodeConn)
 		if err != nil {
 			l.Error("get NodeInfo: %v", err)
 			hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
@@ -348,6 +310,34 @@ func (a *Agent) HbStatus(ctx context.Context) {
 			hb.Hidden = inf.Hidden
 			hb.Passive = inf.Passive
 			hb.Arbiter = inf.ArbiterOnly
+			if inf.SecondaryDelayOld != 0 {
+				hb.DelaySecs = inf.SecondaryDelayOld
+			} else {
+				hb.DelaySecs = inf.SecondaryDelaySecs
+			}
+		}
+
+		if inf != nil && inf.ArbiterOnly {
+			hb.State = defs.NodeStateArbiter
+			hb.StateStr = "ARBITER"
+		} else {
+			n, err := topo.GetNodeStatus(ctx, a.nodeConn, a.brief.Me)
+			if err != nil {
+				l.Error("get replSetGetStatus: %v", err)
+				hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
+				hb.State = defs.NodeStateUnknown
+				hb.StateStr = "UNKNOWN"
+			} else {
+				hb.State = n.State
+				hb.StateStr = n.StateStr
+
+				rLag, err := topo.ReplicationLag(ctx, a.nodeConn, a.brief.Me)
+				if err != nil {
+					l.Error("get replication lag: %v", err)
+					hb.Err += fmt.Sprintf("get replication lag: %v", err)
+				}
+				hb.ReplicationLag = rLag
+			}
 		}
 
 		err = topo.SetAgentStatus(ctx, a.leadConn, hb)
@@ -391,16 +381,13 @@ func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStor
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err := stg.Save(defs.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
-		if err != nil {
-			return topo.SubsysStatus{
-				Err: fmt.Sprintf("storage: no init file, attempt to create failed: %v", err),
-			}
-		}
-	} else if err != nil {
-		return topo.SubsysStatus{Err: fmt.Sprintf("storage check failed with: %v", err)}
+	ok, err := storage.IsInitialized(ctx, stg)
+	if err != nil {
+		errStr := fmt.Sprintf("storage check failed with: %v", err)
+		return topo.SubsysStatus{Err: errStr}
+	}
+	if !ok {
+		log.Warning("storage is not initialized")
 	}
 
 	return topo.SubsysStatus{OK: true}

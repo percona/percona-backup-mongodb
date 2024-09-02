@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -16,20 +17,26 @@ import (
 type Command string
 
 const (
-	CmdUndefined    Command = ""
-	CmdBackup       Command = "backup"
-	CmdRestore      Command = "restore"
-	CmdReplay       Command = "replay"
-	CmdCancelBackup Command = "cancelBackup"
-	CmdResync       Command = "resync"
-	CmdPITR         Command = "pitr"
-	CmdDeleteBackup Command = "delete"
-	CmdDeletePITR   Command = "deletePitr"
-	CmdCleanup      Command = "cleanup"
+	CmdUndefined           Command = ""
+	CmdAddConfigProfile    Command = "addConfigProfile"
+	CmdRemoveConfigProfile Command = "removeConfigProfile"
+	CmdBackup              Command = "backup"
+	CmdRestore             Command = "restore"
+	CmdReplay              Command = "replay"
+	CmdCancelBackup        Command = "cancelBackup"
+	CmdResync              Command = "resync"
+	CmdPITR                Command = "pitr"
+	CmdDeleteBackup        Command = "delete"
+	CmdDeletePITR          Command = "deletePitr"
+	CmdCleanup             Command = "cleanup"
 )
 
 func (c Command) String() string {
 	switch c {
+	case CmdAddConfigProfile:
+		return "Add Config Profile"
+	case CmdRemoveConfigProfile:
+		return "Remove Config Profile"
 	case CmdBackup:
 		return "Snapshot backup"
 	case CmdRestore:
@@ -55,7 +62,7 @@ func (c Command) String() string {
 
 type OPID primitive.ObjectID
 
-func OPIDfromStr(s string) (OPID, error) {
+func ParseOPID(s string) (OPID, error) {
 	o, err := primitive.ObjectIDFromHex(s)
 	if err != nil {
 		return OPID(primitive.NilObjectID), err
@@ -75,6 +82,8 @@ func (o OPID) Obj() primitive.ObjectID {
 
 type Cmd struct {
 	Cmd        Command          `bson:"cmd"`
+	Resync     *ResyncCmd       `bson:"resync,omitempty"`
+	Profile    *ProfileCmd      `bson:"profile,omitempty"`
 	Backup     *BackupCmd       `bson:"backup,omitempty"`
 	Restore    *RestoreCmd      `bson:"restore,omitempty"`
 	Replay     *ReplayCmd       `bson:"replay,omitempty"`
@@ -105,6 +114,18 @@ func (c Cmd) String() string {
 	return buf.String()
 }
 
+type ProfileCmd struct {
+	Name      string             `bson:"name"`
+	IsProfile bool               `bson:"profile"`
+	Storage   config.StorageConf `bson:"storage"`
+}
+
+type ResyncCmd struct {
+	Name  string `bson:"name,omitempty"`
+	All   bool   `bson:"all,omitempty"`
+	Clear bool   `bson:"clear,omitempty"`
+}
+
 type BackupCmd struct {
 	Type             defs.BackupType          `bson:"type"`
 	IncrBase         bool                     `bson:"base"`
@@ -113,6 +134,7 @@ type BackupCmd struct {
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`
+	Profile          string                   `bson:"profile,omitempty"`
 }
 
 func (b BackupCmd) String() string {

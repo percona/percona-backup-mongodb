@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
@@ -31,7 +32,7 @@ type deleteBcpOpts struct {
 func deleteBackup(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	d *deleteBcpOpts,
 ) (fmt.Stringer, error) {
 	if d.name == "" && d.olderThan == "" {
@@ -59,13 +60,13 @@ func deleteBackup(
 	}
 
 	if d.dryRun {
-		return nil, nil
+		return &outMsg{"running an agent"}, nil
 	}
 
 	return waitForDelete(ctx, conn, pbm, cid)
 }
 
-func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
 	opts := sdk.GetBackupByNameOptions{FetchIncrements: true}
 	bcp, err := pbm.GetBackupByName(ctx, d.name, opts)
 	if err != nil {
@@ -112,7 +113,7 @@ func deleteBackupByName(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (
 	return cid, errors.Wrap(err, "schedule delete")
 }
 
-func deleteManyBackup(ctx context.Context, pbm sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
+func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
 	var ts primitive.Timestamp
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
@@ -153,13 +154,14 @@ type deletePitrOpts struct {
 	yes       bool
 	all       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
 func deletePITR(
 	ctx context.Context,
 	conn connect.Client,
-	pbm sdk.Client,
+	pbm *sdk.Client,
 	d *deletePitrOpts,
 ) (fmt.Stringer, error) {
 	if d.olderThan == "" && !d.all {
@@ -198,7 +200,7 @@ func deletePITR(
 	printDeleteInfoTo(os.Stdout, nil, chunks)
 
 	if d.dryRun {
-		return nil, nil
+		return &outMsg{"running an agent"}, nil
 	}
 	if !d.yes {
 		q := "Are you sure you want to delete chunks?"
@@ -222,17 +224,28 @@ func deletePITR(
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 type cleanupOptions struct {
 	olderThan string
 	yes       bool
 	wait      bool
+	waitTime  time.Duration
 	dryRun    bool
 }
 
-func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
+func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
@@ -254,7 +267,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *clea
 	printDeleteInfoTo(os.Stdout, info.Backups, info.Chunks)
 
 	if d.dryRun {
-		return nil, nil
+		return &outMsg{"running an agent"}, nil
 	}
 	if !d.yes {
 		if err := askConfirmation("Are you sure you want to delete?"); err != nil {
@@ -274,7 +287,17 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm sdk.Client, d *clea
 		return outMsg{"Processing by agents. Please check status later"}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	return rv, err
 }
 
 func parseOlderThan(s string) (primitive.Timestamp, error) {
@@ -333,7 +356,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 
 			restoreTime := time.Unix(int64(bcp.LastWriteTS.T), 0).UTC().Format(time.RFC3339)
 			fmt.Fprintf(w, " - %q [size: %s type: <%s>, restore time: %s]\n",
-				bcp.Name, fmtSize(bcp.Size), t, restoreTime)
+				bcp.Name, storage.PrettySize(bcp.Size), t, restoreTime)
 		}
 	}
 
@@ -400,8 +423,13 @@ func askConfirmation(question string) error {
 	return errUserCanceled
 }
 
-func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid sdk.CommandID) (fmt.Stringer, error) {
-	progressCtx, stopProgress := context.WithCancel(ctx)
+func waitForDelete(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	cid sdk.CommandID,
+) (fmt.Stringer, error) {
+	commandCtx, stopProgress := context.WithCancel(ctx)
 	defer stopProgress()
 
 	go func() {
@@ -411,18 +439,18 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 			select {
 			case <-tick.C:
 				fmt.Print(".")
-			case <-progressCtx.Done():
+			case <-commandCtx.Done():
 				return
 			}
 		}
 	}()
 
-	cmd, err := pbm.CommandInfo(progressCtx, cid)
+	cmd, err := pbm.CommandInfo(commandCtx, cid)
 	if err != nil {
 		return nil, errors.Wrap(err, "get command info")
 	}
 
-	var waitFn func(ctx context.Context, client sdk.Client) error
+	var waitFn func(ctx context.Context, client *sdk.Client) error
 	switch cmd.Cmd {
 	case ctrl.CmdCleanup:
 		waitFn = sdk.WaitForCleanup
@@ -434,17 +462,13 @@ func waitForDelete(ctx context.Context, conn connect.Client, pbm sdk.Client, cid
 		return nil, errors.New("wrong command")
 	}
 
-	waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-	err = waitFn(waitCtx, pbm)
-	stopWaiting()
+	err = waitFn(commandCtx, pbm)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
 
-		waitCtx, stopWaiting := context.WithTimeout(progressCtx, time.Minute)
-		msg, err := sdk.WaitForErrorLog(waitCtx, pbm, cmd)
-		stopWaiting()
+		msg, err := sdk.WaitForErrorLog(ctx, pbm, cmd)
 		if err != nil {
 			return nil, errors.Wrap(err, "read agents log")
 		}

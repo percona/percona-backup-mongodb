@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
@@ -29,7 +28,6 @@ type UploadDumpOptions struct {
 type UploadFunc func(ns, ext string, r io.Reader) error
 
 func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
-	wg := sync.WaitGroup{}
 	pr, pw := io.Pipe()
 	size := int64(0)
 
@@ -49,19 +47,21 @@ func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts Upl
 	newWriter := func(ns string) (io.WriteCloser, error) {
 		pr, pw := io.Pipe()
 
-		wg.Add(1)
+		done := make(chan error)
 		go func() {
-			defer wg.Done()
+			defer close(done)
 
 			ext := ""
 			if ns != archive.MetaFile {
-				ext += opts.Compression.Suffix()
+				ext = opts.Compression.Suffix()
 			}
 
 			rc := &readCounter{r: pr}
 			err := upload(ns, ext, rc)
 			if err != nil {
-				pr.CloseWithError(errors.Wrapf(err, "upload: %q", ns))
+				err = errors.Wrapf(err, "upload: %q", ns)
+				pr.CloseWithError(err)
+				done <- err
 			}
 
 			atomic.AddInt64(&size, rc.n)
@@ -72,7 +72,12 @@ func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts Upl
 		}
 
 		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
-		dwc := io.WriteCloser(&delegatedWriteCloser{w, pw})
+		dwc := io.WriteCloser(&delegatedWriteCloser{w, funcCloser(func() error {
+			err0 := w.Close()
+			err1 := pw.Close()
+			err2 := <-done
+			return errors.Join(err0, err1, err2)
+		})})
 		return dwc, errors.Wrapf(err, "create compressor: %q", ns)
 	}
 
@@ -84,7 +89,6 @@ func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts Upl
 		}
 	}
 
-	wg.Wait()
 	return size, errors.Wrap(err, "decompose")
 }
 
@@ -134,8 +138,14 @@ func (c *readCounter) Read(p []byte) (int, error) {
 	return n, err
 }
 
+type funcCloser func() error
+
+func (f funcCloser) Close() error {
+	return f()
+}
+
 type delegatedWriteCloser struct {
-	w io.WriteCloser
+	w io.Writer
 	c io.Closer
 }
 
@@ -144,17 +154,5 @@ func (d *delegatedWriteCloser) Write(b []byte) (int, error) {
 }
 
 func (d *delegatedWriteCloser) Close() error {
-	we := d.w.Close()
-	ce := d.c.Close()
-
-	switch {
-	case we != nil && ce != nil:
-		return errors.Errorf("writer: %s; closer: %s", we.Error(), ce.Error())
-	case we != nil:
-		return errors.Errorf("writer: %s", we.Error())
-	case ce != nil:
-		return errors.Errorf("closer: %s", ce.Error())
-	}
-
-	return nil
+	return d.c.Close()
 }

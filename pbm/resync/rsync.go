@@ -1,15 +1,18 @@
 package resync
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -18,127 +21,329 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
-	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-// ResyncStorage updates PBM metadata (snapshots and pitr) according to the data in the storage
-func ResyncStorage(ctx context.Context, m connect.Client, l log.LogEvent) error {
-	stg, err := util.GetStorage(ctx, m, l)
+// Resync sync oplog, backup, and restore meta from provided storage.
+//
+// It checks for read and write permissions, drops all meta from the database
+// and populate it again by reading meta from the storage.
+func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) error {
+	l := log.LogEventFromContext(ctx)
+
+	stg, err := util.StorageFromConfig(cfg, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if errors.Is(err, storage.ErrNotExist) {
-		err = stg.Save(defs.StorInitFile, bytes.NewBufferString(version.Current().Version), 0)
-	}
+	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {
-		return errors.Wrap(err, "init storage")
+		if !errors.Is(err, storage.ErrUninitialized) {
+			return errors.Wrap(err, "check read access")
+		}
+
+		err = util.Initialize(ctx, stg)
+		if err != nil {
+			return errors.Wrap(err, "init storage")
+		}
+	} else {
+		// check write permission and update PBM version
+		err = util.Reinitialize(ctx, stg)
+		if err != nil {
+			return errors.Wrap(err, "reinit storage")
+		}
 	}
 
-	rstrs, err := stg.List(defs.PhysRestoresDir, ".json")
+	err = SyncBackupList(ctx, conn, cfg, "")
 	if err != nil {
-		return errors.Wrap(err, "get physical restores list from the storage")
+		l.Error("failed sync backup metadata: %v", err)
 	}
-	l.Debug("got physical restores list: %v", len(rstrs))
-	for _, rs := range rstrs {
-		rname := strings.TrimSuffix(rs.Name, ".json")
-		rmeta, err := restore.GetPhysRestoreMeta(rname, stg, l)
-		if err != nil {
-			l.Error("get meta for restore %s: %v", rs.Name, err)
-			if rmeta == nil {
-				continue
+
+	err = resyncOplogRange(ctx, conn, stg)
+	if err != nil {
+		l.Error("failed sync oplog range: %v", err)
+	}
+
+	err = resyncPhysicalRestores(ctx, conn, stg)
+	if err != nil {
+		l.Error("failed sync physical restore metadata: %v", err)
+	}
+
+	return nil
+}
+
+func ClearBackupList(ctx context.Context, conn connect.Client, profile string) error {
+	var filter bson.D
+	if profile == "" {
+		// from main storage
+		filter = bson.D{
+			{"store.profile", nil},
+		}
+	} else {
+		filter = bson.D{
+			{"store.profile", true},
+			{"store.name", profile},
+		}
+	}
+
+	_, err := conn.BcpCollection().DeleteMany(ctx, filter)
+	if err != nil {
+		return errors.Wrapf(err, "delete all backup meta from db")
+	}
+
+	return nil
+}
+
+func SyncBackupList(
+	ctx context.Context,
+	conn connect.Client,
+	cfg *config.StorageConf,
+	profile string,
+) error {
+	l := log.LogEventFromContext(ctx)
+
+	stg, err := util.StorageFromConfig(cfg, l)
+	if err != nil {
+		return errors.Wrap(err, "storage from config")
+	}
+
+	err = ClearBackupList(ctx, conn, profile)
+	if err != nil {
+		return errors.Wrapf(err, "clear backup list")
+	}
+
+	backupList, err := getAllBackupMetaFromStorage(ctx, stg)
+	if err != nil {
+		return errors.Wrap(err, "get all backups meta from the storage")
+	}
+
+	l.Debug("got backups list: %v", len(backupList))
+
+	if len(backupList) == 0 {
+		return nil
+	}
+
+	backupStore := backup.Storage{
+		Name:        profile,
+		IsProfile:   profile != "",
+		StorageConf: *cfg,
+	}
+
+	for i := range backupList {
+		// overwriting config allows PBM to download files from the current deployment
+		backupList[i].Store = backupStore
+	}
+
+	return insertBackupList(ctx, conn, backupList)
+}
+
+func insertBackupList(
+	ctx context.Context,
+	conn connect.Client,
+	backups []*backup.BackupMeta,
+) error {
+	concurrencyNumber := runtime.NumCPU()
+
+	inC := make(chan *backup.BackupMeta)
+	errC := make(chan error, concurrencyNumber)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(concurrencyNumber)
+	for range concurrencyNumber {
+		go func() {
+			defer wg.Done()
+			l := log.LogEventFromContext(ctx)
+
+			var err error
+			for bcp := range inC {
+				l.Debug("bcp: %v", bcp.Name)
+
+				if bcp.Store.IsProfile {
+					_, err = conn.BcpCollection().InsertOne(ctx, bcp)
+					if mongo.IsDuplicateKeyError(err) {
+						continue
+					}
+				} else {
+					_, err = conn.BcpCollection().ReplaceOne(ctx,
+						bson.D{{"name", bcp.Name}},
+						bcp,
+						options.Replace().SetUpsert(true))
+				}
+				if err != nil {
+					errC <- errors.Wrapf(err, "backup %q", bcp.Name)
+				}
 			}
+		}()
+	}
+
+	go func() {
+		for _, bcp := range backups {
+			inC <- bcp
 		}
 
-		_, err = m.RestoresCollection().ReplaceOne(
-			ctx,
-			bson.D{{"name", rmeta.Name}},
-			rmeta,
-			options.Replace().SetUpsert(true),
-		)
-		if err != nil {
-			return errors.Wrapf(err, "upsert restore %s/%s", rmeta.Name, rmeta.Backup)
-		}
+		close(inC)
+		wg.Wait()
+		close(errC)
+	}()
+
+	var errs []error
+	for err := range errC {
+		errs = append(errs, err)
+	}
+	if len(errs) != 0 {
+		return errors.Errorf("write backup meta:\n%v", errors.Join(errs...))
 	}
 
-	bcps, err := stg.List("", defs.MetadataFileSuffix)
-	if err != nil {
-		return errors.Wrap(err, "get a backups list from the storage")
-	}
-	l.Debug("got backups list: %v", len(bcps))
+	return nil
+}
 
-	_, err = m.BcpCollection().DeleteMany(ctx, bson.M{})
-	if err != nil {
-		return errors.Wrapf(err, "clean up %s", defs.BcpCollection)
-	}
+func resyncOplogRange(
+	ctx context.Context,
+	conn connect.Client,
+	stg storage.Storage,
+) error {
+	l := log.LogEventFromContext(ctx)
 
-	_, err = m.PITRChunksCollection().DeleteMany(ctx, bson.M{})
+	_, err := conn.PITRChunksCollection().DeleteMany(ctx, bson.M{})
 	if err != nil {
 		return errors.Wrapf(err, "clean up %s", defs.PITRChunksCollection)
 	}
 
-	var ins []interface{}
-	for _, b := range bcps {
-		l.Debug("bcp: %v", b.Name)
-
-		d, err := stg.SourceReader(b.Name)
-		if err != nil {
-			return errors.Wrapf(err, "read meta for %v", b.Name)
-		}
-
-		v := backup.BackupMeta{}
-		err = json.NewDecoder(d).Decode(&v)
-		d.Close()
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal backup meta [%s]", b.Name)
-		}
-		err = backup.CheckBackupFiles(ctx, &v, stg)
-		if err != nil {
-			l.Warning("skip snapshot %s: %v", v.Name, err)
-			v.Status = defs.StatusError
-			v.Err = err.Error()
-		}
-		ins = append(ins, v)
-	}
-
-	if len(ins) != 0 {
-		_, err = m.BcpCollection().InsertMany(ctx, ins)
-		if err != nil {
-			return errors.Wrap(err, "insert retrieved backups meta")
-		}
-	}
-
-	pitrf, err := stg.List(defs.PITRfsPrefix, "")
+	chunkFiles, err := stg.List(defs.PITRfsPrefix, "")
 	if err != nil {
 		return errors.Wrap(err, "get list of pitr chunks")
 	}
-	if len(pitrf) == 0 {
-		return nil
-	}
 
-	var pitr []interface{}
-	for _, f := range pitrf {
-		stat, err := stg.FileStat(defs.PITRfsPrefix + "/" + f.Name)
+	var chunks []any
+	for _, file := range chunkFiles {
+		info, err := stg.FileStat(defs.PITRfsPrefix + "/" + file.Name)
 		if err != nil {
-			l.Warning("skip pitr chunk %s/%s because of %v", defs.PITRfsPrefix, f.Name, err)
+			l.Warning("skip pitr chunk %s/%s because of %v", defs.PITRfsPrefix, file.Name, err)
 			continue
 		}
-		chnk := oplog.MakeChunkMetaFromFilepath(f.Name)
-		if chnk != nil {
-			chnk.Size = stat.Size
-			pitr = append(pitr, chnk)
+
+		chunk := oplog.MakeChunkMetaFromFilepath(file.Name)
+		if chunk != nil {
+			chunk.Size = info.Size
+			chunks = append(chunks, chunk)
 		}
 	}
 
-	if len(pitr) == 0 {
+	if len(chunks) == 0 {
 		return nil
 	}
 
-	_, err = m.PITRChunksCollection().InsertMany(ctx, pitr)
+	_, err = conn.PITRChunksCollection().InsertMany(ctx, chunks)
 	if err != nil {
 		return errors.Wrap(err, "insert retrieved pitr meta")
 	}
 
 	return nil
+}
+
+func resyncPhysicalRestores(
+	ctx context.Context,
+	conn connect.Client,
+	stg storage.Storage,
+) error {
+	_, err := conn.RestoresCollection().DeleteMany(ctx, bson.D{})
+	if err != nil {
+		return errors.Wrap(err, "delete all documents")
+	}
+
+	restoreFiles, err := stg.List(defs.PhysRestoresDir, ".json")
+	if err != nil {
+		return errors.Wrap(err, "get physical restores list from the storage")
+	}
+
+	log.LogEventFromContext(ctx).
+		Debug("got physical restores list: %v", len(restoreFiles))
+
+	if len(restoreFiles) == 0 {
+		return nil
+	}
+
+	restoreMeta, err := getAllRestoreMetaFromStorage(ctx, stg)
+	if err != nil {
+		return errors.Wrap(err, "get all restore meta from storage")
+	}
+
+	docs := make([]any, len(restoreMeta))
+	for i, m := range restoreMeta {
+		docs[i] = m
+	}
+
+	_, err = conn.RestoresCollection().InsertMany(ctx, docs)
+	if err != nil {
+		return errors.Wrap(err, "insert restore meta into db")
+	}
+
+	return nil
+}
+
+func getAllBackupMetaFromStorage(
+	ctx context.Context,
+	stg storage.Storage,
+) ([]*backup.BackupMeta, error) {
+	l := log.LogEventFromContext(ctx)
+
+	backupFiles, err := stg.List("", defs.MetadataFileSuffix)
+	if err != nil {
+		return nil, errors.Wrap(err, "get a backups list from the storage")
+	}
+
+	backupMeta := make([]*backup.BackupMeta, 0, len(backupFiles))
+	for _, b := range backupFiles {
+		d, err := stg.SourceReader(b.Name)
+		if err != nil {
+			l.Error("read meta for %v", b.Name)
+			continue
+		}
+
+		var meta *backup.BackupMeta
+		err = json.NewDecoder(d).Decode(&meta)
+		d.Close()
+		if err != nil {
+			l.Error("unmarshal backup meta [%s]", b.Name)
+			continue
+		}
+
+		err = backup.CheckBackupFiles(ctx, meta, stg)
+		if err != nil {
+			l.Warning("skip snapshot %s: %v", meta.Name, err)
+			meta.Status = defs.StatusError
+			meta.Err = err.Error()
+		}
+
+		backupMeta = append(backupMeta, meta)
+	}
+
+	return backupMeta, nil
+}
+
+func getAllRestoreMetaFromStorage(
+	ctx context.Context,
+	stg storage.Storage,
+) ([]*restore.RestoreMeta, error) {
+	l := log.LogEventFromContext(ctx)
+
+	restoreMeta, err := stg.List(defs.PhysRestoresDir, ".json")
+	if err != nil {
+		return nil, errors.Wrap(err, "get physical restores list from the storage")
+	}
+
+	rv := make([]*restore.RestoreMeta, 0, len(restoreMeta))
+	for _, file := range restoreMeta {
+		filename := strings.TrimSuffix(file.Name, ".json")
+		meta, err := restore.GetPhysRestoreMeta(filename, stg, l)
+		if err != nil {
+			l.Error("get restore meta from storage: %s: %v", file.Name, err)
+			if meta == nil {
+				continue
+			}
+		}
+
+		rv = append(rv, meta)
+	}
+
+	return rv, nil
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -13,6 +11,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -23,16 +22,16 @@ type currentBackup struct {
 }
 
 func (a *Agent) setBcp(b *currentBackup) {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	a.bcp = b
 }
 
 // CancelBackup cancels current backup
 func (a *Agent) CancelBackup() {
-	a.mx.Lock()
-	defer a.mx.Unlock()
+	a.bcpMx.Lock()
+	defer a.bcpMx.Unlock()
 
 	if a.bcp == nil {
 		return
@@ -60,15 +59,25 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Error("get node info: %v", err)
 		return
 	}
-	// TODO: do the check on the agent start only
-	if nodeInfo.IsStandalone() {
-		l.Error("mongod node can not be used to fetch a consistent backup because it has no oplog. " +
-			"Please restart it as a primary in a single-node replicaset " +
-			"to make it compatible with PBM's backup method using the oplog")
+	if nodeInfo.ArbiterOnly {
+		l.Debug("arbiter node. skip")
 		return
 	}
 
 	isClusterLeader := nodeInfo.IsClusterLeader()
+
+	if isClusterLeader {
+		moveOn, err := a.startBcpLockCheck(ctx)
+		if err != nil {
+			l.Error("start backup lock check: %v", err)
+			return
+		}
+		if !moveOn {
+			l.Error("unable to proceed with the backup, active lock is present")
+			return
+		}
+	}
+
 	canRunBackup, err := topo.NodeSuitsExt(ctx, a.nodeConn, nodeInfo, cmd.Type)
 	if err != nil {
 		l.Error("node check: %v", err)
@@ -88,6 +97,12 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		go a.sliceNow(opid)
 	}
 
+	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, cmd.Profile)
+	if err != nil {
+		l.Error("get profiled config: %v", err)
+		return
+	}
+
 	var bcp *backup.Backup
 	switch cmd.Type {
 	case defs.PhysicalBackup:
@@ -102,23 +117,14 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, a.dumpConns)
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
-	if err != nil {
-		l.Error("unable to get PBM config settings: " + err.Error())
-		return
-	}
-	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undef {
-		l.Error("backups cannot be saved because PBM storage configuration hasn't been set yet")
-		return
-	}
-
-	bcp.SetMongoVersion(a.mongoVersion.VersionString)
+	bcp.SetConfig(cfg)
+	bcp.SetMongoVersion(a.brief.Version.VersionString)
 	bcp.SetSlicerInterval(cfg.BackupSlicerInterval())
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
 
 	if isClusterLeader {
 		balancer := topo.BalancerModeOff
-		if nodeInfo.IsSharded() {
+		if a.brief.Sharded {
 			bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
 			if err != nil {
 				l.Error("get balancer status: %v", err)
@@ -128,7 +134,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 				balancer = topo.BalancerModeOn
 			}
 		}
-		err = bcp.Init(ctx, cmd, opid, nodeInfo, cfg.Storage, balancer, l)
+		err = bcp.Init(ctx, cmd, opid, balancer)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
@@ -159,50 +165,32 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			}
 		}
 
-		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+		agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
 		if err != nil {
 			l.Error("get agents list: %v", err)
 			return
 		}
 
-		validCandidates := make([]topo.AgentStat, 0, len(agents))
-		for _, s := range agents {
-			if version.FeatureSupport(s.MongoVersion()).BackupType(cmd.Type) != nil {
-				continue
-			}
+		candidates := a.getValidCandidates(agents, cmd.Type)
 
-			validCandidates = append(validCandidates, s)
-		}
+		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, candidates)
 
-		nodes, err := BcpNodesPriority(ctx, a.leadConn, c, validCandidates)
-		if err != nil {
-			l.Error("get nodes priority: %v", err)
-			return
-		}
 		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 		if err != nil {
 			l.Error("get cluster members: %v", err)
 			return
 		}
 
-		errGrp, grpCtx := errgroup.WithContext(ctx)
-		for i := range shards {
-			rs := shards[i].RS
-
-			errGrp.Go(func() error {
-				err := a.nominateRS(grpCtx, cmd.Name, rs, nodes.RS(rs))
-				return errors.Wrapf(err, "nodes nomination for %s", rs)
-			})
-		}
-
-		err = errGrp.Wait()
-		if err != nil {
-			l.Error(err.Error())
-			return
+		for _, sh := range shards {
+			go func(rs string) {
+				if err := a.nominateRS(ctx, cmd.Name, rs, nodes.RS(rs)); err != nil {
+					l.Error("nodes nomination error for %s: %v", rs, err)
+				}
+			}(sh.RS)
 		}
 	}
 
-	nominated, err := a.waitNomination(ctx, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	nominated, err := a.waitNomination(ctx, cmd.Name)
 	if err != nil {
 		l.Error("wait for nomination: %v", err)
 	}
@@ -214,8 +202,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	epoch := ep.TS()
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdBackup,
-		Replset: nodeInfo.SetName,
-		Node:    nodeInfo.Me,
+		Replset: a.brief.SetName,
+		Node:    a.brief.Me,
 		OPID:    opid.String(),
 		Epoch:   &epoch,
 	})
@@ -261,6 +249,19 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 }
 
+// getValidCandidates filters out all agents that are not suitable for the backup.
+func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.BackupType) []topo.AgentStat {
+	validCandidates := []topo.AgentStat{}
+	for _, agent := range agents {
+		if version.FeatureSupport(agent.MongoVersion()).BackupType(backupType) != nil {
+			continue
+		}
+		validCandidates = append(validCandidates, agent)
+	}
+
+	return validCandidates
+}
+
 const renominationFrame = 5 * time.Second
 
 func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string) error {
@@ -299,7 +300,7 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 	return nil
 }
 
-func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool, error) {
+func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 	l := log.LogEventFromContext(ctx)
 
 	tk := time.NewTicker(time.Millisecond * 500)
@@ -311,7 +312,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 	for {
 		select {
 		case <-tk.C:
-			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, rs)
+			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, a.brief.SetName)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
@@ -322,7 +323,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 				return false, nil
 			}
 			for _, n := range nm.Nodes {
-				if n == node {
+				if n == a.brief.Me {
 					return true, nil
 				}
 			}
@@ -331,4 +332,33 @@ func (a *Agent) waitNomination(ctx context.Context, bcp, rs, node string) (bool,
 			return false, nil
 		}
 	}
+}
+
+// startBcpLockCheck checks if there is any active lock.
+// It fetches all existing pbm locks, and if any exists, it is also
+// checked for staleness.
+// false is returned in case a single active lock exists or error happens.
+// true means that there's no active locks.
+func (a *Agent) startBcpLockCheck(ctx context.Context) (bool, error) {
+	locks, err := lock.GetLocks(ctx, a.leadConn, &lock.LockHeader{})
+	if err != nil {
+		return false, errors.Wrap(err, "get all locks for backup start")
+	}
+	if len(locks) == 0 {
+		return true, nil
+	}
+
+	// stale lock check
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		return false, errors.Wrap(err, "read cluster time")
+	}
+
+	for _, l := range locks {
+		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -98,6 +97,77 @@ func main() {
 	configCmd.Flag("wait", "Wait for finish").
 		Short('w').
 		BoolVar(&cfg.wait)
+	configCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&cfg.waitTime)
+
+	configProfileCmd := pbmCmd.
+		Command("profile", "Configuration profiles")
+
+	listConfigProfileCmd := configProfileCmd.
+		Command("list", "List configuration profiles").
+		Default()
+
+	showConfigProfileOpts := showConfigProfileOptions{}
+	showConfigProfileCmd := configProfileCmd.
+		Command("show", "Show configuration profile")
+	showConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&showConfigProfileOpts.name)
+
+	addConfigProfileOpts := addConfigProfileOptions{}
+	addConfigProfileCmd := configProfileCmd.
+		Command("add", "Save configuration profile")
+	addConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&addConfigProfileOpts.name)
+	addConfigProfileCmd.
+		Arg("file", "Path to configuration file").
+		Required().
+		FileVar(&addConfigProfileOpts.file)
+	addConfigProfileCmd.
+		Flag("sync", "Sync from the external storage").
+		BoolVar(&addConfigProfileOpts.sync)
+	addConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&addConfigProfileOpts.wait)
+	addConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&addConfigProfileOpts.waitTime)
+
+	removeConfigProfileOpts := removeConfigProfileOptions{}
+	removeConfigProfileCmd := configProfileCmd.
+		Command("remove", "Remove configuration profile")
+	removeConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		Required().
+		StringVar(&removeConfigProfileOpts.name)
+	removeConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&removeConfigProfileOpts.wait)
+	removeConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&removeConfigProfileOpts.waitTime)
+
+	syncConfigProfileOpts := syncConfigProfileOptions{}
+	syncConfigProfileCmd := configProfileCmd.
+		Command("sync", "Sync backup list from configuration profile")
+	syncConfigProfileCmd.
+		Arg("profile-name", "Profile name").
+		StringVar(&syncConfigProfileOpts.name)
+	syncConfigProfileCmd.
+		Flag("all", "Sync from all external storages").
+		BoolVar(&syncConfigProfileOpts.all)
+	syncConfigProfileCmd.
+		Flag("clear", "Clear backup list (can be used with profile name or --all)").
+		BoolVar(&syncConfigProfileOpts.clear)
+	syncConfigProfileCmd.
+		Flag("wait", "Wait for done by agents").
+		Short('w').
+		BoolVar(&syncConfigProfileOpts.wait)
+	syncConfigProfileCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&syncConfigProfileOpts.waitTime)
 
 	backupCmd := pbmCmd.Command("backup", "Make backup")
 	backupOptions := backupOpts{}
@@ -125,6 +195,7 @@ func main() {
 			string(defs.ExternalBackup))
 	backupCmd.Flag("base", "Is this a base for incremental backups").
 		BoolVar(&backupOptions.base)
+	backupCmd.Flag("profile", "Config profile name").StringVar(&backupOptions.profile)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backupOptions.compressionLevel)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
@@ -132,6 +203,8 @@ func main() {
 	backupCmd.Flag("wait", "Wait for the backup to finish").
 		Short('w').
 		BoolVar(&backupOptions.wait)
+	backupCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&backupOptions.waitTime)
 	backupCmd.Flag("list-files", "Shows the list of files per node to copy (only for external backups)").
 		Short('l').
 		BoolVar(&backupOptions.externList)
@@ -175,6 +248,8 @@ func main() {
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').
 		BoolVar(&restore.wait)
+	restoreCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&restore.waitTime)
 	restoreCmd.Flag("external", "External restore.").
 		Short('x').
 		BoolVar(&restore.extern)
@@ -199,6 +274,8 @@ func main() {
 	replayCmd.Flag("wait", "Wait for the restore to finish.").
 		Short('w').
 		BoolVar(&replayOpts.wait)
+	replayCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&replayOpts.waitTime)
 	replayCmd.Flag(RSMappingFlag, RSMappingDoc).
 		Envar(RSMappingEnvVar).
 		StringVar(&replayOpts.rsMap)
@@ -277,6 +354,8 @@ func main() {
 	deletePitrCmd.Flag("wait", "Wait for deletion done").
 		Short('w').
 		BoolVar(&deletePitr.wait)
+	deletePitrCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&deletePitr.waitTime)
 	deletePitrCmd.Flag("dry-run", "Report but do not delete").
 		BoolVar(&deletePitr.dryRun)
 
@@ -293,6 +372,8 @@ func main() {
 	cleanupCmd.Flag("wait", "Wait for deletion done").
 		Short('w').
 		BoolVar(&cleanupOpts.wait)
+	cleanupCmd.Flag("wait-time", "Maximum wait time").
+		DurationVar(&cleanupOpts.waitTime)
 	cleanupCmd.Flag("dry-run", "Report but do not delete").
 		BoolVar(&cleanupOpts.dryRun)
 
@@ -337,6 +418,10 @@ func main() {
 	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").
 		Short('s').
 		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
+	statusCmd.Flag("priority", "Show backup and PITR priorities").
+		Short('p').
+		Default("false").
+		BoolVar(&statusOpts.priority)
 
 	describeRestoreCmd := pbmCmd.Command("describe-restore", "Describe restore")
 	describeRestoreOpts := descrRestoreOpts{}
@@ -380,7 +465,7 @@ func main() {
 	defer cancel()
 
 	var conn connect.Client
-	var pbm sdk.Client
+	var pbm *sdk.Client
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -409,6 +494,16 @@ func main() {
 	switch cmd {
 	case configCmd.FullCommand():
 		out, err = runConfig(ctx, conn, pbm, &cfg)
+	case listConfigProfileCmd.FullCommand():
+		out, err = handleListConfigProfiles(ctx, pbm)
+	case showConfigProfileCmd.FullCommand():
+		out, err = handleShowConfigProfiles(ctx, pbm, showConfigProfileOpts)
+	case addConfigProfileCmd.FullCommand():
+		out, err = handleAddConfigProfile(ctx, pbm, addConfigProfileOpts)
+	case removeConfigProfileCmd.FullCommand():
+		out, err = handleRemoveConfigProfile(ctx, pbm, removeConfigProfileOpts)
+	case syncConfigProfileCmd.FullCommand():
+		out, err = handleSyncConfigProfile(ctx, pbm, syncConfigProfileOpts)
 	case backupCmd.FullCommand():
 		backupOptions.name = time.Now().UTC().Format(time.RFC3339)
 		out, err = runBackup(ctx, conn, pbm, &backupOptions, pbmOutF)
@@ -419,7 +514,7 @@ func main() {
 	case restoreFinishCmd.FullCommand():
 		out, err = runFinishRestore(finishRestore)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, conn, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp)
 	case restoreCmd.FullCommand():
 		out, err = runRestore(ctx, conn, &restore, pbmOutF)
 	case replayCmd.FullCommand():
@@ -567,9 +662,10 @@ func followLogs(ctx context.Context, conn connect.Client, r *log.LogRequest, sho
 	outC, errC := log.Follow(ctx, conn, r, false)
 
 	var enc *json.Encoder
-	if f == outJSON {
+	switch f {
+	case outJSON:
 		enc = json.NewEncoder(os.Stdout)
-	} else if f == outJSONpretty {
+	case outJSONpretty:
 		enc = json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 	}
@@ -614,6 +710,7 @@ type snapshotStat struct {
 	PBMVersion string          `json:"pbmVersion"`
 	Type       defs.BackupType `json:"type"`
 	SrcBackup  string          `json:"src"`
+	StoreName  string          `json:"storage,omitempty"`
 }
 
 type pitrRange struct {
@@ -659,7 +756,7 @@ func (c outCaption) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func cancelBcp(ctx context.Context, pbm sdk.Client) (fmt.Stringer, error) {
+func cancelBcp(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	if _, err := pbm.CancelBackup(ctx); err != nil {
 		return nil, errors.Wrap(err, "send backup canceling")
 	}
@@ -679,64 +776,20 @@ func parseDateT(v string) (time.Time, error) {
 	return time.Time{}, errInvalidFormat
 }
 
-type findLockFn = func(ctx context.Context, conn connect.Client, lh *lock.LockHeader) ([]lock.LockData, error)
-
-func findLock(ctx context.Context, conn connect.Client, fn findLockFn) (*lock.LockData, error) {
-	locks, err := fn(ctx, conn, &lock.LockHeader{})
-	if err != nil {
-		return nil, errors.Wrap(err, "get locks")
-	}
-
-	ct, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cluster time")
-	}
-
-	var lck *lock.LockData
-	for _, l := range locks {
-		// We don't care about the PITR slicing here. It is a subject of other status sections
-		if l.Type == ctrl.CmdPITR || l.Heartbeat.T+defs.StaleFrameSec < ct.T {
-			continue
-		}
-
-		// Just check if all locks are for the same op
-		//
-		// It could happen that the healthy `lk` became stale by the time of this check
-		// or the op was finished and the new one was started. So the `l.Type != lk.Type`
-		// would be true but for the legit reason (no error).
-		// But chances for that are quite low and on the next run of `pbm status` everything
-		//  would be ok. So no reason to complicate code to avoid that.
-		if lck != nil && l.OPID != lck.OPID {
-			if err != nil {
-				return nil, errors.Errorf("conflicting ops running: [%s/%s::%s-%s] [%s/%s::%s-%s]. "+
-					"This conflict may naturally resolve after 10 seconds",
-					l.Replset, l.Node, l.Type, l.OPID,
-					lck.Replset, lck.Node, lck.Type, lck.OPID,
-				)
-			}
-		}
-
-		l := l
-		lck = &l
-	}
-
-	return lck, nil
-}
-
 type concurentOpError struct {
 	op *lock.LockHeader
 }
 
-func (e concurentOpError) Error() string {
+func (e *concurentOpError) Error() string {
 	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
 }
 
-func (e concurentOpError) As(err any) bool {
+func (e *concurentOpError) As(err any) bool {
 	if err == nil {
 		return false
 	}
 
-	er, ok := err.(concurentOpError)
+	er, ok := err.(*concurentOpError)
 	if !ok {
 		return false
 	}
@@ -745,7 +798,7 @@ func (e concurentOpError) As(err any) bool {
 	return true
 }
 
-func (e concurentOpError) MarshalJSON() ([]byte, error) {
+func (e *concurentOpError) MarshalJSON() ([]byte, error) {
 	s := make(map[string]interface{})
 	s["error"] = "another operation in progress"
 	s["operation"] = e.op
@@ -768,7 +821,7 @@ func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
 	// and leave it for agents to deal with.
 	for _, l := range locks {
 		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
-			return concurentOpError{&l.LockHeader}
+			return &concurentOpError{&l.LockHeader}
 		}
 	}
 

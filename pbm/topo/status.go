@@ -13,11 +13,15 @@ import (
 )
 
 type NodeStatus struct {
-	ID                int                 `bson:"_id" json:"_id"`
-	Name              string              `bson:"name" json:"name"`
-	Health            defs.NodeHealth     `bson:"health" json:"health"`
-	State             defs.NodeState      `bson:"state" json:"state"`
-	StateStr          string              `bson:"stateStr" json:"stateStr"`
+	ID     int             `bson:"_id" json:"_id"`
+	Name   string          `bson:"name" json:"name"`
+	Health defs.NodeHealth `bson:"health" json:"health"`
+
+	// https://github.com/mongodb/mongo/blob/v8.0/src/mongo/db/repl/member_state.h#L52-L109
+	State defs.NodeState `bson:"state" json:"state"`
+	// https://github.com/mongodb/mongo/blob/v8.0/src/mongo/db/repl/member_state.h#L170-L193
+	StateStr string `bson:"stateStr" json:"stateStr"`
+
 	Uptime            int64               `bson:"uptime" json:"uptime"`
 	Optime            *OpTime             `bson:"optime" json:"optime"`
 	OptimeDate        time.Time           `bson:"optimeDate" json:"optimeDate"`
@@ -32,6 +36,10 @@ type NodeStatus struct {
 	PingMs            int64               `bson:"pingMs,omitempty" json:"pingMs,omitempty"`
 	Self              bool                `bson:"self,omitempty" json:"self,omitempty"`
 	SyncingTo         string              `bson:"syncingTo,omitempty" json:"syncingTo,omitempty"`
+}
+
+func (s *NodeStatus) IsArbiter() bool {
+	return s.State == defs.NodeStateArbiter
 }
 
 type StatusOpTimes struct {
