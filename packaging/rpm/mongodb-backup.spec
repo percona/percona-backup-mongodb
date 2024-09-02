@@ -110,6 +110,16 @@ fi
   fi
 %endif
 
+cat << EOF
+** Join Percona Squad! **
+
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at https://squad.percona.com/mongodb
+
+EOF
+
 
 %postun -n percona-backup-mongodb
 case "$1" in
