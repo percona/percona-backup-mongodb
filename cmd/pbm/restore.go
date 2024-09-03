@@ -620,7 +620,9 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	res.LastTransitionTS = meta.LastTransitionTS
 	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).UTC().Format(time.RFC3339)
 	res.StartTime = util.Ref(time.Unix(meta.StartTS, 0).UTC().Format(time.RFC3339))
-	res.FinishTime = util.Ref(time.Unix(meta.LastTransitionTS, 0).UTC().Format(time.RFC3339))
+	if meta.Status == defs.StatusDone {
+		res.FinishTime = util.Ref(time.Unix(meta.LastTransitionTS, 0).UTC().Format(time.RFC3339))
+	}
 	if meta.Status == defs.StatusError {
 		res.Error = &meta.Error
 	}
