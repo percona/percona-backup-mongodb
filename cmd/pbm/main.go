@@ -268,7 +268,7 @@ func main() {
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).
 		Required().
 		StringVar(&replayOpts.start)
-	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").
+	replayCmd.Flag("end", fmt.Sprintf("Replay oplog to the time. Set in format %s", datetimeFormat)).
 		Required().
 		StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").
