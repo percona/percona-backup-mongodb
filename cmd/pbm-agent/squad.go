@@ -14,7 +14,7 @@ const perconaSquadNotice = `
       /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
     ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
    ///                ((((        ####                 | |
- /////////////(((((((((((((((((########                |_|   Join @ percona.com/squad
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
 
 ** Join Percona Squad! **
 Participate in monthly SWAG raffles, get early access to new product features,
