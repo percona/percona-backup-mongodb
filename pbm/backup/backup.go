@@ -721,6 +721,26 @@ func setClusterLastWriteImpl(
 			break
 		}
 
+		// before we try another time, let's check if we have lost agent
+		clusterTime, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+
+		for _, shard := range bcp.Replsets {
+			lck, err := lock.GetLockData(ctx, conn, &lock.LockHeader{
+				Type:    ctrl.CmdBackup,
+				OPID:    bcp.OPID,
+				Replset: shard.Name,
+			})
+			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+				return errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+			}
+			if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
+			}
+		}
+
 		time.Sleep(time.Second)
 	}
 
