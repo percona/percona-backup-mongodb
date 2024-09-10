@@ -412,6 +412,108 @@ func TestCalcPriorityForNode(t *testing.T) {
 			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForHidden, p)
 		}
 	})
+
+	t.Run("for delayed (slaveDelayed)", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			Secondary:         true,
+			SecondaryDelayOld: 5,
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForExcluded {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForExcluded, p)
+		}
+	})
+
+	t.Run("for delayed", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			Secondary:          true,
+			SecondaryDelaySecs: 1,
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForExcluded {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForExcluded, p)
+		}
+	})
+
+	t.Run("for hidden & delayed", func(t *testing.T) {
+		nodeInfo := &topo.NodeInfo{
+			Secondary:          true,
+			SecondaryDelaySecs: 3600,
+			Hidden:             true,
+		}
+
+		p := CalcPriorityForNode(nodeInfo)
+		if p != scoreForExcluded {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForExcluded, p)
+		}
+	})
+}
+
+func TestImplicitPrioCalc(t *testing.T) {
+	t.Run("for primary", func(t *testing.T) {
+		agentStat := &topo.AgentStat{
+			State: defs.NodeStatePrimary,
+		}
+
+		p := implicitPrioCalc(agentStat, nil)
+		if p != scoreForPrimary {
+			t.Errorf("wrong priority for primary: want=%v, got=%v", scoreForPrimary, p)
+		}
+	})
+
+	t.Run("for secondary", func(t *testing.T) {
+		agentStat := &topo.AgentStat{
+			State: defs.NodeStateSecondary,
+		}
+
+		p := implicitPrioCalc(agentStat, nil)
+
+		if p != defaultScore {
+			t.Errorf("wrong priority for secondary: want=%v, got=%v", defaultScore, p)
+		}
+	})
+
+	t.Run("for hidden", func(t *testing.T) {
+		agentStat := &topo.AgentStat{
+			State:  defs.NodeStateSecondary,
+			Hidden: true,
+		}
+
+		p := implicitPrioCalc(agentStat, nil)
+
+		if p != scoreForHidden {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForHidden, p)
+		}
+	})
+
+	t.Run("for delayed", func(t *testing.T) {
+		agentStat := &topo.AgentStat{
+			State:     defs.NodeStateSecondary,
+			DelaySecs: 3600,
+		}
+
+		p := implicitPrioCalc(agentStat, nil)
+
+		if p != scoreForExcluded {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForExcluded, p)
+		}
+	})
+
+	t.Run("for hidden & delayed", func(t *testing.T) {
+		agentStat := &topo.AgentStat{
+			State:     defs.NodeStateSecondary,
+			DelaySecs: 3600,
+			Hidden:    true,
+		}
+
+		p := implicitPrioCalc(agentStat, nil)
+
+		if p != scoreForExcluded {
+			t.Errorf("wrong priority for hidden: want=%v, got=%v", scoreForExcluded, p)
+		}
+	})
 }
 
 func newP(rs, node string) topo.AgentStat {

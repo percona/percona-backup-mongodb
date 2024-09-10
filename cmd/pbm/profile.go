@@ -100,6 +100,9 @@ func handleAddConfigProfile(
 	if opts.name == "" {
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
+	}
 
 	_, err := pbm.GetConfig(ctx)
 	if err != nil {
@@ -174,6 +177,9 @@ func handleRemoveConfigProfile(
 	if opts.name == "" {
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
+	}
 
 	_, err := pbm.GetConfigProfile(ctx, opts.name)
 	if err != nil {
@@ -218,6 +224,10 @@ func handleSyncConfigProfile(
 	}
 	if opts.all && opts.name != "" {
 		return nil, errors.New("ambiguous: <profile-name> and --all are provided")
+	}
+
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
 	}
 
 	var err error

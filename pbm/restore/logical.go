@@ -46,6 +46,8 @@ type Restore struct {
 	nodeInfo *topo.NodeInfo
 	bcpStg   storage.Storage
 	oplogStg storage.Storage
+
+	numParallelColls int
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -76,7 +78,13 @@ type oplogRange struct {
 type restoreUsersAndRolesOption bool
 
 // New creates a new restore object
-func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, rsMap map[string]string) *Restore {
+func New(
+	leadConn connect.Client,
+	nodeConn *mongo.Client,
+	brief topo.NodeBrief,
+	rsMap map[string]string,
+	numParallelColls int,
+) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
 	}
@@ -86,6 +94,8 @@ func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, 
 		nodeConn: nodeConn,
 		brief:    brief,
 		rsMap:    rsMap,
+
+		numParallelColls: numParallelColls,
 
 		indexCatalog: idx.NewIndexCatalog(),
 	}
@@ -805,7 +815,8 @@ func (r *Restore) RunSnapshot(
 				return rdr, nil
 			},
 			bcp.Compression,
-			util.MakeSelectedPred(nss))
+			util.MakeSelectedPred(nss),
+			r.numParallelColls)
 	}
 	if err != nil {
 		return err

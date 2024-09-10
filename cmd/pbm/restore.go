@@ -25,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type restoreOpts struct {
@@ -39,6 +40,8 @@ type restoreOpts struct {
 	rsMap         string
 	conf          string
 	ts            string
+
+	numParallelColls int32
 }
 
 type restoreRet struct {
@@ -97,7 +100,17 @@ func (r externRestoreRet) String() string {
 		r.Name, r.Name)
 }
 
-func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
+func runRestore(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	o *restoreOpts,
+	outf outFormat,
+) (fmt.Stringer, error) {
+	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -115,13 +128,17 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
+	}
+
 	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, nss, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, outf)
 	if err != nil {
 		return nil, err
 	}
@@ -310,15 +327,12 @@ func doRestore(
 	ctx context.Context,
 	conn connect.Client,
 	o *restoreOpts,
+	numParallelColls *int32,
 	nss []string,
 	rsMapping map[string]string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
-	if err != nil {
-		return nil, err
-	}
-	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -328,12 +342,13 @@ func doRestore(
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdRestore,
 		Restore: &ctrl.RestoreCmd{
-			Name:          name,
-			BackupName:    bcp,
-			Namespaces:    nss,
-			UsersAndRoles: o.usersAndRoles,
-			RSMap:         rsMapping,
-			External:      o.extern,
+			Name:             name,
+			BackupName:       bcp,
+			NumParallelColls: numParallelColls,
+			Namespaces:       nss,
+			UsersAndRoles:    o.usersAndRoles,
+			RSMap:            rsMapping,
+			External:         o.extern,
 		},
 	}
 	if o.pitr != "" {

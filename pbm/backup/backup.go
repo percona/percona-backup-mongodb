@@ -32,17 +32,17 @@ type Backup struct {
 	typ                 defs.BackupType
 	incrBase            bool
 	timeouts            *config.BackupTimeouts
-	dumpConns           int
+	numParallelColls    int
 	oplogSlicerInterval time.Duration
 }
 
 func New(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
 	return &Backup{
-		leadConn:  leadConn,
-		nodeConn:  conn,
-		brief:     brief,
-		typ:       defs.LogicalBackup,
-		dumpConns: dumpConns,
+		leadConn:         leadConn,
+		nodeConn:         conn,
+		brief:            brief,
+		typ:              defs.LogicalBackup,
+		numParallelColls: dumpConns,
 	}
 }
 
