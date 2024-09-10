@@ -741,7 +741,7 @@ func setClusterLastWriteImpl(
 			}
 		}
 
-		time.Sleep(time.Second)
+		time.Sleep(10 * time.Second)
 	}
 
 	lw := bcp.Replsets[0].LastWriteTS
