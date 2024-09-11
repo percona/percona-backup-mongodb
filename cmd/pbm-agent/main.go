@@ -118,6 +118,8 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "setup pbm collections")
 	}
 
+	agent.showIncompatibilityWarning(ctx)
+
 	if canRunSlicer {
 		go agent.PITR(ctx)
 	}

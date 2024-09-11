@@ -109,16 +109,16 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		return ErrDelayedNode
 	}
 
-	ver, err := version.GetMongoVersion(ctx, a.leadConn.MongoClient())
-	if err != nil {
-		return errors.Wrap(err, "get mongo version")
-	}
-	if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
+	return nil
+}
+
+func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
+	if err := version.FeatureSupport(a.brief.Version).PBMSupport(); err != nil {
 		log.FromContext(ctx).
 			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
 	}
 
-	if ver.IsShardedTimeseriesSupported() {
+	if a.brief.Version.IsShardedTimeseriesSupported() {
 		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
 		if err != nil {
 			log.FromContext(ctx).
@@ -131,8 +131,6 @@ func (a *Agent) CanStart(ctx context.Context) error {
 					strings.Join(tss, ", "))
 		}
 	}
-
-	return nil
 }
 
 // Start starts listening the commands stream.
