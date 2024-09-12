@@ -3,8 +3,9 @@ package backup
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path"
+	"runtime"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	sfs "github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -189,146 +191,70 @@ func checkFile(stg storage.Storage, filename string) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func DeleteBackupFiles(meta *BackupMeta, stg storage.Storage) error {
-	switch meta.Type {
-	case defs.PhysicalBackup, defs.IncrementalBackup:
-		return deletePhysicalBackupFiles(meta, stg)
-	case defs.LogicalBackup:
-		fallthrough
-	default:
-		var err error
-		if version.IsLegacyArchive(meta.PBMVersion) {
-			err = deleteLegacyLogicalBackupFiles(meta, stg)
-		} else {
-			err = deleteLogicalBackupFiles(meta, stg)
-		}
-
-		return err
-	}
-}
-
-// DeleteBackupFiles removes backup's artifacts from storage
-func deletePhysicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
-	if version.HasFilelistFile(meta.PBMVersion) {
-		for i := range meta.Replsets {
-			rs := &meta.Replsets[i]
-			if rs.Files != nil {
-				// it is already fetched
-				continue
-			}
-
-			filelistPath := path.Join(meta.Name, rs.Name, FilelistName)
-			rdr, err := stg.SourceReader(filelistPath)
-			if err != nil {
-				if errors.Is(err, storage.ErrNotExist) {
-					continue
-				}
-
-				return errors.Wrapf(err, "open %q", filelistPath)
-			}
-			defer rdr.Close()
-
-			filelist, err := ReadFilelist(rdr)
-			rdr.Close()
-			if err != nil {
-				return errors.Wrapf(err, "parse filelist")
-			}
-
-			rs.Files = filelist
-		}
+func DeleteBackupFiles(stg storage.Storage, backupName string) error {
+	if fs, ok := stg.(*sfs.FS); ok {
+		return deleteBackupFromFS(fs, backupName)
 	}
 
-	for _, r := range meta.Replsets {
-		for _, f := range r.Files {
-			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
-			if f.Len != 0 {
-				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
-			err := stg.Delete(fname)
-			if err != nil && !errors.Is(err, storage.ErrNotExist) {
-				return errors.Wrapf(err, "delete %s", fname)
-			}
-		}
-		for _, f := range r.Journal {
-			fname := meta.Name + "/" + r.Name + "/" + f.Name + meta.Compression.Suffix()
-			if f.Len != 0 {
-				fname += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
-			err := stg.Delete(fname)
-			if err != nil && !errors.Is(err, storage.ErrNotExist) {
-				return errors.Wrapf(err, "delete %s", fname)
-			}
-		}
-		if version.HasFilelistFile(meta.PBMVersion) {
-			err := stg.Delete(path.Join(meta.Name, r.Name, FilelistName))
-			if err != nil && !errors.Is(err, storage.ErrNotExist) {
-				return errors.Wrapf(err, "delete %s", path.Join(meta.Name, r.Name, FilelistName))
-			}
-		}
-	}
-
-	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
-	if err != nil && !errors.Is(err, storage.ErrNotExist) {
-		return errors.Wrap(err, "delete metadata file from storage")
-	}
-
-	return nil
-}
-
-// deleteLogicalBackupFiles removes backup's artifacts from storage
-func deleteLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
-	if stg.Type() == storage.Filesystem {
-		return deleteLogicalBackupFilesFromFS(stg, meta.Name)
-	}
-
-	prefix := meta.Name + "/"
-	files, err := stg.List(prefix, "")
+	files, err := stg.List(backupName, "")
 	if err != nil {
-		return errors.Wrapf(err, "get file list: %q", prefix)
+		return errors.Wrap(err, "list files")
 	}
 
-	eg := errgroup.Group{}
-	for _, f := range files {
-		ns := prefix + f.Name
-		eg.Go(func() error {
-			return errors.Wrapf(stg.Delete(ns), "delete %q", ns)
-		})
+	parallel := runtime.NumCPU()
+	fileC := make(chan string, parallel)
+	errC := make(chan error, parallel)
+
+	wg := &sync.WaitGroup{}
+
+	wg.Add(parallel)
+	for range parallel {
+		go func() {
+			defer wg.Done()
+
+			for f := range fileC {
+				err := stg.Delete(backupName + "/" + f)
+				if err != nil {
+					errC <- errors.Wrapf(err, "delete %s", backupName+"/"+f)
+				}
+			}
+		}()
 	}
-	if err := eg.Wait(); err != nil {
-		return err
-	}
 
-	bcpMF := meta.Name + defs.MetadataFileSuffix
-	return errors.Wrapf(stg.Delete(bcpMF), "delete %q", bcpMF)
-}
-
-// deleteLogicalBackupFiles removes backup's artifacts from storage
-func deleteLogicalBackupFilesFromFS(stg storage.Storage, bcpName string) error {
-	if err := stg.Delete(bcpName); err != nil {
-		return errors.Wrapf(err, "delete %q", bcpName)
-	}
-
-	bcpMetafile := bcpName + defs.MetadataFileSuffix
-	return errors.Wrapf(stg.Delete(bcpMetafile), "delete %q", bcpMetafile)
-}
-
-// deleteLegacyLogicalBackupFiles removes backup's artifacts from storage
-func deleteLegacyLogicalBackupFiles(meta *BackupMeta, stg storage.Storage) error {
-	for _, r := range meta.Replsets {
-		err := stg.Delete(r.OplogName)
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return errors.Wrapf(err, "delete oplog %s", r.OplogName)
+	go func() {
+		for i := range files {
+			fileC <- files[i].Name
 		}
-		err = stg.Delete(r.DumpName)
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return errors.Wrapf(err, "delete dump %s", r.DumpName)
-		}
+		close(fileC)
+
+		wg.Wait()
+		close(errC)
+	}()
+
+	var errs []error
+	for err := range errC {
+		errs = append(errs, err)
 	}
 
-	err := stg.Delete(meta.Name + defs.MetadataFileSuffix)
+	err = stg.Delete(backupName + defs.MetadataFileSuffix)
 	if err != nil && !errors.Is(err, storage.ErrNotExist) {
-		return errors.Wrap(err, "delete metadata file from storage")
+		err = errors.Wrapf(err, "delete %s", backupName+defs.MetadataFileSuffix)
+		errs = append(errs, err)
 	}
 
-	return nil
+	return errors.Join(errs...)
+}
+
+func deleteBackupFromFS(stg *sfs.FS, backupName string) error {
+	err1 := stg.Delete(backupName)
+	if err1 != nil && !errors.Is(err1, storage.ErrNotExist) {
+		err1 = errors.Wrapf(err1, "delete %s", backupName)
+	}
+
+	err2 := stg.Delete(backupName + defs.MetadataFileSuffix)
+	if err2 != nil && !errors.Is(err2, storage.ErrNotExist) {
+		err2 = errors.Wrapf(err2, "delete %s", backupName+defs.MetadataFileSuffix)
+	}
+
+	return errors.Join(err1, err2)
 }

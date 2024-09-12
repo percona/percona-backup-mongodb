@@ -290,7 +290,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
-			err := backup.DeleteBackupFiles(bcp, stg)
+			err := backup.DeleteBackupFiles(stg, bcp.Name)
 			return errors.Wrapf(err, "delete backup files %q", bcp.Name)
 		})
 	}

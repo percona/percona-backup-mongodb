@@ -306,7 +306,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return
 		}
 
-		if err := DeleteBackupFiles(bcpm, stg); err != nil {
+		if err := DeleteBackupFiles(stg, bcp.Name); err != nil {
 			l.Error("Failed to delete leftover files for canceled backup %q", bcpm.Name)
 		}
 	}()
