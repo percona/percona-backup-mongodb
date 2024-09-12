@@ -118,7 +118,7 @@ func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
 	}
 
-	if a.brief.Version.IsShardedTimeseriesSupported() {
+	if a.brief.Sharded && a.brief.Version.IsShardedTimeseriesSupported() {
 		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
 		if err != nil {
 			log.FromContext(ctx).
@@ -129,6 +129,19 @@ func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 				Warning("", "", "", primitive.Timestamp{},
 					"WARNING: cannot backup following sharded timeseries: %s",
 					strings.Join(tss, ", "))
+		}
+	}
+
+	if a.brief.Sharded && a.brief.Version.IsConfigShardSupported() {
+		hasConfigShard, err := topo.HasConfigShard(ctx, a.leadConn)
+		if err != nil {
+			log.FromContext(ctx).
+				Error("", "", "", primitive.Timestamp{},
+					"failed to check for Config Shard: %v", err)
+		} else if hasConfigShard {
+			log.FromContext(ctx).
+				Warning("", "", "", primitive.Timestamp{},
+					"WARNING: selective backup and restore is not supported with Config Shard")
 		}
 	}
 }
