@@ -721,7 +721,37 @@ func setClusterLastWriteImpl(
 			break
 		}
 
-		time.Sleep(time.Second)
+		// before we try another time, let's check if we have lost agent
+		clusterTime, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+
+		locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{
+			Type: ctrl.CmdBackup,
+			OPID: bcp.OPID,
+		})
+		if err != nil {
+			return errors.Wrap(err, "get locks")
+		}
+
+		for _, replset := range bcp.Replsets {
+			var lck *lock.LockData
+			for _, l := range locks {
+				if l.Replset == replset.Name {
+					lck = &l
+					break
+				}
+			}
+			if lck == nil {
+				continue
+			}
+			if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("lost shard %s, last beat ts: %d", replset.Name, lck.Heartbeat.T)
+			}
+		}
+
+		time.Sleep(10 * time.Second)
 	}
 
 	lw := bcp.Replsets[0].LastWriteTS
