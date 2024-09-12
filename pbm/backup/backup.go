@@ -238,7 +238,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 
-		err = BackupHB(ctx, b.leadConn, bcp.Name)
+		err := BackupHB(ctx, b.leadConn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
@@ -250,7 +250,6 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			for {
 				select {
 				case <-ctx.Done():
-					err = ctx.Err()
 					return
 				case <-tk.C:
 					err = BackupHB(ctx, b.leadConn, bcp.Name)
@@ -299,10 +298,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	defer func() {
-		if !inf.IsLeader() {
-			return
-		}
-		if !errors.Is(err, storage.ErrCancelled) && !errors.Is(err, context.Canceled) {
+		if err == nil || !inf.IsLeader() {
 			return
 		}
 
