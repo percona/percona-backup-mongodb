@@ -187,7 +187,7 @@ func (r *Restore) Snapshot(
 		return errors.Wrap(err, "set backup name")
 	}
 
-	err = r.checkSnapshot(ctx, bcp)
+	err = r.checkSnapshot(ctx, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (r *Restore) PITR(
 		return errors.Wrap(err, "set backup name")
 	}
 
-	err = r.checkSnapshot(ctx, bcp)
+	err = r.checkSnapshot(ctx, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -697,7 +697,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	return rsMeta.DumpName, chunks, nil
 }
 
-func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta) error {
+func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss []string) error {
 	if bcp.Status != defs.StatusDone {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s",
 			bcp.Status, bcp.Error())
@@ -730,6 +730,16 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta) err
 				"backup mongo version %q is incompatible with the running mongo version %q",
 				bcp.MongoVersion, ver.VersionString)
 			return nil
+		}
+
+		if r.brief.Sharded && ver.IsConfigShardSupported() && util.IsSelective(nss) {
+			hasConfigShard, err := topo.HasConfigShard(ctx, r.leadConn)
+			if err != nil {
+				return errors.Wrap(err, "check for Config Shard")
+			}
+			if hasConfigShard {
+				return errors.New("selective restore is not supported with Config Shard")
+			}
 		}
 	}
 
