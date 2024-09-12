@@ -727,17 +727,27 @@ func setClusterLastWriteImpl(
 			return errors.Wrap(err, "read cluster time")
 		}
 
-		for _, shard := range bcp.Replsets {
-			lck, err := lock.GetLockData(ctx, conn, &lock.LockHeader{
-				Type:    ctrl.CmdBackup,
-				OPID:    bcp.OPID,
-				Replset: shard.Name,
-			})
-			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-				return errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+		locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{
+			Type: ctrl.CmdBackup,
+			OPID: bcp.OPID,
+		})
+		if err != nil {
+			return errors.Wrap(err, "get locks")
+		}
+
+		for _, replset := range bcp.Replsets {
+			var lck *lock.LockData
+			for _, l := range locks {
+				if l.Replset == replset.Name {
+					lck = &l
+					break
+				}
+			}
+			if lck == nil {
+				continue
 			}
 			if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
-				return errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
+				return errors.Errorf("lost shard %s, last beat ts: %d", replset.Name, lck.Heartbeat.T)
 			}
 		}
 
