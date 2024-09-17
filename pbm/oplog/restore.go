@@ -87,6 +87,7 @@ var dontPreserveUUID = []string{
 	"admin.system.roles",
 	"admin.system.keys",
 	"*.system.buckets.*", // timeseries
+	"*.system.views",     // timeseries
 }
 
 // OplogRestore is the oplog applyer
