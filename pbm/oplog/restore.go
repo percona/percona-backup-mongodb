@@ -325,7 +325,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
-		// if this is a create operation, the namesape would be
+		// if this is a create operation, the namespace would be
 		// inside the object to create
 		if oe.Operation == "c" {
 			if len(oe.Object) == 0 {
