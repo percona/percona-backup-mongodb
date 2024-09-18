@@ -330,12 +330,12 @@ func (b *Backup) doPhysical(
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}
-	}
-
-	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for running")
+	} else {
+		// Waiting for cluster's StatusRunning to move further.
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
+		if err != nil {
+			return errors.Wrap(err, "waiting for running")
+		}
 	}
 
 	_, lwTS, err := b.waitForFirstLastWrite(ctx, bcp.Name)
