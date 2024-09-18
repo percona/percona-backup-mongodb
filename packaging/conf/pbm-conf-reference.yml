@@ -11,28 +11,31 @@
 #storage:
 
 ##  Remote backup storage type. Supported types: S3, filesystem, azure
- 
 
 #---------------------S3 Storage Configuration--------------------------
 #  type:
 #    s3:
 
-## Specify the location and name of the bucket that you have configured on the S3 
-#     region: 
-#     bucket: 
+## Specify the location and name of the bucket that you have configured on the S3
+#     region:
+#     bucket:
 
-## The data directory to store backups in. 
+## The data directory to store backups in.
 ## When undefined, backups are saved at the root of the bucket.
-#     prefix:  
+#     prefix:
 
 ## The URL to access the bucket for GCS and MinIO
-#     endpointURL: 
+#     endpointURL:
+
+## The service account used to access the GCS bucket.
+## IF undefined, the "default" service account is used.
+#     serviceAccount:
 
 ## S3 access credentials.
 #     credentials:
-#       access-key-id: 
+#       access-key-id:
 #       secret-access-key:
-#       session-token:  
+#       session-token:
 
 ## The size of data chinks (in MB) to upload to the bucket.
 #     uploadPartSize: 10
