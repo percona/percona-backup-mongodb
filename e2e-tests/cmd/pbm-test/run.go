@@ -70,8 +70,8 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 	t.SetBallastData(1e5)
 
-	runTest("Check the Running Backup can't be deleted",
-		t.BackupNotDeleteRunning)
+	runTest("Check the Cannot Run Delete During Backup",
+		t.CannotRunDeleteDuringBackup)
 
 	runTest("Check Backup Cancellation",
 		func() { t.BackupCancellation(storage) })

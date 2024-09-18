@@ -191,12 +191,12 @@ func checkArtefacts(conf string, shouldStay map[string]struct{}) {
 	}
 }
 
-func (c *Cluster) BackupNotDeleteRunning() {
+func (c *Cluster) CannotRunDeleteDuringBackup() {
 	bcpName := c.LogicalBackup()
 	c.printBcpList()
 	log.Println("deleting backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "delete-backup", "-y", bcpName)
-	if err == nil || !strings.Contains(err.Error(), "backup is in progress") {
+	if err == nil || !strings.Contains(err.Error(), "another operation in progress, Snapshot backup") {
 		list, lerr := c.pbm.RunCmd("pbm", "list")
 		log.Fatalf("ERROR: running backup '%s' shouldn't be deleted.\n"+
 			"Output: %s\nStderr:%v\nBackups list:\n%v\n%v",
