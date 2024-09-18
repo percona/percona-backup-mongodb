@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"golang.org/x/oauth2/google"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -548,6 +549,21 @@ func (s *S3) session() (*session.Session, error) {
 			AccessKeyID:     s.opts.Credentials.AccessKeyID,
 			SecretAccessKey: s.opts.Credentials.SecretAccessKey,
 			SessionToken:    s.opts.Credentials.SessionToken,
+		}})
+	}
+
+	// If using GCE, attempt to retrieve access token from metadata server
+	if s.opts.EndpointURL == GCSEndpointURL {
+		// add definitive check that we are in GCE
+		tokenSource := google.ComputeTokenSource("", "https://www.googleapis.com/auth/devstorage.read_write")
+		token, err := tokenSource.Token()
+		if err != nil {
+			return nil, errors.Wrap(err, "get GCP token")
+		}
+		providers = append(providers, &credentials.StaticProvider{Value: credentials.Value{
+			AccessKeyID:     "GCP_OAUTH_TOKEN",
+			SecretAccessKey: "GCP_OATH_TOKEN",
+			SessionToken:    token.AccessToken,
 		}})
 	}
 
