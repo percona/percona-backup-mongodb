@@ -81,15 +81,34 @@ func getBackupMeta(ctx context.Context, conn connect.Client, clause bson.D) (*Ba
 }
 
 func ChangeBackupStateOPID(conn connect.Client, opid string, s defs.Status, msg string) error {
-	return changeBackupState(context.Background(), conn, bson.D{{"opid", opid}}, s, msg)
+	return changeBackupState(context.TODO(),
+		conn, bson.D{{"opid", opid}}, time.Now().UTC().Unix(), s, msg)
 }
 
 func ChangeBackupState(conn connect.Client, bcpName string, s defs.Status, msg string) error {
-	return changeBackupState(context.Background(), conn, bson.D{{"name", bcpName}}, s, msg)
+	return changeBackupState(context.TODO(),
+		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
 }
 
-func changeBackupState(ctx context.Context, conn connect.Client, clause bson.D, s defs.Status, msg string) error {
-	ts := time.Now().UTC().Unix()
+func ChangeBackupStateWithUnix(
+	conn connect.Client,
+	bcpName string,
+	s defs.Status,
+	unix int64,
+	msg string,
+) error {
+	return changeBackupState(context.TODO(),
+		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+}
+
+func changeBackupState(
+	ctx context.Context,
+	conn connect.Client,
+	clause bson.D,
+	ts int64,
+	s defs.Status,
+	msg string,
+) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
 		clause,
