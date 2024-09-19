@@ -558,9 +558,9 @@ func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{
 	if err != nil {
 		return nil, errors.Wrap(err, "get from db")
 	}
-	v, err := bts.LookupErr(strings.Split(key, ".")...)
-	if err != nil {
-		return nil, errors.Wrap(err, "lookup in document")
+	v := bts.Lookup(strings.Split(key, ".")...)
+	if !v.Type.IsValid() {
+		return "", nil // unset config path
 	}
 
 	switch v.Type {
