@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"path"
 	"runtime"
 	"sync"
@@ -16,12 +17,45 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-func CheckBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage) error {
-	// !!! TODO: Check physical files ?
-	if bcp.Type != defs.LogicalBackup {
-		return nil
+func CheckBackupFiles(ctx context.Context, stg storage.Storage, name string) error {
+	bcp, err := ReadMetadata(stg, name+defs.MetadataFileSuffix)
+	if err != nil {
+		return errors.Wrap(err, "read backup metadata")
 	}
 
+	return CheckBackupDataFiles(ctx, stg, bcp)
+}
+
+func ReadMetadata(stg storage.Storage, filename string) (*BackupMeta, error) {
+	rdr, err := stg.SourceReader(filename)
+	if err != nil {
+		return nil, errors.Wrap(err, "open")
+	}
+	defer rdr.Close()
+
+	var meta *BackupMeta
+	err = json.NewDecoder(rdr).Decode(&meta)
+	if err != nil {
+		return nil, errors.Wrap(err, "decode")
+	}
+
+	return meta, nil
+}
+
+func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
+	switch bcp.Type {
+	case defs.LogicalBackup:
+		return checkLogicalBackupFiles(ctx, stg, bcp)
+	case defs.PhysicalBackup, defs.IncrementalBackup:
+		return checkPhysicalBackupFiles(ctx, stg, bcp)
+	case defs.ExternalBackup:
+		return nil // no files available
+	}
+
+	return errors.Errorf("unknown backup type %s", bcp.Type)
+}
+
+func checkLogicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	legacy := version.IsLegacyArchive(bcp.PBMVersion)
 	eg, _ := errgroup.WithContext(ctx)
 	for _, rs := range bcp.Replsets {
@@ -72,6 +106,10 @@ func CheckBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 	}
 
 	return eg.Wait()
+}
+
+func checkPhysicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
+	return nil
 }
 
 func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
