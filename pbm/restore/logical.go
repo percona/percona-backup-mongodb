@@ -759,7 +759,6 @@ func (r *Restore) RunSnapshot(
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	var rdr io.ReadCloser
-
 	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		sr, err := r.bcpStg.SourceReader(dump)

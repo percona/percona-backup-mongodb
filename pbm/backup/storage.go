@@ -46,7 +46,7 @@ func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupM
 	case defs.LogicalBackup:
 		return checkLogicalBackupDataFiles(ctx, stg, bcp)
 	case defs.PhysicalBackup, defs.IncrementalBackup:
-		return checkPhysicalBackupFiles(ctx, stg, bcp)
+		return checkPhysicalBackupDataFiles(ctx, stg, bcp)
 	case defs.ExternalBackup:
 		return nil // no files available
 	}
@@ -111,8 +111,65 @@ func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *Ba
 	return errors.Join(errs...)
 }
 
-func checkPhysicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
-	return nil
+func checkPhysicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *BackupMeta) error {
+	eg := util.NewErrorGroup(runtime.NumCPU() * 2)
+	for _, rs := range bcp.Replsets {
+		eg.Go(func() error {
+			var filelist Filelist
+			if version.HasFilelistFile(bcp.PBMVersion) {
+				var err error
+				filelist, err = ReadFilelistForReplset(stg, bcp.Name, rs.Name)
+				if err != nil {
+					return errors.Wrapf(err, "read filelist for replset %s", rs.Name)
+				}
+			} else {
+				filelist = rs.Files
+			}
+			if len(filelist) == 0 {
+				return errors.Errorf("empty filelist for replset %s", rs.Name)
+			}
+
+			for _, f := range filelist {
+				if f.Len <= 0 {
+					continue // no file expected
+				}
+
+				eg.Go(func() error {
+					filepath := path.Join(bcp.Name, rs.Name, f.Path(bcp.Compression))
+					stat, err := stg.FileStat(filepath)
+					if err != nil {
+						return errors.Wrapf(err, "file %s", filepath)
+					}
+					if stat.Size == 0 {
+						return errors.Errorf("empty file %s", filepath)
+					}
+
+					return nil
+				})
+			}
+
+			return nil
+		})
+	}
+
+	errs := eg.Wait()
+	return errors.Join(errs...)
+}
+
+func ReadFilelistForReplset(stg storage.Storage, bcpName, rsName string) (Filelist, error) {
+	pfFilepath := path.Join(bcpName, rsName, FilelistName)
+	rdr, err := stg.SourceReader(pfFilepath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %q", pfFilepath)
+	}
+	defer rdr.Close()
+
+	filelist, err := ReadFilelist(rdr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse filelist %q", pfFilepath)
+	}
+
+	return filelist, nil
 }
 
 func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
