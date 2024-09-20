@@ -1089,10 +1089,7 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
-			if f.Len != 0 {
-				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
+			src := filepath.Join(set.BcpName, setName, f.Path(set.Cmpr))
 			// cut dbpath from destination if there is any (see PBM-1058)
 			fname := f.Name
 			if set.dbpath != "" {
