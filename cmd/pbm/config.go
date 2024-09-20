@@ -84,6 +84,9 @@ func runConfig(
 	case len(c.key) > 0:
 		k, err := config.GetConfigVar(ctx, conn, c.key)
 		if err != nil {
+			if errors.Is(err, config.ErrUnsetConfigPath) {
+				return confKV{c.key, ""}, nil // unset config path
+			}
 			return nil, errors.Wrap(err, "unable to get config key")
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
