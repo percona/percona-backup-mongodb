@@ -7,13 +7,12 @@ import (
 	"runtime"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	sfs "github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -45,7 +44,7 @@ func ReadMetadata(stg storage.Storage, filename string) (*BackupMeta, error) {
 func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	switch bcp.Type {
 	case defs.LogicalBackup:
-		return checkLogicalBackupFiles(ctx, stg, bcp)
+		return checkLogicalBackupDataFiles(ctx, stg, bcp)
 	case defs.PhysicalBackup, defs.IncrementalBackup:
 		return checkPhysicalBackupFiles(ctx, stg, bcp)
 	case defs.ExternalBackup:
@@ -55,57 +54,61 @@ func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupM
 	return errors.Errorf("unknown backup type %s", bcp.Type)
 }
 
-func checkLogicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
+func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	legacy := version.IsLegacyArchive(bcp.PBMVersion)
-	eg, _ := errgroup.WithContext(ctx)
+
+	eg := util.NewErrorGroup(runtime.NumCPU() * 2)
 	for _, rs := range bcp.Replsets {
-		rs := rs
-
-		eg.Go(func() error { return checkFile(stg, rs.DumpName) })
-
 		eg.Go(func() error {
-			if version.IsLegacyBackupOplog(bcp.PBMVersion) {
-				return checkFile(stg, rs.OplogName)
+			eg.Go(func() error { return checkFile(stg, rs.DumpName) })
+
+			eg.Go(func() error {
+				if version.IsLegacyBackupOplog(bcp.PBMVersion) {
+					return checkFile(stg, rs.OplogName)
+				}
+
+				files, err := stg.List(rs.OplogName, "")
+				if err != nil {
+					return errors.Wrap(err, "list")
+				}
+				if len(files) == 0 {
+					return errors.Wrap(err, "no oplog files")
+				}
+				for i := range files {
+					if files[i].Size == 0 {
+						return errors.Errorf("%q is empty", path.Join(rs.OplogName, files[i].Name))
+					}
+				}
+
+				return nil
+			})
+
+			if legacy {
+				return nil
 			}
 
-			files, err := stg.List(rs.OplogName, "")
+			nss, err := ReadArchiveNamespaces(stg, rs.DumpName)
 			if err != nil {
-				return errors.Wrap(err, "list")
+				return errors.Wrapf(err, "parse metafile %q", rs.DumpName)
 			}
-			if len(files) == 0 {
-				return errors.Wrap(err, "no oplog files")
-			}
-			for i := range files {
-				if files[i].Size == 0 {
-					return errors.Errorf("%q is empty", path.Join(rs.OplogName, files[i].Name))
+
+			for _, ns := range nss {
+				if ns.Size == 0 {
+					continue
 				}
+
+				ns := archive.NSify(ns.Database, ns.Collection)
+				f := path.Join(bcp.Name, rs.Name, ns+bcp.Compression.Suffix())
+
+				eg.Go(func() error { return checkFile(stg, f) })
 			}
 
 			return nil
 		})
-
-		if legacy {
-			continue
-		}
-
-		nss, err := ReadArchiveNamespaces(stg, rs.DumpName)
-		if err != nil {
-			return errors.Wrapf(err, "parse metafile %q", rs.DumpName)
-		}
-
-		for _, ns := range nss {
-			if ns.Size == 0 {
-				continue
-			}
-
-			ns := archive.NSify(ns.Database, ns.Collection)
-			f := path.Join(bcp.Name, rs.Name, ns+bcp.Compression.Suffix())
-
-			eg.Go(func() error { return checkFile(stg, f) })
-		}
 	}
 
-	return eg.Wait()
+	errs := eg.Wait()
+	return errors.Join(errs...)
 }
 
 func checkPhysicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
