@@ -161,7 +161,7 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.EndpointURL != other.EndpointURL {
 		return false
 	}
-	if cfg.ServiceAccount != other.EndpointURL {
+	if cfg.ServiceAccount != other.ServiceAccount {
 		return false
 	}
 	if cfg.Bucket != other.Bucket {
@@ -547,6 +547,7 @@ func (s *S3) s3session() (*s3.S3, error) {
 }
 
 func (s *S3) session() (*session.Session, error) {
+	fmt.Println("ENDPOINT URL: ", s.opts.EndpointURL) // TODO: remove
 	var providers []credentials.Provider
 
 	// if we have credentials, set them first in the providers list
@@ -559,10 +560,8 @@ func (s *S3) session() (*session.Session, error) {
 	}
 
 	// If using GCE, attempt to retrieve access token from metadata server
-	if s.opts.EndpointURL == GCSEndpointURL {
-		fmt.Println("ARE WE ON GCE?", onGCE()) // TODO: remove
+	if onGCE() {
 		fmt.Println("Using service account: ", s.opts.ServiceAccount)
-		// add definitive check that we are in GCE
 		tokenSource := google.ComputeTokenSource(s.opts.ServiceAccount, "")
 		token, err := tokenSource.Token()
 		if err != nil {
