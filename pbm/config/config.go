@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -32,6 +33,7 @@ var (
 	ErrUnkownStorageType   = errors.New("unknown storage type")
 	ErrMissedConfig        = errors.New("missed config")
 	ErrMissedConfigProfile = errors.New("missed config profile")
+	ErrUnsetConfigPath     = bsoncore.ErrElementNotFound
 )
 
 type confMap map[string]reflect.Kind
