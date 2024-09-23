@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -77,8 +78,6 @@ var selectedNSSupportedCommands = map[string]struct{}{
 	"dropIndex":        {},
 	"dropIndexes":      {},
 	"collMod":          {},
-	"startIndexBuild":  {},
-	"abortIndexBuild":  {},
 	"commitIndexBuild": {},
 }
 
@@ -258,6 +257,32 @@ func (o *OplogRestore) SetIncludeNS(nss []string) {
 	o.includeNS = dbs
 }
 
+func isOpAllowed(oe *Record) bool {
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // OK: not a "config" database. allow any ops
+	}
+
+	if slices.Contains(dumprestore.ConfigCollectionsToKeep, coll) {
+		return true // OK: create/update/delete a doc
+	}
+
+	if coll != "$cmd" || len(oe.Object) == 0 {
+		return false // other collection is not allowed
+	}
+
+	op := oe.Object[0].Key
+	if op == "applyOps" {
+		return true // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[op]; ok {
+		s, _ := oe.Object[0].Value.(string)
+		return slices.Contains(dumprestore.ConfigCollectionsToKeep, s)
+	}
+
+	return false
+}
+
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	if o.includeNS == nil || o.includeNS[""] != nil {
 		return true
@@ -273,11 +298,13 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 		return false
 	}
 
-	for _, el := range oe.Object {
-		if _, ok := selectedNSSupportedCommands[el.Key]; ok {
-			s, _ := el.Value.(string)
-			return colls[s]
-		}
+	cmd := oe.Object[0].Key
+	if cmd == "applyOps" {
+		return true // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[cmd]; ok {
+		s, _ := oe.Object[0].Value.(string)
+		return colls[s]
 	}
 
 	return false
@@ -302,13 +329,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if db, coll, _ := strings.Cut(oe.Namespace, "."); db == "config" {
-		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
-			return nil
-		}
-	}
-
-	if !o.isOpSelected(&oe) {
+	if !isOpAllowed(&oe) || !o.isOpSelected(&oe) {
 		return nil
 	}
 
@@ -631,10 +652,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return nil
 	}
 
-	if db, coll, _ := strings.Cut(op.Namespace, "."); db == "config" {
-		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
-			return nil
-		}
+	if !isOpAllowed(&op) || !o.isOpSelected(&op) {
+		return nil
 	}
 
 	op, err := o.filterUUIDs(op)

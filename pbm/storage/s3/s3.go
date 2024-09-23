@@ -18,9 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/defaults"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -599,10 +598,6 @@ func (s *S3) session() (*session.Session, error) {
 		))
 	}
 
-	providers = append(providers, &ec2rolecreds.EC2RoleProvider{
-		Client: ec2metadata.New(awsSession),
-	})
-
 	httpClient := &http.Client{}
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
@@ -612,15 +607,21 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
-	return session.NewSession(&aws.Config{
+	cfg := &aws.Config{
 		Region:           aws.String(s.opts.Region),
 		Endpoint:         aws.String(s.opts.EndpointURL),
-		Credentials:      credentials.NewChainCredentials(providers),
 		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
 		Logger:           awsLogger(s.log),
-	})
+	}
+
+	// fetch credentials from remote endpoints like EC2 or ECS roles
+	providers = append(providers, defaults.RemoteCredProvider(*cfg, defaults.Handlers()))
+
+	cfg.Credentials = credentials.NewChainCredentials(providers)
+
+	return session.NewSession(cfg)
 }
 
 func awsLogger(l log.LogEvent) aws.Logger {
