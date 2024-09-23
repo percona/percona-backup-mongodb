@@ -54,6 +54,9 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 			)
 			if err != nil {
 				errc <- errors.Wrap(err, "watch the cmd stream")
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				continue
 			}
 
