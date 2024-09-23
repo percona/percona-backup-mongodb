@@ -547,7 +547,6 @@ func (s *S3) s3session() (*s3.S3, error) {
 }
 
 func (s *S3) session() (*session.Session, error) {
-	fmt.Println("ENDPOINT URL: ", s.opts.EndpointURL) // TODO: remove
 	var providers []credentials.Provider
 
 	// if we have credentials, set them first in the providers list
