@@ -1554,7 +1554,7 @@ func (r *PhysRestore) cleanUpPBMCollections(ctx context.Context, c *mongo.Client
 			defer wg.Done()
 
 			r.log.Debug("dropping 'admin.%s'", coll)
-			_, err := c.Database(defs.DB).Collection(coll).DeleteMany(ctx, bson.M{})
+			_, err := c.Database(defs.DB).Collection(coll).DeleteMany(ctx, bson.D{})
 			if err != nil {
 				r.log.Warning("failed to delete all from 'admin.%s': %v", coll, err)
 			}
