@@ -5,6 +5,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
@@ -86,7 +87,7 @@ func runAgent(mongoURI string, dumpConns int) error {
 	mtLog.SetDateFormat(log.LogTimeFormat)
 	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	leadConn, err := connect.Connect(ctx, mongoURI, "pbm-agent")
