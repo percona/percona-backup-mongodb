@@ -124,14 +124,8 @@ func (s *AgentStat) MongoVersion() version.MongoVersion {
 	return v
 }
 
-func SetAgentStatus(ctx context.Context, m connect.Client, stat AgentStat) error {
-	ct, err := GetClusterTime(ctx, m)
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
-	stat.Heartbeat = ct
-
-	_, err = m.AgentsStatusCollection().ReplaceOne(
+func SetAgentStatus(ctx context.Context, m connect.Client, stat *AgentStat) error {
+	_, err := m.AgentsStatusCollection().ReplaceOne(
 		ctx,
 		bson.D{{"n", stat.Node}, {"rs", stat.RS}},
 		stat,
