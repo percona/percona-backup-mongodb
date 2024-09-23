@@ -560,7 +560,6 @@ func (s *S3) session() (*session.Session, error) {
 
 	// If using GCE, attempt to retrieve access token from metadata server
 	if onGCE() {
-		fmt.Println("Using service account: ", s.opts.ServiceAccount)
 		tokenSource := google.ComputeTokenSource(s.opts.ServiceAccount, "")
 		token, err := tokenSource.Token()
 		if err != nil {
