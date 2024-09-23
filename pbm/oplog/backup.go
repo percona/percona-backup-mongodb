@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -31,6 +32,7 @@ func (t Timeline) String() string {
 // OplogBackup is used for reading the Mongodb oplog
 type OplogBackup struct {
 	cl    *mongo.Client
+	mu    sync.Mutex
 	stopC chan struct{}
 	start primitive.Timestamp
 	end   primitive.Timestamp
@@ -68,7 +70,10 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 		return 0, errors.Errorf("oplog TailingSpan should be set, have start: %v, end: %v", ot.start, ot.end)
 	}
 
+	ot.mu.Lock()
 	ot.stopC = make(chan struct{})
+	ot.mu.Unlock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -79,7 +84,9 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 			cancel()
 		}
 
+		ot.mu.Lock()
 		ot.stopC = nil
+		ot.mu.Unlock()
 	}()
 
 	cur, err := ot.cl.Database("local").Collection("oplog.rs").Find(ctx,
@@ -145,6 +152,9 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (ot *OplogBackup) Cancel() {
+	ot.mu.Lock()
+	defer ot.mu.Unlock()
+
 	if c := ot.stopC; c != nil {
 		select {
 		case _, ok := <-c:
