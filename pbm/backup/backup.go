@@ -348,14 +348,12 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		}
 
 		err = writeMeta(stg, bcpm)
-		if err != nil {
-			return errors.Wrap(err, "dump metadata")
-		}
+		return errors.Wrap(err, "dump metadata")
+	} else {
+		// to be sure the locks released only after the "done" status had written
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
+		return errors.Wrap(err, "waiting for done")
 	}
-
-	// to be sure the locks released only after the "done" status had written
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
-	return errors.Wrap(err, "waiting for done")
 }
 
 func waitForBalancerOff(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) topo.BalancerMode {
@@ -412,11 +410,11 @@ func (b *Backup) toState(
 			}
 			return errors.Wrapf(err, "check cluster for backup `%s`", status)
 		}
-	}
-
-	err = b.waitForStatus(ctx, bcp, status, wait)
-	if err != nil {
-		return errors.Wrapf(err, "waiting for %s", status)
+	} else {
+		err = b.waitForStatus(ctx, bcp, status, wait)
+		if err != nil {
+			return errors.Wrapf(err, "waiting for %s", status)
+		}
 	}
 
 	return nil
