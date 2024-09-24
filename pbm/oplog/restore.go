@@ -661,6 +661,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
 	}
 
+	dbName, collName, _ := strings.Cut(op.Namespace, ".")
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -670,9 +671,6 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		if _, ok := knownCommands[cmdName]; !ok {
 			return errors.Errorf("unknown oplog command name %v: %v", cmdName, op)
 		}
-
-		ns := strings.Split(op.Namespace, ".")
-		dbName := ns[0]
 
 		switch cmdName {
 		case "commitIndexBuild":
@@ -792,6 +790,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			if err := o.handleNonTxnOp(op2); err != nil {
 				return errors.Wrap(err, "oplog: drop collection before create")
 			}
+		}
+	} else if op.Operation == "i" && collName == "system.views" {
+		// PBM-921: ensure the collection exists before "creating" views or timeseries
+		err := o.dst.Database(dbName).CreateCollection(context.TODO(), "system.views")
+		if err != nil {
+			return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
 		}
 	}
 
