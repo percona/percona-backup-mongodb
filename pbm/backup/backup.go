@@ -337,9 +337,15 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	if inf.IsLeader() {
-		err = b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDone, nil)
+		shards, err := topo.ClusterMembers(ctx, b.leadConn.MongoClient())
 		if err != nil {
-			return errors.Wrap(err, "check cluster for backup done")
+			return errors.Wrap(err, "check cluster for backup done: get cluster members")
+		}
+
+		err = b.convergeCluster(ctx, bcp.Name, opid.String(), shards, defs.StatusDone)
+		err = errors.Wrap(err, "check cluster for backup done: convergeCluster")
+		if err != nil {
+			return err
 		}
 
 		bcpm, err = NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
@@ -347,8 +353,28 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return errors.Wrap(err, "get backup metadata")
 		}
 
+		// PBM-1114: update file metadata with the same values as in database
+		unix := time.Now().Unix()
+		bcpm.Status = defs.StatusDone
+		bcpm.LastTransitionTS = unix
+		bcpm.Conditions = append(bcpm.Conditions, Condition{
+			Timestamp: unix,
+			Status:    defs.StatusDone,
+		})
+
 		err = writeMeta(stg, bcpm)
-		return errors.Wrap(err, "dump metadata")
+		if err != nil {
+			return errors.Wrap(err, "dump metadata")
+		}
+
+		err = CheckBackupFiles(ctx, stg, bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "check backup files")
+		}
+
+		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, unix, "")
+		return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
+			defs.StatusDone)
 	} else {
 		// to be sure the locks released only after the "done" status had written
 		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
@@ -432,14 +458,18 @@ func (b *Backup) reconcileStatus(
 	}
 
 	if timeout != nil {
-		return errors.Wrap(
-			b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout),
-			"convergeClusterWithTimeout")
+		err = b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout)
+		err = errors.Wrap(err, "convergeClusterWithTimeout")
+	} else {
+		err = b.convergeCluster(ctx, bcpName, opid, shards, status)
+		err = errors.Wrap(err, "convergeCluster")
+	}
+	if err != nil {
+		return err
 	}
 
-	return errors.Wrap(
-		b.convergeCluster(ctx, bcpName, opid, shards, status),
-		"convergeCluster")
+	err = ChangeBackupState(b.leadConn, bcpName, status, "")
+	return errors.Wrapf(err, "update backup meta with %s", status)
 }
 
 // convergeCluster waits until all given shards reached `status` and updates a cluster status
@@ -480,10 +510,11 @@ func (b *Backup) convergeClusterWithTimeout(
 	status defs.Status,
 	t time.Duration,
 ) error {
-	tk := time.NewTicker(time.Second * 1)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	tout := time.After(t)
+	tout := time.NewTimer(t)
+	defer tout.Stop()
 
 	for {
 		select {
@@ -495,7 +526,7 @@ func (b *Backup) convergeClusterWithTimeout(
 			if ok {
 				return nil
 			}
-		case <-tout:
+		case <-tout.C:
 			return errors.Wrap(errConvergeTimeOut, t.String())
 		case <-ctx.Done():
 			return ctx.Err()
@@ -554,15 +585,7 @@ func (b *Backup) converged(
 		}
 	}
 
-	if shardsToFinish == 0 {
-		err := ChangeBackupState(b.leadConn, bcpName, status, "")
-		if err != nil {
-			return false, errors.Wrapf(err, "update backup meta with %s", status)
-		}
-		return true, nil
-	}
-
-	return false, nil
+	return shardsToFinish == 0, nil
 }
 
 func (b *Backup) waitForStatus(

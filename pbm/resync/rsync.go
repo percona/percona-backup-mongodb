@@ -2,7 +2,6 @@ package resync
 
 import (
 	"context"
-	"encoding/json"
 	"runtime"
 	"strings"
 	"sync"
@@ -293,21 +292,13 @@ func getAllBackupMetaFromStorage(
 
 	backupMeta := make([]*backup.BackupMeta, 0, len(backupFiles))
 	for _, b := range backupFiles {
-		d, err := stg.SourceReader(b.Name)
+		meta, err := backup.ReadMetadata(stg, b.Name)
 		if err != nil {
-			l.Error("read meta for %v", b.Name)
+			l.Error("read metadata of backup %s: %v", b.Name, err)
 			continue
 		}
 
-		var meta *backup.BackupMeta
-		err = json.NewDecoder(d).Decode(&meta)
-		d.Close()
-		if err != nil {
-			l.Error("unmarshal backup meta [%s]", b.Name)
-			continue
-		}
-
-		err = backup.CheckBackupFiles(ctx, meta, stg)
+		err = backup.CheckBackupDataFiles(ctx, stg, meta)
 		if err != nil {
 			l.Warning("skip snapshot %s: %v", meta.Name, err)
 			meta.Status = defs.StatusError
