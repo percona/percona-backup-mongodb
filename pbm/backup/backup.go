@@ -372,7 +372,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return errors.Wrap(err, "check backup files")
 		}
 
-		err = ChangeBackupStateWithUnix(b.leadConn, bcp.Name, defs.StatusDone, unix, "")
+		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, unix, "")
 		return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
 			defs.StatusDone)
 	} else {

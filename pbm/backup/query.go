@@ -90,15 +90,15 @@ func ChangeBackupState(conn connect.Client, bcpName string, s defs.Status, msg s
 		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
 }
 
-func ChangeBackupStateWithUnix(
+func ChangeBackupStateWithUnixTime(
+	ctx context.Context,
 	conn connect.Client,
 	bcpName string,
 	s defs.Status,
 	unix int64,
 	msg string,
 ) error {
-	return changeBackupState(context.TODO(),
-		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
 }
 
 func changeBackupState(
