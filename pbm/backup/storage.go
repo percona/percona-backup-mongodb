@@ -10,107 +10,52 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	sfs "github.com/percona/percona-backup-mongodb/pbm/storage/fs"
-	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-type StorageManager interface {
-	GetAllBackups(ctx context.Context) ([]BackupMeta, error)
-	GetBackupByName(ctx context.Context, name string) (*BackupMeta, error)
-}
-
-type storageManagerImpl struct {
-	cfg *config.StorageConf
-	stg storage.Storage
-}
-
-func NewStorageManager(ctx context.Context, cfg *config.StorageConf) (*storageManagerImpl, error) {
-	stg, err := util.StorageFromConfig(cfg, log.LogEventFromContext(ctx))
+func CheckBackupFiles(ctx context.Context, stg storage.Storage, name string) error {
+	bcp, err := ReadMetadata(stg, name+defs.MetadataFileSuffix)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to get backup store")
+		return errors.Wrap(err, "read backup metadata")
 	}
 
-	_, err = stg.FileStat(defs.StorInitFile)
-	if !errors.Is(err, storage.ErrNotExist) {
-		return nil, err
-	}
-
-	return &storageManagerImpl{cfg: cfg, stg: stg}, nil
+	return CheckBackupDataFiles(ctx, stg, bcp)
 }
 
-func (m *storageManagerImpl) GetAllBackups(ctx context.Context) ([]BackupMeta, error) {
-	l := log.LogEventFromContext(ctx)
-
-	bcpList, err := m.stg.List("", defs.MetadataFileSuffix)
+func ReadMetadata(stg storage.Storage, filename string) (*BackupMeta, error) {
+	rdr, err := stg.SourceReader(filename)
 	if err != nil {
-		return nil, errors.Wrap(err, "get a backups list from the storage")
-	}
-	l.Debug("got backups list: %v", len(bcpList))
-
-	var rv []BackupMeta
-	for _, b := range bcpList {
-		l.Debug("bcp: %v", b.Name)
-
-		d, err := m.stg.SourceReader(b.Name)
-		if err != nil {
-			return nil, errors.Wrapf(err, "read meta for %v", b.Name)
-		}
-
-		v := BackupMeta{}
-		err = json.NewDecoder(d).Decode(&v)
-		d.Close()
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal backup meta [%s]", b.Name)
-		}
-
-		err = CheckBackupFiles(ctx, &v, m.stg)
-		if err != nil {
-			l.Warning("skip snapshot %s: %v", v.Name, err)
-			v.Status = defs.StatusError
-			v.Err = err.Error()
-		}
-		rv = append(rv, v)
-	}
-
-	return rv, nil
-}
-
-func (m *storageManagerImpl) GetBackupByName(ctx context.Context, name string) (*BackupMeta, error) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("get backup by name: %v", name)
-
-	rdr, err := m.stg.SourceReader(name + defs.MetadataFileSuffix)
-	if err != nil {
-		return nil, errors.Wrapf(err, "read meta for %v", name)
+		return nil, errors.Wrap(err, "open")
 	}
 	defer rdr.Close()
 
-	v := &BackupMeta{}
-	if err := json.NewDecoder(rdr).Decode(&v); err != nil {
-		return nil, errors.Wrapf(err, "unmarshal backup meta [%s]", name)
+	var meta *BackupMeta
+	err = json.NewDecoder(rdr).Decode(&meta)
+	if err != nil {
+		return nil, errors.Wrap(err, "decode")
 	}
 
-	if err := CheckBackupFiles(ctx, v, m.stg); err != nil {
-		l.Warning("no backup files %s: %v", v.Name, err)
-		v.Status = defs.StatusError
-		v.Err = err.Error()
-	}
-
-	return v, nil
+	return meta, nil
 }
 
-func CheckBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage) error {
-	// !!! TODO: Check physical files ?
-	if bcp.Type != defs.LogicalBackup {
-		return nil
+func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
+	switch bcp.Type {
+	case defs.LogicalBackup:
+		return checkLogicalBackupFiles(ctx, stg, bcp)
+	case defs.PhysicalBackup, defs.IncrementalBackup:
+		return checkPhysicalBackupFiles(ctx, stg, bcp)
+	case defs.ExternalBackup:
+		return nil // no files available
 	}
 
+	return errors.Errorf("unknown backup type %s", bcp.Type)
+}
+
+func checkLogicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	legacy := version.IsLegacyArchive(bcp.PBMVersion)
 	eg, _ := errgroup.WithContext(ctx)
 	for _, rs := range bcp.Replsets {
@@ -161,6 +106,10 @@ func CheckBackupFiles(ctx context.Context, bcp *BackupMeta, stg storage.Storage)
 	}
 
 	return eg.Wait()
+}
+
+func checkPhysicalBackupFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
+	return nil
 }
 
 func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
