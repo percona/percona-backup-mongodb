@@ -794,6 +794,8 @@ func (r *Restore) RunSnapshot(
 			// so we'll continue with selective restore
 		}
 
+		r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
 				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
