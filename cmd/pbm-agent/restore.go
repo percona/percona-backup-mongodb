@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -114,7 +115,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 
-		var numParallelColls int
+		numParallelColls := runtime.NumCPU() / 2
 		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
 			numParallelColls = int(*r.NumParallelColls)
 		}
