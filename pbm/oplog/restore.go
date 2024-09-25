@@ -795,7 +795,14 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		// PBM-921: ensure the collection exists before "creating" views or timeseries
 		err := o.dst.Database(dbName).CreateCollection(context.TODO(), "system.views")
 		if err != nil {
-			return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
+			// MongoDB 5.0 and 6.0 returns NamespaceExists error.
+			// MongoDB 7.0 and 8.0 does not return error.
+			// https://github.com/mongodb/mongo/blob/v6.0/src/mongo/base/error_codes.yml#L84
+			const NamespaceExists = 48
+			var cmdError mongo.CommandError
+			if !errors.As(err, &cmdError) || cmdError.Code != NamespaceExists {
+				return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
+			}
 		}
 	}
 
