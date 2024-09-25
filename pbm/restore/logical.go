@@ -1193,7 +1193,7 @@ func (r *Restore) snapshot(ctx context.Context, input io.Reader) error {
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 
-	rf, err := snapshot.NewRestore(r.brief.URI, cfg)
+	rf, err := snapshot.NewRestore(r.brief.URI, cfg, r.numParallelColls)
 	if err != nil {
 		return err
 	}
