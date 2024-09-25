@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"io"
+	"runtime"
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -95,6 +96,8 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
 	}
+	// mongorestore calls runtime.GOMAXPROCS(MaxProcs).
+	mopts.MaxProcs = runtime.GOMAXPROCS(0)
 
 	mr, err := mongorestore.New(mopts)
 	if err != nil {
