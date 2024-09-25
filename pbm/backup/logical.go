@@ -147,6 +147,8 @@ func (b *Backup) doLogical(
 			}
 		}
 
+		l.Debug("dumping up to %d collections in parallel", numParallelColls)
+
 		dump, err = snapshot.NewBackup(b.brief.URI, numParallelColls, db, coll)
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
