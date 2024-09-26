@@ -167,7 +167,7 @@ func (a *Agent) Start(ctx context.Context) error {
 				return nil
 			}
 
-			logger.Printf("got command %s", cmd)
+			logger.Printf("got command %s, opid: %s", cmd, cmd.OPID)
 
 			ep, err := config.GetEpoch(ctx, a.leadConn)
 			if err != nil {
