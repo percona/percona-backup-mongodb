@@ -1524,13 +1524,13 @@ func (r *PhysRestore) resetRS() error {
 			return errors.Wrap(err, "turn off pitr")
 		}
 
-		r.dropPBMCollections(ctx, c)
+		r.cleanUpPBMCollections(ctx, c)
 	}
 
 	return r.shutdown(c)
 }
 
-func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
+func (r *PhysRestore) cleanUpPBMCollections(ctx context.Context, c *mongo.Client) {
 	pbmCollections := []string{
 		defs.LockCollection,
 		defs.LogCollection,
@@ -1554,9 +1554,9 @@ func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
 			defer wg.Done()
 
 			r.log.Debug("dropping 'admin.%s'", coll)
-			err := c.Database(defs.DB).Collection(coll).Drop(ctx)
+			_, err := c.Database(defs.DB).Collection(coll).DeleteMany(ctx, bson.D{})
 			if err != nil {
-				r.log.Warning("failed to drop 'admin.%s': %v", coll, err)
+				r.log.Warning("failed to delete all from 'admin.%s': %v", coll, err)
 			}
 		}()
 	}
