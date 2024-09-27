@@ -661,6 +661,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
 	}
 
+	dbName, collName, _ := strings.Cut(op.Namespace, ".")
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -670,9 +671,6 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		if _, ok := knownCommands[cmdName]; !ok {
 			return errors.Errorf("unknown oplog command name %v: %v", cmdName, op)
 		}
-
-		ns := strings.Split(op.Namespace, ".")
-		dbName := ns[0]
 
 		switch cmdName {
 		case "commitIndexBuild":
@@ -791,6 +789,19 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {
 				return errors.Wrap(err, "oplog: drop collection before create")
+			}
+		}
+	} else if op.Operation == "i" && collName == "system.views" {
+		// PBM-921: ensure the collection exists before "creating" views or timeseries
+		err := o.dst.Database(dbName).CreateCollection(context.TODO(), "system.views")
+		if err != nil {
+			// MongoDB 5.0 and 6.0 returns NamespaceExists error.
+			// MongoDB 7.0 and 8.0 does not return error.
+			// https://github.com/mongodb/mongo/blob/v6.0/src/mongo/base/error_codes.yml#L84
+			const NamespaceExists = 48
+			var cmdError mongo.CommandError
+			if !errors.As(err, &cmdError) || cmdError.Code != NamespaceExists {
+				return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
 			}
 		}
 	}

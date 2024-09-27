@@ -3,6 +3,7 @@ package snapshot
 import (
 	"io"
 	"log"
+	"runtime"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/archive"
@@ -44,6 +45,9 @@ func NewBackup(curi string, maxParallelColls int, d, c string) (*backuper, error
 			opts.Auth.Source = "admin"
 		}
 	}
+
+	// mongodump calls runtime.GOMAXPROCS(MaxProcs).
+	opts.MaxProcs = runtime.GOMAXPROCS(0)
 
 	if maxParallelColls < 1 {
 		maxParallelColls = 1

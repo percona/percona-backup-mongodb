@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -154,6 +155,15 @@ func (f File) String() string {
 		return f.Name
 	}
 	return fmt.Sprintf("%s [%d:%d]", f.Name, f.Off, f.Len)
+}
+
+func (f File) Path(c compress.CompressionType) string {
+	src := filepath.Join(f.Name + c.Suffix())
+	if f.Len == 0 {
+		return src
+	}
+
+	return fmt.Sprintf("%s.%d-%d", src, f.Off, f.Len)
 }
 
 func (f *File) WriteTo(w io.Writer) (int64, error) {

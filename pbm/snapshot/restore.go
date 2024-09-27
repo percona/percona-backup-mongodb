@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"io"
+	"runtime"
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -42,7 +43,7 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
+func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
@@ -76,6 +77,9 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	if cfg.Restore.NumInsertionWorkers > 0 {
 		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
 	}
+	if numParallelColls < 1 {
+		numParallelColls = 1
+	}
 
 	mopts := mongorestore.Options{}
 	mopts.ToolOptions = topts
@@ -87,6 +91,7 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 		BypassDocumentValidation: true,
 		Drop:                     true,
 		NumInsertionWorkers:      numInsertionWorkers,
+		NumParallelCollections:   numParallelColls,
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,
 		WriteConcern:             "majority",
@@ -95,6 +100,8 @@ func NewRestore(uri string, cfg *config.Config) (io.ReaderFrom, error) {
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
 	}
+	// mongorestore calls runtime.GOMAXPROCS(MaxProcs).
+	mopts.MaxProcs = runtime.GOMAXPROCS(0)
 
 	mr, err := mongorestore.New(mopts)
 	if err != nil {

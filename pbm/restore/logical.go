@@ -759,7 +759,6 @@ func (r *Restore) RunSnapshot(
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	var rdr io.ReadCloser
-
 	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		sr, err := r.bcpStg.SourceReader(dump)
@@ -793,6 +792,8 @@ func (r *Restore) RunSnapshot(
 			// selective restore needs to process users and roles from the full backup,
 			// so we'll continue with selective restore
 		}
+
+		r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
@@ -1193,7 +1194,7 @@ func (r *Restore) snapshot(ctx context.Context, input io.Reader) error {
 		return errors.Wrap(err, "unable to get PBM config settings")
 	}
 
-	rf, err := snapshot.NewRestore(r.brief.URI, cfg)
+	rf, err := snapshot.NewRestore(r.brief.URI, cfg, r.numParallelColls)
 	if err != nil {
 		return err
 	}

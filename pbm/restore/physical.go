@@ -1089,10 +1089,7 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
-			if f.Len != 0 {
-				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
+			src := filepath.Join(set.BcpName, setName, f.Path(set.Cmpr))
 			// cut dbpath from destination if there is any (see PBM-1058)
 			fname := f.Name
 			if set.dbpath != "" {
@@ -1524,13 +1521,13 @@ func (r *PhysRestore) resetRS() error {
 			return errors.Wrap(err, "turn off pitr")
 		}
 
-		r.dropPBMCollections(ctx, c)
+		r.cleanUpPBMCollections(ctx, c)
 	}
 
 	return r.shutdown(c)
 }
 
-func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
+func (r *PhysRestore) cleanUpPBMCollections(ctx context.Context, c *mongo.Client) {
 	pbmCollections := []string{
 		defs.LockCollection,
 		defs.LogCollection,
@@ -1554,9 +1551,9 @@ func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
 			defer wg.Done()
 
 			r.log.Debug("dropping 'admin.%s'", coll)
-			err := c.Database(defs.DB).Collection(coll).Drop(ctx)
+			_, err := c.Database(defs.DB).Collection(coll).DeleteMany(ctx, bson.D{})
 			if err != nil {
-				r.log.Warning("failed to drop 'admin.%s': %v", coll, err)
+				r.log.Warning("failed to delete all from 'admin.%s': %v", coll, err)
 			}
 		}()
 	}
