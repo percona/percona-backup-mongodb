@@ -306,7 +306,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	const storageCheckInterval = 15 * time.Second
-	const parallelAgentCheckInternval = 20 * time.Second
+	const parallelAgentCheckInternval = time.Minute
 
 	for {
 		select {
