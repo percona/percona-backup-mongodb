@@ -106,6 +106,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		r.BackupName = bcp.Name
 	}
 
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get PBM configuration: %v", err)
+		return
+	}
+
 	l.Info("recovery started")
 
 	switch bcpType {
@@ -118,9 +124,11 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		numParallelColls := runtime.NumCPU() / 2
 		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
 			numParallelColls = int(*r.NumParallelColls)
+		} else if cfg.Restore != nil && cfg.Restore.NumParallelCollections > 0 {
+			numParallelColls = cfg.Restore.NumParallelCollections
 		}
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap, numParallelColls)
+		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {

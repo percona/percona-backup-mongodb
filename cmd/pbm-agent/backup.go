@@ -114,7 +114,11 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	case defs.LogicalBackup:
 		fallthrough
 	default:
-		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, a.numParallelColls)
+		numParallelColls := a.numParallelColls
+		if cfg.Backup != nil && cfg.Backup.NumParallelCollections > 0 {
+			numParallelColls = cfg.Backup.NumParallelCollections
+		}
+		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, numParallelColls)
 	}
 
 	bcp.SetConfig(cfg)

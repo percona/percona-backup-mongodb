@@ -44,6 +44,7 @@ type Restore struct {
 	brief    topo.NodeBrief
 	stopHB   chan struct{}
 	nodeInfo *topo.NodeInfo
+	cfg      *config.Config
 	bcpStg   storage.Storage
 	oplogStg storage.Storage
 
@@ -82,6 +83,7 @@ func New(
 	leadConn connect.Client,
 	nodeConn *mongo.Client,
 	brief topo.NodeBrief,
+	cfg *config.Config,
 	rsMap map[string]string,
 	numParallelColls int,
 ) *Restore {
@@ -94,6 +96,8 @@ func New(
 		nodeConn: nodeConn,
 		brief:    brief,
 		rsMap:    rsMap,
+
+		cfg: cfg,
 
 		numParallelColls: numParallelColls,
 
@@ -835,7 +839,7 @@ func (r *Restore) RunSnapshot(
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(ctx, rdr)
+	err = r.snapshot(rdr)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1188,13 +1192,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(ctx context.Context, input io.Reader) error {
-	cfg, err := config.GetConfig(ctx, r.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-
-	rf, err := snapshot.NewRestore(r.brief.URI, cfg, r.numParallelColls)
+func (r *Restore) snapshot(input io.Reader) error {
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls)
 	if err != nil {
 		return err
 	}
