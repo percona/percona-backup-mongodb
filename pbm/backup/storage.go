@@ -130,7 +130,7 @@ func checkPhysicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *B
 			}
 
 			for _, f := range filelist {
-				if f.Len <= 0 {
+				if f.Len < 0 {
 					continue // no file expected
 				}
 
