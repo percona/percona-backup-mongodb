@@ -40,17 +40,18 @@ const (
 
 //nolint:lll
 type Config struct {
-	Provider             string      `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
-	Region               string      `bson:"region" json:"region" yaml:"region"`
-	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	ForcePathStyle       *bool       `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
-	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
-	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
-	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
-	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
-	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+	Provider             string            `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
+	Region               string            `bson:"region" json:"region" yaml:"region"`
+	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
+	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
+	Bucket               string            `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix               string            `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Credentials          Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	ServerSideEncryption *AWSsse           `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts       int               `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
