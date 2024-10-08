@@ -219,6 +219,17 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
+// resolveEndpointURL returns endpoint url based on provided
+// EndpointURL or associated EndpointURLMap configuration fields.
+// If specified EndpointURLMap overrides EndpointURL field.
+func (cfg *Config) resolveEndpointURL(node string) string {
+	ep := cfg.EndpointURL
+	if epm, ok := cfg.EndpointURLMap[node]; ok {
+		ep = epm
+	}
+	return ep
+}
+
 // SDKLogLevel returns AWS SDK log level value from comma-separated
 // SDKDebugLogLevel values string. If the string does not contain a valid value,
 // returns aws.LogOff.
@@ -267,13 +278,14 @@ type Credentials struct {
 
 type S3 struct {
 	opts *Config
+	node string
 	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts *Config, l log.LogEvent) (*S3, error) {
+func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -285,6 +297,7 @@ func New(opts *Config, l log.LogEvent) (*S3, error) {
 	s := &S3{
 		opts: opts,
 		log:  l,
+		node: node,
 	}
 
 	s.s3s, err = s.s3session()
@@ -585,7 +598,7 @@ func (s *S3) session() (*session.Session, error) {
 
 	cfg := &aws.Config{
 		Region:           aws.String(s.opts.Region),
-		Endpoint:         aws.String(s.opts.EndpointURL),
+		Endpoint:         aws.String(s.opts.resolveEndpointURL(s.node)),
 		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),

@@ -22,9 +22,13 @@ var ErrStorageUndefined = errors.New("storage undefined")
 
 // StorageFromConfig creates and returns a storage object based on a given config
 func StorageFromConfig(cfg *config.StorageConf, l log.LogEvent) (storage.Storage, error) {
+	return StorageFromConfigAndNode(cfg, "", l)
+}
+
+func StorageFromConfigAndNode(cfg *config.StorageConf, node string, l log.LogEvent) (storage.Storage, error) {
 	switch cfg.Type {
 	case storage.S3:
-		return s3.New(cfg.S3, l)
+		return s3.New(cfg.S3, node, l)
 	case storage.Azure:
 		return azure.New(cfg.Azure, l)
 	case storage.Filesystem:
