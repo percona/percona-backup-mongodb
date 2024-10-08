@@ -260,7 +260,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("get config: %v", err)
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, l)
+	stg, err := util.StorageFromConfigAndNode(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
 	}
