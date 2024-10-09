@@ -44,8 +44,11 @@ type Restore struct {
 	brief    topo.NodeBrief
 	stopHB   chan struct{}
 	nodeInfo *topo.NodeInfo
+	cfg      *config.Config
 	bcpStg   storage.Storage
 	oplogStg storage.Storage
+
+	numParallelColls int
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -76,7 +79,14 @@ type oplogRange struct {
 type restoreUsersAndRolesOption bool
 
 // New creates a new restore object
-func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, rsMap map[string]string) *Restore {
+func New(
+	leadConn connect.Client,
+	nodeConn *mongo.Client,
+	brief topo.NodeBrief,
+	cfg *config.Config,
+	rsMap map[string]string,
+	numParallelColls int,
+) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
 	}
@@ -86,6 +96,10 @@ func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, 
 		nodeConn: nodeConn,
 		brief:    brief,
 		rsMap:    rsMap,
+
+		cfg: cfg,
+
+		numParallelColls: numParallelColls,
 
 		indexCatalog: idx.NewIndexCatalog(),
 	}
@@ -177,7 +191,7 @@ func (r *Restore) Snapshot(
 		return errors.Wrap(err, "set backup name")
 	}
 
-	err = r.checkSnapshot(ctx, bcp)
+	err = r.checkSnapshot(ctx, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -306,7 +320,7 @@ func (r *Restore) PITR(
 		return errors.Wrap(err, "set backup name")
 	}
 
-	err = r.checkSnapshot(ctx, bcp)
+	err = r.checkSnapshot(ctx, bcp, nss)
 	if err != nil {
 		return err
 	}
@@ -687,7 +701,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	return rsMeta.DumpName, chunks, nil
 }
 
-func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta) error {
+func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss []string) error {
 	if bcp.Status != defs.StatusDone {
 		return errors.Errorf("backup wasn't successful: status: %s, error: %s",
 			bcp.Status, bcp.Error())
@@ -721,6 +735,16 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta) err
 				bcp.MongoVersion, ver.VersionString)
 			return nil
 		}
+
+		if r.brief.Sharded && ver.IsConfigShardSupported() && util.IsSelective(nss) {
+			hasConfigShard, err := topo.HasConfigShard(ctx, r.leadConn)
+			if err != nil {
+				return errors.Wrap(err, "check for Config Shard")
+			}
+			if hasConfigShard {
+				return errors.New("selective restore is not supported with Config Shard")
+			}
+		}
 	}
 
 	return nil
@@ -739,7 +763,6 @@ func (r *Restore) RunSnapshot(
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	var rdr io.ReadCloser
-
 	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		sr, err := r.bcpStg.SourceReader(dump)
@@ -774,6 +797,8 @@ func (r *Restore) RunSnapshot(
 			// so we'll continue with selective restore
 		}
 
+		r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
 				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
@@ -805,7 +830,8 @@ func (r *Restore) RunSnapshot(
 				return rdr, nil
 			},
 			bcp.Compression,
-			util.MakeSelectedPred(nss))
+			util.MakeSelectedPred(nss),
+			r.numParallelColls)
 	}
 	if err != nil {
 		return err
@@ -813,7 +839,7 @@ func (r *Restore) RunSnapshot(
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(ctx, rdr)
+	err = r.snapshot(rdr)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1166,13 +1192,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(ctx context.Context, input io.Reader) error {
-	cfg, err := config.GetConfig(ctx, r.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "unable to get PBM config settings")
-	}
-
-	rf, err := snapshot.NewRestore(r.brief.URI, cfg)
+func (r *Restore) snapshot(input io.Reader) error {
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls)
 	if err != nil {
 		return err
 	}

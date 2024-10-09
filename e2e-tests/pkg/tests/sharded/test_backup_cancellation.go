@@ -28,7 +28,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 	time.Sleep(20 * time.Second)
 
-	// checkNoBackupFiles(bcpName, storage)
+	checkNoBackupFiles(bcpName, storage)
 
 	log.Println("check backup state")
 	m, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)

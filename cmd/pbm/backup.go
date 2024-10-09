@@ -38,6 +38,8 @@ type backupOpts struct {
 	wait             bool
 	waitTime         time.Duration
 	externList       bool
+
+	numParallelColls int32
 }
 
 type backupOut struct {
@@ -87,6 +89,10 @@ func runBackup(
 	b *backupOpts,
 	outf outFormat,
 ) (fmt.Stringer, error) {
+	numParallelColls, err := parseCLINumParallelCollsOption(b.numParallelColls)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
 	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -102,15 +108,8 @@ func runBackup(
 		return nil, errors.Wrap(err, "backup pre-check")
 	}
 
-	if err := checkConcurrentOp(ctx, conn); err != nil {
-		// PITR slicing can be run along with the backup start - agents will resolve it.
-		var e *concurentOpError
-		if !errors.As(err, &e) {
-			return nil, err
-		}
-		if e.op.Type != ctrl.CmdPITR {
-			return nil, err
-		}
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
 	}
 
 	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
@@ -143,6 +142,7 @@ func runBackup(
 			Namespaces:       nss,
 			Compression:      compression,
 			CompressionLevel: level,
+			NumParallelColls: numParallelColls,
 			Filelist:         b.externList,
 			Profile:          b.profile,
 		},
@@ -668,4 +668,15 @@ func (incompatibleMongodVersionError) Is(err error) bool {
 
 func (e incompatibleMongodVersionError) Unwrap() error {
 	return errIncompatible
+}
+
+func parseCLINumParallelCollsOption(value int32) (*int32, error) {
+	if value < 0 {
+		return nil, errors.New("value cannot be negative")
+	}
+	if value == 0 {
+		return nil, nil //nolint:nilnil
+	}
+
+	return &value, nil
 }

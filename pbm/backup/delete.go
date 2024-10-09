@@ -79,7 +79,7 @@ func deleteBackupImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta)
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = DeleteBackupFiles(bcp, stg)
+	err = DeleteBackupFiles(stg, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "delete files from storage")
 	}
@@ -116,7 +116,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	for i := len(all) - 1; i >= 0; i-- {
 		bcp := all[i]
 
-		err = DeleteBackupFiles(bcp, stg)
+		err = DeleteBackupFiles(stg, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "delete files from storage")
 		}
@@ -333,7 +333,7 @@ func DeleteBackupBefore(
 	for i := range backups {
 		bcp := &backups[i]
 
-		err := DeleteBackupFiles(bcp, stg)
+		err := DeleteBackupFiles(stg, bcp.Name)
 		if err != nil {
 			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
 		}
@@ -497,6 +497,11 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 	f := bson.D{
 		{"store.profile", nil},
 		{"last_write_ts", bson.M{"$lt": ts}},
+		{"status", bson.M{"$in": bson.A{
+			defs.StatusDone,
+			defs.StatusCancelled,
+			defs.StatusError,
+		}}},
 	}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)

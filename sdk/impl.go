@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"path"
 	"runtime"
 	"time"
 
@@ -192,7 +191,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 			rs := &bcp.Replsets[i]
 
 			eg.Go(func() error {
-				filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+				filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
 				if err != nil {
 					return errors.Wrapf(err, "get filelist for %q [rs: %s] backup", bcp.Name, rs.Name)
 				}
@@ -226,7 +225,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 				rs := &bcp.Replsets[i]
 
 				eg.Go(func() error {
-					filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+					filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
 					if err != nil {
 						return errors.Wrapf(err, "fetch files for %q [rs: %s] backup", bcp.Name, rs.Name)
 					}
@@ -252,22 +251,6 @@ func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Sto
 	}
 
 	return stg, nil
-}
-
-func getFilelistForReplset(stg storage.Storage, bcpName, rsName string) (backup.Filelist, error) {
-	pfFilepath := path.Join(bcpName, rsName, backup.FilelistName)
-	rdr, err := stg.SourceReader(pfFilepath)
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %q", pfFilepath)
-	}
-	defer rdr.Close()
-
-	filelist, err := backup.ReadFilelist(rdr)
-	if err != nil {
-		return nil, errors.Wrapf(err, "parse filelist %q", pfFilepath)
-	}
-
-	return filelist, nil
 }
 
 func (c *Client) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {

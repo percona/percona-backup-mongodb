@@ -171,6 +171,21 @@ func getShardMapImpl(ctx context.Context, m *mongo.Client) (map[ReplsetName]Shar
 	return shards, nil
 }
 
+// HasConfigShard return true if configsvr is listened in shards list
+func HasConfigShard(ctx context.Context, conn connect.Client) (bool, error) {
+	err := conn.MongoClient().Database("config").Collection("shards").
+		FindOne(ctx, bson.D{{"_id", "config"}}).
+		Err()
+	if err == nil {
+		return true, nil // OK: config shard is found
+	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil // OK: config shard is not found
+	}
+
+	return false, errors.Wrap(err, "query")
+}
+
 type BalancerMode string
 
 const (

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
@@ -32,7 +33,8 @@ func main() {
 			Envar("PBM_MONGODB_URI").
 			Required().
 			String()
-		dumpConns = pbmAgentCmd.Flag("dump-parallel-collections", "Number of collections to dump in parallel").
+		dumpConns = pbmAgentCmd.
+				Flag("dump-parallel-collections", "Number of collections to dump in parallel").
 				Envar("PBM_DUMP_PARALLEL_COLLECTIONS").
 				Default(strconv.Itoa(runtime.NumCPU() / 2)).
 				Int()
@@ -85,7 +87,7 @@ func runAgent(mongoURI string, dumpConns int) error {
 	mtLog.SetDateFormat(log.LogTimeFormat)
 	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	leadConn, err := connect.Connect(ctx, mongoURI, "pbm-agent")
@@ -116,6 +118,8 @@ func runAgent(mongoURI string, dumpConns int) error {
 	if err != nil {
 		return errors.Wrap(err, "setup pbm collections")
 	}
+
+	agent.showIncompatibilityWarning(ctx)
 
 	if canRunSlicer {
 		go agent.PITR(ctx)

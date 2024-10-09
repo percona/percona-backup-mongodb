@@ -66,9 +66,9 @@ func NewPitr(c *Cluster) *Pitr {
 }
 
 func (p *Pitr) Backup() {
+	p.c.pitrOn()
 	bcpName := p.c.LogicalBackup()
 	p.started <- struct{}{}
-	p.c.pitrOn()
 	p.c.BackupWaitDone(context.TODO(), bcpName)
 	p.sdone <- struct{}{}
 

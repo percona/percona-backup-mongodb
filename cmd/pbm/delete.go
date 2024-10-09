@@ -44,6 +44,12 @@ func deleteBackup(
 	if d.bcpType != "" && d.olderThan == "" {
 		return nil, errors.New("cannot use --type without --older-then")
 	}
+	if !d.dryRun {
+		err := checkForAnotherOperation(ctx, pbm)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var cid sdk.CommandID
 	var err error
@@ -60,7 +66,7 @@ func deleteBackup(
 	}
 
 	if d.dryRun {
-		return &outMsg{"running an agent"}, nil
+		return &outMsg{""}, nil
 	}
 
 	return waitForDelete(ctx, conn, pbm, cid)
@@ -170,6 +176,12 @@ func deletePITR(
 	if d.olderThan != "" && d.all {
 		return nil, errors.New("cannot use --older-then and --all at the same command")
 	}
+	if !d.dryRun {
+		err := checkForAnotherOperation(ctx, pbm)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var until primitive.Timestamp
 	if d.all {
@@ -200,7 +212,7 @@ func deletePITR(
 	printDeleteInfoTo(os.Stdout, nil, chunks)
 
 	if d.dryRun {
-		return &outMsg{"running an agent"}, nil
+		return &outMsg{""}, nil
 	}
 	if !d.yes {
 		q := "Are you sure you want to delete chunks?"
@@ -255,6 +267,12 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		realTime := n.Format(time.RFC3339)
 		return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
 	}
+	if !d.dryRun {
+		err := checkForAnotherOperation(ctx, pbm)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	info, err := pbm.CleanupReport(ctx, ts)
 	if err != nil {
@@ -267,7 +285,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 	printDeleteInfoTo(os.Stdout, info.Backups, info.Chunks)
 
 	if d.dryRun {
-		return &outMsg{"running an agent"}, nil
+		return &outMsg{""}, nil
 	}
 	if !d.yes {
 		if err := askConfirmation("Are you sure you want to delete?"); err != nil {

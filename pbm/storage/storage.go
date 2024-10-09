@@ -214,7 +214,7 @@ func Upload(
 
 		err := r.Close()
 		if err != nil {
-			return 0, errors.Wrap(err, "cancel backup: close reader")
+			return 0, errors.Wrap(err, "cancel upload: close reader")
 		}
 		return 0, ErrCancelled
 	case <-saveDone:

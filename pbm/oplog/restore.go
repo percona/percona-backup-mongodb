@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -77,8 +78,6 @@ var selectedNSSupportedCommands = map[string]struct{}{
 	"dropIndex":        {},
 	"dropIndexes":      {},
 	"collMod":          {},
-	"startIndexBuild":  {},
-	"abortIndexBuild":  {},
 	"commitIndexBuild": {},
 }
 
@@ -87,6 +86,7 @@ var dontPreserveUUID = []string{
 	"admin.system.roles",
 	"admin.system.keys",
 	"*.system.buckets.*", // timeseries
+	"*.system.views",     // timeseries
 }
 
 // OplogRestore is the oplog applyer
@@ -257,6 +257,32 @@ func (o *OplogRestore) SetIncludeNS(nss []string) {
 	o.includeNS = dbs
 }
 
+func isOpAllowed(oe *Record) bool {
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // OK: not a "config" database. allow any ops
+	}
+
+	if slices.Contains(dumprestore.ConfigCollectionsToKeep, coll) {
+		return true // OK: create/update/delete a doc
+	}
+
+	if coll != "$cmd" || len(oe.Object) == 0 {
+		return false // other collection is not allowed
+	}
+
+	op := oe.Object[0].Key
+	if op == "applyOps" {
+		return true // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[op]; ok {
+		s, _ := oe.Object[0].Value.(string)
+		return slices.Contains(dumprestore.ConfigCollectionsToKeep, s)
+	}
+
+	return false
+}
+
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	if o.includeNS == nil || o.includeNS[""] != nil {
 		return true
@@ -272,11 +298,13 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 		return false
 	}
 
-	for _, el := range oe.Object {
-		if _, ok := selectedNSSupportedCommands[el.Key]; ok {
-			s, _ := el.Value.(string)
-			return colls[s]
-		}
+	cmd := oe.Object[0].Key
+	if cmd == "applyOps" {
+		return true // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[cmd]; ok {
+		s, _ := oe.Object[0].Value.(string)
+		return colls[s]
 	}
 
 	return false
@@ -301,13 +329,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if db, coll, _ := strings.Cut(oe.Namespace, "."); db == "config" {
-		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
-			return nil
-		}
-	}
-
-	if !o.isOpSelected(&oe) {
+	if !isOpAllowed(&oe) || !o.isOpSelected(&oe) {
 		return nil
 	}
 
@@ -324,7 +346,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
 
-		// if this is a create operation, the namesape would be
+		// if this is a create operation, the namespace would be
 		// inside the object to create
 		if oe.Operation == "c" {
 			if len(oe.Object) == 0 {
@@ -630,10 +652,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return nil
 	}
 
-	if db, coll, _ := strings.Cut(op.Namespace, "."); db == "config" {
-		if !sliceContains(dumprestore.ConfigCollectionsToKeep, coll) {
-			return nil
-		}
+	if !isOpAllowed(&op) || !o.isOpSelected(&op) {
+		return nil
 	}
 
 	op, err := o.filterUUIDs(op)
@@ -641,6 +661,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
 	}
 
+	dbName, collName, _ := strings.Cut(op.Namespace, ".")
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -650,9 +671,6 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		if _, ok := knownCommands[cmdName]; !ok {
 			return errors.Errorf("unknown oplog command name %v: %v", cmdName, op)
 		}
-
-		ns := strings.Split(op.Namespace, ".")
-		dbName := ns[0]
 
 		switch cmdName {
 		case "commitIndexBuild":
@@ -771,6 +789,19 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {
 				return errors.Wrap(err, "oplog: drop collection before create")
+			}
+		}
+	} else if op.Operation == "i" && collName == "system.views" {
+		// PBM-921: ensure the collection exists before "creating" views or timeseries
+		err := o.dst.Database(dbName).CreateCollection(context.TODO(), "system.views")
+		if err != nil {
+			// MongoDB 5.0 and 6.0 returns NamespaceExists error.
+			// MongoDB 7.0 and 8.0 does not return error.
+			// https://github.com/mongodb/mongo/blob/v6.0/src/mongo/base/error_codes.yml#L84
+			const NamespaceExists = 48
+			var cmdError mongo.CommandError
+			if !errors.As(err, &cmdError) || cmdError.Code != NamespaceExists {
+				return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
 			}
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -32,6 +33,7 @@ var (
 	ErrUnkownStorageType   = errors.New("unknown storage type")
 	ErrMissedConfig        = errors.New("missed config")
 	ErrMissedConfigProfile = errors.New("missed config profile")
+	ErrUnsetConfigPath     = bsoncore.ErrElementNotFound
 )
 
 type confMap map[string]reflect.Kind
@@ -319,8 +321,9 @@ type RestoreConf struct {
 	// Logical restore
 	//
 	// num of documents to buffer
-	BatchSize           int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
-	NumInsertionWorkers int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	BatchSize              int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
+	NumInsertionWorkers    int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	NumParallelCollections int `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
 
 	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
 	// during the download. By default, it's set to GOMAXPROCS.
@@ -359,6 +362,8 @@ type BackupConf struct {
 	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+
+	NumParallelCollections int `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
 }
 
 func (cfg *BackupConf) Clone() *BackupConf {

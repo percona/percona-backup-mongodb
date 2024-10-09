@@ -179,7 +179,8 @@ func (n node) String() string {
 	}
 
 	var s string
-	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 {
+	if len(n.PrioBcp) == 0 || len(n.PrioPITR) == 0 ||
+		n.Role == cli.RoleDelayed {
 		s = fmt.Sprintf("%s [%s]: pbm-agent [%s]", n.Host, role, ver)
 	} else {
 		s = fmt.Sprintf("%s [%s], Bkp Prio: [%s], PITR Prio: [%s]: pbm-agent [%s]",
