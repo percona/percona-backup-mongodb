@@ -73,7 +73,7 @@ func listAllFiles(confFilepath string) ([]storage.FileInfo, error) {
 		return nil, errors.Wrap(err, "parse config")
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, nil)
+	stg, err := util.StorageFromConfigAndNode(&cfg.Storage, "", nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "storage from config")
 	}

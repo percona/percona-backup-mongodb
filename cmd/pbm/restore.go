@@ -436,8 +436,8 @@ func doRestore(
 	return waitForRestoreStatus(startCtx, conn, name, fn)
 }
 
-func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg)
+func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
+	stg, err := getRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -583,7 +583,7 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
+func getRestoreMetaStg(cfgPath string, node string) (storage.Storage, error) {
 	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
@@ -596,17 +596,22 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, l)
+	return util.StorageFromConfigAndNode(&cfg.Storage, node, l)
 }
 
-func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {
+func describeRestore(
+	ctx context.Context,
+	conn connect.Client,
+	o descrRestoreOpts,
+	node string,
+) (fmt.Stringer, error) {
 	var (
 		meta *restore.RestoreMeta
 		err  error
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg)
+		stg, err := getRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
