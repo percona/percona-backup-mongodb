@@ -45,12 +45,16 @@ func StorageFromConfigAndNode(cfg *config.StorageConf, node string, l log.LogEve
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object
 func GetStorage(ctx context.Context, m connect.Client, l log.LogEvent) (storage.Storage, error) {
+	return GetStorageFromNode(ctx, m, "", l)
+}
+
+func GetStorageFromNode(ctx context.Context, m connect.Client, node string, l log.LogEvent) (storage.Storage, error) {
 	c, err := config.GetConfig(ctx, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}
 
-	return StorageFromConfig(&c.Storage, l)
+	return StorageFromConfigAndNode(&c.Storage, node, l)
 }
 
 // Initialize write current PBM version to PBM init file.
