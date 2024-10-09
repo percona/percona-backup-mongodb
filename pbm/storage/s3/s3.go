@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sts"
+	"golang.org/x/oauth2/google"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -43,6 +44,7 @@ type Config struct {
 	Provider             string      `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string      `bson:"region" json:"region" yaml:"region"`
 	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	ServiceAccount       string      `bson:"serviceAccount,omitempty" json:"serviceAccount" yaml:"serviceAccount,omitempty"`
 	ForcePathStyle       *bool       `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
@@ -159,6 +161,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.EndpointURL != other.EndpointURL {
 		return false
 	}
+	if cfg.ServiceAccount != other.ServiceAccount {
+		return false
+	}
 	if cfg.Bucket != other.Bucket {
 		return false
 	}
@@ -195,6 +200,9 @@ func (cfg *Config) Equal(other *Config) bool {
 func (cfg *Config) Cast() error {
 	if cfg.Region == "" {
 		cfg.Region = defaultS3Region
+	}
+	if cfg.ServiceAccount == "" {
+		cfg.ServiceAccount = "default"
 	}
 	if cfg.ForcePathStyle == nil {
 		cfg.ForcePathStyle = aws.Bool(true)
@@ -550,6 +558,20 @@ func (s *S3) session() (*session.Session, error) {
 		}})
 	}
 
+	// If using GCE, attempt to retrieve access token from metadata server
+	if onGCE() {
+		tokenSource := google.ComputeTokenSource(s.opts.ServiceAccount, "")
+		token, err := tokenSource.Token()
+		if err != nil {
+			return nil, errors.Wrap(err, "get GCP token")
+		}
+		providers = append(providers, &credentials.StaticProvider{Value: credentials.Value{
+			AccessKeyID:     "GCP_OAUTH_TOKEN",
+			SecretAccessKey: "GCP_OATH_TOKEN",
+			SessionToken:    token.AccessToken,
+		}})
+	}
+
 	awsSession, err := session.NewSession()
 	if err != nil {
 		return nil, errors.Wrap(err, "new session")
@@ -616,4 +638,25 @@ func awsLogger(l log.LogEvent) aws.Logger {
 
 		l.Debug(msg, xs...)
 	})
+}
+
+func onGCE() bool {
+	client := http.Client{
+		Timeout: 100 * time.Millisecond,
+	}
+
+	req, err := http.NewRequest("GET", "http://169.254.169.254/computeMetadata/v1", nil)
+	if err != nil {
+		return false
+	}
+
+	req.Header.Add("Metadata-Flavor", "Google")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
 }
