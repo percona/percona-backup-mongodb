@@ -204,7 +204,7 @@ func waitRestore(
 	ep, _ := config.GetEpoch(ctx, conn)
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorageFromNode(ctx, conn, node, l)
+	stg, err := util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -424,7 +424,7 @@ func doRestore(
 		ep, _ := config.GetEpoch(ctx, conn)
 		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorageFromNode(ctx, conn, node, l)
+		stg, err := util.GetStorage(ctx, conn, node, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -599,7 +599,7 @@ func getRestoreMetaStg(cfgPath string, node string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfigAndNode(&cfg.Storage, node, l)
+	return util.StorageFromConfig(&cfg.Storage, node, l)
 }
 
 func describeRestore(

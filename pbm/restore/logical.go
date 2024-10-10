@@ -178,7 +178,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	r.bcpStg, err = util.StorageFromConfigAndNode(&bcp.Store.StorageConf, r.brief.Me, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -296,11 +296,11 @@ func (r *Restore) PITR(
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	r.bcpStg, err = util.StorageFromConfigAndNode(&bcp.Store.StorageConf, r.brief.Me, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
-	r.oplogStg, err = util.GetStorageFromNode(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get oplog storage")
 	}
@@ -432,7 +432,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
-	r.oplogStg, err = util.GetStorageFromNode(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrapf(err, "get oplog storage")
 	}
@@ -589,7 +589,7 @@ func LookupBackupMeta(
 	}
 
 	var stg storage.Storage
-	stg, err = util.GetStorageFromNode(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -802,7 +802,7 @@ func (r *Restore) RunSnapshot(
 
 		rdr, err = snapshot.DownloadDump(
 			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfigAndNode(&bcp.Store.StorageConf, r.brief.Me, r.log)
+				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 				if err != nil {
 					return nil, errors.Wrap(err, "get storage")
 				}

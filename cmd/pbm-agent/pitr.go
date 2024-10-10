@@ -284,7 +284,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		}
 	}()
 
-	stg, err := util.StorageFromConfigAndNode(&cfg.Storage, a.brief.Me, l)
+	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)

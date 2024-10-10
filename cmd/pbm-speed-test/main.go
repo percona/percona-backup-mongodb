@@ -120,7 +120,7 @@ func testStorage(mURL string, compression compress.CompressionType, level *int, 
 	}
 	defer client.Disconnect(context.Background()) //nolint:errcheck
 
-	stg, err := util.GetStorageFromNode(context.Background(), client, "", log.DiscardEvent)
+	stg, err := util.GetStorage(context.Background(), client, "", log.DiscardEvent)
 	if err != nil {
 		stdlog.Fatalln("Error: get storage:", err)
 	}

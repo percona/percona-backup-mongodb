@@ -86,7 +86,7 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 
-	stg, err := util.StorageFromConfigAndNode(&cmd.Storage, a.brief.Me, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&cmd.Storage, a.brief.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		err = errors.Wrap(err, "storage from config")
 		return

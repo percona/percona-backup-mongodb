@@ -58,7 +58,7 @@ func (m *MongoPBM) DeleteBackup(ctx context.Context, bcpName string) error {
 func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
 	l := log.FromContext(ctx).
 		NewEvent("", "", "", primitive.Timestamp{})
-	return util.GetStorageFromNode(ctx, m.conn, "", l)
+	return util.GetStorage(ctx, m.conn, "", l)
 }
 
 func (m *MongoPBM) StoreResync(ctx context.Context) error {

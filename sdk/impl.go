@@ -183,7 +183,7 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfigAndNode(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -242,7 +242,7 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 }
 
 func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfigAndNode(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}

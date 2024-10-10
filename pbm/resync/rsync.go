@@ -29,7 +29,7 @@ import (
 func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, node string) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfigAndNode(cfg, node, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -101,7 +101,7 @@ func SyncBackupList(
 ) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfigAndNode(cfg, node, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "storage from config")
 	}

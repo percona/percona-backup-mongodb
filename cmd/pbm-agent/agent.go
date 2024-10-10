@@ -456,7 +456,7 @@ func (a *Agent) storStatus(
 		return topo.SubsysStatus{OK: true}
 	}
 
-	stg, err := util.GetStorageFromNode(ctx, a.leadConn, a.brief.Me, log)
+	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, log)
 	if err != nil {
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}

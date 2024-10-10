@@ -259,7 +259,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("get config: %v", err)
 	}
 
-	stg, err := util.StorageFromConfigAndNode(&cfg.Storage, a.brief.Me, l)
+	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
 	}
@@ -315,7 +315,7 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) erro
 		return nil
 	}
 
-	stg, err := util.GetStorageFromNode(ctx, a.leadConn, a.brief.Me, l)
+	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
