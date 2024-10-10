@@ -212,7 +212,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 			return nil, errors.Wrap(err, "decode")
 		}
 
-		if !bcp.nsFilter(ns.NS()) {
+		if !bcp.nsFilter(db + "." + ns.Name) {
 			continue
 		}
 		if db != "admin" && db != "config" &&
