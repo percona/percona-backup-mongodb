@@ -211,7 +211,6 @@ github.com/mongodb/mongo-tools/common/progress
 github.com/mongodb/mongo-tools/common/text
 github.com/mongodb/mongo-tools/common/txn
 github.com/mongodb/mongo-tools/common/util
-github.com/mongodb/mongo-tools/mongodump
 github.com/mongodb/mongo-tools/mongorestore
 github.com/mongodb/mongo-tools/mongorestore/ns
 # github.com/montanaflynn/stats v0.7.1
