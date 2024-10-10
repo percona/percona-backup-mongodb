@@ -181,6 +181,14 @@ type MongoVersion struct {
 	Version       []int  `bson:"versionArray"`
 }
 
+func (v MongoVersion) String() string {
+	if v.PSMDBVersion != "" {
+		return v.PSMDBVersion
+	}
+
+	return v.VersionString
+}
+
 func (v MongoVersion) Major() int {
 	if len(v.Version) == 0 {
 		return 0

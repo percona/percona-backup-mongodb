@@ -3,7 +3,6 @@ package snapshot
 import (
 	"context"
 	"io"
-	"strings"
 	"sync/atomic"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
@@ -11,67 +10,41 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
-type UploadDumpOptions struct {
-	Compression      compress.CompressionType
-	CompressionLevel *int
-
-	// NSFilter checks whether a namespace is selected for backup.
-	// Useful when 2 or more namespaces are selected for backup.
-	// mongo-tools is limited to backup a single collection or a single db (but with all collections).
-	NSFilter archive.NSFilterFn
-
-	// DocFilter checks whether a document is selected for backup.
-	// Useful when only some documents are selected for backup
-	DocFilter archive.DocFilterFn
-}
-
 type UploadFunc func(ns, ext string, r io.Reader) error
 
-func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts UploadDumpOptions) (int64, error) {
-	pr, pw := io.Pipe()
-	size := int64(0)
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		<-ctx.Done()
-		pw.CloseWithError(ctx.Err())
-	}()
-
-	go func() {
-		_, err := wt.WriteTo(pw)
-		pw.CloseWithError(errors.Wrap(err, "write to"))
-	}()
+func UploadDump(
+	ctx context.Context,
+	dump func(archive.NewWriter) error,
+	upload UploadFunc,
+	compression compress.CompressionType,
+	compressionLevel *int,
+) (int64, error) {
+	uploadSize := int64(0)
 
 	newWriter := func(ns string) (io.WriteCloser, error) {
 		pr, pw := io.Pipe()
+
+		compression := compression
+		if ns == archive.MetaFileV2 {
+			compression = compress.CompressionTypeNone
+		}
 
 		done := make(chan error)
 		go func() {
 			defer close(done)
 
-			ext := ""
-			if ns != archive.MetaFile {
-				ext = opts.Compression.Suffix()
-			}
-
 			rc := &readCounter{r: pr}
-			err := upload(ns, ext, rc)
+			err := upload(ns, compression.Suffix(), rc)
 			if err != nil {
 				err = errors.Wrapf(err, "upload: %q", ns)
 				pr.CloseWithError(err)
 				done <- err
 			}
 
-			atomic.AddInt64(&size, rc.n)
+			atomic.AddInt64(&uploadSize, rc.n)
 		}()
 
-		if ns == archive.MetaFile {
-			return pw, nil
-		}
-
-		w, err := compress.Compress(pw, opts.Compression, opts.CompressionLevel)
+		w, err := compress.Compress(pw, compression, compressionLevel)
 		dwc := io.WriteCloser(&delegatedWriteCloser{w, funcCloser(func() error {
 			err0 := w.Close()
 			err1 := pw.Close()
@@ -81,15 +54,8 @@ func UploadDump(ctx context.Context, wt io.WriterTo, upload UploadFunc, opts Upl
 		return dwc, errors.Wrapf(err, "create compressor: %q", ns)
 	}
 
-	err := archive.Decompose(pr, newWriter, opts.NSFilter, opts.DocFilter)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		// note: mongo-tools errors cannot be used for errors.Is()
-		if strings.Contains(err.Error(), "( context canceled )") {
-			err = context.Canceled
-		}
-	}
-
-	return size, errors.Wrap(err, "decompose")
+	err := dump(newWriter)
+	return atomic.LoadInt64(&uploadSize), err
 }
 
 type DownloadFunc func(filename string) (io.ReadCloser, error)
