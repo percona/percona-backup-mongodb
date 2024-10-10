@@ -251,7 +251,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		return errors.Wrap(err, "get config")
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, log.FromContext(ctx).NewDefaultEvent())
+	stg, err := util.StorageFromConfig(&cfg.Storage, "", log.FromContext(ctx).NewDefaultEvent())
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}

@@ -36,6 +36,7 @@ var (
 
 type Client struct {
 	conn connect.Client
+	node string
 }
 
 func (c *Client) Close(ctx context.Context) error {
@@ -165,7 +166,7 @@ func (c *Client) getBackupHelper(
 	}
 
 	if options.FetchFilelist {
-		err := fillFilelistForBackup(ctx, bcp)
+		err := c.fillFilelistForBackup(ctx, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -174,7 +175,7 @@ func (c *Client) getBackupHelper(
 	return bcp, nil
 }
 
-func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
+func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	var err error
 	var stg storage.Storage
 
@@ -182,7 +183,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -215,7 +216,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 
 			if stg == nil {
 				// in case if it is the first backup made with filelist file
-				stg, err = getStorageForRead(ctx, bcp)
+				stg, err = c.getStorageForRead(ctx, bcp)
 				if err != nil {
 					return errors.Wrap(err, "get storage")
 				}
@@ -240,8 +241,8 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	return eg.Wait()
 }
 
-func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}

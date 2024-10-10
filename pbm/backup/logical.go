@@ -170,11 +170,6 @@ func (b *Backup) doLogical(
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(&b.config.Storage, l)
-			if err != nil {
-				return errors.Wrap(err, "get storage")
-			}
-
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},

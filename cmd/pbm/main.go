@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -468,6 +469,7 @@ func main() {
 
 	var conn connect.Client
 	var pbm *sdk.Client
+	var node string
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -491,6 +493,12 @@ func main() {
 			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
 		}
 		defer pbm.Close(context.Background())
+
+		inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
+		if err != nil {
+			exitErr(errors.Wrap(err, "unable to obtain node info"), pbmOutF)
+		}
+		node = inf.Me
 	}
 
 	switch cmd {
@@ -514,13 +522,13 @@ func main() {
 	case backupFinishCmd.FullCommand():
 		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
-		out, err = runFinishRestore(finishRestore)
+		out, err = runFinishRestore(finishRestore, node)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp, node)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, pbm, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, pbm, &restore, node, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, pbm, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, pbm, replayOpts, node, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():
@@ -534,7 +542,7 @@ func main() {
 	case statusCmd.FullCommand():
 		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
-		out, err = describeRestore(ctx, conn, describeRestoreOpts)
+		out, err = describeRestore(ctx, conn, describeRestoreOpts, node)
 	}
 
 	if err != nil {
