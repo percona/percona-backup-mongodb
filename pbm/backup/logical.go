@@ -133,27 +133,16 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	var dump io.WriterTo
-	if len(nssSize) == 0 {
-		dump = snapshot.DummyBackup{}
-	} else {
-		numParallelColls := b.numParallelColls
-		if bcp.NumParallelColls != nil {
-			if *bcp.NumParallelColls > 0 {
-				numParallelColls = int(*bcp.NumParallelColls)
-			} else {
-				l.Warning("invalid value of NumParallelCollections (%v). fallback to %v",
-					numParallelColls, b.numParallelColls)
-			}
-		}
-
-		l.Debug("dumping up to %d collections in parallel", numParallelColls)
-
-		dump, err = snapshot.NewBackup(b.brief.URI, numParallelColls, db, coll)
-		if err != nil {
-			return errors.Wrap(err, "init mongodump options")
+	numParallelColls := b.numParallelColls
+	if bcp.NumParallelColls != nil {
+		if *bcp.NumParallelColls > 0 {
+			numParallelColls = int(*bcp.NumParallelColls)
+		} else {
+			l.Warning("invalid value of NumParallelCollections (%v). fallback to %v",
+				numParallelColls, b.numParallelColls)
 		}
 	}
+	l.Debug("dumping up to %d collections in parallel", numParallelColls)
 
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
@@ -168,7 +157,20 @@ func (b *Backup) doLogical(
 	}
 
 	snapshotSize, err := snapshot.UploadDump(ctx,
-		dump,
+		func(newFile archive.NewWriter) error {
+			bcp, err := archive.NewBackup(ctx, archive.BackupOptions{
+				Client:        b.nodeConn,
+				NewFile:       newFile,
+				NSFilter:      nsFilter,
+				DocFilter:     docFilter,
+				ParallelColls: numParallelColls,
+			})
+			if err != nil {
+				return errors.Wrap(err, "new backup")
+			}
+
+			return bcp.Run(ctx)
+		},
 		func(ns, ext string, r io.Reader) error {
 			stg, err := util.StorageFromConfig(&b.config.Storage, l)
 			if err != nil {
@@ -178,16 +180,18 @@ func (b *Backup) doLogical(
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},
-		snapshot.UploadDumpOptions{
-			Compression:      bcp.Compression,
-			CompressionLevel: bcp.CompressionLevel,
-			NSFilter:         nsFilter,
-			DocFilter:        docFilter,
-		})
+		bcp.Compression,
+		bcp.CompressionLevel)
 	if err != nil {
-		return errors.Wrap(err, "mongodump")
+		l.Error("dump: %v", err)
 	}
-	l.Info("mongodump finished, waiting for the oplog")
+
+	err = archive.GenerateV1FromV2(stg, bcp.Name, rsMeta.Name)
+	if err != nil {
+		return errors.Wrap(err, "generate archive meta v1")
+	}
+
+	l.Info("dump finished, waiting for the oplog")
 
 	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
