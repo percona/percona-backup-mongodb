@@ -146,14 +146,18 @@ func (b *Backup) doLogical(
 
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
-	if inf.IsConfigSrv() && util.IsSelective(bcp.Namespaces) {
-		chunkSelector, err := createBackupChunkSelector(ctx, b.leadConn, bcp.Namespaces)
-		if err != nil {
-			return errors.Wrap(err, "fetch uuids")
-		}
+	if util.IsSelective(bcp.Namespaces) {
+		if inf.IsConfigSrv() {
+			chunkSelector, err := createBackupChunkSelector(ctx, b.leadConn, bcp.Namespaces)
+			if err != nil {
+				return errors.Wrap(err, "fetch uuids")
+			}
 
-		nsFilter = makeConfigsvrNSFilter()
-		docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
+			nsFilter = makeConfigsvrNSFilter()
+			docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
+		} else {
+			nsFilter = util.MakeSelectedPred(bcp.Namespaces)
+		}
 	}
 
 	snapshotSize, err := snapshot.UploadDump(ctx,
