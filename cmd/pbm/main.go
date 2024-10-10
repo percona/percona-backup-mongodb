@@ -526,9 +526,9 @@ func main() {
 	case descBcpCmd.FullCommand():
 		out, err = describeBackup(ctx, pbm, &descBcp, node)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, pbm, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, pbm, &restore, node, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, pbm, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, pbm, replayOpts, node, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():

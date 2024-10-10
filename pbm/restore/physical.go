@@ -1797,7 +1797,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, l)
+	r.stg, err = util.StorageFromConfigAndNode(&cfg.Storage, r.nodeInfo.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -2156,7 +2156,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	r.bcpStg, err = util.StorageFromConfigAndNode(&r.bcp.Store.StorageConf, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}

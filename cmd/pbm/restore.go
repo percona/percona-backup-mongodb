@@ -105,6 +105,7 @@ func runRestore(
 	conn connect.Client,
 	pbm *sdk.Client,
 	o *restoreOpts,
+	node string,
 	outf outFormat,
 ) (fmt.Stringer, error) {
 	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
@@ -138,12 +139,12 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -169,7 +170,7 @@ func runRestore(
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -196,13 +197,14 @@ func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
 	m *restore.RestoreMeta,
+	node string,
 	status defs.Status,
 	tskew int64,
 ) error {
 	ep, _ := config.GetEpoch(ctx, conn)
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, l)
+	stg, err := util.GetStorageFromNode(ctx, conn, node, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -330,6 +332,7 @@ func doRestore(
 	numParallelColls *int32,
 	nss []string,
 	rsMapping map[string]string,
+	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
@@ -421,7 +424,7 @@ func doRestore(
 		ep, _ := config.GetEpoch(ctx, conn)
 		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorage(ctx, conn, l)
+		stg, err := util.GetStorageFromNode(ctx, conn, node, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}

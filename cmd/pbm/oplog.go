@@ -46,6 +46,7 @@ func replayOplog(
 	conn connect.Client,
 	pbm *sdk.Client,
 	o replayOptions,
+	node string,
 	outf outFormat,
 ) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -105,7 +106,7 @@ func replayOplog(
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(ctx, conn, m, defs.StatusDone, 0)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, 0)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout
