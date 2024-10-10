@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -133,6 +134,7 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
 	if cfg.ForcePathStyle != nil {
 		a := *cfg.ForcePathStyle
 		rv.ForcePathStyle = &a
@@ -158,6 +160,9 @@ func (cfg *Config) Equal(other *Config) bool {
 		return false
 	}
 	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
 		return false
 	}
 	if cfg.Bucket != other.Bucket {
