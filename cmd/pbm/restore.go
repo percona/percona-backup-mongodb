@@ -586,7 +586,7 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath string, node string) (storage.Storage, error) {
+func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")

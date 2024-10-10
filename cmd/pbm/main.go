@@ -496,7 +496,7 @@ func main() {
 
 		inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
 		if err != nil {
-			//todo
+			exitErr(errors.Wrap(err, "unable to obtain node info"), pbmOutF)
 		}
 		node = inf.Me
 	}

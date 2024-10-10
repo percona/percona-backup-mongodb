@@ -81,14 +81,14 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	l.Info("succeed")
 }
 
-func (a *Agent) handleSyncAllProfiles(ctx context.Context, clear bool) error {
+func (a *Agent) handleSyncAllProfiles(ctx context.Context, clearProfile bool) error {
 	profiles, err := config.ListProfiles(ctx, a.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "get config profiles")
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
-	if clear {
+	if clearProfile {
 		for i := range profiles {
 			eg.Go(func() error {
 				return a.helpClearProfileBackups(ctx, profiles[i].Name)
@@ -105,7 +105,7 @@ func (a *Agent) handleSyncAllProfiles(ctx context.Context, clear bool) error {
 	return eg.Wait()
 }
 
-func (a *Agent) handleSyncProfile(ctx context.Context, name string, clear bool) error {
+func (a *Agent) handleSyncProfile(ctx context.Context, name string, clearProfile bool) error {
 	profile, err := config.GetProfile(ctx, a.leadConn, name)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -115,7 +115,7 @@ func (a *Agent) handleSyncProfile(ctx context.Context, name string, clear bool) 
 		return errors.Wrap(err, "get config profile")
 	}
 
-	if clear {
+	if clearProfile {
 		err = a.helpClearProfileBackups(ctx, profile.Name)
 	} else {
 		err = a.helpSyncProfileBackups(ctx, profile)
