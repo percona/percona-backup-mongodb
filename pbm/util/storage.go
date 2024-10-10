@@ -27,7 +27,7 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 	case storage.S3:
 		return s3.New(cfg.S3, node, l)
 	case storage.Azure:
-		return azure.New(cfg.Azure, l)
+		return azure.New(cfg.Azure, node, l)
 	case storage.Filesystem:
 		return fs.New(cfg.Filesystem)
 	case storage.Blackhole:
