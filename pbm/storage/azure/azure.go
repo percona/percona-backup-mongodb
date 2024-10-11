@@ -32,6 +32,7 @@ const (
 	maxBlocks = 50_000
 )
 
+//nolint:lll
 type Config struct {
 	Account        string            `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
 	Container      string            `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
