@@ -312,7 +312,10 @@ func (bcp *backupImpl) dumpCollection(ctx context.Context, ns *NamespaceV2) erro
 
 	err = cur.Err()
 	if err != nil {
-		return errors.Wrap(err, "cursor")
+		var cmd mongo.CommandError
+		if !errors.As(err, &cmd) || !cmd.HasErrorMessage("collection dropped") {
+			return errors.Wrap(err, "cursor")
+		}
 	}
 
 	err = file.Close()
