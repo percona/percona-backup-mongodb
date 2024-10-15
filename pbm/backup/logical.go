@@ -187,7 +187,7 @@ func (b *Backup) doLogical(
 		bcp.Compression,
 		bcp.CompressionLevel)
 	if err != nil {
-		l.Error("dump: %v", err)
+		return errors.Wrap(err, "dump")
 	}
 
 	err = archive.GenerateV1FromV2(stg, bcp.Name, rsMeta.Name)
