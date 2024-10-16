@@ -762,84 +762,107 @@ func (r *Restore) RunSnapshot(
 	nss []string,
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
-	var rdr io.ReadCloser
-	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
-		sr, err := r.bcpStg.SourceReader(dump)
-		if err != nil {
-			return errors.Wrapf(err, "get object %s for the storage", dump)
-		}
-		defer sr.Close()
+		return r.runLegacyArchive(ctx, dump, bcp, nil, usersAndRolesOpt)
+	}
 
-		rdr, err = compress.Decompress(sr, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "decompress object %s", dump)
-		}
-	} else {
-		if !util.IsSelective(nss) {
-			nss = bcp.Namespaces
-		}
-		if !util.IsSelective(nss) {
-			nss = []string{"*.*"}
-		}
+	if !util.IsSelective(nss) {
+		nss = bcp.Namespaces
+	}
+	if !util.IsSelective(nss) {
+		nss = []string{"*.*"}
+	}
 
-		mapRS := util.MakeReverseRSMapFunc(r.rsMap)
-		if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-			// restore cluster specific configs only
-			if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
-				return err
+	mapRS := util.MakeReverseRSMapFunc(r.rsMap)
+
+	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+
+	rdr, err := snapshot.DownloadDump(
+		func(ns string) (io.ReadCloser, error) {
+			stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
+			if err != nil {
+				return nil, errors.Wrap(err, "get storage")
 			}
-			if !usersAndRolesOpt {
-				return nil
+			// while importing backup made by RS with another name
+			// that current RS we can't use our r.node.RS() to point files
+			// we have to use mapping passed by --replset-mapping option
+			rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
+			if err != nil {
+				return nil, err
 			}
 
-			// selective restore needs to process users and roles from the full backup,
-			// so we'll continue with selective restore
-		}
-
-		r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
-
-		rdr, err = snapshot.DownloadDump(
-			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
-				if err != nil {
-					return nil, errors.Wrap(err, "get storage")
-				}
-				// while importing backup made by RS with another name
-				// that current RS we can't use our r.node.RS() to point files
-				// we have to use mapping passed by --replset-mapping option
-				rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
+			if ns == archive.MetaFile {
+				data, err := io.ReadAll(rdr)
 				if err != nil {
 					return nil, err
 				}
 
-				if ns == archive.MetaFile {
-					data, err := io.ReadAll(rdr)
-					if err != nil {
-						return nil, err
-					}
-
-					err = r.loadIndexesFrom(bytes.NewReader(data))
-					if err != nil {
-						return nil, errors.Wrap(err, "load indexes")
-					}
-
-					rdr = io.NopCloser(bytes.NewReader(data))
+				err = r.loadIndexesFrom(bytes.NewReader(data))
+				if err != nil {
+					return nil, errors.Wrap(err, "load indexes")
 				}
 
-				return rdr, nil
-			},
-			bcp.Compression,
-			util.MakeSelectedPred(nss),
-			r.numParallelColls)
-	}
+				rdr = io.NopCloser(bytes.NewReader(data))
+			}
+
+			return rdr, nil
+		},
+		bcp.Compression,
+		util.MakeSelectedPred(nss),
+		r.numParallelColls)
 	if err != nil {
 		return err
 	}
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(rdr)
+	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
+		err = r.snapshot(rdr, true)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
+		}
+
+		// restore cluster specific configs only
+		if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
+			return err
+		}
+	} else {
+		err = r.snapshot(rdr, false)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
+		}
+	}
+
+	if usersAndRolesOpt {
+		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
+			return errors.Wrap(err, "restoring users and roles")
+		}
+	}
+
+	return nil
+}
+
+func (r *Restore) runLegacyArchive(
+	ctx context.Context,
+	dump string,
+	bcp *backup.BackupMeta,
+	nss []string,
+	usersAndRolesOpt restoreUsersAndRolesOption,
+) error {
+	sr, err := r.bcpStg.SourceReader(dump)
+	if err != nil {
+		return errors.Wrapf(err, "get object %s for the storage", dump)
+	}
+	defer sr.Close()
+
+	rdr, err := compress.Decompress(sr, bcp.Compression)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", dump)
+	}
+	defer rdr.Close()
+
+	// Restore snapshot (mongorestore)
+	err = r.snapshot(rdr, false)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1192,8 +1215,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls)
+func (r *Restore) snapshot(input io.Reader, ignoreConfig bool) error {
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls, ignoreConfig)
 	if err != nil {
 		return err
 	}
