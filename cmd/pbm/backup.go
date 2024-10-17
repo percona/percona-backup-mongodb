@@ -97,9 +97,6 @@ func runBackup(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) > 1 {
-		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
-	}
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
@@ -348,6 +345,7 @@ type bcpReplDesc struct {
 	LastWriteTime      string              `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string              `json:"last_transition_time" yaml:"last_transition_time"`
 	IsConfigSvr        *bool               `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
+	IsConfigShard      *bool               `json:"configshard,omitempty" yaml:"configshard,omitempty"`
 	SecurityOpts       *topo.MongodOptsSec `json:"security,omitempty" yaml:"security,omitempty"`
 	Error              *string             `json:"error,omitempty" yaml:"error,omitempty"`
 	Collections        []string            `json:"collections,omitempty" yaml:"collections,omitempty"`
@@ -442,6 +440,7 @@ func describeBackup(
 			Name:               r.Name,
 			Node:               r.Node,
 			IsConfigSvr:        r.IsConfigSvr,
+			IsConfigShard:      r.IsConfigShard,
 			Status:             r.Status,
 			LastWriteTS:        int64(r.LastWriteTS.T),
 			LastTransitionTS:   r.LastTransitionTS,
