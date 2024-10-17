@@ -356,7 +356,7 @@ func makeConfigsvrNSFilter(nss []string) archive.NSFilterFn {
 		selected[n+i] = "config." + name
 	}
 
-	return util.MakeSelectedPred(nss)
+	return util.MakeSelectedPred(selected)
 }
 
 func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.DocFilterFn {
