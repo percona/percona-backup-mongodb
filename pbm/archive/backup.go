@@ -19,7 +19,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-var configCollectionsToKeep = []string{
+var RouterConfigCollections = []string{
 	"chunks",
 	"collections",
 	"databases",
@@ -195,7 +195,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	case "admin":
 		filter = bson.D{{"name", bson.M{"$ne": "system.keys"}}}
 	case "config":
-		filter = bson.D{{"name", bson.M{"$in": configCollectionsToKeep}}}
+		filter = bson.D{{"name", bson.M{"$in": RouterConfigCollections}}}
 	}
 
 	cur, err := bcp.conn.Database(db).ListCollections(ctx, filter)
