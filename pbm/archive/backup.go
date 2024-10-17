@@ -270,6 +270,14 @@ func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV
 }
 
 func (bcp *backupImpl) dumpCollection(ctx context.Context, ns *NamespaceV2) error {
+	count, err := bcp.conn.Database(ns.DB).Collection(ns.Name).EstimatedDocumentCount(ctx)
+	if err != nil {
+		return errors.Wrap(err, "estimate document count")
+	}
+	if count == 0 {
+		return nil
+	}
+
 	file, err := bcp.newFile(ns.NS())
 	if err != nil {
 		return errors.Wrap(err, "new file")
