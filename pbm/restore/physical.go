@@ -2232,7 +2232,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 	if !ok {
 		if r.nodeInfo.IsLeader() {
-			return errors.New("no data for the config server or sole rs in backup")
+			return ErrNoDataForConfigsvr
 		}
 		return ErrNoDataForShard
 	}
