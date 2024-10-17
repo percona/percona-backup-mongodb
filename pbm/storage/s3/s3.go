@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -40,17 +41,18 @@ const (
 
 //nolint:lll
 type Config struct {
-	Provider             string      `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
-	Region               string      `bson:"region" json:"region" yaml:"region"`
-	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	ForcePathStyle       *bool       `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
-	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
-	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
-	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
-	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
-	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+	Provider             string            `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
+	Region               string            `bson:"region" json:"region" yaml:"region"`
+	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
+	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
+	Bucket               string            `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix               string            `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Credentials          Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	ServerSideEncryption *AWSsse           `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts       int               `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -132,6 +134,7 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
 	if cfg.ForcePathStyle != nil {
 		a := *cfg.ForcePathStyle
 		rv.ForcePathStyle = &a
@@ -157,6 +160,9 @@ func (cfg *Config) Equal(other *Config) bool {
 		return false
 	}
 	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
 		return false
 	}
 	if cfg.Bucket != other.Bucket {
@@ -218,6 +224,17 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
+// resolveEndpointURL returns endpoint url based on provided
+// EndpointURL or associated EndpointURLMap configuration fields.
+// If specified EndpointURLMap overrides EndpointURL field.
+func (cfg *Config) resolveEndpointURL(node string) string {
+	ep := cfg.EndpointURL
+	if epm, ok := cfg.EndpointURLMap[node]; ok {
+		ep = epm
+	}
+	return ep
+}
+
 // SDKLogLevel returns AWS SDK log level value from comma-separated
 // SDKDebugLogLevel values string. If the string does not contain a valid value,
 // returns aws.LogOff.
@@ -266,13 +283,14 @@ type Credentials struct {
 
 type S3 struct {
 	opts *Config
+	node string
 	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts *Config, l log.LogEvent) (*S3, error) {
+func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -284,6 +302,7 @@ func New(opts *Config, l log.LogEvent) (*S3, error) {
 	s := &S3{
 		opts: opts,
 		log:  l,
+		node: node,
 	}
 
 	s.s3s, err = s.s3session()
@@ -584,7 +603,7 @@ func (s *S3) session() (*session.Session, error) {
 
 	cfg := &aws.Config{
 		Region:           aws.String(s.opts.Region),
-		Endpoint:         aws.String(s.opts.EndpointURL),
+		Endpoint:         aws.String(s.opts.resolveEndpointURL(s.node)),
 		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),

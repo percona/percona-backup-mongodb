@@ -52,13 +52,13 @@ func (m *MongoPBM) DeleteBackup(ctx context.Context, bcpName string) error {
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdDeleteBackup), "", "", primitive.Timestamp{})
 	ctx = log.SetLogEventToContext(ctx, l)
-	return backup.DeleteBackup(ctx, m.conn, bcpName)
+	return backup.DeleteBackup(ctx, m.conn, bcpName, "")
 }
 
 func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
 	l := log.FromContext(ctx).
 		NewEvent("", "", "", primitive.Timestamp{})
-	return util.GetStorage(ctx, m.conn, l)
+	return util.GetStorage(ctx, m.conn, "", l)
 }
 
 func (m *MongoPBM) StoreResync(ctx context.Context) error {
@@ -71,7 +71,7 @@ func (m *MongoPBM) StoreResync(ctx context.Context) error {
 		return errors.Wrap(err, "get config")
 	}
 
-	return resync.Resync(ctx, m.conn, &cfg.Storage)
+	return resync.Resync(ctx, m.conn, &cfg.Storage, "")
 }
 
 func (m *MongoPBM) Conn() connect.Client {

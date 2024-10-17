@@ -91,7 +91,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		l.Info("backup: %s", r.BackupName)
 
 		// XXX: why is backup searched on storage?
-		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName)
+		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, a.brief.Me)
 		if err != nil {
 			l.Error("define base backup: %v", err)
 			return

@@ -201,7 +201,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		rsMeta.IsConfigSvr = &v
 	}
 
-	stg, err := util.StorageFromConfig(&b.config.Storage, l)
+	stg, err := util.StorageFromConfig(&b.config.Storage, inf.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
