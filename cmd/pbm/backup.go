@@ -97,9 +97,6 @@ func runBackup(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) > 1 {
-		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
-	}
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
