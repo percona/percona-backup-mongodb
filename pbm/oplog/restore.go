@@ -327,6 +327,20 @@ func (o *OplogRestore) isOpExcluded(oe *Record) bool {
 		coll, _ = oe.Object[0].Value.(string)
 		return o.excludeNS.Has(db + "." + coll)
 	}
+	// handle renameCollection and convertToCapped commands.
+	// NOTE: convertToCapped is done by creating a temporary capped collection,
+	//       inserting docs from the source collection to the collection,
+	//       and renaming it to the source collection.
+	if cmd == "renameCollection" {
+		from, _ := oe.Object[0].Value.(string)
+		if o.excludeNS.Has(from) {
+			return true
+		}
+		to, _ := oe.Object[1].Value.(string)
+		if o.excludeNS.Has(to) {
+			return true
+		}
+	}
 
 	return false
 }
